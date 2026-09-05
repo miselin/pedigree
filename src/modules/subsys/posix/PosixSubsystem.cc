@@ -55,7 +55,9 @@
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 #include "mqueue-syscalls.h"
+#include "posix-timer-syscalls.h"
 #include "pthread-syscalls.h"
+#include "queued-signal.h"
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
 #include "sysv-semaphore-syscalls.h"
@@ -109,6 +111,8 @@ bool prepareUserCopy(uintptr_t address, size_t extent, bool write) {
 #endif
 }
 
+void ignoredSignal(int) {}
+
 bool defaultSignalActionIsIgnore(size_t signal) {
   return signal == SIGCHLD || signal == SIGURG || signal == SIGWINCH;
 }
@@ -124,17 +128,17 @@ void stampStopDelivery(Process* process, size_t signal, SignalEvent* delivery) {
 }
 
 bool rebindQueuedSignalEvents(Thread& thread, size_t signal, SignalEvent& prototype) {
-  bool replaced = true;
-  for (int processDirected = 0; processDirected <= 1; ++processDirected) {
-    if (thread.hasSignalEvent(signal, processDirected)) {
-      SignalEvent* pending = static_cast<SignalEvent*>(prototype.cloneForDelivery());
-      if (!thread.replaceSignalEvent(signal, pending, processDirected)) {
-        delete pending;
-        replaced = false;
-      }
+  static uint64_t nextGeneration = 0;
+  const uint64_t generation = __atomic_add_fetch(&nextGeneration, 1, __ATOMIC_RELAXED);
+  // Mark replacements so every queued RT instance is rebound exactly once,
+  // including when asynchronous consumers remove entries during this pass.
+  while (true) {
+    SignalEvent* pending = static_cast<SignalEvent*>(prototype.cloneForDelivery());
+    if (!thread.replaceSignalEvent(signal, pending, -1, generation)) {
+      delete pending;
+      return true;
     }
   }
-  return replaced;
 }
 
 void setExecutableValidationError(Elf::ExecutableValidationResult result, bool isInterpreter) {
@@ -703,7 +707,8 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
 
   // Peer shutdown has consumed their registrations. The final owner must
   // retire its user-memory exit state before process teardown removes it.
-  threadExiting(pThread);
+  posix_timer_process_exit(pProcess);
+  pThread->notifySubsystemExit();
 
   delete pProcess->getLinker();
 
@@ -930,6 +935,7 @@ void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler* handler) {
     return;
   }
 
+  LockGuard<Mutex> pendingGuard(m_PendingSignalLock);
   m_SignalHandlersLock.acquire();
 
   SignalHandler* removal = nullptr;
@@ -988,6 +994,7 @@ void PosixSubsystem::resetSignalHandlersForExec(
     }
   }
 
+  LockGuard<Mutex> pendingGuard(m_PendingSignalLock);
   SignalHandler* removals[SignalDispositionCount] = {};
   m_SignalHandlersLock.acquire();
 
@@ -1059,11 +1066,10 @@ bool PosixSubsystem::getSignalDisposition(size_t sig, SignalDisposition& disposi
   return handler != nullptr;
 }
 
-PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread* target, size_t sig,
-                                                                         uint32_t* flags,
-                                                                         int32_t signalCode,
-                                                                         bool processDirected,
-                                                                         uint64_t signalValue) {
+PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(
+    Thread* target, size_t sig, uint32_t* flags, int32_t signalCode, bool processDirected,
+    uint64_t signalValue, const SharedPointer<SignalEventState>& state) {
+  LockGuard<Mutex> pendingGuard(m_PendingSignalLock);
   if (flags) {
     *flags = 0;
   }
@@ -1071,7 +1077,7 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
   Process::ThreadLease processTarget;
   m_SignalHandlersLock.acquire();
 
-  if (!target || !target->getParent() || target->getParent()->getSubsystem() != this ||
+  if (!target || !target->getParent() || target->getParent()->getSubsystem() != this || !sig ||
       sig > MaximumSupportedSignal) {
     m_SignalHandlersLock.release();
     return SignalDeliveryResult::Unavailable;
@@ -1103,6 +1109,26 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
       return SignalDeliveryResult::Rejected;
     }
     target = processTarget.get();
+    // A registered synchronous waiter takes priority over asynchronous delivery.
+    for (unsigned pass = 0; pass < 2; ++pass) {
+      bool selected = false;
+      for (size_t i = process->getNumThreads(); i > 0; --i) {
+        Process::ThreadLease candidate;
+        if (!process->acquireThread(candidate, i - 1) || !candidate->acceptingEvents() ||
+            candidate->getUnwindState() != Thread::Continue)
+          continue;
+        const uint64_t bit = uint64_t(1) << (sig - 1);
+        if ((pass == 0 && (candidate->getSynchronousSignalMask() & bit)) ||
+            (pass == 1 && !(candidate->getSignalMask() & bit))) {
+          processTarget = pedigree_std::move(candidate);
+          target = processTarget.get();
+          selected = true;
+          break;
+        }
+      }
+      if (selected)
+        break;
+    }
   }
   if (signalsToDiscard) {
     // Pending stop and continue signals are mutually exclusive across the
@@ -1125,12 +1151,47 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
 
   SignalHandler* handler = m_SignalHandlers.lookup(sig);
   SignalEvent* delivery = nullptr;
-  const bool suppressDelivery =
+  const bool ignored =
       handler && (handler->type == 2 || (handler->type == 1 && defaultSignalActionIsIgnore(sig)));
+  const uint64_t bit = uint64_t(1) << (sig - 1);
+  const bool blocked = (target->getSignalMask() | target->getSynchronousSignalMask()) & bit;
+  const bool suppressDelivery = ignored && !blocked;
+  // A blocked ignored signal still belongs to sigwait/sigpending. Its inert
+  // prototype also handles a later unblock without invoking a user handler.
+  if (ignored && !handler->pEvent) {
+    handler->pEvent = new SignalEvent(reinterpret_cast<uintptr_t>(ignoredSignal), sig, ~0UL, 0,
+                                      true, false, Event::HandlerPrivilege::Kernel,
+                                      SignalEvent::DeliveryDisposition::DefaultAction);
+  }
   SignalDeliveryResult result = SignalDeliveryResult::Unavailable;
   if (suppressDelivery) {
     result = SignalDeliveryResult::Ignored;
   } else if (handler && handler->pEvent) {
+    if (sig < LinuxPrivateSignalFirst && !state) {
+      bool duplicate = false;
+      if (processDirected) {
+        for (size_t i = process->getNumThreads(); i > 0; --i) {
+          Process::ThreadLease sibling;
+          if (process->acquireThread(sibling, i - 1) && sibling->hasSignalEvent(sig, 1)) {
+            duplicate = true;
+            break;
+          }
+        }
+      } else
+        duplicate = target->hasSignalEvent(sig, 0);
+      if (duplicate) {
+        m_SignalHandlersLock.release();
+        return SignalDeliveryResult::Queued;
+      }
+    }
+    SharedPointer<SignalEventState> deliveryState = state;
+    if (!deliveryState && (signalCode == -1 || sig >= 35)) {
+      deliveryState = posix_signal_reserve_queue(process);
+      if (!deliveryState) {
+        m_SignalHandlersLock.release();
+        return SignalDeliveryResult::Full;
+      }
+    }
     delivery = static_cast<SignalEvent*>(handler->pEvent->cloneForDelivery());
     Thread* sender = Processor::information().getCurrentThread();
     Process* senderProcess = sender ? sender->getParent() : nullptr;
@@ -1143,6 +1204,9 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
         senderUid = static_cast<uint32_t>(uid);
       }
     }
+    static uint64_t nextSignalSequence = 0;
+    delivery->setQueueSequence(__atomic_add_fetch(&nextSignalSequence, 1, __ATOMIC_RELAXED));
+    delivery->setDeliveryState(deliveryState);
     delivery->setSignalOrigin(signalCode, senderPid, senderUid);
     delivery->setSignalValue(signalValue);
     delivery->setProcessDirected(processDirected);
@@ -1166,7 +1230,9 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
   }
 
   m_SignalHandlersLock.release();
+  m_PendingSignalChanged.broadcast();
   if (delivery && result == SignalDeliveryResult::Rejected) {
+    delivery->rejectSignalDelivery();
     delete delivery;
   }
   return result;
@@ -1528,6 +1594,7 @@ size_t PosixSubsystem::installFileDescriptor(FileDescriptor* descriptor, Descrip
 }
 
 void PosixSubsystem::prepareThreadsForExec(Thread* owner) {
+  LockGuard<Mutex> pendingGuard(m_PendingSignalLock);
   LockGuard<UnlikelyLock> guard(m_SignalHandlersLock);
   for (size_t i = m_pProcess->getNumThreads(); i > 0; --i) {
     Process::ThreadLease source;
@@ -1539,6 +1606,7 @@ void PosixSubsystem::prepareThreadsForExec(Thread* owner) {
 }
 
 void PosixSubsystem::preserveProcessSignalsForThreadExit(Thread* thread) {
+  LockGuard<Mutex> pendingGuard(m_PendingSignalLock);
   LockGuard<UnlikelyLock> guard(m_SignalHandlersLock);
   Process::ThreadLease target;
   while (m_pProcess->acquireProcessSignalThread(target)) {
@@ -1561,6 +1629,7 @@ void PosixSubsystem::threadExiting(Thread* pThread) {
     return;
   }
 
+  posix_timer_thread_exit(pThread);
   posix_sem_thread_exit(pThread);
   posix_robust_list_exit(pThread);
 
@@ -2213,6 +2282,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     SYSCALL_ERROR(Interrupted);
     return false;
   }
+
+  posix_timer_process_exit(pProcess);
 
   // A descriptor can survive exec after clearing FD_CLOEXEC, but its old
   // image's notification registration must not target the replacement image.

@@ -95,7 +95,7 @@ class LinuxAsyncSignalTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("LinuxPrivateSignalFirst = 32", subsystem)
-        self.assertIn("MaximumSupportedSignal = 34", subsystem)
+        self.assertIn("MaximumSupportedSignal = 64", subsystem)
         self.assertNotIn("lookup(sig % 32)", subsystem)
         self.assertIn("sizeof(LinuxAmd64KernelSigaction) == 32", signals)
 
@@ -126,7 +126,8 @@ class LinuxAsyncSignalTests(unittest.TestCase):
         )[0]
         self.assertIn("MaximumSupportedSignal", tkill)
         self.assertIn("MaximumSupportedSignal", tgkill)
-        self.assertIn("LinuxPrivateSignalFirst", process_kill)
+        self.assertIn("MaximumSupportedSignal", process_kill)
+        self.assertIn("sig >= 32 && sig <= 34", process_kill)
 
     def test_target_probe_uses_public_musl_cancellation_and_synccall_paths(self):
         probe = (
@@ -136,7 +137,12 @@ class LinuxAsyncSignalTests(unittest.TestCase):
         self.assertIn("sizeof(struct kernel_sigaction) == 32", probe)
         self.assertIn("kernel_sigset_size = 8", probe)
         self.assertIn("sigaction(signal, 0, &public_action)", probe)
-        self.assertIn("SIGRTMIN != first_unsupported_signal", probe)
+        self.assertIn("first_realtime_signal = 35", probe)
+        self.assertIn("last_realtime_signal = 64", probe)
+        self.assertIn("first_unsupported_signal = 65", probe)
+        self.assertIn("SIGRTMIN != first_realtime_signal", probe)
+        self.assertIn("SIGRTMAX != last_realtime_signal", probe)
+        self.assertIn("run_bounded(realtime_signal_contract)", probe)
         self.assertIn("sigaddset(&public_set, signal)", probe)
         self.assertIn("sigdelset(&public_set, signal)", probe)
         self.assertIn("sigfillset(&public_set)", probe)

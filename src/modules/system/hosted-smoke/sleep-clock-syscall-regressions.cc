@@ -110,6 +110,12 @@ int exerciseSleepClockValidation(void* parameter) {
             posixNanosleepAlarmDurationForTest(0, 1000) == Time::Multiplier::Microsecond &&
             posixNanosleepAlarmDurationForTest(0, 1001) == (2 * Time::Multiplier::Microsecond) &&
             posixNanosleepAlarmDurationForTest(MaximumLinuxSleepSeconds, 0) ==
+                static_cast<Time::Timestamp>(MaximumLinuxSleepSeconds) * Time::Multiplier::Second &&
+            posixNanosleepAlarmDurationForTest(MaximumLinuxSleepSeconds, 854775807) ==
+                RoundedMaximumLinuxSleepNanoseconds &&
+            posixNanosleepAlarmDurationForTest(MaximumLinuxSleepSeconds, 854775808) ==
+                RoundedMaximumLinuxSleepNanoseconds &&
+            posixNanosleepAlarmDurationForTest(MaximumLinuxSleepSeconds + 1, 0) ==
                 RoundedMaximumLinuxSleepNanoseconds;
 
   struct timespec observed = {};

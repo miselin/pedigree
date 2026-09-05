@@ -16,7 +16,9 @@ enum {
   musl_sig_timer = 32,
   musl_sig_cancel = 33,
   musl_sig_synccall = 34,
-  first_unsupported_signal = 35,
+  first_realtime_signal = 35,
+  last_realtime_signal = 64,
+  first_unsupported_signal = 65,
   kernel_sigset_size = 8,
   wait_attempts = 100000,
 };
@@ -44,7 +46,7 @@ static int wait_for_value(volatile int* value) {
 static int raw_signal_contract(void) {
   alarm(10);
 
-  if (SIGRTMIN != first_unsupported_signal) {
+  if (SIGRTMIN != first_realtime_signal || SIGRTMAX != last_realtime_signal) {
     return 1;
   }
   sigset_t public_set;
@@ -121,6 +123,63 @@ static int raw_signal_contract(void) {
   errno = 0;
   if (kill(getpid(), musl_sig_timer) != -1 || errno != EINVAL) {
     return 52;
+  }
+  return 0;
+}
+
+static volatile int realtime_received;
+
+static void realtime_handler(int signal) {
+  __atomic_store_n(&realtime_received, signal, __ATOMIC_RELEASE);
+}
+
+static int realtime_signal_contract(void) {
+  alarm(10);
+
+  const int signals[] = {first_realtime_signal, last_realtime_signal};
+  for (size_t i = 0; i < sizeof(signals) / sizeof(signals[0]); ++i) {
+    const int signal = signals[i];
+    struct sigaction action = {.sa_handler = realtime_handler}, previous;
+    sigemptyset(&action.sa_mask);
+    if (sigaction(signal, &action, &previous)) {
+      return 80 + i;
+    }
+
+    sigset_t set;
+    if (sigemptyset(&set) || sigaddset(&set, signal) || sigismember(&set, signal) != 1 ||
+        sigdelset(&set, signal) || sigismember(&set, signal) != 0 || sigfillset(&set) ||
+        sigismember(&set, signal) != 1) {
+      return 82 + i;
+    }
+
+    __atomic_store_n(&realtime_received, 0, __ATOMIC_RELEASE);
+    if (syscall(SYS_tgkill, getpid(), syscall(SYS_gettid), signal) ||
+        wait_for_value(&realtime_received) ||
+        __atomic_load_n(&realtime_received, __ATOMIC_ACQUIRE) != signal) {
+      return 84 + i;
+    }
+    __atomic_store_n(&realtime_received, 0, __ATOMIC_RELEASE);
+    if (kill(getpid(), signal) || wait_for_value(&realtime_received) ||
+        __atomic_load_n(&realtime_received, __ATOMIC_ACQUIRE) != signal) {
+      return 86 + i;
+    }
+    if (sigaction(signal, &previous, 0)) {
+      return 88 + i;
+    }
+  }
+
+  errno = 0;
+  if (syscall(SYS_tkill, syscall(SYS_gettid), first_unsupported_signal) != -1 || errno != EINVAL) {
+    return 90;
+  }
+  errno = 0;
+  if (syscall(SYS_tgkill, getpid(), syscall(SYS_gettid), first_unsupported_signal) != -1 ||
+      errno != EINVAL) {
+    return 91;
+  }
+  errno = 0;
+  if (kill(getpid(), first_unsupported_signal) != -1 || errno != EINVAL) {
+    return 92;
   }
   return 0;
 }
@@ -243,6 +302,11 @@ int main(void) {
   int result = run_bounded(raw_signal_contract);
   if (result) {
     printf("PRIVATE-SIGNAL-TEST: FAIL raw=%d\n", result);
+    return 1;
+  }
+  result = run_bounded(realtime_signal_contract);
+  if (result) {
+    printf("PRIVATE-SIGNAL-TEST: FAIL realtime=%d\n", result);
     return 1;
   }
   result = run_bounded(cancellation_contract);

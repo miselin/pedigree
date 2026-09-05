@@ -45,8 +45,10 @@
 #include "net-syscalls.h"
 #include "pipe-syscalls.h"
 #include "poll-syscalls.h"
+#include "posix-timer-syscalls.h"
 #include "posixSyscallNumbers.h"
 #include "pthread-syscalls.h"
+#include "queued-signal.h"
 #include "select-syscalls.h"
 #include "signal-syscalls.h"
 #include "syscalls/translate.h"
@@ -403,6 +405,31 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_shmdt(reinterpret_cast<const void*>(p1));
     case POSIX_SHMCTL:
       return posix_shmctl(static_cast<int>(p1), static_cast<int>(p2), reinterpret_cast<void*>(p3));
+
+    case POSIX_RT_SIGPENDING:
+      return posix_rt_sigpending(reinterpret_cast<uint64_t*>(p1), p2);
+    case POSIX_RT_SIGTIMEDWAIT:
+      return posix_rt_sigtimedwait(reinterpret_cast<const uint64_t*>(p1),
+                                   reinterpret_cast<LinuxQueuedSiginfo*>(p2),
+                                   reinterpret_cast<const LinuxKernelTimespec*>(p3), p4);
+    case POSIX_RT_SIGQUEUEINFO:
+      return posix_rt_sigqueueinfo(static_cast<int>(p1), static_cast<int>(p2),
+                                   reinterpret_cast<const LinuxQueuedSiginfo*>(p3));
+    case POSIX_TIMER_CREATE:
+      return posix_timer_create(static_cast<int>(p1), reinterpret_cast<const void*>(p2),
+                                reinterpret_cast<int*>(p3));
+    case POSIX_TIMER_SETTIME:
+      return posix_timer_settime(static_cast<int>(p1), static_cast<int>(p2),
+                                 reinterpret_cast<const void*>(p3), reinterpret_cast<void*>(p4));
+    case POSIX_TIMER_GETTIME:
+      return posix_timer_gettime(static_cast<int>(p1), reinterpret_cast<void*>(p2));
+    case POSIX_TIMER_GETOVERRUN:
+      return posix_timer_getoverrun(static_cast<int>(p1));
+    case POSIX_TIMER_DELETE:
+      return posix_timer_delete(static_cast<int>(p1));
+    case POSIX_CLOCK_SETTIME:
+      return posix_clock_settime(static_cast<clockid_t>(p1),
+                                 reinterpret_cast<const LinuxKernelTimespec*>(p2));
 
     case POSIX_SEMGET:
       return posix_semget(static_cast<int>(p1), static_cast<int>(p2), static_cast<int>(p3));

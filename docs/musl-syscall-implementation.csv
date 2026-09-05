@@ -22,9 +22,9 @@ linux_number,syscall,family,status,scope_and_verification
 122,setfsuid,Linux administration and isolation,pending,
 123,setfsgid,Linux administration and isolation,pending,
 124,getsid,Core file and process interfaces,pending,
-127,rt_sigpending,Signals and POSIX timers,pending,
-128,rt_sigtimedwait,Signals and POSIX timers,pending,
-129,rt_sigqueueinfo,Signals and POSIX timers,pending,
+127,rt_sigpending,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+128,rt_sigtimedwait,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+129,rt_sigqueueinfo,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 135,personality,Linux administration and isolation,pending,
 142,sched_setparam,Scheduling and resource discovery,pending,
 143,sched_getparam,Scheduling and resource discovery,pending,
@@ -63,12 +63,12 @@ linux_number,syscall,family,status,scope_and_verification
 216,remap_file_pages,Memory management,pending,
 220,semtimedop,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 221,fadvise64,Core file and process interfaces,pending,
-222,timer_create,Signals and POSIX timers,pending,
-223,timer_settime,Signals and POSIX timers,pending,
-224,timer_gettime,Signals and POSIX timers,pending,
-225,timer_getoverrun,Signals and POSIX timers,pending,
-226,timer_delete,Signals and POSIX timers,pending,
-227,clock_settime,Signals and POSIX timers,pending,
+222,timer_create,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+223,timer_settime,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+224,timer_gettime,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+225,timer_getoverrun,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+226,timer_delete,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+227,clock_settime,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 240,mq_open,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 241,mq_unlink,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 242,mq_timedsend,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document

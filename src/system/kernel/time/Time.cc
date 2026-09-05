@@ -17,20 +17,23 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/process/InfoBlock.h"
 #include "pedigree/kernel/time/Time.h"
 
 namespace Time {
+namespace {
+Spinlock realtimeLock(false, true);
+bool realtimeSet = false;
+Timestamp realtimeBase = 0;
+Timestamp monotonicBase = 0;
+}  // namespace
+
 Timestamp getTime(bool sync) {
-  Timer* pTimer = Machine::instance().getTimer();
-  if (!pTimer) {
-    return 0;
-  }
-  if (sync)
-    pTimer->synchronise();
-  auto r = pTimer->getUnixTimestamp();
-  return r;
+  return getTimeNanoseconds(sync) / Multiplier::Second;
 }
 
 Timestamp getTimeNanoseconds(bool sync) {
@@ -40,9 +43,34 @@ Timestamp getTimeNanoseconds(bool sync) {
   }
   if (sync)
     pTimer->synchronise();
+  LockGuard<Spinlock> guard(realtimeLock);
+  if (realtimeSet) {
+    const Timestamp elapsed = pTimer->getTickCountNano() - monotonicBase;
+    return elapsed >= Infinity - realtimeBase ? Infinity - 1 : realtimeBase + elapsed;
+  }
   Timestamp r = pTimer->getUnixTimestamp() * Multiplier::Second;
   r += pTimer->getNanosecond();
   return r;
+}
+
+bool setTimeNanoseconds(Timestamp value) {
+  Timer* timer = Machine::instance().getTimer();
+  if (!timer || value == Infinity) {
+    return false;
+  }
+  {
+    LockGuard<Spinlock> guard(realtimeLock);
+    const Timestamp now = timer->getTickCountNano();
+    if (value < now) {
+      return false;
+    }
+    realtimeBase = value;
+    monotonicBase = now;
+    realtimeSet = true;
+  }
+  // Publish to vDSO readers before the setting syscall returns.
+  InfoBlockManager::instance().refreshTime();
+  return true;
 }
 
 Timestamp getTicks() {

@@ -57,6 +57,12 @@ SignalEvent::SignalEvent(const SignalEvent& other, bool isDeletable)
       m_SenderUser(other.m_SenderUser),
       m_SignalValue(other.m_SignalValue) {}
 
+SignalEvent::~SignalEvent() {
+  if (m_DeliveryState) {
+    m_DeliveryState->complete(false, 0);
+  }
+}
+
 Event* SignalEvent::cloneForDelivery() {
   if (isDeletable()) {
     return this;
@@ -71,6 +77,9 @@ SignalEvent* SignalEvent::cloneForDisposition() {
 
 /// \todo There may be a need for serialization in the future...
 size_t SignalEvent::serialize(uint8_t* pBuffer) {
+  int32_t timerId = 0, overrun = 0;
+  timerInfo(timerId, overrun);
+  completeSignalDelivery(overrun);
   Thread* pThread = Processor::information().getCurrentThread();
   if (pThread) {
     pThread->setCurrentSignalDelivery(m_SignalNumber, m_ContinuationEpoch);

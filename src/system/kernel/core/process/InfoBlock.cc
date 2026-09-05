@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/compiler.h"
@@ -34,7 +35,11 @@
 InfoBlockManager InfoBlockManager::m_Instance;
 
 InfoBlockManager::InfoBlockManager()
-    : TimerHandler(), m_bInitialised(false), m_pTimer(nullptr), m_pInfoBlock(0) {}
+    : TimerHandler(),
+      m_bInitialised(false),
+      m_UpdateLock(false, true),
+      m_pTimer(nullptr),
+      m_pInfoBlock(0) {}
 
 InfoBlockManager::~InfoBlockManager() {
   if (!shutdown()) {
@@ -96,9 +101,19 @@ bool InfoBlockManager::shutdown() {
 }
 
 void InfoBlockManager::timer(uint64_t) {
-  // Update the timestamp in the info block.
-  m_pInfoBlock->now = Time::getTimeNanoseconds();
-  m_pInfoBlock->now_s = Time::getTime();
+  refreshTime();
+}
+
+void InfoBlockManager::refreshTime() {
+  if (!__atomic_load_n(&m_bInitialised, __ATOMIC_ACQUIRE)) {
+    return;
+  }
+  // A timer callback must not overwrite a completed clock update with an
+  // older sample taken before the setting syscall published its new epoch.
+  LockGuard<Spinlock> guard(m_UpdateLock);
+  const Time::Timestamp now = Time::getTimeNanoseconds();
+  m_pInfoBlock->now = now;
+  m_pInfoBlock->now_s = now / Time::Multiplier::Second;
   m_pInfoBlock->monotonic = Time::getTicks();
 }
 

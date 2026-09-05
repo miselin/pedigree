@@ -38,6 +38,7 @@ class EXPORTED_PUBLIC PosixMessageQueue final : public ReadinessSource {
   int attributes(FileDescriptor& descriptor, const LinuxMqAttr* requested, LinuxMqAttr* previous);
   int notify(const LinuxMqSigevent* event);
   void cancelNotification(size_t pid);
+  void clockChanged();
   bool mayOpen(Process* process, int flags) const;
   bool mayUnlink(Process* process) const;
   const String& name() const;
@@ -58,5 +59,6 @@ int posix_mq_notify(int fd, const LinuxMqSigevent* event);
 int posix_mq_getsetattr(int fd, const LinuxMqAttr* requested, LinuxMqAttr* previous);
 void posix_mqueue_close(PosixMessageQueue* queue, size_t pid);
 void posix_mqueue_process_exit(size_t pid);
+void posix_mqueue_clock_changed();
 
 #endif

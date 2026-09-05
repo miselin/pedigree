@@ -282,6 +282,7 @@ set(TESTSUITE_SRCS
     testsuite/test-DeferredTimeAccounting.cc
     testsuite/test-ExecutionContextState.cc
     testsuite/test-IntervalTimerState.cc
+    testsuite/test-PosixTimerState.cc
     testsuite/test-SchedulerTimerHandlerSlot.cc
     testsuite/test-LocalApicTimerHandlerSlots.cc
     testsuite/test-LocalApicIcrTransaction.cc

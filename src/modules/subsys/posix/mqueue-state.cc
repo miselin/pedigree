@@ -49,10 +49,6 @@ bool waitQueue(ConditionVariable& condition, Mutex& lock, Time::Timestamp deadli
       return false;
     }
     remaining = deadline - now;
-    // Re-evaluate absolute realtime deadlines after wall-clock adjustments.
-    if (remaining > Time::Multiplier::Second) {
-      remaining = Time::Multiplier::Second;
-    }
   }
   ConditionVariable::Error error = ConditionVariable::NoError;
   if (condition.wait(lock, remaining, error) || error == ConditionVariable::TimedOut) {
@@ -356,4 +352,10 @@ void PosixMessageQueue::cancelNotification(size_t pid) {
   if (m_State->notification.process && m_State->notification.pid == pid) {
     m_State->notification.complete(true);
   }
+}
+
+void PosixMessageQueue::clockChanged() {
+  LockGuard<Mutex> guard(m_State->lock);
+  m_State->readers.broadcast();
+  m_State->writers.broadcast();
 }

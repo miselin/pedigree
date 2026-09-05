@@ -53,6 +53,7 @@ struct InfoBlock {
 
 #ifdef __cplusplus
 
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
 
 class Timer;
@@ -71,12 +72,15 @@ class InfoBlockManager : public TimerHandler {
 
   virtual void timer(uint64_t delta);
 
+  void refreshTime();
+
   void setPid(size_t value);
 
  private:
   static InfoBlockManager m_Instance;
 
   bool m_bInitialised;
+  Spinlock m_UpdateLock;
   Timer* m_pTimer;
 
   struct InfoBlock* m_pInfoBlock;

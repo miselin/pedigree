@@ -200,3 +200,10 @@ void posix_mqueue_process_exit(size_t pid) {
     (*it)->cancelNotification(pid);
   }
 }
+
+void posix_mqueue_clock_changed() {
+  LockGuard<Mutex> guard(g_MqueueRegistryLock);
+  for (auto it = g_Mqueues.begin(); it != g_Mqueues.end(); ++it) {
+    (*it)->clockChanged();
+  }
+}

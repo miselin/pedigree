@@ -840,6 +840,9 @@ pedigree_module(posix "" ""
     $<$<BOOL:${PEDIGREE_MACHINE_HASPS2}>:${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PsAuxFile.cc>
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/pthread-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/select-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/clock-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/queued-signal.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/posix-timer-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/signal-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/system-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/UnixFilesystem.cc

@@ -47,6 +47,8 @@ extern void sigret_stub();
 extern char sigret_stub_end;
 }
 
+// Internal result retained across process-group fanout.
+static constexpr int SignalQueueFull = -2;
 static int doProcessKill(Process* p, int sig);
 static int doThreadKill(Thread* p, int sig);
 static int queueThreadSignal(Process* process, Thread* thread, int sig);
@@ -161,7 +163,16 @@ static _sig_func_ptr default_sig_handlers[PosixSubsystem::SignalDispositionCount
     sigsynccall,  // musl SIGSYNCCALL
 };
 
+static void realtimeDefault(int) {
+  Thread* thread = Processor::information().getCurrentThread();
+  size_t signal = 0, epoch = 0;
+  if (thread->getCurrentSignalDelivery(signal, epoch))
+    thread->deferSignalExit(signal);
+}
+
 uintptr_t pedigree_default_signal_handler(size_t signal) {
+  if (signal >= 35 && signal <= PosixSubsystem::MaximumSupportedSignal)
+    return reinterpret_cast<uintptr_t>(realtimeDefault);
   return signal < PosixSubsystem::SignalDispositionCount
              ? reinterpret_cast<uintptr_t>(default_sig_handlers[signal])
              : 0;
@@ -180,7 +191,7 @@ static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sig
   // sanity and safety checks
   if ((sig <= 0) || (sig > static_cast<int>(PosixSubsystem::MaximumSupportedSignal)) ||
       (!allowLinuxPrivateSignals &&
-       sig >= static_cast<int>(PosixSubsystem::LinuxPrivateSignalFirst)) ||
+       sig >= static_cast<int>(PosixSubsystem::LinuxPrivateSignalFirst) && sig <= 34) ||
       (sig == SIGKILL || sig == SIGSTOP)) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
@@ -192,7 +203,7 @@ static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sig
     newHandler = reinterpret_cast<uintptr_t>(act->sa_handler);
     if (newHandler == 0) {
       SG_NOTICE(" + SIG_DFL");
-      newHandler = reinterpret_cast<uintptr_t>(default_sig_handlers[sig]);
+      newHandler = pedigree_default_signal_handler(sig);
       handlerType = 1;
     } else if (newHandler == 1) {
       SG_NOTICE(" + SIG_IGN");
@@ -365,7 +376,11 @@ int posix_raise(int sig) {
     // The common syscall return boundary owns delivery after the callback's
     // handler lease and terminal deferral have retired.
     Uninterruptible whileQueueing;
-    (void)pSubsystem->queueSignalDelivery(pThread, sig);
+    if (pSubsystem->queueSignalDelivery(pThread, sig) ==
+        PosixSubsystem::SignalDeliveryResult::Full) {
+      SYSCALL_ERROR(NoMoreProcesses);
+      return -1;
+    }
   }
 
   // All done
@@ -399,7 +414,11 @@ static int doThreadKill(Thread* p, int sig) {
     ERROR("posix_kill: no subsystem on process " << p->getParent()->getId());
     return -1;
   }
-  pSubsystem->sendSignal(p, sig, false, true);
+  if (pSubsystem->queueSignalDelivery(p, sig, nullptr, 0, true) ==
+      PosixSubsystem::SignalDeliveryResult::Full) {
+    SYSCALL_ERROR(NoMoreProcesses);
+    return SignalQueueFull;
+  }
 
   return 0;
 }
@@ -444,6 +463,10 @@ static int queueThreadSignal(Process* process, Thread* thread, int sig) {
 
   const PosixSubsystem::SignalDeliveryResult result =
       subsystem->queueSignalDelivery(thread, static_cast<size_t>(sig), nullptr, -6);
+  if (result == PosixSubsystem::SignalDeliveryResult::Full) {
+    SYSCALL_ERROR(NoMoreProcesses);
+    return -1;
+  }
   if (result == PosixSubsystem::SignalDeliveryResult::Unavailable) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
@@ -536,7 +559,8 @@ int posix_kill(int pid, int sig) {
 
   // Signals 32..34 are supported only for bundled musl's thread-directed
   // runtime protocols in this slice.
-  if (sig < 0 || sig >= static_cast<int>(PosixSubsystem::LinuxPrivateSignalFirst)) {
+  if (sig < 0 || sig > static_cast<int>(PosixSubsystem::MaximumSupportedSignal) ||
+      (sig >= 32 && sig <= 34)) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -623,6 +647,9 @@ int posix_kill(int pid, int sig) {
     return 0;
   }
 
+  bool accepted = false;
+  bool quotaFailed = false;
+
   // Go ahead and kill each process.
   for (List<size_t>::Iterator it = processList.begin(); it != processList.end(); ++it) {
     if (*it != pThisProcess->getId()) {
@@ -634,7 +661,9 @@ int posix_kill(int pid, int sig) {
       SG_NOTICE(" -> not killing current process, killing " << member->getId());
       NOTICE("sending #" << Dec << member->getId() << " signal #" << sig << " from #"
                          << pThisProcess->getId());
-      doProcessKill(member.get(), sig);
+      const int result = doProcessKill(member.get(), sig);
+      accepted |= result == 0;
+      quotaFailed |= result == SignalQueueFull;
     } else {
       SG_NOTICE(" -> killing current process (" << pThisProcess->getId() << ")");
       bKillingSelf = true;
@@ -647,9 +676,15 @@ int posix_kill(int pid, int sig) {
   if (bKillingSelf) {
     SG_NOTICE("performing kill of " << pThisProcess->getId() << "...");
     NOTICE("sending self #" << Dec << pThisProcess->getId() << " signal #" << sig);
-    doProcessKill(pThisProcess, sig);
+    const int result = doProcessKill(pThisProcess, sig);
+    accepted |= result == 0;
+    quotaFailed |= result == SignalQueueFull;
   }
 
+  if (!accepted && quotaFailed) {
+    SYSCALL_ERROR(NoMoreProcesses);
+    return -1;
+  }
   return 0;
 }
 
@@ -800,236 +835,6 @@ int posix_usleep(size_t useconds) {
   return 0;
 }
 
-namespace {
-constexpr Time::Timestamp MaximumLinuxSleepNanoseconds = 0x7FFFFFFFFFFFFFFFULL;
-
-bool supportedSleepClock(clockid_t clockId) {
-  return clockId == CLOCK_REALTIME || clockId == CLOCK_MONOTONIC;
-}
-
-Time::Timestamp sleepClockNanoseconds(clockid_t clockId) {
-  return clockId == CLOCK_REALTIME ? Time::getTimeNanoseconds() : Time::getTicks();
-}
-
-bool validTimespec(int64_t seconds, int64_t nanoseconds) {
-  return seconds >= 0 && nanoseconds >= 0 && nanoseconds < 1000000000;
-}
-
-Time::Timestamp timespecToNanoseconds(int64_t secondsValue, int64_t nanosecondsValue) {
-  const Time::Timestamp seconds = static_cast<Time::Timestamp>(secondsValue);
-  if (seconds >= (MaximumLinuxSleepNanoseconds / Time::Multiplier::Second)) {
-    return MaximumLinuxSleepNanoseconds;
-  }
-
-  const Time::Timestamp wholeSeconds = seconds * Time::Multiplier::Second;
-  const Time::Timestamp nanoseconds = static_cast<Time::Timestamp>(nanosecondsValue);
-  return wholeSeconds + nanoseconds;
-}
-
-Time::Timestamp nanosleepAlarmDuration(Time::Timestamp requested) {
-  const Time::Timestamp remainder = requested % Time::Multiplier::Microsecond;
-  if (!remainder) {
-    return requested;
-  }
-
-  // The machine timer accepts whole microseconds. Round up so a partial
-  // microsecond request cannot expire before its requested duration.
-  return requested + (Time::Multiplier::Microsecond - remainder);
-}
-
-bool waitForClockSleep(clockid_t clockId, bool absolute, Time::Timestamp requested,
-                       Time::Timestamp& remaining) {
-  remaining = 0;
-  const Time::Timestamp monotonicStart = Time::getTicks();
-
-  while (true) {
-    Time::Timestamp duration = requested;
-    if (absolute) {
-      const Time::Timestamp now = sleepClockNanoseconds(clockId);
-      if (now >= requested) {
-        return true;
-      }
-      duration = requested - now;
-    } else if (!duration) {
-      return true;
-    }
-
-    const bool completed = Time::delay(nanosleepAlarmDuration(duration));
-    Thread* thread = Processor::information().getCurrentThread();
-    if (completed) {
-      if (!absolute || sleepClockNanoseconds(clockId) >= requested) {
-        return true;
-      }
-
-      // A realtime deadline may move backwards while blocked. Re-arm for the
-      // same absolute deadline rather than reporting an early completion.
-      continue;
-    }
-
-    if (thread->getInterruptionReason() != Thread::InterruptedBySignal) {
-      return true;
-    }
-
-    if (absolute) {
-      const bool deadlineReached = sleepClockNanoseconds(clockId) >= requested;
-      thread->clearInterruption();
-      return deadlineReached;
-    }
-
-    const Time::Timestamp elapsed = Time::getTicks() - monotonicStart;
-    thread->clearInterruption();
-    if (elapsed >= requested) {
-      return true;
-    }
-
-    remaining = requested - elapsed;
-    return false;
-  }
-}
-}  // namespace
-
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-extern "C" EXPORTED_PUBLIC Time::Timestamp posixNanosleepAlarmDurationForTest(time_t seconds,
-                                                                              long nanoseconds) {
-  const struct timespec requested = {seconds, nanoseconds};
-  return nanosleepAlarmDuration(timespecToNanoseconds(requested.tv_sec, requested.tv_nsec));
-}
-#endif
-
-int posix_nanosleep(const struct timespec* rqtp, struct timespec* rmtp) {
-  struct timespec requested = {};
-  if (!PosixSubsystem::copyFromUser(&requested, rqtp, sizeof(requested))) {
-    SG_NOTICE("nanosleep -> invalid address");
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-  if (!validTimespec(requested.tv_sec, requested.tv_nsec)) {
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
-  SG_NOTICE("nanosleep(" << Dec << requested.tv_sec << ":" << requested.tv_nsec << Hex << ") - "
-                         << Machine::instance().getTimer()->getTickCount() << ".");
-
-  const Time::Timestamp duration = timespecToNanoseconds(requested.tv_sec, requested.tv_nsec);
-  Time::Timestamp remaining = 0;
-  if (waitForClockSleep(CLOCK_MONOTONIC, false, duration, remaining)) {
-    return 0;
-  }
-
-  const struct timespec result = {static_cast<time_t>(remaining / Time::Multiplier::Second),
-                                  static_cast<long>(remaining % Time::Multiplier::Second)};
-  if (rmtp && !PosixSubsystem::copyToUser(rmtp, &result, sizeof(result))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-
-  SYSCALL_ERROR(Interrupted);
-  return -1;
-}
-
-int posix_clock_gettime(clockid_t clock_id, struct timespec* tp) {
-  SG_NOTICE("clock_gettime(" << Dec << clock_id << Hex << ")");
-  Time::Timestamp nanoseconds = 0;
-  switch (clock_id) {
-    case CLOCK_REALTIME:
-      nanoseconds = Time::getTimeNanoseconds();
-      break;
-    case CLOCK_MONOTONIC:
-      nanoseconds = Time::getTicks();
-      break;
-    default:
-      SYSCALL_ERROR(InvalidArgument);
-      return -1;
-  }
-
-  const struct timespec result = {static_cast<time_t>(nanoseconds / Time::Multiplier::Second),
-                                  static_cast<long>(nanoseconds % Time::Multiplier::Second)};
-  if (!PosixSubsystem::copyToUser(tp, &result, sizeof(result))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-
-  return 0;
-}
-
-int posix_clock_getres_native(clockid_t clock_id, struct timespec* resolution) {
-  if (!supportedSleepClock(clock_id)) {
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
-  if (!resolution) {
-    return 0;
-  }
-
-  const struct timespec result = {0, 1};
-  if (!PosixSubsystem::copyToUser(resolution, &result, sizeof(result))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-
-  return 0;
-}
-
-int posix_clock_getres(clockid_t clock_id, LinuxKernelTimespec* resolution) {
-  if (!supportedSleepClock(clock_id)) {
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
-  if (!resolution) {
-    return 0;
-  }
-
-  const LinuxKernelTimespec result = {0, 1};
-  if (!PosixSubsystem::copyToUser(resolution, &result, sizeof(result))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-
-  return 0;
-}
-
-int posix_clock_nanosleep(clockid_t clock_id, int flags, const LinuxKernelTimespec* request,
-                          LinuxKernelTimespec* remainder) {
-  if (!supportedSleepClock(clock_id)) {
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
-  LinuxKernelTimespec requested = {};
-  if (!PosixSubsystem::copyFromUser(&requested, request, sizeof(requested))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-  if (!validTimespec(requested.tv_sec, requested.tv_nsec)) {
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
-  const bool absolute = flags & TIMER_ABSTIME;
-  const Time::Timestamp requestedNanoseconds =
-      timespecToNanoseconds(requested.tv_sec, requested.tv_nsec);
-  Time::Timestamp remainingNanoseconds = 0;
-  if (waitForClockSleep(clock_id, absolute, requestedNanoseconds, remainingNanoseconds)) {
-    return 0;
-  }
-
-  if (!absolute && remainder) {
-    const LinuxKernelTimespec result = {
-        static_cast<int64_t>(remainingNanoseconds / Time::Multiplier::Second),
-        static_cast<int64_t>(remainingNanoseconds % Time::Multiplier::Second)};
-    if (!PosixSubsystem::copyToUser(remainder, &result, sizeof(result))) {
-      SYSCALL_ERROR(BadAddress);
-      return -1;
-    }
-  }
-
-  SYSCALL_ERROR(Interrupted);
-  return -1;
-}
-
 int posix_sigaltstack(const stack_t* stack, stack_t* oldstack) {
   stack_t requested = {};
   if (stack && !PosixSubsystem::copyFromUser(&requested, stack, sizeof(requested))) {
@@ -1169,9 +974,8 @@ void pedigree_reset_signals_for_exec(Thread* pThread) {
     sigHandler->sig = i;
     sigHandler->type = signalDisposition;
 
-    uintptr_t newHandler = signalDisposition == 1
-                               ? reinterpret_cast<uintptr_t>(default_sig_handlers[i])
-                               : reinterpret_cast<uintptr_t>(sigign);
+    uintptr_t newHandler = signalDisposition == 1 ? pedigree_default_signal_handler(i)
+                                                  : reinterpret_cast<uintptr_t>(sigign);
 
     sigHandler->pEvent =
         new SignalEvent(newHandler, i, ~0UL, 0, true, false, Event::HandlerPrivilege::Kernel,

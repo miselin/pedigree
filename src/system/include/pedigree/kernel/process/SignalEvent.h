@@ -23,6 +23,19 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/SharedPointer.h"
+
+class EXPORTED_PUBLIC SignalEventState {
+ public:
+  virtual ~SignalEventState() = default;
+  virtual bool active() const = 0;
+  virtual bool timer() const = 0;
+  virtual void timerInfo(int32_t& timerId, int32_t& overrun) const = 0;
+  virtual void complete(bool delivered, int32_t overrun) = 0;
+  virtual const void* source() const {
+    return nullptr;
+  }
+};
 
 class EXPORTED_PUBLIC SignalEvent : public Event {
  public:
@@ -38,6 +51,51 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
               bool useAlternateUserStack = false, size_t continuationEpoch = 0);
 
   SignalEvent(const SignalEvent& other);
+  ~SignalEvent() override;
+
+  uint64_t rebindGeneration() const {
+    return m_RebindGeneration;
+  }
+  void setRebindGeneration(uint64_t value) {
+    m_RebindGeneration = value;
+  }
+  uint64_t queueSequence() const {
+    return m_QueueSequence;
+  }
+  void setQueueSequence(uint64_t value) {
+    m_QueueSequence = value;
+  }
+  bool deliveryActive() const {
+    return !m_DeliveryState || m_DeliveryState->active();
+  }
+  bool queuedIndividually() const {
+    return m_SignalNumber >= 32 || (m_DeliveryState && m_DeliveryState->timer());
+  }
+  void setDeliveryState(const SharedPointer<SignalEventState>& state) {
+    m_DeliveryState = state;
+  }
+  void transferDeliveryStateTo(SignalEvent& event) {
+    event.m_DeliveryState = pedigree_std::move(m_DeliveryState);
+  }
+  const void* deliverySource() const {
+    return m_DeliveryState ? m_DeliveryState->source() : nullptr;
+  }
+  void timerInfo(int32_t& timerId, int32_t& overrun) const {
+    timerId = 0;
+    overrun = 0;
+    if (m_DeliveryState) {
+      m_DeliveryState->timerInfo(timerId, overrun);
+    }
+  }
+  void rejectSignalDelivery() const {
+    if (m_DeliveryState)
+      m_DeliveryState->complete(false, -1);
+  }
+  void completeSignalDelivery(int32_t overrun = 0) const {
+    if (m_DeliveryState) {
+      m_DeliveryState->complete(true, overrun);
+    }
+  }
 
   virtual size_t serialize(uint8_t* pBuffer);
   static bool unserialize(uint8_t* pBuffer, Event& event);
@@ -145,6 +203,9 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
   int32_t m_SenderProcess;
   uint32_t m_SenderUser;
   uint64_t m_SignalValue;
+  SharedPointer<SignalEventState> m_DeliveryState;
+  uint64_t m_RebindGeneration = 0;
+  uint64_t m_QueueSequence = 0;
 };
 
 #endif

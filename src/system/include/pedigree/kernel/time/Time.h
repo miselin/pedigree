@@ -71,6 +71,9 @@ EXPORTED_PUBLIC Timestamp getTime(bool sync = false);
 /** Gets the system's current time in nanoseconds. */
 EXPORTED_PUBLIC Timestamp getTimeNanoseconds(bool sync = false);
 
+/** Set realtime against the monotonic clock without changing elapsed time. */
+EXPORTED_PUBLIC bool setTimeNanoseconds(Timestamp value);
+
 /**
  * Gets a tick count in nanoseconds.
  * Subsequent calls will always see this number grow.

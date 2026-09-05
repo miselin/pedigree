@@ -25,6 +25,7 @@
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Completion.h"
+#include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/SignalEvent.h"
@@ -184,10 +185,10 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   /**
    * Bundled musl reserves these signals for its timer, cancellation, and
-   * synchronous-call machinery. Signals above this range are not supported.
+   * synchronous-call machinery. Public realtime signals occupy 35..64.
    */
   static constexpr size_t LinuxPrivateSignalFirst = 32;
-  static constexpr size_t MaximumSupportedSignal = 34;
+  static constexpr size_t MaximumSupportedSignal = 64;
   static constexpr size_t SignalDispositionCount = MaximumSupportedSignal + 1;
 
   /** ABI mode. */
@@ -372,7 +373,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
     int type;
   };
 
-  enum class SignalDeliveryResult { Unavailable, Ignored, Rejected, Queued };
+  enum class SignalDeliveryResult { Unavailable, Ignored, Rejected, Queued, Full };
 
   /** Sets a signal handler */
   void setSignalHandler(size_t sig, SignalHandler* handler);
@@ -388,9 +389,17 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   bool getSignalDisposition(size_t sig, SignalDisposition& disposition, bool beginDelivery = false);
 
   /** Resolves and queues a signal atomically with disposition replacement. */
-  SignalDeliveryResult queueSignalDelivery(Thread* target, size_t sig, uint32_t* flags = nullptr,
-                                           int32_t signalCode = 0, bool processDirected = false,
-                                           uint64_t signalValue = 0);
+  SignalDeliveryResult queueSignalDelivery(
+      Thread* target, size_t sig, uint32_t* flags = nullptr, int32_t signalCode = 0,
+      bool processDirected = false, uint64_t signalValue = 0,
+      const SharedPointer<SignalEventState>& state = SharedPointer<SignalEventState>());
+
+  Mutex& pendingSignalLock() {
+    return m_PendingSignalLock;
+  }
+  ConditionVariable& pendingSignalChanged() {
+    return m_PendingSignalChanged;
+  }
 
   void retireDescriptor(FileDescriptor* descriptor);
 
@@ -680,6 +689,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   /** A lock for access to the signal handlers tree */
   UnlikelyLock m_SignalHandlersLock;
+  Mutex m_PendingSignalLock;
+  ConditionVariable m_PendingSignalChanged;
 
   /**
    * The file descriptor map. Maps number to pointers, the type of which is

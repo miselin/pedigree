@@ -48,9 +48,8 @@ provides them:
   AF_NETLINK endpoint implements the notification cookie transport required by
   musl; general routing netlink remains outside this IPC interface.
 
-Realtime signal numbers above 34 remain dependent on the next signal expansion.
-This bounds current SIGEV_SIGNAL choices without blocking the tested musl
-SIGEV_THREAD notification path.
+The IPC checkpoint originally limited signals to 1–34. The signal/timer pass
+below extends delivery through 64, including POSIX queue notifications.
 
 Verification: the native routing/ABI checks passed 42 tests. Fresh, display-free
 QEMU guests with one and four CPUs passed all four IPC families plus 12 existing
@@ -67,3 +66,55 @@ run are retained alongside the IPC notification cleanup regression evidence.
 The existing intermittent VM split/unmap investigation remains recorded
 separately. Reusing the established shared-file mapping path does not establish
 that the earlier fault is resolved.
+
+## Signals, timers and realtime clock
+
+This pass adds `rt_sigpending`, `rt_sigtimedwait`, `rt_sigqueueinfo`, the five
+POSIX timer calls, and `clock_settime` (nine numbers). Signal queues retain
+standard-signal coalescing and realtime FIFO order, support synchronous waiters
+in sibling threads, and preserve a delivery after failed result copyout.
+Blocked ignored signals remain available to synchronous consumers. Signal
+disposition changes rebind every pending instance without losing its metadata.
+
+Timers support realtime and monotonic clocks, relative and absolute deadlines,
+periodic overruns, SIGEV_NONE, SIGEV_SIGNAL and thread-directed delivery,
+including musl's SIGEV_THREAD helper. Rearm, delete, target exit and successful
+exec invalidate the appropriate queued notification generation. Timers are not
+inherited across fork; IDs reject stale and foreign-process references.
+
+Setting realtime updates kernel and vDSO time and wakes absolute realtime sleeps
+and POSIX queue waits. Relative waits and monotonic time remain unaffected.
+The timer service reevaluates absolute realtime deadlines on its next tick.
+The final signed-nanosecond second is converted without premature saturation.
+
+Current bounds and deliberate restrictions:
+
+- Pending queued signals and timer reservations share a fixed limit of 16 per
+  real UID. Mutable RLIMIT_SIGPENDING remains in the resource pass. Realtime
+  `kill`/`tkill`/`tgkill` report EAGAIN on exhaustion; Linux can instead retain a
+  signal without allocating its queued metadata.
+- User `rt_sigqueueinfo` accepts SI_QUEUE; kernel timer and queue-notification
+  metadata is constructed internally. Existing process-directed rejection of
+  musl-private signals 32–34 remains; private thread-directed protocols work.
+- Timers have 256 global slots and 64 per-process slots, further constrained by
+  signal reservations. CPU-time and alarm/boottime clock variants are unsupported.
+- Only privileged realtime clock setting is supported; hardware RTC persistence
+  is not implied.
+
+`signal-timer-contract-test` runs bounded `signals`, `timers` and `clock`
+families. Native timer arithmetic has six passing cases; 37 routing/source ABI
+checks pass. Two affected hosted regression translation units compile. Fresh
+one- and four-CPU guests passed all 14 integration suites after the once-only
+subsystem cleanup repair, including each suite's zero status and final marker.
+Logs are `signal-timer-exit-fixed-*` in the artifact directory below; image
+identity and results are recorded in `verification.json`. The backlog now has
+27 implemented numbers and 86 remaining. Disk writes remained disabled.
+
+The first one-CPU integration run passed all new families, then failed during
+IPC mqueue process exit with a retained spinlock. Review found that final
+shutdown repeated blocking subsystem cleanup under the process spinlock;
+thread cleanup now has one admission per lifetime. A diagnostic retry did not
+reproduce the fault, so its exact retained-lock identity was not captured.
+The original failure and diagnostic run remain under
+`/private/tmp/pedigree-signal-timer-expansion-20260905/`; the lock-checker message
+now includes the retained lock and acquisition caller for future attribution.

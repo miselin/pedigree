@@ -670,7 +670,7 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             ROOT / "src/modules/subsys/posix/linux-wait-abi.h"
         ).read_text(encoding="utf-8")
         source = (
-            ROOT / "src/modules/subsys/posix/signal-syscalls.cc"
+            ROOT / "src/modules/subsys/posix/clock-syscalls.cc"
         ).read_text(encoding="utf-8")
 
         self.assertIn(

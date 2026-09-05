@@ -199,6 +199,12 @@ class EXPORTED_PUBLIC Thread {
    */
   void shutdown();
 
+  /**
+   * Runs subsystem exit hooks once, while the lifecycle owner can still
+   * block and before the final scheduler handoff.
+   */
+  void notifySubsystemExit();
+
   /* Forces the thread to run on the bootstrap processor. */
   void forceToStartupProcessor();
 
@@ -654,10 +660,21 @@ class EXPORTED_PUBLIC Thread {
    * deliverable. On success the Thread owns \p replacement; otherwise the
    * caller retains ownership.
    */
-  bool replaceSignalEvent(size_t signalNumber, Event* replacement, int processDirected = -1);
+  bool replaceSignalEvent(size_t signalNumber, Event* replacement, int processDirected = -1,
+                          uint64_t rebindGeneration = 0);
 
   /** Filters process/thread provenance when specified; -1 matches either. */
   bool hasSignalEvent(size_t signalNumber, int processDirected = -1);
+
+  bool acceptingEvents();
+  uint64_t pendingSignalMask(bool processOnly = false);
+  uint64_t pendingSignalOrder(size_t signal, bool processOnly = false);
+  Event::Delivery reservePendingSignal(uint64_t mask, bool processOnly = false,
+                                       uint64_t expectedSequence = ~uint64_t(0));
+  bool restorePendingSignal(Event::Delivery& delivery);
+  void cullSignalSource(const void* source);
+  void setSynchronousSignalMask(uint64_t mask);
+  uint64_t getSynchronousSignalMask();
 
   bool hasEvents();
 
@@ -1121,6 +1138,7 @@ class EXPORTED_PUBLIC Thread {
 
   /** Status preserved while Exit crosses nested/event/IRQ boundaries. */
   uint64_t m_DeferredProcessExitRequest = 0;
+  uint64_t m_SynchronousSignalMask = 0;
 
   /** Empty, publishing, or pending state for the preallocated exception. */
   size_t m_DeferredSubsystemExceptionState = 0;
@@ -1133,6 +1151,9 @@ class EXPORTED_PUBLIC Thread {
 
   /** Whether shutdown() has completed its one-way transition. */
   bool m_bShutdown = false;
+
+  /** Process teardown can notify before shutdown retires the final thread. */
+  bool m_bSubsystemExitNotified = false;
 
   /** Userspace TID word cleared by the subsystem during exit publication. */
   uintptr_t m_ClearChildTid = 0;

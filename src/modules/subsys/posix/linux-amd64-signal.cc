@@ -257,6 +257,8 @@ void restartInterruptedSyscall(Thread* thread, uint32_t flags, Sigcontext& conte
 
 Event::UserReturnDelivery resolveAsyncDisposition(Thread* thread, SignalEvent& event,
                                                   PosixSubsystem::SignalDisposition& disposition) {
+  if (!event.deliveryActive())
+    return Event::UserReturnDelivery::Delivered;
   const size_t signal = event.getNumber();
   Process* process = thread ? thread->getParent() : nullptr;
   PosixSubsystem* subsystem =
@@ -360,6 +362,12 @@ bool buildAsyncFrame(Thread* thread, LinuxAmd64Signal::AsyncEvent& event, Sigcon
   setSiginfo32(frame.info, 16, event.getSenderProcess());
   setSiginfo32(frame.info, 20, static_cast<int32_t>(event.getSenderUser()));
   setSiginfo64(frame.info, 24, event.getSignalValue());
+  int32_t timerId = 0, overrun = 0;
+  event.timerInfo(timerId, overrun);
+  if (event.getSignalCode() == -2) {
+    setSiginfo32(frame.info, 16, timerId);
+    setSiginfo32(frame.info, 20, overrun);
+  }
 
   if (!PosixSubsystem::copyToUser(reinterpret_cast<void*>(fpstateAddress), &fpstate,
                                   sizeof(fpstate)) ||
@@ -370,6 +378,7 @@ bool buildAsyncFrame(Thread* thread, LinuxAmd64Signal::AsyncEvent& event, Sigcon
     return false;
   }
 
+  event.completeSignalDelivery(overrun);
   uint64_t handlerMask = currentMask | disposition.signalMask;
   if (!(disposition.flags & SA_NODEFER)) {
     handlerMask |= static_cast<uint64_t>(1) << (signal - 1);

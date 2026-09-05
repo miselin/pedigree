@@ -478,6 +478,17 @@ Thread::~Thread() {
     m_pParent->removeThread(this);
 }
 
+void Thread::notifySubsystemExit() {
+  // The final process owner calls this before mapping teardown. Its later
+  // shutdown may hold the Process lock, where repeating blocking hooks is unsafe.
+  if (__atomic_exchange_n(&m_bSubsystemExitNotified, true, __ATOMIC_ACQ_REL)) {
+    return;
+  }
+  if (m_pParent) {
+    m_pParent->threadExiting(this);
+  }
+}
+
 void Thread::shutdown() {
   {
     auto senderGuard = m_EventSenderDrainWaiters.acquire();
@@ -529,9 +540,7 @@ void Thread::shutdown() {
 
   // Subsystem teardown must happen while the Process and address space are
   // still live, and before a joiner can observe this exit.
-  if (m_pParent) {
-    m_pParent->threadExiting(this);
-  }
+  notifySubsystemExit();
 
   // Make a joiner runnable before the scheduler chooses our replacement.
   // This matters during shutdown after the idle thread has been retired.
@@ -1070,7 +1079,7 @@ bool Thread::sendEvent(Event* pEvent) {
     {
       LockGuard<Spinlock> guard(m_Lock);
       if (!m_bShutdown && m_Status != Zombie) {
-        if (pEvent->isSignalEvent()) {
+        if (pEvent->isSignalEvent() && !static_cast<SignalEvent*>(pEvent)->queuedIndividually()) {
           for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
             if ((*it)->isSignalEvent() && (*it)->getNumber() == pEvent->getNumber() &&
                 static_cast<SignalEvent*>(*it)->isProcessDirected() ==
@@ -2077,7 +2086,8 @@ bool Thread::transferProcessSignalsTo(Thread& target) {
   }
 }
 
-bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement, int processDirected) {
+bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement, int processDirected,
+                                uint64_t rebindGeneration) {
   if (!replacement || !replacement->isSignalEvent() || replacement->getNumber() != signalNumber) {
     return false;
   }
@@ -2104,6 +2114,8 @@ bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement, int pro
     if (!m_bShutdown && m_Status != Zombie) {
       for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
         if ((*it)->isSignalEvent() && (*it)->getNumber() == signalNumber &&
+            (!rebindGeneration ||
+             static_cast<SignalEvent*>(*it)->rebindGeneration() != rebindGeneration) &&
             (processDirected < 0 ||
              static_cast<SignalEvent*>(*it)->isProcessDirected() == (processDirected != 0))) {
           previous = *it;
@@ -2114,6 +2126,9 @@ bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement, int pro
                                      oldSignal->getSenderUser());
           newSignal->setContinuationEpoch(oldSignal->getContinuationEpoch());
           newSignal->setSignalValue(oldSignal->getSignalValue());
+          oldSignal->transferDeliveryStateTo(*newSignal);
+          newSignal->setQueueSequence(oldSignal->queueSequence());
+          newSignal->setRebindGeneration(rebindGeneration);
           *it = replacement;
           break;
         }
@@ -2157,6 +2172,114 @@ bool Thread::hasSignalEvent(size_t signalNumber, int processDirected) {
   return false;
 }
 
+bool Thread::acceptingEvents() {
+  LockGuard<Spinlock> guard(m_Lock);
+  return !m_bShutdown && m_Status != Zombie;
+}
+
+void Thread::setSynchronousSignalMask(uint64_t mask) {
+  LockGuard<Spinlock> guard(m_Lock);
+  m_SynchronousSignalMask = mask;
+}
+
+uint64_t Thread::getSynchronousSignalMask() {
+  LockGuard<Spinlock> guard(m_Lock);
+  return m_SynchronousSignalMask;
+}
+
+uint64_t Thread::pendingSignalMask(bool processOnly) {
+  LockGuard<Spinlock> guard(m_Lock);
+  uint64_t mask = 0;
+  for (Event* event : m_EventQueue) {
+    if (!event->isSignalEvent() || !event->getNumber() || event->getNumber() > 64) {
+      continue;
+    }
+    auto* signal = static_cast<SignalEvent*>(event);
+    if (signal->deliveryActive() && (!processOnly || signal->isProcessDirected())) {
+      mask |= uint64_t(1) << (signal->getNumber() - 1);
+    }
+  }
+  return mask;
+}
+
+uint64_t Thread::pendingSignalOrder(size_t number, bool processOnly) {
+  LockGuard<Spinlock> guard(m_Lock);
+  uint64_t sequence = ~uint64_t(0);
+  for (Event* event : m_EventQueue) {
+    if (!event->isSignalEvent() || event->getNumber() != number)
+      continue;
+    auto* signal = static_cast<SignalEvent*>(event);
+    if (signal->deliveryActive() && (!processOnly || signal->isProcessDirected()) &&
+        signal->queueSequence() < sequence)
+      sequence = signal->queueSequence();
+  }
+  return sequence;
+}
+
+Event::Delivery Thread::reservePendingSignal(uint64_t mask, bool processOnly,
+                                             uint64_t expectedSequence) {
+  LockGuard<Spinlock> guard(m_Lock);
+  auto selected = m_EventQueue.end();
+  for (auto it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
+    Event* event = *it;
+    if (!event->isSignalEvent() || !event->getNumber() || event->getNumber() > 64) {
+      continue;
+    }
+    auto* signal = static_cast<SignalEvent*>(event);
+    if (signal->deliveryActive() && (!processOnly || signal->isProcessDirected()) &&
+        (mask & (uint64_t(1) << (signal->getNumber() - 1))) &&
+        (selected == m_EventQueue.end() || event->getNumber() < (*selected)->getNumber() ||
+         (event->getNumber() == (*selected)->getNumber() &&
+          signal->queueSequence() < static_cast<SignalEvent*>(*selected)->queueSequence()))) {
+      selected = it;
+    }
+  }
+  if (selected == m_EventQueue.end()) {
+    return Event::Delivery();
+  }
+  Event* event = *selected;
+  if (expectedSequence != ~uint64_t(0) &&
+      static_cast<SignalEvent*>(event)->queueSequence() != expectedSequence)
+    return Event::Delivery();
+  m_EventQueue.erase(selected);
+  return Event::Delivery(event, this);
+}
+
+bool Thread::restorePendingSignal(Event::Delivery& delivery) {
+  if (!delivery || delivery.m_pThread != this || delivery.m_bActive) {
+    return false;
+  }
+  {
+    auto waitGuard = m_EventWaiters.acquire();
+    LockGuard<Spinlock> guard(m_Lock);
+    if (m_bShutdown || m_Status == Zombie)
+      return false;
+    m_EventQueue.pushFront(delivery.m_pEvent);
+    delivery.m_pEvent = nullptr;
+    delivery.m_pThread = nullptr;
+  }
+  wakeForDeliverableEvents();
+  return true;
+}
+
+void Thread::cullSignalSource(const void* source) {
+  Vector<Event*> retiring;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    for (auto it = m_EventQueue.begin(); it != m_EventQueue.end();) {
+      if ((*it)->isSignalEvent() && static_cast<SignalEvent*>(*it)->deliverySource() == source) {
+        retiring.pushBack(*it);
+        it = m_EventQueue.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  for (Event* event : retiring) {
+    event->completeDelivery(this);
+  }
+}
+
 Event::Delivery Thread::getNextEvent(EventSelection selection) {
   Event* pResult = nullptr;
 
@@ -2167,19 +2290,28 @@ Event::Delivery Thread::getNextEvent(EventSelection selection) {
       return Event::Delivery();
     }
 
-    for (size_t i = 0; i < m_EventQueue.count(); i++) {
-      Event* e = m_EventQueue.popFront();
-      if (!e) {
-        ERROR("A null event was in a thread's event queue!");
+    auto selected = m_EventQueue.end();
+    for (auto it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
+      Event* event = *it;
+      if (!eventIsDeliverableUnlocked(event, selection)) {
         continue;
       }
-
-      if (!eventIsDeliverableUnlocked(e, selection)) {
-        m_EventQueue.pushBack(e);
-      } else {
-        pResult = e;
+      if (selected == m_EventQueue.end()) {
+        selected = it;
+      } else if (event->isSignalEvent() && (*selected)->isSignalEvent() &&
+                 (event->getNumber() < (*selected)->getNumber() ||
+                  (event->getNumber() == (*selected)->getNumber() &&
+                   static_cast<SignalEvent*>(event)->queueSequence() <
+                       static_cast<SignalEvent*>(*selected)->queueSequence()))) {
+        selected = it;
+      }
+      if (!event->isSignalEvent()) {
         break;
       }
+    }
+    if (selected != m_EventQueue.end()) {
+      pResult = *selected;
+      m_EventQueue.erase(selected);
     }
   }
 
@@ -2194,6 +2326,12 @@ bool Thread::hasEvents() {
 
 bool Thread::eventIsDeliverableUnlocked(Event* event, EventSelection selection) {
   const size_t eventNumber = event->getNumber();
+  if (event->isSignalEvent() &&
+      (!static_cast<SignalEvent*>(event)->deliveryActive() ||
+       (eventNumber > 0 && eventNumber <= 64 &&
+        (m_SynchronousSignalMask & (uint64_t(1) << (eventNumber - 1)))))) {
+    return false;
+  }
   const bool signalInhibited =
       event->isSignalEvent() && eventNumber > 0 && eventNumber <= 64 &&
       (m_StateLevels[m_nStateLevel].m_SignalMask & (static_cast<uint64_t>(1) << (eventNumber - 1)));

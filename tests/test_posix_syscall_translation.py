@@ -40,12 +40,13 @@ class PosixSyscallTranslationTests(unittest.TestCase):
         # ppoll, pselect6, clock_getres, clock_nanosleep, tkill, tgkill, and
         # rt_sigsuspend, pread64, pwrite64, preadv, pwritev, preadv2,
         # pwritev2, prlimit64, membarrier, faccessat2, dup3, getrusage,
-        # the four inotify entry points, and 18 IPC entry points.
-        # This locks both sides of all 196 mappings.
-        self.assertEqual(len(mapping), 196)
+        # the four inotify entry points, 18 IPC entry points, and nine signal,
+        # timer and clock entry points.
+        # This locks both sides of all 205 mappings.
+        self.assertEqual(len(mapping), 205)
         self.assertEqual(
             hashlib.sha256(serialized.encode()).hexdigest(),
-            "5757714dc5aa63bb4823ca9b13be06d50c63441f5769581f1c79f8bd47cf53c6",
+            "b61b1db9d688f3221f5fc1e50cbe77698712d3120c4164b71c201b403a4318fe",
         )
         self.assertEqual(len({name for name, _, _ in mapping}), len(mapping))
         self.assertEqual(len({number for _, number, _ in mapping}), len(mapping))

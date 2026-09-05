@@ -520,6 +520,11 @@ bool LocksCommand::checkSchedule(size_t nCpu) {
 
   size_t pos = m_NextPosition[nCpu];
   if (pos) {
+    const LockDescriptor& retained = m_pDescriptors[nCpu][pos - 1];
+    ERROR_NOLOCK("Reschedule retained lock "
+                 << Hex << retained.pLock << " acquired at "
+                 << (retained.pLock ? retained.pLock->m_Ra : 0) << ", schedule caller "
+                 << reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
     ERROR_OR_FATAL("Rescheduling CPU" << nCpu << " is not allowed, as there are still " << pos
                                       << " acquired locks.");
     return false;
