@@ -52,6 +52,10 @@ char HostedSerial::read() {
   return '\0';
 }
 
+bool HostedSerial::hasData() {
+  return false;
+}
+
 char HostedSerial::readNonBlock() {
   return read();
 }

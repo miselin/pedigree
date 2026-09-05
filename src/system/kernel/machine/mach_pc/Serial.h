@@ -45,6 +45,7 @@ class X86Serial : public Serial {
   virtual void setBase(uintptr_t nBaseAddr);
   virtual ~X86Serial();
 
+  virtual bool hasData();
   virtual char read();
   virtual char readNonBlock();
   virtual void write(char c);

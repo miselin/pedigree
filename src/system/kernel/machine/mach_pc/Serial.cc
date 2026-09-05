@@ -45,6 +45,10 @@ void X86Serial::setBase(uintptr_t nBaseAddr) {
   NOTICE("Line status: " << Hex << m_Port.read8(serial::lstat));
 }
 
+bool X86Serial::hasData() {
+  return isConnected() && (m_Port.read8(serial::lstat) & 0x1);
+}
+
 char X86Serial::read() {
   if (!isConnected())
     return 0;
@@ -57,7 +61,7 @@ char X86Serial::read() {
 char X86Serial::readNonBlock() {
   if (!isConnected())
     return 0;
-  if (m_Port.read8(serial::lstat) & 0x1)
+  if (hasData())
     return m_Port.read8(serial::rxtx);
   else
     return '\0';

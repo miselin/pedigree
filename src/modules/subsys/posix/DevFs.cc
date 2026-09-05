@@ -31,6 +31,7 @@
 #include "pedigree/kernel/machine/Framebuffer.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/syscallError.h"
@@ -137,6 +138,60 @@ uint64_t ZeroFile::readBytewise(uint64_t location, uint64_t size, uintptr_t buff
 uint64_t ZeroFile::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                  bool bCanBlock) {
   return size;
+}
+
+SerialFile::SerialFile(String str, size_t inode, Filesystem* pParentFS, File* pParent,
+                       Serial* serial)
+    : File(str, 0, 0, 0, inode, pParentFS, 0, pParent), m_Serial(serial) {
+  setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+  setUidOnly(0);
+  setGidOnly(0);
+}
+
+uint64_t SerialFile::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                  bool bCanBlock) {
+  if (!m_Serial || !size) {
+    return 0;
+  }
+
+  char* destination = reinterpret_cast<char*>(buffer);
+  size_t count = 0;
+  if (bCanBlock) {
+    const char c = m_Serial->read();
+    if (!c) {
+      return 0;
+    }
+    destination[count++] = c;
+  }
+
+  while (count < size) {
+    const char c = m_Serial->readNonBlock();
+    if (!c) {
+      break;
+    }
+    destination[count++] = c;
+  }
+  return count;
+}
+
+uint64_t SerialFile::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                   bool bCanBlock) {
+  if (!m_Serial) {
+    return 0;
+  }
+
+  const char* source = reinterpret_cast<const char*>(buffer);
+  for (size_t i = 0; i < size; ++i) {
+    m_Serial->write(source[i]);
+  }
+  return size;
+}
+
+int SerialFile::select(bool bWriting, int timeout) {
+  if (bWriting) {
+    return m_Serial ? 1 : 0;
+  }
+  return m_Serial && m_Serial->hasData() ? 1 : 0;
 }
 
 uint64_t RtcFile::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
@@ -408,6 +463,13 @@ bool DevFs::initialise(Disk* pDisk) {
   ZeroFile* pZero = new ZeroFile(String("zero"), getNextInode(), this, m_pRoot);
   m_pRoot->addEntry(pNull->getName(), pNull);
   m_pRoot->addEntry(pZero->getName(), pZero);
+
+  if (Machine::instance().getNumSerial()) {
+    SerialFile* pSerial =
+        new SerialFile(String("ttyS0"), getNextInode(), this, m_pRoot,
+                       Machine::instance().getSerial(0));
+    m_pRoot->addEntry(pSerial->getName(), pSerial);
+  }
 
   // Create the /dev/mem device.
   MemFile* pMem = new MemFile(String("mem"), getNextInode(), this, m_pRoot);

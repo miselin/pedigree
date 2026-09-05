@@ -35,6 +35,7 @@ class EXPORTED_PUBLIC Serial {
 
   /// \todo make this generic for Mmaped and port IO.
   virtual void setBase(uintptr_t nBaseAddr) = 0;
+  virtual bool hasData() = 0;
   virtual char read() = 0;
   virtual char readNonBlock() = 0;
   virtual void write(char c) = 0;

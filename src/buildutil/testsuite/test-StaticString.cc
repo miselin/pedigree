@@ -33,6 +33,9 @@ class RecordingSerial final : public Serial {
   using Serial::write_str;
 
   void setBase(uintptr_t) override {}
+  bool hasData() override {
+    return false;
+  }
   char read() override {
     return 0;
   }

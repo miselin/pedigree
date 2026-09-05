@@ -37,6 +37,7 @@
 
 class DevFs;
 class DevFsDirectory;
+class Serial;
 
 extern DevFs* g_pDevFs;
 
@@ -98,6 +99,25 @@ class ZeroFile : public File {
                                  bool bCanBlock = true);
 
  private:
+  virtual bool isBytewise() const {
+    return true;
+  }
+};
+
+class SerialFile : public File {
+ public:
+  SerialFile(String str, size_t inode, Filesystem* pParentFS, File* pParent, Serial* serial);
+  ~SerialFile() {}
+
+  virtual uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                bool bCanBlock = true);
+  virtual uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                 bool bCanBlock = true);
+  virtual int select(bool bWriting = false, int timeout = 0);
+
+ private:
+  Serial* m_Serial;
+
   virtual bool isBytewise() const {
     return true;
   }

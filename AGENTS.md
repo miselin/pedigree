@@ -39,6 +39,12 @@ The project is organized as follows:
 A testsuite exists for kernel utilities; the testsuite runs on the host system (Linux/Mac/Windows) as a build utility. When changing or adding
 utilities such as `Tree` or `String`, tests should be used to verify zero regressions. Add tests sparingly but as needed to minimize future regressions.
 
+For interactive QEMU tests, prefer `scripts/qemu --serial`. It disables the
+graphical display and connects the guest's COM1-backed `/dev/ttyS0` terminal to
+the invoking shell. Use `scripts/run-qemu-iso.py` for bounded marker-based
+checkpoints; it is also display-free and captures the guest serial log. Build a
+fresh ISO before treating serial output as evidence.
+
 ## Pull requests
 
 - Keep each PR centered on one coherent change. The description should summarize behavior, tests run, and any known limitations or deferred work.

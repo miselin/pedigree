@@ -34,6 +34,9 @@ class FtdiSerialDevice : public UsbDevice, public Serial {
   virtual void initialiseDriver();
 
   virtual void setBase(uintptr_t nBaseAddr) {}
+  virtual bool hasData() {
+    return false;
+  }
   virtual char read();
   virtual char readNonBlock() {
     return 0;

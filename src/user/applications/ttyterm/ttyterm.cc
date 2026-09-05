@@ -100,6 +100,13 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  // Mirror the terminal to COM1 so QEMU can run without a graphical display.
+  // The serial endpoint is optional for targets without a serial device.
+  int serial = open("/dev/ttyS0", O_RDWR);
+  if (serial < 0) {
+    pedigree_log(LOG_WARNING, "ttyterm: couldn't open /dev/ttyS0: %s", strerror(errno));
+  }
+
   g_MasterPty = posix_openpt(O_RDWR);
   if (g_MasterPty < 0) {
     close(tty);
@@ -130,6 +137,9 @@ int main(int argc, char** argv) {
     close(1);
     close(2);
     close(tty);
+    if (serial >= 0) {
+      close(serial);
+    }
     close(g_MasterPty);
 
     // Open the slave ready for the child.
@@ -189,8 +199,18 @@ int main(int argc, char** argv) {
     FD_ZERO(&fds);
     FD_SET(g_MasterPty, &fds);
     FD_SET(tty, &fds);
+    int maxFd = g_MasterPty > tty ? g_MasterPty : tty;
+    if (serial >= 0) {
+      FD_SET(serial, &fds);
+      if (serial > maxFd) {
+        maxFd = serial;
+      }
+    }
 
-    int nReady = select(g_MasterPty + 1, &fds, NULL, NULL, NULL);
+    // SerialFile polls the UART, so bound the wait to make serial input
+    // visible without requiring a separate kernel reader thread.
+    struct timeval timeout = {0, 100000};
+    int nReady = select(maxFd + 1, &fds, NULL, NULL, &timeout);
     if (nReady > 0) {
       // Handle incoming data from the PTY.
       if (FD_ISSET(g_MasterPty, &fds)) {
@@ -201,8 +221,12 @@ int main(int argc, char** argv) {
         Input::inhibitEvents();
         ssize_t len = read(g_MasterPty, buffer, maxBuffSize);
         Input::uninhibitEvents();
-        if (len > 0)
+        if (len > 0) {
           write(tty, buffer, len);
+          if (serial >= 0) {
+            write(serial, buffer, len);
+          }
+        }
       }
 
       // Handle incoming data from the TTY.
@@ -212,6 +236,16 @@ int main(int argc, char** argv) {
         // Same problem as above - if we are writing and then an event
         // fires that triggers another write, we'll deadlock in the
         // kernel.
+        Input::inhibitEvents();
+        if (len > 0)
+          write(g_MasterPty, buffer, len);
+        Input::uninhibitEvents();
+      }
+
+      // Handle incoming data from the serial terminal.
+      if (serial >= 0 && FD_ISSET(serial, &fds)) {
+        ssize_t len = read(serial, buffer, maxBuffSize);
+
         Input::inhibitEvents();
         if (len > 0)
           write(g_MasterPty, buffer, len);

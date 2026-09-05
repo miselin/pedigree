@@ -35,6 +35,7 @@ class HostedSerial : public Serial {
   virtual void setBase(uintptr_t nBaseAddr);
   virtual ~HostedSerial();
 
+  virtual bool hasData();
   virtual char read();
   virtual char readNonBlock();
   virtual void write(char c);
