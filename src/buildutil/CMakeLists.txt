@@ -240,6 +240,7 @@ set(TESTSUITE_SRCS
     testsuite/test-DiskImage.cc
     testsuite/test-Ext2FillCache.cc
     testsuite/test-Ext2Writeback.cc
+    testsuite/test-FileMetadata.cc
     testsuite/test-Tree.cc
     testsuite/test-ObjectPool.cc
     testsuite/test-SlamAllocator.cc

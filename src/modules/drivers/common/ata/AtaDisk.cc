@@ -49,6 +49,8 @@ constexpr Time::Timestamp AtaDmaCompletionTimeout = 30 * Time::Multiplier::Secon
 constexpr size_t AtaDmaCompletionPollLimit = 30000000;
 constexpr Time::Timestamp AtaPioCompletionTimeout = 30 * Time::Multiplier::Second;
 constexpr size_t AtaPioCompletionPollLimit = 30000000;
+constexpr Time::Timestamp AtaFlushCompletionTimeout = 120 * Time::Multiplier::Second;
+constexpr size_t AtaFlushCompletionPollLimit = 120000000;
 
 bool waitForAtapiStatus(IoBase* commandRegs, IoBase* controlRegs, Time::Timestamp commandStarted,
                         size_t& commandPolls, AtaStatus& status) {
@@ -1119,6 +1121,62 @@ uint64_t AtaDisk::doWriteDirect(uint64_t location, uintptr_t page) {
     return 0;
 
   return writePageBuffer(location, page);
+}
+
+uint64_t AtaDisk::doSync(uint64_t location) {
+#if CRIPPLE_HDD
+  return 0;
+#endif
+
+  if (m_AtaDiskType != NotPacket) {
+    return ScsiDisk::doSync(location);
+  }
+
+  const size_t nativeBlockSize = getNativeBlockSize();
+  if (location >= getSize()) {
+    return 0;
+  }
+  const size_t validLength =
+      min(static_cast<size_t>(getSize() - location), TargetInfo::getPageSize());
+  if (!nativeBlockSize || !validLength || (location % nativeBlockSize) ||
+      (validLength % nativeBlockSize) || !m_CommandRegs || !m_ControlRegs) {
+    return 0;
+  }
+
+  if ((m_pIdent.__raw[83] & 0xC000) != 0x4000) {
+    return 0;
+  }
+  const bool extended = m_SupportsLBA48 && m_pIdent.data.command_sets_support.flush_cache_ext;
+  if (!extended && !m_pIdent.data.command_sets_support.flush_cache) {
+    WARNING("ATA: device does not advertise a supported cache flush command");
+    return 0;
+  }
+
+  // The controller request worker serialises this non-data command with I/O.
+  // Polling avoids relying on a data-transfer IRQ completion for cache flush.
+  m_ControlRegs->write8(2, 2);
+  AtaStatus status = ataWait(m_CommandRegs, m_ControlRegs);
+  if (status.reg.bsy || status.reg.drq) {
+    return 0;
+  }
+  m_CommandRegs->write8(m_IsMaster ? 0xA0 : 0xB0, 6);
+  status = ataWait(m_CommandRegs, m_ControlRegs);
+  if (status.reg.bsy || status.reg.drq || status.reg.df || !status.reg.drdy) {
+    return 0;
+  }
+
+  // ACS-3 permits FLUSH CACHE to exceed 30 seconds. A single larger budget
+  // still bounds a stuck device, including systems whose clock stops ticking.
+  AtaPioPollBudget budget = {Time::getTicks(), AtaFlushCompletionTimeout, 0,
+                             AtaFlushCompletionPollLimit};
+  m_CommandRegs->write8(extended ? 0xEA : 0xE7, 7);
+  status.__reg_contents = 0;
+  if (!ataPollPioWriteStatus(m_CommandRegs, m_ControlRegs, budget, status, false)) {
+    WARNING("ATA: cache flush failed or exceeded its completion deadline, status="
+            << status.__reg_contents);
+    return 0;
+  }
+  return validLength;
 }
 
 uint64_t AtaDisk::writePageBuffer(uint64_t location, uintptr_t buffer) {

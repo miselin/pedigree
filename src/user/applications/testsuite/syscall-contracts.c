@@ -41,7 +41,7 @@ static void file_contracts(void) {
   require(write(file, "data", 4) == 4, "write");
   struct stat status;
   require(fstat(file, &status) == 0 && status.st_size == 4 && S_ISREG(status.st_mode) &&
-              status.st_blocks == 1,
+              status.st_blocks == sysconf(_SC_PAGESIZE) / 512,
           "file metadata");
   close(file);
 

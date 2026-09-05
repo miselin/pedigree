@@ -49,6 +49,13 @@ RamFile::~RamFile() {
   truncate();
 }
 
+File::Attributes RamFile::getAttributes() const {
+  LockGuard<Mutex> guard(m_FileBlocksLock);
+  Attributes attributes = File::getAttributes();
+  attributes.blocks = static_cast<uint64_t>(m_BlockOffsets.count()) * (getBlockSize() / 512);
+  return attributes;
+}
+
 void RamFile::truncate() {
   resize(0);
 }

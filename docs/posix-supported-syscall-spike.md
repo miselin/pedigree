@@ -77,6 +77,81 @@ fragments while preserving unrelated ranges' allocation order. Native
 regressions cover this case, late bridges, copy policy, and self-assignment.
 This repair is not proof of the earlier guest failure's cause.
 
+## Third pass: checked writeback and metadata
+
+This pass starts at `48756ea35` and adds no syscall mappings. Earlier private-signal
+changes remain in the shared working tree and are outside this pass.
+
+- File, mapping, cache, and disk sync paths return checked results. Ext2 backend
+  failures reach `fsync` and `msync` as `EIO`; unmapped `msync` ranges remain
+  `ENOMEM` and fail before submitting any pages. Multiple pages are attempted
+  even after a failure, and retries preserve successful partial progress.
+- Failed cache writes remain dirty despite unchanged checksums. Eviction retains
+  their bytes, background retries are bounded per scan, and the shared Ext2 inode
+  state keeps failed fill pages after the last linked alias closes. Reopening can
+  retry without using an object whose destructor has already run.
+- Full Ext2 regular-file sync checks data, indirect mappings, inode metadata, and the relevant
+  allocation bitmaps, descriptors, and superblock counters. SCSI sync uses the
+  caller's pinned page directly. Both ATA controller paths now dispatch checked
+  device-cache flushes. Ordinary writes retain asynchronous data submission.
+- Successful and partial ordinary writes update mtime and ctime; zero progress
+  preserves them. Hardlinks observe the same metadata. RamFs reports allocated
+  pages in 512-byte units, including sparse growth and truncation. Existing
+  `utime`, `utimes`, and `futimesat` paths use seconds consistently and validate
+  microseconds and the currently supported unsigned 32-bit timestamp range.
+- The original VM failure has better diagnostics and 24 guarded sparse split /
+  removal cases per guest suite. Hosted cases separately inspect mapping objects,
+  reservations, PTEs, page loans, and zero contents. No further VM ownership defect
+  was established, so the original intermittent failure remains unresolved.
+
+The first integration attempt exposed `PEDIGREE_CRIPPLE_HDD=TRUE` in the shared
+build. This disables actual disk writes; checked writeback correctly returned
+failure where the earlier void path reported success. Persistence validation
+therefore uses a separate ISO built with that flag false and a disposable HDD
+under QEMU snapshot mode. The shared build's original setting is restored after
+validation. Earlier guest passes are cache behavior evidence, not disk-persistence
+proof.
+
+A write-enabled one-CPU run then exposed a one-second RequestQueue watchdog
+panic while the lower disk queue was progressing. Device operations already have
+longer bounded deadlines, so an interval without a completed outer request is a
+warning, not proof of deadlock. Queue sampling remains active; backend deadlines
+still determine I/O failure. Ordinary write submission was also restored to avoid
+scheduling a device flush for every write. The failed runs are preserved in the
+pass artifact directory.
+
+Final verification:
+
+- **126 native tests passed**, including injected data-read, constituent-write,
+  inode/bitmap writeback, host `msync`, partial-progress, retry, close/reopen,
+  timestamps, and allocation-accounting cases.
+  [Native log](/private/tmp/pedigree-posix-pass3-20260905/native-final-tests.log).
+- **42 routing/signal checks passed**; syscall translations are unchanged.
+  [Routing log](/private/tmp/pedigree-posix-pass3-20260905/routing-tests.log).
+- **All ten guest suites exited zero on one and four CPUs**, with disk writes
+  enabled, explicit end markers, and snapshot isolation. Runs took **50.9s and
+  42.8s**. Both include all 24 new sparse VM cases and Ext2/RamFs metadata checks.
+  The one-CPU run logged two intervals without CacheManager completion, then
+  resumed and finished; this confirms those samples were not terminal deadlocks.
+  RamFs symlink tests remain explicitly skipped.
+  [One CPU](/private/tmp/pedigree-posix-pass3-20260905/spike-final-1cpu.serial.log),
+  [four CPUs](/private/tmp/pedigree-posix-pass3-20260905/spike-final-4cpu.serial.log).
+- **Nine hosted regression files compile**, including public `fsync`/`msync`
+  failure propagation and SCSI failed-flush/pin ownership. They were **not linked
+  or executed**: the local Linux hosted runtime remains unavailable.
+  [Compile log](/private/tmp/pedigree-posix-pass3-20260905/hosted-final-compile.log).
+- Twelve repetitions of the original VM suite also passed on four CPUs before
+  these edits. Neither those repetitions nor the expanded cases establish the
+  cause of the earlier intermittent failure.
+  [Baseline log](/private/tmp/pedigree-posix-pass3-20260905/spike-baseline-vm-4cpu.serial.log).
+- Changed-line formatting and `git diff --check` passed. Both the write-enabled
+  test build and the restored write-inhibited shared build succeeded. Unrelated
+  baseline edits were preserved; this remains shared-working-tree verification.
+  No sanitizer, physical-device failure, endurance, or power-loss testing was run.
+
+Full commands, preserved failures, and the owned patch are in the
+[pass handoff](/private/tmp/pedigree-posix-pass3-20260905/handoff.md).
+
 ## Remaining boundaries
 
 These repairs do not establish general musl conformance. The following existing
@@ -87,11 +162,12 @@ capability gaps remain material before making that claim:
   implementation is compile-checked, and other architectures lack this repair.
 - Ext2 growth still allocates intervening blocks. Repairing writes into existing
   sparse holes does not establish sparse growth or allocation-policy parity.
-  Ordinary writes still need timestamp advancement; default block counts on
-  non-Ext2 backends remain estimates based on apparent size.
+  RamFs now counts allocated pages; FAT and other backends still need a
+  separate block-accounting audit.
 - Ext2 retains a small identity state and registry entry for each touched linked
-  inode until unlink or unmount. Inactive block-map capacity is released. A fully
-  bounded identity registry needs explicit futex-waiter lifetime ownership.
+  inode until unlink or unmount. Inactive block-map capacity is released after
+  successful cache drain; failed writeback retains it for retry. A fully bounded
+  identity registry needs explicit futex-waiter lifetime ownership.
 - Robust cleanup remains bounded. Inaccessible or corrupt lists are skipped,
   and foreign-context teardown retains nofault-only access. Owner-context COW,
   demand paging, protected-memory preservation, and successful exec now have
@@ -100,9 +176,12 @@ capability gaps remain material before making that claim:
   no journal. Unsupported filesystem backends return an error; this spike does
   not add RamFs symlinks or FAT mutation capabilities.
 - The VM permission work is validated on amd64; other non-hosted architectures
-  reject unsupported `PROT_NONE`. Backend writeback still cannot report every
-  I/O failure through `msync` because the underlying sync interface returns void.
-  Legacy `brk` and stack regions are not newly represented as VM mapping objects.
+  reject unsupported `PROT_NONE`. Checked writeback now covers Ext2 through
+  SCSI/ATA and buildutility DiskImage. FAT still has void backend writes, and
+  other disks without checked sync return failure. Terminal backend destruction
+  reports unwritten pages but cannot recover them afterwards. Directory `fsync`
+  still needs its own checked backend path. Legacy `brk` and stack regions are
+  not newly represented as VM mapping objects.
 - Existing stubs and unsupported futex operations remain deferred, as do the
   broader signal restart, terminal timing, and threaded-exec conformance gaps.
 

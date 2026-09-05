@@ -13,9 +13,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <utime.h>
 
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/time.h>
+#include <sys/uio.h>
 
 extern void fail(void) __attribute__((noreturn));
 
@@ -264,6 +268,126 @@ static void truncate_contracts(void) {
   printf("FS-MUTATION-CONTRACT: PASS %s truncation-and-zero-filling\n", filesystem);
 }
 
+static void metadata_contracts(int hardlinks) {
+  int file = create_file("metadata", "data");
+  int writer = file;
+  if (hardlinks) {
+    require(link("metadata", "metadata-alias") == 0, "create metadata alias");
+    writer = open("metadata-alias", O_RDWR);
+    require(writer >= 0, "open metadata alias");
+  }
+  const struct utimbuf historical = {.actime = 11, .modtime = 22};
+  const struct timeval fractional[2] = {{33, 999999}, {44, 999999}};
+  struct stat before;
+  struct stat after;
+  require(syscall(SYS_utime, "metadata", &historical) == 0 && fstat(file, &after) == 0 &&
+              after.st_atime == 11 && after.st_mtime == 22,
+          "utime stores seconds");
+  require(syscall(SYS_utimes, "metadata", fractional) == 0 && fstat(file, &after) == 0 &&
+              after.st_atime == 33 && after.st_mtime == 44 && !after.st_atim.tv_nsec &&
+              !after.st_mtim.tv_nsec,
+          "utimes rounds down to filesystem seconds");
+  require(syscall(SYS_futimesat, AT_FDCWD, "metadata", fractional) == 0 &&
+              fstat(file, &before) == 0 && before.st_atime == 33 && before.st_mtime == 44,
+          "futimesat stores seconds");
+  const struct utimbuf invalid_seconds[] = {{-1, 22}, {11, 0x100000000LL}};
+  for (size_t i = 0; i < sizeof(invalid_seconds) / sizeof(invalid_seconds[0]); ++i) {
+    errno = 0;
+    require(syscall(SYS_utime, "metadata", &invalid_seconds[i]) == -1 && errno == EINVAL,
+            "utime rejects unrepresentable seconds");
+  }
+  const struct timeval invalid_fractional[][2] = {{{33, -1}, {44, 0}},
+                                                  {{33, 0}, {44, 1000000}},
+                                                  {{-1, 0}, {44, 0}},
+                                                  {{33, 0}, {0x100000000LL, 0}}};
+  for (size_t i = 0; i < sizeof(invalid_fractional) / sizeof(invalid_fractional[0]); ++i) {
+    errno = 0;
+    require(syscall(SYS_futimesat, AT_FDCWD, "metadata", invalid_fractional[i]) == -1 &&
+                errno == EINVAL,
+            "futimesat rejects invalid timestamps");
+  }
+  require(fstat(file, &after) == 0 && after.st_atime == before.st_atime &&
+              after.st_mtime == before.st_mtime && after.st_ctime == before.st_ctime,
+          "invalid timestamps preserve metadata");
+  require(syscall(SYS_futimesat, AT_FDCWD, "metadata", NULL) == 0 && fstat(file, &after) == 0 &&
+              after.st_atime > 44 && after.st_atime == after.st_mtime &&
+              after.st_mtime <= after.st_ctime,
+          "implicit timestamp uses current seconds");
+
+  require(syscall(SYS_utime, "metadata", &historical) == 0 && fstat(file, &before) == 0,
+          "seed write timestamps");
+  require(
+      write(writer, "", 0) == 0 && pwrite(writer, "", 0, 0) == 0 && writev(writer, NULL, 0) == 0,
+      "empty writes succeed");
+  errno = 0;
+  require(pwrite(writer, "x", 1, -1) == -1 && errno == EINVAL, "negative write offset rejected");
+  require(fstat(file, &after) == 0 && after.st_atime == before.st_atime &&
+              after.st_mtime == before.st_mtime && after.st_ctime == before.st_ctime &&
+              after.st_size == before.st_size && after.st_blocks == before.st_blocks,
+          "zero-progress writes preserve metadata");
+
+  char bytes[] = "XY";
+  struct iovec vector[2] = {{bytes, 1}, {bytes + 1, 1}};
+  for (int operation = 0; operation < 4; ++operation) {
+    require(syscall(SYS_utime, "metadata", &historical) == 0 && lseek(writer, 0, SEEK_SET) == 0,
+            "reset overwrite timestamp");
+    ssize_t written;
+    if (operation == 1) {
+      written = pwrite(writer, bytes, 2, 0);
+    } else if (operation == 2) {
+      written = writev(writer, vector, 2);
+    } else {
+      if (operation == 3) {
+        require(fcntl(writer, F_SETFL, O_APPEND) == 0, "enable metadata append");
+      }
+      written = write(writer, bytes, 2);
+    }
+    require(written == 2 && fstat(file, &after) == 0 && after.st_atime == 11 &&
+                after.st_mtime > 22 && after.st_ctime == after.st_mtime,
+            "successful writes update modification and change times");
+    require(fstat(writer, &before) == 0 && before.st_mtime == after.st_mtime &&
+                before.st_ctime == after.st_ctime && before.st_blocks == after.st_blocks &&
+                before.st_size == after.st_size,
+            "write metadata agrees through both descriptors");
+  }
+  if (hardlinks) {
+    require(fcntl(writer, F_SETFL, 0) == 0 && pwrite(writer, bytes, 1, 3 * after.st_blksize) == 1 &&
+                fstat(writer, &before) == 0 && fstat(file, &after) == 0 &&
+                before.st_blocks == after.st_blocks &&
+                after.st_blocks == 4 * (after.st_blksize / 512),
+            "hardlinks share extended allocation counts");
+    close(writer);
+    require(unlink("metadata-alias") == 0, "remove metadata alias");
+  }
+  close(file);
+  require(unlink("metadata") == 0, "remove metadata file");
+  printf("FS-MUTATION-CONTRACT: PASS %s ordinary-write-metadata\n", filesystem);
+}
+
+static void ramfs_allocation_contracts(void) {
+  const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+  const blkcnt_t sectors_per_page = page_size / 512;
+  int file = create_file("allocation", "");
+  struct stat status;
+  require(fstat(file, &status) == 0 && status.st_blocks == 0 &&
+              ftruncate(file, 3 * page_size) == 0 && fstat(file, &status) == 0 &&
+              status.st_blocks == 0,
+          "untouched ramfs growth allocates no pages");
+  require(pwrite(file, "x", 1, 2 * page_size + 17) == 1 && fstat(file, &status) == 0 &&
+              status.st_blocks == sectors_per_page,
+          "ramfs accounts one touched page");
+  require(pwrite(file, "x", 1, 0) == 1 && fstat(file, &status) == 0 &&
+              status.st_blocks == 2 * sectors_per_page,
+          "ramfs excludes untouched middle page");
+  require(ftruncate(file, page_size) == 0 && fstat(file, &status) == 0 &&
+              status.st_blocks == sectors_per_page && ftruncate(file, 0) == 0 &&
+              fstat(file, &status) == 0 && status.st_blocks == 0,
+          "ramfs truncation retires allocated pages");
+  close(file);
+  require(unlink("allocation") == 0, "remove allocation file");
+  printf("FS-MUTATION-CONTRACT: PASS %s allocated-page-accounting\n", filesystem);
+}
+
 static void filesystem_contracts(const char* base, const char* label, int hardlinks) {
   filesystem = label;
   char path[96];
@@ -280,6 +404,10 @@ static void filesystem_contracts(const char* base, const char* label, int hardli
     printf("FS-MUTATION-CONTRACT: SKIP %s terminal-symlinks unsupported-backend\n", filesystem);
   }
   truncate_contracts();
+  metadata_contracts(hardlinks);
+  if (!hardlinks) {
+    ramfs_allocation_contracts();
+  }
   require(fchdir(previous) == 0, "restore working directory");
   close(previous);
   require(rmdir(path) == 0, "remove isolated contract directory");

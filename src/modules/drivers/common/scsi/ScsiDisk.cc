@@ -203,7 +203,7 @@ void ScsiDisk::leaveCacheRange(CacheRangeAdmission& admission) {
   guard.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
 }
 
-void ScsiDisk::cacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
+bool ScsiDisk::cacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
                              void* meta) {
   ScsiDisk* pDisk = reinterpret_cast<ScsiDisk*>(meta);
 
@@ -211,16 +211,16 @@ void ScsiDisk::cacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc,
     case CacheConstants::WriteBack: {
       // Cache shutdown runs after external operations have been closed,
       // so writeback must use the internal path.
-      pDisk->flushCachePage(loc);
-    } break;
+      return pDisk->flushCachePage(loc, page);
+    }
     case CacheConstants::Eviction:
       // no-op for ScsiDisk
-      break;
+      return true;
     default:
       WARNING(
           "ScsiDisk: unknown cache callback -- could indicate "
           "potential future I/O issues.");
-      break;
+      return false;
   }
 }
 
@@ -573,17 +573,43 @@ void ScsiDisk::write(uint64_t location) {
 }
 
 void ScsiDisk::flush(uint64_t location) {
+  if (!sync(location, false)) {
+    WARNING("ScsiDisk::flush - writeback failed");
+  }
+}
+
+bool ScsiDisk::sync(uint64_t location, bool async) {
   ScsiController* pParent = static_cast<ScsiController*>(m_pParent);
   if (!pParent) {
-    return;
+    return false;
   }
 
   OperationBarrier::Lease operation;
   if (!pParent->acquireDiskOperation(operation)) {
-    return;
+    return false;
   }
 
-  flushCachePage(location);
+  if (location >= getSize()) {
+    return false;
+  }
+  const uint64_t alignPoint = getAlignmentPoint(location);
+  const uint64_t pageLocation = location - ((location - alignPoint) % ScsiCachePageBytes);
+  if (async) {
+    return m_Cache.sync(pageLocation, true);
+  }
+
+  // A filesystem cache callback can synchronously flush this lower cache.
+  // Re-entering the shared CacheManager queue would reject that nested request.
+  const uintptr_t page = m_Cache.lookup(pageLocation);
+  if (!page) {
+    return false;
+  }
+  CachePageGuard pageGuard(m_Cache, pageLocation);
+  const bool succeeded = flushCachePage(pageLocation, page);
+  if (!succeeded) {
+    m_Cache.markDirty(pageLocation);
+  }
+  return succeeded;
 }
 
 bool ScsiDisk::retireCachePage(uint64_t location) {
@@ -613,27 +639,27 @@ bool ScsiDisk::retireCachePage(uint64_t location) {
   return m_Cache.retireWriteback(pageLocation, retireCachePageCallback, this);
 }
 
-void ScsiDisk::flushCachePage(uint64_t location) {
+bool ScsiDisk::flushCachePage(uint64_t location, uintptr_t page) {
 #if !CRIPPLE_HDD
   ScsiController* pParent = static_cast<ScsiController*>(m_pParent);
-  if (!pParent) {
-    return;
+  if (!pParent || !page) {
+    return false;
   }
 
   const size_t nativeBlockSize = getNativeBlockSize();
   if (!nativeBlockSize || (ScsiCachePageBytes % nativeBlockSize)) {
     ERROR("ScsiDisk::flush - incompatible cache and native block sizes.");
-    return;
+    return false;
   }
 
   if (location >= getSize()) {
     ERROR("ScsiDisk::flush - location too high");
-    return;
+    return false;
   }
 
   if ((location / getNativeBlockSize()) >= getBlockCount()) {
     ERROR("ScsiDisk::flush - location too high");
-    return;
+    return false;
   }
 
   const uint64_t alignPoint = getAlignmentPoint(location);
@@ -642,28 +668,24 @@ void ScsiDisk::flushCachePage(uint64_t location) {
   const size_t validLength = getCachePageValidLength(pageLocation);
   if (!validLength || (pageLocation % nativeBlockSize) || (validLength % nativeBlockSize)) {
     ERROR("ScsiDisk::flush - invalid terminal cache page geometry.");
-    return;
+    return false;
   }
 
-  uintptr_t buffer;
-  if (!(buffer = m_Cache.lookup(pageLocation))) {
-    return;
-  }
-
-  // Make sure this page remains for both the write AND the sync.
-  const bool pinned = m_Cache.pin(pageLocation);
-  assert(pinned);
-
+  // The caller owns a pin even if retirement closes admission meanwhile.
+  // Direct writes borrow it without another lookup or transferred reference.
   const uint64_t writeResult =
-      pParent->addRequest(0, SCSI_REQUEST_WRITE, reinterpret_cast<uint64_t>(this), pageLocation);
+      pParent->addRequest(0, RequestQueue::NewRequest, SCSI_REQUEST_WRITE_DIRECT,
+                          reinterpret_cast<uint64_t>(this), pageLocation, page);
   const uint64_t syncResult =
       pParent->addRequest(0, SCSI_REQUEST_SYNC, reinterpret_cast<uint64_t>(this), pageLocation);
-  if (!writeResult || !syncResult) {
+  const bool success = writeResult == validLength && syncResult != 0;
+  if (!success) {
     WARNING("ScsiDisk::flush - write or synchronise request failed");
   }
 
-  // Undo our pin for write+sync.
-  m_Cache.release(pageLocation);
+  return success;
+#else
+  return false;
 #endif
 }
 

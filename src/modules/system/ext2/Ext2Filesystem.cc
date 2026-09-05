@@ -604,15 +604,105 @@ void Ext2Filesystem::unpinBlock(uint64_t location) {
   m_pDisk->unpin(static_cast<uint64_t>(m_BlockSize) * location);
 }
 
-void Ext2Filesystem::syncBlock(uint32_t block, bool async) {
-  if (!block)
-    return;
+bool Ext2Filesystem::syncBlock(uint32_t block, bool async) {
+  if (!block) {
+    return true;
+  }
+  return m_pDisk->sync(static_cast<uint64_t>(m_BlockSize) * block, async);
+}
 
-  const uint64_t location = static_cast<uint64_t>(m_BlockSize) * block;
-  if (async)
-    m_pDisk->write(location);
-  else
-    m_pDisk->flush(location);
+bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node) {
+  if (!inode || !m_pSuperblock) {
+    return false;
+  }
+#if THREADS || defined(STANDALONE_MUTEXES)
+  LockGuard<Mutex> allocationGuard(m_WriteLock);
+#endif
+  const uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+  const uint32_t blocksPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
+  if (!inodesPerGroup || !blocksPerGroup) {
+    return false;
+  }
+  const uint32_t inodeGroup = (inode - 1) / inodesPerGroup;
+  const uint32_t index = (inode - 1) % inodesPerGroup;
+  if (inodeGroup >= m_nGroupDescriptors || !ensureInodeTableLoaded(inodeGroup)) {
+    return false;
+  }
+
+  Vector<uint8_t> groups(m_nGroupDescriptors);
+  for (size_t i = 0; i < m_nGroupDescriptors; ++i) {
+    groups.pushBack(i == inodeGroup ? 1 : 0);
+  }
+  bool succeeded = true;
+  const uint32_t firstBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block);
+  auto includeBlockGroup = [&](uint32_t block) {
+    if (!block) {
+      return;
+    }
+    if (block < firstBlock || (block - firstBlock) / blocksPerGroup >= groups.count()) {
+      succeeded = false;
+      return;
+    }
+    groups[(block - firstBlock) / blocksPerGroup] = 1;
+  };
+  for (size_t i = 0; i < 12; ++i) {
+    includeBlockGroup(LITTLE_TO_HOST32(node.m_pInode->i_block[i]));
+  }
+
+  const size_t entries = m_BlockSize / sizeof(uint32_t);
+  Vector<Ext2Node::MappingPage> mappings;
+  succeeded = node.collectMappingPages(LITTLE_TO_HOST32(node.m_pInode->i_block[12]), 1, 12, entries,
+                                       mappings) &&
+              succeeded;
+  succeeded = node.collectMappingPages(LITTLE_TO_HOST32(node.m_pInode->i_block[13]), 2,
+                                       12 + entries, entries * entries, mappings) &&
+              succeeded;
+  succeeded = node.collectMappingPages(LITTLE_TO_HOST32(node.m_pInode->i_block[14]), 3,
+                                       12 + entries + entries * entries,
+                                       entries * entries * entries, mappings) &&
+              succeeded;
+  for (const Ext2Node::MappingPage& mapping : mappings) {
+    includeBlockGroup(mapping.block);
+    if (mapping.depth == 1) {
+      const uint32_t* children = reinterpret_cast<const uint32_t*>(mapping.buffer);
+      for (size_t i = 0; i < entries; ++i) {
+        includeBlockGroup(LITTLE_TO_HOST32(children[i]));
+      }
+    }
+    succeeded = syncBlock(mapping.block, false) && succeeded;
+    unpinBlock(mapping.block);
+  }
+
+  // The inode is durable only once the allocation metadata needed to recover
+  // its data and mapping blocks has also reached the backend.
+  for (size_t group = 0; group < groups.count(); ++group) {
+    if (!groups[group]) {
+      continue;
+    }
+    GroupDesc* descriptor = m_pGroupDescriptors[group];
+    if (ensureFreeBlockBitmapLoaded(group)) {
+      const uint32_t start = LITTLE_TO_HOST32(descriptor->bg_block_bitmap);
+      for (size_t i = 0; i < m_pBlockBitmaps[group].count(); ++i) {
+        succeeded = syncBlock(start + i, false) && succeeded;
+      }
+    } else {
+      succeeded = false;
+    }
+    const uint32_t descriptorBlock = firstBlock + 1 + (group * sizeof(GroupDesc)) / m_BlockSize;
+    succeeded = syncBlock(descriptorBlock, false) && succeeded;
+  }
+  if (ensureFreeInodeBitmapLoaded(inodeGroup)) {
+    const uint32_t start = LITTLE_TO_HOST32(m_pGroupDescriptors[inodeGroup]->bg_inode_bitmap);
+    for (size_t i = 0; i < m_pInodeBitmaps[inodeGroup].count(); ++i) {
+      succeeded = syncBlock(start + i, false) && succeeded;
+    }
+  } else {
+    succeeded = false;
+  }
+  succeeded = m_pDisk->sync(1024ULL, false) && succeeded;
+  const uint32_t inodeBlock = LITTLE_TO_HOST32(m_pGroupDescriptors[inodeGroup]->bg_inode_table) +
+                              ((index * m_InodeSize) / m_BlockSize);
+  return syncBlock(inodeBlock, false) && succeeded;
 }
 
 uint32_t Ext2Filesystem::findFreeBlock(uint32_t inode) {
@@ -920,7 +1010,7 @@ Ext2InodeState* Ext2Filesystem::acquireInodeState(uint32_t inode, Inode* metadat
   LockGuard<Mutex> guard(m_InodeStateLock);
   Ext2InodeState* state = m_InodeStates.lookup(inode);
   if (state) {
-    if (!state->references) {
+    if (!state->references && !state->cache) {
       state->reloadMappings(metadata, this);
     }
     ++state->references;
@@ -941,9 +1031,11 @@ void Ext2Filesystem::releaseInodeState(uint32_t inode, Ext2InodeState* state, Ex
     assert(!state->pageLoans && !state->files.count());
     // Keep the nonreusable futex identity through the linked inode lifetime,
     // but reload potentially large block maps when an alias next opens it.
-    state->blocks.clear(true);
+    if (!state->cache) {
+      state->blocks.clear(true);
+      state->metadataBlocks = 0;
+    }
     state->files.clear(true);
-    state->metadataBlocks = 0;
     return;
   }
   m_InodeStates.remove(inode);

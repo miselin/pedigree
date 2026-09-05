@@ -44,6 +44,7 @@ struct MsyncCall {
 };
 
 std::vector<MsyncCall> g_MsyncCalls;
+bool g_FailMsync = false;
 
 uint8_t patternAt(size_t offset) {
   return static_cast<uint8_t>((offset / kBlockSize) * 37 + (offset % 251));
@@ -64,6 +65,7 @@ void addMappingPages(std::set<uintptr_t>& pages, uintptr_t pointer, uint64_t loc
 class DiskImageTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    g_FailMsync = false;
     char path[] = "/tmp/pedigree-diskimage-XXXXXX";
     const int fd = mkstemp(path);
     ASSERT_GE(fd, 0);
@@ -81,6 +83,7 @@ class DiskImageTest : public ::testing::Test {
   }
 
   void TearDown() override {
+    g_FailMsync = false;
     if (!m_Path.empty()) {
       unlink(m_Path.c_str());
     }
@@ -102,7 +105,10 @@ class DiskImageTest : public ::testing::Test {
 }  // namespace
 
 int diskImageMsync(void* address, size_t length, int flags) {
-  const int result = ::msync(address, length, flags);
+  const int result = g_FailMsync ? -1 : ::msync(address, length, flags);
+  if (g_FailMsync) {
+    errno = EIO;
+  }
   const int savedErrno = errno;
   g_MsyncCalls.push_back({reinterpret_cast<uintptr_t>(address), length, flags, result});
   errno = savedErrno;
@@ -214,6 +220,31 @@ TEST_F(DiskImageTest, ProvidesSynchronousFlush) {
   const size_t logicalOffset = pageLocation % static_cast<size_t>(hostPageSize);
   EXPECT_EQ(call.length, logicalOffset + kBlockSize);
   EXPECT_EQ(readByte(offset), 0xC3);
+}
+
+TEST_F(DiskImageTest, CheckedSyncReportsFailureAndAllowsRetry) {
+  DiskImage image(m_Path.c_str());
+  ASSERT_TRUE(image.initialise());
+  const BufferView data = image.read(kBlockSize);
+  ASSERT_TRUE(data);
+  data[0] = 0xB7;
+
+  g_FailMsync = true;
+  EXPECT_FALSE(image.sync(kBlockSize, false));
+  EXPECT_EQ(errno, EIO);
+  EXPECT_EQ(data[0], 0xB7);
+  g_FailMsync = false;
+  EXPECT_TRUE(image.sync(kBlockSize, false));
+  EXPECT_EQ(readByte(kBlockSize), 0xB7);
+  image.unpin(kBlockSize);
+}
+
+TEST_F(DiskImageTest, CheckedSyncRejectsIncompleteOrAbsentBacking) {
+  DiskImage image(m_Path.c_str());
+  EXPECT_FALSE(image.sync(0, false));
+  ASSERT_TRUE(image.initialise());
+  EXPECT_FALSE(image.sync(3 * kBlockSize, false));
+  EXPECT_FALSE(image.sync(kImageSize, true));
 }
 
 #if !HAS_ADDRESS_SANITIZER

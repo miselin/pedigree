@@ -103,6 +103,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   virtual BufferView read(uint64_t location);
   virtual void write(uint64_t location);
   virtual void flush(uint64_t location);
+  virtual bool sync(uint64_t location, bool async);
   MUST_USE_RESULT virtual bool retireCachePage(uint64_t location);
   virtual void align(uint64_t location);
 
@@ -209,7 +210,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   bool getCapacityInternal(size_t* blockNumber, size_t* blockSize);
 
   /** Writes a cache page without client-operation admission. */
-  void flushCachePage(uint64_t location);
+  bool flushCachePage(uint64_t location, uintptr_t page);
 
   /** Issues the SCSI write fallback sequence for one supplied page. */
   bool writePageBuffer(uint64_t location, uintptr_t page);
@@ -223,7 +224,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   /** Snapshots the most recent alignment boundary for a location. */
   uint64_t getAlignmentPoint(uint64_t location) const;
 
-  static void cacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
+  static bool cacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
                             void* meta);
 
   class ScsiController* m_pController;

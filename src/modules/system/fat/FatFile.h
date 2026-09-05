@@ -63,7 +63,7 @@ class FatFile : public File {
   virtual void extend(size_t newSize, uint64_t location, uint64_t size);
 
   using File::sync;
-  virtual void sync(size_t offset, bool async);
+  virtual bool sync(size_t offset, bool async);
 
   virtual bool pinBlock(uint64_t location);
   virtual void unpinBlock(uint64_t location);

@@ -35,6 +35,7 @@ constexpr uint64_t ShortDirectLocation = 9 * PageBytes;
 constexpr uint64_t PinnedDirectLocation = 10 * PageBytes;
 constexpr uint64_t CancelledDirectLocation = 11 * PageBytes;
 constexpr uint64_t CanonicalDirectLocation = 12 * PageBytes;
+constexpr uint64_t CheckedSyncLocation = 13 * PageBytes;
 constexpr uint64_t ReadFirstLocation = 16 * PageBytes;
 constexpr uint64_t RejectedReadLocation = 18 * PageBytes;
 constexpr uint64_t RetireFirstExtent = 24 * PageBytes;
@@ -45,6 +46,7 @@ constexpr uint64_t LookupPauseLocation = 36 * PageBytes;
 constexpr uint8_t CdDvdPeripheral = 0x05;
 
 enum class WriteMode { Initialising, FailAll, PassWrite12, UnitNotReady };
+enum class SyncMode { Pass10, Pass16, FailAll };
 enum class RequestEvent : uint8_t { Read = 1, Direct = 2 };
 
 class ScriptedScsiController final : public ScsiController {
@@ -55,6 +57,9 @@ class ScriptedScsiController final : public ScsiController {
         m_Mode(WriteMode::Initialising),
         m_WriteOpcodes(),
         m_WriteCount(0),
+        m_SyncMode(SyncMode::Pass10),
+        m_SyncOpcodes(),
+        m_SyncCount(0),
         m_UnitReadyCount(0),
         m_LastWriteBuffer(0),
         m_DirectRequestCount(0),
@@ -145,6 +150,15 @@ class ScriptedScsiController final : public ScsiController {
       case 0xaa:
       case 0x8a:
         return handleWrite(opcode, nCommandSize, pRespBuffer, nRespBytes, bWrite);
+      case 0x35:
+      case 0x91:
+        if (bWrite || pRespBuffer || nRespBytes || nCommandSize != (opcode == 0x35 ? 10 : 16) ||
+            m_SyncCount >= sizeof(m_SyncOpcodes)) {
+          m_Valid = false;
+          return false;
+        }
+        m_SyncOpcodes[m_SyncCount++] = opcode;
+        return m_SyncMode == SyncMode::Pass10 || (m_SyncMode == SyncMode::Pass16 && opcode == 0x91);
       default:
         m_Valid = false;
         return false;
@@ -161,6 +175,16 @@ class ScriptedScsiController final : public ScsiController {
     m_DirectLocation = 0;
     m_DirectPage = 0;
     m_LastWriteBytes = 0;
+    m_SyncCount = 0;
+  }
+
+  void beginSync(SyncMode mode) {
+    m_SyncMode = mode;
+    m_SyncCount = 0;
+  }
+
+  bool syncTraceMatches(const uint8_t* expected, size_t count) const {
+    return m_Valid && m_SyncCount == count && !MemoryCompare(m_SyncOpcodes, expected, count);
   }
 
   void beginRequestTrace() {
@@ -348,6 +372,9 @@ class ScriptedScsiController final : public ScsiController {
   WriteMode m_Mode;
   uint8_t m_WriteOpcodes[16];
   size_t m_WriteCount;
+  SyncMode m_SyncMode;
+  uint8_t m_SyncOpcodes[8];
+  size_t m_SyncCount;
   size_t m_UnitReadyCount;
   uintptr_t m_LastWriteBuffer;
   size_t m_DirectRequestCount;
@@ -422,6 +449,10 @@ class HostedScsiDisk final : public ScsiDisk {
 
   bool evictPage(uint64_t location) {
     return getCache().evict(location);
+  }
+
+  void checksumPage(uint64_t location) {
+    getCache().triggerChecksum(location);
   }
 
   bool evictRange(uint64_t location, size_t length) {
@@ -1344,6 +1375,67 @@ bool scsiRetireReadRecheck(Fixture& fixture) {
   return passed;
 }
 
+bool scsiCheckedSync() {
+  constexpr uint8_t SuccessfulWrites[] = {0x2a, 0x2a, 0x2a, 0xaa};
+  constexpr uint8_t FailedSyncs[] = {0x35, 0x35, 0x35, 0x91, 0x91, 0x91};
+  constexpr uint8_t RetriedSyncs[] = {0x35, 0x35, 0x35, 0x91};
+  Fixture fixture;
+  if (!fixture.ready || !fixture.disk.preparePage(CheckedSyncLocation)) {
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-checked-sync: fixture setup");
+    return false;
+  }
+  const uintptr_t page = fixture.disk.pageAddress(CheckedSyncLocation);
+  fixture.disk.checksumPage(CheckedSyncLocation);
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::FailAll);
+  fixture.disk.beginUnpinObservation();
+  const bool failed = !fixture.disk.sync(CheckedSyncLocation, false);
+  const size_t failureUnpins = fixture.disk.endUnpinObservation();
+  const bool failureReported =
+      failed && failureUnpins == 0 &&
+      fixture.controller.directTupleMatches(&fixture.disk, CheckedSyncLocation, page) &&
+      fixture.controller.writeTraceMatches(SuccessfulWrites, sizeof(SuccessfulWrites)) &&
+      fixture.controller.syncTraceMatches(FailedSyncs, sizeof(FailedSyncs));
+
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::FailAll);
+  const bool retained =
+      !fixture.disk.evictPage(CheckedSyncLocation) && fixture.disk.hasPage(CheckedSyncLocation) &&
+      fixture.disk.pageAddress(CheckedSyncLocation) == page &&
+      fixture.controller.directTupleMatches(&fixture.disk, CheckedSyncLocation, page) &&
+      fixture.controller.writeTraceMatches(SuccessfulWrites, sizeof(SuccessfulWrites)) &&
+      fixture.controller.syncTraceMatches(FailedSyncs, sizeof(FailedSyncs));
+
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::Pass16);
+  const bool pinned = fixture.disk.pin(CheckedSyncLocation);
+  fixture.disk.beginUnpinObservation();
+  const bool retried = fixture.disk.sync(CheckedSyncLocation, false);
+  const size_t retryUnpins = fixture.disk.endUnpinObservation();
+  const bool retryReported =
+      retried && retryUnpins == 0 &&
+      fixture.controller.directTupleMatches(&fixture.disk, CheckedSyncLocation, page) &&
+      fixture.controller.writeTraceMatches(SuccessfulWrites, sizeof(SuccessfulWrites)) &&
+      fixture.controller.syncTraceMatches(RetriedSyncs, sizeof(RetriedSyncs));
+  const bool callerPinPreserved = pinned && !fixture.disk.evictPage(CheckedSyncLocation);
+  if (pinned) {
+    fixture.disk.unpin(CheckedSyncLocation);
+  }
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::Pass10);
+  const bool cleaned =
+      fixture.disk.evictPage(CheckedSyncLocation) && !fixture.disk.hasPage(CheckedSyncLocation);
+  const bool passed = failureReported && retained && retryReported && callerPinPreserved && cleaned;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-checked-sync");
+  } else {
+    ERROR(
+        "HOSTED-WAIT-TEST: FAIL scsi-checked-sync: error retention, retry, or borrowed pin "
+        "ownership");
+  }
+  return passed;
+}
+
 bool scsiTerminalCachePage() {
   constexpr size_t TerminalBytes = 512;
   constexpr uint64_t TerminalLocation = 4 * PageBytes;
@@ -1452,9 +1544,10 @@ EXPORTED_PUBLIC bool runHostedScsiWriteRegressions() {
   const bool directOwnership = scsiDirectRetireOwnership(fixture);
   const bool readRetireAdmission = scsiReadRetireAdmission(fixture);
   const bool retireReadRecheck = scsiRetireReadRecheck(fixture);
+  const bool checkedSync = scsiCheckedSync();
   const bool terminalPage = scsiTerminalCachePage();
   const bool opticalRead = scsiOpticalReadAfterToc();
   const bool largerNativeRejected = scsiRejectsNativeBlocksLargerThanCachePages();
   return ataOwnership && scsiResult && directResult && directOwnership && readRetireAdmission &&
-         retireReadRecheck && terminalPage && opticalRead && largerNativeRejected;
+         retireReadRecheck && checkedSync && terminalPage && opticalRead && largerNativeRejected;
 }

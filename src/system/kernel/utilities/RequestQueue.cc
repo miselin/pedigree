@@ -1197,9 +1197,12 @@ void RequestQueue::RequestQueueOverrunChecker::timer(uint64_t delta) {
   size_t currentSize = 0;
   const OverrunStatus status = sample(lastSize, currentSize);
   if (status == OverrunStatus::Stalled) {
-    FATAL("RequestQueue '" << queue->m_Name
-                           << "' made no worker progress for a full watchdog interval with "
-                           << currentSize << " queued requests!");
+    // A checked writeback can wait on another queue or a device command whose
+    // deadline exceeds this sampling interval. Lack of completion is diagnostic;
+    // the operation's own timeout decides whether its backend has failed.
+    WARNING("RequestQueue '" << queue->m_Name
+                             << "' completed no request during the watchdog interval with "
+                             << currentSize << " queued requests.");
   } else if (status == OverrunStatus::Overloaded) {
     WARNING("RequestQueue '" << queue->m_Name << "' backlog grew from " << lastSize << " to "
                              << currentSize << " despite worker progress.");

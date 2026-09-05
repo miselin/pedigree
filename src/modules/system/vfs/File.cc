@@ -80,7 +80,7 @@ void File::ParentLease::swap(ParentLease& other) {
   other.m_Retained = retained;
 }
 
-void File::writeCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
+bool File::writeCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
                          void* meta) {
   File* pFile = reinterpret_cast<File*>(meta);
 
@@ -99,9 +99,10 @@ void File::writeCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uin
           "future I/O issues.");
       break;
   }
+  return true;
 }
 
-void File::fillCacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
+bool File::fillCacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
                              void* meta) {
   File* pFile = reinterpret_cast<File*>(meta);
   if (cause == CacheConstants::WriteBack) {
@@ -111,6 +112,7 @@ void File::fillCacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc,
   } else if (cause != CacheConstants::Eviction) {
     WARNING("File: unknown fill-cache callback cause.");
   }
+  return true;
 }
 
 File::CacheState::CacheState() : data(FILE_BAD_BLOCK), indexLock(), fill(), fillLock() {}
@@ -331,6 +333,12 @@ uint64_t File::WriteGuard::write(uint64_t location, uint64_t size, uintptr_t buf
   LockGuard<Mutex> guard(m_File.dataMutationLock());
   const uint64_t written = m_File.writeUnlocked(location, size, buffer, bCanBlock);
   if (written) {
+    if (!m_File.isBytewise() && !m_File.isDirectory() && !m_File.isSymlink() &&
+        m_File.isSeekable()) {
+      Attributes attributes;
+      attributes.modified = attributes.changed = Time::getTime();
+      m_File.updateAttributes(attributes, ModifyTime | ChangeTime);
+    }
     m_File.publishEvent(FileEvents::Modify);
   }
   return written;
@@ -342,6 +350,12 @@ uint64_t File::WriteGuard::append(uint64_t size, uintptr_t buffer, uint64_t& loc
   location = m_File.getSize();
   const uint64_t written = m_File.writeUnlocked(location, size, buffer, bCanBlock);
   if (written) {
+    if (!m_File.isBytewise() && !m_File.isDirectory() && !m_File.isSymlink() &&
+        m_File.isSeekable()) {
+      Attributes attributes;
+      attributes.modified = attributes.changed = Time::getTime();
+      m_File.updateAttributes(attributes, ModifyTime | ChangeTime);
+    }
     m_File.publishEvent(FileEvents::Modify);
   }
   return written;
@@ -443,9 +457,10 @@ void File::returnPhysicalPage(size_t offset) {
   __atomic_sub_fetch(&physicalPageLoans(), 1, __ATOMIC_RELEASE);
 }
 
-void File::syncAndReturnPhysicalPage(size_t offset, bool async) {
-  sync(offset, async);
+bool File::syncAndReturnPhysicalPage(size_t offset, bool async) {
+  const bool succeeded = sync(offset, async);
   returnPhysicalPage(offset);
+  return succeeded;
 }
 
 bool File::tryBeginMappingRelease() {
@@ -456,7 +471,7 @@ void File::endMappingRelease() {
   dataMutationLock().release();
 }
 
-void File::sync() {
+bool File::sync() {
   LockGuard<Mutex> dataGuard(dataMutationLock());
   struct SyncPage {
     size_t block;
@@ -491,10 +506,11 @@ void File::sync() {
 
   const bool filled = useFillCache();
   const size_t blockSize = filled ? PhysicalMemoryManager::getPageSize() : getBlockSize();
+  bool succeeded = true;
   for (const SyncPage& page : pages) {
     const uint64_t location = page.block * blockSize;
     if (filled) {
-      sync(location, false);
+      succeeded = sync(location, false) && succeeded;
       continue;
     }
     if (!pinBlock(location)) {
@@ -505,12 +521,16 @@ void File::sync() {
     // verify that the snapshot still names the pinned page.
     if (getCachedPage(page.block) == page.buffer) {
       writeBlock(location, page.buffer);
+      succeeded = sync(location, false) && succeeded;
     }
     unpinBlock(location);
   }
+  return succeeded;
 }
 
-void File::sync(size_t offset, bool async) {}
+bool File::sync(size_t offset, bool async) {
+  return true;
+}
 
 Time::Timestamp File::getCreationTime() {
   return getAttributes().changed;
@@ -835,10 +855,14 @@ size_t& File::physicalPageLoans() {
   return m_PhysicalPageLoans;
 }
 
-void File::clearDataCache() {
-  cacheState().fill.empty();
+bool File::clearDataCache() {
+  if (!cacheState().fill.empty()) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
   LockGuard<Mutex> guard(cacheState().indexLock);
   cacheState().data.clear();
+  return true;
 }
 
 bool File::resize(size_t size) {
@@ -873,7 +897,9 @@ bool File::resize(size_t size) {
       SYSCALL_ERROR(DeviceBusy);
       return false;
     }
-    clearDataCache();
+    if (!clearDataCache()) {
+      return false;
+    }
   }
   if (!resizeFile(size)) {
     return false;
@@ -1173,17 +1199,18 @@ void File::shutdownFillCacheWriteback() {
   cacheState().fill.shutdown();
 }
 
-bool File::syncFillCache(size_t offset, bool async) {
+bool File::syncFillCache(size_t offset, bool async, bool& present) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const size_t pageOffset = offset - (offset % pageSize);
   LockGuard<Mutex> guard(cacheState().fillLock);
-  if (!cacheState().fill.lookup(pageOffset)) {
-    return false;
+  present = cacheState().fill.lookup(pageOffset) != 0;
+  if (!present) {
+    return true;
   }
 
-  cacheState().fill.sync(pageOffset, async);
+  const bool succeeded = cacheState().fill.sync(pageOffset, async);
   cacheState().fill.release(pageOffset);
-  return true;
+  return succeeded;
 }
 
 uintptr_t File::readIntoCache(uintptr_t block) {

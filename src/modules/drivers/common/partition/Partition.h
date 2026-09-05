@@ -103,6 +103,15 @@ class Partition : public Disk {
     return pParent->retireCachePage(location + m_Start);
   }
 
+  virtual bool sync(uint64_t location, bool async) {
+    if (!containsCachePage(location))
+      return false;
+
+    Disk* parent = static_cast<Disk*>(getParent());
+    ensureAligned(parent);
+    return parent->sync(location + m_Start, async);
+  }
+
   virtual size_t getSize() const {
     return getLength();
   }

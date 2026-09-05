@@ -31,6 +31,9 @@ class FillCacheDisk final : public Disk {
       return BufferView();
     }
 
+    if (location == failedReadLocation) {
+      return BufferView();
+    }
     ++pageReferences[location / kPageSize];
     reads.push_back(location);
     operations.push_back('R');
@@ -39,6 +42,10 @@ class FillCacheDisk final : public Disk {
   }
 
   void write(uint64_t location) override {
+    if (std::find(metadataLocations.begin(), metadataLocations.end(), location) !=
+        metadataLocations.end()) {
+      return;
+    }
     writes.push_back(location);
     writePins.push_back(location < storage.size() && pageReferences[location / kPageSize]);
     operations.push_back('W');
@@ -54,10 +61,26 @@ class FillCacheDisk final : public Disk {
   void align(uint64_t) override {}
 
   void flush(uint64_t location) override {
-    flushes.push_back(location);
-    operations.push_back('F');
+    if (std::find(metadataLocations.begin(), metadataLocations.end(), location) ==
+        metadataLocations.end()) {
+      flushes.push_back(location);
+      operations.push_back('F');
+    }
     const uint64_t page = location & ~(static_cast<uint64_t>(kPageSize) - 1);
     std::copy(storage.begin() + page, storage.begin() + page + kPageSize, persisted.begin() + page);
+  }
+
+  bool sync(uint64_t location, bool async) override {
+    if (location == failedSyncLocation) {
+      failedSyncs.push_back(location);
+      return false;
+    }
+    if (async) {
+      write(location);
+    } else {
+      flush(location);
+    }
+    return true;
   }
 
   size_t getSize() const override {
@@ -123,6 +146,10 @@ class FillCacheDisk final : public Disk {
                        [](size_t count) { return count == 0; });
   }
 
+  bool hasOnlyMetadataPins() const {
+    return pageReferences == metadataReferences;
+  }
+
   void clearActivity() {
     reads.clear();
     writes.clear();
@@ -132,6 +159,8 @@ class FillCacheDisk final : public Disk {
     scheduledPages.clear();
   }
 
+  std::vector<uint64_t> metadataLocations;
+  std::vector<size_t> metadataReferences;
   std::vector<uint8_t> storage;
   std::vector<uint8_t> persisted;
   std::vector<size_t> pageReferences;
@@ -141,6 +170,9 @@ class FillCacheDisk final : public Disk {
   std::vector<bool> writePins;
   std::vector<char> operations;
   std::vector<uint64_t> scheduledPages;
+  uint64_t failedSyncLocation = ~uint64_t(0);
+  uint64_t failedReadLocation = ~uint64_t(0);
+  std::vector<uint64_t> failedSyncs;
   bool outOfRange = false;
   bool unbalancedUnpin = false;
 };

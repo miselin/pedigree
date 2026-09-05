@@ -16,8 +16,10 @@
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "modules/subsys/posix/file-syscalls.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
+#include <sys/mman.h>
 
 namespace {
 bool check(bool condition, const char* detail) {
@@ -161,24 +163,33 @@ bool borrowedClones() {
 
 class ResizeProbeFile final : public File {
  public:
-  ResizeProbeFile()
+  explicit ResizeProbeFile(size_t pages = 2)
       : File(String("mapped-resize-probe"), 0, 0, 0, 1, nullptr,
-             2 * PhysicalMemoryManager::getPageSize(), nullptr),
+             pages * PhysicalMemoryManager::getPageSize(), nullptr),
         storage("Mapped Resize Probe"),
         rejectResize(true),
         rejectWritableMapping(false),
-        backendSawNoLoans(false) {}
+        backendSawNoLoans(false),
+        rejectSync(false),
+        syncCalls(0) {}
 
   bool initialise() {
     if (!PhysicalMemoryManager::instance().allocateRegion(
-            storage, 2, 0, VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write)) {
+            storage, getSize() / PhysicalMemoryManager::getPageSize(), 0,
+            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write)) {
       return false;
     }
-    ByteSet(storage.virtualAddress(), 0x49, 2 * PhysicalMemoryManager::getPageSize());
+    ByteSet(storage.virtualAddress(), 0x49, getSize());
     return true;
   }
 
-  void sync(size_t, bool) override {}
+  bool sync(size_t, bool) override {
+    ++syncCalls;
+    return !rejectSync;
+  }
+  size_t loans() {
+    return __atomic_load_n(&physicalPageLoans(), __ATOMIC_ACQUIRE);
+  }
   bool prepareSharedMapping(size_t, size_t) override {
     if (rejectWritableMapping) {
       SYSCALL_ERROR(OutOfMemory);
@@ -191,6 +202,8 @@ class ResizeProbeFile final : public File {
   bool rejectResize;
   bool rejectWritableMapping;
   bool backendSawNoLoans;
+  bool rejectSync;
+  size_t syncCalls;
 
  protected:
   uintptr_t readBlock(uint64_t location) override {
@@ -281,6 +294,138 @@ bool failedMappedResize() {
   delete process;
   return check(started && joined && passed, "mapped resize backend failure fixture");
 }
+
+int sparseSplitWorker(void* parameter) {
+  bool& passed = *static_cast<bool*>(parameter);
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  MemoryMapManager& manager = MemoryMapManager::instance();
+  MemoryMapManager::OperationGuard operation(manager);
+  VirtualAddressSpace& space = Processor::information().getVirtualAddressSpace();
+  ResizeProbeFile file(3);
+  if (!file.initialise()) {
+    return 0;
+  }
+  passed = true;
+  const unsigned masks[] = {4, 2, 5, 7};
+  for (unsigned mask : masks) {
+    uintptr_t address = 0;
+    MemoryMappedObject* object =
+        manager.mapFile(&file, address, 3 * pageSize, MemoryMappedObject::Read, 0, false);
+    if (!check(object != nullptr, "sparse file setup")) {
+      passed = false;
+      break;
+    }
+    size_t expectedLoans = 0;
+    for (size_t page = 3; page; --page) {
+      if (mask & (1U << (page - 1))) {
+        passed &= check(manager.faultIn(address + (page - 1) * pageSize, false),
+                        "sparse resident page setup");
+        ++expectedLoans;
+      }
+    }
+    passed &= check(file.loans() == expectedLoans, "sparse backing loan count before split");
+    passed &= check(
+        manager.setPermissions(address + pageSize, 2 * pageSize, MemoryMappedObject::Read) != 0,
+        "sparse protection split");
+    passed &= check(file.loans() == expectedLoans, "sparse split changed backing loans");
+    passed &= check(manager.removeAndRelease(address, 3 * pageSize) == 2,
+                    "sparse removal did not visit both objects");
+    passed &= check(!manager.contains(address, 3 * pageSize), "sparse objects survived removal");
+    passed &= check(file.loans() == 0, "sparse removal retained backing loans");
+    for (size_t page = 0; page < 3; ++page) {
+      passed &= check(!space.isMapped(reinterpret_cast<void*>(address + page * pageSize)),
+                      "sparse removal retained a PTE");
+    }
+    const uintptr_t requested = address;
+    MemoryMapManager::MapStatus status;
+    object = manager.mapAnon(address, 3 * pageSize, MemoryMappedObject::Read,
+                             MemoryMapManager::Placement::FixedNoReplace, &status);
+    passed &=
+        check(object && address == requested && status == MemoryMapManager::MapStatus::Success,
+              "sparse removal retained a reservation");
+    if (object) {
+      for (size_t page = 0; page < 3; ++page) {
+        const uintptr_t at = address + page * pageSize;
+        if (manager.faultIn(at, false)) {
+          const volatile uint8_t* bytes = reinterpret_cast<const volatile uint8_t*>(at);
+          passed &= check(bytes[0] == 0 && bytes[pageSize - 1] == 0,
+                          "sparse anonymous reuse retained file contents");
+        } else {
+          passed &= check(false, "sparse anonymous reuse could not fault");
+        }
+      }
+      manager.removeAndRelease(address, 3 * pageSize);
+    }
+    if (!passed) {
+      break;
+    }
+  }
+  manager.unmapAll();
+  return 0;
+}
+
+bool sparseSplitOwnership() {
+  Process* process = new Process(Scheduler::instance().getKernelProcess(), true);
+  bool passed = false;
+  Thread* worker = new Thread(process, sparseSplitWorker, &passed, nullptr, false, true, true);
+  const bool started = worker->start();
+  const bool joined = started && worker->joinForCompletion();
+  if (!started) {
+    delete worker;
+  }
+  delete process;
+  return check(started && joined && passed, "sparse split ownership fixture");
+}
+
+int checkedSyncWorker(void* parameter) {
+  bool& passed = *static_cast<bool*>(parameter);
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  MemoryMapManager& manager = MemoryMapManager::instance();
+  MemoryMapManager::OperationGuard operation(manager);
+  ResizeProbeFile file(3);
+  if (!file.initialise()) {
+    return 0;
+  }
+  uintptr_t address = 0;
+  MemoryMappedObject* object =
+      manager.mapFile(&file, address, 3 * pageSize, MemoryMappedObject::Read, 0, false);
+  if (!object || !manager.faultIn(address, false) || !manager.faultIn(address + pageSize, false)) {
+    manager.unmapAll();
+    return 0;
+  }
+  manager.removeAndRelease(address + 2 * pageSize, pageSize);
+  Thread* thread = Processor::information().getCurrentThread();
+  void* mapping = reinterpret_cast<void*>(address);
+  file.rejectSync = true;
+  thread->setErrno(0);
+  passed = check(posix_msync(mapping, 3 * pageSize, MS_SYNC) == -1 &&
+                     thread->getErrno() == Error::OutOfMemory && file.syncCalls == 0,
+                 "msync range failure reached backing I/O or lost ENOMEM");
+  thread->setErrno(0);
+  passed &= check(posix_msync(mapping, 2 * pageSize, MS_SYNC) == -1 &&
+                      thread->getErrno() == Error::IoError && file.syncCalls == 2,
+                  "msync lost EIO or skipped a page after the first backend failure");
+  file.rejectSync = false;
+  thread->setErrno(0);
+  passed &= check(posix_msync(mapping, 2 * pageSize, MS_SYNC) == 0 && file.syncCalls == 4,
+                  "msync could not retry both failed pages");
+  manager.removeAndRelease(address, 2 * pageSize);
+  manager.unmapAll();
+  return 0;
+}
+
+bool checkedMappedSync() {
+  Process* process = new Process(Scheduler::instance().getKernelProcess(), true);
+  bool passed = false;
+  Thread* worker = new Thread(process, checkedSyncWorker, &passed, nullptr, false, true, true);
+  const bool started = worker->start();
+  const bool joined = started && worker->joinForCompletion();
+  if (!started) {
+    delete worker;
+  }
+  delete process;
+  return check(started && joined && passed, "checked mapped sync fixture");
+}
 }  // namespace
 
 bool runHostedVmPermissionRegressions() {
@@ -306,6 +451,8 @@ bool runHostedVmPermissionRegressions() {
   passed &= protectedClone(true);
   passed &= borrowedClones();
   passed &= failedMappedResize();
+  passed &= sparseSplitOwnership();
+  passed &= checkedMappedSync();
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS vm-permission-ownership");
   }

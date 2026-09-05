@@ -3302,9 +3302,13 @@ int posix_msync(void* p, size_t len, int flags) {
     return 0;
   }
   if (len > ~static_cast<size_t>(0) - pageMask ||
-      ((len + pageMask) & ~pageMask) > ~static_cast<uintptr_t>(0) - address ||
-      !MemoryMapManager::instance().sync(address, len, flags & MS_ASYNC)) {
+      ((len + pageMask) & ~pageMask) > ~static_cast<uintptr_t>(0) - address) {
     SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
+  int error = 0;
+  if (!MemoryMapManager::instance().sync(address, len, flags & MS_ASYNC, &error)) {
+    syscallError(error);
     return -1;
   }
   return 0;
@@ -3425,7 +3429,10 @@ int posix_fsync(int fd) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-  pFile->sync();
+  if (!pFile->sync()) {
+    SYSCALL_ERROR(IoError);
+    return -1;
+  }
 
   return 0;
 }
@@ -3623,6 +3630,12 @@ int posix_utime(const char* path, const struct utimbuf* times) {
     SYSCALL_ERROR(BadAddress);
     return -1;
   }
+  if (times && (snapshot.actime < 0 || snapshot.modtime < 0 ||
+                static_cast<uint64_t>(snapshot.actime) > UINT32_MAX ||
+                static_cast<uint64_t>(snapshot.modtime) > UINT32_MAX)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
 
   F_NOTICE("utime(" << pathCopy << ")");
 
@@ -3652,8 +3665,8 @@ int posix_utime(const char* path, const struct utimbuf* times) {
   Time::Timestamp accessTime;
   Time::Timestamp modifyTime;
   if (times) {
-    accessTime = snapshot.actime * Time::Multiplier::Second;
-    modifyTime = snapshot.modtime * Time::Multiplier::Second;
+    accessTime = snapshot.actime;
+    modifyTime = snapshot.modtime;
   } else {
     accessTime = modifyTime = Time::getTime();
   }
@@ -4149,6 +4162,13 @@ int posix_futimesat(int dirfd, const char* pathname, const struct timeval* times
     SYSCALL_ERROR(BadAddress);
     return -1;
   }
+  for (const struct timeval& value : snapshot) {
+    if (times && (value.tv_sec < 0 || static_cast<uint64_t>(value.tv_sec) > UINT32_MAX ||
+                  value.tv_usec < 0 || value.tv_usec >= 1000000)) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+  }
 
   F_NOTICE("futimesat(" << dirfd << ", " << pathnameCopy << ", " << times << ")");
 
@@ -4175,16 +4195,10 @@ int posix_futimesat(int dirfd, const char* pathname, const struct timeval* times
   Time::Timestamp accessTime;
   Time::Timestamp modifyTime;
   if (times) {
-    const struct timeval& access = snapshot[0];
-    const struct timeval& modify = snapshot[1];
-
-    accessTime = access.tv_sec * Time::Multiplier::Second;
-    accessTime += access.tv_usec * Time::Multiplier::Microsecond;
-
-    modifyTime = modify.tv_sec * Time::Multiplier::Second;
-    modifyTime += modify.tv_usec * Time::Multiplier::Microsecond;
+    accessTime = snapshot[0].tv_sec;
+    modifyTime = snapshot[1].tv_sec;
   } else {
-    accessTime = modifyTime = Time::getTimeNanoseconds();
+    accessTime = modifyTime = Time::getTime();
   }
 
   file->setAccessedTime(accessTime);

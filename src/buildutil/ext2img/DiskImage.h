@@ -49,6 +49,7 @@ class DiskImage : public Disk {
   virtual BufferView read(uint64_t location);
   virtual void write(uint64_t location);
   virtual void flush(uint64_t location);
+  virtual bool sync(uint64_t location, bool async);
 
   virtual size_t getSize() const;
 
@@ -61,7 +62,7 @@ class DiskImage : public Disk {
   virtual void unpin(uint64_t location);
 
  private:
-  void writeback(uint64_t location, int flags);
+  bool writeback(uint64_t location, int flags);
 
 #if !HAS_ADDRESS_SANITIZER
   void flushDirtyPages(int flags);

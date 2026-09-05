@@ -121,6 +121,81 @@ static void protected_fork(size_t page) {
   puts("VM-CONTRACT: PASS protected-fork");
 }
 
+static void require_sparse(int condition, const char* operation, unsigned scenario,
+                           const void* address) {
+  if (!condition) {
+    printf("VM-CONTRACT: FAIL sparse case=%u stage=%s address=%p errno=%d\n", scenario, operation,
+           address, errno);
+    fail();
+  }
+}
+
+static void sparse_file_splits(int file, size_t page, const unsigned char* pattern) {
+  const unsigned resident_masks[] = {4, 2, 5, 7};
+  for (unsigned scenario = 0; scenario < 24; ++scenario) {
+    unsigned mask = resident_masks[scenario / 6];
+    unsigned reverse_split = (scenario / 3) % 2;
+    unsigned removal = scenario % 3;
+    unsigned char* arena =
+        mmap(NULL, page * 7, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    require_sparse(arena != MAP_FAILED, "guarded reservation", scenario, arena);
+    arena[0] = 0x91;
+    arena[page * 4] = 0x92;
+    arena[page * 6] = 0x93;
+    unsigned char* memory = arena + page;
+    require_sparse(munmap(memory, page * 3) == 0, "file reservation hole", scenario, memory);
+    require_sparse(
+        mmap(memory, page * 3, PROT_READ, MAP_SHARED | MAP_FIXED_NOREPLACE, file, 0) == memory,
+        "file placement", scenario, memory);
+    for (size_t i = 3; i; --i) {
+      size_t offset = (i - 1) * page;
+      if (mask & (1U << (i - 1))) {
+        require_sparse(memory[offset] == pattern[offset] &&
+                           memory[offset + page - 1] == pattern[offset + page - 1],
+                       "resident file contents", scenario, memory);
+      }
+    }
+    require_sparse(mprotect(memory + (reverse_split ? 2 : 1) * page, (reverse_split ? 1 : 2) * page,
+                            PROT_READ) == 0 &&
+                       mprotect(memory + (reverse_split ? 1 : 2) * page, page, PROT_READ) == 0,
+                   "protection split", scenario, memory);
+
+    if (removal) {
+      size_t first = removal == 1 ? 0 : page * 2;
+      require_sparse(munmap(memory + first, page) == 0, "first fragment removal", scenario, memory);
+    }
+    // An unrelated hole separates the file fragments in allocator storage.
+    require_sparse(munmap(arena + page * 5, page) == 0, "unrelated hole", scenario, memory);
+    if (!removal) {
+      require_sparse(munmap(memory, page * 3) == 0, "whole split removal", scenario, memory);
+    } else {
+      size_t last = removal == 1 ? page * 2 : 0;
+      require_sparse(munmap(memory + last, page) == 0 && munmap(memory + page, page) == 0,
+                     "remaining fragment removal", scenario, memory);
+    }
+
+    errno = 0;
+    unsigned char* reclaimed = mmap(memory, page * 3, PROT_READ | PROT_WRITE,
+                                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+    if (reclaimed != memory) {
+      printf("VM-CONTRACT: sparse case=%u requested=%p returned=%p errno=%d\n", scenario,
+             (void*)memory, (void*)reclaimed, errno);
+      require_sparse(0, "released reservation", scenario, memory);
+    }
+    for (size_t offset = 0; offset < page * 3; ++offset) {
+      unsigned char value = reclaimed[offset];
+      if (value) {
+        printf("VM-CONTRACT: sparse case=%u offset=%zu value=%u\n", scenario, offset, value);
+        require_sparse(0, "reclaimed zero contents", scenario, memory);
+      }
+    }
+    require_sparse(arena[0] == 0x91 && arena[page * 4] == 0x92 && arena[page * 6] == 0x93,
+                   "neighbor contents", scenario, memory);
+    require_sparse(munmap(arena, page * 7) == 0, "guarded cleanup", scenario, arena);
+  }
+  puts("VM-CONTRACT: PASS sparse-splits cases=24");
+}
+
 static void file_mappings(size_t page) {
   char path[80];
   snprintf(path, sizeof(path), "/tmp/vm-contract-%d", getpid());
@@ -153,11 +228,20 @@ static void file_mappings(size_t page) {
           "fault last sparse file page");
   require(mprotect(sparse + page, page * 2, PROT_READ) == 0 && munmap(sparse, page * 3) == 0,
           "unmap split with untouched prefix page");
+  errno = 0;
   unsigned char* reclaimed = mmap(sparse, page * 3, PROT_READ | PROT_WRITE,
                                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+  if (reclaimed != sparse)
+    printf("VM-CONTRACT: original sparse requested=%p returned=%p errno=%d\n", (void*)sparse,
+           (void*)reclaimed, errno);
   require(reclaimed == sparse, "sparse split released address reservation");
-  require(reclaimed[page * 2] == 0, "sparse split released every resident file page");
+  unsigned char reclaimed_value = reclaimed[page * 2];
+  if (reclaimed_value)
+    printf("VM-CONTRACT: original sparse address=%p offset=%zu value=%u\n", (void*)sparse, page * 2,
+           reclaimed_value);
+  require(reclaimed_value == 0, "sparse split released every resident file page");
   require(munmap(reclaimed, page * 3) == 0, "unmap reclaimed sparse range");
+  sparse_file_splits(file, page, pattern);
 
   unsigned char* shared = mmap(NULL, page * 3, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
   require(shared != MAP_FAILED, "shared file mapping");

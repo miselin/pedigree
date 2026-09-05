@@ -91,7 +91,8 @@ class Ext2Filesystem : public Filesystem {
   bool pinBlock(uint64_t location);
   void unpinBlock(uint64_t location);
 
-  void syncBlock(uint32_t block, bool async);
+  bool syncBlock(uint32_t block, bool async);
+  bool syncInode(uint32_t inode, Ext2Node& node);
 
   uint32_t findFreeBlock(uint32_t inode);
   bool findFreeBlocks(uint32_t inode, size_t count, Vector<uint32_t>& blocks);

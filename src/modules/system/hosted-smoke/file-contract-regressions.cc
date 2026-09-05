@@ -46,10 +46,15 @@ class ContractFile final : public File {
     return 4096;
   }
 
+  bool sync() override {
+    return syncSucceeds;
+  }
+
   size_t readCalls;
   size_t writeCalls;
   size_t backendError = 0;
   uint64_t maximumWrite = ~static_cast<uint64_t>(0);
+  bool syncSucceeds = true;
 
  protected:
   bool isBytewise() const override {
@@ -242,6 +247,11 @@ int contractWorker(void* parameter) {
   writeErrors &= posix_pwritev(WriteDescriptor, vector, 1, 0) == 1 && thread->getErrno() == 0;
   context->file->backendError = 0;
   context->file->maximumWrite = ~static_cast<uint64_t>(0);
+  context->file->syncSucceeds = false;
+  writeErrors &= posix_fsync(ReadDescriptor) == -1 && thread->getErrno() == Error::IoError;
+  context->file->syncSucceeds = true;
+  writeErrors &= posix_fsync(ReadDescriptor) == 0;
+  writeErrors &= posix_fsync(-1) == -1 && thread->getErrno() == Error::BadFileDescriptor;
   context->writeErrors = writeErrors;
 
   MemoryMapManager::instance().remove(address, pageSize);

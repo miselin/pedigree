@@ -77,7 +77,7 @@ struct CacheLifetimeContext {
   Atomic<size_t> deleteReturned;
 };
 
-void cacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t, void* parameter) {
+bool cacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t, void* parameter) {
   CacheLifetimeContext* context = reinterpret_cast<CacheLifetimeContext*>(parameter);
   if (cause == CacheConstants::Eviction) {
     context->evictionCalls += 1;
@@ -94,6 +94,7 @@ void cacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t
     const bool released = context->allowCallbackReturn.acquireForCompletion();
     (void)released;
   }
+  return true;
 }
 
 int deleteCache(void* parameter) {
@@ -171,18 +172,20 @@ struct QueuedLifetimeContext {
   Atomic<size_t> deleteReturned;
 };
 
-void blockerCallback(CacheConstants::CallbackCause, uintptr_t, uintptr_t, void* parameter) {
+bool blockerCallback(CacheConstants::CallbackCause, uintptr_t, uintptr_t, void* parameter) {
   QueuedLifetimeContext* context = reinterpret_cast<QueuedLifetimeContext*>(parameter);
   if ((context->blockerCalls += 1) == 1) {
     context->blockerEntered.release();
     const bool released = context->allowBlockerReturn.acquireForCompletion();
     (void)released;
   }
+  return true;
 }
 
-void queuedTargetCallback(CacheConstants::CallbackCause, uintptr_t, uintptr_t, void* parameter) {
+bool queuedTargetCallback(CacheConstants::CallbackCause, uintptr_t, uintptr_t, void* parameter) {
   QueuedLifetimeContext* context = reinterpret_cast<QueuedLifetimeContext*>(parameter);
   context->targetCalls += 1;
+  return true;
 }
 
 int deleteQueuedCache(void* parameter) {
@@ -295,7 +298,7 @@ struct RetirementContext {
   uintptr_t replacementPage;
 };
 
-void retirementCallback(CacheConstants::CallbackCause cause, uintptr_t, uintptr_t,
+bool retirementCallback(CacheConstants::CallbackCause cause, uintptr_t, uintptr_t,
                         void* parameter) {
   RetirementContext* context = reinterpret_cast<RetirementContext*>(parameter);
   if (cause == CacheConstants::Eviction && (context->evictionCalls += 1) == 1) {
@@ -303,6 +306,7 @@ void retirementCallback(CacheConstants::CallbackCause cause, uintptr_t, uintptr_
     const bool released = context->allowEvictionReturn.acquireForCompletion();
     (void)released;
   }
+  return true;
 }
 
 int evictRetirementPage(void* parameter) {
@@ -387,7 +391,7 @@ struct DiscardEditingContext {
   Atomic<size_t> evictions;
 };
 
-void discardEditingCallback(CacheConstants::CallbackCause cause, uintptr_t, uintptr_t,
+bool discardEditingCallback(CacheConstants::CallbackCause cause, uintptr_t, uintptr_t,
                             void* parameter) {
   DiscardEditingContext* context = reinterpret_cast<DiscardEditingContext*>(parameter);
   if (cause == CacheConstants::WriteBack) {
@@ -395,6 +399,7 @@ void discardEditingCallback(CacheConstants::CallbackCause cause, uintptr_t, uint
   } else if (cause == CacheConstants::Eviction) {
     context->evictions += 1;
   }
+  return true;
 }
 
 bool failedPublicationDiscard() {
@@ -487,7 +492,7 @@ void retireAdmissionHook(Cache* cache, uintptr_t key, void* parameter) {
   }
 }
 
-void retireQueuedCallback(CacheConstants::CallbackCause cause, uintptr_t, uintptr_t,
+bool retireQueuedCallback(CacheConstants::CallbackCause cause, uintptr_t, uintptr_t,
                           void* parameter) {
   RetirePublicationContext* context = reinterpret_cast<RetirePublicationContext*>(parameter);
   if (cause == CacheConstants::Eviction) {
@@ -498,6 +503,7 @@ void retireQueuedCallback(CacheConstants::CallbackCause cause, uintptr_t, uintpt
     (void)released;
     context->queuedCallbackFinished = 1;
   }
+  return true;
 }
 
 bool retireSynchronousCallback(uintptr_t key, uintptr_t page, void* parameter) {

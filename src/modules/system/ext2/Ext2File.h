@@ -63,8 +63,8 @@ class Ext2File : public File, public Ext2Node {
   virtual bool pinBlock(uint64_t location);
   virtual void unpinBlock(uint64_t location);
 
-  using File::sync;
-  virtual void sync(size_t offset, bool async);
+  virtual bool sync();
+  virtual bool sync(size_t offset, bool async);
 
   virtual size_t getBlockSize() const;
 
@@ -80,9 +80,10 @@ class Ext2File : public File, public Ext2Node {
   virtual void writeBlocks(uint64_t location, uintptr_t addr, size_t length);
 
  private:
-  static void sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t location,
+  static bool sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t location,
                                  uintptr_t page, void* state);
-  void writeBlocksLocked(uint64_t location, uintptr_t address, size_t length);
+  static bool writeBlocksLocked(Ext2InodeState* state, uint64_t location, uintptr_t address,
+                                size_t length, bool async);
 };
 
 #endif

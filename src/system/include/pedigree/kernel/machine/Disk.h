@@ -171,6 +171,13 @@ class EXPORTED_PUBLIC Disk : public Device {
   virtual void flush(uint64_t location);
 
   /**
+   * Writes a cached page and reports failure. Synchronous success includes
+   * the device's write-cache flush; asynchronous success means admission only.
+   * Unsupported backends return false rather than claiming persistence.
+   */
+  virtual bool sync(uint64_t location, bool async);
+
+  /**
    * Synchronously writes and retires the target cache page containing
    * \p location.
    *

@@ -103,6 +103,10 @@ bool Disk::cacheIsCritical() {
 
 void Disk::flush(uint64_t location) {}
 
+bool Disk::sync(uint64_t location, bool async) {
+  return false;
+}
+
 bool Disk::retireCachePage(uint64_t location) {
   return false;
 }

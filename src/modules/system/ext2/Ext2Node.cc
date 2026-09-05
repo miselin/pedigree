@@ -41,8 +41,13 @@ Ext2InodeState::Ext2InodeState(Inode* pInode, Ext2Filesystem* filesystem)
       references(1),
       orphan(false),
       futexIdentity(0),
-      files() {
+      files(),
+      filesystem(filesystem) {
   reloadMappings(pInode, filesystem);
+}
+
+Ext2InodeState::~Ext2InodeState() {
+  delete cache;
 }
 
 void Ext2InodeState::reloadMappings(Inode* pInode, Ext2Filesystem* filesystem) {
@@ -579,17 +584,15 @@ void Ext2Node::updateInodeAttributes(const File::Attributes& attributes, uint32_
   m_pExt2Fs->writeInode(getInodeNumber());
 }
 
-void Ext2Node::sync(size_t offset, bool async) {
-  uint32_t nBlock = offset / m_pExt2Fs->m_BlockSize;
-  if (nBlock >= m_Blocks.count())
-    return;
-  if (offset >= m_nSize)
-    return;
-
-  // Sync the block.
-  if (!ensureBlockLoaded(nBlock))
-    return;
-  m_pExt2Fs->syncBlock(m_Blocks[nBlock], async);
+bool Ext2Node::sync(size_t offset, bool async) {
+  const size_t nBlock = offset / m_pExt2Fs->m_BlockSize;
+  if (offset >= m_nSize) {
+    return true;
+  }
+  if (nBlock >= m_Blocks.count() || !ensureBlockLoaded(nBlock)) {
+    return false;
+  }
+  return m_pExt2Fs->syncBlock(m_Blocks[nBlock], async);
 }
 
 bool Ext2Node::pinBlock(uint64_t location) {

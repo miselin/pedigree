@@ -102,6 +102,7 @@ class AtaDisk : public ScsiDisk {
   // disk I/O.
   virtual uint64_t doRead(uint64_t location);
   virtual uint64_t doWrite(uint64_t location);
+  virtual uint64_t doSync(uint64_t location);
 
   /** Called when an IRQ is received by the controller. */
   virtual void irqReceived();

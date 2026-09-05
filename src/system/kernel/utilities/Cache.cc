@@ -428,6 +428,7 @@ Cache::Cache(size_t pageConstraints)
 #endif
       m_Callback(0),
       m_Nanoseconds(0),
+      m_WritebackEpoch(0),
       m_CallbackMeta(nullptr),
       m_bInCritical(0),
       m_ShutdownState(0),
@@ -466,26 +467,30 @@ Cache::~Cache() {
   shutdown();
 }
 
-void Cache::shutdown() {
+bool Cache::shutdown() {
   const size_t state = m_ShutdownState;
-  if (state == 2) {
-    return;
+  if (state >= 2) {
+    return state == 2;
   }
   if (!m_ShutdownState.compareAndSwap(0, 1)) {
     FATAL("Concurrent Cache shutdown is not permitted");
-    return;
+    return false;
   }
 
   // Removing registration closes queue-time admission. Every request already
   // published owns a manager-operation lease, so this waits for queued and
   // active callbacks before storage is touched.
   CacheManager::instance().unregisterCache(this);
-  empty();
-  m_ShutdownState = 2;
+  const bool succeeded = empty();
+  if (!succeeded) {
+    ERROR("Cache: backend teardown left unwritten pages resident");
+  }
+  m_ShutdownState = succeeded ? 2 : 3;
+  return succeeded;
 }
 
 bool Cache::ensureUsable(const char* operation) const {
-  if (static_cast<size_t>(m_ShutdownState) != 2) {
+  if (static_cast<size_t>(m_ShutdownState) < 2) {
     return true;
   }
 
@@ -827,15 +832,23 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
       }
 
       page->evictionState = CachePage::EvictionState::WriteBack;
-      dirty = callback && !verifyChecksum(page);
+      dirty = callback && (page->writebackFailed || !verifyChecksum(page));
     }
 
     location = page->location;
   }
 
   // Backing-store I/O can block and may re-enter this Cache.
-  if (dirty) {
-    callback(CacheConstants::WriteBack, key, location, callbackMeta);
+  if (dirty && !callback(CacheConstants::WriteBack, key, location, callbackMeta)) {
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      page->writebackFailed = true;
+      page->evictionState = CachePage::EvictionState::None;
+    }
+#if THREADS
+    m_EvictionWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(page));
+#endif
+    return false;
   }
 
   if (mode != EvictionMode::DiscardEditing) {
@@ -1014,6 +1027,7 @@ bool Cache::retireWriteback(uintptr_t key, retirement_writeback_t callback, void
       page->evictionState = CachePage::EvictionState::Retiring;
       retire = true;
     } else if (current == page && page->evictionState == CachePage::EvictionState::Draining) {
+      page->writebackFailed = page->writebackFailed || !writebackSucceeded;
       page->evictionState = CachePage::EvictionState::None;
       wake = true;
     }
@@ -1033,7 +1047,7 @@ bool Cache::retireWriteback(uintptr_t key, retirement_writeback_t callback, void
   return finishRetirement(page, evictionCallback, evictionCallbackMeta);
 }
 
-void Cache::empty() {
+bool Cache::empty() {
   while (true) {
     uintptr_t key = 0;
 #if THREADS
@@ -1044,7 +1058,7 @@ void Cache::empty() {
         LockGuard<Spinlock> guard(m_Lock);
         Tree<uintptr_t, CachePage*>::Iterator it = m_Pages.begin();
         if (it == m_Pages.end()) {
-          return;
+          return true;
         }
 
         key = it.key();
@@ -1066,7 +1080,7 @@ void Cache::empty() {
       LockGuard<Spinlock> guard(m_Lock);
       Tree<uintptr_t, CachePage*>::Iterator it = m_Pages.begin();
       if (it == m_Pages.end()) {
-        return;
+        return true;
       }
       key = it.key();
     }
@@ -1075,7 +1089,11 @@ void Cache::empty() {
     // Another caller can win the eviction race after the predicate check.
     // Restarting discovers either its in-progress state or the next page.
     if (!evict(key, EvictionMode::DiscardBaseReference)) {
-      continue;
+      LockGuard<Spinlock> guard(m_Lock);
+      CachePage* page = m_Pages.lookup(key);
+      if (page && page->writebackFailed) {
+        return false;
+      }
     }
   }
 }
@@ -1161,16 +1179,16 @@ size_t Cache::trim(size_t count) {
   return nPages;
 }
 
-void Cache::sync(uintptr_t key, bool async) {
+bool Cache::sync(uintptr_t key, bool async) {
   if (!ensureUsable("sync")) {
-    return;
+    return false;
   }
 
 #if THREADS
   TerminationDeferral terminationDeferral;
 #endif
   if (!m_Callback)
-    return;
+    return true;
 
   uintptr_t location = 0;
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -1181,16 +1199,17 @@ void Cache::sync(uintptr_t key, bool async) {
     LockGuard<Spinlock> guard(m_Lock);
 
     if (!m_PageFilter.contains(key)) {
-      return;
+      return true;
     }
 
     CachePage* pPage = m_Pages.lookup(key);
     if (!pPage || pPage->evictionState == CachePage::EvictionState::Draining ||
         pPage->evictionState == CachePage::EvictionState::Retiring) {
-      return;
+      return false;
     }
 
     ++pPage->refcnt;
+    pPage->writebackFailed = true;
     location = pPage->location;
     promotePage(pPage);
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -1206,14 +1225,23 @@ void Cache::sync(uintptr_t key, bool async) {
 #endif
 
   if (async) {
-    CacheManager::instance().addCacheRequest(this, true, CacheConstants::WriteBack, key, location,
-                                             true);
+    return CacheManager::instance().addCacheRequest(this, true, CacheConstants::WriteBack, key,
+                                                    location, true) != 0;
   } else {
     uint64_t result = CacheManager::instance().addCacheRequest(
         this, false, CacheConstants::WriteBack, key, location, true);
-    if (result != 2) {
-      WARNING("Cache: writeback failed in sync");
-    }
+    return result == 2;
+  }
+}
+
+void Cache::markDirty(uintptr_t key) {
+  if (!ensureUsable("markDirty")) {
+    return;
+  }
+  LockGuard<Spinlock> guard(m_Lock);
+  CachePage* page = m_Pages.lookup(key);
+  if (page) {
+    page->writebackFailed = true;
   }
 }
 
@@ -1260,6 +1288,7 @@ void Cache::timer(uint64_t delta) {
       return;
     }
     m_Nanoseconds = 0;
+    ++m_WritebackEpoch;
   }
 
   // Select and mark one page while holding the cache lock, then enqueue it
@@ -1292,7 +1321,12 @@ void Cache::timer(uint64_t delta) {
           page->status = CachePage::ChecksumStable;
           continue;
         }
-        if (page->status == CachePage::ChecksumChanging) {
+        if (page->writebackEpoch == m_WritebackEpoch) {
+          continue;
+        }
+        if (page->writebackFailed) {
+          // A stable checksum cannot make an unsuccessful backend write clean.
+        } else if (page->status == CachePage::ChecksumChanging) {
           if (!verifyChecksum(page, true)) {
             continue;
           }
@@ -1300,6 +1334,8 @@ void Cache::timer(uint64_t delta) {
         } else if (page->status == CachePage::ChecksumStable) {
           if (!verifyChecksum(page, true)) {
             page->status = CachePage::ChecksumChanging;
+            page->writebackFailed = true;
+            page->writebackEpoch = m_WritebackEpoch;
           }
           continue;
         } else {
@@ -1308,6 +1344,8 @@ void Cache::timer(uint64_t delta) {
         }
 
         promotePage(page);
+        page->writebackEpoch = m_WritebackEpoch;
+        page->writebackFailed = true;
         ++page->refcnt;
         key = it.key();
         location = page->location;
@@ -1398,7 +1436,21 @@ uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p
 #if SUPERDEBUG
   NOTICE("Cache: writeback for off=" << p3 << " @" << p3 << "!");
 #endif
-  callback(static_cast<CacheConstants::CallbackCause>(p2), p3, p4, callbackMeta);
+  uint64_t submittedChecksum[2];
+  checksum(reinterpret_cast<const void*>(p4), CachePageSize, submittedChecksum);
+  const bool succeeded =
+      callback(static_cast<CacheConstants::CallbackCause>(p2), p3, p4, callbackMeta);
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    CachePage* page = m_Pages.lookup(p3);
+    if (page && page->location == p4) {
+      page->writebackFailed = !succeeded;
+      if (succeeded) {
+        page->checksum[0] = submittedChecksum[0];
+        page->checksum[1] = submittedChecksum[1];
+      }
+    }
+  }
 #if SUPERDEBUG
   NOTICE_NOLOCK("Cache: writeback for off=" << p3 << " @" << p3 << " complete!");
 #endif
@@ -1406,7 +1458,7 @@ uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p
   // Unpin page, writeback complete
   release(p3);
 
-  return 2;
+  return succeeded ? 2 : 0;
 }
 
 size_t Cache::lruEvict(bool force) {

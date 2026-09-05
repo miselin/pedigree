@@ -22,6 +22,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/errors.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
@@ -638,13 +639,14 @@ static physical_uintptr_t getBackingPage(File* pBacking, size_t fileOffset) {
   return phys;
 }
 
-void MemoryMappedFile::sync(uintptr_t at, bool async) {
+bool MemoryMappedFile::sync(uintptr_t at, bool async) {
   TerminationDeferral terminationDeferral;
   LockGuard<Mutex> guard(m_Lock);
   if (!m_bCopyOnWrite && at >= m_Address && at - m_Address < m_Length && getMapping(at) == ~0UL) {
     // Write permission can have been removed since the page was dirtied.
-    m_pBacking->sync(m_Offset + (at - m_Address), async);
+    return m_pBacking->sync(m_Offset + (at - m_Address), async);
   }
+  return true;
 }
 
 void MemoryMappedFile::invalidate(uintptr_t at) {
@@ -1450,7 +1452,7 @@ bool MemoryMapManager::allows(uintptr_t base, size_t length,
   return true;
 }
 
-void MemoryMapManager::op(MemoryMapManager::Ops what, uintptr_t base, size_t length, bool async) {
+bool MemoryMapManager::op(MemoryMapManager::Ops what, uintptr_t base, size_t length, bool async) {
   OperationGuard operation(*this);
 
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
@@ -1458,9 +1460,10 @@ void MemoryMapManager::op(MemoryMapManager::Ops what, uintptr_t base, size_t len
 
   MmObjectList* pMmObjectList = m_MmObjectLists.lookup(&va);
   if (!pMmObjectList) {
-    return;
+    return false;
   }
 
+  bool success = true;
   for (uintptr_t address = base; address < (base + length); address += pageSz) {
     for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin();
          it != pMmObjectList->end(); it++) {
@@ -1468,7 +1471,7 @@ void MemoryMapManager::op(MemoryMapManager::Ops what, uintptr_t base, size_t len
       if (pObject->matches(address & ~(pageSz - 1))) {
         switch (what) {
           case Sync:
-            pObject->sync(address, async);
+            success = pObject->sync(address, async) && success;
             break;
           case Invalidate:
             pObject->invalidate(address);
@@ -1480,10 +1483,14 @@ void MemoryMapManager::op(MemoryMapManager::Ops what, uintptr_t base, size_t len
       }
     }
   }
+  return success;
 }
 
-bool MemoryMapManager::sync(uintptr_t base, size_t length, bool async) {
+bool MemoryMapManager::sync(uintptr_t base, size_t length, bool async, int* error) {
   OperationGuard operation(*this);
+  if (error) {
+    *error = static_cast<int>(Error::OutOfMemory);
+  }
   const size_t pageMask = PhysicalMemoryManager::getPageSize() - 1;
   if (!length || (base & pageMask) || length > ~static_cast<size_t>(0) - pageMask) {
     return false;
@@ -1492,8 +1499,11 @@ bool MemoryMapManager::sync(uintptr_t base, size_t length, bool async) {
   if (!allows(base, length, MemoryMappedObject::None)) {
     return false;
   }
-  op(Sync, base, length, async);
-  return true;
+  const bool success = op(Sync, base, length, async);
+  if (error) {
+    *error = success ? 0 : static_cast<int>(Error::IoError);
+  }
+  return success;
 }
 
 bool MemoryMapManager::sharedBacking(Process* process, uintptr_t address, uintptr_t& identity,

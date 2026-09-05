@@ -180,7 +180,9 @@ class MemoryMappedObject {
   /**
    * Sync back the given page to a backing store, if one exists.
    */
-  virtual void sync(uintptr_t at, bool async) {}
+  virtual bool sync(uintptr_t at, bool async) {
+    return true;
+  }
 
   /** Invalidate cached state without discarding private modifications. */
   virtual void invalidate(uintptr_t at) {}
@@ -350,7 +352,7 @@ class MemoryMappedFile : public MemoryMappedObject {
 
   virtual void setPermissions(MemoryMappedObject::Permissions perms);
 
-  virtual void sync(uintptr_t at, bool async);
+  virtual bool sync(uintptr_t at, bool async);
   virtual void invalidate(uintptr_t at);
   virtual bool sharedBacking(uintptr_t at, uintptr_t& identity, size_t& offset) const;
   virtual bool usesBacking(uintptr_t identity) const;
@@ -540,7 +542,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
    * Syncs memory mapped objects within the given range back to
    * their backing store, if they have one.
    */
-  bool sync(uintptr_t base, size_t length, bool async);
+  bool sync(uintptr_t base, size_t length, bool async, int* error = nullptr);
 
   /** Invalidates backing-cache state where required by the mapping. */
   void invalidate(uintptr_t base, size_t length);
@@ -640,7 +642,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
     Invalidate,
   };
 
-  void op(Ops what, uintptr_t base, size_t length, bool async);
+  bool op(Ops what, uintptr_t base, size_t length, bool async);
 
   /** Singleton instance. */
   static MemoryMapManager m_Instance;

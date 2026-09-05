@@ -164,21 +164,21 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /**
    * Syncs a mapped page before releasing its backing-cache reference.
    */
-  void syncAndReturnPhysicalPage(size_t offset, bool async);
+  bool syncAndReturnPhysicalPage(size_t offset, bool async);
 
   /**
    * Sync all cached pages for the file back to disk.
    *
-   * Default implementation calls writeBlock; only override if your
-   * File subclass does not actually expose readBlock/writeBlock, or
-   * if it already overrides read() or write().
+   * Returns false if any cached page cannot be synchronised. Successful
+   * pages remain written when another page fails.
    */
-  virtual void sync();
+  virtual bool sync();
 
   /**
-   * Trigger a sync of an inner cache back to disk.
+   * Trigger a sync of an inner cache back to disk and report completion
+   * (or queue admission for an asynchronous request).
    */
-  virtual void sync(size_t offset, bool async);
+  virtual bool sync(size_t offset, bool async);
 
   /** Returns the time the file was created. */
   Time::Timestamp getCreationTime();
@@ -364,7 +364,7 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   virtual Mutex& dataMutationLock();
   virtual size_t& physicalPageLoans();
   /** Caller owns the data mutation lock and has excluded physical-page loans. */
-  void clearDataCache();
+  bool clearDataCache();
   /**
    * File subclasses can define this and return true if they require read()
    * calls to perform actual data reads, and false if readBlock() is
@@ -421,18 +421,18 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
    * as the callback on their Cache instance to get a write-back
    * notification.
    */
-  static void writeCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
+  static bool writeCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
                             void* meta);
 
-  static void fillCacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
+  static bool fillCacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
                                 void* meta);
 
   /** Installs and drains the native-page fill-cache callback. */
   void enableFillCacheWriteback();
   void shutdownFillCacheWriteback();
 
-  /** Queues a fill-page writeback if the page is currently published. */
-  bool syncFillCache(size_t offset, bool async);
+  /** Reports writeback success separately from an absent fill page. */
+  bool syncFillCache(size_t offset, bool async, bool& present);
 
   /** Whether this file currently uses native-page fill caching. */
   virtual bool useFillCache() const;

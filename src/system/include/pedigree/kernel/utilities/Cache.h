@@ -195,6 +195,9 @@ class EXPORTED_PUBLIC Cache {
     /// Marker to check that a page's contents are in flux.
     bool checksumChanging;
 
+    bool writebackFailed;
+    uint64_t writebackEpoch;
+
     /// Current page status.
     enum Status {
       // The page is being edited and should not be considered for any
@@ -230,9 +233,10 @@ class EXPORTED_PUBLIC Cache {
    * which should write the modified data back to a backing store, if
    * any exists.
    *
-   * Then, the write-back thread will mark the page as not-dirty.
+   * Return false when backing-store submission or completion fails. The page
+   * remains dirty and ordinary eviction must retain it for a later retry.
    */
-  typedef void (*writeback_t)(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
+  typedef bool (*writeback_t)(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
                               void* meta);
 
   /** Synchronous writeback used immediately before retiring one page. */
@@ -250,9 +254,11 @@ class EXPORTED_PUBLIC Cache {
    *
    * Owners whose callback metadata points at an enclosing object must call
    * this at the start of that object's teardown, while callback dependencies
-   * are still alive. Calling it again after completion is harmless.
+   * are still alive. Calling it again after completion is harmless. A failed
+   * terminal drain reports false and retains unwritten storage; it cannot
+   * continue retries after its backend is destroyed.
    */
-  void shutdown();
+  bool shutdown();
 
   /**
    * Installs the write-back callback before the Cache is used.
@@ -342,7 +348,7 @@ class EXPORTED_PUBLIC Cache {
    * Waits for external pins, then discards each page's publication-time
    * base reference. Concurrent same-key eviction is joined safely.
    */
-  void empty();
+  bool empty();
 
   /** Decreases \p key 's \c refcnt by one. */
   void release(uintptr_t key);
@@ -376,9 +382,10 @@ class EXPORTED_PUBLIC Cache {
 
   /**
    * Synchronises the given cache key back to a backing store, if a
-   * callback has been assigned to the Cache.
+   * callback has been assigned to the Cache. Synchronous calls report the
+   * callback result; asynchronous calls report queue admission only.
    */
-  void sync(uintptr_t key, bool async);
+  bool sync(uintptr_t key, bool async);
 
   /**
    * Triggers the cache to calculate the checksum of the given location.
@@ -386,6 +393,9 @@ class EXPORTED_PUBLIC Cache {
    * a cache page for the first time.
    */
   void triggerChecksum(uintptr_t key);
+
+  /** Keeps a pinned page dirty after a direct backend writeback fails. */
+  void markDirty(uintptr_t key);
 
   /**
    * Enters a critical section with respect to this cache. That is, do not
@@ -559,6 +569,7 @@ class EXPORTED_PUBLIC Cache {
   /** Timer interface: number of nanoseconds counted so far in the timer
    * handler. */
   uint64_t m_Nanoseconds;
+  uint64_t m_WritebackEpoch;
 
   /** Metadata to pass to a callback. */
   void* m_CallbackMeta;
@@ -566,7 +577,7 @@ class EXPORTED_PUBLIC Cache {
   /** Are we currently in a critical section? */
   Atomic<size_t> m_bInCritical;
 
-  /** 0 while active, 1 while shutting down, 2 after shutdown. */
+  /** 0 active, 1 shutting down, 2 drained, 3 terminal writeback failure. */
   Atomic<size_t> m_ShutdownState;
 
   /** Constraints we need to apply to each page we allocate. */

@@ -41,12 +41,9 @@ Ext2File::Ext2File(const String& name, uintptr_t inode_num, Inode* inode, Ext2Fi
     m_State->cache = new CacheState;
     m_State->cache->fill.setCallback(sharedFillCallback, m_State);
   }
-  m_State->files.pushBack(this);
   {
     LockGuard<Mutex> writebackGuard(m_State->writebackLock);
-    if (!m_State->writebackOwner) {
-      m_State->writebackOwner = this;
-    }
+    m_State->files.pushBack(this);
   }
   if (!m_State->futexIdentity) {
     m_State->futexIdentity = File::futexIdentity();
@@ -59,21 +56,20 @@ Ext2File::Ext2File(const String& name, uintptr_t inode_num, Inode* inode, Ext2Fi
 
 Ext2File::~Ext2File() {
   LockGuard<Mutex> guard(m_State->dataLock);
-  for (size_t i = 0; i < m_State->files.count(); ++i) {
-    if (m_State->files[i] == this) {
-      m_State->files.erase(i);
-      break;
+  {
+    LockGuard<Mutex> writebackGuard(m_State->writebackLock);
+    for (size_t i = 0; i < m_State->files.count(); ++i) {
+      if (m_State->files[i] == this) {
+        m_State->files.erase(i);
+        break;
+      }
     }
   }
-  if (!m_State->files.count()) {
-    // Cache shutdown waits for callbacks without holding the writeback lock.
-    // This final alias remains a valid callback target until that drain ends.
+  // Linked inode state owns the cache after the last alias closes, so failed
+  // writebacks can retry without retaining an object in its destructor.
+  if (!m_State->files.count() && m_State->cache->fill.empty()) {
     delete m_State->cache;
     m_State->cache = nullptr;
-  }
-  LockGuard<Mutex> writebackGuard(m_State->writebackLock);
-  if (m_State->writebackOwner == this) {
-    m_State->writebackOwner = m_State->files.count() ? m_State->files[0] : nullptr;
   }
 }
 
@@ -247,69 +243,81 @@ void Ext2File::writeBlocks(uint64_t location, uintptr_t addr, size_t length) {
   }
 
   LockGuard<Mutex> guard(m_State->writebackLock);
-  writeBlocksLocked(location, addr, length);
+  writeBlocksLocked(m_State, location, addr, length, true);
 }
 
-void Ext2File::sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t location,
+bool Ext2File::sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t location,
                                   uintptr_t page, void* metadata) {
   Ext2InodeState* state = static_cast<Ext2InodeState*>(metadata);
   if (cause == CacheConstants::Eviction) {
     LockGuard<Mutex> guard(state->cache->indexLock);
     state->cache->data.remove(DataCacheKey(location / PhysicalMemoryManager::getPageSize()));
-    return;
+    return true;
   }
   if (cause != CacheConstants::WriteBack) {
-    return;
+    return false;
   }
   LockGuard<Mutex> guard(state->writebackLock);
-  assert(state->writebackOwner);
-  state->writebackOwner->writeBlocksLocked(location, page, PhysicalMemoryManager::getPageSize());
+  if (state->orphan && !state->files.count()) {
+    return true;
+  }
+  return writeBlocksLocked(state, location, page, PhysicalMemoryManager::getPageSize(), false);
 }
 
-void Ext2File::writeBlocksLocked(uint64_t location, uintptr_t addr, size_t length) {
-  const size_t blockSize = getBlockSize();
+bool Ext2File::writeBlocksLocked(Ext2InodeState* state, uint64_t location, uintptr_t addr,
+                                 size_t length, bool async) {
+  Ext2Filesystem* filesystem = state->filesystem;
+  const size_t blockSize = filesystem->m_BlockSize;
   uint32_t pinnedBlocks[TargetInfo::getPageSize() / 1024] = {};
   size_t pinnedCount = 0;
+  bool succeeded = true;
 
-  // ATA queues can coalesce writes by native page, so copy every constituent
-  // before publishing the first lower write.
+  // A fill page is published only after its constituent mappings were loaded.
+  // Copy every constituent before submitting a possibly coalesced disk write.
   for (size_t offset = 0; offset < length; offset += blockSize) {
-    if (pinnedCount == sizeof(pinnedBlocks) / sizeof(pinnedBlocks[0])) {
+    if (pinnedCount == sizeof(pinnedBlocks) / sizeof(pinnedBlocks[0]) ||
+        location > ~static_cast<uint64_t>(0) - offset) {
+      succeeded = false;
       break;
     }
-    if (location > ~static_cast<uint64_t>(0) - offset) {
-      break;
-    }
-
     const uint64_t blockLocation = location + offset;
+    if (blockLocation >= state->size) {
+      break;
+    }
     const size_t block = blockLocation / blockSize;
-    if (block >= m_Blocks.count() || blockLocation >= m_nSize || !ensureBlockLoaded(block) ||
-        !m_Blocks[block]) {
+    if (block >= state->blocks.count() || state->blocks[block] == ~uint32_t(0)) {
+      succeeded = false;
       continue;
     }
-
-    const uint32_t physicalBlock = m_Blocks[block];
-    const uintptr_t destination = m_pExt2Fs->readBlock(physicalBlock);
+    const uint32_t physicalBlock = state->blocks[block];
+    if (!physicalBlock) {
+      continue;
+    }
+    const uintptr_t destination = filesystem->readBlock(physicalBlock);
     if (!destination || destination == FILE_BAD_BLOCK) {
+      succeeded = false;
       continue;
     }
-
-    size_t copyLength = blockSize;
-    const size_t remaining = m_nSize - static_cast<size_t>(blockLocation);
-    if (copyLength > remaining) {
-      copyLength = remaining;
-    }
+    const size_t remaining = state->size - static_cast<size_t>(blockLocation);
+    const size_t copyLength = remaining < blockSize ? remaining : blockSize;
     ForwardMemoryCopy(reinterpret_cast<void*>(destination), reinterpret_cast<void*>(addr + offset),
                       copyLength);
     pinnedBlocks[pinnedCount++] = physicalBlock;
   }
 
   for (size_t i = 0; i < pinnedCount; ++i) {
-    m_pExt2Fs->writeBlock(pinnedBlocks[i]);
+    if (async) {
+      // Ordinary writes retain their authoritative fill page. Its checked
+      // callback establishes completion later, without a device flush per write.
+      filesystem->writeBlock(pinnedBlocks[i]);
+    } else {
+      succeeded = filesystem->syncBlock(pinnedBlocks[i], false) && succeeded;
+    }
   }
   for (size_t i = 0; i < pinnedCount; ++i) {
-    m_pExt2Fs->unpinBlock(pinnedBlocks[i]);
+    filesystem->unpinBlock(pinnedBlocks[i]);
   }
+  return succeeded;
 }
 
 bool Ext2File::pinBlock(uint64_t location) {
@@ -322,31 +330,22 @@ void Ext2File::unpinBlock(uint64_t location) {
   Ext2Node::unpinBlock(location);
 }
 
-void Ext2File::sync(size_t offset, bool async) {
-  if (!useFillCache() || !syncFillCache(offset, async)) {
-    LockGuard<Mutex> guard(m_State->writebackLock);
-    Ext2Node::sync(offset, async);
-    return;
-  }
-  if (async) {
-    return;
-  }
-
+bool Ext2File::sync() {
+  bool succeeded = File::sync();
   LockGuard<Mutex> guard(m_State->writebackLock);
+  return m_pExt2Fs->syncInode(getInodeNumber(), *this) && succeeded;
+}
 
-  const size_t pageSize = PhysicalMemoryManager::getPageSize();
-  const size_t pageOffset = offset - (offset % pageSize);
-  const size_t blockSize = getBlockSize();
-  for (size_t pageBlock = 0; pageBlock < pageSize; pageBlock += blockSize) {
-    if (pageOffset > ~static_cast<size_t>(0) - pageBlock) {
-      break;
+bool Ext2File::sync(size_t offset, bool async) {
+  bool present = false;
+  if (useFillCache()) {
+    const bool succeeded = syncFillCache(offset, async, present);
+    if (present) {
+      return succeeded;
     }
-    const size_t blockOffset = pageOffset + pageBlock;
-    if (blockOffset >= m_nSize) {
-      break;
-    }
-    Ext2Node::sync(blockOffset, false);
   }
+  LockGuard<Mutex> guard(m_State->writebackLock);
+  return Ext2Node::sync(offset, async);
 }
 
 size_t Ext2File::getBlockSize() const {

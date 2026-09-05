@@ -45,6 +45,49 @@ the invoking shell. Use `scripts/run-qemu-iso.py` for bounded marker-based
 checkpoints; it is also display-free and captures the guest serial log. Build a
 fresh ISO before treating serial output as evidence.
 
+## Running engineering spikes
+
+- Define a bounded outcome, the affected subsystem, and acceptance checks before
+  editing. Park newly discovered work outside that scope unless it blocks the
+  repair. Finish the selected slice before widening the audit.
+- Record the starting commit, working-tree diff, and untracked-file inventory.
+  Save baseline contents of files with unrelated edits before sharing ownership;
+  a filename list alone is insufficient for separating mixed hunks later.
+- Delegate independent, bounded tasks with one writer per overlapping area.
+  Give agents only the relevant context, file ownership, constraints, and expected
+  result. Prefer short handoffs containing findings, changed symbols, verification,
+  and blockers over full-history forks, repeated inventories, or duplicate reviews.
+- Assign one integration owner per shared checkout/build directory, including
+  across tasks using it. That owner runs builds and QEMU; other agents finish
+  edits and review. Settle shared interfaces before the final build. If a header
+  changed during compilation, explicitly rebuild its consumers before verification.
+- Use affected compile targets, focused native tests, and routing checks for fast
+  feedback. Reuse build directories and profile unexpected build delays before
+  changing the build system. Run broader integration checks once the patch is
+  stable; repeat them when changes, failures, or unresolved concerns justify it.
+- Prefer the headless serial workflow above. For guest contract suites, capture
+  per-suite exit status and an end marker, enforce a timeout, and stop on terminal
+  failure. Use a fresh ISO and disposable HDD snapshots. Never rebuild or replace
+  backing images while a guest uses them. Validate concurrency changes with one
+  and four CPUs; parallel guests need independent writable state.
+- For persistence checks, verify `PEDIGREE_CRIPPLE_HDD=FALSE` in the test build;
+  the default disables runtime disk writes. Use only disposable disks with that
+  configuration, keep the test ISO separate, and restore the shared build's
+  original setting afterwards. A passing cache-only test does not prove disk
+  writeback.
+- Keep full logs in a task-specific artifact directory outside tracked source.
+  Return summaries and paths, inspect targeted failure excerpts, and batch
+  independent reads. Use bounded waits instead of repeatedly polling unchanged
+  logs. Preserve failed runs: a green retry does not explain an intermittent fault.
+- Test public behavior and meaningful failure paths. Distinguish native execution,
+  routing checks, hosted compile-only checks, and guest execution; record skips and
+  unavailable coverage explicitly. End with a compact handoff of changes, exact
+  verification commands/results, artifact paths, remaining risks, and the next
+  action. When committing, include new files and only owned hunks; compile split
+  source/header combinations when partial staging could hide a dependency.
+- Finish each completed pass with a focused local commit after verification.
+  Preserve unrelated edits and keep pushes separate from these checkpoints.
+
 ## Pull requests
 
 - Keep each PR centered on one coherent change. The description should summarize behavior, tests run, and any known limitations or deferred work.

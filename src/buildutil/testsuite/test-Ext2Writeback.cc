@@ -131,6 +131,15 @@ class TrackingDisk final : public Disk {
     flushes.push_back(location);
   }
 
+  bool sync(uint64_t location, bool async) override {
+    if (async) {
+      write(location);
+    } else {
+      flush(location);
+    }
+    return syncResult;
+  }
+
   bool retireCachePage(uint64_t location) override {
     retirements.push_back(location);
     return retirementResult;
@@ -156,6 +165,7 @@ class TrackingDisk final : public Disk {
   std::vector<uint64_t> alignments;
   std::vector<uint64_t> reads;
   bool retirementResult = true;
+  bool syncResult = true;
 };
 
 class GrowthDisk final : public Disk {
@@ -227,11 +237,12 @@ class OrderedSyncFile final : public File {
  public:
   using File::sync;
 
-  void sync(size_t offset, bool async) override {
+  bool sync(size_t offset, bool async) override {
     syncOffset = offset;
     syncAsync = async;
     syncSawPin = pinned;
     order.push_back('S');
+    return true;
   }
 
   void returnPhysicalPage(size_t offset) override {
@@ -285,6 +296,22 @@ TEST(Ext2Writeback, UsesPhysicalBlockNumberExactlyOnce) {
   file.sync(3 * kBlockSize, false);
   EXPECT_EQ(disk.flushes.size(), 1U);
   EXPECT_EQ(disk.writes.size(), 1U);
+}
+
+TEST(Ext2Writeback, ReportsBackendSyncFailureOnEveryRetry) {
+  TrackingDisk disk;
+  Ext2Filesystem filesystem;
+  Ext2WritebackTestPeer::configure(filesystem, &disk, kBlockSize);
+  Inode inode = makeInode(127, 128);
+  Ext2File file(String("sync-failure"), 3, &inode, &filesystem);
+  disk.syncResult = false;
+  EXPECT_FALSE(file.sync(0, false));
+  EXPECT_FALSE(file.sync(0, false));
+  EXPECT_FALSE(file.sync(kBlockSize, true));
+  EXPECT_EQ(disk.flushes.size(), 2U);
+  disk.syncResult = true;
+  EXPECT_TRUE(file.sync(0, false));
+  EXPECT_EQ(disk.flushes.size(), 3U);
 }
 
 TEST(Ext2Writeback, KeepsNativeBlockWritePath) {
@@ -412,6 +439,42 @@ TEST(Ext2Growth, SparseWritesMaterializeDirectAndMissingIndirectPaths) {
   EXPECT_EQ(reopened.getAttributes().blocks, 7U * (kBlockSize / 512));
 }
 
+TEST(Ext2Metadata, OrdinaryWritesShareTimesAndAllocationAcrossHardlinks) {
+  MutableInodeFixture fixture;
+  Inode* inode = Ext2WritebackTestPeer::getInode(fixture.filesystem, 3);
+  ASSERT_NE(inode, nullptr);
+  inode->i_mode = HOST_TO_LITTLE16(EXT2_S_IFREG | 0600);
+  inode->i_links_count = HOST_TO_LITTLE16(2);
+  inode->i_size = HOST_TO_LITTLE32(2 * kBlockSize);
+  inode->i_atime = HOST_TO_LITTLE32(11);
+  inode->i_mtime = HOST_TO_LITTLE32(22);
+  inode->i_ctime = HOST_TO_LITTLE32(33);
+  Ext2File first(String("first"), 3, inode, &fixture.filesystem);
+  Ext2File second(String("second"), 3, inode, &fixture.filesystem);
+  const uint8_t value = 0x6b;
+  EXPECT_EQ(second.write(17, 0, reinterpret_cast<uintptr_t>(&value)), 0U);
+  EXPECT_EQ(first.getAttributes().modified, 22U);
+  EXPECT_EQ(first.getAttributes().changed, 33U);
+  EXPECT_EQ(first.getAttributes().blocks, 0U);
+
+  const Time::Timestamp before = Time::getTime();
+  ASSERT_EQ(second.write(17, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  const File::Attributes firstAttributes = first.getAttributes();
+  const File::Attributes secondAttributes = second.getAttributes();
+  EXPECT_EQ(firstAttributes.accessed, 11U);
+  EXPECT_GE(firstAttributes.modified, before);
+  EXPECT_LE(firstAttributes.modified, Time::getTime());
+  EXPECT_EQ(firstAttributes.changed, firstAttributes.modified);
+  EXPECT_EQ(firstAttributes.modified, secondAttributes.modified);
+  EXPECT_EQ(firstAttributes.changed, secondAttributes.changed);
+  EXPECT_EQ(firstAttributes.blocks, kBlockSize / 512);
+  EXPECT_EQ(firstAttributes.blocks, secondAttributes.blocks);
+  EXPECT_EQ(firstAttributes.size, 2 * kBlockSize);
+  EXPECT_EQ(firstAttributes.links, 2U);
+  EXPECT_EQ(LITTLE_TO_HOST32(inode->i_mtime), firstAttributes.modified);
+  EXPECT_EQ(LITTLE_TO_HOST32(inode->i_ctime), firstAttributes.changed);
+}
+
 TEST(Ext2Growth, SparseAllocationFailurePreservesHoleAndSize) {
   MutableInodeFixture fixture;
   fixture.superblock.s_free_blocks_count = 0;
@@ -421,6 +484,8 @@ TEST(Ext2Growth, SparseAllocationFailurePreservesHoleAndSize) {
   inode->i_mode = HOST_TO_LITTLE16(EXT2_S_IFREG | 0600);
   inode->i_links_count = HOST_TO_LITTLE16(1);
   inode->i_size = HOST_TO_LITTLE32(2 * kBlockSize);
+  inode->i_mtime = HOST_TO_LITTLE32(22);
+  inode->i_ctime = HOST_TO_LITTLE32(33);
   Ext2File file(String("full-device"), 3, inode, &fixture.filesystem);
   const uint8_t source = 0x6b;
   EXPECT_EQ(file.write(17, 1, reinterpret_cast<uintptr_t>(&source)), 0U);
@@ -430,6 +495,8 @@ TEST(Ext2Growth, SparseAllocationFailurePreservesHoleAndSize) {
   EXPECT_EQ(value, 0U);
   EXPECT_EQ(file.getSize(), 2 * kBlockSize);
   EXPECT_EQ(file.getAttributes().blocks, 0U);
+  EXPECT_EQ(file.getAttributes().modified, 22U);
+  EXPECT_EQ(file.getAttributes().changed, 33U);
 }
 
 TEST(Ext2Growth, BatchesIndirectMappingAndInodeWrites) {

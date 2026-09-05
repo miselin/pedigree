@@ -43,6 +43,8 @@ class EXPORTED_PUBLIC RamFile : public File {
 
   virtual ~RamFile();
 
+  virtual Attributes getAttributes() const;
+
   virtual void truncate();
 
   bool canWrite();
@@ -57,7 +59,7 @@ class EXPORTED_PUBLIC RamFile : public File {
 
  private:
   Cache m_FileBlocks;
-  Mutex m_FileBlocksLock;
+  mutable Mutex m_FileBlocksLock;
   Vector<uint64_t> m_BlockOffsets;
 
   size_t m_nOwnerPid;

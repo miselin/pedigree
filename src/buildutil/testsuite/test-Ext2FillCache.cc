@@ -24,6 +24,36 @@ class Ext2FillCacheTestPeer {
   static void configure(Ext2Filesystem& filesystem, Disk* disk, uint32_t blockSize) {
     filesystem.m_pDisk = disk;
     filesystem.m_BlockSize = blockSize;
+    FillCacheDisk& backing = *static_cast<FillCacheDisk*>(disk);
+    filesystem.m_pSuperblock = disk->read(1024).as<Superblock>();
+    filesystem.m_pSuperblock->s_inodes_per_group = HOST_TO_LITTLE32(4);
+    filesystem.m_pSuperblock->s_blocks_per_group = HOST_TO_LITTLE32(512);
+    filesystem.m_pSuperblock->s_first_data_block = HOST_TO_LITTLE32(blockSize == 1024 ? 1 : 0);
+    filesystem.m_InodeSize = sizeof(Inode);
+    filesystem.m_nGroupDescriptors = 1;
+    const uint32_t descriptorBlock = blockSize == 1024 ? 2 : 1;
+    GroupDesc* group = disk->read(descriptorBlock * blockSize).as<GroupDesc>();
+    group->bg_inode_table = HOST_TO_LITTLE32(5);
+    group->bg_block_bitmap = HOST_TO_LITTLE32(3);
+    group->bg_inode_bitmap = HOST_TO_LITTLE32(6);
+    filesystem.m_pGroupDescriptors = new GroupDesc*[1]{group};
+    filesystem.m_pBlockBitmaps = new Vector<size_t>[1];
+    filesystem.m_pInodeBitmaps = new Vector<size_t>[1];
+    filesystem.m_pInodeTables = new Vector<size_t>[1];
+    filesystem.m_pInodeTables[0].pushBack(disk->read(5 * blockSize).address());
+    backing.metadataLocations = {1024, descriptorBlock * blockSize, 3 * blockSize, 5 * blockSize,
+                                 6 * blockSize};
+    backing.metadataReferences = backing.pageReferences;
+    backing.clearActivity();
+  }
+
+  static Inode* configureMetadata(Ext2Filesystem& filesystem, FillCacheDisk& disk,
+                                  uint32_t blockSize, const Inode& inode) {
+    configure(filesystem, &disk, blockSize);
+    const uintptr_t table = filesystem.m_pInodeTables[0][0];
+    Inode* result = reinterpret_cast<Inode*>(table + 2 * sizeof(Inode));
+    *result = inode;
+    return result;
   }
 
   static void forceFillCache(File& file) {
@@ -158,7 +188,7 @@ class FillPageReference {
   }
 
   void syncAndReturn(size_t syncOffset, bool async) {
-    file.syncAndReturnPhysicalPage(syncOffset, async);
+    EXPECT_TRUE(file.syncAndReturnPhysicalPage(syncOffset, async));
     address = 0;
   }
 
@@ -189,7 +219,7 @@ void expectBalancedPins(const FillCacheDisk& disk, const std::vector<uint64_t>& 
       std::all_of(disk.writePins.begin(), disk.writePins.end(), [](bool pin) { return pin; }));
   EXPECT_EQ(std::count(disk.operations.begin(), disk.operations.end(), 'R'),
             std::count(disk.operations.begin(), disk.operations.end(), 'U'));
-  EXPECT_TRUE(disk.hasNoPins());
+  EXPECT_TRUE(disk.hasOnlyMetadataPins());
   EXPECT_FALSE(disk.outOfRange);
   EXPECT_FALSE(disk.unbalancedUnpin);
 }
@@ -243,7 +273,7 @@ TEST_P(Ext2FillCacheWriteback, OrdinaryWriteCopiesAllBlocksBeforeSchedulingWrite
   EXPECT_TRUE(Ext2FillCacheTestPeer::evictFillPage(file, kTargetPage));
 }
 
-TEST_P(Ext2FillCacheWriteback, AsynchronousMappedSyncCopiesAllBlocksWithoutFlushing) {
+TEST_P(Ext2FillCacheWriteback, AsynchronousMappedSyncCompletesBackendWritesInWorker) {
   const uint32_t blockSize = GetParam();
   const std::vector<uint32_t> blocks = makeBlocks(blockSize, TargetLayout::CoResident);
   FillCacheDisk disk;
@@ -270,8 +300,8 @@ TEST_P(Ext2FillCacheWriteback, AsynchronousMappedSyncCopiesAllBlocksWithoutFlush
   page.syncAndReturn(kTargetPage + 137, true);
 
   const std::vector<uint64_t> locations = targetLocations(blocks, blockSize);
-  EXPECT_EQ(disk.writes, locations);
-  EXPECT_TRUE(disk.flushes.empty());
+  EXPECT_TRUE(disk.writes.empty());
+  EXPECT_EQ(disk.flushes, locations);
   expectBalancedPins(disk, locations);
   expectTargetBytes(disk, blocks, blockSize, expected, false);
   expectTargetBytes(disk, blocks, blockSize, expected, true);
@@ -313,13 +343,13 @@ TEST_P(Ext2FillCacheWriteback, HardlinkAliasesSharePagesAndTransferWritebackOwne
   first.reset();
   reinterpret_cast<uint8_t*>(retained.get())[31] = 0x4a;
   expected[31] = 0x4a;
-  second.sync();
+  EXPECT_TRUE(second.sync(kTargetPage, false));
   expectTargetBytes(disk, blocks, blockSize, expected, true);
   retained.syncAndReturn(kTargetPage, false);
   expectTargetBytes(disk, blocks, blockSize, expected, true);
   Ext2FillCacheTestPeer::triggerFillChecksum(second, kTargetPage);
   EXPECT_TRUE(Ext2FillCacheTestPeer::evictFillPage(second, kTargetPage));
-  EXPECT_TRUE(disk.hasNoPins());
+  EXPECT_TRUE(disk.hasOnlyMetadataPins());
   EXPECT_FALSE(disk.unbalancedUnpin);
 }
 
@@ -350,14 +380,11 @@ TEST_P(Ext2FillCacheWriteback, SynchronousMappedSyncCopiesThenFlushesEveryPhysic
   page.syncAndReturn(kTargetPage + 313, false);
 
   const std::vector<uint64_t> locations = targetLocations(blocks, blockSize);
-  EXPECT_EQ(disk.writes, locations);
+  EXPECT_TRUE(disk.writes.empty());
   EXPECT_EQ(disk.flushes, locations);
   expectBalancedPins(disk, locations);
-  const auto firstWrite = std::find(disk.operations.begin(), disk.operations.end(), 'W');
-  EXPECT_EQ(static_cast<size_t>(std::count(disk.operations.begin(), firstWrite, 'R')),
-            locations.size());
   const auto firstFlush = std::find(disk.operations.begin(), disk.operations.end(), 'F');
-  EXPECT_EQ(static_cast<size_t>(std::count(disk.operations.begin(), firstFlush, 'W')),
+  EXPECT_EQ(static_cast<size_t>(std::count(disk.operations.begin(), firstFlush, 'R')),
             locations.size());
   expectTargetBytes(disk, blocks, blockSize, expected, true);
   constexpr uintptr_t kSentinel = 0x12345000;
@@ -393,7 +420,7 @@ TEST_P(Ext2FillCacheWriteback, SkipsSparseAndPastEofBlocks) {
     page.syncAndReturn(kTargetPage + 91, false);
 
     const std::vector<uint64_t> locations = targetLocations(blocks, blockSize);
-    EXPECT_EQ(disk.writes, locations);
+    EXPECT_TRUE(disk.writes.empty());
     EXPECT_EQ(disk.flushes, locations);
     expectBalancedPins(disk, locations);
     uintptr_t sparse = file.readBlock(kTargetPage + blockSize);
@@ -435,7 +462,7 @@ TEST_P(Ext2FillCacheWriteback, SkipsSparseAndPastEofBlocks) {
     page.syncAndReturn(kTargetPage + 19, false);
 
     const std::vector<uint64_t> locations = targetLocations(blocks, blockSize);
-    EXPECT_EQ(disk.writes, locations);
+    EXPECT_TRUE(disk.writes.empty());
     EXPECT_EQ(disk.flushes, locations);
     expectBalancedPins(disk, locations);
     expectTargetBytes(disk, blocks, blockSize, expected, false);
@@ -473,7 +500,8 @@ TEST_P(Ext2FillCacheWriteback, DestructorDrainsDirtyFillPageWhileDerivedTypeIsAl
   delete file;
 
   const std::vector<uint64_t> locations = targetLocations(blocks, blockSize);
-  EXPECT_EQ(disk.writes, locations);
+  EXPECT_TRUE(disk.writes.empty());
+  EXPECT_EQ(disk.flushes, locations);
   expectBalancedPins(disk, locations);
   expectTargetBytes(disk, blocks, blockSize, expected, true);
 }
@@ -500,6 +528,159 @@ TEST_P(Ext2FillCacheWriteback, MissingFillPageFallsBackToOneFilesystemBlock) {
   EXPECT_TRUE(disk.writes.empty());
   EXPECT_EQ(disk.flushes, std::vector<uint64_t>({physicalLocation}));
   EXPECT_FALSE(Ext2FillCacheTestPeer::fillPageExists(file, kTargetPage));
+}
+
+TEST_P(Ext2FillCacheWriteback, FailedConstituentSyncRetainsPageAndRetriesPartialProgress) {
+  const uint32_t blockSize = GetParam();
+  const auto blocks = makeBlocks(blockSize, TargetLayout::Noncontiguous);
+  FillCacheDisk disk;
+  std::vector<uint8_t> expected;
+  initialiseBlocks(disk, blocks, blockSize, expected);
+  Ext2Filesystem filesystem;
+  Ext2FillCacheTestPeer::configure(filesystem, &disk, blockSize);
+  Inode inode = makeSubpageInode(disk, blockSize, blocks);
+  Ext2File file(String("fill-failure"), 3, &inode, &filesystem);
+  Ext2FillCacheTestPeer::forceFillCache(file);
+  uint8_t byte = 0;
+  ASSERT_EQ(file.read(kTargetPage, 1, reinterpret_cast<uintptr_t>(&byte)), 1U);
+  {
+    FillPageReference page(file, kTargetPage);
+    ASSERT_NE(page.get(), 0U);
+    std::fill(expected.begin(), expected.end(), 0xED);
+    std::copy(expected.begin(), expected.end(), reinterpret_cast<uint8_t*>(page.get()));
+  }
+  const auto locations = targetLocations(blocks, blockSize);
+  disk.failedSyncLocation = locations[1];
+  EXPECT_FALSE(file.sync(kTargetPage, false));
+  EXPECT_TRUE(disk.persistedEquals(locations[0], expected.data(), blockSize));
+  EXPECT_FALSE(disk.persistedEquals(locations[1], expected.data() + blockSize, blockSize));
+  EXPECT_FALSE(file.sync(kTargetPage, false));
+  EXPECT_FALSE(Ext2FillCacheTestPeer::evictFillPage(file, kTargetPage));
+  EXPECT_TRUE(Ext2FillCacheTestPeer::fillPageExists(file, kTargetPage));
+  EXPECT_EQ(disk.failedSyncs.size(), 3U);
+  EXPECT_TRUE(disk.hasOnlyMetadataPins());
+  disk.failedSyncLocation = ~uint64_t(0);
+  EXPECT_TRUE(file.sync(kTargetPage, false));
+  expectTargetBytes(disk, blocks, blockSize, expected, true);
+  EXPECT_TRUE(Ext2FillCacheTestPeer::evictFillPage(file, kTargetPage));
+  EXPECT_FALSE(disk.unbalancedUnpin);
+}
+
+TEST_P(Ext2FillCacheWriteback, FailedWritebackReadSurvivesLastCloseAndReopen) {
+  const uint32_t blockSize = GetParam();
+  const auto blocks = makeBlocks(blockSize, TargetLayout::Noncontiguous);
+  FillCacheDisk disk;
+  std::vector<uint8_t> expected;
+  initialiseBlocks(disk, blocks, blockSize, expected);
+  Ext2Filesystem filesystem;
+  Ext2FillCacheTestPeer::configure(filesystem, &disk, blockSize);
+  Inode inode = makeSubpageInode(disk, blockSize, blocks);
+  const auto locations = targetLocations(blocks, blockSize);
+  {
+    Ext2File file(String("closed-failure"), 3, &inode, &filesystem);
+    Ext2FillCacheTestPeer::forceFillCache(file);
+    uint8_t byte = 0;
+    ASSERT_EQ(file.read(kTargetPage, 1, reinterpret_cast<uintptr_t>(&byte)), 1U);
+    {
+      FillPageReference page(file, kTargetPage);
+      ASSERT_NE(page.get(), 0U);
+      std::fill(expected.begin(), expected.end(), 0xAB);
+      std::copy(expected.begin(), expected.end(), reinterpret_cast<uint8_t*>(page.get()));
+    }
+    disk.failedReadLocation = locations[0];
+    EXPECT_FALSE(file.sync(kTargetPage, false));
+  }
+  Ext2File reopened(String("reopened"), 3, &inode, &filesystem);
+  Ext2FillCacheTestPeer::forceFillCache(reopened);
+  uint8_t byte = 0;
+  ASSERT_EQ(reopened.read(kTargetPage, 1, reinterpret_cast<uintptr_t>(&byte)), 1U);
+  EXPECT_EQ(byte, 0xAB);
+  EXPECT_FALSE(reopened.sync(kTargetPage, false));
+  disk.failedReadLocation = ~uint64_t(0);
+  EXPECT_TRUE(reopened.sync(kTargetPage, false));
+  expectTargetBytes(disk, blocks, blockSize, expected, true);
+  EXPECT_TRUE(disk.hasOnlyMetadataPins());
+  EXPECT_FALSE(disk.unbalancedUnpin);
+}
+
+TEST_P(Ext2FillCacheWriteback, BackgroundRetryKeepsFailedAsynchronousDataDirty) {
+  const uint32_t blockSize = GetParam();
+  const auto blocks = makeBlocks(blockSize, TargetLayout::Noncontiguous);
+  FillCacheDisk disk;
+  std::vector<uint8_t> expected;
+  initialiseBlocks(disk, blocks, blockSize, expected);
+  Ext2Filesystem filesystem;
+  Ext2FillCacheTestPeer::configure(filesystem, &disk, blockSize);
+  Inode inode = makeSubpageInode(disk, blockSize, blocks);
+  Ext2File file(String("async-failure"), 3, &inode, &filesystem);
+  Ext2FillCacheTestPeer::forceFillCache(file);
+  uint8_t byte = 0;
+  ASSERT_EQ(file.read(kTargetPage, 1, reinterpret_cast<uintptr_t>(&byte)), 1U);
+  {
+    FillPageReference page(file, kTargetPage);
+    ASSERT_NE(page.get(), 0U);
+    std::fill(expected.begin(), expected.end(), 0xD9);
+    std::copy(expected.begin(), expected.end(), reinterpret_cast<uint8_t*>(page.get()));
+  }
+  const auto locations = targetLocations(blocks, blockSize);
+  disk.failedSyncLocation = locations[0];
+  // Standalone CacheManager executes accepted asynchronous work inline. Its
+  // return value remains admission success; the failed page must stay dirty.
+  EXPECT_TRUE(file.sync(kTargetPage, true));
+  ASSERT_EQ(disk.failedSyncs.size(), 1U);
+  EXPECT_FALSE(Ext2FillCacheTestPeer::evictFillPage(file, kTargetPage));
+  const uint64_t period = CACHE_WRITEBACK_PERIOD * 1000000ULL;
+  CacheManager::instance().timer(period);
+  const size_t attempts = disk.failedSyncs.size();
+  CacheManager::instance().timer(period);
+  EXPECT_EQ(disk.failedSyncs.size(), attempts + 1);
+  EXPECT_TRUE(Ext2FillCacheTestPeer::fillPageExists(file, kTargetPage));
+  disk.failedSyncLocation = ~uint64_t(0);
+  CacheManager::instance().timer(period);
+  expectTargetBytes(disk, blocks, blockSize, expected, true);
+  EXPECT_TRUE(Ext2FillCacheTestPeer::evictFillPage(file, kTargetPage));
+  EXPECT_TRUE(disk.hasOnlyMetadataPins());
+  EXPECT_FALSE(disk.unbalancedUnpin);
+}
+
+TEST_P(Ext2FillCacheWriteback, FullSyncReportsInodeFlushFailureAndRetries) {
+  const uint32_t blockSize = GetParam();
+  const auto blocks = makeBlocks(blockSize, TargetLayout::Noncontiguous);
+  FillCacheDisk disk;
+  std::vector<uint8_t> expected;
+  initialiseBlocks(disk, blocks, blockSize, expected);
+  const Inode original = makeSubpageInode(disk, blockSize, blocks);
+  {
+    Ext2Filesystem filesystem;
+    Inode* inode = Ext2FillCacheTestPeer::configureMetadata(filesystem, disk, blockSize, original);
+    Ext2File file(String("metadata-failure"), 3, inode, &filesystem);
+    Ext2FillCacheTestPeer::forceFillCache(file);
+    uint8_t byte = 0;
+    ASSERT_EQ(file.read(kTargetPage, 1, reinterpret_cast<uintptr_t>(&byte)), 1U);
+    {
+      FillPageReference page(file, kTargetPage);
+      ASSERT_NE(page.get(), 0U);
+      std::fill(expected.begin(), expected.end(), 0xBC);
+      std::copy(expected.begin(), expected.end(), reinterpret_cast<uint8_t*>(page.get()));
+    }
+    disk.failedSyncLocation = 5 * blockSize;
+    EXPECT_FALSE(file.sync());
+    expectTargetBytes(disk, blocks, blockSize, expected, true);
+    EXPECT_FALSE(file.sync());
+    disk.failedSyncLocation = 3 * blockSize;
+    EXPECT_FALSE(file.sync());
+    EXPECT_FALSE(file.sync());
+    if (blocks.size() > 12) {
+      disk.failedSyncLocation = kIndirectBlock * blockSize;
+      EXPECT_FALSE(file.sync());
+    }
+    disk.failedSyncLocation = ~uint64_t(0);
+    EXPECT_TRUE(file.sync());
+    EXPECT_TRUE(disk.persistedEquals(5 * blockSize + 2 * sizeof(Inode),
+                                     reinterpret_cast<const uint8_t*>(inode), sizeof(Inode)));
+  }
+  EXPECT_TRUE(disk.hasNoPins());
+  EXPECT_FALSE(disk.unbalancedUnpin);
 }
 
 #if PEDIGREE_TARGET_PAGE_SIZE > 2048

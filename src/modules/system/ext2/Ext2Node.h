@@ -32,6 +32,7 @@ class Ext2Filesystem;
 
 struct Ext2InodeState {
   Ext2InodeState(Inode* inode, Ext2Filesystem* filesystem);
+  ~Ext2InodeState();
   void reloadMappings(Inode* inode, Ext2Filesystem* filesystem);
   void loadMappings(Ext2Filesystem* filesystem, uint32_t block, unsigned depth, size_t first,
                     size_t span);
@@ -48,7 +49,7 @@ struct Ext2InodeState {
   uintptr_t futexIdentity;
   Vector<Ext2File*> files;
   File::CacheState* cache = nullptr;
-  Ext2File* writebackOwner = nullptr;
+  Ext2Filesystem* filesystem;
 };
 
 /** A node in an ext2 filesystem. */
@@ -94,7 +95,7 @@ class Ext2Node {
   bool pinBlock(uint64_t location);
   void unpinBlock(uint64_t location);
 
-  void sync(size_t offset, bool async);
+  bool sync(size_t offset, bool async);
 
  protected:
   bool resizeData(size_t size);
