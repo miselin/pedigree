@@ -37,6 +37,7 @@
 class FatFilesystem : public Filesystem {
   friend class FatFile;
   friend class FatDirectory;
+  friend class FatSymlink;
 
  public:
   FatFilesystem();
@@ -94,7 +95,7 @@ class FatFilesystem : public Filesystem {
 
   /** Sets a cluster entry - bLock determines if this should enforce locking
    * internally or allow the caller to ensure the FAT is locked. */
-  uint32_t setClusterEntry(uint32_t cluster, uint32_t value, bool bLock = true);
+  bool setClusterEntry(uint32_t cluster, uint32_t value, bool bLock = true);
 
   /** Converts a string to 8.3 format */
   String convertFilenameTo(String filename) const;
@@ -103,13 +104,19 @@ class FatFilesystem : public Filesystem {
   String convertFilenameFrom(String filename) const;
 
   /** Finds and reserves a free cluster. */
-  uint32_t findFreeCluster();
+  uint32_t findFreeCluster(bool* persisted = nullptr);
 
-  /** Updates the size of a file on disk */
-  void updateFileSize(File* pFile, int64_t sizeChange);
+  bool syncFat(bool bLock = true);
+  uint8_t* getFatSector(uint32_t sector);
+  bool chainExtent(File* file, uint32_t& count, uint32_t& last);
+  bool ensureCapacity(File* file, size_t size);
+  bool zeroRange(File* file, size_t begin, size_t end);
+  bool updateFileMetadata(File* file, size_t size);
+  bool syncFileMetadata(File* file);
+  uint64_t allocatedBlocks(File* file);
 
-  /** Sets the cluster for a file on disk */
-  void setCluster(File* pFile, uint32_t clus);
+  /** Serialises chain changes and attribute snapshots across file aliases. */
+  Mutex m_FileMutationLock;
 
   /** Reads part of a directory into a buffer, returns the allocated buffer
    * (which needs to be freed */
@@ -126,7 +133,7 @@ class FatFilesystem : public Filesystem {
                    uint32_t dirClus = 0, bool publish = true);
 
   /** Releases a validated cluster chain as one allocation transaction. */
-  bool releaseClusterChain(uint32_t clus);
+  bool releaseClusterChain(uint32_t clus, bool lockFile = true);
 
   /** Reads a directory entry from disk */
   Dir* getDirectoryEntry(uint32_t clus, uint32_t offset) const;
@@ -251,6 +258,7 @@ class FatFilesystem : public Filesystem {
   // FAT cache
   // Cache<uint8_t*, 512> m_FatCache;
   Tree<uintptr_t, uintptr_t> m_FatCache;
+  Tree<uint32_t, bool> m_DirtyFatSectors;
 
   /**
    * Hint for the free cluster code, to avoid searching the ENTIRE FAT each

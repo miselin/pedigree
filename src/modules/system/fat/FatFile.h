@@ -30,6 +30,9 @@
 
 /** A File is a file, a directory or a symlink. */
 class FatFile : public File {
+  friend class FatFilesystem;
+  friend class FatWritebackTestPeer;
+
  private:
   /** Copy constructors are hidden - unused! */
   FatFile(const File& file);
@@ -62,15 +65,20 @@ class FatFile : public File {
   virtual void extend(size_t newSize);
   virtual void extend(size_t newSize, uint64_t location, uint64_t size);
 
-  using File::sync;
+  virtual Attributes getAttributes() const;
+  virtual bool sync();
   virtual bool sync(size_t offset, bool async);
 
   virtual bool pinBlock(uint64_t location);
   virtual void unpinBlock(uint64_t location);
 
  private:
+  static bool checkedWriteCallback(CacheConstants::CallbackCause cause, uintptr_t location,
+                                   uintptr_t page, void* meta);
+
   uint32_t m_DirClus;
   uint32_t m_DirOffset;
+  bool m_MetadataDirty;
 
   Cache m_FileBlockCache;
   Mutex m_FileBlockCacheLock;

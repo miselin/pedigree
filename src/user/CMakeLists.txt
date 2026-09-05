@@ -165,6 +165,7 @@ pedigree_app(testsuite ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/futex-contracts.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/robust-memory-contracts.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/fs-mutation-contracts.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/fs-persistence-contracts.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/dup3.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/epoll-pty.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/exec.c

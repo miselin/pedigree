@@ -842,6 +842,11 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vsyscall-${PEDIGREE_ASMDIR}.s
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-${PEDIGREE_ASMDIR}.s
     ${CMAKE_CURRENT_BINARY_DIR}/vdso.h)
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS)
+    target_sources(posix PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/vm-permission-regressions.cc)
+endif ()
 target_include_directories(posix PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/include

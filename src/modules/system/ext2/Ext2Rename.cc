@@ -237,6 +237,8 @@ bool Ext2Filesystem::renameNode(Directory* oldParent, const String& oldName, Fil
   if (parentRecord.entry) {
     parentRecord.entry->d_inode = HOST_TO_LITTLE32(newDirectory->getInodeNumber());
     writeBlock(parentRecord.block);
+    oldDirectory->queueSyncDependency(parentRecord.block);
+    newDirectory->queueSyncDependency(parentRecord.block);
   }
   writeBlock(oldRecord.block);
   if (newRecord.block != oldRecord.block) {

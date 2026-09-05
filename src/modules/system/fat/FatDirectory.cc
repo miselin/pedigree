@@ -135,6 +135,14 @@ FatDirectory::FatDirectory(String name, uintptr_t inode_num, FatFilesystem* pFs,
 
 FatDirectory::~FatDirectory() {}
 
+File::Attributes FatDirectory::getAttributes() const {
+  FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
+  LockGuard<Mutex> guard(filesystem->m_FileMutationLock);
+  Attributes attributes = File::getAttributes();
+  attributes.blocks = filesystem->allocatedBlocks(const_cast<FatDirectory*>(this));
+  return attributes;
+}
+
 void FatDirectory::setInode(uintptr_t inode) {
   FatFilesystem* pFs = static_cast<FatFilesystem*>(m_pFilesystem);
   m_Inode = inode;
@@ -162,6 +170,7 @@ bool FatDirectory::addEntry(String filename, File* pFile, size_t type) {
     return false;
   }
   LockGuard<Mutex> guard(m_Lock);
+  LockGuard<Mutex> fileGuard(pFs->m_FileMutationLock);
 
   struct ExistingEntryContext {
     StringView name;
@@ -261,8 +270,8 @@ bool FatDirectory::addEntry(String filename, File* pFile, size_t type) {
         if (!newClus)
           return false;
 
-        pFs->setClusterEntry(prev, newClus);
-        pFs->setClusterEntry(newClus, pFs->eofValue());
+        if (!pFs->setClusterEntry(prev, newClus))
+          return false;
 
         clus = newClus;
       }
@@ -381,6 +390,7 @@ bool FatDirectory::removeEntry(const String& namespaceName, File* pFile) {
   }
 
   LockGuard<Mutex> guard(m_Lock);
+  LockGuard<Mutex> fileGuard(pFs->m_FileMutationLock);
 
   struct RemovalIdentity {
     StringView name;

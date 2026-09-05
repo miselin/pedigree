@@ -38,6 +38,10 @@
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
 
+#if !HOSTED && PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS
+extern bool runVmMappedOwnershipRegressions();
+#endif
+
 static PosixSyscallManager g_PosixSyscallManager;
 
 UnixFilesystem* g_pUnixFilesystem = 0;
@@ -285,6 +289,11 @@ static bool init() {
     return false;
   }
   g_PosixTerminalLifetime = PosixTerminalLifetimeState::HookOwned;
+#if !HOSTED && PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS
+  if (!runVmMappedOwnershipRegressions()) {
+    FATAL("QEMU mapped ownership regression failed");
+  }
+#endif
   return true;
 }
 

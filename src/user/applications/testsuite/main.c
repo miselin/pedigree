@@ -31,6 +31,7 @@ extern void test_vm_contracts(void);
 extern void test_usercopy_contracts(void);
 extern void test_futex_contracts(const char* program);
 extern void test_fs_mutation_contracts(void);
+extern void test_fs_persistence_contracts(const char* base, int write_phase);
 extern void test_fs();
 extern void test_dup3(void);
 extern void test_epoll_pty(void);
@@ -85,6 +86,11 @@ int main(int argc, char* argv[]) {
   }
   if (argc == 2 && !strcmp(argv[1], "--fs-mutation-contracts")) {
     test_fs_mutation_contracts();
+    return 0;
+  }
+  if (argc == 3 &&
+      (!strcmp(argv[1], "--fs-persistence-write") || !strcmp(argv[1], "--fs-persistence-read"))) {
+    test_fs_persistence_contracts(argv[2], !strcmp(argv[1], "--fs-persistence-write"));
     return 0;
   }
   if (argc == 2 && !strcmp(argv[1], "--scm-rights-stream")) {

@@ -79,7 +79,7 @@ This repair is not proof of the earlier guest failure's cause.
 
 ## Third pass: checked writeback and metadata
 
-This pass starts at `48756ea35` and adds no syscall mappings. Earlier private-signal
+This pass starts at `48756ea35`, is checkpointed as `c59181482`, and adds no syscall mappings. Earlier private-signal
 changes remain in the shared working tree and are outside this pass.
 
 - File, mapping, cache, and disk sync paths return checked results. Ext2 backend
@@ -152,6 +152,75 @@ Final verification:
 Full commands, preserved failures, and the owned patch are in the
 [pass handoff](/private/tmp/pedigree-posix-pass3-20260905/handoff.md).
 
+## Fourth pass: directory persistence, FAT, and VM execution
+
+This pass starts at `c59181482` and keeps the existing syscall set. Private-signal
+changes remain outside the checkpoint.
+
+- Ext2 directory `fsync` checks directory data and namespace metadata, including
+  child inodes and allocation changes in other groups. Parents retain new child
+  directory data and moved `..` block dependencies across aliases, close/reopen,
+  and failed writes. Dependencies are block identities resolved through fresh
+  pinned reads. The metadata sweep conservatively includes loaded filesystem
+  metadata; it does not add journaling or crash-atomic rename.
+- FAT cache writeback now checks complete data and metadata submission, retaining
+  dirty producer pages on failure. Retry uses absolute metadata values; failed
+  mirrored FAT writes, allocation reservations, and whole-chain reclamation keep
+  retryable state. Growth zeroes newly visible bytes before publishing size.
+  Metadata snapshots count actual allocated clusters, including empty allocated
+  files, using the correct FAT16/FAT32 entry widths. Symlink creation preserves
+  its existing behavior through checked writes before publishing the name.
+- The shared sparse mapping ownership and public `msync` fixtures run during
+  POSIX initialization when `PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS=TRUE`. The test build
+  requires a root disk and leaves the existing disk-free concurrency smoke
+  module unchanged. The fixtures check four sparse
+  masks, mapping/PTE removal, page loans, reservation reuse, every replacement
+  byte, `ENOMEM` preflight, `EIO`, continued page attempts, and successful retry.
+
+Native verification passes **151 tests**, including 11 new Ext2 directory sync
+cases and 14 FAT cases. The fake disks separate cached and persisted bytes and
+inject failures, including retry after partial progress and failed reclamation.
+The **42 routing/signal checks** also pass. Ten hosted regression translation
+units compile; this alone does not establish hosted execution.
+[Native log](/private/tmp/pedigree-posix-pass4-20260905/native-final-tests.log),
+[routing log](/private/tmp/pedigree-posix-pass4-20260905/routing.log),
+[hosted compilation](/private/tmp/pedigree-posix-pass4-20260905/hosted-final-compile.log).
+
+All ten ordinary guest suites pass on one and four CPUs (**49.5s / 40.6s**).
+The new `--fs-persistence-write <directory>` and
+`--fs-persistence-read <directory>` modes also pass across two boots of the same
+disposable disk on each CPU configuration. The reader verifies every payload
+byte, file size/link/block metadata, retired names, and the moved directory's
+stored `..` inode. QEMU is terminated after the writer's completion marker;
+there is no guest shutdown or global sync between phases. The runner requires
+write on the first boot and read on the second, so losing the completion marker
+cannot silently restart the test. Read-only `e2fsck -fn` passes on the baseline
+and both resulting disks. This is reboot-persistence evidence, not a claim of
+physical power-loss or crash-atomic rename behavior.
+
+Guest runs use fresh copied ISOs with `PEDIGREE_CRIPPLE_HDD=FALSE`, serial output,
+no display/network, per-suite status/end markers, and 180-second deadlines.
+Ordinary suites use snapshots; each persistence pair uses its own retained
+qcow2 overlay. FAT fault/retry coverage is native execution with fake disks,
+without an additional FAT guest-persistence claim.
+
+The focused VM fixtures execute successfully on **one and four CPUs**
+(**21.1s / 22.4s**), including all four ownership cases and the public `msync`
+failure/retry checks. The final marker occurs after worker joins and process
+teardown. Older hosted-only clone/resize/refcount fixtures remain compile-only;
+the original intermittent split/unmap failure remains unresolved.
+[One CPU](/private/tmp/pedigree-posix-pass4-20260905/vm-1cpu.serial.log),
+[four CPUs](/private/tmp/pedigree-posix-pass4-20260905/vm-4cpu.serial.log).
+
+Early VM test-module attempts failed relocation before executing fixtures.
+`posix_msync` is intentionally hidden, so the final test source is linked inside
+POSIX under the optional flag; no production symbol visibility changed. Failed
+logs are retained. The normal shared build is restored with runtime disk writes
+disabled and both smoke flags false. Unrelated baseline edits are preserved;
+verification used the shared working tree. Exact commands, persistence logs,
+filesystem checks, and limitations are in the
+[pass handoff](/private/tmp/pedigree-posix-pass4-20260905/handoff.md).
+
 ## Remaining boundaries
 
 These repairs do not establish general musl conformance. The following existing
@@ -162,8 +231,10 @@ capability gaps remain material before making that claim:
   implementation is compile-checked, and other architectures lack this repair.
 - Ext2 growth still allocates intervening blocks. Repairing writes into existing
   sparse holes does not establish sparse growth or allocation-policy parity.
-  RamFs now counts allocated pages; FAT and other backends still need a
-  separate block-accounting audit.
+  RamFs counts allocated pages and FAT counts allocated clusters; other backends
+  still need a separate block-accounting audit. FAT12 lacks dedicated native
+  coverage; malformed chains cannot report an attribute error through the
+  current interface and instead warn and report zero blocks.
 - Ext2 retains a small identity state and registry entry for each touched linked
   inode until unlink or unmount. Inactive block-map capacity is released after
   successful cache drain; failed writeback retains it for retry. A fully bounded
@@ -177,10 +248,10 @@ capability gaps remain material before making that claim:
   not add RamFs symlinks or FAT mutation capabilities.
 - The VM permission work is validated on amd64; other non-hosted architectures
   reject unsupported `PROT_NONE`. Checked writeback now covers Ext2 through
-  SCSI/ATA and buildutility DiskImage. FAT still has void backend writes, and
+  SCSI/ATA, FAT, and buildutility DiskImage. Ext2 directory sync is checked;
   other disks without checked sync return failure. Terminal backend destruction
-  reports unwritten pages but cannot recover them afterwards. Directory `fsync`
-  still needs its own checked backend path. Legacy `brk` and stack regions are
+  reports unwritten pages but cannot recover them afterwards. Other directory
+  backends still need checked sync paths. Legacy `brk` and stack regions are
   not newly represented as VM mapping objects.
 - Existing stubs and unsupported futex operations remain deferred, as do the
   broader signal restart, terminal timing, and threaded-exec conformance gaps.

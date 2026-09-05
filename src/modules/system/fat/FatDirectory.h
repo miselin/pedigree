@@ -43,12 +43,12 @@ class FatDirectory : public Directory {
   FatDirectory(String name, uintptr_t cluster, class FatFilesystem* pFs, File* pParent,
                FatFileInfo& info, uint32_t dirClus = 0, uint32_t dirOffset = 0);
   /** Destructor */
-  virtual ~FatDirectory();
+  ~FatDirectory() override;
 
-  void truncate() {}
+  void truncate() override {}
 
   /** Reads directory contents into File* cache. */
-  virtual void cacheDirectoryContents();
+  void cacheDirectoryContents() override;
 
   /** Adds a directory entry. */
   virtual bool addEntry(String filename, File* pFile, size_t type);
@@ -56,10 +56,11 @@ class FatDirectory : public Directory {
   virtual bool removeEntry(const String& filename, File* pFile);
 
   /** Updates inode attributes. */
-  void fileAttributeChanged();
+  void fileAttributeChanged() override;
+  Attributes getAttributes() const override;
 
   /** Set the internal cluster (in the case of FAT) */
-  virtual void setInode(uintptr_t inode);
+  void setInode(uintptr_t inode) override;
 
   uint32_t getDirCluster() {
     return m_DirClus;

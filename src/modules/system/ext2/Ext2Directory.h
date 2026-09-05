@@ -59,9 +59,12 @@ class Ext2Directory : public Directory, public Ext2Node {
   Ext2Directory(const String& name, uintptr_t inode_num, Inode* inode, class Ext2Filesystem* pFs,
                 File* pParent);
   /** Destructor */
-  virtual ~Ext2Directory();
+  ~Ext2Directory() override;
 
-  void truncate() {}
+  void truncate() override {}
+
+  using Directory::sync;
+  bool sync() override;
 
   /** Adds a directory entry. */
   virtual bool addEntry(const String& filename, File* pFile, size_t type);
@@ -69,11 +72,11 @@ class Ext2Directory : public Directory, public Ext2Node {
   virtual bool removeEntry(const String& filename, Ext2Node* pFile);
 
   /** Updates inode attributes. */
-  void fileAttributeChanged();
-  virtual Attributes getAttributes() const;
+  void fileAttributeChanged() override;
+  Attributes getAttributes() const override;
 
  protected:
-  virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
+  void updateAttributes(const Attributes& attributes, uint32_t mask) override;
 
  private:
   struct ParsedEntry {
@@ -84,9 +87,9 @@ class Ext2Directory : public Directory, public Ext2Node {
     char name[256];
   };
 
-  virtual LookupStatus resolveChild(const StringView& name, File*& child);
-  virtual LookupStatus resolveChildAt(uint64_t cookie, const StringView& name, File*& child);
-  virtual ReadStatus readDirectory(uint64_t& cookie, DirectoryEntryEmitter emitter, void* context);
+  LookupStatus resolveChild(const StringView& name, File*& child) override;
+  LookupStatus resolveChildAt(uint64_t cookie, const StringView& name, File*& child) override;
+  ReadStatus readDirectory(uint64_t& cookie, DirectoryEntryEmitter emitter, void* context) override;
 
   bool readBytes(uint64_t offset, size_t length, void* buffer);
   ReadStatus readEntry(uint64_t offset, ParsedEntry& entry);
@@ -94,6 +97,8 @@ class Ext2Directory : public Directory, public Ext2Node {
   LookupStatus resolveChildLocked(const StringView& name, File*& child);
   bool removeEntryLocked(const String& filename, Ext2Node* pFile);
   bool removeFromParent(Ext2Directory* parent, const String& filename);
+  bool syncDirectoryBlock(uint32_t block);
+  void queueSyncDependency(uint32_t block);
 
   Mutex m_DirectoryLock;
   bool m_Removed;

@@ -28,9 +28,10 @@ FatFile::FatFile(String name, Time::Timestamp accessedTime, Time::Timestamp modi
     : File(name, accessedTime, modifiedTime, creationTime, inode, pFs, size, pParent),
       m_DirClus(dirClus),
       m_DirOffset(dirOffset),
+      m_MetadataDirty(false),
       m_FileBlockCache(),
       m_FileBlockCacheLock() {
-  m_FileBlockCache.setCallback(writeCallback, static_cast<File*>(this));
+  m_FileBlockCache.setCallback(checkedWriteCallback, this);
 
   // No permissions on FAT - set all to RWX.
   setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OW |
@@ -80,18 +81,46 @@ uintptr_t FatFile::readBlock(uint64_t location) {
 }
 
 void FatFile::writeBlock(uint64_t location, uintptr_t addr) {
-  FatFilesystem* pFs = static_cast<FatFilesystem*>(m_pFilesystem);
+  // The producer page remains authoritative until checked writeback completes.
+  m_FileBlockCache.markDirty(location);
+}
 
-  // Don't accidentally extend the file when writing the block.
-  size_t sz = getBlockSize();
-  uint64_t end = location + sz;
-  if (end > getSize())
-    sz = getSize() - location;
-  pFs->write(this, location, sz, addr);
+bool FatFile::checkedWriteCallback(CacheConstants::CallbackCause cause, uintptr_t location,
+                                   uintptr_t page, void* meta) {
+  FatFile* file = static_cast<FatFile*>(meta);
+  if (cause != CacheConstants::WriteBack)
+    return File::writeCallback(cause, location, page, static_cast<File*>(file));
+
+  const size_t size = file->getSize();
+  if (location >= size)
+    return true;
+  const size_t remaining = size - location;
+  const size_t length = remaining < file->getBlockSize() ? remaining : file->getBlockSize();
+  FatFilesystem* filesystem = static_cast<FatFilesystem*>(file->m_pFilesystem);
+  return filesystem->write(file, location, length, page) == length;
+}
+
+bool FatFile::sync() {
+  const bool dataSucceeded = File::sync();
+  FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
+  return filesystem->syncFileMetadata(this) && dataSucceeded;
 }
 
 bool FatFile::sync(size_t offset, bool async) {
-  return m_FileBlockCache.sync(offset, async);
+  offset -= offset % getBlockSize();
+  const bool dataSucceeded = m_FileBlockCache.sync(offset, async);
+  FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
+  return filesystem->syncFileMetadata(this) && dataSucceeded;
+}
+
+File::Attributes FatFile::getAttributes() const {
+  FatFile* file = const_cast<FatFile*>(this);
+  LockGuard<Mutex> dataGuard(file->dataMutationLock());
+  FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
+  LockGuard<Mutex> guard(filesystem->m_FileMutationLock);
+  Attributes attributes = File::getAttributes();
+  attributes.blocks = filesystem->allocatedBlocks(file);
+  return attributes;
 }
 
 bool FatFile::pinBlock(uint64_t location) {
@@ -105,10 +134,7 @@ void FatFile::unpinBlock(uint64_t location) {
 void FatFile::extend(size_t newSize) {
   FatFilesystem* pFs = static_cast<FatFilesystem*>(m_pFilesystem);
 
-  if (m_Size < newSize) {
-    pFs->extend(this, newSize);
-    m_Size = newSize;
-  }
+  pFs->extend(this, newSize);
 }
 
 void FatFile::extend(size_t newSize, uint64_t location, uint64_t size) {

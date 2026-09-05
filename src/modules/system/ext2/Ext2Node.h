@@ -43,6 +43,7 @@ struct Ext2InodeState {
   Mutex dataLock;
   Mutex writeLock;
   Mutex writebackLock;
+  Vector<uint32_t> namespaceSyncBlocks;
   size_t pageLoans;
   size_t references;
   bool orphan;

@@ -24,11 +24,12 @@
 namespace {
 bool check(bool condition, const char* detail) {
   if (!condition) {
-    ERROR("HOSTED-WAIT-TEST: FAIL vm-permission-ownership: " << detail);
+    ERROR("VM-OWNERSHIP-TEST: FAIL " << detail);
   }
   return condition;
 }
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 bool protectedClone(bool inaccessible) {
   VirtualAddressSpace& originalSpace = Processor::information().getVirtualAddressSpace();
   PhysicalMemoryManager& memory = PhysicalMemoryManager::instance();
@@ -160,6 +161,7 @@ bool borrowedClones() {
                   "backing owner could not release borrowed page");
   return passed;
 }
+#endif
 
 class ResizeProbeFile final : public File {
  public:
@@ -183,6 +185,7 @@ class ResizeProbeFile final : public File {
     return true;
   }
 
+  using File::sync;
   bool sync(size_t, bool) override {
     ++syncCalls;
     return !rejectSync;
@@ -224,6 +227,7 @@ class ResizeProbeFile final : public File {
   }
 };
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 int resizeFailureWorker(void* parameter) {
   bool& passed = *static_cast<bool*>(parameter);
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
@@ -294,6 +298,7 @@ bool failedMappedResize() {
   delete process;
   return check(started && joined && passed, "mapped resize backend failure fixture");
 }
+#endif
 
 int sparseSplitWorker(void* parameter) {
   bool& passed = *static_cast<bool*>(parameter);
@@ -308,6 +313,7 @@ int sparseSplitWorker(void* parameter) {
   passed = true;
   const unsigned masks[] = {4, 2, 5, 7};
   for (unsigned mask : masks) {
+    NOTICE("VM-OWNERSHIP-TEST: BEGIN sparse-split mask=" << mask);
     uintptr_t address = 0;
     MemoryMappedObject* object =
         manager.mapFile(&file, address, 3 * pageSize, MemoryMappedObject::Read, 0, false);
@@ -348,8 +354,14 @@ int sparseSplitWorker(void* parameter) {
         const uintptr_t at = address + page * pageSize;
         if (manager.faultIn(at, false)) {
           const volatile uint8_t* bytes = reinterpret_cast<const volatile uint8_t*>(at);
-          passed &= check(bytes[0] == 0 && bytes[pageSize - 1] == 0,
-                          "sparse anonymous reuse retained file contents");
+          for (size_t byte = 0; byte < pageSize; ++byte) {
+            if (!check(bytes[byte] == 0, "sparse anonymous reuse retained file contents")) {
+              ERROR("VM-OWNERSHIP-TEST: byte=" << page * pageSize + byte
+                                               << " value=" << static_cast<unsigned>(bytes[byte]));
+              passed = false;
+              break;
+            }
+          }
         } else {
           passed &= check(false, "sparse anonymous reuse could not fault");
         }
@@ -359,6 +371,8 @@ int sparseSplitWorker(void* parameter) {
     if (!passed) {
       break;
     }
+    NOTICE("VM-OWNERSHIP-TEST: PASS sparse-split mask="
+           << mask << " objects=0 ptes=0 loans=0 reservation=reused zero=verified");
   }
   manager.unmapAll();
   return 0;
@@ -411,6 +425,10 @@ int checkedSyncWorker(void* parameter) {
                   "msync could not retry both failed pages");
   manager.removeAndRelease(address, 2 * pageSize);
   manager.unmapAll();
+  if (passed) {
+    NOTICE("VM-OWNERSHIP-TEST: PASS checked-msync range=ENOMEM range-io=0 failure=EIO "
+           "attempted=2 retry=2");
+  }
   return 0;
 }
 
@@ -428,6 +446,21 @@ bool checkedMappedSync() {
 }
 }  // namespace
 
+bool runVmMappedOwnershipRegressions() {
+  NOTICE("VM-OWNERSHIP-TEST: BEGIN sparse-split-ownership");
+  if (!sparseSplitOwnership()) {
+    return false;
+  }
+  NOTICE("VM-OWNERSHIP-TEST: PASS sparse-split-ownership cases=4");
+  NOTICE("VM-OWNERSHIP-TEST: BEGIN checked-msync");
+  if (!checkedMappedSync()) {
+    return false;
+  }
+  NOTICE("VM-OWNERSHIP-TEST: PASS mapped-ownership");
+  return true;
+}
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 bool runHostedVmPermissionRegressions() {
   VirtualAddressSpace& space = Processor::information().getVirtualAddressSpace();
   bool passed = check(space.isAddressValid(reinterpret_cast<void*>(0x00007FFFFFFFFFFFULL)) &&
@@ -451,10 +484,10 @@ bool runHostedVmPermissionRegressions() {
   passed &= protectedClone(true);
   passed &= borrowedClones();
   passed &= failedMappedResize();
-  passed &= sparseSplitOwnership();
-  passed &= checkedMappedSync();
+  passed &= runVmMappedOwnershipRegressions();
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS vm-permission-ownership");
   }
   return passed;
 }
+#endif

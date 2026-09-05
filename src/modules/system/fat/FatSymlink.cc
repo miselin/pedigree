@@ -40,6 +40,16 @@ uint64_t FatSymlink::readBytewise(uint64_t location, uint64_t size, uintptr_t bu
   return pFs->read(this, location, size, buffer);
 }
 
+File::Attributes FatSymlink::getAttributes() const {
+  FatSymlink* file = const_cast<FatSymlink*>(this);
+  LockGuard<Mutex> dataGuard(file->dataMutationLock());
+  FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
+  LockGuard<Mutex> guard(filesystem->m_FileMutationLock);
+  Attributes attributes = File::getAttributes();
+  attributes.blocks = filesystem->allocatedBlocks(file);
+  return attributes;
+}
+
 uint64_t FatSymlink::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                    bool bCanBlock) {
   LockGuard<Mutex> guard(m_TargetLock);

@@ -58,6 +58,14 @@ class TrackingDisk final : public Disk {
     ++m_WriteCount;
   }
 
+  bool sync(uint64_t location, bool) override {
+    if (location >= DataSize) {
+      return false;
+    }
+    write(location);
+    return true;
+  }
+
   size_t getSize() const override {
     return DataSize;
   }

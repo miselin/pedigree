@@ -611,7 +611,7 @@ bool Ext2Filesystem::syncBlock(uint32_t block, bool async) {
   return m_pDisk->sync(static_cast<uint64_t>(m_BlockSize) * block, async);
 }
 
-bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node) {
+bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNamespaceMetadata) {
   if (!inode || !m_pSuperblock) {
     return false;
   }
@@ -698,6 +698,34 @@ bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node) {
     }
   } else {
     succeeded = false;
+  }
+  if (includeNamespaceMetadata) {
+    // Removed entries no longer identify the affected inode or freed blocks.
+    // Include loaded metadata from every group so namespace sync also submits
+    // child creation, link changes, and retirement, including failed retries.
+#if THREADS || defined(STANDALONE_MUTEXES)
+    LockGuard<Mutex> tableGuard(m_InodeTableLoadLock);
+#endif
+    for (size_t group = 0; group < m_nGroupDescriptors; ++group) {
+      GroupDesc* descriptor = m_pGroupDescriptors[group];
+      const uint32_t inodeTable = LITTLE_TO_HOST32(descriptor->bg_inode_table);
+      for (size_t i = 0; i < m_pInodeTables[group].count(); ++i) {
+        succeeded = syncBlock(inodeTable + i, false) && succeeded;
+      }
+      const uint32_t blockBitmap = LITTLE_TO_HOST32(descriptor->bg_block_bitmap);
+      for (size_t i = 0; i < m_pBlockBitmaps[group].count(); ++i) {
+        succeeded = syncBlock(blockBitmap + i, false) && succeeded;
+      }
+      const uint32_t inodeBitmap = LITTLE_TO_HOST32(descriptor->bg_inode_bitmap);
+      for (size_t i = 0; i < m_pInodeBitmaps[group].count(); ++i) {
+        succeeded = syncBlock(inodeBitmap + i, false) && succeeded;
+      }
+      if (m_pInodeTables[group].count() || m_pBlockBitmaps[group].count() ||
+          m_pInodeBitmaps[group].count()) {
+        const uint32_t descriptorBlock = firstBlock + 1 + (group * sizeof(GroupDesc)) / m_BlockSize;
+        succeeded = syncBlock(descriptorBlock, false) && succeeded;
+      }
+    }
   }
   succeeded = m_pDisk->sync(1024ULL, false) && succeeded;
   const uint32_t inodeBlock = LITTLE_TO_HOST32(m_pGroupDescriptors[inodeGroup]->bg_inode_table) +

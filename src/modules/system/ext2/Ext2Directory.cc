@@ -52,6 +52,55 @@ Ext2Directory::Ext2Directory(const String& name, uintptr_t inode_num, Inode* ino
 
 Ext2Directory::~Ext2Directory() {}
 
+bool Ext2Directory::sync() {
+  LockGuard<Mutex> directoryGuard(m_DirectoryLock);
+  LockGuard<Mutex> writebackGuard(m_State->writebackLock);
+  if (!m_pExt2Fs->m_BlockSize) {
+    return false;
+  }
+
+  // Directory records bypass File's page cache, so even an empty cache must
+  // submit their backing blocks before reporting a completed namespace change.
+  bool succeeded = true;
+  for (size_t i = 0; i < m_Blocks.count(); ++i) {
+    if (!ensureBlockLoaded(i)) {
+      succeeded = false;
+      continue;
+    }
+    succeeded = syncDirectoryBlock(m_Blocks[i]) && succeeded;
+  }
+  for (size_t i = 0; i < m_State->namespaceSyncBlocks.count();) {
+    if (syncDirectoryBlock(m_State->namespaceSyncBlocks[i])) {
+      m_State->namespaceSyncBlocks.erase(i);
+    } else {
+      succeeded = false;
+      ++i;
+    }
+  }
+  return m_pExt2Fs->syncInode(getInodeNumber(), *this, true) && succeeded;
+}
+
+bool Ext2Directory::syncDirectoryBlock(uint32_t block) {
+  if (!block || !m_pExt2Fs->readBlock(block)) {
+    return false;
+  }
+  const bool succeeded = m_pExt2Fs->syncBlock(block, false);
+  m_pExt2Fs->unpinBlock(block);
+  return succeeded;
+}
+
+void Ext2Directory::queueSyncDependency(uint32_t block) {
+  LockGuard<Mutex> guard(m_State->writebackLock);
+  for (uint32_t dependency : m_State->namespaceSyncBlocks) {
+    if (dependency == block) {
+      return;
+    }
+  }
+  // Remember the block identity, not a cache address: removal may retire and
+  // reuse it before this parent is synced. Resolve current contents at sync.
+  m_State->namespaceSyncBlocks.pushBack(block);
+}
+
 bool Ext2Directory::addEntry(const String& filename, File* pFile, size_t type) {
   if (!filename.length() || filename.length() > 255) {
     SYSCALL_ERROR(InvalidArgument);
@@ -202,6 +251,18 @@ bool Ext2Directory::addEntry(const String& filename, File* pFile, size_t type) {
   }
 
   const bool special = filename.compare(".") || filename.compare("..");
+
+  if (!special && type == EXT2_S_IFDIR) {
+    Ext2Directory* child = static_cast<Ext2Directory*>(pFile);
+    for (size_t block = 0; block < child->m_Blocks.count(); ++block) {
+      if (!child->ensureBlockLoaded(block)) {
+        m_pExt2Fs->unpinBlock(m_Blocks[i]);
+        SYSCALL_ERROR(IoError);
+        return false;
+      }
+      queueSyncDependency(child->m_Blocks[block]);
+    }
+  }
 
   if (pSplitDir) {
     pSplitDir->d_reclen = HOST_TO_LITTLE16(splitLength);

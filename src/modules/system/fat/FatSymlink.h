@@ -41,6 +41,7 @@ class FatSymlink : public Symlink {
              Time::Timestamp creationTime, uintptr_t inode, class Filesystem* pFs, size_t size,
              uint32_t dirClus = 0, uint32_t dirOffset = 0, File* pParent = 0);
   virtual ~FatSymlink() {}
+  virtual Attributes getAttributes() const;
   uint32_t getDirCluster() {
     return m_DirClus;
   }

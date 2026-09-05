@@ -56,7 +56,8 @@ static bool isPowerOf2(uint32_t n) {
 }
 
 FatFilesystem::FatFilesystem()
-    : m_Superblock(),
+    : m_FileMutationLock(),
+      m_Superblock(),
       m_Superblock16(),
       m_Superblock32(),
       m_FsInfo(),
@@ -74,6 +75,7 @@ FatFilesystem::FatFilesystem()
 #endif
       m_pRoot(0),
       m_FatCache(),
+      m_DirtyFatSectors(),
       m_FreeClusterHint() {
 }
 
@@ -324,6 +326,9 @@ const String& FatFilesystem::getVolumeLabel() const {
 
 uint64_t FatFilesystem::read(File* pFile, uint64_t location, uint64_t size, uintptr_t buffer,
                              bool bCanBlock) {
+  LockGuard<Mutex> guard(m_FileMutationLock);
+  if (!size || !m_BlockSize)
+    return 0;
   // Sanity check.
   if (pFile->isDirectory())
     return 0;
@@ -393,8 +398,8 @@ uint64_t FatFilesystem::read(File* pFile, uint64_t location, uint64_t size, uint
 
     // How many bytes should we copy?
     size_t bytesToCopy = finalSize - bytesRead;
-    if (bytesToCopy > m_BlockSize) {
-      bytesToCopy = m_BlockSize;
+    if (bytesToCopy > m_BlockSize - currOffset) {
+      bytesToCopy = m_BlockSize - currOffset;
     }
 
     // Perform the copy.
@@ -428,281 +433,235 @@ uint64_t FatFilesystem::read(File* pFile, uint64_t location, uint64_t size, uint
 
 /////////////////////////////////////////////////////////////////////////////
 
-uint32_t FatFilesystem::findFreeCluster() {
+uint32_t FatFilesystem::findFreeCluster(bool* persisted) {
 #if THREADS || defined(STANDALONE_MUTEXES)
   LockGuard<Mutex> guard(m_AllocationLock);
 #endif
-
-  size_t j;
-  uint32_t clus;
-  uint32_t totalSectors = m_Superblock.BPB_TotSec32;
-  if (totalSectors == 0) {
-    if (m_Type != FAT32)
-      totalSectors = m_Superblock.BPB_TotSec16;
-    else {
+  if (persisted)
+    *persisted = false;
+  if (!syncFat(false))
+    return 0;
+  const uint32_t first =
+      m_FreeClusterHint >= 2 && m_FreeClusterHint < m_ClusterCount + 2 ? m_FreeClusterHint : 2;
+  for (uint32_t scanned = 0; scanned < m_ClusterCount; ++scanned) {
+    const uint32_t cluster = 2 + ((first - 2 + scanned) % m_ClusterCount);
+    if (getClusterEntry(cluster, false))
+      continue;
+    const bool succeeded = setClusterEntry(cluster, eofValue(), false);
+    if (!succeeded && getClusterEntry(cluster, false) != eofValue())
+      return 0;
+    if (persisted) {
+      // A failed flush retains this reservation in the FAT cache. The caller
+      // attaches it to the in-memory chain before reporting failure for retry.
+      *persisted = succeeded;
+      m_FreeClusterHint = cluster + 1;
+      return cluster;
+    }
+    if (!succeeded) {
+      // No caller owns this reservation. Retain its rollback as dirty until
+      // the next allocator can confirm it before publishing any allocation.
+      setClusterEntry(cluster, 0, false);
       return 0;
     }
+    m_FreeClusterHint = cluster + 1;
+    return cluster;
   }
-
-  uint32_t mask = m_Type == FAT32 ? 0x0FFFFFFF : 0xFFFF;
-
-  for (j = (m_Type == FAT32 ? m_FsInfo.FSI_NxtFree : m_FreeClusterHint);
-       j < (totalSectors / m_Superblock.BPB_SecPerClus); j++) {
-    clus = getClusterEntry(j, false);
-    if ((clus & mask) == 0) {
-      /// \todo For FAT32, update the FSInfo structure
-      // Reserve the cluster before releasing m_AllocationLock. A caller may
-      // take other filesystem locks after this function returns.
-      if (!setClusterEntry(j, eofValue(), false))
-        return 0;
-
-      // All done!
-      m_FreeClusterHint = j + 1;
-      return j;
-    }
-  }
-
-  FATAL("findFreeCluster returning zero!");
+  SYSCALL_ERROR(NoSpaceLeftOnDevice);
   return 0;
 }
 
 /////////////////////////////////////////////////////////////////////////////
 
-uint64_t FatFilesystem::write(File* pFile, uint64_t location, uint64_t size, uintptr_t buffer,
+uint64_t FatFilesystem::write(File* file, uint64_t location, uint64_t size, uintptr_t buffer,
                               bool bCanBlock) {
-#if SUPERDEBUG
-  NOTICE("FatFilesystem::write(" << pFile->getName() << ")");
-#endif
-
-  // test whether the entire Filesystem is read-only.
+  LockGuard<Mutex> guard(m_FileMutationLock);
   if (m_bReadOnly) {
-#if SUPERDEBUG
-    NOTICE("FAT: readonly filesystem");
-#endif
     SYSCALL_ERROR(ReadOnlyFilesystem);
     return 0;
   }
+  if (!size)
+    return 0;
+  if (!buffer || file->isDirectory() || location > UINT32_MAX || size > UINT32_MAX - location) {
+    SYSCALL_ERROR(InvalidArgument);
+    return 0;
+  }
+  if (!syncFat() || !ensureCapacity(file, location + size)) {
+    SYSCALL_ERROR(IoError);
+    return 0;
+  }
 
-  // we do so much work with the FAT here that locking is a necessity
-  // LockGuard<Mutex> guard(m_FatLock);
-
-  int64_t fileSizeChange = 0;
-  if ((location + size) > pFile->getSize())
-    fileSizeChange = (location + size) - pFile->getSize();
-
-  uint32_t firstClus = pFile->getInode();
-
-  if (firstClus == 0) {
-    // find a free cluster for this file
-    uint32_t freeClus = findFreeCluster();
-    if (freeClus == 0) {
-      SYSCALL_ERROR(NoSpaceLeftOnDevice);
+  const size_t oldSize = file->getSize();
+  if (location > oldSize && !zeroRange(file, oldSize, location)) {
+    SYSCALL_ERROR(IoError);
+    return 0;
+  }
+  uint32_t cluster = file->getInode();
+  for (uint64_t skip = location / m_BlockSize; skip; --skip) {
+    cluster = getClusterEntry(cluster);
+    if (cluster < 2 || cluster >= m_ClusterCount + 2 || isEof(cluster)) {
+      SYSCALL_ERROR(IoError);
       return 0;
     }
-
-    // set EOF
-    setClusterEntry(freeClus, eofValue(), false);
-    firstClus = freeClus;
-
-    // write into the directory entry, and into the File itself
-    pFile->setInode(freeClus);
-    setCluster(pFile, freeClus);
   }
 
-  uint32_t clusSize = m_Superblock.BPB_SecPerClus * m_Superblock.BPB_BytsPerSec;
-  uint32_t finalOffset = location + size;
-  uint32_t offsetSector = location / m_Superblock.BPB_BytsPerSec;
-  uint32_t clus = 0;
-
-  // does the file currently have enough clusters to allow us to write without
-  // stopping?
-  int i = clusSize;
-  int j = pFile->getSize() / i;
-  if (pFile->getSize() % i)
-    j++;  // extra cluster (integer division)
-  if (j == 0)
-    j = 1;  // always one cluster
-
-  uint32_t finalCluster = j * i;
-  uint32_t numExtraBytes = 0;
-
-  // if the final offset is past what we already have in the cluster chain,
-  // fill in the blanks
-  if (finalOffset > finalCluster) {
-    numExtraBytes = finalOffset - finalCluster;
-
-    j = numExtraBytes / i;
-    if (numExtraBytes % i)
-      j++;
-
-    clus = firstClus;
-
-    uint32_t lastClus = clus;
-    while (!isEof(clus)) {
-      lastClus = clus;
-      clus = getClusterEntry(clus, false);
-    }
-
-    uint32_t prev = 0;
-    for (i = 0; i < j; i++) {
-      prev = lastClus;
-      lastClus = findFreeCluster();
-      if (!lastClus) {
-        SYSCALL_ERROR(NoSpaceLeftOnDevice);
-        return 0;
-      }
-
-      setClusterEntry(prev, lastClus, false);
-    }
-
-    setClusterEntry(lastClus, eofValue(), false);
-  }
-
-  uint64_t finalSize = size;
-
-  // finalSize holds the total amount of data to read, now find the cluster
-  // and sector offsets
-  uint32_t clusOffset =
-      offsetSector / m_Superblock.BPB_SecPerClus;  // location / (m_Superblock.BPB_SecPerClus
-                                                   // * m_Superblock.BPB_BytsPerSec);
-  uint32_t firstOffset = location % (m_Superblock.BPB_SecPerClus *
-                                     m_Superblock.BPB_BytsPerSec);  // the offset within the
-                                                                    // cluster specified above to
-                                                                    // start reading from
-
-  // tracking info
-
-  uint64_t bytesWritten = 0;
-  uint64_t currOffset = firstOffset;
-  clus = firstClus;
-  for (uint32_t z = 0; z < clusOffset; z++) {
-    clus = getClusterEntry(clus, false);
-    if (clus == 0 || isEof(clus))
-      return 0;
-  }
-
-  // buffers
-  uint8_t* tmpBuffer = new uint8_t[m_BlockSize];
-  uint8_t* srcBuffer = reinterpret_cast<uint8_t*>(buffer);
-
-#if SUPERDEBUG
-  NOTICE("FAT bytesWritten=" << bytesWritten << " finalSize=" << finalSize);
-#endif
-
-  // main write loop
-  while (bytesWritten < finalSize) {
-    // Read in this cluster - we're about to modify it.
-    readCluster(clus, reinterpret_cast<uintptr_t>(tmpBuffer));
-
-    // Update based on our buffer.
-    size_t len = m_BlockSize;
-    if ((bytesWritten + len) > finalSize)
-      len = finalSize - bytesWritten;
-
-    // The first write may be in the middle of a cluster, hence currOffset's
-    // use.
-    MemoryCopy(&tmpBuffer[currOffset], &srcBuffer[bytesWritten], len);
-    bytesWritten += len;
-
-// Write updated cluster to disk.
-#if SUPERDEBUG
-    NOTICE("FAT write - clus=" << clus);
-    NOTICE("FAT write - offset=" << getSectorNumber(clus) * 512);
-#endif
-    writeCluster(clus, reinterpret_cast<uintptr_t>(tmpBuffer));
-
-    // No longer at the beginning of the write - reset cluster offset to
-    // zero.
-    currOffset = 0;
-
-    // Grab next cluster ready for further writing.
-    clus = getClusterEntry(clus, false);
-    if (clus == 0)
+  uint8_t* temporary = new uint8_t[m_BlockSize];
+  uint64_t written = 0;
+  size_t offset = location % m_BlockSize;
+  while (written < size) {
+    size_t length = m_BlockSize - offset;
+    if (length > size - written)
+      length = size - written;
+    if (!readCluster(cluster, reinterpret_cast<uintptr_t>(temporary)))
       break;
-
-    if (isEof(clus)) {
-      if (bytesWritten < finalSize)
-        FATAL("EOF before written - still " << Dec << (finalSize - bytesWritten) << Hex
-                                            << " bytes unwritten!!");
+    MemoryCopy(temporary + offset, reinterpret_cast<void*>(buffer + written), length);
+    if (!writeCluster(cluster, reinterpret_cast<uintptr_t>(temporary)))
       break;
-    }
+    written += length;
+    offset = 0;
+    if (written == size)
+      break;
+    cluster = getClusterEntry(cluster);
+    if (cluster < 2 || cluster >= m_ClusterCount + 2 || isEof(cluster))
+      break;
   }
+  delete[] temporary;
 
-  // Update the size on disk, if needed.
-  if (fileSizeChange != 0) {
-#if SUPERDEBUG
-    NOTICE("FAT Updating file size on disk change=" << Dec << fileSizeChange << Hex << "!");
-#endif
-    updateFileSize(pFile, fileSizeChange);
-    pFile->setSize(pFile->getSize() + fileSizeChange);
+  const size_t newSize = written && location + written > oldSize ? location + written : oldSize;
+  const bool metadataDirty = !file->isSymlink() && static_cast<FatFile*>(file)->m_MetadataDirty;
+  if ((newSize != oldSize || metadataDirty) && !updateFileMetadata(file, newSize)) {
+    SYSCALL_ERROR(IoError);
+    return 0;
   }
-
-  delete[] tmpBuffer;
-
-  return bytesWritten;
+  if (newSize != oldSize)
+    file->setSize(newSize);
+  if (written != size)
+    SYSCALL_ERROR(IoError);
+  return written;
 }
 
-/////////////////////////////////////////////////////////////////////////////
-
-void FatFilesystem::updateFileSize(File* pFile, int64_t sizeChange) {
-  // don't bother reading the directory if there's no actual change
-  if (sizeChange == 0)
-    return;
-
-  uint32_t dirClus = 0;
-  uint32_t dirOffset = 0;
-  if (pFile->isDirectory()) {
-    FatDirectory* directory = static_cast<FatDirectory*>(pFile);
-    dirClus = directory->getDirCluster();
-    dirOffset = directory->getDirOffset();
-  } else if (pFile->isSymlink()) {
-    FatSymlink* symlink = static_cast<FatSymlink*>(pFile);
-    dirClus = symlink->getDirCluster();
-    dirOffset = symlink->getDirOffset();
-  } else {
-    FatFile* file = static_cast<FatFile*>(pFile);
-    dirClus = file->getDirCluster();
-    dirOffset = file->getDirOffset();
+bool FatFilesystem::chainExtent(File* file, uint32_t& count, uint32_t& last) {
+  count = 0;
+  last = 0;
+  uint32_t cluster = file->getInode();
+  while (cluster) {
+    if (cluster < 2 || cluster >= m_ClusterCount + 2 || count >= m_ClusterCount)
+      return false;
+    const uint32_t next = getClusterEntry(cluster);
+    if (!next)
+      return false;
+    ++count;
+    last = cluster;
+    if (isEof(next))
+      return true;
+    cluster = next;
   }
-
-  Dir* p = getDirectoryEntry(dirClus, dirOffset);
-  if (!p)
-    return;
-  p->DIR_FileSize += sizeChange;
-  writeDirectoryEntry(p, dirClus, dirOffset);
-
-  delete p;
+  return true;
 }
 
-void FatFilesystem::setCluster(File* pFile, uint32_t clus) {
-  // don't bother reading and writing if the cluster is zero
-  if (clus == 0)
-    return;
-
-  uint32_t dirClus = 0;
-  uint32_t dirOffset = 0;
-  if (pFile->isDirectory()) {
-    FatDirectory* directory = static_cast<FatDirectory*>(pFile);
-    dirClus = directory->getDirCluster();
-    dirOffset = directory->getDirOffset();
-  } else if (pFile->isSymlink()) {
-    FatSymlink* symlink = static_cast<FatSymlink*>(pFile);
-    dirClus = symlink->getDirCluster();
-    dirOffset = symlink->getDirOffset();
-  } else {
-    FatFile* file = static_cast<FatFile*>(pFile);
-    dirClus = file->getDirCluster();
-    dirOffset = file->getDirOffset();
+uint64_t FatFilesystem::allocatedBlocks(File* file) {
+  if (!file->getInode() && file->isDirectory() && m_Type != FAT32)
+    return (uint64_t(m_RootDirCount) * m_Superblock.BPB_BytsPerSec + 511) / 512;
+  uint32_t count = 0, last = 0;
+  if (!chainExtent(file, count, last)) {
+    WARNING("FAT: unable to count an invalid cluster chain");
+    return 0;
   }
+  return uint64_t(count) * m_BlockSize / 512;
+}
 
-  Dir* p = getDirectoryEntry(dirClus, dirOffset);
-  if (!p)
-    return;
-  p->DIR_FstClusLO = clus & 0xFFFF;
-  p->DIR_FstClusHI = (clus >> 16) & 0xFFFF;
-  writeDirectoryEntry(p, dirClus, dirOffset);
+bool FatFilesystem::ensureCapacity(File* file, size_t size) {
+  if (!m_BlockSize || size > UINT32_MAX)
+    return false;
+  uint32_t count = 0, last = 0;
+  if (!chainExtent(file, count, last))
+    return false;
+  const uint32_t required = size / m_BlockSize + (size % m_BlockSize != 0);
+  while (count < required) {
+    bool reserved = false;
+    const uint32_t cluster = findFreeCluster(&reserved);
+    if (!cluster)
+      return false;
+    bool linked = true;
+    if (last)
+      linked = setClusterEntry(last, cluster);
+    else
+      file->setInode(cluster);
+    if (!file->isDirectory() && !file->isSymlink())
+      static_cast<FatFile*>(file)->m_MetadataDirty = true;
+    if (!reserved || !linked)
+      return false;
+    last = cluster;
+    ++count;
+  }
+  return true;
+}
 
-  delete p;
+bool FatFilesystem::updateFileMetadata(File* file, size_t size) {
+  uint32_t directoryCluster = 0, directoryOffset = 0;
+  FatFile* regular = nullptr;
+  if (file->isDirectory()) {
+    FatDirectory* directory = static_cast<FatDirectory*>(file);
+    directoryCluster = directory->getDirCluster();
+    directoryOffset = directory->getDirOffset();
+  } else if (file->isSymlink()) {
+    FatSymlink* symlink = static_cast<FatSymlink*>(file);
+    directoryCluster = symlink->getDirCluster();
+    directoryOffset = symlink->getDirOffset();
+  } else {
+    regular = static_cast<FatFile*>(file);
+    regular->m_MetadataDirty = true;
+    directoryCluster = regular->getDirCluster();
+    directoryOffset = regular->getDirOffset();
+  }
+  Dir* entry = getDirectoryEntry(directoryCluster, directoryOffset);
+  if (!entry)
+    return false;
+  // Absolute values make retry safe even if a failed flush updated the disk cache.
+  entry->DIR_FileSize = HOST_TO_LITTLE32(size);
+  entry->DIR_FstClusLO = HOST_TO_LITTLE16(file->getInode() & 0xFFFF);
+  entry->DIR_FstClusHI = HOST_TO_LITTLE16((file->getInode() >> 16) & 0xFFFF);
+  const bool succeeded = writeDirectoryEntry(entry, directoryCluster, directoryOffset);
+  delete entry;
+  if (regular && succeeded)
+    regular->m_MetadataDirty = false;
+  return succeeded;
+}
+
+bool FatFilesystem::zeroRange(File* file, size_t begin, size_t end) {
+  if (begin >= end)
+    return true;
+  uint32_t cluster = file->getInode();
+  for (size_t skip = begin / m_BlockSize; skip; --skip)
+    cluster = getClusterEntry(cluster);
+  uint8_t* temporary = new uint8_t[m_BlockSize];
+  bool succeeded = true;
+  while (begin < end) {
+    const size_t offset = begin % m_BlockSize;
+    const size_t length = pedigree_std::min(m_BlockSize - offset, end - begin);
+    if (cluster < 2 || cluster >= m_ClusterCount + 2 || isEof(cluster) ||
+        !readCluster(cluster, reinterpret_cast<uintptr_t>(temporary))) {
+      succeeded = false;
+      break;
+    }
+    ByteSet(temporary + offset, 0, length);
+    if (!writeCluster(cluster, reinterpret_cast<uintptr_t>(temporary))) {
+      succeeded = false;
+      break;
+    }
+    begin += length;
+    if (begin < end)
+      cluster = getClusterEntry(cluster);
+  }
+  delete[] temporary;
+  return succeeded;
+}
+
+bool FatFilesystem::syncFileMetadata(File* file) {
+  LockGuard<Mutex> guard(m_FileMutationLock);
+  if (!syncFat())
+    return false;
+  FatFile* regular = static_cast<FatFile*>(file);
+  return !regular->m_MetadataDirty || updateFileMetadata(file, file->getSize());
 }
 
 void* FatFilesystem::readDirectoryPortion(uint32_t clus) const {
@@ -851,8 +810,10 @@ bool FatFilesystem::writeSectorBlock(uint32_t sec, size_t size, uintptr_t buffer
     }
     const size_t sz = size > diskBuffer.size() ? diskBuffer.size() : size;
     MemoryCopy(diskBuffer.data(), reinterpret_cast<void*>(buffer), sz);
-    m_pDisk->write(diskLocation);
+    const bool succeeded = m_pDisk->sync(diskLocation, false);
     m_pDisk->unpin(diskLocation);
+    if (!succeeded)
+      return false;
     buffer += sz;
     size -= sz;
     off += sz;
@@ -864,215 +825,101 @@ uint32_t FatFilesystem::getSectorNumber(uint32_t cluster) const {
   return ((cluster - 2) * m_Superblock.BPB_SecPerClus) + m_DataAreaStart;
 }
 
+uint8_t* FatFilesystem::getFatSector(uint32_t sector) {
+  uint8_t* bytes = reinterpret_cast<uint8_t*>(m_FatCache.lookup(sector));
+  if (bytes)
+    return bytes;
+  bytes = new uint8_t[m_Superblock.BPB_BytsPerSec];
+  if (!readSectorBlock(m_FatSector + sector, m_Superblock.BPB_BytsPerSec,
+                       reinterpret_cast<uintptr_t>(bytes))) {
+    delete[] bytes;
+    return nullptr;
+  }
+  m_FatCache.insert(sector, reinterpret_cast<uintptr_t>(bytes));
+  return bytes;
+}
+
 uint32_t FatFilesystem::getClusterEntry(uint32_t cluster, bool bLock) {
-  uint32_t fatOffset = 0;
-  switch (m_Type) {
-    case FAT12:
-      fatOffset = cluster + (cluster / 2);
-      break;
-
-    case FAT16:
-      fatOffset = cluster * 2;
-      break;
-
-    case FAT32:
-      fatOffset = cluster * 4;
-      break;
-  }
-
-  // uint8_t *fatBlocks = new uint8_t[m_Superblock.BPB_BytsPerSec * 2];
-
-  // Reading from the FAT - critical section
-  m_FatLock.enter();
-  uint32_t* fatBlocks =
-      reinterpret_cast<uint32_t*>(m_FatCache.lookup(fatOffset / m_Superblock.BPB_BytsPerSec));
-  m_FatLock.leave();
-
-  if (fatBlocks && (m_Type == FAT12)) {
-    FATAL("Oooer missus, work needed heres");
-    // fatBlocks = reinterpret_cast<uint8_t*>(m_FatCache.lookup((fatOffset /
-    // m_Superblock.BPB_BytsPerSec) + 1, fatBlocks +
-    // m_Superblock.BPB_BytsPerSec));
-  }
-  if (!fatBlocks) {
-    m_FatLock.acquire();
-
-    fatBlocks = new uint32_t[((m_Superblock.BPB_BytsPerSec * 2) / sizeof(uint32_t)) + 1];
-    if (!readSectorBlock(m_FatSector + (fatOffset / m_Superblock.BPB_BytsPerSec),
-                         m_Superblock.BPB_BytsPerSec * 2, reinterpret_cast<uintptr_t>(fatBlocks))) {
-      ERROR("FAT: getClusterEntry: reading from the FAT failed");
-      delete[] fatBlocks;
+  if (!m_Superblock.BPB_BytsPerSec)
+    return 0;
+  const uint32_t offset =
+      m_Type == FAT12 ? cluster + cluster / 2 : cluster * (m_Type == FAT16 ? 2 : 4);
+  const size_t length = m_Type == FAT32 ? 4 : 2;
+  uint32_t entry = 0;
+  m_FatLock.acquire();
+  for (size_t byte = 0; byte < length; ++byte) {
+    const uint32_t sector = (offset + byte) / m_Superblock.BPB_BytsPerSec;
+    const uint8_t* bytes = getFatSector(sector);
+    if (!bytes) {
       m_FatLock.release();
       return 0;
     }
-
-    m_FatCache.insert(fatOffset / m_Superblock.BPB_BytsPerSec,
-                      reinterpret_cast<uintptr_t>(fatBlocks));
-    m_FatCache.insert(
-        (fatOffset / m_Superblock.BPB_BytsPerSec) + 1,
-        reinterpret_cast<uintptr_t>(adjust_pointer(fatBlocks, m_Superblock.BPB_BytsPerSec)));
-    NOTICE("FAT Cache now has " << m_FatCache.count() << " sectors.");
-
-    m_FatLock.release();
+    entry |= uint32_t(bytes[(offset + byte) % m_Superblock.BPB_BytsPerSec]) << (8 * byte);
   }
-
-  // read from cache
-  fatOffset %= m_Superblock.BPB_BytsPerSec;
-  fatOffset /= sizeof(uint32_t);
-  uint32_t fatEntry = fatBlocks[fatOffset];
-
-  /// \todo
-  // delete [] fatBlocks;
-
-  // calculate
-  uint32_t ret = 0;
-  switch (m_Type) {
-    case FAT12:
-      ret = fatEntry;
-
-      // FAT12 entries are 1.5 bytes
-      if (cluster & 0x1)
-        ret >>= 4;
-      else
-        ret &= 0x0FFF;
-      ret &= 0xFFFF;
-
-      break;
-
-    case FAT16:
-
-      ret = fatEntry;
-      ret &= 0xFFFF;
-
-      break;
-
-    case FAT32:
-
-      ret = fatEntry & 0x0FFFFFFF;
-
-      break;
-  }
-
-  return ret;
+  m_FatLock.release();
+  if (m_Type == FAT12)
+    return (entry >> ((cluster & 1) ? 4 : 0)) & 0x0FFF;
+  return entry & (m_Type == FAT16 ? 0xFFFF : 0x0FFFFFFF);
 }
 
-uint32_t FatFilesystem::setClusterEntry(uint32_t cluster, uint32_t value, bool bLock) {
-  if (cluster == 0) {
-    FATAL("setClusterEntry called with invalid arguments - " << cluster << "/" << value << "!");
-    return 0;
-  }
-
-  uint32_t fatOffset = 0;
-  switch (m_Type) {
-    case FAT12:
-      fatOffset = cluster + (cluster / 2);
-      break;
-
-    case FAT16:
-      fatOffset = cluster * 2;
-      break;
-
-    case FAT32:
-      fatOffset = cluster * 4;
-      break;
-  }
-
-  uint32_t ent = getClusterEntry(cluster, bLock);
-
-  //    uint8_t *fatBlocks = new uint8_t[m_Superblock.BPB_BytsPerSec * 2];
-
-  uint32_t* fatBlocks =
-      reinterpret_cast<uint32_t*>(m_FatCache.lookup(fatOffset / m_Superblock.BPB_BytsPerSec));
-  if (fatBlocks && (m_Type == FAT12)) {
-    FATAL("Ooer missus, work needed here");
-    //        fatBlocks =
-    //        reinterpret_cast<uint8_t*>(m_FatCache.lookup((fatOffset /
-    //        m_Superblock.BPB_BytsPerSec) + 1, fatBlocks +
-    //        m_Superblock.BPB_BytsPerSec));
-  }
-  if (!fatBlocks) {
-    ERROR(
-        "FAT: setClusterEntry: getClusterEntry didn't read sectors from "
-        "cache properly?");
-    // delete [] fatBlocks;
-    return 0;
-  }
-
-  uint32_t oldOffset = fatOffset;
-  fatOffset %= m_Superblock.BPB_BytsPerSec;
-  fatOffset /= sizeof(uint32_t);
-
-  uint32_t origEnt = ent;
-  uint32_t setEnt = value;
-
-  // Calculate and write back into the cache
-  switch (m_Type) {
-    case FAT12:
-
-      if (cluster & 0x1) {
-        value <<= 4;
-        origEnt &= 0x000F;
-      } else {
-        value &= 0x0FFF;
-        origEnt &= 0xF000;
-      }
-
-      setEnt = origEnt | value;
-
-      fatBlocks[fatOffset] = setEnt;
-
-      break;
-
-    case FAT16:
-
-      setEnt = value;
-
-      fatBlocks[fatOffset] = setEnt;
-
-      break;
-
-    case FAT32:
-
-      value &= 0x0FFFFFFF;
-      setEnt = origEnt & 0xF0000000;
-      setEnt |= value;
-
-      fatBlocks[fatOffset] = setEnt;
-
-      break;
-  }
-
-  uint32_t fatSector = m_FatSector + (oldOffset / m_Superblock.BPB_BytsPerSec);
-
-  // Grab the FAT lock - we're updating it now
-  m_FatLock.acquire();
-
-  // Write back to the FAT
-  writeSectorBlock(fatSector, m_Superblock.BPB_BytsPerSec * 2,
-                   reinterpret_cast<uintptr_t>(fatBlocks));
-
-  // Write back to the cache
-  m_FatCache.insert(oldOffset / m_Superblock.BPB_BytsPerSec,
-                    reinterpret_cast<uintptr_t>(fatBlocks));
-  if (m_Type == FAT12)
-    m_FatCache.insert((oldOffset / m_Superblock.BPB_BytsPerSec) + 1,
-                      reinterpret_cast<uintptr_t>(fatBlocks + m_Superblock.BPB_BytsPerSec));
-
-  // All done with the update
-  m_FatLock.release();
-
-///\todo
-// delete [] fatBlocks;
-
-// We're pedantic and as such we check things, but only if debugging
-#if DEBUGGER && ADDITIONAL_CHECKS
-  uint32_t val = getClusterEntry(cluster, false);
-  if (val != value)
-    FATAL("setClusterEntry has failed on cluster " << cluster << ": " << val << "/" << value
-                                                   << ".");
+bool FatFilesystem::setClusterEntry(uint32_t cluster, uint32_t value, bool bLock) {
+  if (cluster < 2 || cluster >= m_ClusterCount + 2 || !m_Superblock.BPB_BytsPerSec)
+    return false;
+#if THREADS || defined(STANDALONE_MUTEXES)
+  LockGuard<Mutex> guard(m_AllocationLock, bLock);
 #endif
+  const uint32_t offset =
+      m_Type == FAT12 ? cluster + cluster / 2 : cluster * (m_Type == FAT16 ? 2 : 4);
+  const size_t length = m_Type == FAT32 ? 4 : 2;
+  uint8_t* bytes[4] = {};
+  uint32_t original = 0;
+  m_FatLock.acquire();
+  for (size_t byte = 0; byte < length; ++byte) {
+    const uint32_t sector = (offset + byte) / m_Superblock.BPB_BytsPerSec;
+    uint8_t* page = getFatSector(sector);
+    if (!page) {
+      m_FatLock.release();
+      return false;
+    }
+    bytes[byte] = page + (offset + byte) % m_Superblock.BPB_BytsPerSec;
+    original |= uint32_t(*bytes[byte]) << (8 * byte);
+  }
+  if (m_Type == FAT12)
+    value = cluster & 1 ? (original & 0x000F) | ((value & 0x0FFF) << 4)
+                        : (original & 0xF000) | (value & 0x0FFF);
+  else if (m_Type == FAT32)
+    value = (original & 0xF0000000) | (value & 0x0FFFFFFF);
+  for (size_t byte = 0; byte < length; ++byte) {
+    *bytes[byte] = static_cast<uint8_t>(value >> (8 * byte));
+    m_DirtyFatSectors.insert((offset + byte) / m_Superblock.BPB_BytsPerSec, true);
+  }
+  m_FatLock.release();
+  return syncFat(false);
+}
 
-  return setEnt;
+bool FatFilesystem::syncFat(bool bLock) {
+#if THREADS || defined(STANDALONE_MUTEXES)
+  LockGuard<Mutex> guard(m_AllocationLock, bLock);
+#endif
+  m_FatLock.acquire();
+  while (m_DirtyFatSectors.count()) {
+    const uint32_t sector = m_DirtyFatSectors.begin().key();
+    const uintptr_t bytes = m_FatCache.lookup(sector);
+    bool succeeded = bytes != 0;
+    const uint32_t sectorsPerFat =
+        m_Type == FAT32 ? m_Superblock32.BPB_FATSz32 : m_Superblock.BPB_FATSz16;
+    const size_t copies = m_Superblock.BPB_NumFATs ? m_Superblock.BPB_NumFATs : 1;
+    for (size_t copy = 0; succeeded && copy < copies; ++copy)
+      succeeded = writeSectorBlock(m_FatSector + sector + copy * sectorsPerFat,
+                                   m_Superblock.BPB_BytsPerSec, bytes);
+    if (!succeeded) {
+      m_FatLock.release();
+      return false;
+    }
+    m_DirtyFatSectors.remove(sector);
+  }
+  m_FatLock.release();
+  return true;
 }
 
 String FatFilesystem::convertFilenameTo(String fn) const {
@@ -1187,117 +1034,45 @@ String FatFilesystem::convertFilenameFrom(String filename) const {
   return String(static_cast<const char*>(ret));
 }
 
-void FatFilesystem::truncate(File* pFile) {
-  NOTICE("FatFilesystem::truncate");
-
-  // First of all, set the file size to zero, so that if the file is used
-  // elsewhere it's updated.
-  updateFileSize(pFile, -pFile->getSize());
-  pFile->setSize(0);
-
-  // And then clean up its cluster chain so we only have one remaining
-  // Then, clean up the cluster chain
-  uint32_t clus = pFile->getInode(), prev = 0;
-  if (clus != 0) {
-    prev = clus;
-    clus = getClusterEntry(clus, true);
-    setClusterEntry(prev, eofValue(), true);
-
-    // If the second cluster is not EOF, clean up the chain
-    if (!isEof(clus)) {
-      while (!isEof(clus)) {
-        prev = clus;
-        clus = getClusterEntry(clus, true);
-        setClusterEntry(prev, 0, true);
-      }
-      setClusterEntry(prev, 0, true);
-    }
-  }
-}
-
-void FatFilesystem::extend(File* pFile, size_t size) {
-  // The File object still has the old size until after we return.
-  if (pFile->getSize() >= size) {
-    // Don't extend - no need.
+void FatFilesystem::truncate(File* file) {
+  LockGuard<Mutex> guard(m_FileMutationLock);
+  uint32_t count = 0, last = 0;
+  if (!syncFat() || !chainExtent(file, count, last) || !updateFileMetadata(file, 0)) {
+    SYSCALL_ERROR(IoError);
     return;
   }
-
-  uint32_t firstClus = pFile->getInode();
-  int64_t sizeChange = size - pFile->getSize();
-
-  size_t clusSize = m_Superblock.BPB_SecPerClus * m_Superblock.BPB_BytsPerSec;
-
-  // Find a free cluster for the file if none exists yet.
-  if (firstClus == 0) {
-    // Get an available free cluster.
-    uint32_t freeClus = findFreeCluster();
-    if (freeClus == 0) {
-      SYSCALL_ERROR(NoSpaceLeftOnDevice);
-      return;
-    }
-
-    // This cluster is now EOF (first cluster of the file we're linking in)
-    setClusterEntry(freeClus, eofValue(), false);
-    firstClus = freeClus;
-
-    // Update the cluster and file object.
-    pFile->setInode(freeClus);
-    setCluster(pFile, freeClus);
-
-    // Do we need to do anything more?
-    if (clusSize >= size) {
-      return;
-    }
+  file->setSize(0);
+  uint32_t cluster = file->getInode();
+  if (!cluster)
+    return;
+  uint32_t next = getClusterEntry(cluster);
+  if (!next) {
+    SYSCALL_ERROR(IoError);
+    return;
   }
-
-  uint32_t finalOffset = size;
-  uint32_t clus = 0;
-
-  // Figure out how many (if any) additional clusters we need to link in now.
-  int i = clusSize;
-  int j = pFile->getSize() / i;
-  if (pFile->getSize() % i)
-    j++;  // extra cluster (integer division)
-  if (j == 0)
-    j = 1;  // always one cluster
-
-  uint32_t finalCluster = j * i;
-  uint32_t numExtraBytes = 0;
-
-  // Do we need to link in extra clusters?
-  if (finalOffset > finalCluster) {
-    numExtraBytes = finalOffset - finalCluster;
-
-    j = numExtraBytes / i;
-    if (numExtraBytes % i)
-      j++;
-
-    clus = firstClus;
-
-    uint32_t lastClus = clus;
-    while (!isEof(clus)) {
-      lastClus = clus;
-      clus = getClusterEntry(clus, false);
-    }
-
-    uint32_t prev = 0;
-    for (i = 0; i < j; i++) {
-      prev = lastClus;
-      lastClus = findFreeCluster();
-      if (!lastClus) {
-        SYSCALL_ERROR(NoSpaceLeftOnDevice);
-        return;
-      }
-
-      setClusterEntry(prev, lastClus, false);
-    }
-
-    // Final cluster must always point to EOF.
-    setClusterEntry(lastClus, eofValue(), false);
+  if (!setClusterEntry(cluster, eofValue())) {
+    setClusterEntry(cluster, next);
+    SYSCALL_ERROR(IoError);
+    return;
   }
+  if (!isEof(next) && !releaseClusterChain(next, false))
+    SYSCALL_ERROR(IoError);
+}
 
-  // Update the directory now that we are done with the FAT.
-  updateFileSize(pFile, sizeChange);
+void FatFilesystem::extend(File* file, size_t size) {
+  LockGuard<Mutex> guard(m_FileMutationLock);
+  if (file->getSize() >= size)
+    return;
+  if (m_bReadOnly) {
+    SYSCALL_ERROR(ReadOnlyFilesystem);
+    return;
+  }
+  if (!syncFat() || !ensureCapacity(file, size) || !zeroRange(file, file->getSize(), size) ||
+      !updateFileMetadata(file, size)) {
+    SYSCALL_ERROR(IoError);
+    return;
+  }
+  file->setSize(size);
 }
 
 File* FatFilesystem::createFile(File* parentDir, const String& filename, uint32_t mask,
@@ -1418,15 +1193,15 @@ bool FatFilesystem::createSymlink(File* parent, const String& filename, const St
   if (!clus)
     return false;
   File* pFile =
-      new FatSymlink(filename, 0, 0, 0, clus, this, 0,
+      new FatSymlink(filename, 0, 0, 0, clus, this, value.length(),
                      0xdeadbeef,  // Sentinel values that'll throw an error if they're used
                      0xbeefdead,  // before being set to correct values.
                      parent);
 
-  // Finish the target before making the namespace entry visible.
-  if (value.length() && pFile->write(0, value.length(),
-                                     reinterpret_cast<uintptr_t>(
-                                         static_cast<const char*>(value))) != value.length()) {
+  // The unpublished node has no directory entry to update. Publish its final
+  // size with the name only after the target data has reached the disk.
+  if (value.length() && write(pFile, 0, value.length(),
+                              reinterpret_cast<uintptr_t>(value.cstr())) != value.length()) {
     releaseClusterChain(clus);
     delete pFile;
     return false;
@@ -1445,13 +1220,15 @@ bool FatFilesystem::createSymlink(File* parent, const String& filename, const St
   return true;
 }
 
-bool FatFilesystem::releaseClusterChain(uint32_t clus) {
+bool FatFilesystem::releaseClusterChain(uint32_t clus, bool lockFile) {
   if (!clus)
     return true;
 
+  LockGuard<Mutex> fileGuard(m_FileMutationLock, lockFile);
 #if THREADS || defined(STANDALONE_MUTEXES)
   LockGuard<Mutex> guard(m_AllocationLock);
 #endif
+  const uint32_t first = clus;
   size_t visited = 0;
   while (true) {
     if (clus < 2 || clus >= (m_ClusterCount + 2) || visited++ >= m_ClusterCount) {
@@ -1459,16 +1236,25 @@ bool FatFilesystem::releaseClusterChain(uint32_t clus) {
       return false;
     }
 
-    const uint32_t current = clus;
     clus = getClusterEntry(clus, false);
     if (!clus) {
       ERROR("Found a free cluster in an allocated FAT chain");
       return false;
     }
-    setClusterEntry(current, 0, false);
     if (isEof(clus))
-      return true;
+      break;
   }
+
+  // Preflight populated every FAT sector needed below. Stage the whole
+  // reclamation even if a flush fails, retaining all frees for later retry.
+  bool succeeded = true;
+  clus = first;
+  while (visited--) {
+    const uint32_t next = getClusterEntry(clus, false);
+    succeeded = setClusterEntry(clus, 0, false) && succeeded;
+    clus = next;
+  }
+  return succeeded;
 }
 
 bool FatFilesystem::removeNode(File* parent, const String& filename, File* file) {
@@ -1510,6 +1296,7 @@ bool FatFilesystem::removeNode(File* parent, const String& filename, File* file)
   return true;
 }
 
+#ifndef FAT_STANDALONE
 static bool initFat() {
   VFS::instance().addProbeCallback(&FatFilesystem::probe);
   return true;
@@ -1522,3 +1309,4 @@ static void destroyFat() {
 }
 
 MODULE_INFO("fat", &initFat, &destroyFat, "vfs");
+#endif

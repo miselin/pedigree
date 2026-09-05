@@ -188,6 +188,14 @@ add_library(ramfs
     ${CMAKE_SOURCE_DIR}/src/modules/system/ramfs/RamFs.cc
 )
 
+add_library(fat
+    ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatFilesystem.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatFile.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatDirectory.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatSymlink.cc
+)
+target_compile_definitions(fat PRIVATE FAT_STANDALONE)
+
 add_library(partition
     ${CMAKE_SOURCE_DIR}/src/modules/drivers/common/partition/Partition.cc
     ${CMAKE_SOURCE_DIR}/src/modules/drivers/common/partition/apple.cc
@@ -240,6 +248,8 @@ set(TESTSUITE_SRCS
     testsuite/test-DiskImage.cc
     testsuite/test-Ext2FillCache.cc
     testsuite/test-Ext2Writeback.cc
+    testsuite/test-Ext2DirectorySync.cc
+    testsuite/test-FatWriteback.cc
     testsuite/test-FileMetadata.cc
     testsuite/test-Tree.cc
     testsuite/test-ObjectPool.cc
@@ -299,7 +309,7 @@ set(TESTSUITE_SRCS
 # non-ASAN testsuite
 add_executable(testsuite ${TESTSUITE_SRCS})
 target_link_libraries(testsuite PRIVATE
-    debugger ext2 partition ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
+    debugger ext2 fat partition ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
     Threads::Threads gtest gtest_main)
 target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
 if (PEDIGREE_COVERAGE)
@@ -311,7 +321,7 @@ endif ()
 if (HAVE_ASAN)
     add_executable(testsuite-asan ${TESTSUITE_SRCS})
     target_link_libraries(testsuite-asan PRIVATE
-        debugger ext2 partition ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
+        debugger ext2 fat partition ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
         Threads::Threads gtest gtest_main)
     target_compile_definitions(testsuite-asan PRIVATE -DTESTSUITE)
     target_compile_options(testsuite-asan PRIVATE "-fsanitize=address")
@@ -325,7 +335,7 @@ endif ()
 add_executable(headerify headerify/main.cc)
 
 if (BUILDUTILS_PROFILE_FLAGS)
-    foreach (target kernel utility vfs ext2 ramfs partition debugger config posix
+    foreach (target kernel utility vfs ext2 fat ramfs partition debugger config posix
              keymap ext2img instrument memorytracer headerify
              pedigree-configdb pedigree-initrd-builder)
         target_compile_options(${target} PRIVATE ${BUILDUTILS_PROFILE_FLAGS})
