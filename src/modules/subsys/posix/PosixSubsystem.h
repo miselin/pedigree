@@ -302,8 +302,9 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
                                InterruptState* pState = nullptr, uintptr_t faultAddress = 0,
                                uintptr_t errorCode = 0);
 
-  /** Send a POSIX signal to the given thread. */
-  virtual void sendSignal(Thread* pThread, int signal, bool yield = true);
+  /** Send a POSIX signal to a thread or its process. */
+  virtual void sendSignal(Thread* pThread, int signal, bool yield = true,
+                          bool processDirected = false);
 
   /** A signal handler */
   struct SignalHandler {
@@ -383,12 +384,12 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   void resetSignalHandlersForExec(Thread* thread,
                                   SignalHandler* const handlers[SignalDispositionCount]);
 
-  /** Copies a signal disposition while holding the disposition table lock. */
-  bool getSignalDisposition(size_t sig, SignalDisposition& disposition);
+  /** Copies a disposition and, at delivery, atomically consumes SA_RESETHAND. */
+  bool getSignalDisposition(size_t sig, SignalDisposition& disposition, bool beginDelivery = false);
 
   /** Resolves and queues a signal atomically with disposition replacement. */
   SignalDeliveryResult queueSignalDelivery(Thread* target, size_t sig, uint32_t* flags = nullptr,
-                                           int32_t signalCode = 0);
+                                           int32_t signalCode = 0, bool processDirected = false);
 
   /** Gets a signal handler */
   SignalHandler* getSignalHandler(size_t sig) {
@@ -650,6 +651,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
  private:
   struct ExecutableImage;
 
+  virtual void prepareThreadsForExec(Thread* owner);
+  virtual void preserveProcessSignalsForThreadExit(Thread* thread);
   virtual void threadExiting(Thread* pThread);
   virtual void threadRemoved(Thread* pThread);
 

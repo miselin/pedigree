@@ -321,8 +321,8 @@ void VirtualTerminalManager::sendSignal(size_t n, bool acq) {
 
   NOTICE("VirtualTerminalManager: signaling VT #" << n);
   Process::ThreadLease target;
-  if (pProcess->acquireThread(target, static_cast<size_t>(0))) {
-    pSubsystem->sendSignal(target.get(), acq ? mode.acqsig : mode.relsig);
+  if (pProcess->acquireProcessSignalThread(target)) {
+    pSubsystem->sendSignal(target.get(), acq ? mode.acqsig : mode.relsig, true, true);
   }
 #endif
 }

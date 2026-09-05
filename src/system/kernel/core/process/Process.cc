@@ -70,6 +70,170 @@ bool canAdoptChildren(Process* pProcess, Process* pExcluded = 0) {
 
 }  // namespace
 
+Process::ExecScope::ExecScope(Process& process, bool active)
+    : m_pProcess(nullptr), m_bAdmitted(!active), m_TerminationDeferral(active) {
+  if (!active) {
+    return;
+  }
+  Thread* current = Processor::information().getCurrentThread();
+  LockGuard<Spinlock> guard(process.m_Lock);
+  if (current && current->getParent() == &process && !process.m_pExecOwner &&
+      process.getState() == Active && !process.m_bTerminalOwnerReserved &&
+      current->getUnwindState() == Thread::Continue) {
+    process.m_pExecOwner = current;
+    m_pProcess = &process;
+    m_bAdmitted = true;
+  }
+}
+
+Process::ExecScope::~ExecScope() {
+  if (!m_pProcess) {
+    return;
+  }
+  {
+    LockGuard<Spinlock> guard(m_pProcess->m_Lock);
+    if (m_pProcess->m_bExecCommitted) {
+      auto joinGuard = m_pProcess->m_ThreadJoinWaiters.acquire();
+      m_pProcess->m_bThreadJoinAdmissionClosed = false;
+    }
+    m_pProcess->m_bExecCommitted = false;
+    m_pProcess->m_bExecExitForwarded = false;
+    m_pProcess->m_pExecOwner = nullptr;
+  }
+  m_pProcess->m_ExecWaiters.wakeAll();
+}
+
+Process::ThreadCreationScope::ThreadCreationScope(Process& process)
+    : m_pProcess(nullptr), m_TerminationDeferral(true) {
+  LockGuard<Spinlock> guard(process.m_Lock);
+  if (!process.m_pExecOwner && process.getState() == Active && !process.m_bTerminalOwnerReserved) {
+    ++process.m_nThreadCreations;
+    m_pProcess = &process;
+  }
+}
+
+Process::ThreadCreationScope::~ThreadCreationScope() {
+  if (!m_pProcess) {
+    return;
+  }
+  {
+    LockGuard<Spinlock> guard(m_pProcess->m_Lock);
+    --m_pProcess->m_nThreadCreations;
+  }
+  m_pProcess->m_ExecWaiters.wakeAll();
+}
+
+bool Process::ExecScope::commit() {
+  if (!m_pProcess) {
+    return m_bAdmitted;
+  }
+  Process& process = *m_pProcess;
+  Thread* current = Processor::information().getCurrentThread();
+  Vector<Thread*> peers;
+  while (true) {
+    auto progress = process.m_ExecWaiters.acquire();
+    bool creatorsFinished = false;
+    {
+      LockGuard<Spinlock> guard(process.m_Lock);
+      if (process.getState() != Active || process.m_bTerminalOwnerReserved ||
+          current->getUnwindState() != Thread::Continue) {
+        return false;
+      }
+      creatorsFinished = process.m_nThreadCreations == 0;
+      if (creatorsFinished) {
+        // Retain peers before waking them. Detached retirement and kernel
+        // joins must not free a pointer in this teardown snapshot.
+        process.m_bExecCommitted = true;
+        for (Thread* thread : process.m_Threads) {
+          auto exitGuard = thread->m_JoinWaiters.acquire();
+          if (thread != current && thread->m_bReapable &&
+              (thread->m_bDetachedRetirementClaimed || thread->m_bJoinClaimed)) {
+            continue;
+          }
+          thread->m_bProcessExitOwned = true;
+          if (!thread->m_bReapable) {
+            thread->m_bProcessExitParticipant = true;
+            ++process.m_nTerminationParticipants;
+          }
+          if (thread != current) {
+            peers.pushBack(thread);
+          }
+        }
+        auto joinGuard = process.m_ThreadJoinWaiters.acquire();
+        process.m_bThreadJoinAdmissionClosed = true;
+      }
+    }
+    if (creatorsFinished) {
+      break;
+    }
+    const WaitQueue::WakeReason reason = progress.waitForCompletion(
+        WaitQueue::Channel(), Thread::ProcessWait, reinterpret_cast<uintptr_t>(&process));
+    (void)reason;
+  }
+
+  if (process.m_pSubsystem) {
+    process.m_pSubsystem->prepareThreadsForExec(current);
+  }
+
+  for (Thread* peer : peers) {
+    peer->setUnwindState(Thread::TerminateThread);
+  }
+  while (true) {
+    auto progress = process.m_ExecWaiters.acquire();
+    bool peersOffStack = false;
+    {
+      LockGuard<Spinlock> guard(process.m_Lock);
+      peersOffStack = process.m_nTerminationParticipants == 1;
+    }
+    if (peersOffStack) {
+      break;
+    }
+    const WaitQueue::WakeReason reason = progress.waitForCompletion(
+        WaitQueue::Channel(), Thread::ProcessWait, reinterpret_cast<uintptr_t>(&process));
+    (void)reason;
+  }
+
+  // A join can outlive the target's final context switch. Drain its ownership
+  // decision before deleting retained threads or reopening join admission.
+  while (true) {
+    auto joins = process.m_ThreadJoinWaiters.acquire();
+    if (!process.m_nThreadJoinOperations) {
+      break;
+    }
+    const WaitQueue::WakeReason reason = joins.waitForCompletion(
+        WaitQueue::Channel(&process), Thread::ProcessWait, reinterpret_cast<uintptr_t>(&process));
+    (void)reason;
+  }
+  for (Thread* peer : peers) {
+    peer->closeExternalLeaseAdmissionAndDrain();
+    delete peer;
+  }
+  while (true) {
+    auto progress = process.m_ExecWaiters.acquire();
+    {
+      LockGuard<Spinlock> guard(process.m_Lock);
+      if (process.m_Threads.count() == 1) {
+        current->m_bProcessExitOwned = false;
+        current->m_bProcessExitParticipant = false;
+        process.m_nTerminationParticipants = 0;
+        return true;
+      }
+    }
+    // A detached deletion claimed before our snapshot owns its remaining
+    // TLS and stack cleanup; removeThread publishes its final completion.
+    const WaitQueue::WakeReason reason = progress.waitForCompletion(
+        WaitQueue::Channel(), Thread::ProcessWait, reinterpret_cast<uintptr_t>(&process));
+    (void)reason;
+  }
+}
+
+void Process::ExecScope::adoptLeaderIdentity() {
+  if (m_pProcess) {
+    LockGuard<Spinlock> guard(m_pProcess->m_Lock);
+    __atomic_store_n(&m_pProcess->m_pExecOwner->m_TaskId, m_pProcess->m_Id, __ATOMIC_RELEASE);
+  }
+}
+
 Process::ThreadLease::ThreadLease()
     : m_pProcess(nullptr), m_pThread(nullptr), m_TerminationDeferral(false) {}
 
@@ -926,7 +1090,8 @@ size_t Process::addThread(Thread* pThread) {
   if (!pThread)
     return ~0;
   const ProcessState state = getState();
-  if (m_bDestroying || m_bTerminationSealed || state == Terminated || state == Reaped) {
+  if (m_bDestroying || m_bTerminationSealed || m_bExecCommitted || state == Terminated ||
+      state == Reaped) {
     FATAL("Process::addThread invariant failed for pid "
           << Dec << m_Id << ": a thread cannot be published after exit rendezvous seals.");
   }
@@ -940,7 +1105,9 @@ size_t Process::addThread(Thread* pThread) {
   }
   m_Threads.pushBack(pThread);
   const size_t localId = m_NextTid += 1;
-  pThread->m_TaskId = localId == 1 ? m_Id : Scheduler::instance().reserveProcessId();
+  __atomic_store_n(&pThread->m_TaskId,
+                   localId == 1 ? m_Id : Scheduler::instance().reserveProcessId(),
+                   __ATOMIC_RELEASE);
   return localId;
 }
 
@@ -950,23 +1117,35 @@ void Process::threadExiting(Thread* pThread) {
   }
 }
 
-void Process::removeThread(Thread* pThread) {
-  RecursingLockGuard<Spinlock> guard(m_Lock);
-
-  // The destructor owns its vector iteration and deliberately leaves removal
-  // until the whole Process object disappears. Logical process termination,
-  // however, can outlive detached Thread destruction while waitpid waits.
-  if (m_bDestroying)
-    return;
-  for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); it++) {
-    if (*it == pThread) {
-      m_Threads.erase(it);
-      break;
-    }
+void Process::transferExecProcessSignals(Thread* pThread) {
+  // Final process exit holds m_Lock through its last scheduler handoff.
+  // Signals have no surviving recipient once that terminal phase begins.
+  const ProcessState state = getState();
+  if (m_pSubsystem && (state == Active || state == Suspended)) {
+    m_pSubsystem->preserveProcessSignalsForThreadExit(pThread);
   }
+}
 
-  if (m_pSubsystem)
-    m_pSubsystem->threadRemoved(pThread);
+void Process::removeThread(Thread* pThread) {
+  {
+    RecursingLockGuard<Spinlock> guard(m_Lock);
+
+    // The destructor owns its vector iteration and deliberately leaves removal
+    // until the whole Process object disappears. Logical process termination,
+    // however, can outlive detached Thread destruction while waitpid waits.
+    if (m_bDestroying)
+      return;
+    for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); it++) {
+      if (*it == pThread) {
+        m_Threads.erase(it);
+        break;
+      }
+    }
+
+    if (m_pSubsystem)
+      m_pSubsystem->threadRemoved(pThread);
+  }
+  m_ExecWaiters.wakeAll();
 }
 
 size_t Process::getNumThreads() {
@@ -993,6 +1172,45 @@ bool Process::acquireThread(ThreadLease& lease, size_t n) {
   }
 
   lease = ThreadLease(this, thread);
+  return true;
+}
+
+bool Process::acquireProcessSignalThread(ThreadLease& lease) {
+  Thread* target = nullptr;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    const ProcessState state = getState();
+    if ((state == Active || state == Suspended) && beginExternalLease()) {
+      auto acquire = [&](Thread* thread) {
+        if (!thread) {
+          return false;
+        }
+        LockGuard<Spinlock> threadGuard(thread->m_Lock);
+        if (thread->m_bShutdown || thread->m_Status == Thread::Zombie ||
+            thread->getUnwindState() == Thread::TerminateThread || !thread->beginExternalLease()) {
+          return false;
+        }
+        target = thread;
+        return true;
+      };
+      if (!acquire(m_pExecOwner)) {
+        for (Thread* thread : m_Threads) {
+          if (acquire(thread)) {
+            break;
+          }
+        }
+      }
+      if (!target) {
+        endExternalLease();
+      }
+    }
+  }
+
+  if (!target) {
+    lease.reset();
+    return false;
+  }
+  lease = ThreadLease(this, target);
   return true;
 }
 
@@ -1084,11 +1302,20 @@ bool Process::acquireThread(ThreadLease& lease, Thread* expected) {
 
 Process::TerminalOwnerReservation Process::reserveTerminalOwner() {
   TerminalOwnerReservation reservation;
-  {
-    LockGuard<Spinlock> guard(m_Lock);
+  while (true) {
+    auto progress = m_ExecWaiters.acquire();
+    m_Lock.acquire();
+    if (m_bExecCommitted) {
+      m_Lock.release();
+      const WaitQueue::WakeReason reason = progress.waitForCompletion(
+          WaitQueue::Channel(), Thread::ProcessWait, reinterpret_cast<uintptr_t>(this));
+      (void)reason;
+      continue;
+    }
     const ProcessState state = getState();
     if (m_bDestroying || m_bTerminationRendezvousStarted || m_bTerminationSealed ||
         state == Terminating || state == Terminated || state == Reaped) {
+      m_Lock.release();
       return reservation;
     }
     if (m_bTerminalOwnerReserved) {
@@ -1098,6 +1325,8 @@ Process::TerminalOwnerReservation Process::reserveTerminalOwner() {
     m_bTerminalOwnerReserved = true;
     m_pReservedTerminalOwner = nullptr;
     reservation.m_pProcess = this;
+    m_Lock.release();
+    break;
   }
   reservation.m_TerminationDeferral = TerminationDeferral(true);
   return reservation;
@@ -1196,7 +1425,7 @@ bool Process::prepareThreadExit() {
   return true;
 }
 
-bool Process::beginTermination() {
+bool Process::beginTermination(int code, Subsystem::ExitCause cause) {
   // Do not hold m_Lock while an admitted accounting report drains: POSIX
   // signal publication may itself need to inspect this Process's threads.
   closeDeferredTimeAccounting();
@@ -1206,6 +1435,28 @@ bool Process::beginTermination() {
   if (!pCurrentThread || pCurrentThread->getParent() != this) {
     FATAL("Process::beginTermination invariant failed for pid "
           << Dec << m_Id << ": exit must be initiated by a thread in the target process.");
+  }
+
+  // Election and exec commit share m_Lock: neither may begin a peer
+  // rendezvous between this check and publication of its ownership.
+  if (m_bExecCommitted && m_pExecOwner != pCurrentThread) {
+    if (m_bExecExitForwarded) {
+      m_Lock.release();
+      return false;
+    }
+    m_bExecExitForwarded = true;
+    Thread* execOwner = m_pExecOwner;
+    if (!beginExternalLease() || !execOwner->beginExternalLease()) {
+      FATAL("Exec owner lost its lifetime during exit forwarding.");
+    }
+    m_Lock.release();
+    ThreadLease owner(this, execOwner);
+    if (cause == Subsystem::ExitCause::Signal) {
+      owner->deferSignalExit(code);
+    } else {
+      owner->deferProcessExit(code);
+    }
+    return false;
   }
 
   if (m_bTerminalOwnerReserved) {
@@ -1563,7 +1814,7 @@ void Process::suspendInternal(int stopSignal, bool checkContinuationEpoch,
       {
         auto relationGuard = parent->m_ChildStateWaiters.acquire();
         if (getParent() == parent.get()) {
-          parentThreadAcquired = parent->acquireThread(parentThread, static_cast<size_t>(0));
+          parentThreadAcquired = parent->acquireProcessSignalThread(parentThread);
         }
       }
       if (parentThreadAcquired) {
@@ -1776,7 +2027,7 @@ bool Process::terminatingThreadReapable(Thread* pThread, bool& wakeOwner) {
     return true;
   }
 
-  wakeOwner = m_bTerminationRendezvousStarted;
+  wakeOwner = m_bTerminationRendezvousStarted || m_bExecCommitted;
   return false;
 }
 
@@ -1799,7 +2050,7 @@ void Process::publishTerminationStatus(bool notifyParent) {
       // allocation and delivery happen after that guard is dropped.
       Process::ThreadLease parentThread;
       const bool parentThreadAcquired =
-          notifyParent && parent->acquireThread(parentThread, static_cast<size_t>(0));
+          notifyParent && parent->acquireProcessSignalThread(parentThread);
       bool parentAcceptsSignal = false;
       {
         auto guard = parent->m_ChildStateWaiters.acquire();

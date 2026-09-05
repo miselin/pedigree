@@ -30,6 +30,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/ProcessorThreadAllocator.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
@@ -102,7 +103,7 @@ void Thread::TemporarySignalMask::discard(void* context) {
 
   const bool interruptsWereEnabled = Processor::getInterrupts();
   Processor::setInterrupts(false);
-  scope->m_pThread->finishTemporarySignalMask(scope->m_StateLevel);
+  scope->m_pThread->finishTemporarySignalMask(scope->m_StateLevel, false);
   scope->m_pThread = nullptr;
   Processor::setInterrupts(interruptsWereEnabled);
 }
@@ -506,6 +507,10 @@ void Thread::shutdown() {
 
   unlinkWaitsForStackDiscard();
 
+  if (m_pParent) {
+    m_pParent->transferExecProcessSignals(this);
+  }
+
   // Once shutdown is visible, no sender can publish another event. Remove
   // each queued registration under the thread lock, but complete it outside
   // the lock because completion can wake waiters or destroy the Event.
@@ -782,6 +787,7 @@ SchedulerState* Thread::pushState() {
   m_StateLevels[nextLevel].m_SavedSignalMask = 0;
   m_StateLevels[nextLevel].m_TemporarySignalMaskActive = false;
   m_StateLevels[nextLevel].m_TemporarySignalWaitInterrupted = false;
+  m_StateLevels[nextLevel].m_DeferredSignalMaskRestore = false;
   m_StateLevels[nextLevel].m_DispatchedSignalNumber = 0;
   m_StateLevels[nextLevel].m_DispatchedSignalContinuationEpoch = 0;
   m_StateLevels[nextLevel].m_bOwnsAlternateSignalStack = false;
@@ -1066,7 +1072,9 @@ bool Thread::sendEvent(Event* pEvent) {
       if (!m_bShutdown && m_Status != Zombie) {
         if (pEvent->isSignalEvent()) {
           for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
-            if ((*it)->isSignalEvent() && (*it)->getNumber() == pEvent->getNumber()) {
+            if ((*it)->isSignalEvent() && (*it)->getNumber() == pEvent->getNumber() &&
+                static_cast<SignalEvent*>(*it)->isProcessDirected() ==
+                    static_cast<SignalEvent*>(pEvent)->isProcessDirected()) {
               duplicate = true;
               break;
             }
@@ -1792,6 +1800,36 @@ void Thread::setSignalMask(uint64_t mask) {
   m_StateLevels[m_nStateLevel].m_SignalMask = mask;
 }
 
+uint64_t Thread::getSignalMaskForReturnFrame() {
+  LockGuard<Spinlock> guard(m_Lock);
+  const StateLevel& state = m_StateLevels[m_nStateLevel];
+  return state.m_DeferredSignalMaskRestore ? state.m_SavedSignalMask : state.m_SignalMask;
+}
+
+void Thread::commitSignalHandlerMask(uint64_t mask) {
+  LockGuard<Spinlock> guard(m_Lock);
+  StateLevel& state = m_StateLevels[m_nStateLevel];
+  state.m_SignalMask = mask;
+  if (state.m_DeferredSignalMaskRestore) {
+    state.m_SavedSignalMask = 0;
+    state.m_DeferredSignalMaskRestore = false;
+  }
+}
+
+void Thread::restoreDeferredSignalMask(size_t stateLevel) {
+  LockGuard<Spinlock> guard(m_Lock);
+  if (stateLevel >= MAX_NESTED_EVENTS) {
+    FATAL("Deferred signal mask restored from an invalid Thread state level.");
+  }
+
+  StateLevel& state = m_StateLevels[stateLevel];
+  if (state.m_DeferredSignalMaskRestore) {
+    state.m_SignalMask = state.m_SavedSignalMask;
+    state.m_SavedSignalMask = 0;
+    state.m_DeferredSignalMaskRestore = false;
+  }
+}
+
 void Thread::setCurrentSignalDelivery(size_t signalNumber, size_t continuationEpoch) {
   LockGuard<Spinlock> guard(m_Lock);
   StateLevel& state = m_StateLevels[m_nStateLevel];
@@ -1819,7 +1857,9 @@ void Thread::prepareSignalStateForExec() {
     if (m_nStateLevel != execStateLevel) {
       FATAL("Thread state changed during exec signal preparation.");
     }
-    effectiveSignalMask = m_StateLevels[execStateLevel].m_SignalMask;
+    const StateLevel& state = m_StateLevels[execStateLevel];
+    effectiveSignalMask =
+        state.m_DeferredSignalMaskRestore ? state.m_SavedSignalMask : state.m_SignalMask;
   }
 
   // JumpToUserspace collapses nested states but deliberately retains level
@@ -1840,6 +1880,7 @@ void Thread::prepareSignalStateForExec() {
   base.m_SavedSignalMask = 0;
   base.m_TemporarySignalMaskActive = false;
   base.m_TemporarySignalWaitInterrupted = false;
+  base.m_DeferredSignalMaskRestore = false;
   base.m_DispatchedSignalNumber = 0;
   base.m_DispatchedSignalContinuationEpoch = 0;
   base.m_bOwnsAlternateSignalStack = false;
@@ -1860,7 +1901,7 @@ size_t Thread::beginTemporarySignalMask(uint64_t signalMask) {
   }
 
   StateLevel& state = m_StateLevels[stateLevel];
-  if (state.m_TemporarySignalMaskActive) {
+  if (state.m_TemporarySignalMaskActive || state.m_DeferredSignalMaskRestore) {
     FATAL("Thread state already owns a temporary signal mask.");
   }
 
@@ -1872,7 +1913,7 @@ size_t Thread::beginTemporarySignalMask(uint64_t signalMask) {
   return stateLevel;
 }
 
-bool Thread::finishTemporarySignalMask(size_t stateLevel) {
+bool Thread::finishTemporarySignalMask(size_t stateLevel, bool deferForUserReturn) {
   LockGuard<Spinlock> guard(m_Lock);
   if (stateLevel >= MAX_NESTED_EVENTS) {
     FATAL("Temporary signal mask restored from an invalid Thread state level.");
@@ -1884,8 +1925,24 @@ bool Thread::finishTemporarySignalMask(size_t stateLevel) {
   }
 
   const bool interrupted = state.m_TemporarySignalWaitInterrupted;
-  state.m_SignalMask = state.m_SavedSignalMask;
-  state.m_SavedSignalMask = 0;
+  bool deferRestore = false;
+  if (deferForUserReturn && interrupted && stateLevel == m_nStateLevel) {
+    for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
+      Event* event = *it;
+      if (event->isSignalEvent() && event->requiresExactUserReturnState() &&
+          eventIsDeliverableUnlocked(event, EventSelection::AnyDeliverable)) {
+        deferRestore = true;
+        break;
+      }
+    }
+  }
+  // Keep a temporarily unblocked signal eligible until the syscall boundary
+  // can save the original mask in its handler's return frame.
+  state.m_DeferredSignalMaskRestore = deferRestore;
+  if (!deferRestore) {
+    state.m_SignalMask = state.m_SavedSignalMask;
+    state.m_SavedSignalMask = 0;
+  }
   state.m_TemporarySignalMaskActive = false;
   state.m_TemporarySignalWaitInterrupted = false;
   if (interrupted && state.m_InterruptionReason == InterruptedBySignal) {
@@ -1988,7 +2045,39 @@ void Thread::cullSignalEvent(size_t signalNumber) {
   }
 }
 
-bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement) {
+bool Thread::transferProcessSignalsTo(Thread& target) {
+  if (&target == this) {
+    return true;
+  }
+  TerminationDeferral transferDeferral;
+  while (true) {
+    Event* pending = nullptr;
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      for (auto it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
+        if ((*it)->isSignalEvent() && static_cast<SignalEvent*>(*it)->isProcessDirected()) {
+          pending = *it;
+          m_EventQueue.erase(it);
+          break;
+        }
+      }
+    }
+    if (!pending) {
+      return true;
+    }
+
+    // The old registration pins the event through destination admission and
+    // coalescing, including when the destination already holds this signal.
+    if (!target.sendEvent(pending)) {
+      LockGuard<Spinlock> guard(m_Lock);
+      m_EventQueue.pushFront(pending);
+      return false;
+    }
+    pending->completeDelivery(this);
+  }
+}
+
+bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement, int processDirected) {
   if (!replacement || !replacement->isSignalEvent() || replacement->getNumber() != signalNumber) {
     return false;
   }
@@ -2014,8 +2103,16 @@ bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement) {
     LockGuard<Spinlock> guard(m_Lock);
     if (!m_bShutdown && m_Status != Zombie) {
       for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
-        if ((*it)->isSignalEvent() && (*it)->getNumber() == signalNumber) {
+        if ((*it)->isSignalEvent() && (*it)->getNumber() == signalNumber &&
+            (processDirected < 0 ||
+             static_cast<SignalEvent*>(*it)->isProcessDirected() == (processDirected != 0))) {
           previous = *it;
+          SignalEvent* oldSignal = static_cast<SignalEvent*>(previous);
+          SignalEvent* newSignal = static_cast<SignalEvent*>(replacement);
+          newSignal->setProcessDirected(oldSignal->isProcessDirected());
+          newSignal->setSignalOrigin(oldSignal->getSignalCode(), oldSignal->getSenderProcess(),
+                                     oldSignal->getSenderUser());
+          newSignal->setContinuationEpoch(oldSignal->getContinuationEpoch());
           *it = replacement;
           break;
         }
@@ -2046,11 +2143,13 @@ bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement) {
   return previous != nullptr;
 }
 
-bool Thread::hasSignalEvent(size_t signalNumber) {
+bool Thread::hasSignalEvent(size_t signalNumber, int processDirected) {
   LockGuard<Spinlock> guard(m_Lock);
 
   for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
-    if ((*it)->isSignalEvent() && (*it)->getNumber() == signalNumber) {
+    if ((*it)->isSignalEvent() && (*it)->getNumber() == signalNumber &&
+        (processDirected < 0 ||
+         static_cast<SignalEvent*>(*it)->isProcessDirected() == (processDirected != 0))) {
       return true;
     }
   }
@@ -2600,6 +2699,7 @@ Thread::StateLevel::StateLevel()
       m_SavedSignalMask(0),
       m_TemporarySignalMaskActive(false),
       m_TemporarySignalWaitInterrupted(false),
+      m_DeferredSignalMaskRestore(false),
       m_DispatchedSignalNumber(0),
       m_DispatchedSignalContinuationEpoch(0),
       m_bOwnsAlternateSignalStack(false),
@@ -2633,6 +2733,7 @@ Thread::StateLevel::StateLevel(const Thread::StateLevel& s)
       m_SavedSignalMask(0),
       m_TemporarySignalMaskActive(false),
       m_TemporarySignalWaitInterrupted(false),
+      m_DeferredSignalMaskRestore(false),
       m_DispatchedSignalNumber(0),
       m_DispatchedSignalContinuationEpoch(0),
       m_bOwnsAlternateSignalStack(false),
@@ -2658,6 +2759,7 @@ Thread::StateLevel& Thread::StateLevel::operator=(const Thread::StateLevel& s) {
   m_SavedSignalMask = 0;
   m_TemporarySignalMaskActive = false;
   m_TemporarySignalWaitInterrupted = false;
+  m_DeferredSignalMaskRestore = false;
   m_DispatchedSignalNumber = 0;
   m_DispatchedSignalContinuationEpoch = 0;
   m_bOwnsAlternateSignalStack = false;
@@ -3087,6 +3189,7 @@ void Thread::cleanStateLevel(size_t level) {
   if (m_StateLevels[level].m_TemporarySignalMaskActive) {
     FATAL("Thread state stack freed with an active temporary signal mask.");
   }
+  restoreDeferredSignalMask(level);
 
 #if HOSTED
   if (__atomic_load_n(&m_StateLevels[level].m_HostedSignalDepth, __ATOMIC_ACQUIRE)) {
@@ -3153,25 +3256,24 @@ Thread::UnwindType Thread::getUnwindState() {
 }
 
 void Thread::deferProcessExit(int code) {
-  // A Thread stages its own request. Publishing Exit is the release that
-  // makes both fields visible to the boundary's acquire load.
-  __atomic_store_n(&m_DeferredProcessExitCode, code, __ATOMIC_RELEASE);
-  __atomic_store_n(&m_bDeferredProcessExitBySignal, false, __ATOMIC_RELEASE);
+  // Exec can forward a sibling's request. Publish status and cause together
+  // so a concurrent local failure cannot create a mixed exit reason.
+  __atomic_store_n(&m_DeferredProcessExitRequest, static_cast<uint32_t>(code), __ATOMIC_RELEASE);
   setUnwindState(Exit);
 }
 
 void Thread::deferSignalExit(int signal) {
-  __atomic_store_n(&m_DeferredProcessExitCode, signal, __ATOMIC_RELEASE);
-  __atomic_store_n(&m_bDeferredProcessExitBySignal, true, __ATOMIC_RELEASE);
+  const uint64_t request = static_cast<uint32_t>(signal) | (static_cast<uint64_t>(1) << 32);
+  __atomic_store_n(&m_DeferredProcessExitRequest, request, __ATOMIC_RELEASE);
   setUnwindState(Exit);
 }
 
 Thread::DeferredProcessExit Thread::takeDeferredProcessExit() {
-  DeferredProcessExit request = {
-      __atomic_exchange_n(&m_DeferredProcessExitCode, 0, __ATOMIC_ACQ_REL),
-      __atomic_exchange_n(&m_bDeferredProcessExitBySignal, false, __ATOMIC_ACQ_REL)
-          ? Subsystem::ExitCause::Signal
-          : Subsystem::ExitCause::Normal};
+  const uint64_t value =
+      __atomic_exchange_n(&m_DeferredProcessExitRequest, uint64_t(0), __ATOMIC_ACQ_REL);
+  DeferredProcessExit request = {static_cast<int32_t>(value), (value >> 32)
+                                                                  ? Subsystem::ExitCause::Signal
+                                                                  : Subsystem::ExitCause::Normal};
   return request;
 }
 

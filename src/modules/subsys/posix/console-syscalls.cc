@@ -132,7 +132,7 @@ static void terminalEventHandler(uintptr_t serializeBuffer) {
       }
       PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
       Process::ThreadLease target;
-      const bool targetAcquired = pProcess->acquireThread(target, static_cast<size_t>(0));
+      const bool targetAcquired = pProcess->acquireProcessSignalThread(target);
       if (pSubsystem && targetAcquired) {
         pSubsystem->threadException(target.get(), what);
       }

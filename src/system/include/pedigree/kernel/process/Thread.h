@@ -350,7 +350,7 @@ class EXPORTED_PUBLIC Thread {
 
   /** Linux task IDs share the PID namespace; internal slots remain local. */
   size_t getTaskId() const {
-    return m_TaskId;
+    return __atomic_load_n(&m_TaskId, __ATOMIC_ACQUIRE);
   }
 
   /** Returns the last error that occurred (errno). */
@@ -584,6 +584,24 @@ class EXPORTED_PUBLIC Thread {
   /** Sets the POSIX signal mask for the current event nesting level. */
   void setSignalMask(uint64_t mask);
 
+  /** Saves the pre-wait mask when delivery completes an interrupted masked wait. */
+  uint64_t getSignalMaskForReturnFrame();
+
+  /** Transfers a deferred mask restoration into a successfully published frame. */
+  void commitSignalHandlerMask(uint64_t mask);
+
+  /** Restores an interrupted wait's mask when no signal frame took ownership. */
+  void restoreDeferredSignalMask(size_t stateLevel);
+
+  /** Original syscall image, available only during its normal user-return work. */
+  const SyscallState* getOriginalSyscallState() const {
+    return m_OriginalSyscallState;
+  }
+
+  void setOriginalSyscallState(const SyscallState* state) {
+    m_OriginalSyscallState = state;
+  }
+
   /** Records trusted metadata for the signal dispatched at the current level. */
   void setCurrentSignalDelivery(size_t signalNumber, size_t continuationEpoch);
 
@@ -626,14 +644,20 @@ class EXPORTED_PUBLIC Thread {
   void cullSignalEvent(size_t signalNumber);
 
   /**
+   * Moves queued process signals, retaining rejected deliveries on this thread.
+   * The caller pins both threads and serialises process signal publication.
+   */
+  bool transferProcessSignalsTo(Thread& target);
+
+  /**
    * Replaces one queued signal delivery without making it transiently
    * deliverable. On success the Thread owns \p replacement; otherwise the
    * caller retains ownership.
    */
-  bool replaceSignalEvent(size_t signalNumber, Event* replacement);
+  bool replaceSignalEvent(size_t signalNumber, Event* replacement, int processDirected = -1);
 
-  /** Determines if a signal event is currently in the event queue. */
-  bool hasSignalEvent(size_t signalNumber);
+  /** Filters process/thread provenance when specified; -1 matches either. */
+  bool hasSignalEvent(size_t signalNumber, int processDirected = -1);
 
   bool hasEvents();
 
@@ -820,7 +844,7 @@ class EXPORTED_PUBLIC Thread {
   void cleanStateLevel(size_t level);
 
   size_t beginTemporarySignalMask(uint64_t signalMask);
-  bool finishTemporarySignalMask(size_t stateLevel);
+  bool finishTemporarySignalMask(size_t stateLevel, bool deferForUserReturn = true);
   bool waitForEventInternal(bool stopOnSignalInterruption,
                             WaitQueue::StackDiscardCleanup onStackDiscard,
                             void* stackDiscardContext);
@@ -937,6 +961,7 @@ class EXPORTED_PUBLIC Thread {
     uint64_t m_SavedSignalMask;
     bool m_TemporarySignalMaskActive;
     bool m_TemporarySignalWaitInterrupted;
+    bool m_DeferredSignalMaskRestore;
 
     /** Kernel-owned metadata for the signal dispatched at this level. */
     size_t m_DispatchedSignalNumber;
@@ -1077,6 +1102,8 @@ class EXPORTED_PUBLIC Thread {
   /** Alternate signal stack configuration is per-thread. */
   AlternateSignalStack m_AlternateSignalStack;
 
+  const SyscallState* m_OriginalSyscallState = nullptr;
+
   /** Our current status. Sleeping is reserved for an active WaitQueue. */
   volatile Status m_Status = Ready;
 
@@ -1093,10 +1120,7 @@ class EXPORTED_PUBLIC Thread {
   UnwindType m_UnwindState = Continue;
 
   /** Status preserved while Exit crosses nested/event/IRQ boundaries. */
-  int m_DeferredProcessExitCode = 0;
-
-  /** Whether the deferred process exit was caused by a signal. */
-  bool m_bDeferredProcessExitBySignal = false;
+  uint64_t m_DeferredProcessExitRequest = 0;
 
   /** Empty, publishing, or pending state for the preallocated exception. */
   size_t m_DeferredSubsystemExceptionState = 0;

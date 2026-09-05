@@ -968,7 +968,7 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         )
         self.assertLess(fpstate_copy, frame_copy)
         for mutation in (
-            "thread->setSignalMask(handlerMask",
+            "thread->commitSignalHandlerMask(handlerMask",
             "alternate.inUse =",
             "state.setRegister(",
             "state.setInstructionPointer(",

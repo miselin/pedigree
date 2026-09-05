@@ -60,6 +60,41 @@ class EXPORTED_PUBLIC Process {
   friend class ZombieQueue;
 
  public:
+  /** Serialises replacement of a userspace image with clone publication. */
+  class EXPORTED_PUBLIC ExecScope {
+   public:
+    explicit ExecScope(Process& process, bool active = true);
+    ~ExecScope();
+    explicit operator bool() const {
+      return m_bAdmitted;
+    }
+    bool commit();
+    void adoptLeaderIdentity();
+
+   private:
+    ExecScope(const ExecScope&) = delete;
+    ExecScope& operator=(const ExecScope&) = delete;
+    Process* m_pProcess;
+    bool m_bAdmitted;
+    TerminationDeferral m_TerminationDeferral;
+  };
+
+  /** Keeps an admitted clone alive until construction and publication finish. */
+  class EXPORTED_PUBLIC ThreadCreationScope {
+   public:
+    explicit ThreadCreationScope(Process& process);
+    ~ThreadCreationScope();
+    explicit operator bool() const {
+      return m_pProcess != nullptr;
+    }
+
+   private:
+    ThreadCreationScope(const ThreadCreationScope&) = delete;
+    ThreadCreationScope& operator=(const ThreadCreationScope&) = delete;
+    Process* m_pProcess;
+    TerminationDeferral m_TerminationDeferral;
+  };
+
   /**
    * Move-only ownership of the one destruction publication permitted for a
    * Process. A successful claim must be published before leaving scope.
@@ -241,6 +276,8 @@ class EXPORTED_PUBLIC Process {
   size_t addThread(Thread* pThread);
   /** Runs subsystem cleanup while the exiting thread and address space live. */
   void threadExiting(Thread* pThread);
+  /** Preserves process-owned signals before an exiting thread drains its queue. */
+  void transferExecProcessSignals(Thread* pThread);
   /** Removes a thread from this process. */
   void removeThread(Thread* pThread);
 
@@ -251,6 +288,9 @@ class EXPORTED_PUBLIC Process {
    * Any previous lease is released; failure leaves \p lease empty.
    */
   MUST_USE_RESULT bool acquireThread(ThreadLease& lease, size_t n);
+
+  /** Pins a live process-signal recipient, preferring an admitted exec owner. */
+  MUST_USE_RESULT bool acquireProcessSignalThread(ThreadLease& lease);
 
   /**
    * Pins the thread whose process-local identifier is \p id into \p lease.
@@ -326,7 +366,7 @@ class EXPORTED_PUBLIC Process {
    * thread-only termination for every peer. Returns true only to the elected
    * owner (including its nested-event re-entry).
    */
-  bool beginTermination();
+  bool beginTermination(int code = 0, Subsystem::ExitCause cause = Subsystem::ExitCause::Normal);
 
   /**
    * Claims shared teardown for the elected owner and waits until every peer
@@ -787,6 +827,13 @@ class EXPORTED_PUBLIC Process {
 
   /** Thread that initiated exit, used to reject self-waiting destruction. */
   Thread* m_pTerminatingThread;
+
+  /** Replacement admission and its irreversible sibling teardown phase. */
+  Thread* m_pExecOwner = nullptr;
+  bool m_bExecCommitted = false;
+  bool m_bExecExitForwarded = false;
+  size_t m_nThreadCreations = 0;
+  WaitQueue m_ExecWaiters;
 
   /** Process-exit participants that have not yet switched off-stack. */
   size_t m_nTerminationParticipants;

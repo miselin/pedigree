@@ -17,16 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
-
-#include <PosixSubsystem.h>
-#include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
@@ -40,6 +38,7 @@
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/lib.h"
 
+#include <PosixSubsystem.h>
 #include <signal.h>
 #include <vdso.h>  // Header with the vdso.so binary in it.
 
@@ -56,6 +55,7 @@
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 #include "pthread-syscalls.h"
+#include "signal-syscalls.h"
 #include "system-syscalls.h"
 
 extern char __posix_compat_vsyscall_base;
@@ -115,11 +115,24 @@ bool defaultSignalActionIsStop(size_t signal) {
   return signal == SIGSTOP || signal == SIGTSTP || signal == SIGTTIN || signal == SIGTTOU;
 }
 
-void stampDefaultStopDelivery(Process* process, size_t signal,
-                              const PosixSubsystem::SignalHandler* handler, SignalEvent* delivery) {
-  if (process && handler && handler->type == 1 && delivery && defaultSignalActionIsStop(signal)) {
+void stampStopDelivery(Process* process, size_t signal, SignalEvent* delivery) {
+  if (process && delivery && defaultSignalActionIsStop(signal)) {
     delivery->setContinuationEpoch(process->getContinuationEpoch());
   }
+}
+
+bool rebindQueuedSignalEvents(Thread& thread, size_t signal, SignalEvent& prototype) {
+  bool replaced = true;
+  for (int processDirected = 0; processDirected <= 1; ++processDirected) {
+    if (thread.hasSignalEvent(signal, processDirected)) {
+      SignalEvent* pending = static_cast<SignalEvent*>(prototype.cloneForDelivery());
+      if (!thread.replaceSignalEvent(signal, pending, processDirected)) {
+        delete pending;
+        replaced = false;
+      }
+    }
+  }
+  return replaced;
 }
 
 void setExecutableValidationError(Elf::ExecutableValidationResult result, bool isInterpreter) {
@@ -652,7 +665,7 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
   Process* pProcess = pThread->getParent();
   NOTICE("PosixSubsystem::exit(" << Dec << pProcess->getId() << ", code=" << code << ")");
 
-  if (!pProcess->beginTermination()) {
+  if (!pProcess->beginTermination(code, cause)) {
     // Another thread owns or has reserved process-wide cleanup. A competitor
     // must take only the thread exit path; the owner will retire every peer.
     Processor::information().getScheduler().commitCurrentThreadExit();
@@ -736,7 +749,8 @@ bool PosixSubsystem::kill(KillReason killReason, Thread* pThread) {
       break;
   }
 
-  if (pSubsystem->queueSignalDelivery(pThread, signal) == SignalDeliveryResult::Queued) {
+  if (pSubsystem->queueSignalDelivery(pThread, signal, nullptr, 0, true) ==
+      SignalDeliveryResult::Queued) {
     PS_NOTICE("PosixSubsystem - killing " << pThread->getParent()->getId());
 
     // Allow the event to run
@@ -845,7 +859,7 @@ void PosixSubsystem::threadException(Thread* pThread, ExceptionType eType, Inter
 #if X64
   if (signal > 0 && pState && getAbi() == LinuxAbi) {
     SignalDisposition disposition;
-    if (getSignalDisposition(signal, disposition) && disposition.type == 0) {
+    if (getSignalDisposition(signal, disposition, true) && disposition.type == 0) {
       LinuxAmd64Signal::DeliveryResult result = LinuxAmd64Signal::deliverSynchronous(
           pThread, signal, disposition, eType, *pState, faultAddress, errorCode);
       if (result == LinuxAmd64Signal::Delivered) {
@@ -865,10 +879,13 @@ void PosixSubsystem::threadException(Thread* pThread, ExceptionType eType, Inter
   // A raw exception frame cannot dispatch a handler or terminal callback.
   // Its return-to-user tail consumes the queued signal after accounting and
   // handler cleanup have completed.
-  sendSignal(pThread, signal, pState == nullptr);
+  const bool processDirected = eType == TerminalInput || eType == TerminalOutput ||
+                               eType == Continue || eType == Stop || eType == Interrupt ||
+                               eType == Quit || eType == Child;
+  sendSignal(pThread, signal, pState == nullptr, processDirected);
 }
 
-void PosixSubsystem::sendSignal(Thread* pThread, int signal, bool yield) {
+void PosixSubsystem::sendSignal(Thread* pThread, int signal, bool yield, bool processDirected) {
   PS_NOTICE("PosixSubsystem::sendSignal #" << signal << " -> pid:tid " << Dec
                                            << pThread->getParent()->getId() << ":"
                                            << pThread->getId());
@@ -880,7 +897,8 @@ void PosixSubsystem::sendSignal(Thread* pThread, int signal, bool yield) {
   }
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
 
-  const SignalDeliveryResult result = pSubsystem->queueSignalDelivery(pThread, signal);
+  const SignalDeliveryResult result =
+      pSubsystem->queueSignalDelivery(pThread, signal, nullptr, 0, processDirected);
   if (result == SignalDeliveryResult::Unavailable) {
     ERROR("Unknown signal in sendSignal - POSIX subsystem");
   }
@@ -926,13 +944,19 @@ void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler* handler) {
 
     const bool discardPending =
         handler->type == 2 || (handler->type == 1 && defaultSignalActionIsIgnore(sig));
-    if (discardPending && m_pProcess) {
+    if (m_pProcess) {
       // Descending indices remain exhaustive when an exiting thread is
       // removed and shifts the remaining vector entries to the left.
       for (size_t i = m_pProcess->getNumThreads(); i > 0; --i) {
         Process::ThreadLease thread;
         if (m_pProcess->acquireThread(thread, i - 1)) {
-          thread->cullSignalEvent(sig);
+          if (discardPending) {
+            thread->cullSignalEvent(sig);
+          } else if (handler->pEvent) {
+            // A concurrent dequeue already owns its old delivery. Only
+            // events still pending must acquire the new disposition.
+            rebindQueuedSignalEvents(*thread.get(), sig, *handler->pEvent);
+          }
         }
       }
     }
@@ -973,14 +997,8 @@ void PosixSubsystem::resetSignalHandlersForExec(
     }
     m_SignalHandlers.insert(signal, replacement);
 
-    if (thread->hasSignalEvent(signal)) {
-      SignalEvent* pendingReplacement =
-          static_cast<SignalEvent*>(replacement->pEvent->cloneForDelivery());
-      stampDefaultStopDelivery(m_pProcess, signal, replacement, pendingReplacement);
-      if (!thread->replaceSignalEvent(signal, pendingReplacement)) {
-        delete pendingReplacement;
-        FATAL("Exec signal reset could not rebind a pending signal.");
-      }
+    if (!rebindQueuedSignalEvents(*thread, signal, *replacement->pEvent)) {
+      FATAL("Exec signal reset could not rebind a pending signal.");
     }
   }
 
@@ -991,13 +1009,19 @@ void PosixSubsystem::resetSignalHandlersForExec(
   }
 }
 
-bool PosixSubsystem::getSignalDisposition(size_t sig, SignalDisposition& disposition) {
+bool PosixSubsystem::getSignalDisposition(size_t sig, SignalDisposition& disposition,
+                                          bool beginDelivery) {
   if (sig > MaximumSupportedSignal) {
     return false;
   }
 
-  m_SignalHandlersLock.enter();
+  if (beginDelivery) {
+    m_SignalHandlersLock.acquire();
+  } else {
+    m_SignalHandlersLock.enter();
+  }
 
+  SignalEvent* retired = nullptr;
   SignalHandler* handler = m_SignalHandlers.lookup(sig);
   if (handler) {
     disposition.handler = handler->pEvent ? handler->pEvent->getHandlerAddress() : 0;
@@ -1005,19 +1029,41 @@ bool PosixSubsystem::getSignalDisposition(size_t sig, SignalDisposition& disposi
     disposition.flags = handler->flags;
     disposition.restorer = handler->restorer;
     disposition.type = handler->type;
+
+    if (beginDelivery && handler->type == 0 && (handler->flags & SA_RESETHAND)) {
+      // Queueing and competing deliveries use this same lock. Existing
+      // AsyncEvents also resolve here, so no queued snapshot can catch twice.
+      retired = handler->pEvent;
+      handler->pEvent = new SignalEvent(pedigree_default_signal_handler(sig), sig, ~0UL, 0, true,
+                                        false, Event::HandlerPrivilege::Kernel,
+                                        SignalEvent::DeliveryDisposition::DefaultAction);
+      handler->type = 1;
+      handler->sigMask = 0;
+      handler->flags = 0;
+      handler->restorer = 0;
+    }
   }
 
-  m_SignalHandlersLock.leave();
+  if (beginDelivery) {
+    m_SignalHandlersLock.release();
+  } else {
+    m_SignalHandlersLock.leave();
+  }
+  if (retired) {
+    retired->retire();
+  }
   return handler != nullptr;
 }
 
 PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread* target, size_t sig,
                                                                          uint32_t* flags,
-                                                                         int32_t signalCode) {
+                                                                         int32_t signalCode,
+                                                                         bool processDirected) {
   if (flags) {
     *flags = 0;
   }
 
+  Process::ThreadLease processTarget;
   m_SignalHandlersLock.acquire();
 
   if (!target || !target->getParent() || target->getParent()->getSubsystem() != this ||
@@ -1044,6 +1090,15 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
   }
 
   Process* process = target->getParent();
+  if (processDirected) {
+    // Exec's pending-signal handoff holds this same lock after publishing
+    // its owner, so an old-target publication must finish before the move.
+    if (!process->acquireProcessSignalThread(processTarget)) {
+      m_SignalHandlersLock.release();
+      return SignalDeliveryResult::Rejected;
+    }
+    target = processTarget.get();
+  }
   if (signalsToDiscard) {
     // Pending stop and continue signals are mutually exclusive across the
     // whole process, including thread-directed signals.
@@ -1084,12 +1139,24 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
       }
     }
     delivery->setSignalOrigin(signalCode, senderPid, senderUid);
-    stampDefaultStopDelivery(process, sig, handler, delivery);
+    delivery->setProcessDirected(processDirected);
+    stampStopDelivery(process, sig, delivery);
     if (flags) {
       *flags = handler->flags;
     }
-    result =
-        target->sendEvent(delivery) ? SignalDeliveryResult::Queued : SignalDeliveryResult::Rejected;
+    while (true) {
+      if (target->sendEvent(delivery)) {
+        result = SignalDeliveryResult::Queued;
+        break;
+      }
+      // A recipient can start ordinary thread exit after selection. Its
+      // closed queue does not discard a signal belonging to the process.
+      if (!processDirected || !process->acquireProcessSignalThread(processTarget)) {
+        result = SignalDeliveryResult::Rejected;
+        break;
+      }
+      target = processTarget.get();
+    }
   }
 
   m_SignalHandlersLock.release();
@@ -1452,6 +1519,27 @@ size_t PosixSubsystem::installFileDescriptor(FileDescriptor* descriptor, Descrip
 
   m_FdLock.release();
   return fd;
+}
+
+void PosixSubsystem::prepareThreadsForExec(Thread* owner) {
+  LockGuard<UnlikelyLock> guard(m_SignalHandlersLock);
+  for (size_t i = m_pProcess->getNumThreads(); i > 0; --i) {
+    Process::ThreadLease source;
+    if (m_pProcess->acquireThread(source, i - 1) && source.get() != owner &&
+        !source->transferProcessSignalsTo(*owner)) {
+      FATAL("Exec owner rejected a pending process signal.");
+    }
+  }
+}
+
+void PosixSubsystem::preserveProcessSignalsForThreadExit(Thread* thread) {
+  LockGuard<UnlikelyLock> guard(m_SignalHandlersLock);
+  Process::ThreadLease target;
+  while (m_pProcess->acquireProcessSignalThread(target)) {
+    if (thread->transferProcessSignalsTo(*target.get())) {
+      return;
+    }
+  }
 }
 
 void PosixSubsystem::threadExiting(Thread* pThread) {
@@ -1939,10 +2027,9 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   Process* pProcess = pThread->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
 
-  // Ensure we only have one thread running (us).
-  if (pProcess->getNumThreads() > 1) {
-    /// \todo actually we are supposed to kill them all here
-    PS_NOTICE("invoke attempted with multiple threads in this process");
+  Process::ExecScope execScope(*pProcess, state != nullptr);
+  if (!execScope) {
+    SYSCALL_ERROR(NoMoreProcesses);
     return false;
   }
 
@@ -2105,11 +2192,19 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     return false;
   }
 
+  // Validation leaves the old process intact. Siblings must finish their
+  // user-memory exit hooks and release their mappings before replacement.
+  if (!execScope.commit()) {
+    SYSCALL_ERROR(Interrupted);
+    return false;
+  }
+
   // Wipe out old address space.
   // Earlier failures preserve the registration. From this irreversible
   // point onward its target belongs to the discarded image.
   pThread->setClearChildTid(0);
   posix_robust_list_exit(pThread);
+  execScope.adoptLeaderIdentity();
   DynamicLinker* oldLinker = pProcess->getLinker();
   pProcess->setLinker(nullptr);
   MemoryMapManager::instance().unmapAll();

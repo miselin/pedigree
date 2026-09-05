@@ -1922,6 +1922,10 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
     if (!ok) {
       return -1;
     }
+  } else {
+    // A later vector failure cannot replace bytes already sent with an
+    // error at the syscall boundary or make that progress restartable.
+    syscallError(0);
   }
 
   return bytesWritten;

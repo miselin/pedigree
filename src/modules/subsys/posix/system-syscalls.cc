@@ -340,6 +340,13 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   SC_NOTICE("clone(" << Hex << flags << ", " << child_stack << ", " << ptid << ", " << ctid << ", "
                      << newtls << ")");
 
+  Process* pParentProcess = Processor::information().getCurrentThread()->getParent();
+  Process::ThreadCreationScope creation(*pParentProcess);
+  if (!creation) {
+    SYSCALL_ERROR(NoMoreProcesses);
+    return -1;
+  }
+
   // Cloning switches address spaces while assembling the child image, but
   // the syscall return path still needs the caller's IRQ state restored.
   CloneInterruptScope interrupts;
@@ -402,9 +409,6 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
 
     // Child returns 0 -- parent returns the new thread ID.
     clonedState.setSyscallReturnValue(0);
-
-    // pretty much just a thread
-    Process* pParentProcess = Processor::information().getCurrentThread()->getParent();
 
     Thread* pThread = nullptr;
     size_t threadId = 0;
@@ -492,7 +496,6 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     clonedState.setStackPointer(reinterpret_cast<uintptr_t>(child_stack));
   }
 
-  Process* pParentProcess = Processor::information().getCurrentThread()->getParent();
   PosixSubsystem* pParentSubsystem = static_cast<PosixSubsystem*>(pParentProcess->getSubsystem());
   if (!pParentSubsystem) {
     ERROR("No subsystem for the parent process!");

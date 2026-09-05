@@ -30,12 +30,45 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/SyscallHandler.h"
 #include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/syscallError.h"
 
 X64SyscallManager X64SyscallManager::m_Instance;
 
 #define TIME_SYSCALLS 0
 
 extern void system_reboot();
+
+namespace {
+class SyscallReturnScope {
+ public:
+  explicit SyscallReturnScope(const SyscallState* state)
+      : m_Thread(Processor::information().getCurrentThread()),
+        m_StateLevel(m_Thread->getStateLevel()),
+        m_Previous(m_Thread->getOriginalSyscallState()),
+        m_Discard(&restore, this) {
+    m_Thread->setOriginalSyscallState(state);
+  }
+
+  ~SyscallReturnScope() {
+    restore(this);
+  }
+
+ private:
+  static void restore(void* context) {
+    SyscallReturnScope* scope = static_cast<SyscallReturnScope*>(context);
+    if (scope->m_Thread) {
+      scope->m_Thread->restoreDeferredSignalMask(scope->m_StateLevel);
+      scope->m_Thread->setOriginalSyscallState(scope->m_Previous);
+      scope->m_Thread = nullptr;
+    }
+  }
+
+  Thread* m_Thread;
+  size_t m_StateLevel;
+  const SyscallState* m_Previous;
+  Thread::StackDiscardScope m_Discard;
+};
+}  // namespace
 
 SyscallManager& SyscallManager::instance() {
   return X64SyscallManager::instance();
@@ -47,6 +80,7 @@ bool X64SyscallManager::registerSyscallHandler(Service_t Service, SyscallHandler
 }
 
 void X64SyscallManager::syscall(SyscallState& syscallState) {
+  const SyscallState originalState = syscallState;
   bool commitThreadExit = false;
   bool exitCurrentProcess = false;
   bool rebootSystem = false;
@@ -67,6 +101,7 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
 
     size_t serviceNumber = syscallState.getSyscallService();
     bool handled = false;
+    bool interruptedWithoutProgress = false;
     PostSyscallAction action;
     if (LIKELY(serviceNumber < serviceEnd)) {
       // The lease must retire before the deferral allows a pending terminal
@@ -77,6 +112,8 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
         handled = true;
         uint64_t result = handler.handler()->syscall(syscallState);
         uint64_t errno = Processor::information().getCurrentThread()->getErrno();
+        interruptedWithoutProgress = result == static_cast<uint64_t>(-1) &&
+                                     errno == Error::Interrupted && serviceNumber == linuxCompat;
         /// \todo this is an extraordinary hack, this should be done in a
         /// way more abstract way than this!!
         if (serviceNumber == linuxCompat) {
@@ -173,9 +210,11 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
         case RebootSystem:
           rebootSystem = true;
           break;
-        case NoPostSyscallAction:
+        case NoPostSyscallAction: {
+          SyscallReturnScope returnScope(interruptedWithoutProgress ? &originalState : nullptr);
           userReturnTerminal = scheduler.serviceUserReturnWork(syscallState);
           break;
+        }
       }
     }
 

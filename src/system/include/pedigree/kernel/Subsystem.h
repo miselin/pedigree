@@ -152,6 +152,12 @@ class EXPORTED_PUBLIC Subsystem {
   virtual File* findFile(const String& path, File* workingDir) = 0;
 
  protected:
+  /** Preserves process state after exec admission closes and before peers exit. */
+  virtual void prepareThreadsForExec(Thread* owner) {}
+
+  /** Preserves process-owned pending work before an exiting thread drains it. */
+  virtual void preserveProcessSignalsForThreadExit(Thread* thread) {}
+
   /** Notifies the subsystem immediately before a thread announces exit. */
   virtual void threadExiting(Thread* pThread) {}
 

@@ -1239,6 +1239,7 @@ void PerProcessorScheduler::deleteThread(Thread* pThread) {
   // prevents a resumed owner from acquiring the queue under an outer lock.
   if (wakeExitOwner) {
     pProcess->m_TerminationWaiters.wakeAll();
+    pProcess->m_ExecWaiters.wakeAll();
   }
 
   if (deleteTarget) {

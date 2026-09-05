@@ -253,9 +253,73 @@ capability gaps remain material before making that claim:
   reports unwritten pages but cannot recover them afterwards. Other directory
   backends still need checked sync paths. Legacy `brk` and stack regions are
   not newly represented as VM mapping objects.
-- Existing stubs and unsupported futex operations remain deferred, as do the
-  broader signal restart, terminal timing, and threaded-exec conformance gaps.
+- Existing stubs, unsupported futex operations, and terminal timing coverage
+  remain deferred. The signal restart and threaded-exec pass is described below.
 
-The next phase should close or explicitly scope these boundaries before treating
-all currently mapped syscalls as complete. New syscall entry points can then be
-added against the same public-wrapper contract suites.
+These boundaries remain explicit limits on compatibility. After the signal and
+exec pass below, new syscall entry points can be added in bounded slices against
+the same public-wrapper contract suites without reopening the parked VM spike.
+
+## Signal restart and threaded exec
+
+This pass starts at `b8b24b2ee` and adds no syscall translations. It closes the
+Linux amd64 restart, masked-wait, and threaded-exec slice using public musl
+contracts in `/applications/signal-exec-test`.
+
+- Eligible calls that return `-1/EINTR` retain their original syscall number,
+  arguments, and instruction address. A caught `SA_RESTART` handler resumes the
+  call after signal return. Positive partial I/O is preserved, including the
+  checked TCP send path. Sleeps and readiness waits remain interruptible;
+  relative-timeout futex waits and an in-flight `connect` are not replayed.
+- `SA_RESETHAND` claims and resets a disposition before delivery. Pending
+  deliveries follow later disposition changes and retain their sender fields
+  and stop/continue generation.
+- `ppoll`, `pselect`, `epoll_pwait`, and `sigsuspend` keep their temporary mask
+  until the pending handler is delivered. Its frame saves the original mask;
+  paths that publish no frame restore that mask at the syscall boundary.
+- Exec serializes with clone publication, validates the image before retiring
+  siblings, and waits for their subsystem cleanup, final context switch,
+  outstanding joins, and destruction before replacing mappings. A worker that
+  successfully execs adopts the PID as its Linux TID. Failed precommit exec
+  leaves its siblings and old image usable. Competing process exits preserve a
+  complete status/cause pair and do not create a second teardown owner.
+- Process-directed pending signals survive recipient-thread exit and exec;
+  private signals remain attached to their threads. Process and thread pending
+  copies of the same signal retain separate identities. Exec preserves the
+  caller's mask and ignored dispositions, resets caught handlers, and closes
+  close-on-exec descriptors.
+
+The independent VM investigation remains parked. This pass does not add
+`rt_sigpending`, realtime signals 35–64, or other syscall capabilities, and does
+not establish whole-musl or cross-architecture conformance.
+
+### Verification
+
+A fresh kernel, POSIX module, application, ISO, and HDD build passed. All **20
+signal/exec cases** and **12 guest suites** passed on **one and four CPUs**
+(76.2s / 67.3s), with per-suite zero exit statuses and both completion markers.
+The display-free serial runs used disposable snapshots, no network, and a
+180-second deadline. The shared build retained `PEDIGREE_CRIPPLE_HDD=TRUE`;
+this pass makes no disk-persistence claim.
+
+The new cases cover interruption with and without restart, partial writes,
+masked waits, one-shot handlers, main/worker exec, failed exec, pending-signal
+identity and sender fields, competing exec/clone, and exec versus process exit.
+All six exit-race iterations observed exit status 37; that race test did not
+observe exec winning with status zero. Existing suites also cover private musl
+signals, signal frames, spawn, syscall/user-copy/futex contracts, descriptor
+passing, Unix stream interruption, PTY readiness, and resource accounting.
+**42 routing/ABI checks passed**. Four hosted regression translation units
+compiled; they were not executed on this macOS host.
+
+Failed runs are retained. The first runs exposed a shutdown hook reacquiring a
+process lock held through terminal handoff; skipping pending-signal rescue for
+a terminal process fixed that deadlock. A subsequent test incorrectly depended
+on the unmapped `rt_sigpending`; it now verifies actual handler delivery instead.
+The final one-CPU runner reported a false negative: its log filter joined `OK`
+to a status line and counted only eleven suites. Independent validation of the
+complete raw log confirms all twelve zero statuses; no guest rerun was used to
+replace that evidence.
+
+Exact commands, final log validation, build output, and preserved failures are
+in the [pass handoff](/private/tmp/pedigree-signal-exec-pass-20260905/handoff.md).

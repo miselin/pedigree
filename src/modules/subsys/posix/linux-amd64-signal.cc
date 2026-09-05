@@ -29,9 +29,12 @@
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/lib.h"
 
+#include <errno.h>
 #include <signal.h>
 
 #include "linux-amd64-signal-abi.h"
+#include "signal-syscalls.h"
+#include "syscalls/translate.h"
 #include "system-syscalls.h"
 
 namespace {
@@ -194,13 +197,91 @@ struct AsyncHandlerState {
   uint64_t flags;
 };
 
+bool restartableSyscall(const SyscallState& state) {
+  switch (state.getSyscallNumber()) {
+    case PedigreeLinuxAmd64Syscall_read:
+    case PedigreeLinuxAmd64Syscall_write:
+    case PedigreeLinuxAmd64Syscall_open:
+    case PedigreeLinuxAmd64Syscall_openat:
+    case PedigreeLinuxAmd64Syscall_readv:
+    case PedigreeLinuxAmd64Syscall_writev:
+    case PedigreeLinuxAmd64Syscall_pread64:
+    case PedigreeLinuxAmd64Syscall_pwrite64:
+    case PedigreeLinuxAmd64Syscall_preadv:
+    case PedigreeLinuxAmd64Syscall_pwritev:
+    case PedigreeLinuxAmd64Syscall_preadv2:
+    case PedigreeLinuxAmd64Syscall_pwritev2:
+    case PedigreeLinuxAmd64Syscall_wait4:
+    case PedigreeLinuxAmd64Syscall_accept:
+    case PedigreeLinuxAmd64Syscall_accept4:
+    case PedigreeLinuxAmd64Syscall_sendto:
+    case PedigreeLinuxAmd64Syscall_recvfrom:
+    case PedigreeLinuxAmd64Syscall_sendmsg:
+    case PedigreeLinuxAmd64Syscall_recvmsg:
+      return true;
+    case PedigreeLinuxAmd64Syscall_futex:
+      // Replaying a relative timeout would extend the caller's deadline.
+      // Only the implemented, untimed FUTEX_WAIT operation is eligible.
+      return (state.getSyscallParameter(7) & ~static_cast<uintptr_t>(128)) == 0 &&
+             state.getSyscallParameter(9) == 0;
+    default:
+      // Sleeps and poll/select/epoll waits always report interruption.
+      // connect may already own an in-flight attempt when interrupted.
+      return false;
+  }
+}
+
+void restartInterruptedSyscall(Thread* thread, uint32_t flags, Sigcontext& context) {
+  const SyscallState* original = thread->getOriginalSyscallState();
+  if (!(flags & SA_RESTART) || context.rax != static_cast<uint64_t>(-EINTR) || !original ||
+      original->getSyscallService() != linuxCompat ||
+      context.rip != original->getInstructionPointer() ||
+      context.rsp != original->getStackPointer() || context.rip < 2 ||
+      !restartableSyscall(*original)) {
+    return;
+  }
+
+  // The entry image predates result publication and ABI argument translation.
+  // Replaying only -EINTR leaves all successful partial transfers untouched.
+  context.rax = original->getRegister(0);
+  context.rdi = original->getSyscallParameter(6);
+  context.rsi = original->getSyscallParameter(7);
+  context.rdx = original->getSyscallParameter(8);
+  context.r10 = original->getSyscallParameter(9);
+  context.r8 = original->getSyscallParameter(10);
+  context.r9 = original->getSyscallParameter(11);
+  context.rip -= 2;
+}
+
+Event::UserReturnDelivery resolveAsyncDisposition(Thread* thread, SignalEvent& event,
+                                                  PosixSubsystem::SignalDisposition& disposition) {
+  const size_t signal = event.getNumber();
+  Process* process = thread ? thread->getParent() : nullptr;
+  PosixSubsystem* subsystem =
+      process ? static_cast<PosixSubsystem*>(process->getSubsystem()) : nullptr;
+  if (!subsystem || !subsystem->getSignalDisposition(signal, disposition, true)) {
+    badFrame();
+    return Event::UserReturnDelivery::Failed;
+  }
+  if (disposition.type == 0) {
+    return Event::UserReturnDelivery::NotApplicable;
+  }
+
+  if (disposition.type == 1 && signal != SIGCHLD && signal != SIGURG && signal != SIGWINCH) {
+    thread->setCurrentSignalDelivery(signal, event.getContinuationEpoch());
+    reinterpret_cast<_sig_func_ptr>(disposition.handler)(static_cast<int>(signal));
+  }
+  return Event::UserReturnDelivery::Delivered;
+}
+
 bool buildAsyncFrame(Thread* thread, LinuxAmd64Signal::AsyncEvent& event, Sigcontext& context,
+                     const PosixSubsystem::SignalDisposition& disposition,
                      AsyncHandlerState& handlerState) {
   const int signal = static_cast<int>(event.getNumber());
   if (!thread || thread != Processor::information().getCurrentThread() || signal <= 0 ||
       signal > 64 || !userCodeSegment(context.cs) || context.ss != UserStackSegment ||
-      !(event.getFlags() & SA_RESTORER) || !userExecutable(event.getHandlerAddress()) ||
-      !userExecutable(event.getRestorer())) {
+      !(disposition.flags & SA_RESTORER) || !userExecutable(disposition.handler) ||
+      !userExecutable(disposition.restorer)) {
     return false;
   }
 
@@ -212,7 +293,7 @@ bool buildAsyncFrame(Thread* thread, LinuxAmd64Signal::AsyncEvent& event, Sigcon
   Thread::AlternateSignalStack& alternate = thread->getAlternateSignalStack();
   const bool wasOnAlternate = onAlternateStack(originalStack, alternate);
   const bool enterAlternate =
-      (event.getFlags() & SA_ONSTACK) && alternate.enabled && !wasOnAlternate;
+      (disposition.flags & SA_ONSTACK) && alternate.enabled && !wasOnAlternate;
 
   uintptr_t stackTop = 0;
   if (enterAlternate) {
@@ -255,8 +336,9 @@ bool buildAsyncFrame(Thread* thread, LinuxAmd64Signal::AsyncEvent& event, Sigcon
   Fpstate fpstate = savedFpstate;
   ByteSet(fpstate.reserved3, 0, sizeof(fpstate.reserved3));
 
-  const uint64_t oldMask = thread->getSignalMask();
-  frame.restorer = event.getRestorer();
+  const uint64_t currentMask = thread->getSignalMask();
+  const uint64_t oldMask = thread->getSignalMaskForReturnFrame();
+  frame.restorer = disposition.restorer;
   frame.ucontext.flags = SupportedUcontextFlags;
   if (alternate.enabled) {
     frame.ucontext.stack.stackPointer = alternate.base;
@@ -285,17 +367,17 @@ bool buildAsyncFrame(Thread* thread, LinuxAmd64Signal::AsyncEvent& event, Sigcon
     return false;
   }
 
-  uint64_t handlerMask = oldMask | event.getDeliverySignalMask();
-  if (event.defersDeliveredSignal()) {
+  uint64_t handlerMask = currentMask | disposition.signalMask;
+  if (!(disposition.flags & SA_NODEFER)) {
     handlerMask |= static_cast<uint64_t>(1) << (signal - 1);
   }
-  thread->setSignalMask(handlerMask & ~UnblockableSignals);
+  thread->commitSignalHandlerMask(handlerMask & ~UnblockableSignals);
   alternate.inUse = wasOnAlternate || enterAlternate;
 
   handlerState.frameAddress = frameAddress;
   handlerState.infoAddress = frameAddress + __builtin_offsetof(RtSigframe, info);
   handlerState.ucontextAddress = frameAddress + __builtin_offsetof(RtSigframe, ucontext);
-  handlerState.handlerAddress = event.getHandlerAddress();
+  handlerState.handlerAddress = disposition.handler;
   handlerState.flags = (context.rflags & ~HandlerFlagsToClear) | SafeUserRflags;
   return true;
 }
@@ -329,7 +411,12 @@ Event::UserReturnDelivery LinuxAmd64Signal::AsyncEvent::deliverAtUserReturn(Inte
   populateSigcontext(context, state, 0, 0, state.getErrorCode(), 0);
   AsyncHandlerState handlerState = {};
   Thread* thread = Processor::information().getCurrentThread();
-  if (!buildAsyncFrame(thread, *this, context, handlerState)) {
+  PosixSubsystem::SignalDisposition disposition;
+  const Event::UserReturnDelivery resolved = resolveAsyncDisposition(thread, *this, disposition);
+  if (resolved != Event::UserReturnDelivery::NotApplicable) {
+    return resolved;
+  }
+  if (!buildAsyncFrame(thread, *this, context, disposition, handlerState)) {
     badFrame();
     return Event::UserReturnDelivery::Failed;
   }
@@ -349,7 +436,13 @@ Event::UserReturnDelivery LinuxAmd64Signal::AsyncEvent::deliverAtUserReturn(Sysc
   populateSigcontext(context, state, 0, 0);
   AsyncHandlerState handlerState = {};
   Thread* thread = Processor::information().getCurrentThread();
-  if (!buildAsyncFrame(thread, *this, context, handlerState)) {
+  PosixSubsystem::SignalDisposition disposition;
+  const Event::UserReturnDelivery resolved = resolveAsyncDisposition(thread, *this, disposition);
+  if (resolved != Event::UserReturnDelivery::NotApplicable) {
+    return resolved;
+  }
+  restartInterruptedSyscall(thread, disposition.flags, context);
+  if (!buildAsyncFrame(thread, *this, context, disposition, handlerState)) {
     badFrame();
     return Event::UserReturnDelivery::Failed;
   }
@@ -430,7 +523,8 @@ LinuxAmd64Signal::DeliveryResult LinuxAmd64Signal::deliverSynchronous(
   Fpstate fpstate = savedFpstate;
   ByteSet(fpstate.reserved3, 0, sizeof(fpstate.reserved3));
 
-  uint64_t oldMask = thread->getSignalMask();
+  const uint64_t currentMask = thread->getSignalMask();
+  const uint64_t oldMask = thread->getSignalMaskForReturnFrame();
   frame.restorer = disposition.restorer;
   frame.ucontext.flags = SupportedUcontextFlags;
   if (alternate.enabled) {
@@ -462,11 +556,11 @@ LinuxAmd64Signal::DeliveryResult LinuxAmd64Signal::deliverSynchronous(
     return Failed;
   }
 
-  uint64_t handlerMask = oldMask | disposition.signalMask;
+  uint64_t handlerMask = currentMask | disposition.signalMask;
   if (!(disposition.flags & SA_NODEFER)) {
     handlerMask |= static_cast<uint64_t>(1) << (signal - 1);
   }
-  thread->setSignalMask(handlerMask & ~UnblockableSignals);
+  thread->commitSignalHandlerMask(handlerMask & ~UnblockableSignals);
   alternate.inUse = wasOnAlternate || enterAlternate;
 
   state.setRegister(0, 0);

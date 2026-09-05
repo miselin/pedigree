@@ -161,6 +161,12 @@ static _sig_func_ptr default_sig_handlers[PosixSubsystem::SignalDispositionCount
     sigsynccall,  // musl SIGSYNCCALL
 };
 
+uintptr_t pedigree_default_signal_handler(size_t signal) {
+  return signal < PosixSubsystem::SignalDispositionCount
+             ? reinterpret_cast<uintptr_t>(default_sig_handlers[signal])
+             : 0;
+}
+
 static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sigaction* oact,
                                 bool allowLinuxPrivateSignals) {
   Thread* pThread = Processor::information().getCurrentThread();
@@ -393,14 +399,14 @@ static int doThreadKill(Thread* p, int sig) {
     ERROR("posix_kill: no subsystem on process " << p->getParent()->getId());
     return -1;
   }
-  pSubsystem->sendSignal(p, sig, false);
+  pSubsystem->sendSignal(p, sig, false, true);
 
   return 0;
 }
 
 static int doProcessKill(Process* p, int sig) {
   Process::ThreadLease target;
-  return p->acquireThread(target, static_cast<size_t>(0)) ? doThreadKill(target.get(), sig) : -1;
+  return p->acquireProcessSignalThread(target) ? doThreadKill(target.get(), sig) : -1;
 }
 
 static bool canSignalProcess(const PosixProcess* caller, const PosixProcess* target, int sig) {
@@ -555,17 +561,8 @@ int posix_kill(int pid, int sig) {
     }
     Process* pProcess = process.get();
     Process::ThreadLease primaryThread;
-    if (!pProcess->acquireThread(primaryThread, static_cast<size_t>(0))) {
+    if (!pProcess->acquireProcessSignalThread(primaryThread)) {
       continue;
-    }
-
-    if (primaryThread->getStatus() == Thread::Zombie) {
-      // Oops, process already been terminated.
-      if (static_cast<int>(pProcess->getId()) == pid) {
-        break;
-      } else {
-        continue;
-      }
     }
 
     if (pProcess->getType() != Process::Posix) {

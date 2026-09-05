@@ -60,6 +60,14 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
   /** Copies a stable signal-disposition event without slicing subclasses. */
   virtual SignalEvent* cloneForDisposition();
 
+  void setProcessDirected(bool processDirected) {
+    m_ProcessDirected = processDirected;
+  }
+
+  bool isProcessDirected() const {
+    return m_ProcessDirected;
+  }
+
   /** Records the origin fields exposed through Linux siginfo_t. */
   void setSignalOrigin(int32_t signalCode, int32_t senderProcess, uint32_t senderUser) {
     m_SignalCode = signalCode;
@@ -92,6 +100,10 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
     m_ContinuationEpoch = continuationEpoch;
   }
 
+  size_t getContinuationEpoch() const {
+    return m_ContinuationEpoch;
+  }
+
   virtual size_t getNumber() {
     return m_SignalNumber;
   }
@@ -108,6 +120,9 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
 
   /** Whether the delivered signal itself is blocked while the handler runs. */
   bool m_DeferSignal;
+
+  /** Process-pending signals survive removal of their selected recipient. */
+  bool m_ProcessDirected;
 
   /** Whether this delivery represents a caught signal handler. */
   DeliveryDisposition m_Disposition;

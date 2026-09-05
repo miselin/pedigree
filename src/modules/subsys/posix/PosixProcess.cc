@@ -521,13 +521,13 @@ void IntervalTimer::signal() {
   }
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
   Process::ThreadLease target;
-  const bool targetAcquired = process->acquireThread(target, static_cast<size_t>(0));
+  const bool targetAcquired = process->acquireProcessSignalThread(target);
   if (!pSubsystem || !targetAcquired) {
     return;
   }
 
   // Don't yield in the middle of the timer handler
-  pSubsystem->sendSignal(target.get(), signal, false);
+  pSubsystem->sendSignal(target.get(), signal, false, true);
 }
 
 int64_t PosixProcess::getUserId() const {

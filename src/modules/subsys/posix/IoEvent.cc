@@ -39,7 +39,7 @@ IoEvent::IoEvent(PosixSubsystem* subsystem, File* file)
 void IoEvent::fire() {
   EMIT_IF(THREADS) {
     Thread* pThread = Processor::information().getCurrentThread();
-    m_pSubsystem->sendSignal(pThread, SIGIO);
+    m_pSubsystem->sendSignal(pThread, SIGIO, true, true);
 
     // Re-monitor now that we've gotten the event.
     if (m_pRetriggerInstance) {
