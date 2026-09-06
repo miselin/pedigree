@@ -176,6 +176,11 @@ static bool init() {
   pProcess->setCtty(0);
 
   PosixSubsystem* pSubsystem = new PosixSubsystem;
+  if (!pSubsystem) {
+    delete pProcess;
+    error("Unable to initialise the process subsystem");
+    return false;
+  }
   pProcess->setSubsystem(pSubsystem);
 
   // add an empty stdout, stdin
@@ -185,7 +190,23 @@ static bool init() {
   pSubsystem->addFileDescriptor(0, stdinDescriptor);
   pSubsystem->addFileDescriptor(1, stdoutDescriptor);
 
+  UtsRef initialUts;
+  UniquePointer<PreparedUtsThread> preparedUts;
+  if (!pSubsystem->namespaceContext() || !pSubsystem->namespaceContext()->valid() ||
+      posix_uts_initial(initialUts) != UtsStatus::Success ||
+      posix_uts_prepare_thread(initialUts, false, preparedUts) != UtsStatus::Success) {
+    delete pProcess;
+    error("Unable to initialise the process namespace");
+    return false;
+  }
+
   g_pStage2Thread = new Thread(pProcess, init_stage2, 0, 0, false, false, true);
+  if (!g_pStage2Thread) {
+    delete pProcess;
+    error("Unable to initialise the process thread");
+    return false;
+  }
+  pSubsystem->namespaceContext()->publishThread(preparedUts, *g_pStage2Thread, true);
   g_pStage2Thread->setName("init");
   pProcess->publish();
   if (!g_pStage2Thread->start()) {

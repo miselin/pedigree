@@ -41,6 +41,7 @@
 #include "modules/subsys/posix/PosixMemoryLockAccount.h"
 #include "modules/subsys/posix/logging.h"
 #include "modules/subsys/posix/queued-signal.h"
+#include "modules/subsys/posix/uts-namespace.h"
 #include "modules/system/vfs/Directory.h"
 
 class File;
@@ -241,6 +242,10 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
         m_Abi(PosixAbi),
         m_bAcquired(false),
         m_pAcquiredThread(nullptr) {}
+
+  SharedPointer<PosixNamespaceContext> namespaceContext() const {
+    return m_Namespaces;
+  }
 
   /** Default destructor */
   virtual ~PosixSubsystem();
@@ -724,6 +729,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   SharedPointer<PendingSignalContext> m_PendingSignals{new PendingSignalContext};
   AdvisoryOwner m_AdvisoryOwner;
   PosixMemoryLockAccount m_MemoryLockAccount;
+  SharedPointer<PosixNamespaceContext> m_Namespaces{
+      SharedPointer<PosixNamespaceContext>::tryAllocate()};
   VirtualAddressSpace* m_UserImageSpace = nullptr;
   uint64_t m_UserImageGeneration = 0;
   bool m_UserImageActive = false;

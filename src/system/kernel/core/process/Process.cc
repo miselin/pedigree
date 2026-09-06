@@ -1609,7 +1609,23 @@ bool Process::quiesceTermination() {
     }
 
     m_bTerminationCleanupStarted = true;
-    m_bTerminationSealed = true;
+  }
+
+  while (true) {
+    auto progress = m_ExecWaiters.acquire();
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      // Admitted creators may still publish a Created peer into this
+      // rendezvous. Terminating rejects new admissions; seal only after
+      // the existing creation scopes have finished publication.
+      if (m_nThreadCreations == 0) {
+        m_bTerminationSealed = true;
+        break;
+      }
+    }
+    const WaitQueue::WakeReason reason = progress.waitForCompletion(
+        WaitQueue::Channel(), Thread::ProcessWait, reinterpret_cast<uintptr_t>(this));
+    (void)reason;
   }
 
   while (true) {

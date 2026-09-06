@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 69 of 113 backlog entries implemented; 44 remain.
+Current checkpoint: 72 of 113 backlog entries implemented; 41 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,64 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## UTS namespaces and task membership
+
+`unshare(CLONE_NEWUTS)`, `setns` and `setdomainname` provide independent UTS
+namespaces. The existing `uname` and `sethostname` paths now read and update
+the caller's namespace. Names accept 0–64 bytes, preserve embedded NUL bytes
+through the supplied length, and zero the remaining ABI field. Linux uname
+exports all six 65-byte fields. Namespace administration uses effective UID
+zero; filesystem IDs do not grant that authority.
+
+Bindings are task-local and inherit from the actual creator through fork and
+pthread creation. Fork-shaped clone accepts CLONE_NEWUTS and prepares the child
+namespace before publication. Exec retains the survivor's membership, including
+nonleader exec. Other namespace types and sharing combinations remain
+unsupported; unshare(0) succeeds without changing state. This pass does not
+claim mount, PID, IPC, network, user or cgroup isolation.
+
+`/proc/self/ns/uts`, `/proc/thread-self/ns/uts`, `/proc/<pid>/ns/uts` and
+`/proc/<pid>/task/<tid>/ns/uts` provide dynamic links to namespace descriptors.
+Process views select the current leader; exact task views retire with their
+original binding and cannot resolve a reused task identity. Following or
+reading another process's link checks caller filesystem UID/GID against all
+target real/effective/saved IDs and target dumpability. Same-process access is
+exempt; there is no capability override. An open descriptor pins the namespace
+independently of its source task, and survives dup, fork, SCM_RIGHTS transfer
+and non-CLOEXEC exec. Ordinary data access, writable opens, resizing and
+mapping are rejected. O_PATH and namespace ioctls are not added.
+
+Namespace state stays inside POSIX. The generic VFS change lets dynamic
+symlinks return retained targets without parsing their displayed text as paths.
+Procfs cache invalidation preserves stale directory lifetime. Namespace
+creation is bounded to 256 live namespaces including the initial namespace,
+reports ENOSPC at capacity, and never reuses its namespace identities. Failed
+preparation leaves membership intact; dropping the last reference releases
+capacity.
+
+Creation/exit review also repaired a shared lifecycle contract: process
+termination drains already-admitted thread creators before sealing publication.
+An unstarted terminal thread cannot receive a late namespace binding after its
+one-shot subsystem exit hook. The kernel fixture covers rejected publication,
+preparation rollback, actual task retirement and context closure; the hosted
+core fixture covers the creation-drain rendezvous. Checked shared allocation
+and explicit unique-ownership transfer support prepared publication without
+changing the existing pointer constructors.
+
+Verification passed 62 selected native utility/VFS/credential tests (three new
+pointer-ownership cases), 37 routing/ABI checks, affected cross and hosted
+compiles, and the Darwin hosted core runtime including process-creation
+termination drain. All 27 suites passed in fresh headless guests on one CPU
+(214.9 seconds) and four CPUs (171.3 seconds), including five public namespace
+families, capacity failure/retry, and the namespace lifecycle kernel fixture.
+The existing memory, IPC, signal, descriptor and filesystem suites also passed.
+All 356 affected image source/object pairs were current. Images, serial logs,
+hashes, review notes and results are recorded in /private/tmp/pedigree-uts-
+expansion-20260906/verification.json. No guest failures occurred in this pass.
+Identifier exhaustion/reuse and an already-admitted setns racing fd replacement
+were not forced; source identity/lease invariants were reviewed. The parked VM
+split/unmap issue remains unchanged.
 
 ## Process memory and numeric credentials
 

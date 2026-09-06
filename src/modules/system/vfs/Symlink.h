@@ -64,12 +64,15 @@ class EXPORTED_PUBLIC Symlink : public File {
 
   /** Reads the contents of the file as a symbolic link and returns the
      contents in the given buffer. \return Number of bytes copied. */
-  int followLink(char* pBuffer, size_t bufLen);
+  virtual int followLink(char* pBuffer, size_t bufLen);
 
   /** Follow the link while retaining the resolved target's VFS lifetime. */
-  File* followLinkRetained(Directory::ChildLease& result);
+  virtual File* followLinkRetained(Directory::ChildLease& result);
 
  protected:
+  /** Retain an already tracked dynamic target without caching its identity. */
+  static File* retainTarget(File* target, Directory::ChildLease& result);
+
   String m_sTarget;
 
   /** Serialises lazy target loading. */

@@ -55,6 +55,9 @@ extern bool runRemapFilePagesRegressions();
 extern bool processMemoryBackendRegression();
 extern bool processVmRegression();
 #endif
+#if !HOSTED && PEDIGREE_UTS_NAMESPACE_TESTS
+extern bool utsNamespaceRegression();
+#endif
 
 static PosixSyscallManager g_PosixSyscallManager;
 
@@ -328,6 +331,11 @@ static bool init() {
 #if !HOSTED && PEDIGREE_PROCESS_MEMORY_TESTS
   if (!processMemoryBackendRegression() || !processVmRegression()) {
     FATAL("Process-memory copy regression failed");
+  }
+#endif
+#if !HOSTED && PEDIGREE_UTS_NAMESPACE_TESTS
+  if (!utsNamespaceRegression()) {
+    FATAL("UTS namespace lifecycle regression failed");
   }
 #endif
   return true;

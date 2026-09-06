@@ -35,6 +35,7 @@ class ProcFs;
 class ProcFsDirectory;
 class Thread;
 class PosixProcess;
+class PosixNamespaceContext;
 
 class MeminfoFile : public File {
  public:
@@ -150,6 +151,8 @@ class ConstantFile : public File {
  * directory. */
 class ProcFsDirectory : public Directory {
  public:
+  using Directory::markDetached;
+
   ProcFsDirectory(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
                   Time::Timestamp creationTime, uintptr_t inode, class Filesystem* pFs, size_t size,
                   File* pParent)
@@ -184,6 +187,8 @@ class ProcFs : public Filesystem {
 
   void addProcess(PosixProcess* proc);
   void removeProcess(PosixProcess* proc);
+  void invalidateNamespaceTask(const SharedPointer<PosixNamespaceContext>& context, size_t pid,
+                               size_t taskId);
 
  protected:
   virtual bool createFile(File* parent, const String& filename, uint32_t mask) {
@@ -203,11 +208,17 @@ class ProcFs : public Filesystem {
   ProcFs(const ProcFs&);
   ProcFs& operator=(const ProcFs&);
 
+  bool initialiseNamespaceLinks();
+  ProcFsDirectory* createProcessDirectory(PosixProcess* process);
+
   ProcFsDirectory* m_pRoot;
 
   Atomic<size_t> m_NextInode;
 
   String m_PciDevices;
 };
+
+void procfsInvalidateNamespaceTask(const SharedPointer<PosixNamespaceContext>& context, size_t pid,
+                                   size_t taskId);
 
 #endif  // PROCFS_H

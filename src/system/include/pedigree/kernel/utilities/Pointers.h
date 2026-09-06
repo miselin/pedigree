@@ -102,6 +102,13 @@ class UniquePointer : public UniqueCommon<T> {
     return UniquePointer<T>(pointer);
   }
 
+  /** Transfer responsibility for destruction to another owner. */
+  T* releaseOwnership() noexcept {
+    T* pointer = this->get();
+    this->release();
+    return pointer;
+  }
+
   template <class... Args>
   static UniquePointer<T> allocate(Args&&... args) {
     return UniquePointer<T>(new T(args...));

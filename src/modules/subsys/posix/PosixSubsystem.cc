@@ -44,6 +44,7 @@
 
 #include "FileDescriptor.h"
 #include "PosixProcess.h"
+#include "ProcFs.h"
 #include "eventfd-syscalls.h"
 #include "file-syscalls.h"
 #include "linux-amd64-signal.h"
@@ -60,9 +61,9 @@
 #include "queued-signal.h"
 #include "signal-syscalls.h"
 #include "signalfd-syscalls.h"
-#include "timerfd-syscalls.h"
 #include "system-syscalls.h"
 #include "sysv-semaphore-syscalls.h"
+#include "timerfd-syscalls.h"
 
 extern char __posix_compat_vsyscall_base;
 
@@ -266,6 +267,8 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
 void PosixSubsystem::setProcess(Process* process) {
   Subsystem::setProcess(process);
   m_PendingSignals->attach(m_pProcess);
+  if (process && m_Namespaces)
+    m_Namespaces->attach(*process);
   if (process) {
     auto& space = *process->getAddressSpace();
     MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
@@ -308,6 +311,8 @@ bool PosixSubsystem::publishUserImage(VirtualAddressSpace& space) {
 }
 
 PosixSubsystem::~PosixSubsystem() {
+  if (m_Namespaces)
+    m_Namespaces->close();
   m_PendingSignals->close();
   assert(--m_FreeCount == 0);
 
@@ -1741,6 +1746,11 @@ void PosixSubsystem::threadExiting(Thread* pThread) {
     return;
   }
 
+  if (m_Namespaces) {
+    const size_t taskId = pThread->getTaskId();
+    m_Namespaces->retireThread(*pThread);
+    procfsInvalidateNamespaceTask(m_Namespaces, pThread->getParent()->getId(), taskId);
+  }
   m_PendingSignals->retireThread(pThread);
   posix_timer_thread_exit(pThread);
   posix_sem_thread_exit(pThread);
@@ -2393,6 +2403,24 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     return false;
   }
 
+  UniquePointer<PreparedUtsThread> initialUts;
+  if (!m_Namespaces || !m_Namespaces->valid()) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  if (!state) {
+    UtsRef currentUts;
+    if (!m_Namespaces->acquireThread(*pThread, currentUts)) {
+      posix_uts_error(UtsStatus::Missing);
+      return false;
+    }
+    const UtsStatus prepared = posix_uts_prepare_thread(currentUts, false, initialUts);
+    if (prepared != UtsStatus::Success) {
+      posix_uts_error(prepared);
+      return false;
+    }
+  }
+
   // Validation leaves the old process intact. Siblings must finish their
   // user-memory exit hooks and release their mappings before replacement.
   if (!execScope.commit()) {
@@ -2413,7 +2441,11 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   // point onward its target belongs to the discarded image.
   pThread->setClearChildTid(0);
   posix_robust_list_exit(pThread);
+  const size_t previousTaskId = pThread->getTaskId();
   execScope.adoptLeaderIdentity();
+  m_Namespaces->promoteExec(*pThread);
+  procfsInvalidateNamespaceTask(m_Namespaces, pProcess->getId(), previousTaskId);
+  procfsInvalidateNamespaceTask(m_Namespaces, pProcess->getId(), pProcess->getId());
   DynamicLinker* oldLinker = pProcess->getLinker();
   pProcess->setLinker(nullptr);
   pThread->retireInputUserStack();
@@ -2659,6 +2691,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
       delete stack;
       return failAfterCommit(Error::OutOfMemory);
     }
+    m_Namespaces->publishThread(initialUts, *pNewThread, true);
     pNewThread->adoptInitialUserStackForExec(stack);
     pNewThread->setName("ld.so thread");
     if (!pNewThread->startDetached()) {

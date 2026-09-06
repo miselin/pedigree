@@ -44,7 +44,7 @@ linux_number,syscall,family,status,scope_and_verification
 163,acct,Linux administration and isolation,pending,
 167,swapon,Linux administration and isolation,pending,
 168,swapoff,Linux administration and isolation,pending,
-171,setdomainname,Linux administration and isolation,pending,
+171,setdomainname,Linux administration and isolation,implemented,UTS namespace pass; real task membership and retained proc namespace descriptors; public musl and kernel lifecycle contracts passed in 1CPU and 4CPU guests; other namespace types deferred; bounds in companion document
 175,init_module,Linux administration and isolation,pending,
 176,delete_module,Linux administration and isolation,pending,
 179,quotactl,Linux administration and isolation,pending,
@@ -77,7 +77,7 @@ linux_number,syscall,family,status,scope_and_verification
 245,mq_getsetattr,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 247,waitid,Core file and process interfaces,pending,
 259,mknodat,Core file and process interfaces,pending,
-272,unshare,Linux administration and isolation,pending,
+272,unshare,Linux administration and isolation,implemented,UTS namespace pass; real task membership and retained proc namespace descriptors; public musl and kernel lifecycle contracts passed in 1CPU and 4CPU guests; other namespace types deferred; bounds in companion document
 275,splice,Extended file interfaces,implemented,Pipe transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 276,tee,Extended file interfaces,implemented,Pipe transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 277,sync_file_range,Extended file interfaces,pending,
@@ -96,7 +96,7 @@ linux_number,syscall,family,status,scope_and_verification
 304,open_by_handle_at,Extended file interfaces,implemented,File-handle/fanotify pass; public musl contracts and cold-boot Ext2 handle persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 305,clock_adjtime,Linux administration and isolation,pending,
 306,syncfs,Extended file interfaces,pending,
-308,setns,Linux administration and isolation,pending,
+308,setns,Linux administration and isolation,implemented,UTS namespace pass; real task membership and retained proc namespace descriptors; public musl and kernel lifecycle contracts passed in 1CPU and 4CPU guests; other namespace types deferred; bounds in companion document
 309,getcpu,Scheduling and resource discovery,pending,
 310,process_vm_readv,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 311,process_vm_writev,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document

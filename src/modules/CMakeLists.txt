@@ -887,6 +887,10 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/system-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/credential-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/process-vm-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/uts-namespace.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/namespace-file.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/namespace-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/ProcFs-namespaces.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/resource-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/UnixFilesystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/util.cc
@@ -906,6 +910,10 @@ endif ()
 if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_REMAP_FILE_PAGES_TESTS)
     target_sources(posix PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/remap-file-pages-regressions.cc)
+endif ()
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_UTS_NAMESPACE_TESTS)
+    target_sources(posix PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/uts-namespace-regressions.cc)
 endif ()
 if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_PROCESS_MEMORY_TESTS)
     target_sources(posix PRIVATE

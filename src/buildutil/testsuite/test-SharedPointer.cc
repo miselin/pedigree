@@ -30,6 +30,41 @@ TEST(PedigreeSharedPointer, Construction) {
   EXPECT_FALSE(p);
 }
 
+TEST(PedigreeSharedPointer, CheckedAllocationPreservesSharedLifetime) {
+  struct Value {
+    explicit Value(int* count) : destroyed(count) {}
+    ~Value() {
+      ++*destroyed;
+    }
+    int* destroyed;
+  };
+  int destroyed = 0;
+  auto first = SharedPointer<Value>::tryAllocate(&destroyed);
+  ASSERT_TRUE(first);
+  auto second = first;
+  first.reset();
+  EXPECT_EQ(destroyed, 0);
+  second.reset();
+  EXPECT_EQ(destroyed, 1);
+}
+
+TEST(PedigreeSharedPointer, CheckedAllocationRejectsNullObjectAllocation) {
+  struct Unavailable {
+    static void* operator new(size_t) noexcept {
+      return nullptr;
+    }
+    static void operator delete(void*) noexcept {}
+    explicit Unavailable(bool* constructed) {
+      *constructed = true;
+    }
+  };
+  bool constructed = false;
+  auto pointer = SharedPointer<Unavailable>::tryAllocate(&constructed);
+  EXPECT_FALSE(pointer);
+  EXPECT_EQ(pointer.refcount(), 0U);
+  EXPECT_FALSE(constructed);
+}
+
 TEST(PedigreeSharedPointer, TakeOwnership) {
   // Should not provide a hit when run under Valgrind, either.
   SharedPointer<int> p(new int);

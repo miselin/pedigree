@@ -70,3 +70,25 @@ TEST(PedigreeUniquePointer, AdoptDerivedOwnsExactlyOneVirtualDestruction) {
   }
   EXPECT_EQ(destroyed, 11);
 }
+
+TEST(PedigreeUniquePointer, ReleaseTransfersDestructionResponsibility) {
+  struct Value {
+    explicit Value(int& count) : destroyed(count) {}
+    ~Value() {
+      ++destroyed;
+    }
+    int& destroyed;
+  };
+  int destroyed = 0;
+  Value* released;
+  {
+    auto owner = UniquePointer<Value>::allocate(destroyed);
+    released = owner.releaseOwnership();
+    EXPECT_EQ(owner.get(), nullptr);
+    EXPECT_EQ(owner.releaseOwnership(), nullptr);
+  }
+  EXPECT_EQ(destroyed, 0);
+  auto recipient = UniquePointer<Value>::adopt(released);
+  recipient.reset();
+  EXPECT_EQ(destroyed, 1);
+}

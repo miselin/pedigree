@@ -477,7 +477,7 @@ bool ProcFs::initialise(Disk* pDisk) {
       String("devices"), m_PciDevices.cstr(), m_PciDevices.length(), getNextInode(), this, pPciDir);
   pPciDir->addEntry(pPciDevices->getName(), pPciDevices);
 
-  return true;
+  return initialiseNamespaceLinks();
 }
 
 size_t ProcFs::getNextInode() {
@@ -492,10 +492,11 @@ void ProcFs::revertInode() {
 void ProcFs::addProcess(PosixProcess* proc) {
   size_t pid = proc->getId();
 
-  String s;
-  s.Format("%d", pid);
-
-  auto procDir = new ProcFsDirectory(s, 0, 0, 0, getNextInode(), this, 0, 0);
+  auto procDir = createProcessDirectory(proc);
+  if (!procDir) {
+    WARNING("ProcFs: could not prepare process directory for " << Dec << pid);
+    return;
+  }
   procDir->setPermissions(FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
 
   /// \todo is this correct? or should it be effective user/group?

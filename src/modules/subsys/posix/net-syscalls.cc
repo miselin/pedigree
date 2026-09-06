@@ -1112,25 +1112,6 @@ int posix_getsockopt(int sock, int level, int optname, void* optvalue, socklen_t
   return 0;
 }
 
-int posix_sethostname(const char* name, size_t len) {
-  N_NOTICE("sethostname");
-
-  if (len > 64) {
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-  char hostname[65] = {};
-  if (!PosixSubsystem::copyFromUser(hostname, name, len)) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-  N_NOTICE("sethostname(" << hostname << ")");
-
-  /// \todo integrate this
-
-  return 0;
-}
-
 ssize_t posix_sendmsg(int sockfd, const struct msghdr* msg, int flags) {
   N_NOTICE("sendmsg(" << sockfd << ", " << msg << ", " << flags << ")");
 

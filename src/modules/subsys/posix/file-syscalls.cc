@@ -68,6 +68,7 @@
 #include "modules/system/vfs/Pipe.h"
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
+#include "namespace-file.h"
 #include "net-syscalls.h"
 #include "pipe-syscalls.h"
 #include "signalfd-syscalls.h"
@@ -3350,7 +3351,9 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
 
     // Grab the file to map in
     File* fileToMap = f->file;
-    if (!fileToMap || fileToMap->isDirectory()) {
+    UtsRef namespaceBacking;
+    if (!fileToMap || fileToMap->isDirectory() ||
+        posix_uts_file_namespace(fileToMap, namespaceBacking)) {
       SYSCALL_ERROR(NoSuchDevice);
       return MAP_FAILED;
     }
@@ -4061,6 +4064,14 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
 
   const bool checkRead = (flags & O_ACCMODE) != O_WRONLY;
 
+  UtsRef namespaceBacking;
+  if (posix_uts_file_namespace(file, namespaceBacking) &&
+      ((flags & O_ACCMODE) != O_RDONLY || (flags & O_TRUNC))) {
+    SYSCALL_ERROR(PermissionDenied);
+    pSubsystem->freeFd(fd);
+    return -1;
+  }
+
   // Handle side effects.
   File* newFile = file->open();
 
@@ -4562,7 +4573,8 @@ int posix_readlinkat(int dirfd, const char* pathname, char* buf, size_t bufsiz) 
   Directory::ChildLease fileLease;
   File* f = findFileWithAbiFallbacks(realPath, fileLease, cwd);
   if (!f) {
-    SYSCALL_ERROR(DoesNotExist);
+    if (!Processor::information().getCurrentThread()->getErrno())
+      SYSCALL_ERROR(DoesNotExist);
     return -1;
   }
 

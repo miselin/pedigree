@@ -139,7 +139,8 @@ CloneRoute cloneRoute(unsigned long flags) {
   // The private-CoW process path can faithfully provide fork-like clone and
   // musl's pipe-synchronised posix_spawn trampoline. Other sharing and
   // namespace combinations must not silently receive fork semantics.
-  if (flags == 0 || flags == SIGCHLD || flags == SpawnFlags) {
+  const unsigned long processFlags = flags & ~CLONE_NEWUTS;
+  if (processFlags == 0 || processFlags == SIGCHLD || processFlags == SpawnFlags) {
     return CloneRoute::Process;
   }
   return CloneRoute::Invalid;
@@ -380,6 +381,26 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     return -1;
   }
 
+  PosixSubsystem* creatorSubsystem = getSubsystem();
+  auto creatorNamespaces = creatorSubsystem ? creatorSubsystem->namespaceContext()
+                                            : SharedPointer<PosixNamespaceContext>();
+  UtsRef creatorUts;
+  UniquePointer<PreparedUtsThread> preparedUts;
+  if (!creatorNamespaces ||
+      !creatorNamespaces->acquireThread(*Processor::information().getCurrentThread(), creatorUts))
+    return posix_uts_error(UtsStatus::Missing);
+  UtsStatus utsPrepared;
+  {
+    MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
+    if ((flags & CLONE_NEWUTS) && getPosixProcess()->snapshotCredentials().euid != 0) {
+      SYSCALL_ERROR(NotEnoughPermissions);
+      return -1;
+    }
+    utsPrepared = posix_uts_prepare_thread(creatorUts, flags & CLONE_NEWUTS, preparedUts);
+  }
+  if (utsPrepared != UtsStatus::Success)
+    return posix_uts_error(utsPrepared);
+
   if (route == CloneRoute::Thread) {
     // clone vm doesn't actually copy the address space, it shares it
 
@@ -429,6 +450,11 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
       }
 
       pThread = new Thread(pParentProcess, clonedState, true);
+      if (!pThread) {
+        SYSCALL_ERROR(OutOfMemory);
+        return -1;
+      }
+      creatorNamespaces->publishThread(preparedUts, *pThread, false);
       pThread->setName("posix clone() thread");
       if (setTls) {
         pThread->setTlsBase(newtls);
@@ -517,7 +543,10 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     }
 
     pSubsystem = new PosixSubsystem(*pParentSubsystem);
-    if (!pSubsystem) {
+    if (!pSubsystem || !pSubsystem->namespaceContext() ||
+        !pSubsystem->namespaceContext()->valid()) {
+      if (pSubsystem)
+        pProcess->setSubsystem(pSubsystem);
       ERROR("Could not create a subsystem for the child process!");
       delete pProcess;
 
@@ -594,6 +623,12 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
 
   // Create a new thread for the new process.
   Thread* pThread = new Thread(pProcess, clonedState, true);
+  if (!pThread) {
+    delete pProcess;
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
+  pSubsystem->namespaceContext()->publishThread(preparedUts, *pThread, true);
   pThread->setName("posix clone() forked thread");
   pThread->detach();
   if (flags & CLONE_CHILD_CLEARTID) {
@@ -1531,34 +1566,6 @@ EXPORTED_PUBLIC int pedigree_reboot() {
 
   if (!SyscallManager::instance().requestReboot()) {
     FATAL("Reboot was not dispatched.");
-  }
-  return 0;
-}
-
-int posix_uname(struct utsname* n) {
-  struct utsname result = {};
-
-  Process* pProcess = Processor::information().getCurrentThread()->getParent();
-  PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
-
-  StringCopy(result.sysname, "Pedigree");
-
-  if (pSubsystem->getAbi() == PosixSubsystem::LinuxAbi) {
-    // Lie a bit to Linux ABI callers.
-    StringCopy(result.release, "2.6.32-generic");
-    StringCopy(result.version, g_pBuildRevision);
-  } else {
-    StringCopy(result.release, g_pBuildRevision);
-    StringCopy(result.version, "Foster");
-  }
-
-  StringCopy(result.machine, g_pBuildTarget);
-
-  /// \todo: better handle node name
-  StringCopy(result.nodename, "pedigree");
-  if (!PosixSubsystem::copyToUser(n, &result, sizeof(result))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
   }
   return 0;
 }

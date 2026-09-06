@@ -35,6 +35,15 @@ Symlink::Symlink(const String& name, Time::Timestamp accessedTime, Time::Timesta
 
 Symlink::~Symlink() {}
 
+File* Symlink::retainTarget(File* target, Directory::ChildLease& result) {
+  if (!VFS::instance().retainTrackedFile(target))
+    return nullptr;
+  Directory::ChildLease replacement;
+  replacement.adopt(target);
+  result.swap(replacement);
+  return target;
+}
+
 void Symlink::initialise(bool bForce) {
   if (m_sTarget.length() && !bForce)
     return;

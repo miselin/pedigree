@@ -145,6 +145,7 @@ set(PEDIGREE_VM_REMAP_TESTS FALSE CACHE BOOL "Run focused x64 remap transaction 
 set(PEDIGREE_MEMORY_LOCK_TESTS FALSE CACHE BOOL "Run focused memory-lock residency regressions during POSIX startup.")
 set(PEDIGREE_REMAP_FILE_PAGES_TESTS FALSE CACHE BOOL "Run focused file-offset remapping regressions during POSIX startup.")
 set(PEDIGREE_PROCESS_MEMORY_TESTS FALSE CACHE BOOL "Run focused process-memory copy regressions during POSIX startup.")
+set(PEDIGREE_UTS_NAMESPACE_TESTS FALSE CACHE BOOL "Run focused namespace lifecycle regressions during POSIX startup.")
 
 # General build options.
 set(PEDIGREE_LTO FALSE CACHE BOOL "Enable LTO.")

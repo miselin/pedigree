@@ -456,6 +456,157 @@ bool exitElectionQuiescence(Process* kernelProcess) {
   return passed;
 }
 
+struct CreationDrainContext {
+  explicit CreationDrainContext(ExitElectionProcess* process)
+      : process(process),
+        releaseCreator(0, false),
+        admitted(0),
+        ownerElected(0),
+        quiesced(0),
+        childEntered(0),
+        failures(0),
+        child(nullptr),
+        owner(nullptr) {}
+
+  ExitElectionProcess* process;
+  Semaphore releaseCreator;
+  Atomic<size_t> admitted;
+  Atomic<size_t> ownerElected;
+  Atomic<size_t> quiesced;
+  Atomic<size_t> childEntered;
+  Atomic<size_t> failures;
+  Atomic<Thread*> child;
+  Thread* owner;
+};
+
+int delayedCreationChild(void* parameter) {
+  CreationDrainContext* context = reinterpret_cast<CreationDrainContext*>(parameter);
+  context->childEntered += 1;
+  return 0;
+}
+
+int admittedProcessCreator(void* parameter) {
+  CreationDrainContext* context = reinterpret_cast<CreationDrainContext*>(parameter);
+  Process::ThreadCreationScope creation(*context->process);
+  if (!creation) {
+    context->failures += 1;
+    return 0;
+  }
+  context->admitted = 1;
+  if (!context->releaseCreator.acquireForCompletion() ||
+      context->process->getState() != Process::Terminating) {
+    context->failures += 1;
+    return 0;
+  }
+
+  Thread* child =
+      new Thread(context->process, delayedCreationChild, context, nullptr, false, true, true);
+  if (!child || child->getUnwindState() != Thread::TerminateThread) {
+    context->failures += 1;
+  }
+  context->child = child;
+  return 0;
+}
+
+int creationDrainOwner(void* parameter) {
+  CreationDrainContext* context = reinterpret_cast<CreationDrainContext*>(parameter);
+  const bool elected = context->process->beginTermination();
+  context->ownerElected = elected ? 1 : 0;
+  if (!elected || !context->process->quiesceTermination()) {
+    context->failures += 1;
+    context->owner->getScheduler()->commitCurrentThreadExit();
+  }
+  context->quiesced = 1;
+  context->process->finishTermination();
+}
+
+bool processCreationDrain(Process* kernelProcess) {
+  ExitElectionProcess* process = new ExitElectionProcess(kernelProcess);
+  CreationDrainContext context(process);
+  Thread* creator =
+      new Thread(process, admittedProcessCreator, &context, nullptr, false, true, true);
+  Thread* owner = new Thread(process, creationDrainOwner, &context, nullptr, false, true, true);
+  creator->setName("hosted admitted process creator");
+  owner->setName("hosted creation-drain exit owner");
+  process->competitor = creator;
+  context.owner = owner;
+
+  bool passed = check(creator->start(), "the admitted creator did not start");
+  constexpr size_t Attempts = 10000;
+  bool creatorBlocked = false;
+  for (size_t attempt = 0; attempt < Attempts; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    if (context.admitted == 1 && creator->getWaitDebugInfo(info) && info.queued &&
+        info.channelOwner == &context.releaseCreator && creator->getStatus() == Thread::Sleeping) {
+      creatorBlocked = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+  passed &= check(creatorBlocked, "the admitted creator did not publish its creation gate");
+
+  {
+    auto reservation = process->reserveTerminalOwner();
+    if (!reservation) {
+      FATAL("The creation-drain fixture could not reserve its terminal owner.");
+    }
+    {
+      Process::ThreadCreationScope denied(*process);
+      passed &= check(!denied, "a terminal-owner reservation admitted a new creator");
+    }
+    reservation.install(owner);
+  }
+  passed &= check(owner->start(), "the creation-drain exit owner did not start");
+
+  bool ownerBlocked = false;
+  for (size_t attempt = 0; attempt < Attempts; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    uintptr_t address = 0;
+    if (context.ownerElected == 1 && owner->getWaitDebugInfo(info) && info.queued &&
+        owner->getStatus() == Thread::Sleeping &&
+        owner->getDebugState(address) == Thread::ProcessWait &&
+        address == reinterpret_cast<uintptr_t>(process)) {
+      ownerBlocked = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+  passed &= check(ownerBlocked && context.quiesced == 0 && context.child == nullptr,
+                  "termination did not wait for the admitted creation before sealing");
+  {
+    Process::ThreadCreationScope denied(*process);
+    passed &= check(!denied, "a terminating process admitted a new creator");
+  }
+
+  context.releaseCreator.release();
+  bool reapable = false;
+  for (size_t attempt = 0; attempt < Attempts; ++attempt) {
+    if (process->isTerminationReapableForHostedTest()) {
+      reapable = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+  passed &= check(reapable, "termination did not finish after the admitted creator was released");
+  if (!reapable) {
+    FATAL("The creation-drain fixture cannot release live worker context.");
+  }
+  Thread* child = context.child;
+  passed &= check(context.failures == 0 && context.admitted == 1 && context.ownerElected == 1 &&
+                      context.quiesced == 1 && child && context.childEntered == 0,
+                  "late creation failed or its terminal child executed an entry point");
+  passed &=
+      check(process->getState() == Process::Terminated && process->cleanupCalls == 1 &&
+                process->cleanupBeforePeerReapable == 0 && creator->isReapableForHostedTest() &&
+                owner->isReapableForHostedTest() && child && child->isReapableForHostedTest(),
+            "creation-drain cleanup ran before every retained thread was off-stack");
+  delete process;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS process-creation-termination-drain");
+  }
+  return passed;
+}
+
 struct OrphanExitContext {
   OrphanExitContext()
       : process(nullptr),
@@ -694,6 +845,7 @@ bool runHostedProcessExitRegressions() {
   passed &= mandatoryZombieBacklog();
   passed &= orphanPublicationInterleaving(kernelProcess);
   passed &= exitElectionQuiescence(kernelProcess);
+  passed &= processCreationDrain(kernelProcess);
 
   DeferredHostedProcess* publishedChild = new DeferredHostedProcess(kernelProcess);
   passed &= check(!publishedChild->probe.visibleDuringMemberConstruction,

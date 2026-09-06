@@ -45,6 +45,7 @@
 #include "logging.h"
 #include "memfd-syscalls.h"
 #include "mqueue-syscalls.h"
+#include "namespace-syscalls.h"
 #include "net-syscalls.h"
 #include "pipe-syscalls.h"
 #include "pipe-transfer-syscalls.h"
@@ -877,6 +878,12 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_statfs(reinterpret_cast<const char*>(p1), reinterpret_cast<struct statfs*>(p2));
     case POSIX_FSTATFS:
       return posix_fstatfs(p1, reinterpret_cast<struct statfs*>(p2));
+    case POSIX_UNSHARE:
+      return posix_unshare(p1);
+    case POSIX_SETNS:
+      return posix_setns(p1, p2);
+    case POSIX_SETDOMAINNAME:
+      return posix_setdomainname(reinterpret_cast<const char*>(p1), p2);
     case POSIX_SETHOSTNAME:
       return posix_sethostname(reinterpret_cast<const char*>(p1), p2);
     case POSIX_IOPERM:

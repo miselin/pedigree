@@ -23,6 +23,9 @@ bool runHostedCloneRoutingRegressions(Process*) {
   const bool passed =
       posixCloneRouteForTest(spawnFlags) == 0 && posixCloneRouteForTest(pthreadFlags) == 1 &&
       posixCloneRouteForTest(0) == 0 && posixCloneRouteForTest(SIGCHLD) == 0 &&
+      posixCloneRouteForTest(CLONE_NEWUTS | SIGCHLD) == 0 &&
+      posixCloneRouteForTest(CLONE_NEWUTS | CLONE_NEWNS | SIGCHLD) == -1 &&
+      posixCloneRouteForTest(CLONE_NEWUTS | pthreadFlags) == -1 &&
       posixCloneRouteForTest(CLONE_VM) == -1 && posixCloneRouteForTest(CLONE_THREAD) == -1 &&
       posixCloneRouteForTest(CLONE_VM | CLONE_THREAD) == -1 &&
       posixCloneRouteForTest(CLONE_VM | CLONE_SIGHAND | CLONE_THREAD) == -1 &&

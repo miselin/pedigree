@@ -114,6 +114,10 @@ class SharedPointer {
   template <class... Args>
   static SharedPointer<T> allocate(Args...);
 
+  /** Returns empty if the kernel allocator cannot provide either allocation. */
+  template <class... Args>
+  static SharedPointer<T> tryAllocate(Args...);
+
   /// \note No operator is provided for comparison with raw pointer types:
   ///       if that comparison were to ever succeed, it would indicate that
   ///       the SharedPointer could not safely free memory after the refcount
@@ -254,6 +258,21 @@ SharedPointer<T> SharedPointer<T>::allocate(Args... args) {
   SharedPointer<T> result;
   result.reset(new T(args...));
   return pedigree_std::move(result);
+}
+
+template <class T>
+template <class... Args>
+SharedPointer<T> SharedPointer<T>::tryAllocate(Args... args) {
+  SharedPointer<T> result;
+  result.m_Control = new Control{nullptr, 1};
+  if (!result.m_Control)
+    return result;
+  // Enrol the control block before constructing T, so hosted exceptions also
+  // release it without publishing a partially constructed shared object.
+  result.m_Control->ptr = new T(args...);
+  if (!result.m_Control->ptr)
+    result.reset();
+  return result;
 }
 
 template <class T>
