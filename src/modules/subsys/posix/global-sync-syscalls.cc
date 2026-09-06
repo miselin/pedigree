@@ -25,7 +25,7 @@ int posix_syncfs(int fd) {
         (descriptor->getStatusFlags() & O_PATH)) {
       error = Error::BadFileDescriptor;
     } else {
-      File* file = descriptor->file;
+      File* file = descriptor->getFile();
       const auto status = file && file->getFilesystem()
                               ? VFS::instance().syncFilesystem(file->getFilesystem())
                               : Filesystem::SyncStatus::Unsupported;

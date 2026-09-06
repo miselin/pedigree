@@ -50,6 +50,21 @@
 #define CTRL_KEY (1ULL << 62)
 #define SPECIAL_KEY (1ULL << 63)
 
+namespace {
+class CttySelectorFile final : public File {
+ public:
+  CttySelectorFile(size_t inode, Filesystem* filesystem, File* parent)
+      : File(String("tty"), 0, 0, 0, inode, filesystem, 0, parent) {
+    setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
+  }
+
+ private:
+  bool isBytewise() const override {
+    return true;
+  }
+};
+}  // namespace
+
 static void terminalSwitchHandler(InputManager::InputNotification& in) {
   if (!in.meta) {
     return;
@@ -469,6 +484,11 @@ bool DevFs::initialise(Disk* pDisk) {
   if (!descriptors)
     return false;
   m_pRoot->addEntry(descriptors->getName(), descriptors);
+
+  m_CttySelector = new CttySelectorFile(getNextInode(), this, m_pRoot);
+  if (!m_CttySelector)
+    return false;
+  m_pRoot->addEntry(m_CttySelector->getName(), m_CttySelector);
 
   // Create /dev/null and /dev/zero nodes
   NullFile* pNull = new NullFile(String("null"), getNextInode(), this, m_pRoot);

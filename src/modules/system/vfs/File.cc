@@ -598,6 +598,18 @@ void File::setAccessedTime(Time::Timestamp t) {
   publishEvent(FileEvents::Attributes);
 }
 
+void File::setTimes(Time::Timestamp accessed, Time::Timestamp modified, bool changeAccessed,
+                    bool changeModified) {
+  // A caller may request a ctime-only update without changing atime or mtime.
+  Attributes attributes;
+  attributes.accessed = accessed;
+  attributes.modified = modified;
+  attributes.changed = Time::getTime();
+  updateAttributes(attributes, ChangeTime | (changeAccessed ? AccessTime : 0U) |
+                                   (changeModified ? ModifyTime : 0U));
+  publishEvent(FileEvents::Attributes);
+}
+
 Time::Timestamp File::getModifiedTime() {
   return getAttributes().modified;
 }

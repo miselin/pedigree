@@ -18,6 +18,7 @@
  */
 
 #include "VFS.h"
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Disk.h"
@@ -30,6 +31,7 @@
 
 #include "Directory.h"
 #include "File.h"
+#include "MountView.h"
 #include "MemoryMappedFile.h"
 
 #ifndef VFS_STANDALONE
@@ -71,6 +73,24 @@ class VfsMountState {
     retirement.finishRetirement();
   }
 
+  void finishOwnedRetirement() {
+    // Both gates are already closed. Once observed drained, neither can gain
+    // another owner; one releasing caller performs retirement without waiting.
+    if (!ownedRetirement || !storagePins.isClosedAndDrained() || !operations.isClosedAndDrained() ||
+        !retirementClaimed.compareAndSwap(false, true))
+      return;
+#if THREADS && !defined(VFS_STANDALONE)
+    TerminationDeferral lifetime;
+#endif
+    Filesystem* retired = filesystem;
+    filesystem = nullptr;
+    retirement.beginRetirement();
+    retirement.finishRetirement();
+    delete retired;
+  }
+
+  Atomic<bool> ownedRetirement{false};
+  Atomic<bool> retirementClaimed{false};
   Filesystem* filesystem;
   const uint32_t id;
   OperationBarrier operations;
@@ -80,6 +100,15 @@ class VfsMountState {
 
 class VfsFilesystemPin {
  public:
+  ~VfsFilesystemPin() {
+#if THREADS && !defined(VFS_STANDALONE)
+    TerminationDeferral lifetime;
+#endif
+    auto retained = pedigree_std::move(state);
+    admission = OperationBarrier::Lease();
+    if (retained)
+      retained->finishOwnedRetirement();
+  }
   // Release admission before the state that owns its barrier. Copies of the
   // outer pin may survive registry shutdown and do not need fresh admission.
   SharedPointer<VfsMountState> state;
@@ -89,9 +118,24 @@ class VfsFilesystemPin {
 VFS::FilesystemPin::FilesystemPin() = default;
 VFS::FilesystemPin::FilesystemPin(const FilesystemPin& other) = default;
 VFS::FilesystemPin::FilesystemPin(FilesystemPin&& other) noexcept = default;
-VFS::FilesystemPin::~FilesystemPin() = default;
-VFS::FilesystemPin& VFS::FilesystemPin::operator=(const FilesystemPin& other) = default;
-VFS::FilesystemPin& VFS::FilesystemPin::operator=(FilesystemPin&& other) noexcept = default;
+VFS::FilesystemPin::~FilesystemPin() {
+  reset();
+}
+VFS::FilesystemPin& VFS::FilesystemPin::operator=(const FilesystemPin& other) {
+  if (this != &other) {
+    auto replacement = other.m_Pin;
+    auto retired = pedigree_std::move(m_Pin);
+    m_Pin = pedigree_std::move(replacement);
+  }
+  return *this;
+}
+VFS::FilesystemPin& VFS::FilesystemPin::operator=(FilesystemPin&& other) noexcept {
+  if (this != &other) {
+    auto retired = pedigree_std::move(m_Pin);
+    m_Pin = pedigree_std::move(other.m_Pin);
+  }
+  return *this;
+}
 
 Filesystem* VFS::FilesystemPin::filesystem() const {
   return m_Pin ? m_Pin->state->filesystem : nullptr;
@@ -109,7 +153,7 @@ VFS::FilesystemPin::operator bool() const {
 }
 
 void VFS::FilesystemPin::reset() {
-  m_Pin.reset();
+  auto retired = pedigree_std::move(m_Pin);
 }
 
 bool VFS::MountIdentity::pin(FilesystemPin& pin) const {
@@ -187,9 +231,13 @@ VFS::MountOperation::~MountOperation() {
 
 VFS::MountOperation& VFS::MountOperation::operator=(MountOperation&& other) noexcept {
   if (this != &other) {
-    reset();
+    auto retired = pedigree_std::move(m_State);
+    auto admission = pedigree_std::move(m_Admission);
     m_State = pedigree_std::move(other.m_State);
     m_Admission = pedigree_std::move(other.m_Admission);
+    admission = OperationBarrier::Lease();
+    if (retired)
+      retired->finishOwnedRetirement();
   }
   return *this;
 }
@@ -213,8 +261,10 @@ VFS::MountOperation::operator bool() const {
 }
 
 void VFS::MountOperation::reset() {
+  auto state = pedigree_std::move(m_State);
   m_Admission = OperationBarrier::Lease();
-  m_State.reset();
+  if (state)
+    state->finishOwnedRetirement();
 }
 
 bool VFS::acquireMount(Filesystem* key, MountOperation& operation) const {
@@ -243,7 +293,10 @@ VFS& VFS::instance() {
 }
 
 VFS::VFS()
-    : m_MountMutationLock(),
+    : m_PathMutationLock(),
+      m_PathGeneration(0),
+      m_MountView(nullptr),
+      m_MountMutationLock(),
       m_MountTableLock(),
       m_pRootFilesystem(nullptr),
       m_Mounts(),
@@ -292,6 +345,10 @@ VFS::~VFS() {
   for (auto it = m_MountCallbacks.begin(); it != m_MountCallbacks.end(); ++it) {
     delete *it;
   }
+
+  // The view's inert paths must drain before backend storage-pin retirement.
+  delete m_MountView;
+  m_MountView = nullptr;
 
   Vector<MountInfo*> mountInfo;
   Vector<Filesystem*> filesystems;
@@ -458,7 +515,7 @@ String VFS::registerFilesystemLocked(Filesystem* pFs, const String& preferredSta
     root = m_pRootFilesystem;
   }
 
-  if (root) {
+  if (root && !mountView()) {
     attachFilesystem(root, pFs, info->path);
   }
 
@@ -493,7 +550,7 @@ bool VFS::unregisterFilesystem(Filesystem* pFs, bool canDelete) {
       }
     }
 
-    if (detach) {
+    if (detach && !mountView()) {
       Directory::ChildLease pointLease;
       File* point = findRetained(info->path, pointLease);
       if (point && point->isDirectory()) {
@@ -510,7 +567,37 @@ bool VFS::unregisterFilesystem(Filesystem* pFs, bool canDelete) {
   return true;
 }
 
+bool VFS::retireOwnedFilesystem(Filesystem* filesystem) {
+#if THREADS && !defined(VFS_STANDALONE)
+  TerminationDeferral lifetime;
+#endif
+  if (!filesystem)
+    return false;
+  MountInfo* removed = nullptr;
+  {
+    LockGuard<Mutex> mutation(m_MountMutationLock);
+    LockGuard<Mutex> table(m_MountTableLock);
+    removed = m_Mounts.lookup(filesystem);
+    if (!removed || filesystem == m_pRootFilesystem)
+      return false;
+    m_Mounts.take(filesystem, removed);
+    removed->state->storagePins.close();
+    removed->state->operations.close();
+  }
+  // Existing sync/handle operations retain the state until their admission
+  // drains. Inert identities survive retirement without retaining the backend.
+  auto state = removed->state;
+  delete removed;
+  state->ownedRetirement = true;
+  state->finishOwnedRetirement();
+  return true;
+}
+
 bool VFS::setRootFilesystem(Filesystem* pFs) {
+  if (mountView()) {
+    SYSCALL_ERROR(DeviceBusy);
+    return false;
+  }
   LockGuard<Mutex> mutationGuard(m_MountMutationLock);
   if (pFs) {
     bool registered = false;
@@ -536,6 +623,81 @@ Filesystem* VFS::getRootFilesystem() const {
   LockGuard<Mutex> tableGuard(m_MountTableLock);
   return m_pRootFilesystem;
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+VFS::HostedRootViewScope::HostedRootViewScope() : m_Vfs(VFS::instance()) {}
+VFS::HostedRootViewScope::~HostedRootViewScope() {
+  if (!close())
+    FATAL("Hosted root view scope still has retained owners");
+}
+bool VFS::HostedRootViewScope::open(Filesystem* filesystem) {
+  if (!filesystem || m_Filesystem)
+    return false;
+  auto* thread = Processor::information().getCurrentThread();
+  m_PreviousContext = thread && thread->getParent()
+                          ? thread->getParent()->acquireFilesystemContext()
+                          : FilesystemContextRef();
+  bool prepared = false;
+  {
+    LockGuard<Mutex> mutation(m_Vfs.m_MountMutationLock);
+    {
+      LockGuard<Mutex> table(m_Vfs.m_MountTableLock);
+      if (m_Vfs.m_Mounts.lookup(filesystem))
+        return false;
+      m_PreviousRoot = m_Vfs.m_pRootFilesystem;
+      m_PreviousView = m_Vfs.mountView();
+    }
+    if (m_PreviousRoot && !m_Vfs.pinFilesystem(m_PreviousRoot, m_PreviousRootPin))
+      return false;
+    if (!m_Vfs.registerFilesystemLocked(filesystem, String("hosted-root-fixture")).length())
+      return false;
+    m_Filesystem = filesystem;
+    m_View = new VfsMountView(m_Vfs);
+    if (m_View && m_View->initialise(filesystem)) {
+      NamespaceMutation writer(m_Vfs);
+      LockGuard<Mutex> table(m_Vfs.m_MountTableLock);
+      m_Vfs.m_pRootFilesystem = filesystem;
+      __atomic_store_n(&m_Vfs.m_MountView, m_View, __ATOMIC_RELEASE);
+      m_Installed = prepared = true;
+    }
+  }
+  if (!prepared)
+    close();
+  return prepared;
+}
+bool VFS::HostedRootViewScope::installContext(Process& process) {
+  FilesystemContextOwner context;
+  return m_Installed && m_View->createBootContext(context) &&
+         process.installFilesystemContext(pedigree_std::move(context));
+}
+bool VFS::HostedRootViewScope::close() {
+  {
+    LockGuard<Mutex> mutation(m_Vfs.m_MountMutationLock);
+    NamespaceMutation writer(m_Vfs);
+    // Enrollment cannot race the final quiescence check and view restoration.
+    if (m_View && !m_View->quiescentForHostedTest())
+      return false;
+    if (m_Installed) {
+      LockGuard<Mutex> table(m_Vfs.m_MountTableLock);
+      if (m_Vfs.mountView() != m_View || m_Vfs.m_pRootFilesystem != m_Filesystem)
+        return false;
+      m_Vfs.m_pRootFilesystem = m_PreviousRoot;
+      __atomic_store_n(&m_Vfs.m_MountView, m_PreviousView, __ATOMIC_RELEASE);
+      m_Installed = false;
+    }
+  }
+  delete m_View;
+  m_View = nullptr;
+  if (m_Filesystem && !m_Vfs.unregisterFilesystem(m_Filesystem, false))
+    return false;
+  m_Filesystem = nullptr;
+  m_PreviousContext.reset();
+  m_PreviousRootPin.reset();
+  m_PreviousRoot = nullptr;
+  m_PreviousView = nullptr;
+  return true;
+}
+#endif
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 Filesystem* VFS::swapRootFilesystemForHostedTest(Filesystem* pFs) {

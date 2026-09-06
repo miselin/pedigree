@@ -26,11 +26,11 @@
 
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
+#include "modules/subsys/posix/ResolvedPath.h"
 #include "modules/subsys/posix/file-syscalls.h"
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/FileEvent.h"
-#include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 
 namespace {
@@ -40,6 +40,15 @@ constexpr FileEventMask AllFileEvents =
     FileEvents::CloseNoWrite | FileEvents::Open | FileEvents::Created | FileEvents::Removed |
     FileEvents::DeletedSelf;
 constexpr uint32_t AcceptedMask = LinuxInotify::AllBits;
+
+// Capture before path and descriptor retirement can replace the selected error.
+struct InotifyResult {
+  InotifyResult(int result)
+      : value(result),
+        error(result < 0 ? Processor::information().getCurrentThread()->getErrno() : 0) {}
+  int value;
+  int error;
+};
 
 size_t paddedNameLength(const String& name) {
   if (!name.length()) {
@@ -330,17 +339,6 @@ void retireWatch(InotifyWatch* watch) {
   delete watch;
 }
 
-File* followSymlinks(File* file, Directory::ChildLease& lease) {
-  while (file && file->isSymlink()) {
-    Directory::ChildLease next;
-    file = Symlink::fromFile(file)->followLinkRetained(next);
-    if (!file) {
-      return nullptr;
-    }
-    lease.swap(next);
-  }
-  return file;
-}
 }  // namespace
 
 class InotifyState {
@@ -597,7 +595,8 @@ int posix_inotify_init1(int flags) {
   return static_cast<int>(fd);
 }
 
-int posix_inotify_add_watch(int fd, const char* pathname, uint32_t mask) {
+static InotifyResult addWatch(int fd, const char* pathname, uint32_t mask) {
+  ResolvedPath targetLease;
   // Linux validates the UAPI bitset before looking up either the descriptor
   // or pathname.
   if ((mask & ~AcceptedMask) || !(mask & AcceptedMask)) {
@@ -633,18 +632,22 @@ int posix_inotify_add_watch(int fd, const char* pathname, uint32_t mask) {
     SYSCALL_ERROR(NameTooLong);
     return -1;
   }
-  String normalised;
-  normalisePath(normalised, path.cstr());
-  Directory::ChildLease targetLease;
-  File* target = findFileWithAbiFallbacks(normalised, targetLease);
-  if (!(mask & LinuxInotify::DontFollow)) {
-    target = followSymlinks(target, targetLease);
-  }
-  if (!target) {
+  if (!path.length()) {
     SYSCALL_ERROR(DoesNotExist);
     return -1;
   }
-  if ((mask & LinuxInotify::OnlyDirectory) && !target->isDirectory()) {
+  String normalised;
+  normalisePath(normalised, path.cstr());
+  const bool requireDirectory = path[path.length() - 1] == '/';
+  Processor::information().getCurrentThread()->setErrno(0);
+  File* target = findFilePath(normalised, targetLease, FilesystemPathRef(),
+                              !(mask & LinuxInotify::DontFollow) || requireDirectory);
+  if (!target) {
+    if (!Processor::information().getCurrentThread()->getErrno())
+      SYSCALL_ERROR(DoesNotExist);
+    return -1;
+  }
+  if (((mask & LinuxInotify::OnlyDirectory) || requireDirectory) && !target->isDirectory()) {
     SYSCALL_ERROR(NotADirectory);
     return -1;
   }
@@ -652,6 +655,12 @@ int posix_inotify_add_watch(int fd, const char* pathname, uint32_t mask) {
     return -1;
   }
   return instance->addWatch(target, mask);
+}
+
+int posix_inotify_add_watch(int fd, const char* pathname, uint32_t mask) {
+  const InotifyResult result = addWatch(fd, pathname, mask);
+  syscallError(result.error);
+  return result.value;
 }
 
 int posix_inotify_rm_watch(int fd, int wd) {

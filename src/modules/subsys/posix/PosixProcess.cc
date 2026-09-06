@@ -48,8 +48,9 @@ PosixProcess::PosixProcess()
 }
 
 /** Copy constructor. */
-PosixProcess::PosixProcess(Process* pParent, bool bCopyOnWrite)
-    : Process(DeferredPublication(), pParent, bCopyOnWrite),
+PosixProcess::PosixProcess(Process* pParent, bool bCopyOnWrite,
+                           FilesystemContextMode filesystemContext)
+    : Process(DeferredPublication(), pParent, bCopyOnWrite, filesystemContext),
       m_AccountingLifetime(true),
       m_SessionId(0),
       m_pProcessGroup(nullptr),

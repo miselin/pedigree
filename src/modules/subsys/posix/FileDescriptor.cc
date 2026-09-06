@@ -99,7 +99,8 @@ FileDescriptor::OpenFileDescription::OpenFileDescription(File* newFile, uint64_t
                                                          int initialStatusFlags)
     : m_AdvisoryOwner(AdvisoryOwner::Kind::OpenDescription),
       lock(),
-      file(newFile),
+      path(),
+      anonymousFile(newFile),
       networkImpl(nullptr),
       eventFdImpl(nullptr),
       inotifyImpl(nullptr),
@@ -112,38 +113,61 @@ FileDescriptor::OpenFileDescription::OpenFileDescription(File* newFile, uint64_t
       statusFlags(initialStatusFlags),
       descriptorOwners(1),
       vfsLease(newFile && newFile->retainVfsReference()) {
-  increaseFileReferences(file, statusFlags);
+  assert(!newFile || !newFile->isDirectory());
+  increaseFileReferences(getFile(), statusFlags);
+}
+
+FileDescriptor::OpenFileDescription::OpenFileDescription(const FilesystemPathRef& opening,
+                                                         uint64_t initialOffset,
+                                                         int initialStatusFlags)
+    : OpenFileDescription(static_cast<File*>(nullptr), initialOffset, initialStatusFlags) {
+  assert(static_cast<bool>(opening));
+  path = opening;
+  File* node = getFile();
+  if (!(initialStatusFlags & O_PATH) && ConsoleManager::instance().isConsole(node))
+    consoleEpoch = static_cast<ConsoleFile*>(node)->captureOpenEpoch();
+  increaseFileReferences(node, initialStatusFlags);
+}
+
+FilesystemPathRef FileDescriptor::OpenFileDescription::openingPath() const {
+  return path;
+}
+File* FileDescriptor::getFile() const {
+  return m_OpenFile ? m_OpenFile->getFile() : nullptr;
+}
+FilesystemPathRef FileDescriptor::openingPath() const {
+  return m_OpenFile ? m_OpenFile->openingPath() : FilesystemPathRef();
 }
 
 FileDescriptor::OpenFileDescription::~OpenFileDescription() {
   assert(!descriptorOwners);
   posix_advisory_owner_closed(m_AdvisoryOwner);
   if (vfsLease) {
-    file->releaseVfsReference();
+    getFile()->releaseVfsReference();
   }
 }
 
 File* FileDescriptor::OpenFileDescription::getFile() const {
-  return file;
+  return path ? path->node() : anonymousFile;
 }
 
 SharedPointer<ConsoleIoState> FileDescriptor::OpenFileDescription::terminalEpoch(
     bool waitForReopen) const {
-  if (file && ConsoleManager::instance().isMasterConsole(file))
-    return static_cast<ConsoleFile*>(file)->captureOpenEpoch(waitForReopen);
+  if (getFile() && ConsoleManager::instance().isMasterConsole(getFile()))
+    return static_cast<ConsoleFile*>(getFile())->captureOpenEpoch(waitForReopen);
   return consoleEpoch;
 }
 
 ReadyMask FileDescriptor::OpenFileDescription::queryFileReady(bool reading, bool writing) const {
-  if (file && ConsoleManager::instance().isConsole(file))
-    return static_cast<ConsoleFile*>(file)->queryEpoch(terminalEpoch(false), reading, writing);
-  return file ? file->queryReady(reading, writing) : ReadyInvalid;
+  if (getFile() && ConsoleManager::instance().isConsole(getFile()))
+    return static_cast<ConsoleFile*>(getFile())->queryEpoch(terminalEpoch(false), reading, writing);
+  return getFile() ? getFile()->queryReady(reading, writing) : ReadyInvalid;
 }
 
 ReadinessGenerations FileDescriptor::OpenFileDescription::fileReadinessGenerations() const {
-  if (file && ConsoleManager::instance().isConsole(file))
-    return static_cast<ConsoleFile*>(file)->epochGenerations(terminalEpoch(false));
-  return file ? file->readinessGenerations() : ReadinessGenerations();
+  if (getFile() && ConsoleManager::instance().isConsole(getFile()))
+    return static_cast<ConsoleFile*>(getFile())->epochGenerations(terminalEpoch(false));
+  return getFile() ? getFile()->readinessGenerations() : ReadinessGenerations();
 }
 
 FileDescriptor::TerminalOperation::TerminalOperation() = default;
@@ -154,19 +178,19 @@ SharedPointer<ConsoleIoState> FileDescriptor::terminalEpoch(bool waitForReopen) 
 }
 
 bool FileDescriptor::terminalHungUp() const {
-  if (!file || !ConsoleManager::instance().isConsole(file))
+  if (!getFile() || !ConsoleManager::instance().isConsole(getFile()))
     return false;
   auto epoch = terminalEpoch();
   return !epoch || epoch->revoked();
 }
 
 bool FileDescriptor::terminalAvailable() const {
-  return !file || (getStatusFlags() & O_PATH) || !ConsoleManager::instance().isConsole(file) ||
-         static_cast<bool>(terminalEpoch());
+  return !getFile() || (getStatusFlags() & O_PATH) ||
+         !ConsoleManager::instance().isConsole(getFile()) || static_cast<bool>(terminalEpoch());
 }
 
 bool FileDescriptor::acquireTerminalOperation(TerminalOperation& operation) const {
-  if (!file || !ConsoleManager::instance().isConsole(file))
+  if (!getFile() || !ConsoleManager::instance().isConsole(getFile()))
     return true;
   operation.state = terminalEpoch();
   return operation.state && operation.state->operations.tryAcquire(operation.operation) &&
@@ -175,16 +199,17 @@ bool FileDescriptor::acquireTerminalOperation(TerminalOperation& operation) cons
 
 uint64_t FileDescriptor::readFile(uint64_t location, uint64_t size, uintptr_t buffer,
                                   bool canBlock) {
-  if (file && ConsoleManager::instance().isConsole(file))
-    return static_cast<ConsoleFile*>(file)->readEpoch(terminalEpoch(), size, buffer, canBlock);
-  return file ? file->read(location, size, buffer, canBlock) : 0;
+  if (getFile() && ConsoleManager::instance().isConsole(getFile()))
+    return static_cast<ConsoleFile*>(getFile())->readEpoch(terminalEpoch(), size, buffer, canBlock);
+  return getFile() ? getFile()->read(location, size, buffer, canBlock) : 0;
 }
 
 uint64_t FileDescriptor::writeFile(uint64_t location, uint64_t size, uintptr_t buffer,
                                    bool canBlock) {
-  if (file && ConsoleManager::instance().isConsole(file))
-    return static_cast<ConsoleFile*>(file)->writeEpoch(terminalEpoch(), size, buffer, canBlock);
-  return file ? file->write(location, size, buffer, canBlock) : 0;
+  if (getFile() && ConsoleManager::instance().isConsole(getFile()))
+    return static_cast<ConsoleFile*>(getFile())->writeEpoch(terminalEpoch(), size, buffer,
+                                                            canBlock);
+  return getFile() ? getFile()->write(location, size, buffer, canBlock) : 0;
 }
 
 SharedPointer<NetworkSyscalls> FileDescriptor::OpenFileDescription::getNetworkImpl() const {
@@ -247,10 +272,10 @@ void FileDescriptor::OpenFileDescription::removeDescriptorOwner() {
     }
   }
   if (closeEndpoint) {
-    decreaseFileReferences(file, flags);
-    if (file && !(flags & O_PATH)) {
-      file->publishEvent((flags & O_ACCMODE) == O_RDONLY ? FileEvents::CloseNoWrite
-                                                         : FileEvents::CloseWrite);
+    decreaseFileReferences(getFile(), flags);
+    if (getFile() && !(flags & O_PATH)) {
+      getFile()->publishEvent((flags & O_ACCMODE) == O_RDONLY ? FileEvents::CloseNoWrite
+                                                              : FileEvents::CloseWrite);
     }
     if (closingNetwork) {
       closingNetwork->lastDescriptorClosed();
@@ -266,15 +291,14 @@ void FileDescriptor::OpenFileDescription::removeDescriptorOwner() {
 
 void FileDescriptor::OpenFileDescription::ensureVfsLease() {
   LockGuard<Mutex> guard(lock);
-  if (!vfsLease && file) {
-    vfsLease = file->retainVfsReference();
+  if (!path && !vfsLease && getFile()) {
+    vfsLease = getFile()->retainVfsReference();
   }
 }
 
 /// Default constructor
 FileDescriptor::FileDescriptor()
-    : file(0),
-      fd(0xFFFFFFFF),
+    : fd(0xFFFFFFFF),
       lockedFile(0),
       networkImpl(nullptr),
       epollImpl(nullptr),
@@ -287,8 +311,7 @@ FileDescriptor::FileDescriptor()
 /// Parameterised constructor
 FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, int fdFlags,
                                int flFlags, LockedFile* lf)
-    : file(newFile),
-      fd(newFd),
+    : fd(newFd),
       lockedFile(lf),
       networkImpl(nullptr),
       epollImpl(nullptr),
@@ -298,17 +321,28 @@ FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, 
       m_NetworkPublished(false),
       m_EventFdPublished(false) {
   /// \todo need a copy constructor for networkImpl
-  if (file) {
+  if (getFile()) {
 #if ENABLE_LOCKED_FILES
-    lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
+    lockedFile = g_PosixGlobalLockedFiles.lookup(getFile()->getFullPath());
 #endif
   }
 }
 
+FileDescriptor::FileDescriptor(const FilesystemPathRef& path, uint64_t newOffset, size_t newFd,
+                               int fdFlags, int flFlags, LockedFile* lf)
+    : fd(newFd),
+      lockedFile(lf),
+      networkImpl(nullptr),
+      epollImpl(nullptr),
+      ioevent(nullptr),
+      fdflags(fdFlags | ((flFlags & O_CLOEXEC) ? FD_CLOEXEC : 0)),
+      m_OpenFile(new OpenFileDescription(path, newOffset, flFlags & ~O_CLOEXEC)),
+      m_NetworkPublished(false),
+      m_EventFdPublished(false) {}
+
 /// Copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor& desc)
-    : file(desc.file),
-      fd(desc.fd),
+    : fd(desc.fd),
       lockedFile(0),
       networkImpl(desc.networkImpl),
       epollImpl(desc.epollImpl),
@@ -334,9 +368,9 @@ FileDescriptor::FileDescriptor(FileDescriptor& desc)
   if (signalFd) {
     m_SignalFdPublished = signalFd->addDescriptorOwner();
   }
-  if (file) {
+  if (getFile()) {
 #if ENABLE_LOCKED_FILES
-    lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
+    lockedFile = g_PosixGlobalLockedFiles.lookup(getFile()->getFullPath());
 #endif
   }
 
@@ -349,8 +383,7 @@ FileDescriptor::FileDescriptor(FileDescriptor& desc)
 
 /// Pointer copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor* desc)
-    : file(0),
-      fd(0),
+    : fd(0),
       lockedFile(0),
       networkImpl(nullptr),
       epollImpl(nullptr),
@@ -364,7 +397,6 @@ FileDescriptor::FileDescriptor(FileDescriptor* desc)
     return;
   }
 
-  file = desc->file;
   fd = desc->fd;
   fdflags = desc->fdflags;
   networkImpl = desc->networkImpl;
@@ -387,9 +419,9 @@ FileDescriptor::FileDescriptor(FileDescriptor* desc)
   if (signalFd) {
     m_SignalFdPublished = signalFd->addDescriptorOwner();
   }
-  if (file) {
+  if (getFile()) {
 #if ENABLE_LOCKED_FILES
-    lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
+    lockedFile = g_PosixGlobalLockedFiles.lookup(getFile()->getFullPath());
 #endif
   }
 
@@ -404,14 +436,14 @@ FileDescriptor::FileDescriptor(FileDescriptor* desc)
 FileDescriptor::~FileDescriptor() {
   unpublish();
 #if THREADS
-  retireIoEvent(file, networkImpl, ioevent);
+  retireIoEvent(getFile(), networkImpl, ioevent);
 #endif
 
-  if (file) {
+  if (getFile()) {
 #if ENABLE_LOCKED_FILES
     // Unlock the file we have a lock on, release from the global lock table
     if (lockedFile) {
-      g_PosixGlobalLockedFiles.remove(file->getFullPath());
+      g_PosixGlobalLockedFiles.remove(getFile()->getFullPath());
       lockedFile->unlock();
       delete lockedFile;
     }
@@ -582,7 +614,7 @@ SharedPointer<PosixMessageQueue> FileDescriptor::OpenFileDescription::getMqueueI
 
 void FileDescriptor::setMqueueImpl(const SharedPointer<PosixMessageQueue>& implementation) {
   LockGuard<Mutex> guard(m_OpenFile->lock);
-  assert(!file && !m_OpenFile->file);
+  assert(!getFile() && !m_OpenFile->getFile());
   assert(!m_OpenFile->mqueueImpl);
   m_OpenFile->mqueueImpl = implementation;
 }
@@ -656,25 +688,25 @@ void FileDescriptor::setOffset(uint64_t offset) {
 }
 
 uint64_t FileDescriptor::read(uint64_t size, uintptr_t buffer, bool canBlock) {
-  if (!file) {
+  if (!getFile()) {
     return 0;
   }
-  if (!file->isSeekable()) {
+  if (!getFile()->isSeekable()) {
     return readFile(0, size, buffer, canBlock && !(getStatusFlags() & O_NONBLOCK));
   }
 
   LockGuard<Mutex> guard(m_OpenFile->lock);
   const bool shouldBlock = canBlock && !(m_OpenFile->statusFlags & O_NONBLOCK);
-  uint64_t amount = file->read(m_OpenFile->offset, size, buffer, shouldBlock);
+  uint64_t amount = getFile()->read(m_OpenFile->offset, size, buffer, shouldBlock);
   m_OpenFile->offset += amount;
   return amount;
 }
 
 uint64_t FileDescriptor::write(uint64_t size, uintptr_t buffer, bool canBlock) {
-  if (!file) {
+  if (!getFile()) {
     return 0;
   }
-  if (!file->isSeekable()) {
+  if (!getFile()->isSeekable()) {
     return writeFile(0, size, buffer, canBlock && !(getStatusFlags() & O_NONBLOCK));
   }
 
@@ -682,8 +714,8 @@ uint64_t FileDescriptor::write(uint64_t size, uintptr_t buffer, bool canBlock) {
   const bool shouldBlock = canBlock && !(m_OpenFile->statusFlags & O_NONBLOCK);
   uint64_t location = m_OpenFile->offset;
   const uint64_t amount = (m_OpenFile->statusFlags & O_APPEND)
-                              ? file->append(size, buffer, location, shouldBlock)
-                              : file->write(location, size, buffer, shouldBlock);
+                              ? getFile()->append(size, buffer, location, shouldBlock)
+                              : getFile()->write(location, size, buffer, shouldBlock);
   if (amount) {
     m_OpenFile->offset = location + amount;
   }

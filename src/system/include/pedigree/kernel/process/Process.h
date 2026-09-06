@@ -24,6 +24,7 @@
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/DeferredTimeAccounting.h"
+#include "pedigree/kernel/process/FilesystemContext.h"
 #include "pedigree/kernel/process/FilesystemCredentials.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
@@ -170,7 +171,7 @@ class EXPORTED_PUBLIC Process {
   };
 
   /**
-   * Pins a tracked cwd/root File while a caller traverses from it. Filesystem
+   * Pins a tracked controlling-terminal File for a lexical operation. Filesystem
    * roots which are deliberately untracked remain borrowed and externally
    * stable. Leases are thread-affine and must remain lexical.
    */
@@ -400,14 +401,12 @@ class EXPORTED_PUBLIC Process {
     return __atomic_load_n(&m_pParent, __ATOMIC_ACQUIRE);
   }
 
-  /** Returns the borrowed current working directory. */
-  File* getCwd();
+  enum class FilesystemContextMode { Inherit, Deferred };
 
-  /** Atomically snapshots the current working directory for traversal. */
-  MUST_USE_RESULT File* acquireCwd(FileContextLease& lease) const;
-
-  /** Sets the current working directory. */
-  void setCwd(File* f);
+  FilesystemContextRef acquireFilesystemContext() const;
+  /** Install into an empty slot; failure leaves the staged owner untouched. */
+  MUST_USE_RESULT bool installFilesystemContext(FilesystemContextOwner&& context);
+  bool filesystemContextReady() const;
 
   class EXPORTED_PUBLIC ControllingTerminal {
    public:
@@ -636,15 +635,6 @@ class EXPORTED_PUBLIC Process {
     return __atomic_load_n(&m_Metadata.sharedPages, __ATOMIC_ACQUIRE);
   }
 
-  /** Set this process' root. */
-  void setRootFile(File* pFile);
-
-  /** Get this process' borrowed root. */
-  File* getRootFile() const;
-
-  /** Atomically snapshots the process root for traversal. */
-  MUST_USE_RESULT File* acquireRootFile(FileContextLease& lease) const;
-
   /**
    * Get whether this process has a shared address space with its parent.
    * Copy-on-write (i.e. not shared) is the default for processes.
@@ -675,7 +665,8 @@ class EXPORTED_PUBLIC Process {
   struct DeferredPublication {};
 
   Process(DeferredPublication);
-  Process(DeferredPublication, Process* pParent, bool bCopyOnWrite = true);
+  Process(DeferredPublication, Process* pParent, bool bCopyOnWrite = true,
+          FilesystemContextMode filesystemContext = FilesystemContextMode::Inherit);
 
   /** Makes a completely constructed Process visible to enumeration. */
   void publish();
@@ -752,13 +743,10 @@ class EXPORTED_PUBLIC Process {
   VirtualAddressSpace* m_pAddressSpace;
   /** Terminal process exit status. */
   int m_ExitStatus;
-  /**
-   * Current working directory.
-   */
+  /** Protects only the owner slots; provider calls run after unlocking. */
   mutable Mutex m_FilesystemContextLock;
-  File* m_Cwd;
-  /** Whether m_Cwd owns an existing VFS tracking reference. */
-  bool m_bCwdVfsReference;
+  FilesystemContextOwner m_FilesystemContext;
+  bool m_bFilesystemContextReady;
   /**
    * Current controlling terminal.
    */
@@ -987,12 +975,6 @@ class EXPORTED_PUBLIC Process {
 
   /** Stock kernel processes do not need timer-report worker publications. */
   bool m_bTimeAccountingReportsEnabled;
-
-  /** Root directory for this process. NULL == system-wide default. */
-  File* m_pRootFile;
-
-  /** Whether m_pRootFile owns an existing VFS tracking reference. */
-  bool m_bRootFileVfsReference;
 
   /** Is our address space shared with the parent? */
   bool m_bSharedAddressSpace;

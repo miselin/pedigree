@@ -12,10 +12,10 @@
 
 #include "PosixProcess.h"
 #include "PosixSubsystem.h"
+#include "ResolvedPath.h"
 #include "accounting-record.h"
 #include "file-syscalls.h"
 #include "modules/system/console/Console.h"
-#include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 #include "process-accounting.h"
 #include <sys/acct.h>
@@ -99,18 +99,8 @@ AccountingResult configure(const char* path) {
       return -1;
     }
     normalisePath(normalised, copied.cstr());
-    Directory::ChildLease fileLease;
-    auto* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
-    File* file = subsystem->findFileRetained(normalised, fileLease, nullptr);
-    for (size_t links = 0; file && file->isSymlink(); ++links) {
-      if (links == 40) {
-        SYSCALL_ERROR(LoopExists);
-        return -1;
-      }
-      Directory::ChildLease next;
-      file = Symlink::fromFile(file)->followLinkRetained(next);
-      fileLease.swap(next);
-    }
+    ResolvedPath fileLease;
+    File* file = findFilePath(normalised, fileLease, FilesystemPathRef(), true);
     if (!file) {
       if (!Processor::information().getCurrentThread()->getErrno())
         SYSCALL_ERROR(DoesNotExist);

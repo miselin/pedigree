@@ -204,6 +204,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /** Sets the time the file was last modified. */
   void setModifiedTime(Time::Timestamp t);
 
+  void setTimes(Time::Timestamp accessed, Time::Timestamp modified, bool changeAccessed,
+                bool changeModified);
+
   struct Attributes {
     Time::Timestamp accessed = 0;
     Time::Timestamp modified = 0;

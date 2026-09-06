@@ -10,7 +10,7 @@
 #include <limits.h>
 
 #include "file-syscalls.h"
-#include "modules/system/vfs/Symlink.h"
+#include "modules/system/vfs/MountView.h"
 
 namespace {
 struct UserHandleHeader {
@@ -106,9 +106,9 @@ bool PosixHandleTarget::resolve(int dirfd, const char* userPath, bool follow, bo
                                 bool nullAsDescriptor) {
   file = nullptr;
   pathLease.reset();
-  cwd.reset();
   descriptor.reset();
   mount.reset();
+  attachmentId = 0;
   Process* process = currentThread()->getParent();
   auto* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
   if (!subsystem) {
@@ -131,48 +131,44 @@ bool PosixHandleTarget::resolve(int dirfd, const char* userPath, bool follow, bo
   }
   const bool direct = nullTarget || !path.length();
   const bool absolute = !direct && path[0] == '/';
-  File* start = nullptr;
+  FilesystemPathRef start;
   if (!absolute) {
     if (dirfd == AT_FDCWD) {
-      start = process->acquireCwd(cwd);
-      if (!start) {
-        SYSCALL_ERROR(DoesNotExist);
-        return false;
+      if (direct) {
+        auto context = process->acquireFilesystemContext();
+        FilesystemContextSnapshot snapshot;
+        if (!context || !context->snapshot(snapshot) || !snapshot.cwd) {
+          SYSCALL_ERROR(DoesNotExist);
+          return false;
+        }
+        start = snapshot.cwd;
+        file = start->node();
       }
     } else {
       if (!subsystem->acquireFileDescriptor(dirfd, descriptor)) {
         SYSCALL_ERROR(BadFileDescriptor);
         return false;
       }
-      start = descriptor->file;
-      if (!start) {
+      file = descriptor->getFile();
+      start = descriptor->openingPath();
+      if (!file) {
         syscallError(direct ? Error::OperationNotSupported : Error::NotADirectory);
         return false;
       }
-    }
-    if (!direct && !start->isDirectory()) {
-      SYSCALL_ERROR(NotADirectory);
-      return false;
+      if (!direct && (!start || !file->isDirectory())) {
+        SYSCALL_ERROR(NotADirectory);
+        return false;
+      }
     }
   }
   if (direct) {
-    file = start;
+    pathLease.retain(start);
   } else {
     String normalised;
     normalisePath(normalised, path.cstr());
     currentThread()->setErrno(0);
-    file = findFileWithAbiFallbacks(normalised, pathLease, start);
     const bool directoryRequired = path[path.length() - 1] == '/';
-    unsigned followed = 0;
-    while (file && file->isSymlink() && (follow || directoryRequired)) {
-      if (++followed > 40) {
-        SYSCALL_ERROR(LoopExists);
-        return false;
-      }
-      Directory::ChildLease next;
-      file = Symlink::fromFile(file)->followLinkRetained(next);
-      pathLease.swap(next);
-    }
+    file = findFilePath(normalised, pathLease, start, follow || directoryRequired);
     if (!file) {
       if (!currentThread()->getErrno())
         SYSCALL_ERROR(DoesNotExist);
@@ -192,6 +188,8 @@ bool PosixHandleTarget::resolve(int dirfd, const char* userPath, bool follow, bo
     SYSCALL_ERROR(OperationNotSupported);
     return false;
   }
+  auto* view = VFS::instance().mountView();
+  attachmentId = view ? view->attachmentId(pathLease.path()) : 0;
   return true;
 }
 
@@ -206,6 +204,14 @@ int posix_name_to_handle_at(int dirfd, const char* path, void* userHandle, int* 
   PosixHandleTarget target;
   if (!target.resolve(dirfd, path, flags & AT_SYMLINK_FOLLOW, flags & AT_EMPTY_PATH))
     return completion.finish(-1);
+  if (!target.attachmentId) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return completion.finish(-1);
+  }
+  if (target.attachmentId > INT_MAX) {
+    SYSCALL_ERROR(ValueTooLarge);
+    return completion.finish(-1);
+  }
   UserHandleHeader input;
   if (!importHeader(userHandle, input, true))
     return completion.finish(-1);
@@ -220,7 +226,7 @@ int posix_name_to_handle_at(int dirfd, const char* path, void* userHandle, int* 
   const bool overflow = input.length < encoded.length;
   if (overflow)
     encoded.type = 255;
-  const int mountId = static_cast<int>(target.mount.id());
+  const int mountId = static_cast<int>(target.attachmentId);
   if (!PosixSubsystem::copyToUser(userMount, &mountId, sizeof(mountId)) ||
       !PosixSubsystem::copyToUser(userHandle, &encoded,
                                   sizeof(UserHandleHeader) + (overflow ? 0 : encoded.length))) {
@@ -242,6 +248,10 @@ int posix_open_by_handle_at(int mountfd, const void* userHandle, int flags) {
     return completion.finish(-1);
   if (!posix_effective_root()) {
     SYSCALL_ERROR(NotEnoughPermissions);
+    return completion.finish(-1);
+  }
+  if (!target.attachmentId) {
+    SYSCALL_ERROR(OperationNotSupported);
     return completion.finish(-1);
   }
   UserHandleHeader input;
@@ -280,9 +290,16 @@ int posix_open_by_handle_at(int mountfd, const void* userHandle, int flags) {
   }
   if (!VFS::checkAccess(file, access != O_WRONLY, writes, false))
     return completion.finish(-1);
+  FilesystemPathRef openedPath;
+  auto* view = VFS::instance().mountView();
+  if (!view || !view->pathForNode(target.pathLease.path(), file, openedPath)) {
+    if (!currentThread()->getErrno())
+      SYSCALL_ERROR(StaleFileHandle);
+    return completion.finish(-1);
+  }
   const int statusFlags = flags & (3 | O_APPEND | O_NONBLOCK | O_LARGEFILE);
-  auto* descriptor =
-      new FileDescriptor(file, 0, 0xffffffff, flags & O_CLOEXEC ? FD_CLOEXEC : 0, statusFlags);
+  auto* descriptor = new FileDescriptor(openedPath, 0, 0xffffffff,
+                                        flags & O_CLOEXEC ? FD_CLOEXEC : 0, statusFlags);
   if (!descriptor || !descriptor->acquireOpenFileDescription()) {
     const int result = completion.finish(posix_handle_error(FileHandleStatus::NoMemory));
     delete descriptor;

@@ -21,6 +21,7 @@
 #define MEMORY_MAPPED_FILE_H
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/FilesystemContext.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
@@ -47,9 +48,10 @@ class VirtualAddressSpace;
 class VfsUserMemoryPolicy;
 using FileResidencyAccess = bool (*)(File*, void*);
 
-struct FileMappingOrigin {
+struct EXPORTED_PUBLIC FileMappingOrigin {
   uint64_t openIdentity = 0;
   bool writableOpen = false;
+  FilesystemPathRef openingPath{};
 };
 
 /** One logical mapping attachment, retained by every surviving fragment. */

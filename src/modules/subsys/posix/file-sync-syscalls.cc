@@ -62,7 +62,7 @@ int posix_fdatasync(int fd) {
   DescriptorLease descriptor;
   if (!acquireSyncDescriptor(fd, descriptor))
     return -1;
-  File* file = descriptor->file;
+  File* file = descriptor->getFile();
   if (!file || (!file->supportsRegularFileOperations() && !file->isDirectory())) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
@@ -83,7 +83,7 @@ int posix_readahead(int fd, off_t offset, size_t count) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
-  File* file = descriptor->file;
+  File* file = descriptor->getFile();
   if (!file || !file->supportsRegularFileOperations() || offset < 0 || count > MaximumPosition) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
@@ -97,7 +97,7 @@ int posix_fadvise64(int fd, off_t offset, off_t length, int advice) {
   DescriptorLease descriptor;
   if (!acquireSyncDescriptor(fd, descriptor))
     return -1;
-  File* file = descriptor->file;
+  File* file = descriptor->getFile();
   if (file && (file->isPipe() || file->isFifo())) {
     SYSCALL_ERROR(IllegalSeek);
     return -1;
@@ -125,7 +125,7 @@ int posix_sync_file_range(int fd, off_t offset, off_t length, unsigned flags) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-  File* file = descriptor->file;
+  File* file = descriptor->getFile();
   if (!file || (!file->supportsRegularFileOperations() && !file->isDirectory())) {
     SYSCALL_ERROR(IllegalSeek);
     return -1;

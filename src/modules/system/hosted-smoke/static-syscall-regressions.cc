@@ -10,6 +10,7 @@
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixProcess.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
+#include "modules/subsys/posix/ResolvedPath.h"
 #include "modules/subsys/posix/UnixFilesystem.h"
 #include "modules/subsys/posix/epoll-syscalls.h"
 #include "modules/subsys/posix/eventfd-syscalls.h"
@@ -21,6 +22,7 @@
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
+#include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/Pipe.h"
 #include "modules/system/vfs/VFS.h"
 #undef PEDIGREE_INIT_SIGRET
@@ -33,6 +35,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -1310,7 +1313,77 @@ bool establishedFileAliasLifetime() {
   return true;
 }
 
+class ContextLifetimePath final : public FilesystemPath {
+ public:
+  explicit ContextLifetimePath(File* file) : m_File(file), m_Tracked(file->retainVfsReference()) {}
+  ~ContextLifetimePath() override {
+    if (m_Tracked)
+      m_File->releaseVfsReference();
+  }
+  File* node() const override {
+    return m_File;
+  }
+  const void* provider() const override {
+    return &Provider;
+  }
+
+ private:
+  static const char Provider;
+  File* const m_File;
+  const bool m_Tracked;
+};
+const char ContextLifetimePath::Provider = 0;
+
+class ContextLifetimeProvider final : public FilesystemContext {
+ public:
+  ContextLifetimeProvider(const FilesystemPathRef& root, const FilesystemPathRef& cwd)
+      : m_Root(root), m_Cwd(cwd) {}
+  bool snapshot(FilesystemContextSnapshot& result) const override {
+    if (!m_Registered)
+      return false;
+    result.root = m_Root;
+    result.cwd = m_Cwd;
+    result.contextGeneration = m_Generation;
+    return true;
+  }
+  bool forkForProcess(FilesystemContextOwner& result) const override {
+    if (!m_Registered || result)
+      return false;
+    auto context = FilesystemContextRef::tryAdopt(new ContextLifetimeProvider(m_Root, m_Cwd));
+    if (!context)
+      return false;
+    result = FilesystemContextOwner::adopt(pedigree_std::move(context));
+    return true;
+  }
+  void retireProcessOwner() override {
+    assert(m_Registered);
+    m_Registered = false;
+    m_Root.reset();
+    m_Cwd.reset();
+  }
+  void replace(const FilesystemPathRef& root, const FilesystemPathRef& cwd) {
+    m_Root = root;
+    m_Cwd = cwd;
+    ++m_Generation;
+  }
+
+ private:
+  FilesystemPathRef m_Root, m_Cwd;
+  uint64_t m_Generation = 1;
+  bool m_Registered = true;
+};
+
+class ContextLifetimeProcess final : public Process {
+ public:
+  explicit ContextLifetimeProcess(Process* parent)
+      : Process(DeferredPublication{}, parent, true, FilesystemContextMode::Deferred) {}
+  void publishContext() {
+    publish();
+  }
+};
+
 bool processFilesystemContextLifetime(Process* kernelProcess) {
+  TerminationDeferral lifetime;
   Atomic<size_t> cwdDestructions(0);
   Atomic<size_t> rootDestructions(0);
   Atomic<size_t> borrowedCwdDestructions(0);
@@ -1328,39 +1401,67 @@ bool processFilesystemContextLifetime(Process* kernelProcess) {
   VFS::instance().trackFile(cwd);
   VFS::instance().trackFile(root);
 
-  Process* parent = new Process(kernelProcess);
-  parent->setCwd(cwd);
-  parent->setRootFile(root);
-  Process::FileContextLease cwdSnapshot;
-  Process::FileContextLease rootSnapshot;
-  File* retainedCwd = parent->acquireCwd(cwdSnapshot);
-  File* retainedRoot = parent->acquireRootFile(rootSnapshot);
+  auto* parent = new ContextLifetimeProcess(kernelProcess);
+  auto context = FilesystemContextRef::tryAdopt(
+      new ContextLifetimeProvider(FilesystemPathRef::tryAdopt(new ContextLifetimePath(root)),
+                                  FilesystemPathRef::tryAdopt(new ContextLifetimePath(cwd))));
+  FilesystemContextRef retainedContext = context;
+  const bool installed =
+      parent->installFilesystemContext(FilesystemContextOwner::adopt(pedigree_std::move(context)));
+  if (!installed)
+    FATAL("Hosted context fixture could not prepare its process owner");
+  parent->publishContext();
+  FilesystemContextSnapshot snapshot;
+  const bool snapshotted = installed && retainedContext->snapshot(snapshot);
+  File* retainedCwd = snapshot.cwd ? snapshot.cwd->node() : nullptr;
+  File* retainedRoot = snapshot.root ? snapshot.root->node() : nullptr;
   Process* child = new Process(parent);
+  FilesystemContextSnapshot inherited;
+  auto childContext = child->acquireFilesystemContext();
+  const bool childInherited = childContext && childContext.get() != retainedContext.get() &&
+                              childContext->snapshot(inherited) && inherited.cwd == snapshot.cwd &&
+                              inherited.root == snapshot.root;
+  inherited = FilesystemContextSnapshot();
+  childContext.reset();
 
   const bool cwdNamespaceWasFinal = VFS::instance().untrackFile(cwd, false);
   const bool rootNamespaceWasFinal = VFS::instance().untrackFile(root, false);
-  parent->setCwd(borrowedCwd);
-  parent->setRootFile(borrowedRoot);
+  static_cast<ContextLifetimeProvider*>(retainedContext.get())
+      ->replace(FilesystemPathRef::tryAdopt(new ContextLifetimePath(borrowedRoot)),
+                FilesystemPathRef::tryAdopt(new ContextLifetimePath(borrowedCwd)));
   const bool borrowedCwdWasPublished = VFS::instance().untrackFile(borrowedCwd, false);
   const bool borrowedRootWasPublished = VFS::instance().untrackFile(borrowedRoot, false);
+  childContext = child->acquireFilesystemContext();
+  const bool childUnchanged = childContext && childContext->snapshot(inherited) &&
+                              inherited.cwd == snapshot.cwd && inherited.root == snapshot.root;
+  inherited = FilesystemContextSnapshot();
+  childContext.reset();
+  FilesystemContextSnapshot replacement;
+  const bool parentReplaced = retainedContext->snapshot(replacement) && replacement.cwd &&
+                              replacement.root && replacement.cwd->node() == borrowedCwd &&
+                              replacement.root->node() == borrowedRoot &&
+                              replacement.contextGeneration > snapshot.contextGeneration;
+  replacement = FilesystemContextSnapshot();
 
   delete child;
   const bool snapshotsHeldAcrossReplacement =
       retainedCwd == cwd && retainedRoot == root && !cwdDestructions && !rootDestructions;
-  cwdSnapshot.reset();
-  rootSnapshot.reset();
+  snapshot = FilesystemContextSnapshot();
   const bool inheritedReferencesReleased =
       cwdDestructions == static_cast<size_t>(1) && rootDestructions == static_cast<size_t>(1);
   delete parent;
+  const bool retired = !retainedContext->snapshot(snapshot);
+  retainedContext.reset();
   const bool borrowedReferencesSurvived = !borrowedCwdDestructions && !borrowedRootDestructions;
   delete borrowedCwd;
   delete borrowedRoot;
 
-  const bool passed = !cwdNamespaceWasFinal && !rootNamespaceWasFinal && !borrowedCwdWasPublished &&
-                      !borrowedRootWasPublished && snapshotsHeldAcrossReplacement &&
-                      inheritedReferencesReleased && borrowedReferencesSurvived &&
-                      borrowedCwdDestructions == static_cast<size_t>(1) &&
-                      borrowedRootDestructions == static_cast<size_t>(1);
+  const bool passed =
+      installed && snapshotted && childInherited && childUnchanged && parentReplaced && retired &&
+      !cwdNamespaceWasFinal && !rootNamespaceWasFinal && !borrowedCwdWasPublished &&
+      !borrowedRootWasPublished && snapshotsHeldAcrossReplacement && inheritedReferencesReleased &&
+      borrowedReferencesSurvived && borrowedCwdDestructions == static_cast<size_t>(1) &&
+      borrowedRootDestructions == static_cast<size_t>(1);
   if (!passed) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL process-filesystem-context-lifetime: "
@@ -1518,52 +1619,56 @@ bool mappingManagerSplitLifetime(Process* process) {
 
 bool posixPathLookupLifetime(Process* kernelProcess) {
   Filesystem* priorRoot = VFS::instance().getRootFilesystem();
-  if (priorRoot) {
-    ERROR(
-        "HOSTED-SYSCALL-TEST: FAIL posix-path-lookup-lifetime: "
-        "the isolated pathname fixture requires an empty hosted root namespace");
+  auto* priorView = VFS::instance().mountView();
+  VFS::HostedRootViewScope fixture;
+  UnixFilesystem* testFilesystem = new UnixFilesystem;
+  if (!fixture.open(testFilesystem)) {
+    delete testFilesystem;
     return false;
   }
-  UnixFilesystem* testFilesystem = new UnixFilesystem;
-  Filesystem* displacedRoot = VFS::instance().swapRootFilesystemForHostedTest(testFilesystem);
-  const bool rootInstalled = displacedRoot == priorRoot;
-  File* root = testFilesystem->getRoot();
+  FilesystemPathRef rootPath;
+  const bool rootInstalled = fixture.view()->bootRootPath(rootPath);
+  const String name("hosted-established-alias-path-cache");
   const String path("/hosted-established-alias-path-cache");
-  VFS::instance().remove(path, root);
-  const bool created = VFS::instance().createFile(path, 0600, root);
+  const bool created = rootInstalled && fixture.view()->createFile(rootPath, name, 0600);
 
-  Process* process = new Process(kernelProcess);
+  Process* process =
+      new PosixProcess(kernelProcess, true, Process::FilesystemContextMode::Deferred);
   PosixSubsystem* subsystem = new PosixSubsystem;
   process->setSubsystem(subsystem);
   subsystem->setAbi(PosixSubsystem::LinuxAbi);
-
-  File* original = created ? subsystem->findFile(path, root) : nullptr;
-  if (original) {
-    VFS::instance().trackFile(original);
-  }
-
-  const bool originalRemoved = original && VFS::instance().remove(path, root);
-  const bool recreated = originalRemoved && VFS::instance().createFile(path, 0600, root);
-
-  File* replacement = recreated ? VFS::instance().find(path, root) : nullptr;
-  File* resolved = recreated ? subsystem->findFile(path, root) : nullptr;
+  const bool contextInstalled = fixture.installContext(*process);
+  ResolvedPath originalLease, resolvedLease;
+  File* original = created && contextInstalled
+                       ? subsystem->findFileRetained(path, originalLease, rootPath)
+                       : nullptr;
+  const bool originalRemoved = original && fixture.view()->remove(rootPath, name, original);
+  const bool recreated = originalRemoved && fixture.view()->createFile(rootPath, name, 0600);
+  Directory::ChildLease replacementLease;
+  File* replacement = nullptr;
+  if (recreated && Directory::fromFile(rootPath->node())
+                           ->lookupChild(HashedStringView(name), replacementLease) ==
+                       Directory::LookupStatus::Found)
+    replacement = replacementLease.get();
+  File* resolved = recreated ? subsystem->findFileRetained(path, resolvedLease, rootPath) : nullptr;
   const bool resolvedReplacement =
       replacement && replacement != original && resolved == replacement;
-
-  File* remaining = VFS::instance().find(path, root);
-  const bool pathCleaned = !remaining || VFS::instance().remove(path, root);
+  const bool pathCleaned = replacement && fixture.view()->remove(rootPath, name, replacement);
+  replacementLease.reset();
+  resolvedLease.reset();
+  originalLease.reset();
+  rootPath.reset();
   delete process;
-  if (original) {
-    VFS::instance().untrackFile(original);
-  }
-
-  Filesystem* removedRoot = VFS::instance().swapRootFilesystemForHostedTest(priorRoot);
-  const bool rootRestored = removedRoot == testFilesystem;
+  const bool rootRestored = fixture.close();
+  if (!rootRestored)
+    FATAL("Hosted pathname fixture retained owners after teardown");
+  const bool previousRestored =
+      VFS::instance().getRootFilesystem() == priorRoot && VFS::instance().mountView() == priorView;
   delete testFilesystem;
 
-  const bool passed = rootInstalled && created && original && originalRemoved && recreated &&
-                      resolvedReplacement && pathCleaned && rootRestored;
-
+  const bool passed = rootInstalled && contextInstalled && created && original && originalRemoved &&
+                      recreated && resolvedReplacement && pathCleaned && rootRestored &&
+                      previousRestored;
   if (!passed) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL posix-path-lookup-lifetime: "

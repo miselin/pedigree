@@ -5,16 +5,16 @@
 #include "pedigree/kernel/process/Process.h"
 
 #include "PosixSubsystem.h"
+#include "ResolvedPath.h"
 #include "modules/system/vfs/VFS.h"
 
 class PosixHandleTarget {
  public:
-  // Mount admission must outlive destruction of every retained File owner.
+  ResolvedPath pathLease;
   VFS::MountOperation mount;
   DescriptorLease descriptor;
-  Process::FileContextLease cwd;
-  Directory::ChildLease pathLease;
   File* file = nullptr;
+  uint64_t attachmentId = 0;
 
   bool resolve(int dirfd, const char* path, bool follow, bool allowEmpty,
                bool nullAsDescriptor = false);

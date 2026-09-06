@@ -6,12 +6,15 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 106 of 113 backlog entries implemented; 7 remain.
+Current checkpoint: 113 of 113 backlog entries implemented; 0 remain.
+Every audited entry has working behavior within the scope recorded below. This
+completes the minimum-implementation backlog; unsupported Linux flags, policies
+and backends remain explicit limits.
 
-Work proceeds by families, starting with IPC, then timers and signal integration,
+Implementation proceeded by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
-Simple queries and aliases follow the larger ownership and blocking contracts.
-Linux administration and isolation remain explicit work items; an error-only
+Simple queries and aliases followed the larger ownership and blocking contracts.
+Linux administration and isolation have bounded implementations; an error-only
 placeholder or unconditional success is not implementation evidence.
 
 Each completed pass receives a local commit. Queue, timer, and process-interface
@@ -19,6 +22,58 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Mount identity, pivot and file metadata
+
+pivot_root operates on retained mount attachments. Processes own typed root/cwd
+contexts, and open descriptions, file mappings and executable mappings retain the
+attachment used at lookup. Pivot changes attachment edges and exact old-root
+contexts atomically; descendant cwd and existing open files keep their selected
+tree. One shared mount view is supported; propagation and new mount namespaces
+remain outside this implementation.
+
+mount supports fresh tmpfs/ramfs, proc and disabled selinuxfs with flags/data zero.
+umount2 now performs real normal or lazy detachment. Normal unmount rejects live
+paths, mappings and child mounts. Lazy detach removes visibility while retaining
+storage until the last path and in-flight operation retire. Fresh owned backends
+then leave the registry and are deleted; shared backends keep their external
+ownership. Retirement callbacks run outside publication locks and can safely
+reenter pin/operation reset. Mount reports expose view-relative paths and stable
+attachment IDs; filesystem type is reported as unknown where the backend has no
+type API. Unsupported mount policy, stacking and propagation fail explicitly.
+
+Path resolution retains directory and symlink targets, checks traversal access,
+honors root boundaries and preserves opening identity through proc descriptor
+links. Symlink expansion is iterative, uses fallible heap storage and permits
+forty links. Topology retries discard stale errors after their temporary owners
+retire. /dev/tty is resolved inside the caller's view before selecting the
+controlling terminal. The pivot fixture restores the original root before success.
+
+truncate, lchown, utimensat, statx, fchmodat2 and mknodat share retained-path
+resolution and ordinary file metadata helpers. They support directory descriptors,
+O_PATH and applicable empty/no-follow modes without reparsing a selected file.
+truncate preserves descriptor offsets. Timestamp updates preserve omitted fields,
+update ctime and use the backend's whole-second uint32 range; two OMIT values are
+a no-op. statx writes the exact initialized 256-byte amd64 record, advertises
+supported basic fields and attachment MNT_ID, and leaves unsupported fields zero.
+Ownership changes use checked quota transfer, including ctime-only -1/-1 updates.
+
+mknodat creates regular files and live named FIFOs with actual FIFO I/O. FIFOs use
+existing ephemeral entries, including on Ext2; persistent FIFO inodes and quota
+charging for those ephemeral entries are not claimed. Device/socket-node creation
+and set-ID modes remain unsupported. File capability limits and unsupported flags
+are explicit errors, not claims of complete Linux behavior.
+
+Verification passed 37 routing/ABI checks, 178 focused native tests and six mount
+ownership tests under AddressSanitizer. Full images and hosted components built;
+35 affected hosted syscall/fixture sources compiled. Actual Darwin hosted core,
+storage and swap lifecycles passed. All 355 affected image source/object pairs
+were current, and 864 strong POSIX imports had available exports. Fresh one- and
+four-CPU headless guests passed all 53 suites in 513.3 and 346.3 seconds, including
+metadata on RAM and Ext2 and pivot with root restoration. A separate focused guest
+passed those three new suites in 41.7 seconds. Shared build settings were restored.
+Full logs, exact commands, image identities and verification results are in
+/private/tmp/pedigree-final-syscalls-20260906/verification.json.
 
 ## Anonymous swap, system information and execution personality
 

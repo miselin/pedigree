@@ -683,6 +683,12 @@ pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/PipeBuffer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/PipeBuffer-transfer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Symlink.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MountView.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MountView-path.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MountView-mounts.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MountView-report.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MountView-entries.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/VFS-mount-view.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/VFS.cc)
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
@@ -891,6 +897,10 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/eventfd-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/FileDescriptor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-metadata.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/metadata-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/mknodat-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/mount-view-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-sync-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/global-sync-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/filesystem-capability-syscalls.cc

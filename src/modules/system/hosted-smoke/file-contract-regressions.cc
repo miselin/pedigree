@@ -263,13 +263,13 @@ int contractWorker(void* parameter) {
 
 bool runHostedFileContractRegressions(Process* kernelProcess) {
   Filesystem* priorRoot = VFS::instance().getRootFilesystem();
-  if (priorRoot) {
-    ERROR("HOSTED-SYSCALL-TEST: FAIL file-contracts: fixture requires an empty root namespace");
+  auto* priorView = VFS::instance().mountView();
+  VFS::HostedRootViewScope fixture;
+  UnixFilesystem* filesystem = new UnixFilesystem;
+  if (!fixture.open(filesystem)) {
+    delete filesystem;
     return false;
   }
-
-  UnixFilesystem* filesystem = new UnixFilesystem;
-  Filesystem* displacedRoot = VFS::instance().swapRootFilesystemForHostedTest(filesystem);
   File* root = filesystem->getRoot();
   UnixDirectory* directory = static_cast<UnixDirectory*>(Directory::fromFile(root));
   ContractFile* file = new ContractFile(filesystem, root);
@@ -281,11 +281,12 @@ bool runHostedFileContractRegressions(Process* kernelProcess) {
   writeOnly->setPermissions(FILE_UW);
   const bool writeOnlyAdded = directory->addEntry(writeOnly->getName(), writeOnly);
 
-  PosixProcess* process = new PosixProcess(kernelProcess);
+  PosixProcess* process =
+      new PosixProcess(kernelProcess, true, Process::FilesystemContextMode::Deferred);
   PosixSubsystem* subsystem = new PosixSubsystem;
   process->setSubsystem(subsystem);
   subsystem->setAbi(PosixSubsystem::LinuxAbi);
-  process->setCwd(root);
+  const bool contextInstalled = fixture.installContext(*process);
   process->setUserId(200);
   process->setEffectiveUserId(200);
   subsystem->addFileDescriptor(ReadDescriptor,
@@ -301,7 +302,7 @@ bool runHostedFileContractRegressions(Process* kernelProcess) {
   ContractContext context(file);
   Thread* worker = new Thread(process, contractWorker, &context, nullptr, false, true, true);
   worker->setName("hosted file contracts");
-  const bool started = fileAdded && writeOnlyAdded && displacedRoot == priorRoot && worker->start();
+  const bool started = fileAdded && writeOnlyAdded && contextInstalled && worker->start();
   const bool joined = started && worker->joinForCompletion();
   if (!started) {
     delete worker;
@@ -309,10 +310,12 @@ bool runHostedFileContractRegressions(Process* kernelProcess) {
   bool passed = started && joined && context.returned == 1 && context.denied && context.allowed &&
                 context.open && context.metadata && context.writeErrors;
   subsystem->freeMultipleFds();
-  process->setCwd(nullptr);
   delete process;
-  Filesystem* removedRoot = VFS::instance().swapRootFilesystemForHostedTest(priorRoot);
-  passed = removedRoot == filesystem && passed;
+  const bool rootRestored = fixture.close();
+  if (!rootRestored)
+    FATAL("Hosted filesystem fixture retained owners after teardown");
+  passed = rootRestored && VFS::instance().getRootFilesystem() == priorRoot &&
+           VFS::instance().mountView() == priorView && passed;
   delete filesystem;
 
   if (!passed) {

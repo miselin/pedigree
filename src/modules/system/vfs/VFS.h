@@ -28,6 +28,7 @@
 #include "pedigree/kernel/process/WaitQueue.h"
 #endif
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/FilesystemCredentials.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
@@ -40,12 +41,15 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "Filesystem.h"
+#include "pedigree/kernel/process/FilesystemContext.h"
 
+class Process;
 class Disk;
 class File;
 class StringView;
 class VfsMountState;
 class VfsFilesystemPin;
+class VfsMountView;
 
 /** Set to zero to disable the builtin VFS LRU caches. */
 #define VFS_WITH_LRU_CACHES 0
@@ -53,6 +57,25 @@ class VfsFilesystemPin;
 /** This class implements a single-root virtual filesystem namespace. */
 class EXPORTED_PUBLIC VFS {
  public:
+  class EXPORTED_PUBLIC NamespaceMutation {
+   public:
+    explicit NamespaceMutation(VFS& vfs);
+    ~NamespaceMutation();
+    uint64_t generation() const;
+    bool protects(const VFS& vfs) const { return &m_Vfs == &vfs; }
+
+   private:
+    NamespaceMutation(const NamespaceMutation&) = delete;
+    NamespaceMutation& operator=(const NamespaceMutation&) = delete;
+    VFS& m_Vfs;
+    LockGuard<Mutex> m_Lock;
+  };
+
+  /** Odd while a namespace writer owns admission; readers never hold it for I/O. */
+  uint64_t namespaceGeneration() const;
+  VfsMountView* mountView() const;
+  bool initialiseMountView();
+
   static Module::UnloadAdmission unloadAdmission(bool terminal);
   class MountOperation;
   class FilesystemPin;
@@ -127,6 +150,33 @@ class EXPORTED_PUBLIC VFS {
     SharedPointer<VfsFilesystemPin> m_Pin;
   };
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  class EXPORTED_PUBLIC HostedRootViewScope {
+   public:
+    HostedRootViewScope();
+    ~HostedRootViewScope();
+    bool open(Filesystem* filesystem);
+    bool installContext(Process& process);
+    bool close();
+    VfsMountView* view() const {
+      return m_View;
+    }
+
+   private:
+    HostedRootViewScope(const HostedRootViewScope&) = delete;
+    HostedRootViewScope& operator=(const HostedRootViewScope&) = delete;
+    TerminationDeferral m_Lifetime;
+    VFS& m_Vfs;
+    Filesystem* m_Filesystem = nullptr;
+    Filesystem* m_PreviousRoot = nullptr;
+    VfsMountView* m_PreviousView = nullptr;
+    VfsMountView* m_View = nullptr;
+    FilesystemPin m_PreviousRootPin;
+    FilesystemContextRef m_PreviousContext;
+    bool m_Installed = false;
+  };
+#endif
+
   bool pinFilesystem(Filesystem* key, FilesystemPin& pin) const;
   bool diskMount(uint32_t id, MountIdentity& identity) const;
   bool snapshotDiskMounts(Vector<MountIdentity>& mounts) const;
@@ -174,6 +224,9 @@ class EXPORTED_PUBLIC VFS {
    * reject unregistration without changing publication or closing admission.
    */
   bool unregisterFilesystem(Filesystem* pFs, bool canDelete = true);
+  /** Surrenders an attachment-owned registration. Existing admissions drain
+      asynchronously; the last release deletes the backend outside VFS locks. */
+  bool retireOwnedFilesystem(Filesystem* filesystem);
 
   /** Select the filesystem that supplies the root namespace. */
   bool setRootFilesystem(Filesystem* pFs);
@@ -357,6 +410,9 @@ class EXPORTED_PUBLIC VFS {
   /** A static File object representing an invalid file */
   static File* m_EmptyFile;
 
+  mutable Mutex m_PathMutationLock;
+  uint64_t m_PathGeneration;
+  VfsMountView* m_MountView;
   mutable Mutex m_MountMutationLock;
   mutable Mutex m_MountTableLock;
 

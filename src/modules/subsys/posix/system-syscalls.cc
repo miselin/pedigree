@@ -552,6 +552,15 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     return -1;
   }
 
+  // Enrollment precedes MM admission. Pivot updates this unpublished context
+  // too; any rollback retires its owner after the mapping guard has unwound.
+  FilesystemContextOwner childFilesystem;
+  auto parentFilesystem = pParentProcess->acquireFilesystemContext();
+  if (!parentFilesystem || !parentFilesystem->forkForProcess(childFilesystem)) {
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
+
   // Inhibit signals to the parent
   for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; sig++)
     Processor::information().getCurrentThread()->inhibitEvent(sig, true);
@@ -561,7 +570,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   {
     // PTEs, raw allocation inventory, and managed metadata describe one snapshot.
     MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
-    pProcess = new PosixProcess(pParentProcess);
+    pProcess = new PosixProcess(pParentProcess, true, Process::FilesystemContextMode::Deferred);
     if (!pProcess || !pProcess->jobControlReady()) {
       delete pProcess;
       for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; sig++)
@@ -618,6 +627,9 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
       return -1;
     }
   }
+
+  if (!pProcess->installFilesystemContext(pedigree_std::move(childFilesystem)))
+    FATAL("Fork could not install its prepared filesystem context");
 
   // Copy the file descriptors from the parent
   pSubsystem->copyDescriptors(pParentSubsystem);

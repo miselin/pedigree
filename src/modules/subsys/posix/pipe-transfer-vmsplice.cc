@@ -198,13 +198,14 @@ ssize_t posix_vmsplice(int fd, const struct iovec* userVectors, size_t vectorCou
       return -1;
     if (!total)
       return 0;
-    if (!descriptor->file || !(descriptor->file->isPipe() || descriptor->file->isFifo())) {
+    if (!descriptor->getFile() ||
+        !(descriptor->getFile()->isPipe() || descriptor->getFile()->isFifo())) {
       SYSCALL_ERROR(BadFileDescriptor);
       return -1;
     }
     const size_t maximum = total < PipeBuffer::Capacity ? total : PipeBuffer::Capacity;
     // Linux vmsplice uses its explicit NONBLOCK flag, not the OFD status bit.
-    return vmspliceCopy(thread, Pipe::fromFile(descriptor->file), writing, vectors.get(),
+    return vmspliceCopy(thread, Pipe::fromFile(descriptor->getFile()), writing, vectors.get(),
                         vectorCount, maximum, !(flags & Nonblock), pipeSignal);
   }();
   const size_t error = result < 0 ? thread->getErrno() : 0;

@@ -463,10 +463,6 @@ class SchedulerExitSubsystem : public Subsystem {
     return false;
   }
 
-  File* findFile(const String&, File*) override {
-    return nullptr;
-  }
-
  private:
   SchedulerExitContext& m_Context;
 };

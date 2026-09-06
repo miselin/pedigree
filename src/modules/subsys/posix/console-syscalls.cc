@@ -93,7 +93,7 @@ int console_tcgetattr(const DescriptorLease& pFd, struct termios* p) {
     return -1;
   }
 
-  if (!ConsoleManager::instance().isConsole(pFd->file)) {
+  if (!ConsoleManager::instance().isConsole(pFd->getFile())) {
     // Error - not a TTY.
     SYSCALL_ERROR(NotAConsole);
     F_NOTICE(" -> ENOTTY");
@@ -104,7 +104,7 @@ int console_tcgetattr(const DescriptorLease& pFd, struct termios* p) {
   termios_compatible* pc = &attributes;
 
   size_t flags;
-  ConsoleManager::instance().getAttributes(pFd->file, &flags);
+  ConsoleManager::instance().getAttributes(pFd->getFile(), &flags);
 
   pc->c_iflag = ((flags & ConsoleManager::IMapNLToCR) ? INLCR : 0) |
                 ((flags & ConsoleManager::IMapCRToNL) ? ICRNL : 0) |
@@ -123,7 +123,7 @@ int console_tcgetattr(const DescriptorLease& pFd, struct termios* p) {
                 ((flags & ConsoleManager::LGenerateEvent) ? ISIG : 0);
 
   char controlChars[MAX_CONTROL_CHAR] = {0};
-  ConsoleManager::instance().getControlChars(pFd->file, controlChars);
+  ConsoleManager::instance().getControlChars(pFd->getFile(), controlChars);
 
   // c_cc is of type cc_t, but we don't want to expose that type to
   // ConsoleManager. By doing this conversion, we can use whatever type we
@@ -216,7 +216,7 @@ int console_tcsetattr(const DescriptorLease& pFd, int optional_actions, struct t
     return -1;
   }
 
-  if (!ConsoleManager::instance().isConsole(pFd->file)) {
+  if (!ConsoleManager::instance().isConsole(pFd->getFile())) {
     // Error - not a TTY.
     SYSCALL_ERROR(NotAConsole);
     F_NOTICE(" -> ENOTTY");
@@ -254,12 +254,12 @@ int console_tcsetattr(const DescriptorLease& pFd, int optional_actions, struct t
     flags |= ConsoleManager::LGenerateEvent;
   NOTICE("TCSETATTR: " << Hex << flags);
   /// \todo Sanity checks.
-  ConsoleManager::instance().setAttributes(pFd->file, flags);
+  ConsoleManager::instance().setAttributes(pFd->getFile(), flags);
 
   char controlChars[MAX_CONTROL_CHAR] = {0};
   for (size_t i = 0; i < controlCount; ++i)
     controlChars[i] = pc->c_cc[i];
-  ConsoleManager::instance().setControlChars(pFd->file, controlChars);
+  ConsoleManager::instance().setControlChars(pFd->getFile(), controlChars);
 
   return 0;
 }
@@ -310,15 +310,15 @@ int console_ptsname(int fd, char* buf) {
     return -1;
   }
 
-  if (!ConsoleManager::instance().isConsole(pFd->file)) {
+  if (!ConsoleManager::instance().isConsole(pFd->getFile())) {
     // Error - not a TTY.
     SYSCALL_ERROR(NotAConsole);
     return -1;
   }
 
-  File* slave = pFd->file;
+  File* slave = pFd->getFile();
   if (ConsoleManager::instance().isMasterConsole(slave)) {
-    slave = ConsoleManager::instance().getOther(pFd->file);
+    slave = ConsoleManager::instance().getOther(pFd->getFile());
   } else {
     return -1;
   }
@@ -348,13 +348,13 @@ int console_ttyname(int fd, char* buf) {
     return -1;
   }
 
-  if (!ConsoleManager::instance().isConsole(pFd->file)) {
+  if (!ConsoleManager::instance().isConsole(pFd->getFile())) {
     // Error - not a TTY.
     SYSCALL_ERROR(NotAConsole);
     return -1;
   }
 
-  File* tty = pFd->file;
+  File* tty = pFd->getFile();
   String path("/dev/pts/");
   path += tty->getName();
   if (!PosixSubsystem::copyToUser(buf, path.cstr(), path.length() + 1)) {
@@ -380,11 +380,11 @@ int console_setctty(int fd, bool steal) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
-  if (!ConsoleManager::instance().isConsole(descriptor->file)) {
+  if (!ConsoleManager::instance().isConsole(descriptor->getFile())) {
     SYSCALL_ERROR(NotAConsole);
     return -1;
   }
-  return TerminalControl::attach(*static_cast<ConsoleFile*>(descriptor->file), steal, false,
+  return TerminalControl::attach(*static_cast<ConsoleFile*>(descriptor->getFile()), steal, false,
                                  descriptor->terminalEpoch());
 }
 
@@ -396,11 +396,11 @@ int posix_tcsetpgrp(int fd, pid_t group) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
-  if (!ConsoleManager::instance().isConsole(descriptor->file)) {
+  if (!ConsoleManager::instance().isConsole(descriptor->getFile())) {
     SYSCALL_ERROR(NotAConsole);
     return -1;
   }
-  return TerminalControl::setForeground(*static_cast<ConsoleFile*>(descriptor->file), group,
+  return TerminalControl::setForeground(*static_cast<ConsoleFile*>(descriptor->getFile()), group,
                                         descriptor->terminalEpoch());
 }
 
@@ -412,11 +412,11 @@ pid_t posix_tcgetpgrp(int fd) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
-  if (!ConsoleManager::instance().isConsole(descriptor->file)) {
+  if (!ConsoleManager::instance().isConsole(descriptor->getFile())) {
     SYSCALL_ERROR(NotAConsole);
     return -1;
   }
-  return TerminalControl::foreground(*static_cast<ConsoleFile*>(descriptor->file),
+  return TerminalControl::foreground(*static_cast<ConsoleFile*>(descriptor->getFile()),
                                      descriptor->terminalEpoch());
 }
 
@@ -438,13 +438,13 @@ unsigned int console_getptn(int fd) {
     return ~0U;
   }
 
-  if (!ConsoleManager::instance().isConsole(pFd->file)) {
+  if (!ConsoleManager::instance().isConsole(pFd->getFile())) {
     SYSCALL_ERROR(NotAConsole);
     F_NOTICE(" -> not a console!");
     return ~0U;
   }
 
-  ConsoleFile* pConsole = static_cast<ConsoleFile*>(pFd->file);
+  ConsoleFile* pConsole = static_cast<ConsoleFile*>(pFd->getFile());
   size_t result = pConsole->getConsoleNumber();
   if (result == ~0U) {
     // special case, it's a Console attached to a physical terminal instead

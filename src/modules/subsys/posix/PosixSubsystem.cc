@@ -53,6 +53,7 @@
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/LockedFile.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
+#include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 #include "mqueue-syscalls.h"
@@ -84,6 +85,7 @@ extern void pedigree_init_sigret();
 extern void pedigree_init_pthreads();
 
 struct PosixSubsystem::ExecutableImage {
+  FilesystemPathRef openingPath;
   File* file = nullptr;
   size_t fileSize = 0;
   Elf::ExecutableMetadata metadata{};
@@ -1809,12 +1811,12 @@ void PosixSubsystem::preserveProcessSignalsForThreadExit(Thread* thread) {
 }
 
 void PosixSubsystem::retireDescriptor(FileDescriptor* descriptor) {
-  if (descriptor->file) {
-    posix_advisory_descriptor_closed(m_AdvisoryOwner, descriptor->file->futexIdentity());
+  if (descriptor->getFile()) {
+    posix_advisory_descriptor_closed(m_AdvisoryOwner, descriptor->getFile()->futexIdentity());
   }
   // Queue descriptors have no VFS backing. File retirement must not wait for
   // an in-flight operation holding the shared file-position mutex.
-  if (!descriptor->file) {
+  if (!descriptor->getFile()) {
     SharedPointer<PosixMessageQueue> queue = descriptor->getMqueueImpl();
     if (queue && m_pProcess) {
       posix_mqueue_close(queue.get(), m_pProcess->getId());
@@ -1878,7 +1880,7 @@ void PosixSubsystem::threadRemoved(Thread* pThread) {
 
 bool PosixSubsystem::checkAccess(const DescriptorLease& pFileDescriptor, bool bRead, bool bWrite,
                                  bool bExecute) const {
-  return VFS::checkAccess(pFileDescriptor->file, bRead, bWrite, bExecute);
+  return VFS::checkAccess(pFileDescriptor->getFile(), bRead, bWrite, bExecute);
 }
 
 bool PosixSubsystem::prepareExecutable(File* pFile, ExecutableImage& image, bool isInterpreter) {
@@ -2056,8 +2058,12 @@ bool PosixSubsystem::loadElf(const ExecutableImage& image, uintptr_t& loadBias) 
 
     PS_NOTICE(image.file->getName()
               << " PHDR[" << i << "]: @" << Hex << base << " -> " << base + length);
-    if (!MemoryMapManager::instance().mapFile(image.file, base, length, mappingPerms, fileOffset,
-                                              true)) {
+    const FileMappingOrigin origin{0, false, image.openingPath};
+    if (!MemoryMapManager::instance().mapFile(
+            image.file, base, length, mappingPerms, fileOffset, true,
+            MemoryMapManager::Placement::FixedReplace, nullptr,
+            MemoryMappedObject::Read | MemoryMappedObject::Write | MemoryMappedObject::Exec,
+            SharedPointer<MappingAttachment>(), MemoryLockMode::None, origin)) {
       ERROR("PosixSubsystem::loadElf: failed to map PT_LOAD section");
       return false;
     }
@@ -2092,58 +2098,63 @@ bool PosixSubsystem::loadElf(const ExecutableImage& image, uintptr_t& loadBias) 
   return true;
 }
 
-File* PosixSubsystem::findFile(const String& path, File* workingDir) {
-  Process::FileContextLease workingDirLease;
-  if (workingDir == nullptr) {
-    assert(m_pProcess);
-    workingDir = m_pProcess->acquireCwd(workingDirLease);
-    if (!workingDir) {
-      return nullptr;
-    }
-  }
-
-  bool mountAwareAbi = getAbi() != PosixSubsystem::LinuxAbi;
-
-  // Non-mount-aware ABIs resolve absolute paths from the root filesystem,
-  // independent of the current working directory.
-  if (mountAwareAbi || (path[0] != '/')) {
-    // no fall back for mount-aware ABIs (e.g. Pedigree's ABI)
-    // or it's a non-absolute path on a non-mount-aware ABI, and therefore
-    // needs to be based on the working directory - not a different FS
-    return VFS::instance().find(path, workingDir);
-  }
-
-  // fall back to the current root filesystem
-  Filesystem* rootFs = VFS::instance().getRootFilesystem();
-  if (rootFs) {
-    return VFS::instance().find(path, rootFs->getRoot());
-  }
-
-  return nullptr;
+ResolvedPath::~ResolvedPath() {
+  reset();
 }
 
-File* PosixSubsystem::findFileRetained(const String& path, Directory::ChildLease& result,
-                                       File* workingDir) {
-  Process::FileContextLease workingDirLease;
-  if (workingDir == nullptr) {
-    assert(m_pProcess);
-    workingDir = m_pProcess->acquireCwd(workingDirLease);
-    if (!workingDir) {
-      return nullptr;
-    }
-  }
+void ResolvedPath::reset() {
+  Thread* thread = Processor::information().getCurrentThread();
+  const size_t error = thread ? thread->getErrno() : 0;
+  m_Path.reset();
+  if (thread)
+    thread->setErrno(error);
+}
 
-  const bool mountAwareAbi = getAbi() != PosixSubsystem::LinuxAbi;
-  if (mountAwareAbi || (path[0] != '/')) {
-    return VFS::instance().findRetained(path, result, workingDir);
-  }
+void ResolvedPath::retain(const FilesystemPathRef& path) {
+  if (m_Path.get() == path.get())
+    return;
+  auto retired = pedigree_std::move(m_Path);
+  m_Path = path;
+  Thread* thread = Processor::information().getCurrentThread();
+  const size_t error = thread ? thread->getErrno() : 0;
+  retired.reset();
+  if (thread)
+    thread->setErrno(error);
+}
 
-  Filesystem* rootFs = VFS::instance().getRootFilesystem();
-  if (rootFs) {
-    return VFS::instance().findRetained(path, result, rootFs->getRoot());
+File* PosixSubsystem::findFileRetained(const String& path, ResolvedPath& result,
+                                       const FilesystemPathRef& workingDir, bool followFinal) {
+  auto context = m_pProcess ? m_pProcess->acquireFilesystemContext() : FilesystemContextRef();
+  auto* view = VFS::instance().mountView();
+  if (!context || !view) {
+    SYSCALL_ERROR(DoesNotExist);
+    return nullptr;
   }
+  FilesystemPathRef selected;
+  VfsMountView::ResolveOptions options;
+  options.followFinal = followFinal;
+  if (!view->resolve(context, workingDir, path, options, selected))
+    return nullptr;
+  result.retain(selected);
+  syscallError(0);
+  return result.get();
+}
 
-  return nullptr;
+File* PosixSubsystem::followFile(ResolvedPath& selected) {
+  if (!selected) {
+    SYSCALL_ERROR(DoesNotExist);
+    return nullptr;
+  }
+  if (!selected.get()->isSymlink())
+    return selected.get();
+  auto context = m_pProcess ? m_pProcess->acquireFilesystemContext() : FilesystemContextRef();
+  auto* view = VFS::instance().mountView();
+  FilesystemPathRef followed;
+  if (!context || !view || !view->follow(context, selected.path(), followed))
+    return nullptr;
+  selected.retain(followed);
+  syscallError(0);
+  return selected.get();
 }
 
 #define STACK_PUSH(stack, value) *--stack = value
@@ -2240,35 +2251,22 @@ bool PosixSubsystem::parseShebang(File* pFile, String& interpreter, String& opti
   return true;
 }
 
-static File* traverseForInvoke(File* pFile, Directory::ChildLease& lease) {
-  // Do symlink traversal.
-  Tree<File*, File*> loopDetect;
-  while (pFile && pFile->isSymlink()) {
-    Directory::ChildLease nextLease;
-    pFile = Symlink::fromFile(pFile)->followLinkRetained(nextLease);
-    if (pFile) {
-      lease.swap(nextLease);
-      if (loopDetect.lookup(pFile)) {
-        SYSCALL_ERROR(LoopExists);
-        return nullptr;
-      }
-      loopDetect.insert(pFile, pFile);
-    }
-  }
-  if (!pFile) {
-    PS_NOTICE("PosixSubsystem::invoke: symlink traversal failed");
+static File* executableFile(File* file) {
+  if (!file) {
     SYSCALL_ERROR(DoesNotExist);
-    return 0;
+    return nullptr;
   }
-
-  // Check for directory.
-  if (pFile->isDirectory()) {
-    PS_NOTICE("PosixSubsystem::invoke: target is a directory");
+  if (file->isDirectory()) {
     SYSCALL_ERROR(IsADirectory);
-    return 0;
+    return nullptr;
   }
-
-  return pFile;
+  // File-only callers must supply an already-selected target. Traversal needs
+  // the opening attachment and cannot be reconstructed from an inode pointer.
+  if (file->isSymlink()) {
+    SYSCALL_ERROR(ExecFormatError);
+    return nullptr;
+  }
+  return file;
 }
 
 bool PosixSubsystem::invoke(const char* name, Vector<String>& argv, Vector<String>& env,
@@ -2277,15 +2275,15 @@ bool PosixSubsystem::invoke(const char* name, Vector<String>& argv, Vector<Strin
   String originalName(name);
 
   // Try and find the target file we want to invoke.
-  Directory::ChildLease originalLease;
-  File* originalFile = findFileRetained(originalName, originalLease, nullptr);
+  ResolvedPath originalLease;
+  File* originalFile = findFileRetained(originalName, originalLease, FilesystemPathRef(), true);
   if (!originalFile) {
     PS_NOTICE("PosixSubsystem::invoke: could not find file '" << originalName << "'");
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
 
-  return invoke(originalFile, originalName, argv, env, state);
+  return invoke(originalFile, originalName, argv, env, state, false, originalLease.path());
 }
 
 bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vector<String>& argv,
@@ -2304,9 +2302,17 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   return invoke(originalFile, originalName, argv, env, &state, descriptorPathInaccessible);
 }
 
+bool PosixSubsystem::invoke(const FilesystemPathRef& originalPath, const String& originalName,
+                            Vector<String>& argv, Vector<String>& env, SyscallState& state,
+                            bool descriptorPathInaccessible) {
+  return invoke(originalPath ? originalPath->node() : nullptr, originalName, argv, env, &state,
+                descriptorPathInaccessible, originalPath);
+}
+
 bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vector<String>& argv,
                             Vector<String>& env, SyscallState* state,
-                            bool descriptorPathInaccessible) {
+                            bool descriptorPathInaccessible,
+                            const FilesystemPathRef& originalPath) {
   PS_NOTICE("PosixSubsystem::invoke(" << originalName << ")");
 
   uint8_t execRandom[16];
@@ -2331,10 +2337,10 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     return false;
   }
 
-  Directory::ChildLease originalTargetLease;
-  originalFile = traverseForInvoke(originalFile, originalTargetLease);
+  ResolvedPath originalTargetLease;
+  originalTargetLease.retain(originalPath);
+  originalFile = executableFile(originalFile);
   if (!originalFile) {
-    // traverseForInvoke does a SYSCALL_ERROR for us
     return false;
   }
 
@@ -2393,8 +2399,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
       resolvedInterpreter = normalisedInterpreter;
     }
 
-    Directory::ChildLease nextLease;
-    File* shebangFile = findFileRetained(resolvedInterpreter, nextLease, nullptr);
+    ResolvedPath nextLease;
+    File* shebangFile = findFileRetained(resolvedInterpreter, nextLease, FilesystemPathRef(), true);
     if (!shebangFile) {
       PS_NOTICE("PosixSubsystem::invoke: could not find shebang interpreter '"
                 << resolvedInterpreter << "'");
@@ -2402,7 +2408,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
       return false;
     }
 
-    shebangFile = traverseForInvoke(shebangFile, nextLease);
+    shebangFile = executableFile(shebangFile);
     if (!shebangFile) {
       return false;
     }
@@ -2441,7 +2447,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     }
   }
 
-  Directory::ChildLease interpreterLease;
+  ResolvedPath interpreterLease;
   File* interpreterFile = 0;
 
   // A failed validation path must restore both event and termination
@@ -2450,6 +2456,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   Uninterruptible execCriticalSection;
 
   ExecutableImage originalImage;
+  originalImage.openingPath = originalTargetLease.path();
   if (!prepareExecutable(originalFile, originalImage, false)) {
     return false;
   }
@@ -2466,8 +2473,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     }
 
     // Ensure we can actually find the interpreter.
-    interpreterFile = findFileRetained(interpreter, interpreterLease, nullptr);
-    interpreterFile = traverseForInvoke(interpreterFile, interpreterLease);
+    interpreterFile = findFileRetained(interpreter, interpreterLease, FilesystemPathRef(), true);
+    interpreterFile = executableFile(interpreterFile);
     if (!interpreterFile) {
       PS_NOTICE("PosixSubsystem::invoke: could not find interpreter '" << interpreter << "'");
       return false;
@@ -2478,6 +2485,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     }
     allExecutableFilesReadable &= posix_exec_file_readable(interpreterFile);
 
+    interpreterImage.openingPath = interpreterLease.path();
     if (!prepareExecutable(interpreterFile, interpreterImage, true)) {
       return false;
     }

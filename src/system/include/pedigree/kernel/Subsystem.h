@@ -164,9 +164,6 @@ class EXPORTED_PUBLIC Subsystem {
   virtual bool invoke(File* originalFile, const String& originalName, Vector<String>& argv,
                       Vector<String>& env, SyscallState& state) = 0;
 
-  /** Finds a file, performing any subsystem-specific logic as needed. */
-  virtual File* findFile(const String& path, File* workingDir) = 0;
-
  protected:
   /** Preserves process state after exec admission closes and before peers exit. */
   virtual void prepareThreadsForExec(Thread* owner) {}

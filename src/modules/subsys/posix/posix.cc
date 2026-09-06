@@ -33,6 +33,7 @@
 #include "UnixFilesystem.h"
 #include "modules/Module.h"
 #include "modules/system/ramfs/RamFs.h"
+#include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "modules/system/vfs/VFS.h"
 #include "net-syscalls.h"
@@ -67,7 +68,7 @@ UnixFilesystem* g_pUnixFilesystem = 0;
 static RamFs* g_pRunFilesystem = 0;
 
 DevFs* g_pDevFs = 0;
-static ProcFs* g_pProcFs = 0;
+ProcFs* g_pProcFs = 0;
 
 enum class PosixTerminalLifetimeState {
   Unowned,
@@ -234,6 +235,13 @@ static bool terminalQuiesce() {
 #endif
 
   posix_stop_accounting();
+  if (auto* view = VFS::instance().mountView()) {
+    // A surviving attachment path keeps both its backend and this module mapped.
+    Filesystem* backings[] = {g_pUnixFilesystem, g_pProcFs, g_pDevFs, g_pRunFilesystem};
+    for (auto* backing : backings)
+      if (backing && !view->detachBackingForShutdown(backing))
+        return false;
+  }
   g_PosixTerminalLifetime = PosixTerminalLifetimeState::Quiesced;
 
 #if THREADS && HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -286,36 +294,42 @@ static bool init() {
   // exposing it at a conventional path.
   VFS::instance().createDirectory(String("/media/posix-runtime/sockets"), 0755);
 
-  // Expose the system filesystems at their conventional FHS locations. Their
-  // primary mount records remain visible under /media.
-  struct reparse {
-    String path;
-    File* target;
-  } reparses[] = {
-      {String("/dev"), g_pDevFs->getRoot()},
-      {String("/run"), g_pRunFilesystem->getRoot()},
-      {String("/run/sockets"), g_pUnixFilesystem->getRoot()},
-      {String("/var/run"), g_pRunFilesystem->getRoot()},
-      {String("/proc"), g_pProcFs->getRoot()},
-      {String("/tmp"), scratchfs ? scratchfs->getRoot() : 0},
-  };
-
-  for (auto& p : reparses) {
-    if (!p.target) {
-      continue;
-    }
-
-    File* point = VFS::instance().find(p.path);
-    if (point && point->isDirectory()) {
-      Directory* pDir = Directory::fromFile(point);
-      pDir->setReparsePoint(Directory::fromFile(p.target));
-    }
-  }
-
   if (!KernelElf::instance().registerTerminalQuiesce(&init, &terminalQuiesce)) {
     return false;
   }
   g_PosixTerminalLifetime = PosixTerminalLifetimeState::HookOwned;
+
+  if (!VFS::instance().initialiseMountView())
+    return false;
+  auto* view = VFS::instance().mountView();
+  FilesystemContextOwner bootstrap;
+  if (!view->createBootContext(bootstrap))
+    return false;
+  auto context = bootstrap.reference();
+  struct Attachment {
+    const char* path;
+    Filesystem* backing;
+  } attachments[] = {{"/dev", g_pDevFs},
+                     {"/run", g_pRunFilesystem},
+                     {"/run/sockets", g_pUnixFilesystem},
+                     {"/var/run", g_pRunFilesystem},
+                     {"/proc", g_pProcFs},
+                     {"/tmp", scratchfs}};
+  VfsMountView::ResolveOptions options;
+  options.requireDirectory = true;
+  options.crossFinalMount = false;
+  for (const auto& attachment : attachments) {
+    if (!attachment.backing)
+      continue;
+    FilesystemPathRef covered;
+    if (!view->resolve(context, FilesystemPathRef(), String(attachment.path), options, covered) ||
+        !view->attach(context, covered, attachment.backing))
+      return false;
+  }
+  if (!Processor::information().getCurrentThread()->getParent()->installFilesystemContext(
+          pedigree_std::move(bootstrap)))
+    return false;
+
 #if X64 && PEDIGREE_VM_REMAP_TESTS
   NOTICE("VM-REMAP-CORE: BEGIN");
   if (!x64RemapCoreRegression()) {
@@ -384,16 +398,6 @@ static void destroy() {
     // ownership and therefore must not terminate another module's processes.
     if (!retireUnownedSyscallRegistrations(g_PosixSyscallManager)) {
       FATAL("Partial POSIX syscall handlers could not be retired safely.");
-    }
-  }
-
-  if (g_pRunFilesystem || g_pUnixFilesystem || g_pProcFs || g_pDevFs) {
-    const char* reparsePaths[] = {"/run/sockets", "/var/run", "/run", "/proc", "/dev"};
-    for (const char* path : reparsePaths) {
-      File* point = VFS::instance().find(String(path));
-      if (point && point->isDirectory()) {
-        Directory::fromFile(point)->setReparsePoint(nullptr);
-      }
     }
   }
 

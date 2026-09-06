@@ -31,6 +31,7 @@
 
 #include "Directory.h"
 #include "File.h"
+#include "MountView.h"
 #include "Symlink.h"
 #include "VFS.h"
 
@@ -83,28 +84,12 @@ class InodeRetirementDrain {
 
 class TrueRootLease {
  public:
-  explicit TrueRootLease(Filesystem* filesystem)
-#if !defined(VFS_STANDALONE) && THREADS
-      : m_ProcessLease(), m_pRoot(filesystem->getRoot()) {
-    Process* process = Processor::information().getCurrentThread()->getParent();
-    File* processRoot = process->acquireRootFile(m_ProcessLease);
-    if (processRoot) {
-      m_pRoot = processRoot;
-    }
-  }
-#else
-      : m_pRoot(filesystem->getRoot()) {
-  }
-#endif
-
+  explicit TrueRootLease(Filesystem* filesystem) : m_pRoot(filesystem->getRoot()) {}
   File* get() const {
     return m_pRoot;
   }
 
  private:
-#if !defined(VFS_STANDALONE) && THREADS
-  Process::FileContextLease m_ProcessLease;
-#endif
   File* m_pRoot;
 };
 
@@ -375,7 +360,6 @@ bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringV
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
-  InodeRetirementDrain retirement;
   TrueRootLease rootLease(this);
   if (!oldStart) {
     oldStart = rootLease.get();
@@ -404,6 +388,15 @@ bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringV
   if (retained) {
     newParentLease.adopt(retained);
   }
+  return renameChildren(
+      oldParentFile, oldName, newParentFile, newName, noReplace,
+      oldPath[oldPath.length() - 1] == '/' || newPath[newPath.length() - 1] == '/');
+}
+
+bool Filesystem::renameChildren(File* oldParentFile, const String& oldName, File* newParentFile,
+                                const String& newName, bool noReplace, bool sourceMustBeDirectory) {
+  InodeRetirementDrain retirement;
+  VFS::NamespaceMutation namespaceWriter(VFS::instance());
   if (!oldParentFile || !newParentFile) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
@@ -482,8 +475,7 @@ bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringV
       (source == replaced || (source->getInode() && source->getInode() == replaced->getInode()))) {
     return true;
   }
-  if ((oldPath[oldPath.length() - 1] == '/' && !source->isDirectory()) ||
-      (newPath[newPath.length() - 1] == '/' && !source->isDirectory())) {
+  if (sourceMustBeDirectory && !source->isDirectory()) {
     SYSCALL_ERROR(NotADirectory);
     return false;
   }
@@ -494,8 +486,11 @@ bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringV
   Directory* sourceDirectory = source->isDirectory() ? Directory::fromFile(source) : nullptr;
   Directory* replacedDirectory =
       replaced && replaced->isDirectory() ? Directory::fromFile(replaced) : nullptr;
-  if ((sourceDirectory && sourceDirectory->getReparsePoint()) ||
-      (replacedDirectory && replacedDirectory->getReparsePoint())) {
+  auto* view = VFS::instance().mountView();
+  if ((sourceDirectory && (view ? view->isMountpoint(sourceDirectory)
+                                : sourceDirectory->getReparsePoint() != nullptr)) ||
+      (replacedDirectory && (view ? view->isMountpoint(replacedDirectory)
+                                  : replacedDirectory->getReparsePoint() != nullptr))) {
     SYSCALL_ERROR(DeviceBusy);
     return false;
   }
@@ -600,6 +595,7 @@ bool Filesystem::renameNode(Directory*, const String&, File*, Directory*, const 
 
 bool Filesystem::removeChild(File* parent, const String& filename, File* expected) {
   InodeRetirementDrain retirement;
+  VFS::NamespaceMutation namespaceWriter(VFS::instance());
   LockGuard<Mutex> structureGuard(m_StructureLock);
   if (!parent || !parent->isDirectory()) {
     SYSCALL_ERROR(NotADirectory);
@@ -636,6 +632,12 @@ bool Filesystem::removeChild(File* parent, const String& filename, File* expecte
   }
   if (expected && target.get() != expected) {
     SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+
+  auto* view = VFS::instance().mountView();
+  if (view && view->isMountpoint(target.get())) {
+    SYSCALL_ERROR(DeviceBusy);
     return false;
   }
 

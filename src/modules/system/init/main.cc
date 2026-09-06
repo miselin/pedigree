@@ -30,6 +30,8 @@
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixProcess.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
+#include "modules/subsys/posix/ResolvedPath.h"
+#include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/VFS.h"
 #if HOSTED
 #include "pedigree/kernel/processor/hosted/smoke.h"
@@ -54,9 +56,22 @@ static void error(const char* s) {
   str.clear();
 }
 
+static File* resolveBootPath(const String& name, ResolvedPath& result) {
+  auto context =
+      Processor::information().getCurrentThread()->getParent()->acquireFilesystemContext();
+  auto* view = VFS::instance().mountView();
+  FilesystemPathRef selected;
+  VfsMountView::ResolveOptions options;
+  if (!view || !context || !view->resolve(context, FilesystemPathRef(), name, options, selected))
+    return nullptr;
+  result.retain(selected);
+  return result.get();
+}
+
 static int init_stage2(void* param) {
   EMIT_IF(HOSTED) {
-    if (!HOSTED_SMOKE_TESTS || !VFS::instance().find(String("/.pedigree-root"))) {
+    ResolvedPath marker;
+    if (!HOSTED_SMOKE_TESTS || !resolveBootPath(String("/.pedigree-root"), marker)) {
       extern void system_reset();
       NOTICE("Hosted build has no smoke-test root; shutting down.");
       system_reset();
@@ -76,6 +91,7 @@ static int init_stage2(void* param) {
   bool tryingLinux = false;
   bool directHostedSmokeCommand = false;
 
+  ResolvedPath executable;
   File* file = 0;
 
   String init_path;
@@ -85,14 +101,14 @@ static int init_stage2(void* param) {
 #endif
   init_path.assign(directHostedSmokeCommand ? "/usr/bin/hosted-smoke-command" : "/usr/bin/init");
   NOTICE("Searching for userspace program at " << init_path);
-  file = VFS::instance().find(init_path);
+  file = resolveBootPath(init_path, executable);
   if (!file && !directHostedSmokeCommand) {
     WARNING("Did not find " << init_path << ", trying for a Linux userspace...");
     init_path.assign("/sbin/init");
     tryingLinux = true;
 
     NOTICE("Searching for Linux init at " << init_path);
-    file = VFS::instance().find(init_path);
+    file = resolveBootPath(init_path, executable);
   }
 
   if (!file) {
@@ -134,7 +150,7 @@ static int init_stage2(void* param) {
   Process::setInit(pProcess);
 
   NOTICE("Invoking userspace program at " << init_path);
-  if (!pProcess->getSubsystem()->invoke(file, init_path, argv, env)) {
+  if (!pProcess->getSubsystem()->invoke(init_path.cstr(), argv, env)) {
     error("failed to load userspace program");
   }
 
@@ -144,7 +160,8 @@ static int init_stage2(void* param) {
 static bool init() {
 #if THREADS
   EMIT_IF(HOSTED) {
-    if (!HOSTED_SMOKE_TESTS || !VFS::instance().find(String("/.pedigree-root"))) {
+    ResolvedPath marker;
+    if (!HOSTED_SMOKE_TESTS || !resolveBootPath(String("/.pedigree-root"), marker)) {
       extern void system_reset();
       NOTICE("Hosted build has no smoke-test root; shutting down.");
       system_reset();
@@ -154,17 +171,25 @@ static bool init() {
 
   // Resolve the only fallible prerequisite before a PosixProcess constructor
   // registers its hardware IntervalTimer callback.
-  File* pNull = VFS::instance().find(String("/dev/null"));
-  if (!pNull) {
+  ResolvedPath nullPath;
+  auto context =
+      Processor::information().getCurrentThread()->getParent()->acquireFilesystemContext();
+  auto* view = VFS::instance().mountView();
+  FilesystemPathRef selectedNull;
+  VfsMountView::ResolveOptions options;
+  if (!view || !context ||
+      !view->resolve(context, FilesystemPathRef(), String("/dev/null"), options, selectedNull)) {
     error("/dev/null does not exist");
     return false;
   }
+
+  nullPath.retain(selectedNull);
 
   // Create a new process for the init process.
   PosixProcess* pProcess =
       new PosixProcess(Processor::information().getCurrentThread()->getParent());
 
-  if (!pProcess || !pProcess->jobControlReady()) {
+  if (!pProcess || !pProcess->jobControlReady() || !pProcess->filesystemContextReady()) {
     delete pProcess;
     error("Unable to initialise the process session");
     return false;
@@ -178,7 +203,6 @@ static bool init() {
   }
 
   pProcess->description() = "init";
-  pProcess->setCwd(VFS::instance().find(String("/")));
   pProcess->setCttyContext(SharedPointer<Process::ControllingTerminal>());
 
   PosixSubsystem* pSubsystem = new PosixSubsystem;
@@ -190,8 +214,8 @@ static bool init() {
   pProcess->setSubsystem(pSubsystem);
 
   // add an empty stdout, stdin
-  FileDescriptor* stdinDescriptor = new FileDescriptor(pNull, 0, 0, 0, O_RDONLY);
-  FileDescriptor* stdoutDescriptor = new FileDescriptor(pNull, 0, 1, 0, O_WRONLY);
+  FileDescriptor* stdinDescriptor = new FileDescriptor(nullPath.path(), 0, 0, 0, O_RDONLY);
+  FileDescriptor* stdoutDescriptor = new FileDescriptor(nullPath.path(), 0, 1, 0, O_WRONLY);
 
   pSubsystem->addFileDescriptor(0, stdinDescriptor);
   pSubsystem->addFileDescriptor(1, stdoutDescriptor);

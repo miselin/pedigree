@@ -27,8 +27,8 @@
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/process/eventNumbers.h"
@@ -42,6 +42,7 @@
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
+#include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 
@@ -182,28 +183,18 @@ void pedigree_config_get_error_message(size_t resultIdx, char* buf, int buflen) 
 
 // Load a module
 void pedigree_module_load(char* _file) {
-  // Attempt to find the file, first!
+  TerminationDeferral lifetime;
   Process* process = Processor::information().getCurrentThread()->getParent();
-  Process::FileContextLease cwdLease;
-  File* cwd = process->acquireCwd(cwdLease);
-  Directory::ChildLease fileLease;
-  Directory::ChildLease targetLease;
-  File* file = VFS::instance().findRetained(String(_file), fileLease, cwd);
-  if (!file) {
-    // Error - not found.
+  auto context = process->acquireFilesystemContext();
+  auto* view = VFS::instance().mountView();
+  FilesystemPathRef selected;
+  VfsMountView::ResolveOptions options;
+  if (!view || !context ||
+      !view->resolve(context, FilesystemPathRef(), String(_file), options, selected)) {
     SYSCALL_ERROR(DoesNotExist);
     return;
   }
-
-  while (file->isSymlink()) {
-    targetLease.reset();
-    file = Symlink::fromFile(file)->followLinkRetained(targetLease);
-    fileLease.swap(targetLease);
-    if (!file) {
-      SYSCALL_ERROR(DoesNotExist);
-      return;
-    }
-  }
+  File* file = selected->node();
 
   if (file->isDirectory()) {
     // Error - is directory.

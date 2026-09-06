@@ -51,7 +51,9 @@
 #include "linux-amd64-signal.h"
 #include "logging.h"
 #include "memfd-syscalls.h"
+#include "metadata-syscalls.h"
 #include "module-syscalls.h"
+#include "mount-view-syscalls.h"
 #include "mqueue-syscalls.h"
 #include "namespace-syscalls.h"
 #include "net-syscalls.h"
@@ -141,12 +143,6 @@ uintptr_t PosixSyscallManager::call(uintptr_t function, uintptr_t p1, uintptr_t 
 uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
   uint64_t syscallNumber = state.getSyscallNumber();
   const bool linuxAbi = state.getSyscallService() == linuxCompat;
-
-  if (linuxAbi && syscallNumber == PedigreeLinuxAmd64Syscall_umount2) {
-    // Pedigree has no Linux mount namespace to detach from. Treating an
-    // absent Linux mount as already detached keeps legacy init usable.
-    return 0;
-  }
 
   uintptr_t base = 0;
   if (linuxAbi) {
@@ -260,6 +256,26 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_sysinfo(reinterpret_cast<void*>(p1));
     case POSIX_PERSONALITY:
       return posix_personality(static_cast<unsigned long>(p1));
+    case POSIX_PIVOT_ROOT:
+      return posix_pivot_root(reinterpret_cast<const char*>(p1), reinterpret_cast<const char*>(p2));
+    case POSIX_TRUNCATE:
+      return posix_truncate(reinterpret_cast<const char*>(p1), static_cast<off_t>(p2));
+    case POSIX_LCHOWN:
+      return posix_lchown(reinterpret_cast<const char*>(p1), static_cast<uid_t>(p2),
+                          static_cast<gid_t>(p3));
+    case POSIX_UTIMENSAT:
+      return posix_utimensat(static_cast<int>(p1), reinterpret_cast<const char*>(p2),
+                             reinterpret_cast<const void*>(p3), static_cast<int>(p4));
+    case POSIX_STATX:
+      return posix_statx(static_cast<int>(p1), reinterpret_cast<const char*>(p2),
+                         static_cast<int>(p3), static_cast<unsigned>(p4),
+                         reinterpret_cast<void*>(p5));
+    case POSIX_FCHMODAT2:
+      return posix_fchmodat2(static_cast<int>(p1), reinterpret_cast<const char*>(p2),
+                             static_cast<mode_t>(p3), static_cast<int>(p4));
+    case POSIX_MKNODAT:
+      return posix_mknodat(static_cast<int>(p1), reinterpret_cast<const char*>(p2),
+                           static_cast<mode_t>(p3), static_cast<dev_t>(p4));
     case POSIX_WAITPID:
       return posix_waitpid(p1, reinterpret_cast<int*>(p2), p3,
                            linuxAbi ? reinterpret_cast<LinuxRusage64*>(p4) : nullptr);
@@ -1018,11 +1034,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
                          reinterpret_cast<const char*>(p3), p4, reinterpret_cast<const void*>(p5));
     }
     case POSIX_UMOUNT2:
-      // Pedigree does not expose Linux mount namespaces. The legacy
-      // init path uses this to detach mounts which are not present in
-      // the Pedigree namespace, so treating it as already detached
-      // lets the rest of userspace continue booting.
-      return 0;
+      return posix_umount2(reinterpret_cast<const char*>(p1), static_cast<int>(p2));
     case POSIX_SETTIMEOFDAY:
       return posix_settimeofday(reinterpret_cast<const struct timeval*>(p1),
                                 reinterpret_cast<const struct timezone*>(p2));

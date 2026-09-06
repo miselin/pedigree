@@ -42,6 +42,7 @@ class EXPORTED_PUBLIC Filesystem {
 
   /** VFS can access nAliases */
   friend class VFS;
+  friend class VfsMountView;
 
  public:
   enum class SyncStatus { Success, Unsupported, NoMemory, IoError };
@@ -176,6 +177,8 @@ class EXPORTED_PUBLIC Filesystem {
   static Mutex m_StructureLock;
   /** Resolve and remove one child at a namespace-locked linearization point. */
   bool removeChild(File* parent, const String& filename, File* expected);
+  bool renameChildren(File* oldParent, const String& oldName, File* newParent,
+                      const String& newName, bool noReplace, bool sourceMustBeDirectory);
 
   /** Internal function to find a node - Returns 0 on failure or the node.
       \param pNode The node to start parsing 'path' from.

@@ -411,8 +411,8 @@ Process::Process(DeferredPublication)
       m_pAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
       m_ExitStatus(0),
       m_FilesystemContextLock(),
-      m_Cwd(0),
-      m_bCwdVfsReference(false),
+      m_FilesystemContext(),
+      m_bFilesystemContextReady(true),
       m_Ctty(),
       m_SpaceAllocator(false),
       m_DynamicSpaceAllocator(false),
@@ -455,8 +455,6 @@ Process::Process(DeferredPublication)
       m_DeferredTimeAccounting(),
       m_TimeAccountingReports(),
       m_bTimeAccountingReportsEnabled(false),
-      m_pRootFile(0),
-      m_bRootFileVfsReference(false),
       m_bSharedAddressSpace(false) {
   resetCounts();
   m_Metadata.startTime = Time::getTimeNanoseconds();
@@ -469,7 +467,8 @@ Process::Process(Process* pParent, bool bCopyOnWrite)
   publish();
 }
 
-Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
+Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
+                 FilesystemContextMode filesystemContext)
     : m_Threads(),
       m_NextTid(0),
       m_Id(Scheduler::instance().reserveProcessId()),
@@ -478,8 +477,8 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
       m_pAddressSpace(0),
       m_ExitStatus(0),
       m_FilesystemContextLock(),
-      m_Cwd(0),
-      m_bCwdVfsReference(false),
+      m_FilesystemContext(),
+      m_bFilesystemContextReady(true),
       m_Ctty(),
       m_SpaceAllocator(false),
       m_DynamicSpaceAllocator(false),
@@ -522,8 +521,6 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
       m_DeferredTimeAccounting(),
       m_TimeAccountingReports(),
       m_bTimeAccountingReportsEnabled(false),
-      m_pRootFile(0),
-      m_bRootFileVfsReference(false),
       m_bSharedAddressSpace(!bCopyOnWrite) {
   UserReservationSnapshot inheritedReservations;
   if (!pParent->snapshotUserReservations(inheritedReservations)) {
@@ -536,20 +533,13 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
     TerminationDeferral filesystemContextDeferral;
     LockGuard<Mutex> guard(pParent->m_FilesystemContextLock);
     m_Ctty = pParent->m_Ctty;
-    m_Cwd = pParent->m_Cwd;
-    m_pRootFile = pParent->m_pRootFile;
-    if (m_Cwd && pParent->m_bCwdVfsReference) {
-      m_bCwdVfsReference = m_Cwd->retainVfsReference();
-      if (!m_bCwdVfsReference) {
-        FATAL("Process failed to inherit its parent's tracked cwd");
-      }
-    }
-    if (m_pRootFile && pParent->m_bRootFileVfsReference) {
-      m_bRootFileVfsReference = m_pRootFile->retainVfsReference();
-      if (!m_bRootFileVfsReference) {
-        FATAL("Process failed to inherit its parent's tracked root file");
-      }
-    }
+  }
+  if (filesystemContext == FilesystemContextMode::Inherit) {
+    auto parentContext = pParent->acquireFilesystemContext();
+    if (parentContext)
+      m_bFilesystemContextReady = parentContext->forkForProcess(m_FilesystemContext);
+  } else {
+    m_bFilesystemContextReady = false;
   }
 
   // Resource counters describe the inherited address space, but forked CPU
@@ -570,6 +560,28 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
   } else {
     str += "<F>";  // F for forked.
   }
+}
+
+FilesystemContextRef Process::acquireFilesystemContext() const {
+  LockGuard<Mutex> guard(m_FilesystemContextLock);
+  return m_FilesystemContext.reference();
+}
+
+bool Process::installFilesystemContext(FilesystemContextOwner&& context) {
+  if (!context)
+    return false;
+  LockGuard<Mutex> guard(m_FilesystemContextLock);
+  if (m_FilesystemContext)
+    return false;
+  // The old slot is empty, so moving ownership cannot invoke provider code.
+  m_FilesystemContext = pedigree_std::move(context);
+  m_bFilesystemContextReady = true;
+  return true;
+}
+
+bool Process::filesystemContextReady() const {
+  LockGuard<Mutex> guard(m_FilesystemContextLock);
+  return m_bFilesystemContextReady;
 }
 
 namespace {
@@ -630,92 +642,6 @@ bool Process::setCtty(File* file) {
     return false;
   setCttyContext(context);
   return true;
-}
-
-File* Process::getCwd() {
-  return __atomic_load_n(&m_Cwd, __ATOMIC_ACQUIRE);
-}
-
-File* Process::acquireCwd(FileContextLease& lease) const {
-  FileContextLease replacement;
-  {
-    LockGuard<Mutex> guard(m_FilesystemContextLock);
-    File* file = m_Cwd;
-    bool retained = false;
-    if (file && m_bCwdVfsReference) {
-      retained = file->retainVfsReference();
-      if (!retained) {
-        FATAL("Process lost its tracked cwd ownership");
-      }
-    }
-    replacement.adopt(file, retained);
-  }
-  lease.swap(replacement);
-  return lease.get();
-}
-
-void Process::setCwd(File* file) {
-  TerminationDeferral filesystemContextDeferral;
-  File* previous = nullptr;
-  bool releasePrevious = false;
-  {
-    LockGuard<Mutex> guard(m_FilesystemContextLock);
-    const bool retained = file && file->retainVfsReference();
-    if (file && !retained && !file->isStableVfsRoot()) {
-      FATAL("Process cannot publish an untracked cwd that is not a filesystem root");
-    }
-    previous = m_Cwd;
-    releasePrevious = m_bCwdVfsReference;
-    __atomic_store_n(&m_Cwd, file, __ATOMIC_RELEASE);
-    m_bCwdVfsReference = retained;
-  }
-
-  if (releasePrevious) {
-    previous->releaseVfsReference();
-  }
-}
-
-File* Process::getRootFile() const {
-  return __atomic_load_n(&m_pRootFile, __ATOMIC_ACQUIRE);
-}
-
-File* Process::acquireRootFile(FileContextLease& lease) const {
-  FileContextLease replacement;
-  {
-    LockGuard<Mutex> guard(m_FilesystemContextLock);
-    File* file = m_pRootFile;
-    bool retained = false;
-    if (file && m_bRootFileVfsReference) {
-      retained = file->retainVfsReference();
-      if (!retained) {
-        FATAL("Process lost its tracked root-file ownership");
-      }
-    }
-    replacement.adopt(file, retained);
-  }
-  lease.swap(replacement);
-  return lease.get();
-}
-
-void Process::setRootFile(File* file) {
-  TerminationDeferral filesystemContextDeferral;
-  File* previous = nullptr;
-  bool releasePrevious = false;
-  {
-    LockGuard<Mutex> guard(m_FilesystemContextLock);
-    const bool retained = file && file->retainVfsReference();
-    if (file && !retained && !file->isStableVfsRoot()) {
-      FATAL("Process cannot publish an untracked root that is not a filesystem root");
-    }
-    previous = m_pRootFile;
-    releasePrevious = m_bRootFileVfsReference;
-    __atomic_store_n(&m_pRootFile, file, __ATOMIC_RELEASE);
-    m_bRootFileVfsReference = retained;
-  }
-
-  if (releasePrevious) {
-    previous->releaseVfsReference();
-  }
 }
 
 void Process::enableTimeAccountingReports() {
@@ -787,6 +713,8 @@ void Process::closeDeferredTimeAccounting() {
 }
 
 void Process::publish() {
+  if (!filesystemContextReady())
+    FATAL("Process published before filesystem-context preparation completed");
   if (m_bPublished) {
     FATAL("Process::publish() called more than once.");
   }
@@ -987,27 +915,12 @@ Process::~Process() {
   if (m_pSubsystem)
     delete m_pSubsystem;
 
-  File* cwd = nullptr;
-  File* rootFile = nullptr;
-  bool releaseCwd = false;
-  bool releaseRootFile = false;
+  FilesystemContextOwner retiredFilesystemContext;
   {
     LockGuard<Mutex> guard(m_FilesystemContextLock);
-    cwd = m_Cwd;
-    rootFile = m_pRootFile;
-    releaseCwd = m_bCwdVfsReference;
-    releaseRootFile = m_bRootFileVfsReference;
-    m_Cwd = nullptr;
-    m_pRootFile = nullptr;
-    m_bCwdVfsReference = false;
-    m_bRootFileVfsReference = false;
+    retiredFilesystemContext = pedigree_std::move(m_FilesystemContext);
   }
-  if (releaseCwd) {
-    cwd->releaseVfsReference();
-  }
-  if (releaseRootFile) {
-    rootFile->releaseVfsReference();
-  }
+  retiredFilesystemContext.reset();
 
   VirtualAddressSpace& VAddressSpace = Processor::information().getVirtualAddressSpace();
 

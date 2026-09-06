@@ -37,6 +37,7 @@
 #include "pedigree/kernel/utilities/UnlikelyLock.h"
 #include "pedigree/kernel/utilities/Vector.h"
 
+#include "ResolvedPath.h"
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixMemoryLockAccount.h"
 #include "modules/subsys/posix/logging.h"
@@ -714,11 +715,14 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   bool invoke(File* originalFile, const String& originalName, Vector<String>& argv,
               Vector<String>& env, SyscallState& state, bool descriptorPathInaccessible);
 
-  virtual File* findFile(const String& path, File* workingDir);
+  bool invoke(const FilesystemPathRef& originalPath, const String& originalName,
+              Vector<String>& argv, Vector<String>& env, SyscallState& state,
+              bool descriptorPathInaccessible = false);
 
-  /** Find a file while retaining its VFS lifetime in result. */
-  virtual File* findFileRetained(const String& path, Directory::ChildLease& result,
-                                 File* workingDir);
+  File* findFileRetained(const String& path, ResolvedPath& result,
+                         const FilesystemPathRef& workingDir = FilesystemPathRef(),
+                         bool followFinal = false);
+  File* followFile(ResolvedPath& selected);
 
   /** Retrieves the currently-active ABI for the subsystem. */
   Abi getAbi() const {
@@ -748,7 +752,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   /** Invokes the given command - actual implementation. */
   bool invoke(File* originalFile, const String& originalName, Vector<String>& argv,
-              Vector<String>& env, SyscallState* state, bool descriptorPathInaccessible = false);
+              Vector<String>& env, SyscallState* state, bool descriptorPathInaccessible = false,
+              const FilesystemPathRef& originalPath = FilesystemPathRef());
 
   /** Parse a bounded shebang line, if present. */
   bool parseShebang(File* pFile, String& interpreter, String& optionalArgument,

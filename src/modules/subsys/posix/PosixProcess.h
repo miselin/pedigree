@@ -131,7 +131,8 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   PosixProcess();
 
   /** Copy constructor. */
-  PosixProcess(Process* pParent, bool bCopyOnWrite = true);
+  PosixProcess(Process* pParent, bool bCopyOnWrite = true,
+               FilesystemContextMode filesystemContext = FilesystemContextMode::Inherit);
   virtual ~PosixProcess();
 
   /**

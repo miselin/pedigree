@@ -276,6 +276,10 @@ pedigree_app(sysinfo-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/sysinfo-contract-test/main.c)
 pedigree_app(personality-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/personality-contract-test/main.c)
+pedigree_app(metadata-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/metadata-contract-test/main.c)
+pedigree_app(pivot-root-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/pivot-root-contract-test/main.c)
 pedigree_app(execveat-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/execveat-contract-test/main.c)
 if (TARGET init-module-contract-fixture)

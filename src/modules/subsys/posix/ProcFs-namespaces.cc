@@ -9,6 +9,7 @@
 #include "PosixSubsystem.h"
 #include "ProcFs.h"
 #include "descriptor-path.h"
+#include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 #include "namespace-file.h"
@@ -40,23 +41,29 @@ class NamespaceLink final : public Symlink {
     setPermissions(DirectoryPermissions | FILE_UW | FILE_GW | FILE_OW);
   }
 
-  File* followLinkRetained(Directory::ChildLease& result) override {
+  bool isPathLink() const override {
+    return true;
+  }
+
+  bool followPath(FilesystemPathRef& result) override {
     UtsRef space;
     UtsStatus status = posix_uts_acquire_target(m_Target, space);
     if (status != UtsStatus::Success) {
       posix_uts_error(status);
-      return nullptr;
+      return false;
     }
     RetainedFile file;
     status = posix_uts_make_file(space, file);
     if (status != UtsStatus::Success) {
       posix_uts_error(status);
-      return nullptr;
+      return false;
     }
-    File* target = retainTarget(file.get(), result);
-    if (!target)
-      SYSCALL_ERROR(DoesNotExist);
-    return target;
+    auto* view = VFS::instance().mountView();
+    if (!view) {
+      SYSCALL_ERROR(NoSuchDevice);
+      return false;
+    }
+    return view->anonymousPath(file.get(), result);
   }
 
   int followLink(char* buffer, size_t length) override {
@@ -227,19 +234,6 @@ class SelfLink final : public Symlink {
                 &filesystem, 0, filesystem.getRoot()),
         m_Thread(thread) {
     setPermissions(DirectoryPermissions | FILE_UW | FILE_GW | FILE_OW);
-  }
-
-  File* followLinkRetained(Directory::ChildLease& result) override {
-    NormalStaticString target;
-    if (!name(target))
-      return nullptr;
-    VFS::MountOperation mount;
-    if (!VFS::instance().acquireMount(getFilesystem(), mount)) {
-      SYSCALL_ERROR(DoesNotExist);
-      return nullptr;
-    }
-    return mount.filesystem()->findRetained(StringView(target, target.length()), result,
-                                            mount.filesystem()->getRoot());
   }
 
   int followLink(char* buffer, size_t length) override {

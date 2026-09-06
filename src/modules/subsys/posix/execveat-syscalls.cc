@@ -13,7 +13,6 @@
 #include "PosixSubsystem.h"
 #include "file-syscalls.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
-#include "modules/system/vfs/Symlink.h"
 
 namespace {
 struct ExecResult {
@@ -78,10 +77,10 @@ ExecResult execveat(int dirfd, const char* path, const char** argv, const char**
 
   auto* process = Processor::information().getCurrentThread()->getParent();
   auto* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+  ResolvedPath targetLease;
   DescriptorLease descriptor;
-  Process::FileContextLease cwdLease;
-  Directory::ChildLease targetLease;
-  File* start = nullptr;
+  FilesystemPathRef start;
+  File* target = nullptr;
   const bool absolute = pathname.length() && pathname[0] == '/';
   const bool descriptorPath = !absolute && dirfd != AT_FDCWD;
   if (descriptorPath) {
@@ -89,19 +88,29 @@ ExecResult execveat(int dirfd, const char* path, const char** argv, const char**
       SYSCALL_ERROR(BadFileDescriptor);
       return -1;
     }
-    start = descriptor->file;
-    if (!start || (pathname.length() && !start->isDirectory())) {
+    target = descriptor->getFile();
+    start = descriptor->openingPath();
+    if (!target || (pathname.length() && (!target->isDirectory() || !start))) {
       syscallError(pathname.length() ? Error::NotADirectory : Error::PermissionDenied);
       return -1;
     }
-  } else {
-    start = process->acquireCwd(cwdLease);
+    targetLease.retain(start);
+  } else if (!pathname.length()) {
+    auto context = process->acquireFilesystemContext();
+    FilesystemContextSnapshot snapshot;
+    if (!context || !context->snapshot(snapshot) || !snapshot.cwd) {
+      SYSCALL_ERROR(DoesNotExist);
+      return -1;
+    }
+    targetLease.retain(snapshot.cwd);
+    target = targetLease.get();
   }
 
-  String resolvedPath;
-  normalisePath(resolvedPath, pathname.cstr());
-  File* target =
-      !pathname.length() ? start : subsystem->findFileRetained(resolvedPath, targetLease, start);
+  if (pathname.length()) {
+    String resolvedPath;
+    normalisePath(resolvedPath, pathname.cstr());
+    target = subsystem->findFileRetained(resolvedPath, targetLease, start);
+  }
   if (!target) {
     if (!Processor::information().getCurrentThread()->getErrno())
       SYSCALL_ERROR(DoesNotExist);
@@ -111,20 +120,10 @@ ExecResult execveat(int dirfd, const char* path, const char** argv, const char**
     SYSCALL_ERROR(LoopExists);
     return -1;
   }
-  size_t links = 0;
-  while (target->isSymlink()) {
-    if (++links > 40) {
-      SYSCALL_ERROR(LoopExists);
+  if (target->isSymlink()) {
+    target = subsystem->followFile(targetLease);
+    if (!target)
       return -1;
-    }
-    Directory::ChildLease next;
-    target = Symlink::fromFile(target)->followLinkRetained(next);
-    if (!target) {
-      if (!Processor::information().getCurrentThread()->getErrno())
-        SYSCALL_ERROR(DoesNotExist);
-      return -1;
-    }
-    targetLease.swap(next);
   }
   if (target->isDirectory() || target->isPipe() || target->isFifo() || target->isSocket()) {
     SYSCALL_ERROR(PermissionDenied);
@@ -155,8 +154,14 @@ ExecResult execveat(int dirfd, const char* path, const char** argv, const char**
       return -1;
   }
   const bool inaccessible = descriptorPath && (descriptor->fdflags & FD_CLOEXEC);
-  return subsystem->invoke(target, originalName, arguments, environment, state, inaccessible) ? 0
-                                                                                              : -1;
+  const auto opening = targetLease.path()
+                           ? targetLease.path()
+                           : (descriptor ? descriptor->openingPath() : FilesystemPathRef());
+  const bool invoked =
+      opening
+          ? subsystem->invoke(opening, originalName, arguments, environment, state, inaccessible)
+          : subsystem->invoke(target, originalName, arguments, environment, state, inaccessible);
+  return invoked ? 0 : -1;
 }
 
 }  // namespace

@@ -24,6 +24,7 @@
 #include "modules/subsys/posix/file-syscalls.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
+#include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 
@@ -207,15 +208,13 @@ bool closeDescriptor(PosixSubsystem* subsystem, size_t fd) {
 
 bool accessSemantics(Process* kernelProcess) {
   Filesystem* priorRoot = VFS::instance().getRootFilesystem();
-  if (priorRoot) {
-    ERROR(
-        "HOSTED-SYSCALL-TEST: FAIL faccessat2-semantics: "
-        "the isolated access fixture requires an empty hosted root namespace");
+  auto* priorView = VFS::instance().mountView();
+  VFS::HostedRootViewScope fixture;
+  UnixFilesystem* filesystem = new UnixFilesystem;
+  if (!fixture.open(filesystem)) {
+    delete filesystem;
     return false;
   }
-
-  UnixFilesystem* filesystem = new UnixFilesystem;
-  Filesystem* displacedRoot = VFS::instance().swapRootFilesystemForHostedTest(filesystem);
   File* root = filesystem->getRoot();
   UnixDirectory* directory = static_cast<UnixDirectory*>(Directory::fromFile(root));
 
@@ -232,24 +231,29 @@ bool accessSemantics(Process* kernelProcess) {
   link->setPermissions(FILE_UW);
   const bool linkAdded = directory->addEntry(link->getName(), link);
 
-  PosixProcess* process = new PosixProcess(kernelProcess);
+  PosixProcess* process =
+      new PosixProcess(kernelProcess, true, Process::FilesystemContextMode::Deferred);
   PosixSubsystem* subsystem = new PosixSubsystem;
   process->setSubsystem(subsystem);
   subsystem->setAbi(PosixSubsystem::LinuxAbi);
-  process->setCwd(root);
+  const bool contextInstalled = fixture.installContext(*process);
   process->setUserId(100);
   process->setEffectiveUserId(200);
   process->setGroupId(10);
   process->setEffectiveGroupId(20);
   subsystem->addFileDescriptor(AccessDescriptor,
                                new FileDescriptor(target, 0, AccessDescriptor, 0, O_RDONLY));
-  subsystem->addFileDescriptor(DirectoryDescriptor,
-                               new FileDescriptor(root, 0, DirectoryDescriptor, 0, O_RDONLY));
+  FilesystemPathRef rootPath;
+  const bool rootResolved = fixture.view()->bootRootPath(rootPath);
+  if (rootResolved)
+    subsystem->addFileDescriptor(DirectoryDescriptor,
+                                 new FileDescriptor(rootPath, 0, DirectoryDescriptor, 0, O_RDONLY));
 
   AccessContext context;
   Thread* worker = new Thread(process, accessWorker, &context, nullptr, false, true, true);
   worker->setName("hosted faccessat2 semantics");
-  const bool started = targetAdded && linkAdded && displacedRoot == priorRoot && worker->start();
+  const bool started =
+      targetAdded && linkAdded && contextInstalled && rootResolved && worker->start();
   const bool joined = started && worker->joinForCompletion();
   if (!started) {
     delete worker;
@@ -260,11 +264,14 @@ bool accessSemantics(Process* kernelProcess) {
                 context.symlinks && context.usercopy;
   passed = closeDescriptor(subsystem, AccessDescriptor) && passed;
   passed = closeDescriptor(subsystem, DirectoryDescriptor) && passed;
-  process->setCwd(nullptr);
   delete process;
+  rootPath.reset();
 
-  Filesystem* removedRoot = VFS::instance().swapRootFilesystemForHostedTest(priorRoot);
-  passed = removedRoot == filesystem && passed;
+  const bool rootRestored = fixture.close();
+  if (!rootRestored)
+    FATAL("Hosted filesystem fixture retained owners after teardown");
+  passed = rootRestored && VFS::instance().getRootFilesystem() == priorRoot &&
+           VFS::instance().mountView() == priorView && passed;
   delete filesystem;
 
   if (!passed) {

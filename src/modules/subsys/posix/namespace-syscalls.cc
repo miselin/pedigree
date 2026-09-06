@@ -128,7 +128,7 @@ int posix_setns(int fd, int type) {
     return result.finish(-1);
   }
   UtsRef space;
-  if (!posix_uts_file_namespace(descriptor->file, space) ||
+  if (!posix_uts_file_namespace(descriptor->getFile(), space) ||
       (type && static_cast<unsigned int>(type) != NewUts)) {
     SYSCALL_ERROR(InvalidArgument);
     return result.finish(-1);

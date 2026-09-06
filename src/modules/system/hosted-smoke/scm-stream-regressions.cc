@@ -15,6 +15,7 @@
 #include <fcntl.h>
 
 #include "modules/subsys/posix/FileDescriptor.h"
+#include "modules/subsys/posix/PosixProcess.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/UnixFilesystem.h"
 #include "modules/subsys/posix/file-syscalls.h"
@@ -440,33 +441,34 @@ bool runHostedScmStreamRegressions(Process* kernelProcess) {
   bool passed = SocketRights::inFlightForTest() == 0;
 
   Filesystem* priorRoot = VFS::instance().getRootFilesystem();
-  if (priorRoot) {
-    ERROR(
-        "HOSTED-SYSCALL-TEST: FAIL scm-rights-stream: "
-        "the isolated fixture requires an empty hosted root namespace");
+  auto* priorView = VFS::instance().mountView();
+  VFS::HostedRootViewScope fixture;
+  UnixFilesystem* filesystem = new UnixFilesystem;
+  if (!fixture.open(filesystem)) {
+    delete filesystem;
     return false;
   }
-
-  UnixFilesystem* filesystem = new UnixFilesystem;
-  Filesystem* displacedRoot = VFS::instance().swapRootFilesystemForHostedTest(filesystem);
-  Process* process = new Process(kernelProcess);
+  Process* process =
+      new PosixProcess(kernelProcess, true, Process::FilesystemContextMode::Deferred);
   process->setSubsystem(new PosixSubsystem);
-  process->setCwd(filesystem->getRoot());
+  const bool contextInstalled = fixture.installContext(*process);
   StreamContext context(process);
   Thread* worker = new Thread(process, runStreamWorker, &context, nullptr, false, true, true);
   worker->setName("hosted AF_UNIX stream SCM_RIGHTS");
-  const bool started = displacedRoot == priorRoot && worker->start();
+  const bool started = contextInstalled && worker->start();
   const bool joined = started && worker->joinForCompletion();
   if (!started) {
     delete worker;
   }
 
   passed = started && joined && context.completed && context.result && passed;
-  process->setCwd(nullptr);
   delete process;
 
-  Filesystem* removedRoot = VFS::instance().swapRootFilesystemForHostedTest(priorRoot);
-  passed = removedRoot == filesystem && passed;
+  const bool rootRestored = fixture.close();
+  if (!rootRestored)
+    FATAL("Hosted filesystem fixture retained owners after teardown");
+  passed = rootRestored && VFS::instance().getRootFilesystem() == priorRoot &&
+           VFS::instance().mountView() == priorView && passed;
   delete filesystem;
   passed = SocketRights::inFlightForTest() == 0 && passed;
 

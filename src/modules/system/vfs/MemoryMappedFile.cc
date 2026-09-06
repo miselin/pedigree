@@ -188,12 +188,14 @@ MemoryMappedFile::MemoryMappedFile(uintptr_t address, size_t length, size_t offs
 }
 
 MemoryMappedFile::~MemoryMappedFile() {
+  TerminationDeferral lifetime;
   if (m_OwnsMappings)
     unmap();
   if (m_bVfsLease) {
     m_bVfsLease = false;
     VFS::instance().untrackFile(m_pBacking);
   }
+  m_Origin.openingPath.reset();
 }
 
 MemoryMappedObject* MemoryMappedFile::clone() {

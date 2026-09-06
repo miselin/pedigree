@@ -175,6 +175,11 @@ class EXPORTED_PUBLIC Directory : public File {
   /** Returns the n'th child of this directory, or an invalid file. */
   File* getChild(size_t n);
 
+  /** Snapshot only; namespace entry operations separately enforce admission. */
+  bool isDetached() const {
+    return __atomic_load_n(&m_Detached, __ATOMIC_ACQUIRE);
+  }
+
   /** Returns the number of children in this directory. */
   size_t getNumChildren();
 
@@ -404,10 +409,6 @@ class EXPORTED_PUBLIC Directory : public File {
   /** Serialises namespace mutations and empty-directory removal. */
   Mutex& namespaceMutationLock() {
     return m_NamespaceMutationLock;
-  }
-
-  bool isDetached() const {
-    return __atomic_load_n(&m_Detached, __ATOMIC_ACQUIRE);
   }
 
   void markDetached();

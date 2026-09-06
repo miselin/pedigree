@@ -254,7 +254,7 @@ class DevFs : public Filesystem {
     return SyncStatus::Success;
   }
 
-  DevFs() : m_pRoot(0), m_pTty(0), m_VtManager(0), m_pPsAuxFile(0) {}
+  DevFs() : m_pRoot(0), m_CttySelector(nullptr), m_pTty(0), m_VtManager(0), m_pPsAuxFile(0) {}
 
   virtual ~DevFs();
 
@@ -270,6 +270,10 @@ class DevFs : public Filesystem {
 
   virtual size_t getNextInode();
   virtual void revertInode();
+
+  bool isControllingTerminalSelector(const File* file) const {
+    return file && file == m_CttySelector;
+  }
 
   void handleInput(InputManager::InputNotification& in);
 
@@ -296,6 +300,7 @@ class DevFs : public Filesystem {
   DevFs& operator=(const DevFs&);
 
   DevFsDirectory* m_pRoot;
+  File* m_CttySelector;
 
   TextIO* m_pTty;
 

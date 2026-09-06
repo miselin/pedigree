@@ -40,6 +40,7 @@
 #include "file-syscalls.h"
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
+#include "modules/subsys/posix/ResolvedPath.h"
 #include "modules/subsys/posix/UnixFilesystem.h"
 #include "modules/system/lwip/include/lwip/api.h"
 #include "modules/system/lwip/include/lwip/ip.h"
@@ -47,6 +48,7 @@
 #include "modules/system/lwip/include/lwip/tcp.h"
 #include "modules/system/lwip/include/lwip/tcpip.h"
 #include "modules/system/vfs/File.h"
+#include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/VFS.h"
 #include "mqueue-netlink.h"
 #include "net-syscalls.h"
@@ -322,15 +324,8 @@ bool parseSocketRights(const struct msghdr& message, SharedPointer<SocketRights>
 }  // namespace
 
 static File* findTrackedUnixSocket(const String& pathname) {
-  Process* process = Processor::information().getCurrentThread()->getParent();
-  Process::FileContextLease cwdLease;
-  File* cwd = process->acquireCwd(cwdLease);
-  if (!cwd) {
-    return nullptr;
-  }
-
-  Directory::ChildLease fileLease;
-  File* file = VFS::instance().findRetained(pathname, fileLease, cwd);
+  ResolvedPath fileLease;
+  File* file = findFilePath(pathname, fileLease, FilesystemPathRef(), true);
   if (file && !file->retainVfsReference()) {
     return nullptr;
   }
@@ -3594,6 +3589,7 @@ int UnixSocketSyscalls::listen(int backlog) {
 }
 
 int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t addrlen) {
+  ResolvedPath parentLease;
   String adjusted_pathname;
   if (!unixSocketPath(address, addrlen, adjusted_pathname, true)) {
     return -1;
@@ -3622,65 +3618,50 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t a
 
   N_NOTICE(" -> unix bind: '" << adjusted_pathname << "'");
 
-  Process* process = Processor::information().getCurrentThread()->getParent();
-  Process::FileContextLease cwdLease;
-  File* cwd = process->acquireCwd(cwdLease);
-  if (!cwd) {
-    SYSCALL_ERROR(DoesNotExist);
-    return -1;
-  }
   if (adjusted_pathname.endswith('/')) {
     // uh, that's a directory
     SYSCALL_ERROR(IsADirectory);
     return -1;
   }
 
-  Directory::ChildLease parentLease;
-  File* parentDirectory = cwd;
-
-  const char* pDirname = DirectoryName(static_cast<const char*>(adjusted_pathname));
-  const char* pBasename = BaseName(static_cast<const char*>(adjusted_pathname));
-
-  String basename(pBasename);
-  delete[] pBasename;
-
-  if (pDirname) {
-    // Reorder rfind result to be from beginning of string.
-    String dirname(pDirname);
-    delete[] pDirname;
-
-    N_NOTICE(" -> dirname=" << dirname);
-
-    parentDirectory = VFS::instance().findRetained(dirname, parentLease, cwd);
-    if (!parentDirectory) {
-      N_NOTICE(" -> parent directory '" << dirname << "' doesn't exist");
-      SYSCALL_ERROR(DoesNotExist);
-      return -1;
-    }
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  auto context = process->acquireFilesystemContext();
+  auto* view = VFS::instance().mountView();
+  if (!context || !view) {
+    SYSCALL_ERROR(DoesNotExist);
+    return -1;
   }
-
-  if (!parentDirectory->isDirectory()) {
+  FilesystemPathRef parent;
+  String basename;
+  if (!view->resolveParent(context, FilesystemPathRef(), adjusted_pathname, parent, basename))
+    return -1;
+  parentLease.retain(parent);
+  if (!parent || parent->provider() != view || !parent->node()->isDirectory()) {
     SYSCALL_ERROR(NotADirectory);
     return -1;
   }
-
-  Directory* pDir = Directory::fromFile(parentDirectory);
-  Directory::ChildLease mountedParentLease;
-  if (Directory* mounted = pDir->getReparsePoint()) {
-    // Looking up the parent itself stops at a mountpoint. Child lookup
-    // follows its reparse target, so bind must publish into that target too.
-    File* mountedParent =
-        mounted->getFilesystem()->findRetained(StringView(), mountedParentLease, mounted);
-    if (!mountedParent) {
-      SYSCALL_ERROR(DoesNotExist);
-      return -1;
-    }
-    parentDirectory = mountedParent;
-    pDir = Directory::fromFile(parentDirectory);
+  if (!basename.length() || basename == "." || basename == "..") {
+    SYSCALL_ERROR(AddressInUse);
+    return -1;
   }
-
+  if (basename.length() > NAME_MAX) {
+    SYSCALL_ERROR(NameTooLong);
+    return -1;
+  }
+  File* parentDirectory = parent->node();
+  Directory* pDir = Directory::fromFile(parentDirectory);
+  if (parentDirectory->getFilesystem()->isReadOnly()) {
+    SYSCALL_ERROR(ReadOnlyFilesystem);
+    return -1;
+  }
+  if (!VFS::checkAccess(parentDirectory, false, true, true))
+    return -1;
   UnixSocket* socket = new UnixSocket(basename, parentDirectory->getFilesystem(), parentDirectory,
                                       nullptr, getSocketType());
+  if (!socket) {
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
   // Establish the descriptor's ownership before publishing the pathname.
   // addEphemeralFile adds the directory's separate ownership on success.
   VFS::instance().trackFile(socket);

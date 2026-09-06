@@ -15,8 +15,8 @@ linux_number,syscall,family,status,scope_and_verification
 70,msgrcv,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 71,msgctl,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 75,fdatasync,Core file and process interfaces,implemented,Descriptor sync pass; fdatasync real file and metadata writeback; native failure tests plus public musl in 1CPU and 4CPU guests
-76,truncate,Core file and process interfaces,pending,
-94,lchown,Core file and process interfaces,pending,
+76,truncate,Core file and process interfaces,implemented,Retained mount and metadata pass; public musl contracts passed in 1CPU and 4CPU guests; native ownership and AddressSanitizer checks passed; scope in companion document
+94,lchown,Core file and process interfaces,implemented,Retained mount and metadata pass; public musl contracts passed in 1CPU and 4CPU guests; native ownership and AddressSanitizer checks passed; scope in companion document
 99,sysinfo,Scheduling and resource discovery,implemented,Anonymous swap and system information pass; actual hosted fixtures and public musl contracts passed in 1CPU and 4CPU guests; bounds in companion document
 101,ptrace,Linux administration and isolation,implemented,Cooperative tracing pass; single-thread TRACEME inspection and resume contracts passed in 1CPU and 4CPU guests; explicit request and admission bounds in companion document
 122,setfsuid,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
@@ -38,7 +38,7 @@ linux_number,syscall,family,status,scope_and_verification
 151,mlockall,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
 152,munlockall,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
 153,vhangup,Linux administration and isolation,implemented,Administration pass; public musl contracts passed in 1CPU and 4CPU guests; supported controls and backend limits in companion document
-155,pivot_root,Linux administration and isolation,pending,
+155,pivot_root,Linux administration and isolation,implemented,Retained mount and metadata pass; public musl contracts passed in 1CPU and 4CPU guests; native ownership and AddressSanitizer checks passed; scope in companion document
 159,adjtimex,Linux administration and isolation,implemented,Clock adjustment pass; query and signed SETOFFSET with MICRO/NANO units; no PLL or slew discipline; public musl in 1CPU and 4CPU guests
 162,sync,Core file and process interfaces,implemented,Filesystem-wide sync pass; Ext2 and authoritative RAM backends; native failure/retry and hosted device flush contracts; public wrappers and cold-restart persistence passed on 1CPU and 4CPU; limits in companion document
 163,acct,Linux administration and isolation,implemented,Administration pass; public musl contracts passed in 1CPU and 4CPU guests; supported controls and backend limits in companion document
@@ -76,13 +76,13 @@ linux_number,syscall,family,status,scope_and_verification
 244,mq_notify,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 245,mq_getsetattr,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 247,waitid,Core file and process interfaces,implemented,Child-wait pass; public musl selection and observation contracts passed in 1CPU and 4CPU guests; hosted terminal observer and sole reaper checks passed; bounds in companion document
-259,mknodat,Core file and process interfaces,pending,
+259,mknodat,Core file and process interfaces,implemented,Retained mount and metadata pass; public musl contracts passed in 1CPU and 4CPU guests; native ownership and AddressSanitizer checks passed; scope in companion document
 272,unshare,Linux administration and isolation,implemented,UTS namespace pass; real task membership and retained proc namespace descriptors; public musl and kernel lifecycle contracts passed in 1CPU and 4CPU guests; other namespace types deferred; bounds in companion document
 275,splice,Extended file interfaces,implemented,Pipe transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 276,tee,Extended file interfaces,implemented,Pipe transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 277,sync_file_range,Extended file interfaces,implemented,Descriptor sync pass; synchronous cached-page range writeback with failure and retry tests; public musl in 1CPU and 4CPU guests
 278,vmsplice,Extended file interfaces,implemented,Pipe transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
-280,utimensat,Core file and process interfaces,pending,
+280,utimensat,Core file and process interfaces,implemented,Retained mount and metadata pass; public musl contracts passed in 1CPU and 4CPU guests; native ownership and AddressSanitizer checks passed; scope in companion document
 282,signalfd,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 283,timerfd_create,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 285,fallocate,Core file and process interfaces,implemented,Allocation pass; real Ext2/RAM allocation and KEEP_SIZE; native and 1CPU/4CPU public contracts
@@ -105,8 +105,8 @@ linux_number,syscall,family,status,scope_and_verification
 322,execveat,Extended file interfaces,implemented,"Descriptor exec pass; EMPTY_PATH, NOFOLLOW, O_PATH, procfd and scripts; native and 1CPU/4CPU public contracts"
 325,mlock2,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
 326,copy_file_range,Extended file interfaces,implemented,Transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
-332,statx,Extended file interfaces,pending,
-452,fchmodat2,Extended file interfaces,pending,
+332,statx,Extended file interfaces,implemented,Retained mount and metadata pass; public musl contracts passed in 1CPU and 4CPU guests; native ownership and AddressSanitizer checks passed; scope in companion document
+452,fchmodat2,Extended file interfaces,implemented,Retained mount and metadata pass; public musl contracts passed in 1CPU and 4CPU guests; native ownership and AddressSanitizer checks passed; scope in companion document
 73,flock,Mapped unavailable operations,implemented,Advisory file-lock pass; flock and classic/OFD fcntl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 160,setrlimit,Mapped unavailable operations,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
 191,getxattr,Mapped unavailable operations,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document

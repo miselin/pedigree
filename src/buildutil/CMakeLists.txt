@@ -181,6 +181,12 @@ add_library(vfs
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/PipeBuffer.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/PipeBuffer-transfer.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Symlink.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/MountView.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/MountView-path.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/MountView-mounts.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/MountView-report.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/MountView-entries.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/VFS-mount-view.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/VFS.cc
 )
 
@@ -358,6 +364,7 @@ set(TESTSUITE_SRCS
     testsuite/test-LruCache.cc
     testsuite/test-Log.cc
     testsuite/test-Cord.cc
+    testsuite/test-MountView.cc
     testsuite/test-VFS.cc)
 
 # non-ASAN testsuite

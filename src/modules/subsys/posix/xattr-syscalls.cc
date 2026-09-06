@@ -12,14 +12,28 @@
 
 #include "FileDescriptor.h"
 #include "PosixSubsystem.h"
+#include "ResolvedPath.h"
 #include "file-syscalls.h"
 #include "modules/system/vfs/ExtendedAttributes.h"
-#include "modules/system/vfs/Symlink.h"
 #include "xattr-syscalls.h"
 
 namespace {
 constexpr size_t MaximumName = Xattr::MaximumNameLength, MaximumValue = Xattr::MaximumValueLength;
 enum class TargetKind { Follow, NoFollow, Descriptor };
+
+// Capture before path and descriptor retirement can replace the selected error.
+struct XattrResult {
+  XattrResult(ssize_t result)
+      : value(result),
+        error(result < 0 ? Processor::information().getCurrentThread()->getErrno() : 0) {}
+  ssize_t value;
+  int error;
+};
+
+ssize_t finishResult(const XattrResult& result) {
+  syscallError(result.error);
+  return result.value;
+}
 
 bool copyString(const char* user, String& snapshot, size_t limit, Error::PosixError tooLong) {
   const auto result = PosixSubsystem::copyUserString(user, snapshot, limit);
@@ -40,9 +54,9 @@ bool copyName(const char* user, String& snapshot) {
 }
 
 struct Target {
+  ResolvedPath pathLease;
   File* file = nullptr;
   DescriptorLease descriptor;
-  Directory::ChildLease pathLease;
 
   bool resolve(TargetKind kind, const char* userPath, int fd) {
     auto* thread = Processor::information().getCurrentThread();
@@ -53,7 +67,7 @@ struct Target {
         SYSCALL_ERROR(BadFileDescriptor);
         return false;
       }
-      file = descriptor->file;
+      file = descriptor->getFile();
       if (!file) {
         SYSCALL_ERROR(OperationNotSupported);
         return false;
@@ -72,19 +86,8 @@ struct Target {
     normalisePath(normalised, path.cstr());
     const bool requireDirectory = path[path.length() - 1] == '/';
     thread->setErrno(0);
-    file = findFileWithAbiFallbacks(normalised, pathLease);
-    if (kind == TargetKind::Follow || requireDirectory) {
-      unsigned followed = 0;
-      while (file && file->isSymlink()) {
-        if (++followed > 40) {
-          SYSCALL_ERROR(LoopExists);
-          return false;
-        }
-        Directory::ChildLease next;
-        file = Symlink::fromFile(file)->followLinkRetained(next);
-        pathLease.swap(next);
-      }
-    }
+    file = findFilePath(normalised, pathLease, FilesystemPathRef(),
+                        kind == TargetKind::Follow || requireDirectory);
     if (!file) {
       if (!thread->getErrno())
         SYSCALL_ERROR(DoesNotExist);
@@ -181,8 +184,8 @@ ssize_t finish(XattrStatus status, size_t count = 0) {
   return -1;
 }
 
-ssize_t readAttribute(TargetKind kind, const char* path, int fd, const char* userName, void* output,
-                      size_t size, bool list) {
+XattrResult readAttribute(TargetKind kind, const char* path, int fd, const char* userName,
+                          void* output, size_t size, bool list) {
   TerminationDeferral lifetime;
   Target target;
   if (!target.resolve(kind, path, fd))
@@ -223,8 +226,8 @@ ssize_t readAttribute(TargetKind kind, const char* path, int fd, const char* use
   return finish(status, required);
 }
 
-int changeAttribute(TargetKind kind, const char* path, int fd, const char* userName,
-                    const void* value, size_t size, int flags, bool remove) {
+XattrResult changeAttribute(TargetKind kind, const char* path, int fd, const char* userName,
+                            const void* value, size_t size, int flags, bool remove) {
   TerminationDeferral lifetime;
   Target target;
   if (kind == TargetKind::Descriptor && !target.resolve(kind, path, fd))
@@ -262,38 +265,43 @@ int changeAttribute(TargetKind kind, const char* path, int fd, const char* userN
 }  // namespace
 
 int posix_setxattr(const char* path, const char* name, const void* value, size_t size, int flags) {
-  return changeAttribute(TargetKind::Follow, path, -1, name, value, size, flags, false);
+  return finishResult(
+      changeAttribute(TargetKind::Follow, path, -1, name, value, size, flags, false));
 }
 int posix_lsetxattr(const char* path, const char* name, const void* value, size_t size, int flags) {
-  return changeAttribute(TargetKind::NoFollow, path, -1, name, value, size, flags, false);
+  return finishResult(
+      changeAttribute(TargetKind::NoFollow, path, -1, name, value, size, flags, false));
 }
 int posix_fsetxattr(int fd, const char* name, const void* value, size_t size, int flags) {
-  return changeAttribute(TargetKind::Descriptor, nullptr, fd, name, value, size, flags, false);
+  return finishResult(
+      changeAttribute(TargetKind::Descriptor, nullptr, fd, name, value, size, flags, false));
 }
 ssize_t posix_getxattr(const char* path, const char* name, void* value, size_t size) {
-  return readAttribute(TargetKind::Follow, path, -1, name, value, size, false);
+  return finishResult(readAttribute(TargetKind::Follow, path, -1, name, value, size, false));
 }
 ssize_t posix_lgetxattr(const char* path, const char* name, void* value, size_t size) {
-  return readAttribute(TargetKind::NoFollow, path, -1, name, value, size, false);
+  return finishResult(readAttribute(TargetKind::NoFollow, path, -1, name, value, size, false));
 }
 ssize_t posix_fgetxattr(int fd, const char* name, void* value, size_t size) {
-  return readAttribute(TargetKind::Descriptor, nullptr, fd, name, value, size, false);
+  return finishResult(readAttribute(TargetKind::Descriptor, nullptr, fd, name, value, size, false));
 }
 ssize_t posix_listxattr(const char* path, char* list, size_t size) {
-  return readAttribute(TargetKind::Follow, path, -1, nullptr, list, size, true);
+  return finishResult(readAttribute(TargetKind::Follow, path, -1, nullptr, list, size, true));
 }
 ssize_t posix_llistxattr(const char* path, char* list, size_t size) {
-  return readAttribute(TargetKind::NoFollow, path, -1, nullptr, list, size, true);
+  return finishResult(readAttribute(TargetKind::NoFollow, path, -1, nullptr, list, size, true));
 }
 ssize_t posix_flistxattr(int fd, char* list, size_t size) {
-  return readAttribute(TargetKind::Descriptor, nullptr, fd, nullptr, list, size, true);
+  return finishResult(
+      readAttribute(TargetKind::Descriptor, nullptr, fd, nullptr, list, size, true));
 }
 int posix_removexattr(const char* path, const char* name) {
-  return changeAttribute(TargetKind::Follow, path, -1, name, nullptr, 0, 0, true);
+  return finishResult(changeAttribute(TargetKind::Follow, path, -1, name, nullptr, 0, 0, true));
 }
 int posix_lremovexattr(const char* path, const char* name) {
-  return changeAttribute(TargetKind::NoFollow, path, -1, name, nullptr, 0, 0, true);
+  return finishResult(changeAttribute(TargetKind::NoFollow, path, -1, name, nullptr, 0, 0, true));
 }
 int posix_fremovexattr(int fd, const char* name) {
-  return changeAttribute(TargetKind::Descriptor, nullptr, fd, name, nullptr, 0, 0, true);
+  return finishResult(
+      changeAttribute(TargetKind::Descriptor, nullptr, fd, name, nullptr, 0, 0, true));
 }

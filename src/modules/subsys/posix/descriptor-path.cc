@@ -11,6 +11,7 @@
 #include "PosixSubsystem.h"
 #include "ProcFs.h"
 #include "fanotify-syscalls.h"
+#include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/Symlink.h"
 #include "signalfd-syscalls.h"
 #include "timerfd-syscalls.h"
@@ -70,18 +71,32 @@ class DescriptorLink final : public Symlink {
     setPermissions(LinkPermissions);
   }
 
-  File* followLinkRetained(Directory::ChildLease& result) override {
+  bool isPathLink() const override {
+    return true;
+  }
+
+  bool followPath(FilesystemPathRef& result) override {
     DescriptorLease descriptor;
     if (!acquire(descriptor))
-      return nullptr;
-    if (!descriptor->file) {
-      SYSCALL_ERROR(NoSuchDevice);
-      return nullptr;
+      return false;
+    auto path = descriptor->openingPath();
+    if (path) {
+      result = path;
+      return true;
     }
-    File* target = retainTarget(descriptor->file, result);
-    if (!target)
-      SYSCALL_ERROR(DoesNotExist);
-    return target;
+    auto* view = VFS::instance().mountView();
+    File* file = descriptor->getFile();
+    if (!view || !file) {
+      SYSCALL_ERROR(NoSuchDevice);
+      return false;
+    }
+    return view->anonymousPath(file, result);
+  }
+
+  File* followLinkRetained(Directory::ChildLease&) override {
+    // File-only traversal cannot preserve the descriptor's opening attachment.
+    SYSCALL_ERROR(OperationNotSupported);
+    return nullptr;
   }
 
   int followLink(char* buffer, size_t length) override {
@@ -95,9 +110,20 @@ class DescriptorLink final : public Symlink {
       target.assign("anon_inode:[signalfd]");
     else if (descriptor->getFanotifyImpl())
       target.assign("anon_inode:[fanotify]");
-    else if (descriptor->file) {
-      descriptor->file->getFullPath(target);
-      if (!descriptor->file->getAttributes().links)
+    else if (File* file = descriptor->getFile()) {
+      auto path = descriptor->openingPath();
+      auto* view = VFS::instance().mountView();
+      if (path && view && view->attachmentId(path)) {
+        auto context =
+            Processor::information().getCurrentThread()->getParent()->acquireFilesystemContext();
+        FilesystemContextSnapshot snapshot;
+        if (!context || !context->snapshot(snapshot) || !view->formatPath(snapshot, path, target))
+          return -1;
+      } else {
+        target = String("/");
+        target += file->getName();
+      }
+      if (!file->getAttributes().links)
         target += " (deleted)";
     } else {
       SYSCALL_ERROR(NoSuchDevice);

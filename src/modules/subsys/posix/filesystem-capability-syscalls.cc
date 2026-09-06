@@ -13,9 +13,11 @@
 
 #include "FileDescriptor.h"
 #include "PosixSubsystem.h"
+#include "ResolvedPath.h"
 #include "UnixFilesystem.h"
 #include "file-syscalls.h"
 #include "modules/system/vfs/File.h"
+#include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/VFS.h"
 
 namespace {
@@ -31,10 +33,9 @@ struct FilesystemResult {
 };
 
 struct RenamePath {
-  String copied, normalised;
+  ResolvedPath parent;
+  String copied, normalised, basename;
   DescriptorLease descriptor;
-  Process::FileContextLease cwd;
-  File* start = nullptr;
 
   bool copy(const char* user) {
     const auto result = PosixSubsystem::copyUserString(user, copied, PATH_MAX);
@@ -51,24 +52,26 @@ struct RenamePath {
     return true;
   }
 
-  bool resolve(int fd) {
+  bool resolve(int fd, VfsMountView& view, const FilesystemContextRef& context) {
     Process* process = Processor::information().getCurrentThread()->getParent();
-    if (copied[0] == '/' || fd == AT_FDCWD) {
-      start = process->acquireCwd(cwd);
-      if (!start)
-        SYSCALL_ERROR(DoesNotExist);
-      return start != nullptr;
+    FilesystemPathRef start;
+    if (copied[0] != '/' && fd != AT_FDCWD) {
+      auto* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+      if (!subsystem || !subsystem->acquireFileDescriptor(fd, descriptor) ||
+          !descriptor->getFile()) {
+        SYSCALL_ERROR(BadFileDescriptor);
+        return false;
+      }
+      start = descriptor->openingPath();
+      if (!descriptor->getFile()->isDirectory() || !start) {
+        SYSCALL_ERROR(NotADirectory);
+        return false;
+      }
     }
-    auto* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
-    if (!subsystem || !subsystem->acquireFileDescriptor(fd, descriptor) || !descriptor->file) {
-      SYSCALL_ERROR(BadFileDescriptor);
+    FilesystemPathRef selected;
+    if (!view.resolveParent(context, start, normalised, selected, basename))
       return false;
-    }
-    start = descriptor->file;
-    if (!start->isDirectory()) {
-      SYSCALL_ERROR(NotADirectory);
-      return false;
-    }
+    parent.retain(selected);
     return true;
   }
 };
@@ -78,7 +81,7 @@ FilesystemResult allocate(int fd, int mode, off_t offset, off_t length) {
   auto* subsystem = static_cast<PosixSubsystem*>(thread->getParent()->getSubsystem());
   DescriptorLease descriptor;
   if (!subsystem || !subsystem->acquireFileDescriptor(fd, descriptor) ||
-      (descriptor->getStatusFlags() & O_PATH) || !descriptor->file) {
+      (descriptor->getStatusFlags() & O_PATH) || !descriptor->getFile()) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -96,7 +99,7 @@ FilesystemResult allocate(int fd, int mode, off_t offset, off_t length) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
-  File* file = descriptor->file;
+  File* file = descriptor->getFile();
   if (file->isPipe() || file->isFifo()) {
     SYSCALL_ERROR(IllegalSeek);
     return -1;
@@ -138,12 +141,21 @@ FilesystemResult renameWithFlags(int oldDirFd, const char* oldPath, int newDirFd
     return posix_renameat(oldDirFd, oldPath, newDirFd, newPath);
   TerminationDeferral lifetime;
   RenamePath source, destination;
-  if (!source.copy(oldPath) || !destination.copy(newPath) || !source.resolve(oldDirFd) ||
-      !destination.resolve(newDirFd))
+  if (!source.copy(oldPath) || !destination.copy(newPath))
+    return -1;
+  auto* process = Processor::information().getCurrentThread()->getParent();
+  auto context = process->acquireFilesystemContext();
+  auto* view = VFS::instance().mountView();
+  if (!context || !view) {
+    SYSCALL_ERROR(DoesNotExist);
+    return -1;
+  }
+  if (!source.resolve(oldDirFd, *view, context) || !destination.resolve(newDirFd, *view, context))
     return -1;
   LockGuard<Mutex> namespaceGuard(UnixFilesystem::namespaceLock());
-  return VFS::instance().rename(source.normalised, source.start, destination.normalised,
-                                destination.start, true)
+  return view->rename(source.parent.path(), source.basename, destination.parent.path(),
+                      destination.basename, true,
+                      source.copied.endswith('/') || destination.copied.endswith('/'))
              ? 0
              : -1;
 }

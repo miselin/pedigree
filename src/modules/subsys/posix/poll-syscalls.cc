@@ -205,7 +205,7 @@ short queryDescriptorPoll(const FileDescriptor& descriptor, short events,
   if (mqueue) {
     return readyMaskToPoll(mqueue->queryReady(), events);
   }
-  if (descriptor.file) {
+  if (descriptor.getFile()) {
     const int accessMode = descriptor.getStatusFlags() & O_ACCMODE;
     const bool canRead = accessMode != O_WRONLY;
     const bool canWrite = accessMode != O_RDONLY;
@@ -250,8 +250,8 @@ ReadinessSource* descriptorReadinessSource(const FileDescriptor& descriptor,
   if (mqueue) {
     return mqueue.get();
   }
-  if (descriptor.file) {
-    return descriptor.file;
+  if (descriptor.getFile()) {
+    return descriptor.getFile();
   }
   if (descriptor.networkImpl) {
     return descriptor.networkImpl.get();

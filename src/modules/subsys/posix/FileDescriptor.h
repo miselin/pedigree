@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/FilesystemContext.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/Readiness.h"
@@ -71,6 +72,7 @@ class EXPORTED_PUBLIC FileDescriptor {
     }
 
     File* getFile() const;
+    FilesystemPathRef openingPath() const;
     ReadyMask queryFileReady(bool reading, bool writing) const;
     ReadinessGenerations fileReadinessGenerations() const;
     SharedPointer<ConsoleIoState> terminalEpoch(bool waitForReopen = true) const;
@@ -89,6 +91,8 @@ class EXPORTED_PUBLIC FileDescriptor {
     friend class TransferPositionGuard;
 
     OpenFileDescription(File* file, uint64_t initialOffset, int initialStatusFlags);
+    OpenFileDescription(const FilesystemPathRef& path, uint64_t initialOffset,
+                        int initialStatusFlags);
 
     void addDescriptorOwner();
     void removeDescriptorOwner();
@@ -96,7 +100,9 @@ class EXPORTED_PUBLIC FileDescriptor {
 
     AdvisoryOwner m_AdvisoryOwner;
     mutable Mutex lock;
-    File* file;
+    // Exactly one arm is set. Path-based descriptions derive their File from path.
+    FilesystemPathRef path;
+    File* anonymousFile;
     SharedPointer<NetworkSyscalls> networkImpl;
     SharedPointer<EventFd> eventFdImpl;
     SharedPointer<TimerFd> timerFdImpl;
@@ -164,6 +170,9 @@ class EXPORTED_PUBLIC FileDescriptor {
   /// Parameterised constructor
   FileDescriptor(File* newFile, uint64_t newOffset = 0, size_t newFd = 0xFFFFFFFF, int fdFlags = 0,
                  int flFlags = 0, LockedFile* lf = 0);
+
+  FileDescriptor(const FilesystemPathRef& path, uint64_t newOffset = 0, size_t newFd = 0xFFFFFFFF,
+                 int fdFlags = 0, int flFlags = 0, LockedFile* lf = 0);
 
   /// Copy constructor
   FileDescriptor(FileDescriptor& desc);
@@ -272,8 +281,8 @@ class EXPORTED_PUBLIC FileDescriptor {
   uint64_t readFile(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
   uint64_t writeFile(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
 
-  /// Our open file pointer
-  File* file;
+  File* getFile() const;
+  FilesystemPathRef openingPath() const;
 
   /// Descriptor number
   size_t fd;

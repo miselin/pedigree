@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/FilesystemContext.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -68,6 +69,14 @@ class EXPORTED_PUBLIC Symlink : public File {
 
   /** Follow the link while retaining the resolved target's VFS lifetime. */
   virtual File* followLinkRetained(Directory::ChildLease& result);
+
+  /** Descriptor links retain the OFD opening path; ordinary links return false. */
+  virtual bool isPathLink() const {
+    return false;
+  }
+  virtual bool followPath(FilesystemPathRef&) {
+    return false;
+  }
 
  protected:
   /** Retain an already tracked dynamic target without caching its identity. */
