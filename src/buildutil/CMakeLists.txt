@@ -173,6 +173,7 @@ add_library(vfs
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/File.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/FileEvent.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Filesystem.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/MemoryExtendedAttributes.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/PipeBuffer.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/PipeBuffer-transfer.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Symlink.cc
@@ -186,6 +187,9 @@ add_library(ext2
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Node.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Resize.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Rename.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Xattr.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Xattr-write.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Xattr-writeback.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Symlink.cc
 )
 
@@ -257,8 +261,11 @@ set(TESTSUITE_SRCS
     testsuite/test-CacheDiscard.cc
     testsuite/test-Ext2Writeback.cc
     testsuite/test-Ext2DirectorySync.cc
+    testsuite/test-Ext2Xattr.cc
+    testsuite/test-Ext2XattrCodec.cc
     testsuite/test-FatWriteback.cc
     testsuite/test-FileMetadata.cc
+    testsuite/test-MemoryExtendedAttributes.cc
     testsuite/test-Tree.cc
     testsuite/test-ObjectPool.cc
     testsuite/test-SlamAllocator.cc

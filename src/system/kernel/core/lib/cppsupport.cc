@@ -295,14 +295,14 @@ extern "C" PEDIGREE_ALLOCATOR_NOTHROW void* INDIR_REALLOC(void* p, size_t sz) {
 
 #undef PEDIGREE_ALLOCATOR_NOTHROW
 
-void* operator new(size_t, void* memory) noexcept {
+EXPORTED_PUBLIC void* operator new(size_t, void* memory) noexcept {
   return memory;
 }
-void* operator new[](size_t, void* memory) noexcept {
+EXPORTED_PUBLIC void* operator new[](size_t, void* memory) noexcept {
   return memory;
 }
-void operator delete(void*, void*) noexcept {}
-void operator delete[](void*, void*) noexcept {}
+EXPORTED_PUBLIC void operator delete(void*, void*) noexcept {}
+EXPORTED_PUBLIC void operator delete[](void*, void*) noexcept {}
 
 #if !HOSTED_SYSTEM_MALLOC
 namespace std {

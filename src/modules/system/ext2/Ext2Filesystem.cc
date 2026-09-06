@@ -82,6 +82,7 @@ Ext2Filesystem::Ext2Filesystem()
 
 Ext2Filesystem::~Ext2Filesystem() {
   delete m_pRoot;
+  drainAttributeWrites();
 
   for (auto it = m_InodeStates.begin(); it != m_InodeStates.end(); ++it) {
     assert(!it.value()->references);
@@ -618,6 +619,11 @@ bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNames
 #if THREADS || defined(STANDALONE_MUTEXES)
   LockGuard<Mutex> allocationGuard(m_WriteLock);
 #endif
+  // Keep the current payload resident while the dependency set releases its pins.
+  AttributeRetirement attributes;
+  if (readAttributeBlockLocked(node.m_pInode, attributes) != XattrStatus::Success ||
+      !flushAttributeWritesLocked())
+    return false;
   const uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
   const uint32_t blocksPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
   if (!inodesPerGroup || !blocksPerGroup) {
@@ -645,21 +651,28 @@ bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNames
     }
     groups[(block - firstBlock) / blocksPerGroup] = 1;
   };
-  for (size_t i = 0; i < 12; ++i) {
-    includeBlockGroup(LITTLE_TO_HOST32(node.m_pInode->i_block[i]));
+  const uint32_t attributeBlock = LITTLE_TO_HOST32(node.m_pInode->i_file_acl);
+  includeBlockGroup(attributeBlock);
+  if (attributeBlock && !syncBlock(attributeBlock, false))
+    return false;
+  if (!node.isInlineSymlink()) {
+    for (size_t i = 0; i < 12; ++i)
+      includeBlockGroup(LITTLE_TO_HOST32(node.m_pInode->i_block[i]));
   }
 
   const size_t entries = m_BlockSize / sizeof(uint32_t);
   Vector<Ext2Node::MappingPage> mappings;
-  succeeded = node.collectMappingPages(LITTLE_TO_HOST32(node.m_pInode->i_block[12]), 1, 12, entries,
-                                       mappings) &&
+  succeeded = node.collectMappingPages(
+                  node.isInlineSymlink() ? 0 : LITTLE_TO_HOST32(node.m_pInode->i_block[12]), 1, 12,
+                  entries, mappings) &&
               succeeded;
-  succeeded = node.collectMappingPages(LITTLE_TO_HOST32(node.m_pInode->i_block[13]), 2,
-                                       12 + entries, entries * entries, mappings) &&
+  succeeded = node.collectMappingPages(
+                  node.isInlineSymlink() ? 0 : LITTLE_TO_HOST32(node.m_pInode->i_block[13]), 2,
+                  12 + entries, entries * entries, mappings) &&
               succeeded;
-  succeeded = node.collectMappingPages(LITTLE_TO_HOST32(node.m_pInode->i_block[14]), 3,
-                                       12 + entries + entries * entries,
-                                       entries * entries * entries, mappings) &&
+  succeeded = node.collectMappingPages(
+                  node.isInlineSymlink() ? 0 : LITTLE_TO_HOST32(node.m_pInode->i_block[14]), 3,
+                  12 + entries + entries * entries, entries * entries * entries, mappings) &&
               succeeded;
   for (const Ext2Node::MappingPage& mapping : mappings) {
     includeBlockGroup(mapping.block);
@@ -730,7 +743,7 @@ bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNames
   succeeded = m_pDisk->sync(1024ULL, false) && succeeded;
   const uint32_t inodeBlock = LITTLE_TO_HOST32(m_pGroupDescriptors[inodeGroup]->bg_inode_table) +
                               ((index * m_InodeSize) / m_BlockSize);
-  return syncBlock(inodeBlock, false) && succeeded;
+  return succeeded && syncBlock(inodeBlock, false);
 }
 
 uint32_t Ext2Filesystem::findFreeBlock(uint32_t inode) {
@@ -1115,12 +1128,24 @@ bool Ext2Filesystem::releaseInode(uint32_t inodeNumber, Ext2Node* retiringNode) 
 
 void Ext2Filesystem::retireInodeLocked(uint32_t inodeNumber, Ext2Node* retiringNode) {
   Inode* pInode = getInode(inodeNumber);
+  if (!pInode)
+    return;
   const uint32_t inodeIndex = inodeNumber - 1;  // Inode zero is undefined, so it's not used.
 
   uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
   uint32_t group = inodeIndex / inodesPerGroup;
   uint32_t index = inodeIndex % inodesPerGroup;
 
+  uint32_t allocatedBlocks = 0;
+  bool inlineSymlink = false;
+  AttributeRetirement attributes;
+  if (!Ext2Node::decodeAllocation(*pInode, m_BlockSize, allocatedBlocks, inlineSymlink) ||
+      prepareAttributeRetirementLocked(pInode, attributes) != XattrStatus::Success ||
+      !ensureFreeInodeBitmapLoaded(group) ||
+      (attributes.block && reserveAttributeWritesLocked(12) != XattrStatus::Success)) {
+    ERROR("Ext2: retaining an orphan inode whose attributes could not be retired");
+    return;
+  }
   {
     // Keep the allocation bit set until all old data has been retired. This
     // prevents a concurrent creator from reusing the inode before wipe()
@@ -1130,6 +1155,15 @@ void Ext2Filesystem::retireInodeLocked(uint32_t inodeNumber, Ext2Node* retiringN
       return;
     }
 
+    if (attributes.block) {
+      const uint32_t sectors = m_BlockSize / 512;
+      const uint32_t allocated = LITTLE_TO_HOST32(pInode->i_blocks);
+      assert(allocated >= sectors);
+      pInode->i_file_acl = 0;
+      pInode->i_blocks = HOST_TO_LITTLE32(allocated - sectors);
+      commitAttributeRetirementLocked(attributes);
+      recordAttributeInodeLocked(inodeNumber);
+    }
     // Set dtime on inode.
     pInode->i_dtime = HOST_TO_LITTLE32(getUnixTimestamp());
 
@@ -1150,6 +1184,16 @@ void Ext2Filesystem::retireInodeLocked(uint32_t inodeNumber, Ext2Node* retiringN
     uintptr_t block = list[bitmapField];
     uint8_t* ptr = reinterpret_cast<uint8_t*>(block + bitmapOffset);
     *ptr &= ~(1 << (index % 8));
+    if (attributes.block) {
+      const uint32_t bitmap = LITTLE_TO_HOST32(pDesc->bg_inode_bitmap) + bitmapField;
+      recordAttributeWriteLocked(static_cast<uint64_t>(bitmap) * m_BlockSize,
+                                 AttributeWriteKind::Allocation);
+      recordAttributeAllocationLocked(attributes.block);
+      const uint32_t descriptor = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1 +
+                                  (group * sizeof(GroupDesc)) / m_BlockSize;
+      recordAttributeWriteLocked(static_cast<uint64_t>(descriptor) * m_BlockSize,
+                                 AttributeWriteKind::Allocation);
+    }
 
     // Update superblock.
     m_pDisk->write(1024ULL);

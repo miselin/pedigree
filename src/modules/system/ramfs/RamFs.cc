@@ -20,6 +20,7 @@
 #include "RamFs.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -95,6 +96,36 @@ File::Attributes RamFile::getAttributes() const {
   Attributes attributes = File::getAttributes();
   attributes.blocks = static_cast<uint64_t>(m_BlockOffsets.count()) * (getBlockSize() / 512);
   return attributes;
+}
+
+XattrStatus RamFile::getExtendedAttribute(const StringView& name, void* buffer, size_t capacity,
+                                          size_t& required) {
+  return m_ExtendedAttributes.get(name, buffer, capacity, required);
+}
+
+XattrStatus RamFile::listExtendedAttributes(void* buffer, size_t capacity, size_t& required) {
+  return m_ExtendedAttributes.list(buffer, capacity, required);
+}
+
+XattrStatus RamFile::setExtendedAttribute(const StringView& name, const void* value, size_t length,
+                                          unsigned flags) {
+  TerminationDeferral lifetime;
+  if (!canWrite())
+    return XattrStatus::Denied;
+  const auto status = m_ExtendedAttributes.set(name, value, length, flags);
+  if (status == XattrStatus::Success)
+    setCreationTime(Time::getTime());
+  return status;
+}
+
+XattrStatus RamFile::removeExtendedAttribute(const StringView& name) {
+  TerminationDeferral lifetime;
+  if (!canWrite())
+    return XattrStatus::Denied;
+  const auto status = m_ExtendedAttributes.remove(name);
+  if (status == XattrStatus::Success)
+    setCreationTime(Time::getTime());
+  return status;
 }
 
 void RamFile::truncate() {
@@ -248,6 +279,32 @@ RamDir::RamDir(const String& name, size_t inode, class Filesystem* pFs, File* pP
 }
 
 RamDir::~RamDir() {};
+
+XattrStatus RamDir::getExtendedAttribute(const StringView& name, void* buffer, size_t capacity,
+                                         size_t& required) {
+  return m_ExtendedAttributes.get(name, buffer, capacity, required);
+}
+
+XattrStatus RamDir::listExtendedAttributes(void* buffer, size_t capacity, size_t& required) {
+  return m_ExtendedAttributes.list(buffer, capacity, required);
+}
+
+XattrStatus RamDir::setExtendedAttribute(const StringView& name, const void* value, size_t length,
+                                         unsigned flags) {
+  TerminationDeferral lifetime;
+  const auto status = m_ExtendedAttributes.set(name, value, length, flags);
+  if (status == XattrStatus::Success)
+    setCreationTime(Time::getTime());
+  return status;
+}
+
+XattrStatus RamDir::removeExtendedAttribute(const StringView& name) {
+  TerminationDeferral lifetime;
+  const auto status = m_ExtendedAttributes.remove(name);
+  if (status == XattrStatus::Success)
+    setCreationTime(Time::getTime());
+  return status;
+}
 
 bool RamDir::addEntry(String filename, File* pFile) {
   return addDirectoryEntry(filename, pFile);

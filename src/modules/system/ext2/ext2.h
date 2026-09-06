@@ -146,6 +146,8 @@ struct GroupDesc {
   uint8_t bg_reserved[12];
 } __attribute__((packed));
 
+constexpr uint32_t EXT2_FEATURE_COMPAT_EXT_ATTR = 0x8;
+
 /** An ext2 Inode. */
 struct Inode {
   uint16_t i_mode;

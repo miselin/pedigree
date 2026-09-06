@@ -46,13 +46,13 @@ Ext2Symlink::~Ext2Symlink() {}
 
 uint64_t Ext2Symlink::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                    bool canBlock) {
-  if (!size || location >= getSize())
+  if (!m_State->allocationValid || !size || location >= getSize())
     return 0;
   const uint64_t remaining = getSize() - location;
   if (size > remaining)
     size = remaining;
 
-  if (getSize() && Ext2Node::getInode()->i_blocks == 0) {
+  if (isInlineSymlink()) {
     MemoryCopy(reinterpret_cast<void*>(buffer), adjust_pointer(m_pInode->i_block, location), size);
     return size;
   }

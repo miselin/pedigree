@@ -26,6 +26,7 @@
 
 #include <config.h>
 
+#include "modules/system/vfs/ExtendedAttributes.h"
 #include "modules/system/vfs/Filesystem.h"
 
 class Disk;
@@ -40,6 +41,7 @@ class Vector;
 
 /** This class provides an implementation of the second extended filesystem. */
 class Ext2Filesystem : public Filesystem {
+  friend class Ext2XattrTestPeer;
   friend class Ext2FillCacheTestPeer;
   friend class Ext2WritebackTestPeer;
   friend class Ext2File;
@@ -74,6 +76,37 @@ class Ext2Filesystem : public Filesystem {
   Ext2InodeState* acquireInodeState(uint32_t inode, Inode* metadata);
   void releaseInodeState(uint32_t inode, Ext2InodeState* state, Ext2Node* lastNode);
   void retireInodeLocked(uint32_t inode, Ext2Node* lastNode);
+  enum class AttributeWriteKind { Payload, Allocation, Inode };
+  struct AttributeWrite {
+    uint64_t location = 0;
+    AttributeWriteKind kind = AttributeWriteKind::Payload;
+    bool ownsPin = false;
+  };
+  static constexpr size_t MaximumAttributeWrites = 64;
+  AttributeWrite m_AttributeWrites[MaximumAttributeWrites];
+  size_t m_AttributeWriteCount = 0;
+  struct AttributeRetirement {
+    AttributeRetirement() = default;
+    ~AttributeRetirement();
+    AttributeRetirement(const AttributeRetirement&) = delete;
+    AttributeRetirement& operator=(const AttributeRetirement&) = delete;
+    Ext2Filesystem* filesystem = nullptr;
+    uint32_t block = 0;
+    uintptr_t buffer = 0;
+    bool provisional = false;
+  };
+  XattrStatus attributeFormatStatus() const;
+  XattrStatus readAttributeBlockLocked(Inode*, AttributeRetirement&);
+  XattrStatus prepareAttributeRetirementLocked(Inode*, AttributeRetirement&);
+  void commitAttributeRetirementLocked(AttributeRetirement&);
+  XattrStatus allocateAttributeBlockLocked(uint32_t inode, AttributeRetirement&);
+  XattrStatus reserveAttributeWritesLocked(size_t additional);
+  void recordAttributeWriteLocked(uint64_t, AttributeWriteKind, bool adoptPin = false);
+  void recordAttributeAllocationLocked(uint32_t block);
+  void recordAttributeInodeLocked(uint32_t inode);
+  void forgetAttributeBlockLocked(uint32_t block);
+  bool flushAttributeWritesLocked();
+  void drainAttributeWrites();
   Mutex m_InodeStateLock;
   Tree<uint32_t, Ext2InodeState*> m_InodeStates;
   virtual bool createNode(File* parent, const String& filename, uint32_t mask, const String& value,

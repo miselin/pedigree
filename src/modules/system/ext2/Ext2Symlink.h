@@ -52,6 +52,11 @@ class Ext2Symlink : public Symlink, public Ext2Node {
   void fileAttributeChanged();
   virtual Attributes getAttributes() const;
 
+  virtual XattrStatus getExtendedAttribute(const StringView&, void*, size_t, size_t&);
+  virtual XattrStatus listExtendedAttributes(void*, size_t, size_t&);
+  virtual XattrStatus setExtendedAttribute(const StringView&, const void*, size_t, unsigned);
+  virtual XattrStatus removeExtendedAttribute(const StringView&);
+
  protected:
   virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
 };

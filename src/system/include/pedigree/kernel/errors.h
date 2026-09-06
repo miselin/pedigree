@@ -62,6 +62,7 @@ enum PosixError {
   LoopExists = 40,             // ELOOP
   NoMessage = 42,              // ENOMSG
   IdentifierRemoved = 43,      // EIDRM
+  NoData = 61,                 // ENODATA
   ValueTooLarge = 75,          // EOVERFLOW
   BadSharedLibrary = 80,       // ELIBBAD
   ProtocolWrongType = 91,      // EPROTOTYPE

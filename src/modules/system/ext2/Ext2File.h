@@ -69,6 +69,11 @@ class Ext2File : public File, public Ext2Node {
 
   virtual size_t getBlockSize() const;
 
+  virtual XattrStatus getExtendedAttribute(const StringView&, void*, size_t, size_t&);
+  virtual XattrStatus listExtendedAttributes(void*, size_t, size_t&);
+  virtual XattrStatus setExtendedAttribute(const StringView&, const void*, size_t, unsigned);
+  virtual XattrStatus removeExtendedAttribute(const StringView&);
+
  protected:
   virtual CacheState& cacheState();
   virtual bool useFillCache() const;

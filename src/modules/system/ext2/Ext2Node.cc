@@ -54,13 +54,13 @@ void Ext2InodeState::reloadMappings(Inode* pInode, Ext2Filesystem* filesystem) {
   assert(blocks.count() == 0);
   size = LITTLE_TO_HOST32(pInode->i_size);
   const size_t blockSize = filesystem->m_BlockSize;
-  // i_blocks == # of 512-byte blocks. Convert to FS block count.
-  uint32_t blockCount = LITTLE_TO_HOST32(pInode->i_blocks);
-  uint32_t totalBlocks = (blockCount * 512) / blockSize;
-
-  // Fast symlinks store their payload in i_block, not block numbers.
-  const uint16_t mode = LITTLE_TO_HOST16(pInode->i_mode);
-  const bool inlineSymlink = (mode & 0xF000) == EXT2_S_IFLNK && !blockCount;
+  uint32_t totalBlocks = 0;
+  bool inlineSymlink = false;
+  allocationValid = Ext2Node::decodeAllocation(*pInode, blockSize, totalBlocks, inlineSymlink);
+  if (!allocationValid) {
+    metadataBlocks = allocatedDataBlocks = 0;
+    return;
+  }
   size_t dataBlockCount = 0;
   if (!inlineSymlink) {
     dataBlockCount = size / blockSize;
@@ -96,7 +96,8 @@ void Ext2InodeState::reloadMappings(Inode* pInode, Ext2Filesystem* filesystem) {
     loadMappings(filesystem, LITTLE_TO_HOST32(pInode->i_block[14]), 3,
                  12 + entries + entries * entries, entries * entries * entries);
   }
-  allocatedDataBlocks = totalBlocks > metadataBlocks ? totalBlocks - metadataBlocks : 0;
+  allocationValid = totalBlocks >= metadataBlocks;
+  allocatedDataBlocks = allocationValid ? totalBlocks - metadataBlocks : 0;
 }
 
 void Ext2InodeState::loadMappings(Ext2Filesystem* filesystem, uint32_t block, unsigned depth,
@@ -143,6 +144,10 @@ Ext2Node::~Ext2Node() {
 }
 
 uintptr_t Ext2Node::readBlock(uint64_t location) {
+  if (!m_State->allocationValid) {
+    SYSCALL_ERROR(IoError);
+    return 0;
+  }
   // Sanity check.
   uint32_t nBlock = location / m_pExt2Fs->m_BlockSize;
   if (nBlock >= m_Blocks.count()) {
@@ -188,10 +193,7 @@ void Ext2Node::trackBlock(uint32_t block, bool writeInode) {
     ++m_State->allocatedDataBlocks;
   }
 
-  // Inode i_blocks field is actually the count of 512-byte blocks.
-  uint32_t i_blocks =
-      ((m_State->allocatedDataBlocks + m_nMetadataBlocks) * m_pExt2Fs->m_BlockSize) / 512;
-  m_pInode->i_blocks = HOST_TO_LITTLE32(i_blocks);
+  updateAllocatedSectorCount();
 
   if (writeInode) {
     // Write updated inode.
@@ -200,8 +202,11 @@ void Ext2Node::trackBlock(uint32_t block, bool writeInode) {
 }
 
 bool Ext2Node::wipe(bool allocationLockHeld) {
-  if ((LITTLE_TO_HOST16(m_pInode->i_mode) & 0xf000) == EXT2_S_IFLNK &&
-      !LITTLE_TO_HOST32(m_pInode->i_blocks)) {
+  if (!m_State->allocationValid) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
+  if (isInlineSymlink()) {
     ByteSet(m_pInode->i_block, 0, sizeof(m_pInode->i_block));
     m_nSize = 0;
     m_pInode->i_size = 0;
@@ -235,6 +240,10 @@ uint64_t Ext2Node::maximumFileSize() const {
 
 bool Ext2Node::ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize, bool onlyBlocks,
                                  bool nozeroblocks) {
+  if (!m_State->allocationValid) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
   const size_t blockSize = m_pExt2Fs->m_BlockSize;
   if (size > maximumFileSize()) {
     SYSCALL_ERROR(FileTooLarge);
@@ -497,6 +506,10 @@ bool Ext2Node::addBlock(uint32_t blockValue, Vector<uint32_t>* pendingWrites) {
 }
 
 bool Ext2Node::ensureWritableRange(size_t location, size_t length) {
+  if (!m_State->allocationValid) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
   if (!length) {
     return true;
   }
@@ -531,8 +544,7 @@ bool Ext2Node::ensureWritableRange(size_t location, size_t length) {
     }
     m_Blocks[index] = block;
     ++m_State->allocatedDataBlocks;
-    m_pInode->i_blocks =
-        HOST_TO_LITTLE32((m_State->allocatedDataBlocks + m_nMetadataBlocks) * (blockSize / 512));
+    updateAllocatedSectorCount();
     m_pExt2Fs->writeInode(getInodeNumber());
   }
   return true;

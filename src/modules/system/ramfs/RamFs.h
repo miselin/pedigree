@@ -34,6 +34,7 @@
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/Filesystem.h"
+#include "modules/system/vfs/MemoryExtendedAttributes.h"
 
 class Disk;
 
@@ -44,6 +45,13 @@ class EXPORTED_PUBLIC RamFile : public File {
   virtual ~RamFile();
 
   virtual Attributes getAttributes() const;
+
+  XattrStatus getExtendedAttribute(const StringView& name, void* buffer, size_t capacity,
+                                   size_t& required) override;
+  XattrStatus listExtendedAttributes(void* buffer, size_t capacity, size_t& required) override;
+  XattrStatus setExtendedAttribute(const StringView& name, const void* value, size_t length,
+                                   unsigned flags) override;
+  XattrStatus removeExtendedAttribute(const StringView& name) override;
 
   virtual void truncate();
 
@@ -65,6 +73,7 @@ class EXPORTED_PUBLIC RamFile : public File {
   Vector<uint64_t> m_BlockOffsets;
 
   size_t m_nOwnerPid;
+  MemoryExtendedAttributes m_ExtendedAttributes;
 };
 
 /** Defines a directory in the RamFS */
@@ -77,6 +86,13 @@ class EXPORTED_PUBLIC RamDir : public Directory {
   RamDir(const String& name, size_t inode, class Filesystem* pFs, File* pParent);
   virtual ~RamDir();
 
+  XattrStatus getExtendedAttribute(const StringView& name, void* buffer, size_t capacity,
+                                   size_t& required) override;
+  XattrStatus listExtendedAttributes(void* buffer, size_t capacity, size_t& required) override;
+  XattrStatus setExtendedAttribute(const StringView& name, const void* value, size_t length,
+                                   unsigned flags) override;
+  XattrStatus removeExtendedAttribute(const StringView& name) override;
+
   virtual void cacheDirectoryContents() {}
 
   virtual bool addEntry(String filename, File* pFile);
@@ -87,6 +103,7 @@ class EXPORTED_PUBLIC RamDir : public Directory {
 
  private:
   Mutex m_DirectoryLock;
+  MemoryExtendedAttributes m_ExtendedAttributes;
 };
 
 /** Defines a filesystem that is completely in RAM. */

@@ -37,6 +37,7 @@
 
 #include <config.h>
 
+#include "ExtendedAttributes.h"
 #include "FileEvent.h"
 
 class Filesystem;
@@ -221,6 +222,15 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   };
 
   virtual Attributes getAttributes() const;
+
+  /** Kernel buffers only. Capacity zero queries size without touching output;
+   * successful mutations update ctime and publish one Attributes event. */
+  virtual XattrStatus getExtendedAttribute(const StringView& name, void* buffer, size_t capacity,
+                                           size_t& required);
+  virtual XattrStatus listExtendedAttributes(void* buffer, size_t capacity, size_t& required);
+  virtual XattrStatus setExtendedAttribute(const StringView& name, const void* value, size_t length,
+                                           unsigned flags);
+  virtual XattrStatus removeExtendedAttribute(const StringView& name);
 
   /** Prepare backing storage before a writable shared mapping is published. */
   virtual bool prepareSharedMapping(size_t offset, size_t length);

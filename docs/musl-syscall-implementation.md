@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 49 of 113 backlog entries implemented; 64 remain.
+Current checkpoint: 61 of 113 backlog entries implemented; 52 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,67 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Extended attributes
+
+All twelve get/set/list/remove xattr syscalls now have successful public musl
+paths. Nonempty `user.*` names are supported on regular files and directories
+in RamFs, memfd and Ext2. Path, final-symlink and descriptor variants retain the
+target throughout each operation. Current credentials control value access and
+mutation, including supplementary groups and sticky-directory ownership. An
+O_RDONLY descriptor can change metadata when the caller has write permission;
+O_PATH descriptors are rejected. Other namespaces require their own policy
+implementations and remain unsupported.
+
+Names are limited to 255 bytes and values to 65536 bytes. Size queries, empty
+values, binary data, CREATE/REPLACE and short buffers follow the musl-visible
+contract. Inputs are copied before mutation; reads return a complete snapshot
+before guarded user copyout. Failed input copies preserve the old value. Each
+successful mutation updates ctime and publishes one attribute event without
+changing mtime or atime. Attributes follow file identity through hardlinks,
+rename, unlink with open descriptors, fork and descriptor transfer.
+
+RamFs and memfd use an inode-owned store with 128 entries and 256 KiB of charged
+storage per file, sharing a 16 MiB quota. Replacement charges net growth and
+destruction releases the charge. Prepared temporary values are bounded per
+operation and are not included in that shared quota. Memfd content seals do not
+seal metadata.
+
+Ext2 stores standard version-two external attribute blocks through `i_file_acl`.
+It validates the on-disk layout, preserves opaque supported-format namespaces,
+and copies shared blocks before mutation. EA sectors participate in inode block
+accounting, fast-symlink classification, truncation and final inode retirement.
+Mutation prepares storage and bounded writeback dependencies before publication.
+Payload or metadata writeback failure retains dirty state and dependencies for
+retry. Unsupported filesystem features are rejected explicitly. Storage is one
+filesystem block per inode; multi-block EA values, EA inodes, ACL enforcement and
+crash-atomic transactions are outside this implementation.
+
+Verification passed 170 selected native cases (22 new xattr cases), 37 routing
+and ABI checks, 15 affected hosted compiles, and the actual Darwin core runtime.
+Native cases cover quota and conditional-operation races, complete snapshots,
+malformed EA layouts, shared-block replacement, allocation/read failure
+rollback, orphan retirement, and dirty dependency retention across failed sync
+and retry. Fresh headless one- and four-CPU guests passed all 24 suites in 131.8
+and 120.2 seconds, including seven public xattr families and the prior kernel
+memory-lock/remap fixtures. All 560 affected image source/object pairs were
+current.
+
+Separate write-enabled, non-snapshot disks passed writer and cold-boot reader
+stages on both CPU configurations. Each stage completed with zero status, then
+QEMU exited; this is an fsync/close and cold-boot test, not a guest shutdown or
+power-loss test. All four read-only e2fsck checks were clean. Host debugfs
+independently decoded binary, empty and replaced attributes, shared hardlink
+identity, and EA-only block accounting. Saved disks, image hashes and logs are
+recorded in
+`/private/tmp/pedigree-xattr-expansion-20260905/verification.json`.
+
+The first two guests stopped before userspace because kernel placement new was
+hidden from VFS module relocation. Exporting the existing placement new/delete
+pairs repaired the linkage; the failed images/logs remain saved. The successful
+build retained the same backend tests. Shared build settings were restored
+after recording the separate verification images. The previously parked
+split/unmap fault remains outside this pass.
 
 ## File-page offset remapping
 

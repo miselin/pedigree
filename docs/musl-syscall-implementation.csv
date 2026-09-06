@@ -49,15 +49,15 @@ linux_number,syscall,family,status,scope_and_verification
 176,delete_module,Linux administration and isolation,pending,
 179,quotactl,Linux administration and isolation,pending,
 187,readahead,Extended file interfaces,pending,
-188,setxattr,Extended file interfaces,pending,
-189,lsetxattr,Extended file interfaces,pending,
-190,fsetxattr,Extended file interfaces,pending,
-194,listxattr,Extended file interfaces,pending,
-195,llistxattr,Extended file interfaces,pending,
-196,flistxattr,Extended file interfaces,pending,
-197,removexattr,Extended file interfaces,pending,
-198,lremovexattr,Extended file interfaces,pending,
-199,fremovexattr,Extended file interfaces,pending,
+188,setxattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+189,lsetxattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+190,fsetxattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+194,listxattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+195,llistxattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+196,flistxattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+197,removexattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+198,lremovexattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+199,fremovexattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 203,sched_setaffinity,Scheduling and resource discovery,pending,
 204,sched_getaffinity,Scheduling and resource discovery,pending,
 216,remap_file_pages,Memory management,implemented,File-page remap pass; public musl and kernel mapping contracts passed in 1CPU and 4CPU guests with disk writes enabled; bounds and limitations in companion document
@@ -109,6 +109,6 @@ linux_number,syscall,family,status,scope_and_verification
 452,fchmodat2,Extended file interfaces,pending,
 73,flock,Mapped unavailable operations,implemented,Advisory file-lock pass; flock and classic/OFD fcntl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 160,setrlimit,Mapped unavailable operations,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
-191,getxattr,Mapped unavailable operations,pending,
-192,lgetxattr,Mapped unavailable operations,pending,
-193,fgetxattr,Mapped unavailable operations,pending,
+191,getxattr,Mapped unavailable operations,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+192,lgetxattr,Mapped unavailable operations,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+193,fgetxattr,Mapped unavailable operations,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document

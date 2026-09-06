@@ -209,6 +209,18 @@ pedigree_app(remap-file-pages-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/remap-file-pages-contract-test/locks.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/remap-file-pages-contract-test/resize.c)
 
+pedigree_app(xattr-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/xattr-contract-test/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/xattr-contract-test/fixture.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/xattr-contract-test/values.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/xattr-contract-test/admission.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/xattr-contract-test/permissions.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/xattr-contract-test/lifetime.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/xattr-contract-test/concurrency.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/xattr-contract-test/events.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/xattr-contract-test/ext2.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/xattr-contract-test/persistence.c)
+
 pedigree_app(memfd-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memfd-contract-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memfd-contract-test/creation.c

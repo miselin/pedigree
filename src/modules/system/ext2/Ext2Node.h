@@ -40,6 +40,7 @@ struct Ext2InodeState {
   uint32_t metadataBlocks;
   uint32_t allocatedDataBlocks;
   size_t size;
+  bool allocationValid = true;
   Mutex dataLock;
   Mutex writeLock;
   Mutex writebackLock;
@@ -90,6 +91,17 @@ class Ext2Node {
 
   uint64_t maximumFileSize() const;
 
+  static bool decodeAllocation(const Inode&, uint32_t blockSize, uint32_t& blocks,
+                               bool& inlineSymlink);
+  static bool encodeAllocation(uint32_t data, uint32_t indirect, bool hasEa, uint32_t blockSize,
+                               uint32_t& sectors);
+  bool isInlineSymlink() const;
+  void updateAllocatedSectorCount();
+  XattrStatus getXattr(const StringView&, void*, size_t, size_t&);
+  XattrStatus listXattrs(void*, size_t, size_t&);
+  XattrStatus setXattr(const StringView&, const void*, size_t, unsigned);
+  XattrStatus removeXattr(const StringView&);
+
   uintptr_t readBlock(uint64_t location);
   void writeBlock(uint64_t location);
 
@@ -101,6 +113,7 @@ class Ext2Node {
   bool sync(size_t offset, bool async);
 
  protected:
+  XattrStatus changeXattr(const StringView&, const void*, size_t, unsigned, bool remove);
   bool resizeData(size_t size);
   bool trimToBlocks(size_t keep, bool allocationLockHeld = false);
   bool zeroRange(size_t start, size_t end);

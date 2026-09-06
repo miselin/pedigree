@@ -62,6 +62,7 @@
 #include "timerfd-syscalls.h"
 #include "transfer-syscalls.h"
 #include "vm-syscalls.h"
+#include "xattr-syscalls.h"
 
 namespace {
 off_t linuxAmd64VectorOffset(uintptr_t low, uintptr_t high) {
@@ -802,6 +803,15 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_getpriority(p1, p2, linuxAbi);
     case POSIX_SETPRIORITY:
       return posix_setpriority(p1, p2, p3);
+    case POSIX_SETXATTR:
+      return posix_setxattr(reinterpret_cast<const char*>(p1), reinterpret_cast<const char*>(p2),
+                            reinterpret_cast<const void*>(p3), p4, p5);
+    case POSIX_LSETXATTR:
+      return posix_lsetxattr(reinterpret_cast<const char*>(p1), reinterpret_cast<const char*>(p2),
+                             reinterpret_cast<const void*>(p3), p4, p5);
+    case POSIX_FSETXATTR:
+      return posix_fsetxattr(p1, reinterpret_cast<const char*>(p2),
+                             reinterpret_cast<const void*>(p3), p4, p5);
     case POSIX_GETXATTR:
       return posix_getxattr(reinterpret_cast<const char*>(p1), reinterpret_cast<const char*>(p2),
                             reinterpret_cast<void*>(p3), p4);
@@ -811,6 +821,20 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_FGETXATTR:
       return posix_fgetxattr(p1, reinterpret_cast<const char*>(p2), reinterpret_cast<void*>(p3),
                              p4);
+    case POSIX_LISTXATTR:
+      return posix_listxattr(reinterpret_cast<const char*>(p1), reinterpret_cast<char*>(p2), p3);
+    case POSIX_LLISTXATTR:
+      return posix_llistxattr(reinterpret_cast<const char*>(p1), reinterpret_cast<char*>(p2), p3);
+    case POSIX_FLISTXATTR:
+      return posix_flistxattr(p1, reinterpret_cast<char*>(p2), p3);
+    case POSIX_REMOVEXATTR:
+      return posix_removexattr(reinterpret_cast<const char*>(p1),
+                               reinterpret_cast<const char*>(p2));
+    case POSIX_LREMOVEXATTR:
+      return posix_lremovexattr(reinterpret_cast<const char*>(p1),
+                                reinterpret_cast<const char*>(p2));
+    case POSIX_FREMOVEXATTR:
+      return posix_fremovexattr(p1, reinterpret_cast<const char*>(p2));
     case POSIX_MKNOD:
       return posix_mknod(reinterpret_cast<const char*>(p1), p2, p3);
     case POSIX_SETREUID:

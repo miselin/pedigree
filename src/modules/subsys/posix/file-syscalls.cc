@@ -4909,26 +4909,6 @@ int posix_fstatat(int dirfd, const char* pathname, struct stat* buf, int flags) 
   return 0;
 }
 
-/** Do-er for getting extended attributes. If filepath is null, fd is used. */
-static ssize_t doGetXattr(const char* filepath, int fd, const char* name, void* value, size_t size,
-                          bool follow_links) {
-  /// \todo implement?
-  SYSCALL_ERROR(OperationNotSupported);
-  return -1;
-}
-
-ssize_t posix_getxattr(const char* path, const char* name, void* value, size_t size) {
-  return doGetXattr(path, -1, name, value, size, true);
-}
-
-ssize_t posix_lgetxattr(const char* path, const char* name, void* value, size_t size) {
-  return doGetXattr(path, -1, name, value, size, false);
-}
-
-ssize_t posix_fgetxattr(int fd, const char* name, void* value, size_t size) {
-  return doGetXattr(nullptr, fd, name, value, size, true);
-}
-
 int posix_mknod(const char* pathname, mode_t mode, dev_t dev) {
   F_NOTICE("mknod");
   String pathnameCopy;

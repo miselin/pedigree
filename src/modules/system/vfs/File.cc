@@ -822,6 +822,24 @@ File::Attributes File::getAttributes() const {
   return attributes;
 }
 
+XattrStatus File::getExtendedAttribute(const StringView&, void*, size_t, size_t& required) {
+  required = 0;
+  return XattrStatus::Unsupported;
+}
+
+XattrStatus File::listExtendedAttributes(void*, size_t, size_t& required) {
+  required = 0;
+  return XattrStatus::Unsupported;
+}
+
+XattrStatus File::setExtendedAttribute(const StringView&, const void*, size_t, unsigned) {
+  return XattrStatus::Unsupported;
+}
+
+XattrStatus File::removeExtendedAttribute(const StringView&) {
+  return XattrStatus::Unsupported;
+}
+
 void File::updateAttributes(const Attributes& attributes, uint32_t mask) {
   {
     LockGuard<Mutex> guard(m_MetadataLock);

@@ -66,6 +66,10 @@ bool Ext2Node::collectMappingPages(uint32_t block, unsigned depth, size_t first,
 }
 
 bool Ext2Node::prepareTrim(size_t keep, TrimPlan& plan, bool allocationLockHeld) {
+  if (!m_State->allocationValid) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
   plan.keep = keep;
   const size_t entries = m_pExt2Fs->m_BlockSize / sizeof(uint32_t);
   if (!collectMappingPages(LITTLE_TO_HOST32(m_pInode->i_block[12]), 1, 12, entries, plan.pages) ||
@@ -145,8 +149,7 @@ void Ext2Node::commitTrim(TrimPlan& plan, bool allocationLockHeld) {
     m_Blocks.popBack();
   m_nMetadataBlocks = retainedMetadata;
   m_State->allocatedDataBlocks = plan.retainedData;
-  m_pInode->i_blocks =
-      HOST_TO_LITTLE32((plan.retainedData + retainedMetadata) * (m_pExt2Fs->m_BlockSize / 512));
+  updateAllocatedSectorCount();
   m_pExt2Fs->writeInode(getInodeNumber());
   for (uint32_t block : plan.retiredData)
     m_pExt2Fs->releaseBlockLocked(block);

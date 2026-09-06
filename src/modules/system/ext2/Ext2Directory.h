@@ -75,6 +75,11 @@ class Ext2Directory : public Directory, public Ext2Node {
   void fileAttributeChanged() override;
   Attributes getAttributes() const override;
 
+  XattrStatus getExtendedAttribute(const StringView&, void*, size_t, size_t&) override;
+  XattrStatus listExtendedAttributes(void*, size_t, size_t&) override;
+  XattrStatus setExtendedAttribute(const StringView&, const void*, size_t, unsigned) override;
+  XattrStatus removeExtendedAttribute(const StringView&) override;
+
  protected:
   void updateAttributes(const Attributes& attributes, uint32_t mask) override;
 

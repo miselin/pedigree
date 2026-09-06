@@ -312,6 +312,9 @@ pedigree_module(ext2 "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Node.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Resize.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Rename.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Xattr.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Xattr-write.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Xattr-writeback.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Symlink.cc)
 
 set(FAT_REGRESSION_SOURCES)
@@ -626,6 +629,7 @@ pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-remap.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-rebias.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-advice.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryExtendedAttributes.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Pipe.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Pipe-transfer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/PipeBuffer.cc
@@ -830,6 +834,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/eventfd-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/FileDescriptor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/xattr-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/IoEvent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/inotify-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sysv-semaphore-syscalls.cc
