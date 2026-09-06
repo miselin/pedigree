@@ -51,6 +51,7 @@ class EXPORTED_PUBLIC RamFile : public File {
 
  protected:
   virtual bool resizeFile(size_t size);
+  virtual bool prepareShrink(const ShrinkContext& context, UniquePointer<PreparedShrink>& prepared);
   virtual uintptr_t readBlock(uint64_t location);
 
   virtual bool pinBlock(uint64_t location);
@@ -58,6 +59,7 @@ class EXPORTED_PUBLIC RamFile : public File {
   virtual void unpinBlock(uint64_t location);
 
  private:
+  class ShrinkPlan;
   Cache m_FileBlocks;
   mutable Mutex m_FileBlocksLock;
   Vector<uint64_t> m_BlockOffsets;

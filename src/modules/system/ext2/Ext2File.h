@@ -75,6 +75,7 @@ class Ext2File : public File, public Ext2Node {
   virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
   virtual bool prepareWrite(uint64_t location, uint64_t size);
   virtual bool resizeFile(size_t size);
+  virtual bool prepareShrink(const ShrinkContext& context, UniquePointer<PreparedShrink>& prepared);
   virtual Mutex& writeSerializationLock();
   virtual Mutex& dataMutationLock();
   virtual size_t& physicalPageLoans();

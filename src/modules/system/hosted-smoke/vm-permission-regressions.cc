@@ -171,7 +171,9 @@ class ResizeProbeFile final : public File {
         storage("Mapped Resize Probe"),
         rejectResize(true),
         rejectWritableMapping(false),
-        backendSawNoLoans(false),
+        preparedLoans(0),
+        committedLoans(0),
+        shrinkCommits(0),
         rejectSync(false),
         syncCalls(0) {}
 
@@ -204,7 +206,9 @@ class ResizeProbeFile final : public File {
   MemoryRegion storage;
   bool rejectResize;
   bool rejectWritableMapping;
-  bool backendSawNoLoans;
+  size_t preparedLoans;
+  size_t committedLoans;
+  size_t shrinkCommits;
   bool rejectSync;
   size_t syncCalls;
 
@@ -216,8 +220,32 @@ class ResizeProbeFile final : public File {
     return true;
   }
   void unpinBlock(uint64_t) override {}
+  class ShrinkPlan final : public File::PreparedShrink {
+   public:
+    ShrinkPlan(ResizeProbeFile& file, size_t size) : file(file), size(size) {}
+    void commit() override {
+      file.committedLoans = file.loans();
+      ++file.shrinkCommits;
+      file.setSize(size);
+    }
+    ResizeProbeFile& file;
+    size_t size;
+  };
+  bool prepareShrink(const ShrinkContext& context,
+                     UniquePointer<PreparedShrink>& prepared) override {
+    preparedLoans = loans();
+    if (rejectResize) {
+      SYSCALL_ERROR(IoError);
+      return false;
+    }
+    prepared = UniquePointer<PreparedShrink>::adopt(new ShrinkPlan(*this, context.newSize));
+    if (!prepared) {
+      SYSCALL_ERROR(OutOfMemory);
+      return false;
+    }
+    return true;
+  }
   bool resizeFile(size_t size) override {
-    backendSawNoLoans = physicalPageLoans() == 0;
     if (rejectResize) {
       SYSCALL_ERROR(IoError);
       return false;
@@ -243,7 +271,8 @@ int resizeFailureWorker(void* parameter) {
       manager.mapFile(&file, shared, 2 * pageSize, MemoryMappedObject::Read, 0, false);
   MemoryMappedObject* privateObject =
       manager.mapFile(&file, privateAddress, 2 * pageSize, permissions);
-  if (!sharedObject || !privateObject || !manager.faultIn(shared + pageSize, false) ||
+  if (!sharedObject || !privateObject || !manager.faultIn(shared, false) ||
+      !manager.faultIn(shared + pageSize, false) ||
       !manager.faultIn(privateAddress + pageSize, true)) {
     manager.removeAndRelease(shared, sharedObject ? 2 * pageSize : 0);
     manager.removeAndRelease(privateAddress, privateObject ? 2 * pageSize : 0);
@@ -267,19 +296,53 @@ int resizeFailureWorker(void* parameter) {
   passed &= check(manager.setPermissions(shared, 2 * pageSize, permissions) != 0,
                   "writable protection could not retry backing preparation");
   space.getMapping(const_cast<uint8_t*>(privateByte), owned, flags);
-  passed &= check(!file.resize(pageSize) && file.backendSawNoLoans &&
-                      file.getSize() == 2 * pageSize && *privateByte == 0xA5 &&
-                      PhysicalMemoryManager::pageReferenceCountForTest(owned) == 1 &&
-                      manager.faultIn(shared + pageSize, false) &&
-                      *reinterpret_cast<volatile uint8_t*>(shared + pageSize) == 0x49,
-                  "failed backend shrink lost private data or borrowed refault contents");
+  const size_t privateFlags = flags;
+  physical_uintptr_t borrowed = 0;
+  size_t borrowedFlags = 0;
+  physical_uintptr_t prefix = 0;
+  size_t prefixFlags = 0;
+  space.getMapping(reinterpret_cast<void*>(shared + pageSize), borrowed, borrowedFlags);
+  space.getMapping(reinterpret_cast<void*>(shared), prefix, prefixFlags);
+  const size_t originalLoans = file.loans();
+  const size_t privateReferences = PhysicalMemoryManager::pageReferenceCountForTest(owned);
+  passed &= check(originalLoans >= 2 && (borrowedFlags & VirtualAddressSpace::Borrowed) &&
+                      (prefixFlags & VirtualAddressSpace::Borrowed) && privateReferences == 1,
+                  "shrink fixture did not establish borrowed and private ownership");
+  const bool rejected = !file.resize(pageSize);
+  physical_uintptr_t afterBorrowed = 0;
+  size_t afterBorrowedFlags = 0;
+  physical_uintptr_t afterPrivate = 0;
+  size_t afterPrivateFlags = 0;
+  const bool borrowedPresent = space.isMapped(reinterpret_cast<void*>(shared + pageSize));
+  const bool privatePresent = space.isMapped(const_cast<uint8_t*>(privateByte));
+  if (borrowedPresent)
+    space.getMapping(reinterpret_cast<void*>(shared + pageSize), afterBorrowed, afterBorrowedFlags);
+  if (privatePresent)
+    space.getMapping(const_cast<uint8_t*>(privateByte), afterPrivate, afterPrivateFlags);
+  passed &= check(
+      rejected && !file.shrinkCommits && file.preparedLoans == originalLoans &&
+          file.loans() == originalLoans && file.getSize() == 2 * pageSize && borrowedPresent &&
+          afterBorrowed == borrowed && afterBorrowedFlags == borrowedFlags && privatePresent &&
+          afterPrivate == owned && afterPrivateFlags == privateFlags && *privateByte == 0xA5 &&
+          PhysicalMemoryManager::pageReferenceCountForTest(owned) == privateReferences,
+      "failed backend preparation changed a suffix PTE, loan, or private page");
   file.rejectResize = false;
-  passed &= check(file.resize(pageSize) && file.backendSawNoLoans &&
-                      !space.isMapped(const_cast<uint8_t*>(privateByte)) &&
-                      !manager.faultIn(privateAddress + pageSize, false) &&
-                      !manager.faultIn(shared + pageSize, false) &&
-                      PhysicalMemoryManager::pageReferenceCountForTest(owned) == 0,
-                  "successful shrink retained a whole EOF page or leaked its physical owner");
+  const bool resized = file.resize(pageSize);
+  physical_uintptr_t afterPrefix = 0;
+  size_t afterPrefixFlags = 0;
+  const bool prefixPresent = space.isMapped(reinterpret_cast<void*>(shared));
+  if (prefixPresent)
+    space.getMapping(reinterpret_cast<void*>(shared), afterPrefix, afterPrefixFlags);
+  passed &=
+      check(resized && file.shrinkCommits == 1 && file.preparedLoans == originalLoans &&
+                file.committedLoans == 1 && file.loans() == 1 && prefixPresent &&
+                afterPrefix == prefix && afterPrefixFlags == prefixFlags &&
+                file.getSize() == pageSize && !space.isMapped(const_cast<uint8_t*>(privateByte)) &&
+                !space.isMapped(reinterpret_cast<void*>(shared + pageSize)) &&
+                !manager.faultIn(privateAddress + pageSize, false) &&
+                !manager.faultIn(shared + pageSize, false) &&
+                PhysicalMemoryManager::pageReferenceCountForTest(owned) == 0,
+            "shrink commit lost the prefix or retained suffix ownership");
   manager.removeAndRelease(shared, 2 * pageSize);
   manager.removeAndRelease(privateAddress, 2 * pageSize);
   manager.unmapAll();

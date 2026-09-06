@@ -30,6 +30,7 @@
 #include "pedigree/kernel/utilities/CacheConstants.h"
 #include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
@@ -240,6 +241,20 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /** Resize a regular file without changing any open description's position. */
   bool resize(size_t size);
 
+  struct ShrinkContext {
+    size_t oldSize;
+    size_t newSize;
+    const Cache::DiscardReference* mappingLoans;
+    size_t mappingLoanCount;
+  };
+
+  class PreparedShrink {
+   public:
+    virtual ~PreparedShrink() = default;
+    /** Preparation owns every recoverable failure; commit only publishes it. */
+    virtual void commit() = 0;
+  };
+
   virtual size_t getSize();
   void setSize(size_t sz);
 
@@ -372,6 +387,7 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
   virtual bool prepareWrite(uint64_t location, uint64_t size);
   virtual bool allowResize(size_t oldSize, size_t newSize);
+  virtual bool prepareShrink(const ShrinkContext& context, UniquePointer<PreparedShrink>& prepared);
   virtual bool resizeFile(size_t size);
   virtual Mutex& writeSerializationLock();
   virtual Mutex& dataMutationLock();

@@ -99,6 +99,7 @@ set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/BloomFilter.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Buffer.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cache.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cache-discard.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cord.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ExtensibleBitmap.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/HashTable.cc
@@ -251,6 +252,7 @@ set(TESTSUITE_SRCS
     testsuite/test-BloomFilter.cc
     testsuite/test-DiskImage.cc
     testsuite/test-Ext2FillCache.cc
+    testsuite/test-CacheDiscard.cc
     testsuite/test-Ext2Writeback.cc
     testsuite/test-Ext2DirectorySync.cc
     testsuite/test-FatWriteback.cc

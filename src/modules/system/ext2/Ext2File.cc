@@ -208,6 +208,14 @@ void Ext2File::truncate() {
   resize(0);
 }
 
+bool Ext2File::prepareShrink(const ShrinkContext& context,
+                             UniquePointer<PreparedShrink>& prepared) {
+  // The generic fill cache is already drained. Do not retain this lock across
+  // the mapping journal's returnPhysicalPage calls, which acquire it too.
+  LockGuard<Mutex> guard(m_State->writebackLock);
+  return prepareDataShrink(context.newSize, prepared);
+}
+
 bool Ext2File::resizeFile(size_t size) {
   LockGuard<Mutex> guard(m_State->writebackLock);
   if (!resizeData(size)) {

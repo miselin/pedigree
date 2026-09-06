@@ -29,6 +29,7 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -229,7 +230,7 @@ class MemoryMappedObject {
   virtual bool beyondBackingEnd(uintptr_t at) const {
     return false;
   }
-  virtual void discardFilePages(VirtualAddressSpace& space, size_t end, bool borrowedOnly) {}
+  virtual void discardFilePages(VirtualAddressSpace& space, size_t end) {}
 
   /**
    * Unmaps existing mappings in this object from the address space.
@@ -378,6 +379,8 @@ class AnonymousMemoryMap : public MemoryMappedObject {
  * expensive than a page fault).
  */
 class MemoryMappedFile : public MemoryMappedObject {
+  friend class MemoryMapManager;
+
  public:
   MemoryMappedFile(
       uintptr_t address, size_t length, size_t offset, File* backing, bool bCopyOnWrite,
@@ -408,7 +411,7 @@ class MemoryMappedFile : public MemoryMappedObject {
   virtual bool sharedBacking(uintptr_t at, uintptr_t& identity, size_t& offset) const override;
   virtual bool usesBacking(uintptr_t identity) const override;
   virtual bool beyondBackingEnd(uintptr_t at) const override;
-  virtual void discardFilePages(VirtualAddressSpace& space, size_t end, bool borrowedOnly) override;
+  virtual void discardFilePages(VirtualAddressSpace& space, size_t end) override;
   virtual bool preparePermissions(uintptr_t base, size_t length, Permissions perms) override;
 
   virtual void unmap() override;
@@ -609,10 +612,27 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
 
   bool faultIn(uintptr_t address, bool write);
 
-  /** Caller holds writer, operation, then backing-data locks across both phases
-   * and the fallible backend resize between them. */
-  bool prepareFileResize(File* file);
-  void finishFileResize(File* file, size_t newSize);
+  enum class ResizeStatus { Ready, NoMemory, Unsupported, Invalid };
+  class PreparedFileResize {
+   public:
+    ~PreparedFileResize();
+    const Cache::DiscardReference* loans() const;
+    size_t loanCount() const;
+    size_t totalLoans() const;
+    void commit();
+
+   private:
+    friend class MemoryMapManager;
+    struct Data;
+    explicit PreparedFileResize(Data* data);
+    NOT_COPYABLE_OR_ASSIGNABLE(PreparedFileResize);
+    UniquePointer<Data> m_Data;
+  };
+
+  /** Caller retains writer, operation and backing-data locks through planning,
+   * backend/cache preparation and commit. Preparation does not alter PTEs. */
+  ResizeStatus prepareFileResize(File* file, size_t oldSize, size_t newSize,
+                                 UniquePointer<PreparedFileResize>& result);
 
   /**
    * Syncs memory mapped objects within the given range back to

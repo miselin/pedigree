@@ -25,12 +25,14 @@
 #include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/BloomFilter.h"
 #include "pedigree/kernel/utilities/CacheConstants.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
+#include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/new"
@@ -61,7 +63,7 @@ class UnlikelyLock;
 class Cache;
 
 /** Provides a clean abstraction to a set of data caches. */
-class CacheManager :
+class EXPORTED_PUBLIC CacheManager :
 #if !STANDALONE_CACHE
     public TimerHandler,
 #endif
@@ -181,6 +183,7 @@ class EXPORTED_PUBLIC Cache {
     /// Reference count to handle release() being called with multiple
     /// threads having access to the page.
     size_t refcnt;
+    size_t writebackPins;
 
     enum class EvictionState {
       None,
@@ -350,6 +353,39 @@ class EXPORTED_PUBLIC Cache {
    */
   bool empty();
 
+  struct DiscardReference {
+    uintptr_t key;
+    size_t references;
+  };
+  enum class DiscardStatus { Ready, NoMemory, Busy, Invalid, Closed };
+
+  class EXPORTED_PUBLIC PreparedDiscard {
+   public:
+    ~PreparedDiscard();
+    void commit();
+
+   private:
+    friend class Cache;
+    struct Entry;
+    explicit PreparedDiscard(Cache& cache);
+    NOT_COPYABLE_OR_ASSIGNABLE(PreparedDiscard);
+    TerminationDeferral m_TerminationDeferral;
+    Cache& m_Cache;
+    UniqueArray<Entry> m_Entries;
+    size_t m_Count;
+    bool m_Committed;
+#if THREADS
+    OperationBarrier::Lease m_Lease;
+#endif
+  };
+
+  /** The owner serializes fills and retires the plan on its creating thread. Keys
+   * are sorted and unique; references exclude publication and writeback pins.
+   * Commit follows release of the admitted references. Dropping the plan
+   * restores admission without discarding data. */
+  DiscardStatus prepareDiscardFrom(uintptr_t cutoff, const DiscardReference* references,
+                                   size_t count, UniquePointer<PreparedDiscard>& result);
+
   /** Decreases \p key 's \c refcnt by one. */
   void release(uintptr_t key);
 
@@ -457,6 +493,8 @@ class EXPORTED_PUBLIC Cache {
 
   /** Completes retirement after the caller publishes Retiring under m_Lock. */
   bool finishRetirement(CachePage* page, writeback_t callback, void* callbackMeta);
+
+  void releaseWriteback(uintptr_t key);
 
   /** Waits until an in-progress same-key eviction has published its result. */
   void waitForPageEviction(uintptr_t key);

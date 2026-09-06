@@ -567,7 +567,7 @@ bool MemoryMappedFile::beyondBackingEnd(uintptr_t at) const {
          m_Offset + displacement >= m_pBacking->getSize();
 }
 
-void MemoryMappedFile::discardFilePages(VirtualAddressSpace& space, size_t end, bool borrowedOnly) {
+void MemoryMappedFile::discardFilePages(VirtualAddressSpace& space, size_t end) {
   LockGuard<Mutex> guard(m_Lock);
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const size_t firstDiscardedPage = end / pageSize + (end % pageSize != 0);
@@ -582,29 +582,16 @@ void MemoryMappedFile::discardFilePages(VirtualAddressSpace& space, size_t end, 
     cursor = address + 1;
     const size_t displacement = address - m_Address;
     const size_t fileOffset = m_Offset + displacement;
-    if (!borrowedOnly && fileOffset / pageSize < firstDiscardedPage) {
+    if (fileOffset / pageSize < firstDiscardedPage) {
       continue;
     }
     const bool loan = tracked == ~0UL;
-    if (borrowedOnly && !loan) {
-      continue;
-    }
     physical_uintptr_t physical = 0;
     size_t flags = 0;
-    const bool detached = space.detachMapping(reinterpret_cast<void*>(address), physical, flags,
-                                              borrowedOnly ? VirtualAddressSpace::Borrowed : 0);
-    if (detached && (flags & VirtualAddressSpace::Borrowed) && !m_bCopyOnWrite) {
-      m_pBacking->sync(fileOffset, false);
-    }
-    // A generic COW replacement may leave the object's original cache loan
-    // outstanding. Retire that loan without discarding the private replacement
-    // during the fallible preparation phase.
+    const bool detached = space.detachMapping(reinterpret_cast<void*>(address), physical, flags);
+    // CoW can replace the PTE without updating its original loan tracker.
     if (loan || (detached && (flags & VirtualAddressSpace::Borrowed))) {
       m_pBacking->returnPhysicalPage(fileOffset);
-    }
-    if (!detached && physical) {
-      trackMapping(address, physical);
-      continue;
     }
     if (detached && !(flags & VirtualAddressSpace::Borrowed)) {
       PhysicalMemoryManager::instance().freePage(physical);
@@ -1899,35 +1886,6 @@ bool MemoryMapManager::hasSharedWriteCapability(File* backing) {
     }
   }
   return false;
-}
-
-bool MemoryMapManager::prepareFileResize(File* file) {
-  OperationGuard operation(*this);
-  const uintptr_t identity = file->futexIdentity();
-  for (auto spaces = m_MmObjectLists.begin(); spaces != m_MmObjectLists.end(); ++spaces) {
-    for (auto objects = spaces.value()->begin(); objects != spaces.value()->end(); ++objects) {
-      if ((*objects)->usesBacking(identity)) {
-#if X64 || HOSTED
-        (*objects)->discardFilePages(*spaces.key(), 0, true);
-#else
-        return false;
-#endif
-      }
-    }
-  }
-  return true;
-}
-
-void MemoryMapManager::finishFileResize(File* file, size_t newSize) {
-  OperationGuard operation(*this);
-  const uintptr_t identity = file->futexIdentity();
-  for (auto spaces = m_MmObjectLists.begin(); spaces != m_MmObjectLists.end(); ++spaces) {
-    for (auto objects = spaces.value()->begin(); objects != spaces.value()->end(); ++objects) {
-      if ((*objects)->usesBacking(identity)) {
-        (*objects)->discardFilePages(*spaces.key(), newSize, false);
-      }
-    }
-  }
 }
 
 bool MemoryMapManager::compact() {

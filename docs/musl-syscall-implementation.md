@@ -20,6 +20,42 @@ lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
 
+## File shrink residency prerequisite
+
+File shrink now prepares backing reads, cache retirement, and mapping-loan
+accounting before changing the file. A failed preparation preserves the old
+size, data, and mappings. Successful shrink retains resident pages below the
+rounded-up new EOF, zeros the retained partial page, and retires only the full
+suffix. Shared backing identities include hardlink aliases and mappings in other
+processes. Truncated dirty pages are discarded without requiring new writeback.
+This supplies the residency contract needed by file-backed memory locking; no
+new syscall numbers are added by this prerequisite.
+
+RamFs and Ext2 implement the prepared operation. Foreign physical loans reject
+shrink with EBUSY before mutation. Other backends must supply the preparation
+contract before supporting shrink. Journals are bounded to 4096 matching mapping
+objects and 65536 tracked pages. Existing allocator teardown assumptions and
+asynchronous disk-write scheduling remain; this is not a durable filesystem
+transaction.
+
+Verification passed 124 native tests, including cache cancellation and Ext2
+read-failure preservation, and 37 routing/ABI checks. Eight affected hosted units
+compiled. Actual threaded Darwin execution passed the prepublication drain,
+cancellation, and rejected-last-writeback cases, then completed clean shutdown.
+That last case covers a repaired request-lease leak in callback cancellation.
+The older optional VM ownership suite remains disabled and was only compiled.
+
+All 21 integration suites passed on fresh headless one- and four-CPU guests
+(161.9 and 188.1 seconds); 106 affected source/object pairs were current. The new
+guest contract checks memfd, RamFs, Ext2 hardlink aliases, private CoW, and seals.
+Residency checks prove retention across shrink, not yet compactor inhibition.
+An earlier four-CPU run failed the existing AF_UNIX interruption fixture with
+child code 55 under concurrent compiler load. Its cause remains undetermined;
+the passing final rerun is not an explanation. Disk writes stayed disabled and
+the separately parked VM fault was not reopened. Logs, image identities, and
+initial failures are preserved under
+`/private/tmp/pedigree-file-resize-expansion-20260905/verification.json`.
+
 ## Pipe transfers
 
 The pipe pass adds `splice`, `tee`, and copied `vmsplice`. Distinct pipes can

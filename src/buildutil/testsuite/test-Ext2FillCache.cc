@@ -226,7 +226,188 @@ void expectBalancedPins(const FillCacheDisk& disk, const std::vector<uint64_t>& 
 
 class Ext2FillCacheWriteback : public ::testing::TestWithParam<uint32_t> {};
 
+class ResizeFixture {
+ public:
+  explicit ResizeFixture(uint32_t blockSize, size_t blockCount = 0) : blockSize(blockSize) {
+    if (!blockCount)
+      blockCount = 2 * kNativePageSize / blockSize;
+    for (size_t i = 0; i < blockCount; ++i) {
+      blocks.push_back(8 + static_cast<uint32_t>(i * 3));
+      disk.fill(static_cast<uint64_t>(blocks.back()) * blockSize, blockSize,
+                static_cast<uint8_t>(0x30 + i));
+    }
+    const Inode original = makeSubpageInode(disk, blockSize, blocks, blocks.size() * blockSize);
+    inode = Ext2FillCacheTestPeer::configureMetadata(filesystem, disk, blockSize, original);
+    const uint32_t first = blockSize == 1024 ? 1 : 0;
+    auto reserveBlock = [&](uint32_t block) {
+      const size_t index = block - first;
+      const size_t byte = 3 * blockSize + index / 8;
+      disk.storage[byte] |= 1U << (index % 8);
+      disk.persisted[byte] = disk.storage[byte];
+    };
+    for (uint32_t block = first; block < 8; ++block)
+      reserveBlock(block);
+    for (uint32_t block : blocks)
+      reserveBlock(block);
+    file.reset(new Ext2File(String("resize"), 3, inode, &filesystem));
+    Ext2FillCacheTestPeer::forceFillCache(*file);
+  }
+
+  bool fill() {
+    std::vector<uint8_t> bytes(file->getSize());
+    return file->read(0, bytes.size(), reinterpret_cast<uintptr_t>(bytes.data())) == bytes.size();
+  }
+
+  uintptr_t address(size_t offset) {
+    FillPageReference page(*file, offset);
+    return page.get();
+  }
+
+  std::vector<uint8_t> bytes(size_t offset) {
+    FillPageReference page(*file, offset);
+    if (!page.get())
+      return {};
+    const uint8_t* first = reinterpret_cast<const uint8_t*>(page.get());
+    return std::vector<uint8_t>(first, first + kNativePageSize);
+  }
+
+  uint32_t blockSize;
+  FillCacheDisk disk;
+  Ext2Filesystem filesystem;
+  std::vector<uint32_t> blocks;
+  Inode* inode;
+  std::unique_ptr<Ext2File> file;
+};
+
 }  // namespace
+
+TEST_P(Ext2FillCacheWriteback, FailedShrinkTailReadPreservesCachedPrefixAndSuffix) {
+  ResizeFixture fixture(GetParam());
+  ASSERT_TRUE(fixture.fill());
+  const auto prefix = fixture.bytes(0);
+  const auto suffix = fixture.bytes(kNativePageSize);
+  const uintptr_t prefixAddress = fixture.address(0);
+  const uintptr_t suffixAddress = fixture.address(kNativePageSize);
+  const Inode before = *fixture.inode;
+  fixture.disk.failedReadLocation = fixture.blocks[0] * fixture.blockSize;
+  EXPECT_FALSE(fixture.file->resize(137));
+  fixture.disk.failedReadLocation = ~uint64_t(0);
+  EXPECT_EQ(fixture.file->getSize(), 2 * kNativePageSize);
+  EXPECT_EQ(fixture.inode->i_size, before.i_size);
+  EXPECT_EQ(fixture.inode->i_blocks, before.i_blocks);
+  EXPECT_EQ(fixture.address(0), prefixAddress);
+  EXPECT_EQ(fixture.address(kNativePageSize), suffixAddress);
+  EXPECT_EQ(fixture.bytes(0), prefix);
+  EXPECT_EQ(fixture.bytes(kNativePageSize), suffix);
+  EXPECT_TRUE(fixture.disk.hasOnlyMetadataPins());
+  EXPECT_FALSE(fixture.disk.unbalancedUnpin);
+}
+
+TEST_P(Ext2FillCacheWriteback, FailedShrinkIndirectReadCancelsPreparedSuffixDiscard) {
+  ResizeFixture fixture(GetParam(), 16);
+  ASSERT_TRUE(fixture.fill());
+  const uintptr_t prefixAddress = fixture.address(0);
+  const uintptr_t suffixAddress = fixture.address(kNativePageSize);
+  const auto suffix = fixture.bytes(kNativePageSize);
+  const size_t oldSize = fixture.file->getSize();
+  const Inode before = *fixture.inode;
+  fixture.disk.failedReadLocation = kIndirectBlock * fixture.blockSize;
+  EXPECT_FALSE(fixture.file->resize(137));
+  fixture.disk.failedReadLocation = ~uint64_t(0);
+  EXPECT_EQ(fixture.file->getSize(), oldSize);
+  EXPECT_EQ(fixture.inode->i_block[12], before.i_block[12]);
+  EXPECT_EQ(fixture.inode->i_blocks, before.i_blocks);
+  EXPECT_EQ(fixture.address(0), prefixAddress);
+  EXPECT_EQ(fixture.address(kNativePageSize), suffixAddress);
+  EXPECT_EQ(fixture.bytes(kNativePageSize), suffix);
+  EXPECT_TRUE(fixture.disk.hasOnlyMetadataPins());
+  EXPECT_FALSE(fixture.disk.unbalancedUnpin);
+}
+
+TEST_P(Ext2FillCacheWriteback, FailedShrinkBitmapReadPreservesVisibleInodeAndData) {
+  ResizeFixture fixture(GetParam());
+  ASSERT_TRUE(fixture.fill());
+  const uintptr_t prefixAddress = fixture.address(0);
+  const uintptr_t suffixAddress = fixture.address(kNativePageSize);
+  const auto prefix = fixture.bytes(0);
+  const auto suffix = fixture.bytes(kNativePageSize);
+  const Inode before = *fixture.inode;
+  fixture.disk.failedReadLocation = 3 * fixture.blockSize;
+  EXPECT_FALSE(fixture.file->resize(137));
+  fixture.disk.failedReadLocation = ~uint64_t(0);
+  EXPECT_EQ(fixture.file->getSize(), 2 * kNativePageSize);
+  EXPECT_EQ(fixture.inode->i_size, before.i_size);
+  EXPECT_EQ(fixture.inode->i_blocks, before.i_blocks);
+  EXPECT_TRUE(std::equal(std::begin(fixture.inode->i_block), std::end(fixture.inode->i_block),
+                         std::begin(before.i_block)));
+  EXPECT_EQ(fixture.address(0), prefixAddress);
+  EXPECT_EQ(fixture.address(kNativePageSize), suffixAddress);
+  EXPECT_EQ(fixture.bytes(0), prefix);
+  EXPECT_EQ(fixture.bytes(kNativePageSize), suffix);
+  EXPECT_FALSE(fixture.disk.unbalancedUnpin);
+}
+
+TEST_P(Ext2FillCacheWriteback, ShrinkRetainsBoundaryPageAndZerosItsEntireNativeTail) {
+  ResizeFixture fixture(GetParam());
+  ASSERT_TRUE(fixture.fill());
+  const uintptr_t prefixAddress = fixture.address(0);
+  const uintptr_t boundaryAddress = fixture.address(kNativePageSize);
+  const auto prefix = fixture.bytes(0);
+  auto boundary = fixture.bytes(kNativePageSize);
+  ASSERT_EQ(boundary.size(), kNativePageSize);
+  ASSERT_TRUE(fixture.file->resize(kNativePageSize + 137));
+  EXPECT_EQ(fixture.address(0), prefixAddress);
+  EXPECT_EQ(fixture.address(kNativePageSize), boundaryAddress);
+  EXPECT_EQ(fixture.bytes(0), prefix);
+  std::fill(boundary.begin() + 137, boundary.end(), 0);
+  EXPECT_EQ(fixture.bytes(kNativePageSize), boundary);
+  ASSERT_TRUE(fixture.file->resize(2 * kNativePageSize));
+  EXPECT_EQ(fixture.address(kNativePageSize), boundaryAddress);
+  EXPECT_EQ(fixture.bytes(kNativePageSize), boundary);
+  EXPECT_FALSE(fixture.disk.unbalancedUnpin);
+}
+
+TEST_P(Ext2FillCacheWriteback, ShrinkDiscardsDirtySuffixWithoutWritingRemovedData) {
+  ResizeFixture fixture(GetParam());
+  ASSERT_TRUE(fixture.fill());
+  const uintptr_t prefixAddress = fixture.address(0);
+  {
+    FillPageReference page(*fixture.file, kNativePageSize);
+    ASSERT_NE(page.get(), 0U);
+    std::fill_n(reinterpret_cast<uint8_t*>(page.get()), kNativePageSize, 0xE7);
+  }
+  Ext2FillCacheTestPeer::triggerFillChecksum(*fixture.file, kNativePageSize);
+  fixture.disk.failedSyncLocation =
+      fixture.blocks[kNativePageSize / fixture.blockSize] * fixture.blockSize;
+  ASSERT_TRUE(fixture.file->resize(137));
+  EXPECT_EQ(fixture.address(0), prefixAddress);
+  EXPECT_FALSE(Ext2FillCacheTestPeer::fillPageExists(*fixture.file, kNativePageSize));
+  EXPECT_TRUE(fixture.disk.failedSyncs.empty());
+  fixture.disk.failedSyncLocation = ~uint64_t(0);
+  ASSERT_TRUE(fixture.file->resize(2 * kNativePageSize));
+  std::vector<uint8_t> regrown(2 * kNativePageSize - 137, 0xFF);
+  ASSERT_EQ(fixture.file->read(137, regrown.size(), reinterpret_cast<uintptr_t>(regrown.data())),
+            regrown.size());
+  EXPECT_EQ(regrown, std::vector<uint8_t>(regrown.size(), 0));
+  EXPECT_FALSE(fixture.disk.unbalancedUnpin);
+}
+
+TEST_P(Ext2FillCacheWriteback, NonmappingLoanRejectsShrinkWithoutChangingCache) {
+  ResizeFixture fixture(GetParam());
+  ASSERT_TRUE(fixture.fill());
+  const auto prefix = fixture.bytes(0);
+  const auto suffix = fixture.bytes(kNativePageSize);
+  {
+    FillPageReference borrowed(*fixture.file, kNativePageSize);
+    ASSERT_NE(borrowed.get(), 0U);
+    EXPECT_FALSE(fixture.file->resize(137));
+    EXPECT_EQ(fixture.file->getSize(), 2 * kNativePageSize);
+    EXPECT_EQ(fixture.bytes(0), prefix);
+    EXPECT_EQ(fixture.bytes(kNativePageSize), suffix);
+  }
+  EXPECT_TRUE(fixture.file->resize(137));
+  EXPECT_FALSE(fixture.disk.unbalancedUnpin);
+}
 
 TEST_P(Ext2FillCacheWriteback, OrdinaryWriteCopiesAllBlocksBeforeSchedulingWriteback) {
   const uint32_t blockSize = GetParam();

@@ -112,6 +112,8 @@ class Ext2Filesystem : public Filesystem {
   bool ensureInodeTableLoaded(size_t group);
 
   void releaseBlockLocked(uint32_t block);
+  bool prepareBlockReleaseLocked(uint32_t block);
+  bool prepareInodeWrite(uint32_t inode);
 
   bool checkOptionalFeature(size_t feature);
   bool checkRequiredFeature(size_t feature);

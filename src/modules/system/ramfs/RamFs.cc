@@ -101,6 +101,69 @@ void RamFile::truncate() {
   resize(0);
 }
 
+class RamFile::ShrinkPlan : public File::PreparedShrink {
+ public:
+  ShrinkPlan(RamFile& file, size_t size)
+      : file(file), size(size), boundary(size - size % file.getBlockSize()), tail(0) {}
+  ~ShrinkPlan() override {
+    if (tail)
+      file.m_FileBlocks.release(boundary);
+  }
+  void commit() override {
+    LockGuard<Mutex> guard(file.m_FileBlocksLock);
+    discarded.get()->commit();
+    const size_t cutoff = boundary + (size % file.getBlockSize() ? file.getBlockSize() : 0);
+    for (size_t i = 0; i < file.m_BlockOffsets.count();) {
+      if (file.m_BlockOffsets[i] >= cutoff) {
+        file.m_BlockOffsets[i] = file.m_BlockOffsets[file.m_BlockOffsets.count() - 1];
+        file.m_BlockOffsets.popBack();
+      } else {
+        ++i;
+      }
+    }
+    if (tail)
+      ByteSet(reinterpret_cast<void*>(tail + size - boundary), 0,
+              file.getBlockSize() - (size - boundary));
+    file.setSize(size);
+  }
+  RamFile& file;
+  size_t size;
+  size_t boundary;
+  uintptr_t tail;
+  UniquePointer<Cache::PreparedDiscard> discarded;
+};
+
+bool RamFile::prepareShrink(const ShrinkContext& context, UniquePointer<PreparedShrink>& prepared) {
+  if (!canWrite()) {
+    SYSCALL_ERROR(PermissionDenied);
+    return false;
+  }
+  ShrinkPlan* plan = new ShrinkPlan(*this, context.newSize);
+  UniquePointer<PreparedShrink> owner = UniquePointer<PreparedShrink>::adopt(plan);
+  if (!plan) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  LockGuard<Mutex> guard(m_FileBlocksLock);
+  const size_t blockSize = getBlockSize();
+  const size_t cutoff = plan->boundary + (context.newSize % blockSize ? blockSize : 0);
+  const auto status = m_FileBlocks.prepareDiscardFrom(cutoff, context.mappingLoans,
+                                                      context.mappingLoanCount, plan->discarded);
+  if (status != Cache::DiscardStatus::Ready) {
+    syscallError(status == Cache::DiscardStatus::NoMemory  ? Error::OutOfMemory
+                 : status == Cache::DiscardStatus::Busy    ? Error::DeviceBusy
+                 : status == Cache::DiscardStatus::Invalid ? Error::InvalidArgument
+                                                           : Error::IoError);
+    return false;
+  }
+  if (context.newSize % blockSize)
+    plan->tail = m_FileBlocks.lookup(plan->boundary);
+  // The cache plan retains its rollback state until the generic mapping journal
+  // has returned the suffix loans.
+  prepared = pedigree_std::move(owner);
+  return true;
+}
+
 bool RamFile::resizeFile(size_t size) {
   if (!canWrite()) {
     SYSCALL_ERROR(PermissionDenied);

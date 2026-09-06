@@ -982,6 +982,25 @@ void Ext2Filesystem::releaseBlock(uint32_t block) {
   releaseBlockLocked(block);
 }
 
+bool Ext2Filesystem::prepareBlockReleaseLocked(uint32_t block) {
+  const uint32_t first = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block);
+  const uint32_t perGroup = LITTLE_TO_HOST32(m_pSuperblock->s_blocks_per_group);
+  if (block <= first || !perGroup || (block - first) / perGroup >= m_nGroupDescriptors) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
+  return ensureFreeBlockBitmapLoaded((block - first) / perGroup);
+}
+
+bool Ext2Filesystem::prepareInodeWrite(uint32_t inode) {
+  const uint32_t perGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+  if (!inode || !perGroup || (inode - 1) / perGroup >= m_nGroupDescriptors) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
+  return ensureInodeTableLoaded((inode - 1) / perGroup);
+}
+
 void Ext2Filesystem::releaseBlockLocked(uint32_t block) {
   // In some ext2 filesystems, this is zero so we don't need to do this. But
   // for those that do, not doing this messes up the bit offsets below.
@@ -1225,6 +1244,11 @@ bool Ext2Filesystem::ensureFreeBlockBitmapLoaded(size_t group) {
   if (blocksPerGroup % (m_BlockSize * 8))
     nBlocks++;
 
+  if (!list.tryReserve(nBlocks)) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+
   const uint32_t start = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap);
   for (size_t i = 0; i < nBlocks; i++) {
     uint32_t blockNumber = start + i;
@@ -1233,6 +1257,7 @@ bool Ext2Filesystem::ensureFreeBlockBitmapLoaded(size_t group) {
         unpinBlock(start + list.count() - 1);
         list.popBack();
       }
+      SYSCALL_ERROR(IoError);
       return false;
     }
     uintptr_t buffer = readBlock(blockNumber);
@@ -1241,6 +1266,7 @@ bool Ext2Filesystem::ensureFreeBlockBitmapLoaded(size_t group) {
         unpinBlock(start + list.count() - 1);
         list.popBack();
       }
+      SYSCALL_ERROR(IoError);
       return false;
     }
     list.pushBack(buffer);
@@ -1312,6 +1338,11 @@ bool Ext2Filesystem::ensureInodeTableLoaded(size_t group) {
     return false;
   }
 
+  if (!list.tryReserve(nBlocks)) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+
   // Load each block in the inode table.
   const uint32_t inodeTableStart = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table);
   if (!inodeTableStart) {
@@ -1328,6 +1359,7 @@ bool Ext2Filesystem::ensureInodeTableLoaded(size_t group) {
         unpinBlock(inodeTableStart + loaded);
         list.popBack();
       }
+      SYSCALL_ERROR(IoError);
       return false;
     }
     list.pushBack(buffer);

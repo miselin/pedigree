@@ -11,6 +11,7 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
 
@@ -615,6 +616,292 @@ bool retirePrepublicationWriteback() {
   return passed;
 }
 
+struct DiscardPublicationContext {
+  explicit DiscardPublicationContext(bool cancelPlan)
+      : publication(), prepared(0), allowCompletion(0), completed(0), cancel(cancelPlan) {}
+
+  RetirePublicationContext publication;
+  Semaphore prepared;
+  Semaphore allowCompletion;
+  Atomic<size_t> completed;
+  bool cancel;
+};
+
+int preparePublishedDiscard(void* parameter) {
+  auto* context = reinterpret_cast<DiscardPublicationContext*>(parameter);
+  auto& publication = context->publication;
+  const Cache::DiscardReference reference = {publication.key, 1};
+  UniquePointer<Cache::PreparedDiscard> plan;
+  const auto status = publication.cache->prepareDiscardFrom(publication.key, &reference, 1, plan);
+  if (status == Cache::DiscardStatus::Ready && plan) {
+    publication.retireSucceeded += 1;
+  }
+  publication.retireReturned += 1;
+  context->prepared.release();
+  const bool released = context->allowCompletion.acquireForCompletion();
+  (void)released;
+  if (plan && !context->cancel) {
+    plan.get()->commit();
+  }
+  // The plan retains a thread-owned termination deferral through commit or rollback.
+  plan.reset();
+  context->completed += 1;
+  return 0;
+}
+
+bool discardPrefixUsable(Cache& cache, uintptr_t key, uintptr_t expected) {
+  const uintptr_t lookup = cache.lookup(key);
+  const bool pinned = cache.pin(key);
+  bool unchanged = lookup && lookup == expected && pinned;
+  if (lookup) {
+    const auto* bytes = reinterpret_cast<const uint8_t*>(lookup);
+    for (size_t n = 0; n < PageSize; ++n) {
+      unchanged = unchanged && bytes[n] == static_cast<uint8_t>(n ^ 0x6d);
+    }
+    cache.release(key);
+  }
+  if (pinned) {
+    cache.release(key);
+  }
+  return unchanged;
+}
+
+bool preparedDiscardPublication(bool cancel) {
+  constexpr uintptr_t PrefixKey = 0xCB000000;
+  constexpr uintptr_t Key = PrefixKey + PageSize;
+  const char* test = cancel ? "cache-discard-cancel" : "cache-discard-prepublication";
+  DiscardPublicationContext context(cancel);
+  auto& publication = context.publication;
+  Cache cache;
+  publication.cache = &cache;
+  publication.key = Key;
+  cache.setCallback(retireQueuedCallback, &publication);
+  cache.startAtomic();
+  const uintptr_t prefix = cache.insert(PrefixKey);
+  publication.page = cache.insert(Key);
+  bool ownerPinned = publication.page && cache.pin(Key);
+  if (!prefix || !ownerPinned) {
+    if (ownerPinned) {
+      cache.release(Key);
+    }
+    publication.allowCallbackReturn.release();
+    cache.empty();
+    cache.endAtomic();
+    return checkNamed(false, test, "could not create and pin the test cache pages");
+  }
+  for (size_t n = 0; n < PageSize; ++n) {
+    reinterpret_cast<uint8_t*>(prefix)[n] = static_cast<uint8_t>(n ^ 0x6d);
+    reinterpret_cast<uint8_t*>(publication.page)[n] = static_cast<uint8_t>(n ^ 0xb2);
+  }
+  cache.markNoLongerEditing(PrefixKey);
+  cache.markNoLongerEditing(Key);
+  cache.setWritebackAdmissionHookForTest(retireAdmissionHook, &publication);
+  Thread* producer = new Thread(Scheduler::instance().getKernelProcess(), publishRetireWriteback,
+                                &publication, nullptr, false, true);
+  producer->setName("hosted Cache discard writeback producer");
+  if (!publication.admissionEntered.acquire(1, 2)) {
+    publication.allowPublication.release();
+    publication.allowCallbackReturn.release();
+    producer->join();
+    cache.setWritebackAdmissionHookForTest(nullptr, nullptr);
+    cache.release(Key);
+    cache.empty();
+    cache.endAtomic();
+    return checkNamed(false, test, "writeback did not pause after publishing its page pin");
+  }
+
+  Thread* preparer = new Thread(Scheduler::instance().getKernelProcess(), preparePublishedDiscard,
+                                &context, nullptr, false, true);
+  preparer->setName("hosted Cache prepared discard");
+  const bool drainPublished = waitUntilQueuedAt(preparer, Thread::CallbackDrain, Key);
+  const bool blockedBeforePublication = publication.retireReturned == 0;
+  const uintptr_t unexpectedLookup = drainPublished ? cache.lookup(Key) : 0;
+  const bool unexpectedPin = drainPublished && cache.pin(Key);
+  const bool syncRejected = drainPublished && !cache.sync(Key, true);
+  const bool admissionRejected =
+      syncRejected && !unexpectedLookup && !unexpectedPin && publication.admissionCalls == 1;
+  if (unexpectedLookup) {
+    cache.release(Key);
+  }
+  if (unexpectedPin) {
+    cache.release(Key);
+  }
+  const bool prefixDuringDrain = discardPrefixUsable(cache, PrefixKey, prefix);
+  publication.allowPublication.release();
+  const bool callbackEntered = publication.callbackEntered.acquire(1, 2);
+  const bool blockedThroughCallback = callbackEntered &&
+                                      waitUntilQueuedAt(preparer, Thread::CallbackDrain, Key) &&
+                                      publication.retireReturned == 0;
+  publication.allowCallbackReturn.release();
+  const bool readyWithOwnerPin = context.prepared.acquire(1, 2) &&
+                                 publication.retireReturned == 1 &&
+                                 publication.retireSucceeded == 1;
+  if (readyWithOwnerPin) {
+    reinterpret_cast<uint8_t*>(publication.page)[0] = 0xa7;
+    cache.markDirty(Key);
+  }
+  if (!cancel || !readyWithOwnerPin) {
+    cache.release(Key);
+    ownerPinned = false;
+  }
+  context.allowCompletion.release();
+  const bool producerJoined = producer->join();
+  const bool preparerJoined = preparer->join();
+  cache.setWritebackAdmissionHookForTest(nullptr, nullptr);
+
+  bool completedCorrectly = false;
+  if (cancel && readyWithOwnerPin) {
+    const uintptr_t restored = cache.lookup(Key);
+    const bool pinRestored = cache.pin(Key);
+    completedCorrectly = restored == publication.page && pinRestored &&
+                         reinterpret_cast<const uint8_t*>(publication.page)[0] == 0xa7 &&
+                         publication.queuedCallbacks == 1 && publication.evictionCalls == 0;
+    if (restored) {
+      cache.release(Key);
+    }
+    if (pinRestored) {
+      cache.release(Key);
+    }
+    cache.release(Key);
+    ownerPinned = false;
+    const bool evicted = cache.evict(Key);
+    completedCorrectly = completedCorrectly && evicted && publication.queuedCallbacks == 2 &&
+                         publication.evictionCalls == 1;
+  } else if (!cancel) {
+    completedCorrectly = publication.queuedCallbacks == 1 && publication.evictionCalls == 1;
+  }
+  const bool suffixRemoved = !cache.exists(Key, PageSize);
+  const bool prefixAfterCompletion = discardPrefixUsable(cache, PrefixKey, prefix);
+  const bool passed =
+      checkNamed(drainPublished && blockedBeforePublication, test,
+                 "prepare did not wait at its exact CallbackDrain key before queue publication") &&
+      checkNamed(admissionRejected && prefixDuringDrain, test,
+                 "draining suffix accepted a new consumer or blocked the retained prefix") &&
+      checkNamed(blockedThroughCallback, test, "prepare returned before queued writeback ended") &&
+      checkNamed(readyWithOwnerPin, test, "prepare did not become Ready with its owner pin held") &&
+      checkNamed(producerJoined && preparerJoined && context.completed == 1 &&
+                     publication.syncReturned == 1 && publication.queuedCallbackFinished == 1,
+                 test, "producer or prepared-discard worker failed to complete exactly once") &&
+      checkNamed(completedCorrectly && suffixRemoved, test,
+                 cancel ? "rollback lost admission or dirty data needed by ordinary eviction"
+                        : "discard wrote dirty bytes back or failed to evict exactly once") &&
+      checkNamed(prefixAfterCompletion, test, "completion changed or removed the retained prefix");
+  if (ownerPinned) {
+    cache.release(Key);
+  }
+  cache.empty();
+  cache.endAtomic();
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << test);
+  }
+  return passed;
+}
+
+struct RejectedWritebackContext {
+  RejectedWritebackContext()
+      : publication(),
+        producerFinished(0),
+        shutdownFinished(0),
+        accepted(0),
+        shutdownSucceeded(0) {}
+
+  RetirePublicationContext publication;
+  Semaphore producerFinished;
+  Semaphore shutdownFinished;
+  Atomic<size_t> accepted;
+  Atomic<size_t> shutdownSucceeded;
+};
+
+int publishRejectedWriteback(void* parameter) {
+  auto* context = reinterpret_cast<RejectedWritebackContext*>(parameter);
+  auto& publication = context->publication;
+  context->accepted = publication.cache->sync(publication.key, true) ? 1 : 0;
+  publication.syncReturned += 1;
+  context->producerFinished.release();
+  return 0;
+}
+
+int shutdownRejectedWriteback(void* parameter) {
+  auto* context = reinterpret_cast<RejectedWritebackContext*>(parameter);
+  context->shutdownSucceeded = context->publication.cache->shutdown() ? 1 : 0;
+  context->shutdownFinished.release();
+  return 0;
+}
+
+bool rejectedLastWritebackPin() {
+  constexpr uintptr_t Key = 0xCC000000;
+  constexpr const char* Test = "cache-rejected-last-writeback";
+  RejectedWritebackContext context;
+  auto& publication = context.publication;
+  Cache cache;
+  CacheManager& manager = CacheManager::instance();
+  publication.cache = &cache;
+  publication.key = Key;
+  cache.setCallback(retireQueuedCallback, &publication);
+  // Keep timer publication quiesced through this cache's terminal shutdown.
+  cache.startAtomic();
+  publication.page = cache.insert(Key);
+  if (!checkNamed(publication.page != 0, Test, "could not create the test page")) {
+    publication.allowCallbackReturn.release();
+    return false;
+  }
+  reinterpret_cast<uint8_t*>(publication.page)[0] = 0xa7;
+  cache.markNoLongerEditing(Key);
+  cache.setWritebackAdmissionHookForTest(retireAdmissionHook, &publication);
+  Thread* producer = new Thread(Scheduler::instance().getKernelProcess(), publishRejectedWriteback,
+                                &context, nullptr, false, true);
+  producer->setName("hosted Cache rejected writeback producer");
+  const bool admissionPaused = publication.admissionEntered.acquire(1, 2);
+  if (admissionPaused) {
+    cache.release(Key);
+  }
+  const bool halted = admissionPaused && manager.halt();
+  const bool stopped =
+      halted && manager.getLifecycleState() == RequestQueue::LifecycleState::Stopped;
+  publication.allowCallbackReturn.release();
+  publication.allowPublication.release();
+  const bool producerFinished = context.producerFinished.acquire(1, 2);
+  if (!producerFinished) {
+    const bool resumed = manager.resume();
+    (void)resumed;
+    checkNamed(false, Test, "rejected writeback producer did not finish");
+    FATAL("Cache rejection fixture retained a live producer");
+  }
+  const bool producerJoined = producer->join();
+  const bool rejected = context.accepted == 0 && publication.syncReturned == 1 &&
+                        publication.queuedCallbacks == 0 && publication.evictionCalls == 0;
+  cache.setWritebackAdmissionHookForTest(nullptr, nullptr);
+  const bool resumed = manager.resume();
+  if (!resumed && (!manager.halt() || !manager.resume())) {
+    checkNamed(false, Test, "could not restore the CacheManager worker");
+    FATAL("Cache rejection fixture could not resume CacheManager");
+  }
+
+  Thread* shutdown = new Thread(Scheduler::instance().getKernelProcess(), shutdownRejectedWriteback,
+                                &context, nullptr, false, true);
+  shutdown->setName("hosted Cache rejected-writeback shutdown");
+  if (!context.shutdownFinished.acquire(1, 2)) {
+    checkNamed(false, Test, "shutdown did not drain the rejected request's cache lease");
+    FATAL("Cache rejection fixture retained a live shutdown worker");
+  }
+  const bool shutdownJoined = shutdown->join();
+  const bool unmapped = !VirtualAddressSpace::getKernelAddressSpace().isMapped(
+      reinterpret_cast<void*>(publication.page));
+  const bool passed =
+      checkNamed(admissionPaused && stopped, Test,
+                 "writeback was not paused with its last pin before manager halt") &&
+      checkNamed(producerFinished && producerJoined && rejected, Test,
+                 "the stopped queue executed or retained the rejected writeback") &&
+      checkNamed(resumed, Test, "the CacheManager worker did not resume") &&
+      checkNamed(shutdownJoined && context.shutdownSucceeded == 1 &&
+                     publication.queuedCallbacks == 1 && publication.evictionCalls == 1 && unmapped,
+                 Test, "terminal shutdown did not write back and remove the abandoned page");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
 struct RetireContractContext {
   RetireContractContext()
       : cache(nullptr),
@@ -835,8 +1122,14 @@ bool strictRangeGeometry() {
 }
 }  // namespace
 
+bool runHostedCacheDiscardRegressions() {
+  return preparedDiscardPublication(false) && preparedDiscardPublication(true) &&
+         rejectedLastWritebackPin();
+}
+
 bool runHostedCacheRegressions() {
   return callbackLifetime() && queuedRequestLifetime() && emptyAndReuse() &&
          retirementPublication() && failedPublicationDiscard() && retirePrepublicationWriteback() &&
-         retireWritebackContract() && rangeExistence() && strictRangeGeometry();
+         runHostedCacheDiscardRegressions() && retireWritebackContract() && rangeExistence() &&
+         strictRangeGeometry();
 }

@@ -281,16 +281,29 @@ uint64_t CacheManager::addCacheRequest(Cache* cache, bool asynchronous,
                                        CacheConstants::CallbackCause cause, uintptr_t key,
                                        uintptr_t location, bool transferredPin) {
 #if THREADS
+  // RequestQueue rejects these contexts before taking payload ownership.
+  // In particular, last-reference cancellation can request another eviction.
+  if (callbackActiveOnCurrentThread() || m_LifecycleMutex.isOwnedByCurrentThread()) {
+    if (transferredPin)
+      cache->releaseWriteback(key);
+    return 0;
+  }
   uint64_t generation = 0;
   OperationBarrier::Lease cacheLease;
   if (!acquireCache(cache, generation, cacheLease)) {
     if (transferredPin) {
-      cache->release(key);
+      cache->releaseWriteback(key);
     }
     return 0;
   }
 
   CacheRequest* request = new CacheRequest(cache, pedigree_std::move(cacheLease));
+  if (!request) {
+    if (transferredPin) {
+      cache->releaseWriteback(key);
+    }
+    return 0;
+  }
   const uint64_t requestToken = reinterpret_cast<uint64_t>(request);
 #else
   const uint64_t generation = 0;
@@ -347,13 +360,13 @@ void CacheManager::cancelRequest(const Request& request) {
     return;
   }
   if (request.p5) {
-    cacheRequest->cache->release(request.p3);
+    cacheRequest->cache->releaseWriteback(request.p3);
   }
   delete cacheRequest;
 #else
   if (request.p1 && request.p5) {
     Cache* cache = reinterpret_cast<Cache*>(request.p1);
-    cache->release(request.p3);
+    cache->releaseWriteback(request.p3);
   }
 #endif
 }
@@ -1209,6 +1222,7 @@ bool Cache::sync(uintptr_t key, bool async) {
     }
 
     ++pPage->refcnt;
+    ++pPage->writebackPins;
     pPage->writebackFailed = true;
     location = pPage->location;
     promotePage(pPage);
@@ -1347,6 +1361,7 @@ void Cache::timer(uint64_t delta) {
         page->writebackEpoch = m_WritebackEpoch;
         page->writebackFailed = true;
         ++page->refcnt;
+        ++page->writebackPins;
         key = it.key();
         location = page->location;
         queueWriteback = true;
@@ -1422,15 +1437,22 @@ uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p
   if (!callback) {
     if (p5) {
       // sync() transferred this pin to the request.
-      release(p3);
+      releaseWriteback(p3);
     }
     return 0;
   }
 
   // sync() transfers a pin to its request before dropping the cache lock.
   // Timer-driven requests acquire their pin here.
-  if (!p5 && !pin(p3)) {
-    return 0;
+  if (!p5) {
+    LockGuard<Spinlock> guard(m_Lock);
+    CachePage* page = m_Pages.lookup(p3);
+    if (!page || page->evictionState == CachePage::EvictionState::Draining ||
+        page->evictionState == CachePage::EvictionState::Retiring) {
+      return 0;
+    }
+    ++page->refcnt;
+    ++page->writebackPins;
   }
 
 #if SUPERDEBUG
@@ -1456,7 +1478,7 @@ uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p
 #endif
 
   // Unpin page, writeback complete
-  release(p3);
+  releaseWriteback(p3);
 
   return succeeded ? 2 : 0;
 }

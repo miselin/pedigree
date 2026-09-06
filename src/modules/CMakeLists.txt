@@ -342,6 +342,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
             ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/elf-validation-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ata-pio-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/buffer-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/cache-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/lifetime-lease-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/mutex-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/pagefault-regressions.cc
@@ -619,6 +620,7 @@ pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Filesystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/LockedFile.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-resize.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-remap.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-advice.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Pipe.cc

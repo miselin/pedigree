@@ -906,28 +906,83 @@ bool File::resize(size_t size) {
     return resizeFile(size);
   }
   if (size < oldSize) {
-    EMIT_IF(!VFS_NOMMU) {
-      if (!MemoryMapManager::instance().prepareFileResize(this)) {
-        SYSCALL_ERROR(OperationNotSupported);
-        return false;
-      }
+    ShrinkContext context{oldSize, size, nullptr, 0};
+    size_t mappingLoans = 0;
+#if !VFS_NOMMU
+    UniquePointer<MemoryMapManager::PreparedFileResize> mappingPlan;
+    const auto mappingStatus = mappings.prepareFileResize(this, oldSize, size, mappingPlan);
+    if (mappingStatus != MemoryMapManager::ResizeStatus::Ready) {
+      syscallError(mappingStatus == MemoryMapManager::ResizeStatus::NoMemory ? Error::OutOfMemory
+                   : mappingStatus == MemoryMapManager::ResizeStatus::Invalid
+                       ? Error::InvalidArgument
+                       : Error::OperationNotSupported);
+      return false;
     }
-    // Non-mapping physical-page consumers must still relinquish their loans.
-    if (__atomic_load_n(&physicalPageLoans(), __ATOMIC_ACQUIRE)) {
+    context.mappingLoans = mappingPlan.get()->loans();
+    context.mappingLoanCount = mappingPlan.get()->loanCount();
+    mappingLoans = mappingPlan.get()->totalLoans();
+#endif
+    // Prefix mappings remain valid borrowers; other physical-page users cannot
+    // be revoked by the mapping journal.
+    if (__atomic_load_n(&physicalPageLoans(), __ATOMIC_ACQUIRE) != mappingLoans) {
       SYSCALL_ERROR(DeviceBusy);
       return false;
     }
-    if (!clearDataCache()) {
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    const size_t boundaryOffset = size - size % pageSize;
+    const size_t cutoff = boundaryOffset + (size % pageSize ? pageSize : 0);
+    if (cutoff < size) {
+      SYSCALL_ERROR(InvalidArgument);
       return false;
     }
-  }
-  if (!resizeFile(size)) {
-    return false;
-  }
-  if (size < oldSize) {
-    EMIT_IF(!VFS_NOMMU) {
-      MemoryMapManager::instance().finishFileResize(this, size);
+    UniquePointer<Cache::PreparedDiscard> fillPlan;
+    struct BoundaryPage {
+      Cache& cache;
+      size_t offset;
+      uintptr_t address;
+      ~BoundaryPage() {
+        if (address)
+          cache.release(offset);
+      }
+    } boundary{cacheState().fill, boundaryOffset, 0};
+    if (useFillCache()) {
+      const auto status = cacheState().fill.prepareDiscardFrom(cutoff, context.mappingLoans,
+                                                               context.mappingLoanCount, fillPlan);
+      if (status != Cache::DiscardStatus::Ready) {
+        syscallError(status == Cache::DiscardStatus::NoMemory  ? Error::OutOfMemory
+                     : status == Cache::DiscardStatus::Busy    ? Error::DeviceBusy
+                     : status == Cache::DiscardStatus::Invalid ? Error::InvalidArgument
+                                                               : Error::IoError);
+        return false;
+      }
+      if (size % pageSize)
+        boundary.address = cacheState().fill.lookup(boundaryOffset);
     }
+    UniquePointer<PreparedShrink> backend;
+    if (!prepareShrink(context, backend))
+      return false;
+#if !VFS_NOMMU
+    mappingPlan.get()->commit();
+#endif
+    backend.get()->commit();
+    if (fillPlan)
+      fillPlan.get()->commit();
+    if (boundary.address)
+      ByteSet(reinterpret_cast<void*>(boundary.address + size % pageSize), 0,
+              pageSize - size % pageSize);
+    // Native-block backends also cache borrowed addresses in this index.
+    // Preserve prefix entries while invalidating every detached suffix alias.
+    const size_t cacheBlockSize = useFillCache() ? pageSize : getBlockSize();
+    const size_t firstDiscard = cutoff / cacheBlockSize;
+    LockGuard<Mutex> indexGuard(cacheState().indexLock);
+    for (auto it = cacheState().data.begin(); it != cacheState().data.end();) {
+      if (it.__getNode()->key.hash() >= firstDiscard)
+        it = cacheState().data.erase(it);
+      else
+        ++it;
+    }
+  } else if (!resizeFile(size)) {
+    return false;
   }
   if (size > oldSize && useFillCache()) {
     const size_t pageSize = PhysicalMemoryManager::getPageSize();
@@ -948,6 +1003,11 @@ bool File::resize(size_t size) {
   updateAttributes(attributes, ModifyTime | ChangeTime);
   publishEvent(FileEvents::Modify);
   return true;
+}
+
+bool File::prepareShrink(const ShrinkContext&, UniquePointer<PreparedShrink>&) {
+  SYSCALL_ERROR(OperationNotSupported);
+  return false;
 }
 
 bool File::resizeFile(size_t) {

@@ -113,6 +113,20 @@ class Ext2Node {
   };
   bool collectMappingPages(uint32_t block, unsigned depth, size_t first, size_t span,
                            Vector<MappingPage>& pages);
+  struct TrimPlan {
+    explicit TrimPlan(Ext2Filesystem& filesystem);
+    ~TrimPlan();
+    Ext2Filesystem& filesystem;
+    size_t keep = 0;
+    size_t retainedData = 0;
+    Vector<MappingPage> pages;
+    Vector<uint32_t> retiredData;
+  };
+  class DataShrinkPlan;
+  bool prepareTrim(size_t keep, TrimPlan& plan, bool allocationLockHeld = false);
+  void commitTrim(TrimPlan& plan, bool allocationLockHeld = false);
+  bool prepareDataShrink(size_t size, UniquePointer<File::PreparedShrink>& prepared);
+
   /**
    * Ensures the inode is at least 'size' big.
    * Set onlyBlocks to true to not change the actual data size, which can be

@@ -187,6 +187,11 @@ pedigree_app(file-lock-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-lock-contract-test/lifetime.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-lock-contract-test/blocking.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-lock-contract-test/creation.c)
+pedigree_app(file-resize-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-resize-contract-test/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-resize-contract-test/shared.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-resize-contract-test/private.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-resize-contract-test/seals.c)
 pedigree_app(memfd-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memfd-contract-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memfd-contract-test/creation.c

@@ -412,6 +412,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/BloomFilter.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Buffer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Cache.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Cache-discard.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Cord.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/ExtensibleBitmap.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/HashTable.cc
