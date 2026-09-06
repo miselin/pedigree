@@ -25,10 +25,10 @@
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
-#include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/String.h"
 
 #include "File.h"
+#include "PipeBuffer.h"
 
 #define PIPE_BUF_MAX 4096
 
@@ -114,6 +114,46 @@ class EXPORTED_PUBLIC Pipe : public File {
    */
   bool waitForReader(bool bCanBlock);
 
+  class EXPORTED_PUBLIC ReadReservation {
+   public:
+    ReadReservation() = default;
+    ~ReadReservation();
+    ReadReservation(const ReadReservation&) = delete;
+    ReadReservation& operator=(const ReadReservation&) = delete;
+    size_t size() const;
+    void copyTo(uint8_t* destination, size_t count) const;
+    void consume(size_t accepted);
+    void cancel();
+
+   private:
+    friend class Pipe;
+    TerminationDeferral m_Termination;
+    Pipe* m_Pipe = nullptr;
+    PipeBuffer::ReadReservation m_Reservation;
+  };
+
+  class EXPORTED_PUBLIC WriteReservation {
+   public:
+    WriteReservation() = default;
+    ~WriteReservation();
+    WriteReservation(const WriteReservation&) = delete;
+    WriteReservation& operator=(const WriteReservation&) = delete;
+    size_t size() const;
+    PipeBuffer::Result commit(const uint8_t* source, size_t accepted);
+    void cancel();
+
+   private:
+    friend class Pipe;
+    TerminationDeferral m_Termination;
+    Pipe* m_Pipe = nullptr;
+    PipeBuffer::WriteReservation m_Reservation;
+  };
+
+  PipeBuffer::Result reserveRead(size_t maximum, bool block, ReadReservation& reservation);
+  PipeBuffer::Result reserveWrite(size_t maximum, bool block, WriteReservation& reservation);
+  PipeBuffer::Result waitTransfer(bool writing, bool block);
+  PipeBuffer::Result transferTo(Pipe& output, size_t maximum, bool consume, bool block);
+
  protected:
   /** If we're an anonymous pipe, we should delete ourselves when all
    * readers/writers have hung up. */
@@ -123,7 +163,7 @@ class EXPORTED_PUBLIC Pipe : public File {
   volatile bool m_bIsEOF;
 
   /** Internal pipe buffer. */
-  Buffer<uint8_t> m_Buffer;
+  PipeBuffer m_Buffer;
 
   /** Writers waiting for the protected m_nReaders predicate. */
   ConditionVariable m_ReaderCondition;
@@ -139,6 +179,8 @@ class EXPORTED_PUBLIC Pipe : public File {
   bool m_bRetirementQueued;
 
   bool shouldQueueRetirementLocked();
+
+  static void bufferChanged(void* context);
 
   virtual bool isBytewise() const {
     return true;

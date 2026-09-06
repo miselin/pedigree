@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 39 of 113 backlog entries implemented; 74 remain.
+Current checkpoint: 42 of 113 backlog entries implemented; 71 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,58 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Pipe transfers
+
+The pipe pass adds `splice`, `tee`, and copied `vmsplice`. Distinct pipes can
+transfer bytes atomically as a pair; tee preserves the source. Splice also admits
+regular-file input into a pipe, and pipe input into regular files or connected
+stream sockets. Vmsplice copies between user vectors and a pipe in either
+direction. Each successful batch is bounded by the pipe's 4 KiB capacity;
+positive short results are permitted. No zero-copy or page-pinning guarantee is
+introduced.
+
+Known MOVE and MORE hints are accepted with copied transfers. GIFT is also
+accepted: user-to-pipe vmsplice requires page-aligned nonempty vector bases and
+lengths, and retains no caller pages. Other directions do not use that hint.
+Unknown flags fail with EINVAL. The GIFT alignment restriction follows the
+documented valid-input contract; Linux's current implementation also accepts
+some unaligned inputs.
+
+Pipe storage uses a VFS-local ring. Read reservations preserve an unconsumed
+prefix, write reservations preserve space, and neither keeps a mutex across
+guarded user copy or backend I/O. Cancel and partial completion restore readiness;
+close and explicit reset cannot invalidate bytes already accepted by a sink.
+Two-pipe waits observe both endpoints without retaining one reservation while
+waiting for the other. Generic Buffer users remain independent of this change.
+
+Unread FIFO data now survives a writer closing and reopening while a reader
+remains. Data resets when the final open description leaves, matching the FIFO
+lifetime. Successful direct transfers publish the destination's ordinary VFS
+modify event after buffer locks are released.
+
+The first guest run found that FIFO creation beneath a mount point inserted into
+the covered directory, making the new path invisible. Creation now resolves the
+mounted parent with a retained reference, checks parent access/read-only state,
+and applies umask and effective ownership before publication. The failed one-
+and four-CPU runs are retained with the explained repair.
+
+`pipe-transfer-contract-test` covers splice, tee, vmsplice, lifetime, readiness,
+and concurrency. All 20 integration suites passed on fresh headless one- and
+four-CPU guests, with zero statuses and final markers. Native verification passed
+69 buffer, readiness, VFS, metadata, and lock tests, including 13 new tests of the
+actual ring engine. The 37 routing/ABI checks passed, eleven affected hosted units
+compiled, and all 20 audited source/object pairs were current for the final images.
+
+Guest streams use Unix sockets; TCP/IPv6 admission is compile-checked. A terminal
+exit test proves cleanup of an admitted read reservation; the pair-wait exit test
+has only public entry gating, so it cannot prove internal enrollment before exit.
+Vmsplice faults commit successful iovec fragments, which differs from Linux's
+pipe-buffer fault granularity. Full MAX_RW_COUNT movement and scratch-allocation
+failure injection were not exercised. Disk writes remained disabled, and the
+separately parked VM failure was not reopened. Logs, image identities, and limits
+are recorded in
+`/private/tmp/pedigree-pipe-transfer-expansion-20260905/verification.json`.
 
 ## File transfers
 

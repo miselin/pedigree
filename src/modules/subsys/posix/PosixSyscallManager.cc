@@ -45,6 +45,7 @@
 #include "mqueue-syscalls.h"
 #include "net-syscalls.h"
 #include "pipe-syscalls.h"
+#include "pipe-transfer-syscalls.h"
 #include "poll-syscalls.h"
 #include "posix-timer-syscalls.h"
 #include "posixSyscallNumbers.h"
@@ -528,6 +529,16 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_copy_file_range(static_cast<int>(p1), reinterpret_cast<int64_t*>(p2),
                                    static_cast<int>(p3), reinterpret_cast<int64_t*>(p4), p5,
                                    static_cast<unsigned int>(p6));
+    case POSIX_SPLICE:
+      return posix_splice(static_cast<int>(p1), reinterpret_cast<int64_t*>(p2),
+                          static_cast<int>(p3), reinterpret_cast<int64_t*>(p4), p5,
+                          static_cast<unsigned int>(p6));
+    case POSIX_TEE:
+      return posix_tee(static_cast<int>(p1), static_cast<int>(p2), p3,
+                       static_cast<unsigned int>(p4));
+    case POSIX_VMSPLICE:
+      return posix_vmsplice(static_cast<int>(p1), reinterpret_cast<const struct iovec*>(p2), p3,
+                            static_cast<unsigned int>(p4));
     case POSIX_SHUTDOWN:
       return posix_shutdown(static_cast<int>(p1), static_cast<int>(p2));
     case POSIX_ACCESS:

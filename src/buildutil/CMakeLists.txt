@@ -170,6 +170,8 @@ add_library(vfs
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/File.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/FileEvent.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Filesystem.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/PipeBuffer.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/PipeBuffer-transfer.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Symlink.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/VFS.cc
 )
@@ -276,6 +278,7 @@ set(TESTSUITE_SRCS
     testsuite/test-UniqueResource.cc
     testsuite/test-RingBuffer.cc
     testsuite/test-Buffer.cc
+    testsuite/test-PipeBuffer.cc
     testsuite/test-BufferView.cc
     testsuite/test-stringlib.cc
     testsuite/test-ExtensibleBitmap.cc

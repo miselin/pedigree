@@ -47,7 +47,7 @@ Pipe::Pipe()
     : File(),
       m_bIsAnonymous(true),
       m_bIsEOF(false),
-      m_Buffer(PIPE_BUF_MAX),
+      m_Buffer(bufferChanged, this),
       m_ReaderCondition(),
       m_WriteGeneration(0),
       m_ErrorGeneration(0),
@@ -65,7 +65,7 @@ Pipe::Pipe(const String& name, Time::Timestamp accessedTime, Time::Timestamp mod
     : File(name, accessedTime, modifiedTime, creationTime, inode, pFs, size, pParent),
       m_bIsAnonymous(bIsAnonymous),
       m_bIsEOF(false),
-      m_Buffer(PIPE_BUF_MAX),
+      m_Buffer(bufferChanged, this),
       m_ReaderCondition(),
       m_WriteGeneration(0),
       m_ErrorGeneration(0),
@@ -84,6 +84,10 @@ Pipe::~Pipe() {
   // chance to actually return from decreaseRefCount (which accesses the lock)
   m_Lock.acquire();
   m_Lock.release();
+}
+
+void Pipe::bufferChanged(void* context) {
+  static_cast<Pipe*>(context)->dataChanged();
 }
 
 int Pipe::select(bool bWriting, int timeout) {
@@ -142,11 +146,7 @@ uint64_t Pipe::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, 
   }
 
   uint8_t* pBuf = reinterpret_cast<uint8_t*>(buffer);
-  const uint64_t result = m_Buffer.read(pBuf, size, bCanBlock);
-  if (result) {
-    dataChanged();
-  }
-  return result;
+  return m_Buffer.read(pBuf, size, bCanBlock);
 }
 
 uint64_t Pipe::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
@@ -159,13 +159,8 @@ uint64_t Pipe::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
   }
 
   uint8_t* pBuf = reinterpret_cast<uint8_t*>(buffer);
-  uint64_t result = size <= PIPE_BUF_MAX ? m_Buffer.writeAtomic(pBuf, size, bCanBlock)
-                                         : m_Buffer.write(pBuf, size, bCanBlock);
-  if (result) {
-    dataChanged();
-  }
-
-  return result;
+  return size <= PIPE_BUF_MAX ? m_Buffer.writeAtomic(pBuf, size, bCanBlock)
+                              : m_Buffer.write(pBuf, size, bCanBlock);
 }
 
 bool Pipe::isPipe() const {
@@ -181,11 +176,8 @@ void Pipe::increaseRefCount(bool bIsWriter) {
     LockGuard<Mutex> guard(m_Lock);
 
     if (bIsWriter) {
-      // Enable writes if they were previously disabled.
-      if (!m_Buffer.enableWrites()) {
-        // Writes were disabled previously (EOF), so wipe the pipe.
-        m_Buffer.wipe();
-      }
+      // A reader can still own unread bytes across the last writer's close.
+      m_Buffer.enableWrites();
       m_nWriters++;
     } else {
       // A reader is now present so we can enable reads if they weren't.
@@ -242,6 +234,10 @@ void Pipe::decreaseRefCount(bool bIsWriter) {
       }
     }
 
+    if (!m_nReaders && !m_nWriters) {
+      // Named FIFO storage survives its final open description, unlike its data.
+      m_Buffer.wipe();
+    }
     queueRetirement = shouldQueueRetirementLocked();
     if (queueRetirement) {
       bDataChanged = false;

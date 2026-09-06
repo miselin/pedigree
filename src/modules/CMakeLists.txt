@@ -622,6 +622,9 @@ pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-remap.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-advice.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Pipe.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Pipe-transfer.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/PipeBuffer.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/PipeBuffer-transfer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Symlink.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/VFS.cc)
 
@@ -856,6 +859,8 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/memfd-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/FileDescriptor-transfer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/transfer-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/pipe-transfer-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/pipe-transfer-vmsplice.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/posix-timer-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/signal-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/system-syscalls.cc

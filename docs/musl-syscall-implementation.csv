@@ -78,10 +78,10 @@ linux_number,syscall,family,status,scope_and_verification
 247,waitid,Core file and process interfaces,pending,
 259,mknodat,Core file and process interfaces,pending,
 272,unshare,Linux administration and isolation,pending,
-275,splice,Extended file interfaces,pending,
-276,tee,Extended file interfaces,pending,
+275,splice,Extended file interfaces,implemented,Pipe transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+276,tee,Extended file interfaces,implemented,Pipe transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 277,sync_file_range,Extended file interfaces,pending,
-278,vmsplice,Extended file interfaces,pending,
+278,vmsplice,Extended file interfaces,implemented,Pipe transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 280,utimensat,Core file and process interfaces,pending,
 282,signalfd,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 283,timerfd_create,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document

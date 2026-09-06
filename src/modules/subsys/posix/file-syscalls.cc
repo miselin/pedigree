@@ -4951,9 +4951,74 @@ int posix_mknod(const char* pathname, mode_t mode, dev_t dev) {
 
   Directory* parentDir = Directory::fromFile(parentFile);
 
-  if ((mode & S_IFIFO) == S_IFIFO) {
+  // A terminal lookup returns the mount point itself. Creation must select
+  // the same directory that a subsequent lookup of its child will search.
+  size_t reparseDepth = 0;
+  while (Directory* reparse = parentDir->getReparsePoint()) {
+    if (++reparseDepth > 40) {
+      SYSCALL_ERROR(LoopExists);
+      return -1;
+    }
+    Directory::ChildLease reparseLease;
+    parentFile = reparse->getFilesystem()->findRetained(StringView(), reparseLease, reparse);
+    if (!parentFile) {
+      SYSCALL_ERROR(DoesNotExist);
+      return -1;
+    }
+    parentLease.swap(reparseLease);
+    parentDir = Directory::fromFile(parentFile);
+  }
+
+  if ((mode & S_IFMT) == S_IFIFO) {
+    if (!VFS::checkAccess(parentDir, false, true, true)) {
+      return -1;
+    }
+    if (parentDir->getFilesystem()->isReadOnly()) {
+      SYSCALL_ERROR(ReadOnlyFilesystem);
+      return -1;
+    }
+
     // Need to create a FIFO (i.e. named pipe).
     Pipe* pipe = new Pipe(String(baseName), 0, 0, 0, 0, parentDir->getFilesystem(), 0, parentDir);
+    if (!pipe) {
+      SYSCALL_ERROR(OutOfMemory);
+      return -1;
+    }
+
+    PosixProcess* posixProcess = getPosixProcess();
+    if (posixProcess) {
+      mode &= ~posixProcess->getMask();
+    }
+    // VFS owner rights occupy the low bits, unlike Unix modes.
+    uint32_t permissions = mode & FILE_AMASK;
+    if (mode & S_IRUSR)
+      permissions |= FILE_UR;
+    if (mode & S_IWUSR)
+      permissions |= FILE_UW;
+    if (mode & S_IXUSR)
+      permissions |= FILE_UX;
+    if (mode & S_IRGRP)
+      permissions |= FILE_GR;
+    if (mode & S_IWGRP)
+      permissions |= FILE_GW;
+    if (mode & S_IXGRP)
+      permissions |= FILE_GX;
+    if (mode & S_IROTH)
+      permissions |= FILE_OR;
+    if (mode & S_IWOTH)
+      permissions |= FILE_OW;
+    if (mode & S_IXOTH)
+      permissions |= FILE_OX;
+    pipe->setPermissions(permissions);
+    int64_t uid = process->getEffectiveUserId();
+    int64_t gid = process->getEffectiveGroupId();
+    if (uid < 0)
+      uid = process->getUserId();
+    if (gid < 0)
+      gid = process->getGroupId();
+    pipe->setUid(uid < 0 ? 0 : static_cast<size_t>(uid));
+    pipe->setGid(gid < 0 ? 0 : static_cast<size_t>(gid));
+
     const Directory::AddStatus status = parentDir->addEphemeralFile(pipe);
     if (status != Directory::AddStatus::Added) {
       delete pipe;
