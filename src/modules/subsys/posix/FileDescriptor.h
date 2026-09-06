@@ -23,6 +23,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -47,6 +48,7 @@ class PosixMessageQueue;
 class EXPORTED_PUBLIC FileDescriptor {
  public:
   class PositionGuard;
+  class TransferPositionGuard;
 
   /**
    * Shared state for one open file description. A lease keeps its file or
@@ -72,6 +74,7 @@ class EXPORTED_PUBLIC FileDescriptor {
    private:
     friend class FileDescriptor;
     friend class PositionGuard;
+    friend class TransferPositionGuard;
 
     OpenFileDescription(File* file, uint64_t initialOffset, int initialStatusFlags);
 
@@ -111,6 +114,34 @@ class EXPORTED_PUBLIC FileDescriptor {
 
     SharedPointer<OpenFileDescription> m_Description;
     LockGuard<Mutex> m_Guard;
+  };
+
+  class TransferPositionGuard {
+   public:
+    enum class Endpoint { Input, Output };
+    TransferPositionGuard(const OpenFileDescriptionLease& input,
+                          const OpenFileDescriptionLease& output, bool lockInput, bool lockOutput);
+    ~TransferPositionGuard();
+    TransferPositionGuard(const TransferPositionGuard&) = delete;
+    TransferPositionGuard& operator=(const TransferPositionGuard&) = delete;
+
+    int statusFlags(Endpoint endpoint) const;
+    uint64_t offset(Endpoint endpoint) const;
+    void commitOffset(Endpoint endpoint, uint64_t finalOffset);
+    bool sameDescription() const;
+
+   private:
+    OpenFileDescription& lockedDescription(Endpoint endpoint) const;
+
+#if THREADS && !defined(STANDALONE_MUTEXES)
+    TerminationDeferral m_TerminationDeferral;
+#endif
+    OpenFileDescriptionLease m_Input;
+    OpenFileDescriptionLease m_Output;
+    OpenFileDescription* m_First;
+    OpenFileDescription* m_Second;
+    int m_InputFlags;
+    int m_OutputFlags;
   };
 
   /// Default constructor

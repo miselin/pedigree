@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 37 of 113 backlog entries implemented; 76 remain.
+Current checkpoint: 39 of 113 backlog entries implemented; 74 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,52 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## File transfers
+
+The transfer pass adds `sendfile` and `copy_file_range` using at most 64 KiB of
+scratch storage. Both accept ordinary regular-file input and output; sendfile
+also admits connected Unix, IPv4, and IPv6 stream output. Copy_file_range requires
+the same filesystem instance. Pipes, datagrams, devices, and synthetic endpoints
+remain outside this slice. Transfers copy bytes; they do not promise zero-copy
+or preservation of sparse extents.
+
+Explicit offsets leave their open description's position unchanged. Implicit
+positions are serialized across dup aliases, and only accepted output advances
+input. Copy_file_range rejects overlapping ranges of the same backing file.
+Sendfile retains separate local positions even when both descriptions alias, so
+its final shared position advances once. Backend size limits use Ext2's existing
+size limit as their source of truth. Output writes
+retain ordinary file seal checks.
+
+Late offset-copy faults follow each syscall's completion order: EFAULT can be
+returned after bytes have reached the destination. This does not roll back data
+or already committed implicit positions. Positive progress otherwise takes
+precedence over a later I/O error. Socket waits retain the original open
+description across numeric close/reuse; SIGPIPE delivery occurs after transfer
+locks are released.
+
+Numeric close no longer takes an unrelated mqueue position lock for file-backed
+descriptions. This allows a controller to close or replace a blocked transfer's
+descriptor and then drain its original socket; the retained description keeps
+the operation alive.
+
+`transfer-contract-test` covers file copying, offsets, stream output, lifetime,
+and concurrent operations. All 19 integration suites passed on fresh headless
+one- and four-CPU guests, with individual zero statuses and final markers.
+Native verification passed 38 lock-engine and VFS metadata tests; 37 routing/ABI
+checks passed, and five affected hosted units compiled. All 14 audited affected
+source/object pairs were current for the final images.
+
+Stream guest coverage uses Unix sockets; TCP/IPv6 share the admitted backend but
+were not executed here. Huge transfers and Ext2's size boundary have arithmetic
+checks rather than guest data movement. Ordinary file copies have no deterministic
+blocking backend for an EINTR fixture. A caught signal may allow further immediately
+writable socket chunks before the next wait or completion. No sparse, snapshot,
+or overlapping-sendfile guarantees are added. Disk writes remained disabled;
+the separately parked VM failure was not reopened. Image identities, logs, and
+limits are recorded in
+`/private/tmp/pedigree-transfer-expansion-20260905/verification.json`.
 
 ## Anonymous memory files and seals
 

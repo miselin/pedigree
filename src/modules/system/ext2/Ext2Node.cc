@@ -225,12 +225,18 @@ void Ext2Node::extend(size_t newSize, uint64_t location, uint64_t size) {
   ensureLargeEnough(newSize, location, size);
 }
 
+uint64_t Ext2Node::maximumFileSize() const {
+  const uint64_t blockSize = m_pExt2Fs->m_BlockSize;
+  const uint64_t entries = blockSize / sizeof(uint32_t);
+  const uint64_t maximumBlocks = 12 + entries + entries * entries;
+  constexpr uint64_t InodeSizeLimit = 0xffffffffULL;
+  return maximumBlocks > InodeSizeLimit / blockSize ? InodeSizeLimit : maximumBlocks * blockSize;
+}
+
 bool Ext2Node::ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize, bool onlyBlocks,
                                  bool nozeroblocks) {
   const size_t blockSize = m_pExt2Fs->m_BlockSize;
-  const size_t entries = blockSize / sizeof(uint32_t);
-  const size_t maximumBlocks = 12 + entries + entries * entries;
-  if (size > 0xffffffffULL || size / blockSize + (size % blockSize != 0) > maximumBlocks) {
+  if (size > maximumFileSize()) {
     SYSCALL_ERROR(FileTooLarge);
     return false;
   }

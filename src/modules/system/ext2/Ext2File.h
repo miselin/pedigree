@@ -49,6 +49,7 @@ class Ext2File : public File, public Ext2Node {
 
   virtual void truncate();
   virtual size_t getSize();
+  virtual uint64_t maximumFileSize() const;
   virtual uintptr_t futexIdentity();
   virtual bool tryBeginMappingRelease();
   virtual Attributes getAttributes() const;

@@ -152,6 +152,10 @@ size_t Ext2File::getSize() {
   return __atomic_load_n(&m_nSize, __ATOMIC_ACQUIRE);
 }
 
+uint64_t Ext2File::maximumFileSize() const {
+  return Ext2Node::maximumFileSize();
+}
+
 uintptr_t Ext2File::futexIdentity() {
   return m_State->futexIdentity;
 }

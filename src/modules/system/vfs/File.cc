@@ -612,6 +612,10 @@ bool File::supportsRegularFileOperations() {
          isSeekable() && !isDirectPhysicalMapping();
 }
 
+uint64_t File::maximumFileSize() const {
+  return ~uint64_t(0) >> 1;
+}
+
 uintptr_t File::getInode() const {
   return m_Inode;
 }

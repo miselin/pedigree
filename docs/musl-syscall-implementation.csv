@@ -5,7 +5,7 @@ linux_number,syscall,family,status,scope_and_verification
 29,shmget,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 30,shmat,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 31,shmctl,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
-40,sendfile,Extended file interfaces,pending,
+40,sendfile,Extended file interfaces,implemented,Transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 64,semget,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 65,semop,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 66,semctl,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
@@ -104,7 +104,7 @@ linux_number,syscall,family,status,scope_and_verification
 319,memfd_create,Memory management,implemented,Anonymous memory file and all five bundled musl seals; public contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 322,execveat,Extended file interfaces,pending,
 325,mlock2,Memory management,pending,
-326,copy_file_range,Extended file interfaces,pending,
+326,copy_file_range,Extended file interfaces,implemented,Transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 332,statx,Extended file interfaces,pending,
 452,fchmodat2,Extended file interfaces,pending,
 73,flock,Mapped unavailable operations,implemented,Advisory file-lock pass; flock and classic/OFD fcntl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document

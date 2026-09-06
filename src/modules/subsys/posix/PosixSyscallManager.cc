@@ -59,6 +59,7 @@
 #include "sysv-semaphore-syscalls.h"
 #include "sysv-shm-syscalls.h"
 #include "timerfd-syscalls.h"
+#include "transfer-syscalls.h"
 #include "vm-syscalls.h"
 
 namespace {
@@ -520,6 +521,13 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_madvise(reinterpret_cast<void*>(p1), p2, static_cast<int>(p3));
     case POSIX_MEMFD_CREATE:
       return posix_memfd_create(reinterpret_cast<const char*>(p1), static_cast<unsigned int>(p2));
+    case POSIX_SENDFILE:
+      return posix_sendfile(static_cast<int>(p1), static_cast<int>(p2),
+                            reinterpret_cast<int64_t*>(p3), p4);
+    case POSIX_COPY_FILE_RANGE:
+      return posix_copy_file_range(static_cast<int>(p1), reinterpret_cast<int64_t*>(p2),
+                                   static_cast<int>(p3), reinterpret_cast<int64_t*>(p4), p5,
+                                   static_cast<unsigned int>(p6));
     case POSIX_SHUTDOWN:
       return posix_shutdown(static_cast<int>(p1), static_cast<int>(p2));
     case POSIX_ACCESS:

@@ -1666,9 +1666,13 @@ void PosixSubsystem::retireDescriptor(FileDescriptor* descriptor) {
   if (descriptor->file) {
     posix_advisory_descriptor_closed(m_AdvisoryOwner, descriptor->file->futexIdentity());
   }
-  SharedPointer<PosixMessageQueue> queue = descriptor->getMqueueImpl();
-  if (queue && m_pProcess) {
-    posix_mqueue_close(queue.get(), m_pProcess->getId());
+  // Queue descriptors have no VFS backing. File retirement must not wait for
+  // an in-flight operation holding the shared file-position mutex.
+  if (!descriptor->file) {
+    SharedPointer<PosixMessageQueue> queue = descriptor->getMqueueImpl();
+    if (queue && m_pProcess) {
+      posix_mqueue_close(queue.get(), m_pProcess->getId());
+    }
   }
   descriptor->unpublish();
 }

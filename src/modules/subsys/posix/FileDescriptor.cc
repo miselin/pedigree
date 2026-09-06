@@ -496,6 +496,7 @@ SharedPointer<PosixMessageQueue> FileDescriptor::OpenFileDescription::getMqueueI
 
 void FileDescriptor::setMqueueImpl(const SharedPointer<PosixMessageQueue>& implementation) {
   LockGuard<Mutex> guard(m_OpenFile->lock);
+  assert(!file && !m_OpenFile->file);
   assert(!m_OpenFile->mqueueImpl);
   m_OpenFile->mqueueImpl = implementation;
 }

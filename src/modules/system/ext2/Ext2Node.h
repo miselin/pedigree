@@ -88,6 +88,8 @@ class Ext2Node {
   void extend(size_t newSize);
   void extend(size_t newSize, uint64_t location, uint64_t size);
 
+  uint64_t maximumFileSize() const;
+
   uintptr_t readBlock(uint64_t location);
   void writeBlock(uint64_t location);
 

@@ -264,6 +264,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /** Whether the backing supports ordinary file range operations. */
   bool supportsRegularFileOperations();
 
+  /** Maximum byte length supported by the backing, independent of free space. */
+  virtual uint64_t maximumFileSize() const;
+
   /** Admit a new mapping and restrict its later write upgrades if needed. */
   virtual bool allowMapping(bool shared, bool writeRequested, bool& mayWrite);
 
