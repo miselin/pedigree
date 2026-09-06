@@ -62,6 +62,10 @@ class EXPORTED_PUBLIC FileDescriptor {
       return m_AdvisoryOwner;
     }
 
+    uint64_t identity() const {
+      return m_AdvisoryOwner.identity();
+    }
+
     File* getFile() const;
     SharedPointer<NetworkSyscalls> getNetworkImpl() const;
     SharedPointer<EventFd> getEventFdImpl() const;

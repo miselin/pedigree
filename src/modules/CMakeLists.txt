@@ -624,6 +624,7 @@ pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-lock.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-map.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-remap.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-rebias.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-advice.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Pipe.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Pipe-transfer.cc
@@ -885,6 +886,10 @@ endif ()
 if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_MEMORY_LOCK_TESTS)
     target_sources(posix PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/memory-lock-regressions.cc)
+endif ()
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_REMAP_FILE_PAGES_TESTS)
+    target_sources(posix PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/remap-file-pages-regressions.cc)
 endif ()
 target_include_directories(posix PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}

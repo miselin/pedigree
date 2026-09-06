@@ -47,7 +47,7 @@ MemoryMappedObject* MemoryMappedFile::stageSlice(uintptr_t source, size_t source
     return nullptr;
   auto* result = new MemoryMappedFile(destination, destinationLength,
                                       m_Offset + (source - m_Address), m_pBacking, m_bCopyOnWrite,
-                                      m_Permissions, m_MaximumPermissions, m_Attachment);
+                                      m_Permissions, m_MaximumPermissions, m_Attachment, m_Origin);
   if (!result)
     return nullptr;
   result->m_OwnsMappings = false;

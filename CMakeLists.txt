@@ -143,6 +143,7 @@ set(PEDIGREE_CONCURRENCY_SMOKE_TESTS FALSE CACHE BOOL "Build focused kernel conc
 set(PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS FALSE CACHE BOOL "Build focused VM ownership smoke tests for QEMU with a root filesystem.")
 set(PEDIGREE_VM_REMAP_TESTS FALSE CACHE BOOL "Run focused x64 remap transaction regressions during POSIX startup.")
 set(PEDIGREE_MEMORY_LOCK_TESTS FALSE CACHE BOOL "Run focused memory-lock residency regressions during POSIX startup.")
+set(PEDIGREE_REMAP_FILE_PAGES_TESTS FALSE CACHE BOOL "Run focused file-offset remapping regressions during POSIX startup.")
 
 # General build options.
 set(PEDIGREE_LTO FALSE CACHE BOOL "Enable LTO.")

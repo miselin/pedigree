@@ -20,6 +20,9 @@ class EXPORTED_PUBLIC PosixMemoryLockAccount final : public MemoryLockAccount {
   PosixMemoryLockAccount(const PosixMemoryLockAccount& parent);
 
   bool permitsTotalPages(size_t total, bool privileged) const override;
+  bool permitsLocking(bool privileged) const override {
+    return privileged || m_Limit.current != 0;
+  }
 
   // Limit mutation and mapping admission share the manager operation gate.
   LinuxRlimit64 limit() const {

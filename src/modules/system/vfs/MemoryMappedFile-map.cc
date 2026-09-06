@@ -109,7 +109,8 @@ MemoryMappedObject* MemoryMapManager::mapFile(File* file, uintptr_t& address, si
                                               MapStatus* status,
                                               MemoryMappedObject::Permissions maximumPerms,
                                               const SharedPointer<MappingAttachment>& attachment,
-                                              MemoryLockMode requestedLock) {
+                                              MemoryLockMode requestedLock,
+                                              const FileMappingOrigin& origin) {
   OperationGuard operation(*this);
   bool mayWrite = maximumPerms & MemoryMappedObject::Write;
   if (!file->allowMapping(!copyOnWrite, perms & MemoryMappedObject::Write, mayWrite)) {
@@ -120,7 +121,7 @@ MemoryMappedObject* MemoryMapManager::mapFile(File* file, uintptr_t& address, si
   if (!mayWrite)
     maximumPerms &= ~MemoryMappedObject::Write;
   return publishMapping(file, address, length, perms, offset, copyOnWrite, placement, status,
-                        maximumPerms, attachment, requestedLock);
+                        maximumPerms, attachment, requestedLock, origin);
 }
 MemoryMappedObject* MemoryMapManager::mapAnon(uintptr_t& address, size_t length,
                                               MemoryMappedObject::Permissions perms) {
@@ -141,7 +142,8 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     File* file, uintptr_t& address, size_t length, MemoryMappedObject::Permissions perms,
     size_t offset, bool copyOnWrite, Placement placement, MapStatus* status,
     MemoryMappedObject::Permissions maximumPerms,
-    const SharedPointer<MappingAttachment>& attachment, MemoryLockMode requestedLock) {
+    const SharedPointer<MappingAttachment>& attachment, MemoryLockMode requestedLock,
+    const FileMappingOrigin& origin) {
   if (status)
     *status = MapStatus::NoMemory;
   const size_t pageSize = PhysicalMemoryManager::getPageSize(), mask = pageSize - 1;
@@ -245,7 +247,7 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     plan.inserted =
         file ? static_cast<MemoryMappedObject*>(
                    new MemoryMappedFile(destination, actualLength, offset, file, copyOnWrite, perms,
-                                        maximumPerms, attachment))
+                                        maximumPerms, attachment, origin))
              : static_cast<MemoryMappedObject*>(new AnonymousMemoryMap(destination, length, perms));
     if (!plan.inserted)
       return nullptr;

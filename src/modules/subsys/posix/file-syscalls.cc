@@ -3392,9 +3392,11 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
     F_NOTICE("mmap: file name is " << fileToMap->getFullPath());
 
     bool bCopyOnWrite = (flags & MAP_SHARED) == 0;
+    const FileMappingOrigin origin{f->acquireOpenFileDescription()->identity(),
+                                   accessMode == O_RDWR};
     MemoryMappedObject* pFile = MemoryMapManager::instance().mapFile(
         fileToMap, sanityAddress, roundedLength, perms, off, bCopyOnWrite, placement, &mapStatus,
-        maximumPerms, SharedPointer<MappingAttachment>(), requestedLock);
+        maximumPerms, SharedPointer<MappingAttachment>(), requestedLock, origin);
     if (!pFile) {
       if (mapStatus == MemoryMapManager::MapStatus::AddressInUse) {
         SYSCALL_ERROR(FileExists);

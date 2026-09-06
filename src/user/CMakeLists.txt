@@ -200,6 +200,15 @@ pedigree_app(memory-lock-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memory-lock-contract-test/managed.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memory-lock-contract-test/raw.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memory-lock-contract-test/lifetime.c)
+pedigree_app(remap-file-pages-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/remap-file-pages-contract-test/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/remap-file-pages-contract-test/fixture.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/remap-file-pages-contract-test/offsets.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/remap-file-pages-contract-test/admission.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/remap-file-pages-contract-test/lifetime.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/remap-file-pages-contract-test/locks.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/remap-file-pages-contract-test/resize.c)
+
 pedigree_app(memfd-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memfd-contract-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memfd-contract-test/creation.c

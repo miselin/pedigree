@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 48 of 113 backlog entries implemented; 65 remain.
+Current checkpoint: 49 of 113 backlog entries implemented; 64 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,53 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## File-page offset remapping
+
+`remap_file_pages` replaces an existing shared regular-file range at the same
+virtual address using an absolute file-page offset. Compatible adjacent mapping
+fragments from the same open description are accepted; independently opened
+descriptions remain distinct even when they name one inode. A scalar origin ID
+survives clone/split/remap without retaining an open description or extending
+its advisory-lock lifetime. Current protections and write-upgrade ceilings are
+preserved, and fresh mapping policy is checked against memfd seals.
+
+Replacement reuses the prepared fixed-map transaction. Old pages and cache
+loans are retired at their old file offsets, while untouched fragments preserve
+their physical mappings and offsets. Default population is best effort;
+MAP_NONBLOCK leaves an unlocked replacement lazy. Inherited locks become eager
+unless the caller has FUTURE ONFAULT policy. Lock admission checks the full old
+charge plus replacement length before publication, then commits the net charge.
+File truncation continues to invalidate aliases according to backing offsets.
+
+Address and length are independently rounded down. `prot` must be zero; flag
+bits other than MAP_NONBLOCK are ignored. Invalid private/anonymous mappings,
+holes and incompatible fragments fail without replacement. Internal mappings
+without open provenance, raw allocations, direct mappings and SysV attachments
+remain unsupported. Replacement is bounded to 65536 pages and the existing
+4096-object transaction limit. There is no new nonlinear PTE format or physical
+page-move operation.
+
+The public contract families cover offsets, admission, lifetime, locks and
+resize. The default-off `PEDIGREE_REMAP_FILE_PAGES_TESTS` fixture inspects actual
+PTEs and offset-specific cache loans for lazy/default/locked population, failed
+policy and metadata-capacity admission, unaffected slices, and real compactor
+retention through unlock. Capacity rejection is not allocation-failure injection.
+
+Verification passed 148 selected native tests, 37 routing/ABI checks, and nine
+affected hosted compiles. The actual Darwin core runtime completed cleanly.
+Fresh headless one- and four-CPU guests passed all 23 suites (104.6 and 98.2
+seconds), including five new public families, four mapping cases, and the prior
+four kernel memory-lock cases. All 289 affected image source/object pairs were
+current. Logs and image identities are under
+`/private/tmp/pedigree-remap-file-pages-expansion-20260905/verification.json`.
+
+The initial guests correctly returned EIO from Ext2 MS_SYNC because the test
+build disabled disk writes. Their logs are retained. The successful verification
+used a separate write-enabled ISO with independent disposable snapshot disks;
+this proves synchronous writeback success, without a reboot-persistence claim.
+The shared build's write-disable setting and default-off fixtures were restored.
+The separately parked split/unmap fault is unchanged.
 
 ## Memory locking and locked-memory limits
 

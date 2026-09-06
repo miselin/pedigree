@@ -60,7 +60,7 @@ linux_number,syscall,family,status,scope_and_verification
 199,fremovexattr,Extended file interfaces,pending,
 203,sched_setaffinity,Scheduling and resource discovery,pending,
 204,sched_getaffinity,Scheduling and resource discovery,pending,
-216,remap_file_pages,Memory management,pending,
+216,remap_file_pages,Memory management,implemented,File-page remap pass; public musl and kernel mapping contracts passed in 1CPU and 4CPU guests with disk writes enabled; bounds and limitations in companion document
 220,semtimedop,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 221,fadvise64,Core file and process interfaces,pending,
 222,timer_create,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document

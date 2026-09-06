@@ -111,6 +111,52 @@ void* posix_mremap(void* oldAddress, size_t oldLength, size_t newLength, int fla
   return reinterpret_cast<void*>(~uintptr_t(0));
 }
 
+int posix_remap_file_pages(void* address, size_t length, size_t prot, size_t pageOffset,
+                           size_t flags) {
+  TerminationDeferral lifetime;
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const uintptr_t base = reinterpret_cast<uintptr_t>(address) & ~(pageSize - 1);
+  const size_t extent = length & ~(pageSize - 1);
+  if (prot || !extent || extent > ~uintptr_t(0) - base || !userRange(base, extent) ||
+      extent / pageSize > ~size_t(0) - pageOffset) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  if (pageOffset > ~size_t(0) / pageSize ||
+      pageOffset > static_cast<uint64_t>(LLONG_MAX) / pageSize ||
+      extent > static_cast<uint64_t>(LLONG_MAX) - pageOffset * pageSize) {
+    SYSCALL_ERROR(ValueTooLarge);
+    return -1;
+  }
+
+  constexpr size_t Nonblock = 0x10000;
+  using Status = MemoryMapManager::FileRemapStatus;
+  const auto status = MemoryMapManager::instance().remapFilePages(
+      base, extent, pageOffset * pageSize, flags & Nonblock);
+  switch (status) {
+    case Status::Success:
+      Processor::information().getCurrentThread()->setErrno(0);
+      return 0;
+    case Status::InvalidRange:
+      SYSCALL_ERROR(InvalidArgument);
+      break;
+    case Status::Unsupported:
+      SYSCALL_ERROR(OperationNotSupported);
+      break;
+    case Status::NoMemory:
+      SYSCALL_ERROR(OutOfMemory);
+      break;
+    case Status::PolicyDenied:
+    case Status::PermissionDenied:
+      SYSCALL_ERROR(NotEnoughPermissions);
+      break;
+    case Status::LockLimit:
+      SYSCALL_ERROR(NoMoreProcesses);
+      break;
+  }
+  return -1;
+}
+
 int posix_mincore(void* address, size_t length, unsigned char* vector) {
   TerminationDeferral lifetime;
   const uintptr_t base = reinterpret_cast<uintptr_t>(address);

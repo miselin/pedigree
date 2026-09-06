@@ -45,6 +45,11 @@ class VirtualAddressSpace;
 class VfsUserMemoryPolicy;
 using FileResidencyAccess = bool (*)(File*, void*);
 
+struct FileMappingOrigin {
+  uint64_t openIdentity = 0;
+  bool writableOpen = false;
+};
+
 /** One logical mapping attachment, retained by every surviving fragment. */
 class MappingAttachment {
  public:
@@ -394,7 +399,8 @@ class MemoryMappedFile : public MemoryMappedObject {
   MemoryMappedFile(
       uintptr_t address, size_t length, size_t offset, File* backing, bool bCopyOnWrite,
       Permissions perms, Permissions maximumPerms = Read | Write | Exec,
-      const SharedPointer<MappingAttachment>& attachment = SharedPointer<MappingAttachment>());
+      const SharedPointer<MappingAttachment>& attachment = SharedPointer<MappingAttachment>(),
+      const FileMappingOrigin& origin = {});
 
   virtual ~MemoryMappedFile() override;
 
@@ -474,6 +480,7 @@ class MemoryMappedFile : public MemoryMappedObject {
 
   /** List of existing mappings. */
   Tree<uintptr_t, physical_uintptr_t> m_Mappings;
+  FileMappingOrigin m_Origin;
 
   /**
    * Lock for anything to do with the memory mapped file.
@@ -511,6 +518,16 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   };
 
   enum class VmStatus { Success, InvalidRange, Unmapped, Unsupported, NoMemory, LockLimit };
+  enum class FileRemapStatus {
+    Success,
+    InvalidRange,
+    Unsupported,
+    NoMemory,
+    PolicyDenied,
+    LockLimit,
+    PermissionDenied
+  };
+  FileRemapStatus remapFilePages(uintptr_t base, size_t length, size_t byteOffset, bool nonblock);
   struct RemapRequest {
     uintptr_t source, destination;
     size_t oldLength, newLength;
@@ -562,7 +579,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
                                                      MemoryMappedObject::Write |
                                                      MemoryMappedObject::Exec,
       const SharedPointer<MappingAttachment>& attachment = SharedPointer<MappingAttachment>(),
-      MemoryLockMode requestedLock = MemoryLockMode::None);
+      MemoryLockMode requestedLock = MemoryLockMode::None, const FileMappingOrigin& origin = {});
 
   /**
    * Create a new anonymous memory mapping.
@@ -754,7 +771,8 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
                                      bool copyOnWrite, Placement placement, MapStatus* status,
                                      MemoryMappedObject::Permissions maximumPerms,
                                      const SharedPointer<MappingAttachment>& attachment,
-                                     MemoryLockMode requestedLock);
+                                     MemoryLockMode requestedLock,
+                                     const FileMappingOrigin& origin = {});
   void retireLockedPages(VirtualAddressSpace& space, size_t pages);
 
   void enterOperation();

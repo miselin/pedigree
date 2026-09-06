@@ -395,11 +395,13 @@ void AnonymousMemoryMap::unmapUnlocked() {
 MemoryMappedFile::MemoryMappedFile(uintptr_t address, size_t length, size_t offset, File* backing,
                                    bool bCopyOnWrite, MemoryMappedObject::Permissions perms,
                                    MemoryMappedObject::Permissions maximumPerms,
-                                   const SharedPointer<MappingAttachment>& attachment)
+                                   const SharedPointer<MappingAttachment>& attachment,
+                                   const FileMappingOrigin& origin)
     : MemoryMappedObject(address, bCopyOnWrite, length, perms, maximumPerms),
       m_pBacking(backing),
       m_Offset(offset),
       m_Mappings(),
+      m_Origin(origin),
       m_Lock(),
       m_bVfsLease(backing && VFS::instance().retainTrackedFile(backing)) {
   assert(m_pBacking);
@@ -421,7 +423,7 @@ MemoryMappedObject* MemoryMappedFile::clone() {
 
   MemoryMappedFile* pResult =
       new MemoryMappedFile(m_Address, m_Length, m_Offset, m_pBacking, m_bCopyOnWrite, m_Permissions,
-                           m_MaximumPermissions, m_Attachment);
+                           m_MaximumPermissions, m_Attachment, m_Origin);
   pResult->m_Mappings = m_Mappings;
 
   for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it) {
@@ -458,9 +460,9 @@ MemoryMappedObject* MemoryMappedFile::split(uintptr_t at) {
   m_Length = at - m_Address;
 
   // New object.
-  MemoryMappedFile* pResult =
-      new MemoryMappedFile(at, oldLength - m_Length, m_Offset + m_Length, m_pBacking,
-                           m_bCopyOnWrite, m_Permissions, m_MaximumPermissions, m_Attachment);
+  MemoryMappedFile* pResult = new MemoryMappedFile(at, oldLength - m_Length, m_Offset + m_Length,
+                                                   m_pBacking, m_bCopyOnWrite, m_Permissions,
+                                                   m_MaximumPermissions, m_Attachment, m_Origin);
 
   pResult->m_LockMode = m_LockMode;
 

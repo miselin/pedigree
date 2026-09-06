@@ -40,6 +40,9 @@ class EXPORTED_PUBLIC MemoryLockAccount {
  public:
   virtual ~MemoryLockAccount() = default;
   virtual bool permitsTotalPages(size_t total, bool privileged) const = 0;
+  virtual bool permitsLocking(bool) const {
+    return true;
+  }
   MemoryLockCharge charge() const {
     return m_Charge;
   }

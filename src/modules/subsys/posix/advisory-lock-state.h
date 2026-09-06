@@ -14,6 +14,9 @@ class EXPORTED_PUBLIC AdvisoryOwner {
   ~AdvisoryOwner() = default;
   AdvisoryOwner(const AdvisoryOwner&) = delete;
   AdvisoryOwner& operator=(const AdvisoryOwner&) = delete;
+  uint64_t identity() const {
+    return m_Id;
+  }
 
  private:
   friend class PosixAdvisoryLocks;
