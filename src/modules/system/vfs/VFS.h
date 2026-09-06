@@ -19,6 +19,8 @@
 
 #ifndef VFS_H
 #define VFS_H
+#include "pedigree/kernel/linker/KernelElf.h"
+
 #include <config.h>
 
 #if THREADS
@@ -51,6 +53,7 @@ class VfsFilesystemPin;
 /** This class implements a single-root virtual filesystem namespace. */
 class EXPORTED_PUBLIC VFS {
  public:
+  static Module::UnloadAdmission unloadAdmission(bool terminal);
   class MountOperation;
   class FilesystemPin;
   class EXPORTED_PUBLIC MountIdentity {

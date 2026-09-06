@@ -85,6 +85,9 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace {
   virtual bool isMapped(void* virtualAddress);
 
   virtual bool map(physical_uintptr_t physAddress, void* virtualAddress, size_t flags);
+  bool tryMapUserPage(physical_uintptr_t physical, void* address, size_t flags,
+                      size_t* committedTablePages = nullptr) override;
+  bool tryDetachUserPage(void* address, physical_uintptr_t expected) override;
   virtual void getMapping(void* virtualAddress, physical_uintptr_t& physAddress, size_t& flags);
   virtual bool handleCopyOnWriteFault(void* virtualAddress, bool userMode);
   virtual bool tryWriteUser32(uintptr_t address, uint32_t value);

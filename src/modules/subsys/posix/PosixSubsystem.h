@@ -326,6 +326,9 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
                                InterruptState* pState = nullptr, uintptr_t faultAddress = 0,
                                uintptr_t errorCode = 0);
 
+  bool resolveUserPageFault(Thread& thread, InterruptState& state, uintptr_t faultAddress,
+                            uintptr_t errorCode) override;
+
   /** Send a POSIX signal to a thread or its process. */
   virtual void sendSignal(Thread* pThread, int signal, bool yield = true,
                           bool processDirected = false);

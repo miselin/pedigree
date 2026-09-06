@@ -270,6 +270,12 @@ pedigree_app(vhangup-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/vhangup-contract-test/main.c)
 pedigree_app(quota-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/quota-contract-test/main.c)
+pedigree_app(swap-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/swap-contract-test/main.c)
+pedigree_app(sysinfo-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/sysinfo-contract-test/main.c)
+pedigree_app(personality-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/personality-contract-test/main.c)
 pedigree_app(execveat-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/execveat-contract-test/main.c)
 if (TARGET init-module-contract-fixture)

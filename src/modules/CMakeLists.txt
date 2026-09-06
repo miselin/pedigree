@@ -666,6 +666,10 @@ pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Filesystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/LockedFile.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedAnonymous.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-swap.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/SwapStore.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/SwapHeader.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-resize.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-lock.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-usercopy.cc
@@ -881,6 +885,8 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/terminal-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/process-accounting.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/quota-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/swap-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/system-information-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/epoll-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/eventfd-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/FileDescriptor.cc
@@ -1012,6 +1018,18 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vsyscall-${PEDIGREE_ASMDIR}.s
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-${PEDIGREE_ASMDIR}.s
         PROPERTIES LANGUAGE ASM_NASM)
+endif ()
+
+get_directory_property(swap_vm_definitions COMPILE_DEFINITIONS)
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS AND
+    "THREADS=1" IN_LIST swap_vm_definitions)
+    # This fixture resets on completion and uses a dedicated test initrd.
+    set(PEDIGREE_MODULE_swap-vm-tests FALSE)
+    pedigree_module(swap-vm-tests "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/swap-vm-tests/main.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/swap-regressions.cc)
+    add_dependencies(swap-vm-tests vfs)
 endif ()
 
 if (PEDIGREE_MODULE_SYSCALL_TESTS)

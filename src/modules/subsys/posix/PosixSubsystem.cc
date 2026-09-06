@@ -854,6 +854,33 @@ bool PosixSubsystem::kill(KillReason killReason, Thread* pThread) {
   return true;
 }
 
+bool PosixSubsystem::resolveUserPageFault(Thread& thread, InterruptState& state,
+                                          uintptr_t faultAddress, uintptr_t errorCode) {
+#if X64 || HOSTED
+  constexpr uintptr_t present = 1, write = 2, user = 4, fetch = 16;
+  if (state.kernelMode() || !Processor::getInterrupts() ||
+      Processor::information().getCurrentThread() != &thread || !thread.getParent() ||
+      thread.getParent()->getSubsystem() != this ||
+      thread.getParent()->getAddressSpace() != &Processor::information().getVirtualAddressSpace() ||
+      (errorCode & ~(present | write | user | fetch)) ||
+      ((errorCode & write) && (errorCode & fetch)))
+    return false;
+#if X64 && !HOSTED
+  if (!(errorCode & user))
+    return false;
+#endif
+  const auto resolution = MemoryMapManager::instance().resolveUserFault(
+      faultAddress, errorCode & write, errorCode & present, errorCode & fetch);
+  if (resolution == MemoryMapManager::FaultResolution::BackingFault) {
+    threadException(&thread, FileMappingFault, &state, faultAddress, errorCode);
+    return true;
+  }
+  return resolution == MemoryMapManager::FaultResolution::Resolved;
+#else
+  return false;
+#endif
+}
+
 void PosixSubsystem::threadException(Thread* pThread, ExceptionType eType, InterruptState* pState,
                                      uintptr_t faultAddress, uintptr_t errorCode) {
   // The native event path does not consume machine context yet.

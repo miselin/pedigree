@@ -30,6 +30,7 @@
 
 #include "Directory.h"
 #include "File.h"
+#include "MemoryMappedFile.h"
 
 #ifndef VFS_STANDALONE
 #include "pedigree/kernel/process/Process.h"
@@ -1448,9 +1449,17 @@ void VFS::attachRegisteredFilesystemsLocked() {
   }
 }
 
+Module::UnloadAdmission VFS::unloadAdmission(bool terminal) {
+  // Mapping/pressure callbacks remain registered until singleton destruction.
+  // destroyVFS does not close that global service or its surviving clients.
+  return terminal ? Module::UnloadAdmission::KeepMapped : Module::UnloadAdmission::Busy;
+}
+
 #ifndef VFS_STANDALONE
 static bool initVFS() {
-  return true;
+  SwapStore::instance().prepareAtBoot();
+  AnonymousMemoryMap prepareZeroPage(0, 0, MemoryMappedObject::None);
+  return KernelElf::instance().registerUnloadAdmission(&initVFS, &VFS::unloadAdmission);
 }
 
 static void destroyVFS() {}

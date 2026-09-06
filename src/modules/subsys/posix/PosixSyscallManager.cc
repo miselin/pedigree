@@ -72,6 +72,8 @@
 #include "signal-syscalls.h"
 #include "signalfd-syscalls.h"
 #include "syscalls/translate.h"
+#include "swap-syscalls.h"
+#include "system-information-syscalls.h"
 #include "system-syscalls.h"
 #include "sysv-message-syscalls.h"
 #include "sysv-semaphore-syscalls.h"
@@ -250,6 +252,14 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_QUOTACTL:
       return posix_quotactl(static_cast<int>(p1), reinterpret_cast<const char*>(p2),
                             static_cast<int>(p3), reinterpret_cast<void*>(p4));
+    case POSIX_SWAPON:
+      return posix_swapon(reinterpret_cast<const char*>(p1), static_cast<int>(p2));
+    case POSIX_SWAPOFF:
+      return posix_swapoff(reinterpret_cast<const char*>(p1));
+    case POSIX_SYSINFO:
+      return posix_sysinfo(reinterpret_cast<void*>(p1));
+    case POSIX_PERSONALITY:
+      return posix_personality(static_cast<unsigned long>(p1));
     case POSIX_WAITPID:
       return posix_waitpid(p1, reinterpret_cast<int*>(p2), p3,
                            linuxAbi ? reinterpret_cast<LinuxRusage64*>(p4) : nullptr);

@@ -73,6 +73,9 @@ void MemoryMapManager::bindMemoryLockPolicy(VirtualAddressSpace& space) {
 PopulationStatus MemoryMappedObject::populatePage(VirtualAddressSpace& space, uintptr_t address) {
   if (m_Permissions == None || beyondBackingEnd(address))
     return PopulationStatus::Inaccessible;
+  const auto access = prepareResidentAccess(space, address);
+  if (access != PopulationStatus::Success)
+    return access;
   const bool write = m_bCopyOnWrite && (m_Permissions & Write);
   void* page = reinterpret_cast<void*>(address);
   if (space.isMapped(page)) {

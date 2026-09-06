@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 102 of 113 backlog entries implemented; 11 remain.
+Current checkpoint: 106 of 113 backlog entries implemented; 7 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,53 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Anonymous swap, system information and execution personality
+
+swapon and swapoff use a real prepared ATA paging channel and Linux version-one
+swap headers. The initial implementation supports one unmounted physical device,
+4096 usable 4 KiB slots, and flags zero. Managed private anonymous pages can be
+evicted through MADV_PAGEOUT or the existing safe memory-pressure path. File-backed,
+locked, borrowed, shared/COW and raw heap/stack pages remain resident. Unsupported
+pageout ranges are rejected before mutation; this is not a general replacement
+for every memory allocator's exhaustion policy.
+
+Each swapped page owns an immutable reference separate from its page table.
+Access is revoked before storage I/O, and RAM is released only after a successful
+write and device flush. Failed operations retain their original owner and retryable
+state. Fault-in privately initializes fallibly allocated RAM and page tables before
+publication. Fork shares immutable slots while subsequent faults create private
+RAM; remap, discard and final unmap transfer or retire references exactly once.
+Partial swapoff preserves the active channel and remaining slots for retry.
+User page faults retry after leaving raw interrupt/accounting context, so backing
+I/O can block safely. Logical and page-table permissions are both checked; backing
+EOF keeps SIGBUS behavior and failed page-in keeps ordinary fault delivery.
+Registered mapping owners retain short process leases during paging, including
+foreign-address-space restoration, and successful allocations charge that owner.
+
+sysinfo returns the exact Linux amd64 112-byte record with initialized padding,
+monotonic uptime, allocator-managed RAM, unique swap-slot usage, registered task
+count and fixed-point load averages. Sampling runs in ordinary accounting workers;
+the observing worker is excluded from its load sample. Shared/buffer-memory
+classification and uninterruptible-I/O load classification are unavailable.
+personality supports independent per-task PER_LINUX and PER_LINUX32 state, query,
+fork/thread inheritance and exec preservation. PER_LINUX32 reports i686 through
+uname; unsupported domains and policy flags fail without changing state.
+
+Verification passed 37 routing/ABI checks, 172 focused native tests, full image and
+hosted builds, and actual Darwin hosted swap/storage lifecycles. The swap fixture
+covers six groups, including controlled I/O/OOM failures and ordinary fault retry
+permissions. All 373 affected image source/object pairs were current, with 856
+strong POSIX imports resolved. Fresh one/four-CPU serial guests passed all 50 suites
+in 549.3/353.1 seconds. Shared build settings were restored. Evidence and preserved
+failed runs are recorded in
+/private/tmp/pedigree-swap-expansion-20260906/verification.json.
+
+The guest failures exposed a byte/sector mismatch in ATA paging and attempted
+blocking page-in from raw interrupt context. The public swap test now verifies
+header preservation and actual swapped fork access. A four-CPU boot stall exposed
+a load-sampling worker whose readiness ended while it could still own a mutex;
+readiness now covers the complete batch, including affinity drains.
 
 ## Accounting, terminal revocation and disk quotas
 

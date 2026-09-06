@@ -131,6 +131,70 @@ physical_uintptr_t X86CommonPhysicalMemoryManager::allocatePage(size_t pageConst
 
   return ptr;
 }
+physical_uintptr_t X86CommonPhysicalMemoryManager::tryAllocatePage() {
+  m_Lock.acquire(true);
+  physical_uintptr_t ptr;
+  ptr = m_PageStack.allocate(0, false);
+  if (!ptr) {
+    m_Lock.release();
+    return 0;
+  }
+
+  EMIT_IF(MEMORY_TRACING) {
+    traceAllocation(reinterpret_cast<void*>(ptr), MemoryTracing::PageAlloc, 4096);
+  }
+
+  trackPages(0, 1, 0);
+
+  EMIT_IF(USE_BITMAP) {
+    physical_uintptr_t ptr_bitmap = ptr / 0x1000;
+    size_t idx = ptr_bitmap / 32;
+    size_t bit = ptr_bitmap % 32;
+    g_PageBitmap[idx] |= (1 << bit);
+  }
+
+  m_Lock.release();
+
+  EMIT_IF(TRACK_PAGE_ALLOCATIONS) {
+    if (Processor::m_Initialised == 2) {
+      if (!g_AllocationCommand.isMallocing()) {
+        g_AllocationCommand.allocatePage(ptr);
+      }
+    }
+  }
+
+  return ptr;
+}
+
+PhysicalMemoryManager::MemorySnapshot X86CommonPhysicalMemoryManager::memorySnapshot() const {
+  auto& self = *const_cast<X86CommonPhysicalMemoryManager*>(this);
+  RecursingLockGuard<Spinlock> guard(self.m_Lock);
+  return {m_PageStack.totalPages(), m_PageStack.freePages(), true};
+}
+
+bool X86CommonPhysicalMemoryManager::copyPhysicalPageToBuffer(physical_uintptr_t page,
+                                                              void* buffer) {
+#if X64
+  if (!page || (page & (getPageSize() - 1)) || !buffer)
+    return false;
+  MemoryCopy(buffer, reinterpret_cast<const void*>(page + 0xffff800000000000ULL), getPageSize());
+  return true;
+#else
+  return false;
+#endif
+}
+bool X86CommonPhysicalMemoryManager::copyPhysicalPageFromBuffer(physical_uintptr_t page,
+                                                                const void* buffer) {
+#if X64
+  if (!page || (page & (getPageSize() - 1)) || !buffer)
+    return false;
+  MemoryCopy(reinterpret_cast<void*>(page + 0xffff800000000000ULL), buffer, getPageSize());
+  return true;
+#else
+  return false;
+#endif
+}
+
 void X86CommonPhysicalMemoryManager::freePage(physical_uintptr_t page) {
   RecursingLockGuard<Spinlock> guard(m_Lock);
 
@@ -454,7 +518,7 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t& Info) {
     // Prepare the page stack for the additional pages we're giving it.
     m_PageStack.increaseCapacity((length / pageSize) + 1);
 
-    m_PageStack.free(addr, length);
+    m_PageStack.free(addr, length, true);
   }
 
   if (!top) {
@@ -629,10 +693,10 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t& Info)
           size_t numPages = highLength / pageSize;
           m_PageStack.increaseCapacity(numPages);
           if (alignedHighAddr < sixtyFourGiB && alignedRangeTop > sixtyFourGiB) {
-            m_PageStack.free(alignedHighAddr, sixtyFourGiB - alignedHighAddr);
-            m_PageStack.free(sixtyFourGiB, alignedRangeTop - sixtyFourGiB);
+            m_PageStack.free(alignedHighAddr, sixtyFourGiB - alignedHighAddr, true);
+            m_PageStack.free(sixtyFourGiB, alignedRangeTop - sixtyFourGiB, true);
           } else {
-            m_PageStack.free(alignedHighAddr, highLength);
+            m_PageStack.free(alignedHighAddr, highLength, true);
           }
 
           numPagesOver4G += numPages;
@@ -851,7 +915,8 @@ void X86CommonPhysicalMemoryManager::unmapRegion(MemoryRegion* pRegion) {
   }
 }
 
-physical_uintptr_t X86CommonPhysicalMemoryManager::PageStack::allocate(size_t constraints) {
+physical_uintptr_t X86CommonPhysicalMemoryManager::PageStack::allocate(size_t constraints,
+                                                                       bool waitForReady) {
   initialise();
 
   size_t index = 0;
@@ -877,6 +942,8 @@ physical_uintptr_t X86CommonPhysicalMemoryManager::PageStack::allocate(size_t co
   // block until the first page stack is ready (which should almost always
   // be the case).
   while (!m_StackReady[index]) {
+    if (!waitForReady)
+      return 0;
     Processor::pause();
   }
 
@@ -921,7 +988,8 @@ static void performPush(T* stack, size_t& stackSize, uint64_t physicalAddress, s
   stackSize += sizeof(T) * count;
 }
 
-void X86CommonPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress, size_t length) {
+void X86CommonPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress, size_t length,
+                                                     bool newMemory) {
   initialise();
 
   // Select the right stack
@@ -970,6 +1038,8 @@ void X86CommonPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress, s
   }
 
   m_FreePages += numPages;
+  if (newMemory)
+    m_TotalPages += numPages;
 }
 
 X86CommonPhysicalMemoryManager::PageStack::PageStack() {
@@ -992,6 +1062,7 @@ X86CommonPhysicalMemoryManager::PageStack::PageStack() {
   */
 
   m_FreePages = 0;
+  m_TotalPages = 0;
 }
 
 void X86CommonPhysicalMemoryManager::PageStack::initialise() {

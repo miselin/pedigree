@@ -495,6 +495,71 @@ void HostedVirtualAddressSpace::setFlags(void* virtualAddress, size_t newFlags) 
   }
 }
 
+bool HostedVirtualAddressSpace::tryMapUserPage(physical_uintptr_t physical, void* address,
+                                               size_t flags, size_t* committedTablePages) {
+  if (committedTablePages)
+    *committedTablePages = 0;
+  const uintptr_t value = reinterpret_cast<uintptr_t>(address);
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  if (!physical || ((physical | value) & (pageSize - 1)) || value < getUserStart() ||
+      value >= getKernelStart() ||
+      (flags & (KernelMode | Swapped | Borrowed | Shared | CopyOnWrite)))
+    return false;
+  LockGuard<Spinlock> guard(m_Lock);
+  size_t index = m_KnownMapsSize;
+  for (size_t i = 0; i < m_KnownMapsSize; ++i) {
+    if (m_pKnownMaps[i].active && m_pKnownMaps[i].vaddr == address)
+      return false;
+    if (!m_pKnownMaps[i].active && index == m_KnownMapsSize)
+      index = i;
+  }
+  if (index == m_KnownMapsSize) {
+    if (m_KnownMapsSize > (~size_t(0) / sizeof(mapping_t)) / 2)
+      return false;
+    const size_t count = m_KnownMapsSize ? m_KnownMapsSize * 2 : 1;
+    auto* maps = static_cast<mapping_t*>(__libc_realloc(m_pKnownMaps, count * sizeof(mapping_t)));
+    if (!maps)
+      return false;
+    m_pKnownMaps = maps;
+    for (size_t i = m_KnownMapsSize; i < count; ++i)
+      maps[i].active = false;
+    m_KnownMapsSize = count;
+  }
+  if (this == &Processor::information().getVirtualAddressSpace() &&
+      mmap(address, pageSize, toFlags(flags, true), MAP_FIXED | MAP_SHARED,
+           HostedPhysicalMemoryManager::instance().getBackingFile(), physical) == MAP_FAILED)
+    return false;
+  auto& mapping = m_pKnownMaps[index];
+  mapping.active = true;
+  mapping.vaddr = address;
+  mapping.paddr = physical;
+  mapping.flags = flags;
+  ++m_numKnownMaps;
+  return true;
+}
+bool HostedVirtualAddressSpace::tryDetachUserPage(void* address, physical_uintptr_t expected) {
+  const uintptr_t value = reinterpret_cast<uintptr_t>(address);
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  if ((value & (pageSize - 1)) || value < getUserStart() || value >= getKernelStart())
+    return false;
+  LockGuard<Spinlock> guard(m_Lock);
+  for (size_t i = 0; i < m_KnownMapsSize; ++i) {
+    auto& mapping = m_pKnownMaps[i];
+    if (!mapping.active || mapping.vaddr != address)
+      continue;
+    if (mapping.paddr != expected || !(mapping.flags & NoAccess) || (mapping.flags & Swapped))
+      return false;
+    if (this == &Processor::information().getVirtualAddressSpace() && munmap(address, pageSize))
+      return false;
+    mapping.active = false;
+    m_nLastUnmap = i;
+    // Legacy unmap leaves this count conservative; preserve that convention
+    // rather than undercounting older inactive records.
+    return true;
+  }
+  return false;
+}
+
 bool HostedVirtualAddressSpace::trySetFlags(void* virtualAddress, size_t newFlags) {
   virtualAddress = page_align(virtualAddress);
   if (this != &getKernelAddressSpace() && getKernelAddressSpace().isMapped(virtualAddress)) {

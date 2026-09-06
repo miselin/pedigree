@@ -39,6 +39,8 @@
 
 #include <config.h>
 
+#include "SwapStore.h"
+
 class File;
 class Process;
 class VirtualAddressSpace;
@@ -154,6 +156,7 @@ class MemoryMappedObject {
         m_Permissions(perms),
         m_MaximumPermissions(maximumPerms),
         m_Attachment(),
+        m_OwnerProcess(nullptr),
         m_OwnsMappings(true),
         m_LockMode(MemoryLockMode::None) {}
 
@@ -257,6 +260,9 @@ class MemoryMappedObject {
    */
   virtual bool trap(VirtualAddressSpace& space, uintptr_t address, bool bWrite,
                     PopulationStatus* population = nullptr) = 0;
+  virtual PopulationStatus prepareResidentAccess(VirtualAddressSpace& space, uintptr_t address) {
+    return PopulationStatus::Success;
+  }
   PopulationStatus populatePage(VirtualAddressSpace& space, uintptr_t address);
   MemoryLockMode lockMode() const {
     return m_LockMode;
@@ -267,6 +273,18 @@ class MemoryMappedObject {
    *
    * Default implementation returns 'no pages released'.
    */
+  virtual bool supportsPageOut(VirtualAddressSpace& space, uintptr_t address) {
+    return false;
+  }
+  virtual SwapStatus pageOutAt(VirtualAddressSpace& space, uintptr_t address, bool& released) {
+    return SwapStatus::Unsupported;
+  }
+  virtual bool reclaimAnonymousPage(VirtualAddressSpace& space) {
+    return false;
+  }
+  virtual SwapStatus restoreSwapPages(VirtualAddressSpace& space) {
+    return SwapStatus::Success;
+  }
   virtual bool compact() {
     return false;
   }
@@ -339,6 +357,9 @@ class MemoryMappedObject {
   Permissions m_Permissions;
   Permissions m_MaximumPermissions;
   SharedPointer<MappingAttachment> m_Attachment;
+  // The mapping gate protects registration; paging additionally admits a
+  // short scheduler lease before dereferencing this process identity.
+  Process* m_OwnerProcess;
   bool m_OwnsMappings;
   MemoryLockMode m_LockMode;
 };
@@ -351,11 +372,14 @@ class MemoryMappedObject {
  * is perfect for mapping in large .bss sections in binaries or for
  * getting huge amounts of zeroed memory.
  */
-class AnonymousMemoryMap : public MemoryMappedObject {
+class EXPORTED_PUBLIC AnonymousMemoryMap : public MemoryMappedObject {
  public:
   AnonymousMemoryMap(uintptr_t address, size_t length, Permissions perms);
 
-  virtual ~AnonymousMemoryMap() override {}
+  virtual ~AnonymousMemoryMap() override;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  static void setCloneFailureForTest(ssize_t after);
+#endif
 
   virtual MemoryMappedObject* clone() override;
   virtual MemoryMappedObject* split(uintptr_t at) override;
@@ -372,17 +396,33 @@ class AnonymousMemoryMap : public MemoryMappedObject {
 
   virtual bool trap(VirtualAddressSpace& space, uintptr_t address, bool bWrite,
                     PopulationStatus* population = nullptr) override;
+  bool supportsPageOut(VirtualAddressSpace& space, uintptr_t address) override;
+  SwapStatus pageOutAt(VirtualAddressSpace& space, uintptr_t address, bool& released) override;
+  bool reclaimAnonymousPage(VirtualAddressSpace& space) override {
+    return pageOut(space);
+  }
+  SwapStatus restoreSwapPages(VirtualAddressSpace& space) override {
+    return restoreAll(space);
+  }
+  PopulationStatus prepareResidentAccess(VirtualAddressSpace& space, uintptr_t address) override;
 
  private:
+  friend class MemoryMapManager;
+  struct Page {
+    uintptr_t address = 0;
+    SwapReference slot;
+    bool pagingBlocked = false;
+  };
+  bool pageOut(VirtualAddressSpace& space);
+  SwapStatus restorePage(VirtualAddressSpace& space, Page& page);
+  SwapStatus restoreAll(VirtualAddressSpace& space);
   static physical_uintptr_t m_Zero;
+  static bool initialisePhysicalPage(physical_uintptr_t physical);
 
   void unmapUnlocked();
 
   /** List of existing virtual addresses we've mapped in. */
-  List<void*> m_Mappings;
-
-  /** Lock for anything to do with the memory mapping. */
-  Spinlock m_Lock;
+  List<Page> m_Mappings;
 };
 
 /**
@@ -602,7 +642,12 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
    * process.
    * \param pTarget The process to clone into.
    */
-  void clone(Process* pTarget);
+  bool clone(Process* pTarget);
+  SwapStatus pageOutRange(uintptr_t base, size_t length);
+  SwapStatus activateSwap(uint32_t endpoint);
+  SwapStatus deactivateSwap(uint32_t endpoint);
+  SwapSnapshot swapSnapshot();
+  bool operationOwnedByCurrentExecution();
 
   /**
    * Removes the given range from whatever objects might own them,
@@ -656,6 +701,9 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   bool sharedBacking(Process* process, uintptr_t address, uintptr_t& identity, size_t& offset);
 
   bool faultIn(uintptr_t address, bool write);
+
+  enum class FaultResolution { Unhandled, Resolved, BackingFault };
+  FaultResolution resolveUserFault(uintptr_t address, bool write, bool wasPresent, bool execute);
 
   enum class ResizeStatus { Ready, NoMemory, Unsupported, Invalid };
   class PreparedFileResize {
@@ -788,8 +836,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
                         VmStatus* status = nullptr);
   void releaseReservation(Process* process, VirtualAddressSpace& addressSpace, uintptr_t base,
                           size_t length);
-  bool handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent);
-
+  bool handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent, bool execute = false);
 
   enum Ops {
     Sync,

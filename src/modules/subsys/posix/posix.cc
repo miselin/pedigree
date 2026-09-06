@@ -33,6 +33,7 @@
 #include "UnixFilesystem.h"
 #include "modules/Module.h"
 #include "modules/system/ramfs/RamFs.h"
+#include "modules/system/vfs/MemoryMappedFile.h"
 #include "modules/system/vfs/VFS.h"
 #include "net-syscalls.h"
 #include "process-accounting.h"
@@ -220,6 +221,13 @@ static bool terminalQuiesce() {
   // An already-admitted fork or clone can publish after the first empty
   // scheduler scan. Handler retirement closes that final publication window.
   drainPosixProcesses(stats);
+  auto& maps = MemoryMapManager::instance();
+  if (maps.swapSnapshot().active) {
+    const auto swapStatus = maps.deactivateSwap(SwapStore::instance().endpointId());
+    if (swapStatus != SwapStatus::Success)
+      WARNING("POSIX shutdown could not drain swap; storage retained (status "
+              << static_cast<size_t>(swapStatus) << ")");
+  }
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   NOTICE("HOSTED-POSIX-SHUTDOWN: PHASE final-process-drain-complete");
 #endif

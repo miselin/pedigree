@@ -559,8 +559,8 @@ bool X64VirtualAddressSpace::trySetFlags(void* virtualAddress, size_t newFlags) 
   // Get a pointer to the page-table entry (Also checks whether the page is
   // actually present or marked swapped out)
   uint64_t* pageTableEntry = 0;
-  if (!getPageTableEntry(virtualAddress, pageTableEntry) || !(*pageTableEntry & PAGE_PRESENT) ||
-      (*pageTableEntry & PAGE_SWAPPED)) {
+  if (!getPageTableEntry(virtualAddress, pageTableEntry) ||
+      !(*pageTableEntry & (PAGE_PRESENT | PAGE_NO_ACCESS)) || (*pageTableEntry & PAGE_SWAPPED)) {
     return false;
   }
 

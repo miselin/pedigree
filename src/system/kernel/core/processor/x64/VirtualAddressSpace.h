@@ -103,6 +103,9 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
   virtual size_t runtimeMappingPages(uintptr_t base, size_t length);
 
   virtual bool map(physical_uintptr_t physAddress, void* virtualAddress, size_t flags);
+  bool tryMapUserPage(physical_uintptr_t physical, void* address, size_t flags,
+                      size_t* committedTablePages = nullptr) override;
+  bool tryDetachUserPage(void* address, physical_uintptr_t expected) override;
   virtual bool mapHuge(physical_uintptr_t physAddress, void* virtualAddress, size_t count,
                        size_t flags);
   virtual void getMapping(void* virtualAddress, physical_uintptr_t& physAddress, size_t& flags);

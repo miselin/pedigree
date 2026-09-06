@@ -17,7 +17,7 @@ linux_number,syscall,family,status,scope_and_verification
 75,fdatasync,Core file and process interfaces,implemented,Descriptor sync pass; fdatasync real file and metadata writeback; native failure tests plus public musl in 1CPU and 4CPU guests
 76,truncate,Core file and process interfaces,pending,
 94,lchown,Core file and process interfaces,pending,
-99,sysinfo,Scheduling and resource discovery,pending,
+99,sysinfo,Scheduling and resource discovery,implemented,Anonymous swap and system information pass; actual hosted fixtures and public musl contracts passed in 1CPU and 4CPU guests; bounds in companion document
 101,ptrace,Linux administration and isolation,implemented,Cooperative tracing pass; single-thread TRACEME inspection and resume contracts passed in 1CPU and 4CPU guests; explicit request and admission bounds in companion document
 122,setfsuid,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 123,setfsgid,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
@@ -25,7 +25,7 @@ linux_number,syscall,family,status,scope_and_verification
 127,rt_sigpending,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 128,rt_sigtimedwait,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 129,rt_sigqueueinfo,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
-135,personality,Linux administration and isolation,pending,
+135,personality,Linux administration and isolation,implemented,Anonymous swap and system information pass; actual hosted fixtures and public musl contracts passed in 1CPU and 4CPU guests; bounds in companion document
 142,sched_setparam,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
 143,sched_getparam,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
 144,sched_setscheduler,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
@@ -42,8 +42,8 @@ linux_number,syscall,family,status,scope_and_verification
 159,adjtimex,Linux administration and isolation,implemented,Clock adjustment pass; query and signed SETOFFSET with MICRO/NANO units; no PLL or slew discipline; public musl in 1CPU and 4CPU guests
 162,sync,Core file and process interfaces,implemented,Filesystem-wide sync pass; Ext2 and authoritative RAM backends; native failure/retry and hosted device flush contracts; public wrappers and cold-restart persistence passed on 1CPU and 4CPU; limits in companion document
 163,acct,Linux administration and isolation,implemented,Administration pass; public musl contracts passed in 1CPU and 4CPU guests; supported controls and backend limits in companion document
-167,swapon,Linux administration and isolation,pending,
-168,swapoff,Linux administration and isolation,pending,
+167,swapon,Linux administration and isolation,implemented,Anonymous swap and system information pass; actual hosted fixtures and public musl contracts passed in 1CPU and 4CPU guests; bounds in companion document
+168,swapoff,Linux administration and isolation,implemented,Anonymous swap and system information pass; actual hosted fixtures and public musl contracts passed in 1CPU and 4CPU guests; bounds in companion document
 171,setdomainname,Linux administration and isolation,implemented,UTS namespace pass; real task membership and retained proc namespace descriptors; public musl and kernel lifecycle contracts passed in 1CPU and 4CPU guests; other namespace types deferred; bounds in companion document
 175,init_module,Linux administration and isolation,implemented,"Runtime module pass; bounded native amd64 ET_DYN and empty parameters; native, Darwin runtime and 1CPU/4CPU public contracts"
 176,delete_module,Linux administration and isolation,implemented,Module removal pass; privileged non-forced active-module removal and typed errors; actual exit/destructor proof in 1CPU and 4CPU guests

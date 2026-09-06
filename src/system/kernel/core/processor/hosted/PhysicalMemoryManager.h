@@ -52,12 +52,16 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager {
   //
   // PhysicalMemoryManager Interface
   //
-  virtual physical_uintptr_t allocatePage(size_t pageConstraints = 0);
-  virtual void freePage(physical_uintptr_t page);
+  virtual physical_uintptr_t allocatePage(size_t pageConstraints = 0) override;
+  physical_uintptr_t tryAllocatePage() override;
+  bool copyPhysicalPageToBuffer(physical_uintptr_t page, void* buffer) override;
+  bool copyPhysicalPageFromBuffer(physical_uintptr_t page, const void* buffer) override;
+  MemorySnapshot memorySnapshot() const override;
+  virtual void freePage(physical_uintptr_t page) override;
   virtual bool allocateRegion(MemoryRegion& Region, size_t cPages, size_t pageConstraints,
-                              size_t Flags, physical_uintptr_t start = -1);
+                              size_t Flags, physical_uintptr_t start = -1) override;
 
-  virtual void pin(physical_uintptr_t page);
+  virtual void pin(physical_uintptr_t page) override;
 
   /** Initialise the page stack
    *\param[in] Info reference to the multiboot information structure */
@@ -74,7 +78,7 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager {
   /** The constructor */
   HostedPhysicalMemoryManager() INITIALISATION_ONLY;
   /** The destructor */
-  virtual ~HostedPhysicalMemoryManager();
+  virtual ~HostedPhysicalMemoryManager() override;
 
  private:
   /** The copy-constructor
@@ -92,11 +96,11 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager {
   size_t pageReferenceCountForTestImpl(physical_uintptr_t page);
 #endif
 
-  void unmapRegion(MemoryRegion* pRegion);
+  void unmapRegion(MemoryRegion* pRegion) override;
 
   /** Same as freePage, but without the lock. Will panic if the lock is
    * unlocked. \note Use in the wrong place and you die. */
-  virtual void freePageUnlocked(physical_uintptr_t page);
+  virtual void freePageUnlocked(physical_uintptr_t page) override;
 
   using PageStack = X86CommonPhysicalMemoryManager::PageStack;
 

@@ -122,6 +122,73 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage(size_t pageConstrai
 
   return ptr;
 }
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+namespace {
+ssize_t tryAllocationFailure = -1;
+}
+void PhysicalMemoryManager::setTryAllocationFailureForTest(ssize_t after) {
+  auto& memory = HostedPhysicalMemoryManager::instance();
+  RecursingLockGuard<Spinlock> guard(memory.m_Lock);
+  tryAllocationFailure = after;
+}
+#endif
+physical_uintptr_t HostedPhysicalMemoryManager::tryAllocatePage() {
+  m_Lock.acquire(true);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  if (!tryAllocationFailure) {
+    m_Lock.release();
+    return 0;
+  }
+  if (tryAllocationFailure > 0)
+    --tryAllocationFailure;
+#endif
+  physical_uintptr_t ptr;
+  ptr = m_PageStack.allocate(0, false);
+  if (!ptr) {
+    m_Lock.release();
+    return 0;
+  }
+
+#ifdef USE_BITMAP
+  physical_uintptr_t ptr_bitmap = ptr / getPageSize();
+  size_t idx = ptr_bitmap / 32;
+  size_t bit = ptr_bitmap % 32;
+  if (g_PageBitmap[idx] & (1 << bit)) {
+    m_Lock.release();
+    FATAL_NOLOCK("PhysicalMemoryManager allocate()d a page twice");
+  }
+  g_PageBitmap[idx] |= (1 << bit);
+#endif
+
+  m_Lock.release();
+
+#if TRACK_PAGE_ALLOCATIONS
+  if (Processor::m_Initialised == 2) {
+    if (!g_AllocationCommand.isMallocing()) {
+      g_AllocationCommand.allocatePage(ptr);
+    }
+  }
+#endif
+
+  return ptr;
+}
+
+PhysicalMemoryManager::MemorySnapshot HostedPhysicalMemoryManager::memorySnapshot() const {
+  auto& self = *const_cast<HostedPhysicalMemoryManager*>(this);
+  RecursingLockGuard<Spinlock> guard(self.m_Lock);
+  return {m_PageStack.totalPages(), m_PageStack.freePages(), true};
+}
+
+bool HostedPhysicalMemoryManager::copyPhysicalPageToBuffer(physical_uintptr_t page, void* buffer) {
+  return page && !(page & (getPageSize() - 1)) && page < HOSTED_PHYSICAL_MEMORY_SIZE && buffer &&
+         pread(m_BackingFile, buffer, getPageSize(), page) == static_cast<ssize_t>(getPageSize());
+}
+bool HostedPhysicalMemoryManager::copyPhysicalPageFromBuffer(physical_uintptr_t page,
+                                                             const void* buffer) {
+  return page && !(page & (getPageSize() - 1)) && page < HOSTED_PHYSICAL_MEMORY_SIZE && buffer &&
+         pwrite(m_BackingFile, buffer, getPageSize(), page) == static_cast<ssize_t>(getPageSize());
+}
+
 void HostedPhysicalMemoryManager::freePage(physical_uintptr_t page) {
   RecursingLockGuard<Spinlock> guard(m_Lock);
 
@@ -324,7 +391,7 @@ void HostedPhysicalMemoryManager::initialise(const BootstrapStruct_t& Info) {
 
   // Free pages into the page stack first.
   m_PageStack.increaseCapacity((HOSTED_PHYSICAL_MEMORY_SIZE / pageSize) + 1);
-  m_PageStack.free(0, HOSTED_PHYSICAL_MEMORY_SIZE);
+  m_PageStack.free(0, HOSTED_PHYSICAL_MEMORY_SIZE, true);
   m_PageStack.markBelow4GReady();
   TRACE("Hosted PMM: page stack done");
 

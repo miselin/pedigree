@@ -131,6 +131,11 @@ class EXPORTED_PUBLIC Subsystem {
                                InterruptState* pState = nullptr, uintptr_t faultAddress = 0,
                                uintptr_t errorCode = 0);
 
+  /** Retry a userspace page fault after raw interrupt scopes have retired. */
+  virtual bool resolveUserPageFault(Thread&, InterruptState&, uintptr_t, uintptr_t) {
+    return false;
+  }
+
   /** Gets the type of this subsystem */
   SubsystemType getType() {
     return m_Type;

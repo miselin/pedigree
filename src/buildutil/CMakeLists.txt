@@ -286,6 +286,9 @@ set(TESTSUITE_SRCS
     testsuite/test-DiskPaging.cc
     testsuite/test-QuotaAccounting.cc
     testsuite/test-Ext2Quota.cc
+    testsuite/test-SwapHeader.cc
+    testsuite/test-SystemInformation.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/SwapHeader.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/ModuleImage.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/Elf-validation.cc
     testsuite/test-Ext2FilesystemSync.cc

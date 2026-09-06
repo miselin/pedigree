@@ -162,7 +162,10 @@ int posix_uname(struct utsname* user) {
     MemoryCopy(snapshot.fields[1], names.node, 65);
     copyField(snapshot.fields[2], 65, "2.6.32-generic");
     copyField(snapshot.fields[3], 65, g_pBuildRevision);
-    copyField(snapshot.fields[4], 65, g_pBuildTarget);
+    copyField(snapshot.fields[4], 65,
+              thread.executionPersonality().value() == ExecutionPersonality::Linux32
+                  ? "i686"
+                  : g_pBuildTarget);
     MemoryCopy(snapshot.fields[5], names.domain, 65);
     if (!PosixSubsystem::copyToUser(user, &snapshot, sizeof(snapshot))) {
       SYSCALL_ERROR(BadAddress);
@@ -175,7 +178,10 @@ int posix_uname(struct utsname* user) {
                sizeof(snapshot.nodename) < 65 ? sizeof(snapshot.nodename) : 65);
     copyField(snapshot.release, sizeof(snapshot.release), g_pBuildRevision);
     copyField(snapshot.version, sizeof(snapshot.version), "Foster");
-    copyField(snapshot.machine, sizeof(snapshot.machine), g_pBuildTarget);
+    copyField(snapshot.machine, sizeof(snapshot.machine),
+              thread.executionPersonality().value() == ExecutionPersonality::Linux32
+                  ? "i686"
+                  : g_pBuildTarget);
     if (!PosixSubsystem::copyToUser(user, &snapshot, sizeof(snapshot))) {
       SYSCALL_ERROR(BadAddress);
       return result.finish(-1);

@@ -29,6 +29,7 @@
 #include "pedigree/kernel/process/DeferredTimeAccounting.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/ExecutionContext.h"
+#include "pedigree/kernel/process/ExecutionPersonality.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -368,6 +369,10 @@ class EXPORTED_PUBLIC Thread {
 
   void setParent(Process* p) {
     m_pParent = p;
+  }
+
+  ExecutionPersonality& executionPersonality() {
+    return m_ExecutionPersonality;
   }
 
   /** Retrieves our current status. */
@@ -1205,6 +1210,7 @@ class EXPORTED_PUBLIC Thread {
 
   /** Our current status. Sleeping is reserved for an active WaitQueue. */
   volatile Status m_Status = Ready;
+  ExecutionPersonality m_ExecutionPersonality;
 
   /** One-shot terminal handoff used by the orderly shutdown coordinator. */
   bool m_ExitToIdle = false;

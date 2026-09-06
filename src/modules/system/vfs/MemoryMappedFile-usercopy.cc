@@ -50,6 +50,13 @@ MemoryMapManager::UserPageCopyStatus MemoryMapManager::copyUserPage(VirtualAddre
     return UserPageCopyStatus::Inaccessible;
   }
 
+  if (selected) {
+    const auto access = selected->prepareResidentAccess(space, pageAddress);
+    if (access != PopulationStatus::Success)
+      return access == PopulationStatus::NoMemory       ? UserPageCopyStatus::NoMemory
+             : access == PopulationStatus::Inaccessible ? UserPageCopyStatus::Inaccessible
+                                                        : UserPageCopyStatus::IoError;
+  }
   bool prepare = !space.isMapped(page);
   if (!prepare) {
     physical_uintptr_t physical = 0;

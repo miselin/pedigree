@@ -59,12 +59,16 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager {
   //
   // PhysicalMemoryManager Interface
   //
-  virtual physical_uintptr_t allocatePage(size_t pageConstraints = 0);
-  virtual void freePage(physical_uintptr_t page);
+  virtual physical_uintptr_t allocatePage(size_t pageConstraints = 0) override;
+  physical_uintptr_t tryAllocatePage() override;
+  bool copyPhysicalPageToBuffer(physical_uintptr_t page, void* buffer) override;
+  bool copyPhysicalPageFromBuffer(physical_uintptr_t page, const void* buffer) override;
+  MemorySnapshot memorySnapshot() const override;
+  virtual void freePage(physical_uintptr_t page) override;
   virtual bool allocateRegion(MemoryRegion& Region, size_t cPages, size_t pageConstraints,
-                              size_t Flags, physical_uintptr_t start = -1);
+                              size_t Flags, physical_uintptr_t start = -1) override;
 
-  virtual void pin(physical_uintptr_t page);
+  virtual void pin(physical_uintptr_t page) override;
 
   /** Initialise the page stack
    *\param[in] Info reference to the multiboot information structure */
@@ -86,13 +90,13 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager {
   }
 
   /** Specifies the number of pages that remain free on the system. */
-  virtual size_t freePageCount() const;
+  virtual size_t freePageCount() const override;
 
  protected:
   /** The constructor */
   X86CommonPhysicalMemoryManager() INITIALISATION_ONLY;
   /** The destructor */
-  virtual ~X86CommonPhysicalMemoryManager();
+  virtual ~X86CommonPhysicalMemoryManager() override;
 
  private:
   /** The copy-constructor
@@ -102,11 +106,11 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager {
    *\note Not implemented (singleton) */
   X86CommonPhysicalMemoryManager& operator=(const X86CommonPhysicalMemoryManager&);
 
-  void unmapRegion(MemoryRegion* pRegion);
+  void unmapRegion(MemoryRegion* pRegion) override;
 
   /** Same as freePage, but without the lock. Will panic if the lock is
    * unlocked. \note Use in the wrong place and you die. */
-  virtual void freePageUnlocked(physical_uintptr_t page);
+  virtual void freePageUnlocked(physical_uintptr_t page) override;
 
   /** The actual page stack contains is a Stack of the pages with the
    *constraints below4GB and below64GB and those pages without address size
@@ -124,15 +128,19 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager {
     /** Allocate a page with certain constraints
      *\param[in] constraints either below4GB or below64GB or 0
      *\return The physical address of the allocated page or 0 */
-    physical_uintptr_t allocate(size_t constraints);
+    physical_uintptr_t allocate(size_t constraints, bool waitForReady = true);
     /** Free a physical page
      *\param[in] physicalAddress physical address of the page */
-    void free(uint64_t physicalAddress, size_t length);
+    void free(uint64_t physicalAddress, size_t length, bool newMemory = false);
     /** The destructor does nothing */
     inline ~PageStack() {}
 
     inline size_t freePages() const {
       return m_FreePages;
+    }
+
+    size_t totalPages() const {
+      return m_TotalPages;
     }
 
     void setCapacity(size_t newCapacity) {
@@ -186,6 +194,7 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager {
     size_t m_StackSize[StackCount];
     /** Current pages available. */
     size_t m_FreePages;
+    size_t m_TotalPages;
     /** Current capacity (i.e. mapped pages). */
     size_t m_Capacity;
     /** Desired capacity. New pages will be mapped until demand is met. */

@@ -30,28 +30,6 @@ bool MemoryMappedFile::resident(VirtualAddressSpace& space, uintptr_t address,
   return true;
 }
 
-void AnonymousMemoryMap::releaseDetachedPage(uintptr_t oldAddress,
-                                             const VirtualAddressSpace::DetachedPage& page) {
-  LockGuard<Spinlock> guard(m_Lock);
-  for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it) {
-    if (reinterpret_cast<uintptr_t>(*it) == oldAddress) {
-      m_Mappings.erase(it);
-      break;
-    }
-  }
-  if (page.mapped)
-    PhysicalMemoryManager::instance().freePage(page.physical);
-}
-
-void AnonymousMemoryMap::discardRange(VirtualAddressSpace& space, uintptr_t base, size_t length) {
-  const size_t pageSize = PhysicalMemoryManager::getPageSize();
-  for (uintptr_t address = base; address < base + length; address += pageSize) {
-    VirtualAddressSpace::DetachedPage page{address, 0, 0, false};
-    page.mapped = space.detachMapping(reinterpret_cast<void*>(address), page.physical, page.flags);
-    releaseDetachedPage(address, page);
-  }
-}
-
 void MemoryMappedFile::releaseDetachedPageUnlocked(uintptr_t oldAddress,
                                                    const VirtualAddressSpace::DetachedPage& page) {
   const bool loan = m_Mappings.contains(oldAddress) && getMapping(oldAddress) == ~0UL;

@@ -132,6 +132,20 @@ class VirtualAddressSpace {
    *should be allowed on the page. \return true, if successfull, false
    *otherwise */
   virtual bool map(physical_uintptr_t physicalAddress, void* virtualAddress, size_t flags) = 0;
+  // Fallible user-page publication; the caller retains the page on failure.
+  // These checked paging helpers leave process accounting to the admitted owner.
+  // Report only new table pages committed by a successful publication.
+  virtual bool tryMapUserPage(physical_uintptr_t physical, void* address, size_t flags,
+                              size_t* committedTablePages = nullptr) {
+    if (committedTablePages)
+      *committedTablePages = 0;
+    return false;
+  }
+  // Detach only the expected, access-revoked user page. No ownership transfers
+  // until success, including host mapping failures.
+  virtual bool tryDetachUserPage(void* address, physical_uintptr_t expected) {
+    return false;
+  }
   /** Map a region of memory using the largest possible frame size.
    * Where possible the largest page size should be used, degrading into
    * smaller page sizes as needed (e.g. 1 GB, 2 MB, 4K) to reduce the

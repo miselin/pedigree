@@ -163,9 +163,12 @@ int PerProcessorScheduler::runTimeAccountingWorker() {
   while (true) {
     const size_t target = m_TimeAccountingState.beginBatch();
     Scheduler::instance().drainDeferredTimeAccounting();
-    m_TimeAccountingState.finishBatch(target);
+    Scheduler::instance().sampleLoadAverage();
     drainDeferredThreadReaps();
     drainAffinityRequests();
+    // Sampling can be preempted while owning its global mutex. Keep this
+    // worker eligible until every operation in the batch has retired.
+    m_TimeAccountingState.finishBatch(target);
 
     if (m_StopTimeAccountingWorker.value() && m_TimeAccountingState.caughtUp() &&
         !m_nDeferredThreadReaps.value() && !m_AffinityRequests.value()) {
@@ -1587,6 +1590,13 @@ void PerProcessorScheduler::serviceDeferredSubsystemException(InterruptState& st
     FATAL("Deferred userspace exception has no valid owning subsystem");
   }
 
+  // Disk-backed faults can only wait once the raw interrupt and accounting
+  // scopes are gone. An unsuccessful retry retains ordinary signal delivery.
+  if (rawType == static_cast<size_t>(Subsystem::PageFault) && !state.kernelMode() &&
+      Processor::getInterrupts() &&
+      subsystem->resolveUserPageFault(*thread, state, faultAddress, errorCode))
+    return;
+
   subsystem->threadException(thread, static_cast<Subsystem::ExceptionType>(rawType), &state,
                              faultAddress, errorCode);
 }
@@ -1824,5 +1834,5 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
 #endif
 
 void PerProcessorScheduler::setIdle(Thread* pThread) {
-  m_pIdleThread = pThread;
+  __atomic_store_n(&m_pIdleThread, pThread, __ATOMIC_RELEASE);
 }

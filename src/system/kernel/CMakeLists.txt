@@ -99,6 +99,7 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/state.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/SyscallManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/VirtualAddressSpace.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/VirtualAddressSpace-paging.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/VirtualAddressSpace-remap.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/VirtualAddressSpace-remap-regressions.cc
         # /core/processor/x64/asm/
@@ -299,6 +300,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/RoundRobin.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/RoundRobinCoreAllocator.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Scheduler.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Scheduler-system-info.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/SchedulingAlgorithm.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Semaphore.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/SignalEvent.cc

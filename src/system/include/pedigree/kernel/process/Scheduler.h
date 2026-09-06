@@ -23,6 +23,8 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/CpuAffinity.h"
+#include "pedigree/kernel/process/LoadAverage.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/WaitQueue.h"
@@ -122,6 +124,14 @@ class EXPORTED_PUBLIC Scheduler {
   static PerProcessorScheduler* schedulerForCpu(size_t cpu);
   void rebindThread(Thread* thread, PerProcessorScheduler& scheduler);
 
+  struct SystemActivity {
+    uint64_t tasks = 0;
+    uint64_t loads[3] = {};
+  };
+  SystemActivity systemActivity();
+  /** Called by an ordinary accounting worker after its batch is complete. */
+  void sampleLoadAverage();
+
   /** Returns the number of processes currently in operation. */
   size_t getNumProcesses();
 
@@ -199,6 +209,12 @@ class EXPORTED_PUBLIC Scheduler {
    * The caller is an ordinary per-processor accounting worker.
    */
   void drainDeferredTimeAccounting();
+
+  class ActivitySample;
+  static void releaseActivityEntry(Process* process, Thread* thread);
+  Mutex m_ActivityLock;
+  uint64_t m_NextActivityAttempt = 0;
+  LoadAverage m_LoadAverage;
 
   /** The Scheduler instance. */
   static Scheduler m_Instance;

@@ -49,11 +49,12 @@ class PosixSyscallTranslationTests(unittest.TestCase):
         # ten scheduling entries, waitid, cooperative ptrace, four file sync/advice
         # entries, two clock adjustment entries, module removal, sync/syncfs,
         # getsid, fallocate, renameat2, recvmmsg, init_module, execveat, acct,
-        # vhangup and quotactl. This locks both sides of all 275 mappings.
-        self.assertEqual(len(mapping), 275)
+        # vhangup, quotactl, swapon/swapoff, sysinfo and personality.
+        # This locks both sides of all 279 mappings.
+        self.assertEqual(len(mapping), 279)
         self.assertEqual(
             hashlib.sha256(serialized.encode()).hexdigest(),
-            "41b7b047558f5cc35dba92c1eeaafe0630b0386b879feed167feb399675bc225",
+            "b14d231e4a940f77191653da2fba48f6c963305c02a9c036ea41c754ec36b0d9",
         )
         self.assertEqual(len({name for name, _, _ in mapping}), len(mapping))
         self.assertEqual(len({number for _, number, _ in mapping}), len(mapping))

@@ -476,6 +476,8 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
         SYSCALL_ERROR(OutOfMemory);
         return -1;
       }
+      pThread->executionPersonality().inherit(
+          Processor::information().getCurrentThread()->executionPersonality());
       creatorNamespaces->publishThread(preparedUts, *pThread, false);
       if (creatorSubsystem->traceContext().publishTask(preparedTrace, *pThread) !=
               TraceStatus::Success &&
@@ -608,7 +610,13 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
       pProcess->setLinker(newLinker);
     }
 
-    MemoryMapManager::instance().clone(pProcess);
+    if (!MemoryMapManager::instance().clone(pProcess)) {
+      delete pProcess;
+      for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; ++sig)
+        Processor::information().getCurrentThread()->inhibitEvent(sig, false);
+      SYSCALL_ERROR(OutOfMemory);
+      return -1;
+    }
   }
 
   // Copy the file descriptors from the parent
@@ -662,6 +670,8 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     SYSCALL_ERROR(OutOfMemory);
     return -1;
   }
+  pThread->executionPersonality().inherit(
+      Processor::information().getCurrentThread()->executionPersonality());
   pSubsystem->namespaceContext()->publishThread(preparedUts, *pThread, true);
   if (pSubsystem->traceContext().publishTask(preparedTrace, *pThread) != TraceStatus::Success &&
       pThread->getUnwindState() != Thread::TerminateThread)

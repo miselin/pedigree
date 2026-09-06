@@ -136,8 +136,8 @@ MemoryMappedObject::~MemoryMappedObject() {}
 
 AnonymousMemoryMap::AnonymousMemoryMap(uintptr_t address, size_t length,
                                        MemoryMappedObject::Permissions perms)
-    : MemoryMappedObject(address, true, length, perms), m_Mappings(), m_Lock(false) {
-  LockGuard<Spinlock> guard(m_Lock);
+    : MemoryMappedObject(address, true, length, perms), m_Mappings() {
+  MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
 
   if (m_Zero == 0) {
     m_Zero = PhysicalMemoryManager::instance().allocatePage();
@@ -159,237 +159,16 @@ AnonymousMemoryMap::AnonymousMemoryMap(uintptr_t address, size_t length,
   }
 }
 
-MemoryMappedObject* AnonymousMemoryMap::clone() {
-  LockGuard<Spinlock> guard(m_Lock);
-
-  AnonymousMemoryMap* pResult = new AnonymousMemoryMap(m_Address, m_Length, m_Permissions);
-  pResult->m_Mappings = m_Mappings;
-  return pResult;
-}
-
-MemoryMappedObject* AnonymousMemoryMap::split(uintptr_t at) {
-  LockGuard<Spinlock> guard(m_Lock);
-
-  if (at < m_Address || at >= (m_Address + m_Length)) {
-    ERROR("AnonymousMemoryMap::split() given bad at parameter (at="
-          << at << ", address=" << m_Address << ", end=" << (m_Address + m_Length) << ")");
-    return 0;
-  }
-
-  if (at == m_Address) {
-    ERROR("AnonymousMemoryMap::split() misused, at == base address");
-    return 0;
-  }
-
-  // Change our own object to fit in the new region.
-  size_t oldLength = m_Length;
-  m_Length = at - m_Address;
-
-  // New object.
-  AnonymousMemoryMap* pResult = new AnonymousMemoryMap(at, oldLength - m_Length, m_Permissions);
-
-  pResult->m_LockMode = m_LockMode;
-
-  // Fix up mapping metadata.
-  for (List<void*>::Iterator it = m_Mappings.begin(); it != m_Mappings.end();) {
-    uintptr_t v = reinterpret_cast<uintptr_t>(*it);
-    if (v >= at) {
-      pResult->m_Mappings.pushBack(*it);
-      it = m_Mappings.erase(it);
-    } else
-      ++it;
-  }
-
-  return pResult;
-}
-
-bool AnonymousMemoryMap::remove(size_t length) {
-  LockGuard<Spinlock> guard(m_Lock);
-
-  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-  size_t pageSz = PhysicalMemoryManager::getPageSize();
-
-  if (length & (pageSz - 1)) {
-    length += pageSz;
-    length &= ~(pageSz - 1);
-  }
-
-  if (length >= m_Length) {
-    unmapUnlocked();
-    return true;
-  }
-
-  m_Address += length;
-  m_Length -= length;
-
-  // Remove any existing mappings in this range.
-  for (List<void*>::Iterator it = m_Mappings.begin(); it != m_Mappings.end();) {
-    uintptr_t virt = reinterpret_cast<uintptr_t>(*it);
-    if (virt >= m_Address) {
-      ++it;
-      continue;
-    }
-
-    void* v = *it;
-    if (va.isMapped(v)) {
-      size_t flags;
-      physical_uintptr_t phys;
-
-      va.getMapping(v, phys, flags);
-
-      va.unmap(v);
-      PhysicalMemoryManager::instance().freePage(phys);
-    }
-
-    it = m_Mappings.erase(it);
-  }
-
-  return false;
-}
-
-void AnonymousMemoryMap::setPermissions(MemoryMappedObject::Permissions perms) {
-  LockGuard<Spinlock> guard(m_Lock);
-  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-  for (List<void*>::Iterator it = m_Mappings.begin(); it != m_Mappings.end(); ++it) {
-    if (va.isMapped(*it)) {
-      physical_uintptr_t physical;
-      size_t flags;
-      va.getMapping(*it, physical, flags);
-      va.setFlags(*it, protectionFlags(flags, perms, false));
-    }
-  }
-  m_Permissions = perms;
-}
-
-void AnonymousMemoryMap::unmap() {
-  LockGuard<Spinlock> guard(m_Lock);
-
-  unmapUnlocked();
-}
-
-bool AnonymousMemoryMap::trap(VirtualAddressSpace& va, uintptr_t address, bool bWrite,
-                              PopulationStatus* population) {
-  if (population)
-    *population = PopulationStatus::NoMemory;
-  LockGuard<Spinlock> guard(m_Lock);
-
-#ifdef DEBUG_MMOBJECTS
-  NOTICE("AnonymousMemoryMap::trap(" << address << ", " << bWrite << ")");
-#endif
-
-  size_t pageSz = PhysicalMemoryManager::getPageSize();
-
-  // Page-align the trap address
-  address = address & ~(pageSz - 1);
-
-  // Skip out on a few things if we can.
-  if (bWrite && !(m_Permissions & Write)) {
-#ifdef DEBUG_MMOBJECTS
-    NOTICE("  -> no write permission");
-#endif
+bool AnonymousMemoryMap::initialisePhysicalPage(physical_uintptr_t physical) {
+#if X64 || HOSTED
+  return SwapStore::instance().zeroPage(physical);
+#else
+  TemporaryPhysicalMapping temporary(physical, "Anonymous Page Initialisation");
+  if (!temporary.valid())
     return false;
-  } else if ((!bWrite) && !(m_Permissions & Read) && !population) {
-#ifdef DEBUG_MMOBJECTS
-    NOTICE("  -> no read permission");
-#endif
-    return false;
-  }
-
-  // Add execute flag.
-  size_t extraFlags = 0;
-  if (m_Permissions & Exec)
-    extraFlags |= VirtualAddressSpace::Execute;
-
-  if (!bWrite) {
-    if (va.isMapped(reinterpret_cast<void*>(address))) {
-      ERROR("trapped on a currently-mapped page!");
-      return false;
-    }
-    PhysicalMemoryManager::instance().pin(m_Zero);
-    if (!va.map(m_Zero, reinterpret_cast<void*>(address),
-                VirtualAddressSpace::Shared | extraFlags)) {
-      ERROR("map() failed for AnonymousMemoryMap::trap() - read @" << Hex << address);
-      PhysicalMemoryManager::instance().freePage(m_Zero);
-      return false;
-    }
-
-    if (!m_Mappings.tryPushBack(reinterpret_cast<void*>(address))) {
-      va.unmap(reinterpret_cast<void*>(address));
-      PhysicalMemoryManager::instance().freePage(m_Zero);
-      return false;
-    }
-  } else {
-    // "Copy" on write... but not really :)
-    physical_uintptr_t newPage = PhysicalMemoryManager::instance().allocatePage();
-    if (!newPage) {
-      ERROR("allocatePage() failed in AnonymousMemoryMap::trap() - write");
-      return false;
-    }
-
-    {
-      TemporaryPhysicalMapping temporary(newPage, "Anonymous Page Initialisation");
-      if (!temporary.valid()) {
-        ERROR("temporary map failed in AnonymousMemoryMap::trap() - write");
-        PhysicalMemoryManager::instance().freePage(newPage);
-        return false;
-      }
-      ByteSet(temporary.address(), 0, pageSz);
-    }
-
-    // Publish only after the page is fully initialised. Other processors can
-    // use a present userspace mapping without entering this trap handler.
-    if (va.isMapped(reinterpret_cast<void*>(address))) {
-      va.unmap(reinterpret_cast<void*>(address));
-
-      // Drop the refcount on the zero page.
-      PhysicalMemoryManager::instance().freePage(m_Zero);
-    }
-    for (List<void*>::Iterator it = m_Mappings.begin(); it != m_Mappings.end(); ++it) {
-      if (*it == reinterpret_cast<void*>(address)) {
-        m_Mappings.erase(it);
-        break;
-      }
-    }
-
-    if (!va.map(newPage, reinterpret_cast<void*>(address),
-                VirtualAddressSpace::Write | extraFlags)) {
-      ERROR("map() failed in AnonymousMemoryMap::trap() - write");
-      PhysicalMemoryManager::instance().freePage(newPage);
-      return false;
-    }
-    if (!m_Mappings.tryPushBack(reinterpret_cast<void*>(address))) {
-      va.unmap(reinterpret_cast<void*>(address));
-      PhysicalMemoryManager::instance().freePage(newPage);
-      return false;
-    }
-  }
-
+  ByteSet(temporary.address(), 0, PhysicalMemoryManager::getPageSize());
   return true;
-}
-
-void AnonymousMemoryMap::unmapUnlocked() {
-#ifdef DEBUG_MMOBJECTS
-  NOTICE("AnonymousMemoryMap::unmap()");
 #endif
-
-  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-
-  for (List<void*>::Iterator it = m_Mappings.begin(); it != m_Mappings.end(); ++it) {
-    void* v = *it;
-    if (va.isMapped(v)) {
-      size_t flags;
-      physical_uintptr_t phys;
-
-      va.getMapping(v, phys, flags);
-
-      // Clean up. Shared read-only zero page will only have its refcount
-      // decreased by this - it will not hit zero.
-      va.unmap(v);
-      PhysicalMemoryManager::instance().freePage(phys);
-    }
-  }
-
-  m_Mappings.clear();
 }
 
 MemoryMappedFile::MemoryMappedFile(uintptr_t address, size_t length, size_t offset, File* backing,
@@ -424,6 +203,7 @@ MemoryMappedObject* MemoryMappedFile::clone() {
   MemoryMappedFile* pResult =
       new MemoryMappedFile(m_Address, m_Length, m_Offset, m_pBacking, m_bCopyOnWrite, m_Permissions,
                            m_MaximumPermissions, m_Attachment, m_Origin);
+  pResult->m_OwnerProcess = m_OwnerProcess;
   pResult->m_Mappings = m_Mappings;
 
   for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it) {
@@ -464,6 +244,7 @@ MemoryMappedObject* MemoryMappedFile::split(uintptr_t at) {
                                                    m_pBacking, m_bCopyOnWrite, m_Permissions,
                                                    m_MaximumPermissions, m_Attachment, m_Origin);
 
+  pResult->m_OwnerProcess = m_OwnerProcess;
   pResult->m_LockMode = m_LockMode;
 
   // Fix up mapping metadata.
@@ -987,6 +768,11 @@ bool MemoryMapManager::tryEnterOperation() {
   return true;
 }
 
+bool MemoryMapManager::operationOwnedByCurrentExecution() {
+  LockGuard<Spinlock> guard(m_LifecycleStateLock);
+  return m_LifecycleDepth && m_pLifecycleOwner == currentOperationOwner();
+}
+
 void MemoryMapManager::leaveOperation() {
   bool release = false;
   {
@@ -1010,7 +796,7 @@ MemoryMapManager::~MemoryMapManager() {
   MemoryPressureManager::instance().removeHandler(this);
 }
 
-void MemoryMapManager::clone(Process* pProcess) {
+bool MemoryMapManager::clone(Process* pProcess) {
   OperationGuard operation(*this);
 
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
@@ -1018,19 +804,30 @@ void MemoryMapManager::clone(Process* pProcess) {
 
   MmObjectList* pMmObjectList = m_MmObjectLists.lookup(&va);
   if (!pMmObjectList)
-    return;
+    return true;
 
   MmObjectList* pMmObjectList2 = m_MmObjectLists.lookup(pOtherVa);
   if (!pMmObjectList2) {
     pMmObjectList2 = new MmObjectList();
-    m_MmObjectLists.insert(pOtherVa, pMmObjectList2);
+    if (!pMmObjectList2 || !m_MmObjectLists.tryInsert(pOtherVa, pMmObjectList2)) {
+      delete pMmObjectList2;
+      return false;
+    }
   }
 
   Tree<MappingAttachment*, SharedPointer<MappingAttachment>> clonedAttachments;
   for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin(); it != pMmObjectList->end();
        it++) {
     MemoryMappedObject* obj = *it;
+    if (!pMmObjectList2->tryPushBack(nullptr))
+      return false;
     MemoryMappedObject* pNewObject = obj->clone();
+    if (!pNewObject) {
+      pMmObjectList2->popBack();
+      return false;
+    }
+    pNewObject->m_OwnerProcess = pProcess;
+    *pMmObjectList2->rbegin() = pNewObject;
     if (obj->m_Attachment) {
       auto attachment = clonedAttachments.lookup(obj->m_Attachment.get());
       if (!attachment) {
@@ -1039,8 +836,8 @@ void MemoryMapManager::clone(Process* pProcess) {
       }
       pNewObject->m_Attachment = attachment;
     }
-    pMmObjectList2->pushBack(pNewObject);
   }
+  return true;
 }
 
 size_t MemoryMapManager::remove(uintptr_t base, size_t length) {
@@ -1231,11 +1028,35 @@ size_t MemoryMapManager::setPermissions(uintptr_t base, size_t length,
       continue;
     }
     if (object->address() < base) {
-      object = object->split(base);
-      objects->pushBack(object);
+      if (!objects->tryPushBack(nullptr)) {
+        if (status)
+          *status = ProtectStatus::NoMemory;
+        return affected;
+      }
+      auto* split = object->split(base);
+      if (!split) {
+        objects->popBack();
+        if (status)
+          *status = ProtectStatus::NoMemory;
+        return affected;
+      }
+      *objects->rbegin() = split;
+      object = split;
     }
     if (objectEnd > end) {
-      objects->pushBack(object->split(end));
+      if (!objects->tryPushBack(nullptr)) {
+        if (status)
+          *status = ProtectStatus::NoMemory;
+        return affected;
+      }
+      auto* split = object->split(end);
+      if (!split) {
+        objects->popBack();
+        if (status)
+          *status = ProtectStatus::NoMemory;
+        return affected;
+      }
+      *objects->rbegin() = split;
     }
     object->setPermissions(perms);
     ++affected;
@@ -1387,6 +1208,17 @@ bool MemoryMapManager::faultIn(uintptr_t address, bool write) {
   OperationGuard operation(*this);
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
   void* page = reinterpret_cast<void*>(address & ~(PhysicalMemoryManager::getPageSize() - 1));
+  auto* objects = m_MmObjectLists.lookup(&va);
+  if (objects)
+    for (auto* object : *objects)
+      if (object->matches(address)) {
+        const auto required = write ? MemoryMappedObject::Write : MemoryMappedObject::Read;
+        if (!(object->permissions() & required) ||
+            object->prepareResidentAccess(va, reinterpret_cast<uintptr_t>(page)) !=
+                PopulationStatus::Success)
+          return false;
+        break;
+      }
   const bool present = va.isMapped(page);
   if (present) {
     physical_uintptr_t physical;
@@ -1405,6 +1237,53 @@ bool MemoryMapManager::faultIn(uintptr_t address, bool write) {
     }
   }
   return handleTrap(address, write, present);
+}
+
+MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t address, bool write,
+                                                                     bool wasPresent,
+                                                                     bool execute) {
+  if (!Processor::getInterrupts() || !Processor::information().getCurrentThread() ||
+      (write && execute))
+    return FaultResolution::Unhandled;
+  OperationGuard operation(*this);
+  VirtualAddressSpace& space = Processor::information().getVirtualAddressSpace();
+  const bool normal = address >= space.getUserStart() && address < space.getUserReservedStart();
+  const bool dynamic = space.getDynamicStart() && address >= space.getDynamicStart() &&
+                       address < space.getDynamicEnd();
+  if (!normal && !dynamic)
+    return FaultResolution::Unhandled;
+  auto* objects = m_MmObjectLists.lookup(&space);
+  if (!objects)
+    return FaultResolution::Unhandled;
+  const uintptr_t pageAddress = address & ~(PhysicalMemoryManager::getPageSize() - 1);
+  const auto required = execute ? MemoryMappedObject::Exec
+                        : write ? MemoryMappedObject::Write
+                                : MemoryMappedObject::Read;
+  MemoryMappedObject* selected = nullptr;
+  for (auto* object : *objects)
+    if (object->matches(pageAddress)) {
+      selected = object;
+      break;
+    }
+  if (!selected || !(selected->permissions() & required))
+    return FaultResolution::Unhandled;
+  if (selected->beyondBackingEnd(pageAddress))
+    return FaultResolution::BackingFault;
+  if (!handleTrap(address, write, wasPresent, execute))
+    return FaultResolution::Unhandled;
+  void* page = reinterpret_cast<void*>(pageAddress);
+  if (!space.isMapped(page))
+    return FaultResolution::Unhandled;
+  physical_uintptr_t physical;
+  size_t flags;
+  space.getMapping(page, physical, flags);
+  const bool accessible =
+      !(flags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::NoAccess |
+                 VirtualAddressSpace::Swapped)) &&
+      (!write ||
+       ((flags & VirtualAddressSpace::Write) && !(flags & VirtualAddressSpace::WriteProtected))) &&
+      (!execute || (flags & VirtualAddressSpace::Execute));
+  return accessible ? FaultResolution::Resolved : FaultResolution::Unhandled;
 }
 
 void MemoryMapManager::invalidate(uintptr_t base, size_t length) {
@@ -1446,31 +1325,11 @@ void MemoryMapManager::unmapAll() {
 
 bool MemoryMapManager::trap(InterruptState& state, uintptr_t address, bool bIsWrite,
                             bool bWasPresent) {
-  OperationGuard operation(*this);
-  if (handleTrap(address, bIsWrite, bWasPresent)) {
-    return true;
-  }
-  if (state.kernelMode()) {
+  // User faults must not wait for the mapping gate, allocation or backing I/O
+  // while the architecture's raw interrupt and accounting scopes are active.
+  if (!state.kernelMode())
     return false;
-  }
-  VirtualAddressSpace& space = Processor::information().getVirtualAddressSpace();
-  MmObjectList* objects = m_MmObjectLists.lookup(&space);
-  if (!objects) {
-    return false;
-  }
-  const uintptr_t page = address & ~(PhysicalMemoryManager::getPageSize() - 1);
-  const auto required = bIsWrite ? MemoryMappedObject::Write : MemoryMappedObject::Read;
-  for (auto it = objects->begin(); it != objects->end(); ++it) {
-    MemoryMappedObject* object = *it;
-    if (object->matches(page) && (object->permissions() & required) &&
-        object->beyondBackingEnd(page)) {
-      Thread* thread = Processor::information().getCurrentThread();
-      return thread &&
-             thread->deferSubsystemException(Subsystem::FileMappingFault, address,
-                                             4 | (bWasPresent ? 1 : 0) | (bIsWrite ? 2 : 0));
-    }
-  }
-  return false;
+  return handleTrap(address, bIsWrite, bWasPresent);
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -1479,7 +1338,8 @@ bool MemoryMapManager::trapForHostedTest(uintptr_t address, bool bIsWrite, bool 
 }
 #endif
 
-bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent) {
+bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent,
+                                  bool execute) {
   // Can't take an event while we're trapping, as the event would otherwise
   // be in a minefield (can't touch *any* trap pages in userspace).
   Uninterruptible while_trapping;
@@ -1540,11 +1400,15 @@ bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPre
     return false;
   }
 
-  const MemoryMappedObject::Permissions required =
-      bIsWrite ? MemoryMappedObject::Write : MemoryMappedObject::Read;
+  const MemoryMappedObject::Permissions required = execute    ? MemoryMappedObject::Exec
+                                                   : bIsWrite ? MemoryMappedObject::Write
+                                                              : MemoryMappedObject::Read;
   if (!(pObject->permissions() & required)) {
     return false;
   }
+
+  if (pObject->prepareResidentAccess(va, pageAddress) != PopulationStatus::Success)
+    return false;
 
   // The original fault bits remain authoritative after waiting for the
   // lifecycle gate. A mapping visible here was completed by another operation
@@ -1567,7 +1431,8 @@ bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPre
     }
   }
 
-  return pObject->trap(va, address, bIsWrite);
+  PopulationStatus population = PopulationStatus::NoMemory;
+  return pObject->trap(va, address, bIsWrite, execute ? &population : nullptr);
 }
 
 bool MemoryMapManager::hasSharedWriteCapability(File* backing) {
@@ -1604,6 +1469,8 @@ bool MemoryMapManager::compact() {
     Processor::switchAddressSpace(*it.key());
 
     for (MmObjectList::Iterator it2 = it.value()->begin(); it2 != it.value()->end(); ++it2) {
+      if ((*it2)->reclaimAnonymousPage(*it.key()))
+        return true;
       bCompact = (*it2)->compact();
       if (bCompact)
         break;

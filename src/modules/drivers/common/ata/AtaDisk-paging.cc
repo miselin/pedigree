@@ -142,10 +142,11 @@ PagingStatus AtaDisk::doPagingTransfer(PagingOperation operation, uint64_t offse
   status = ataWait(m_CommandRegs, m_ControlRegs);
   if (status.reg.bsy || status.reg.drq || status.reg.df || !status.reg.drdy)
     return PagingStatus::IoError;
+  // The setup helpers convert byte offsets to sectors internally.
   if (m_SupportsLBA48)
-    setupLBA48(sector, sectors);
+    setupLBA48(offset, sectors);
   else
-    setupLBA28(sector, sectors);
+    setupLBA28(offset, sectors);
   AtaPioPollBudget budget = {Time::getTicks(), 30 * Time::Multiplier::Second, 0, 30000000};
   const bool write = operation == PagingOperation::Write;
   m_CommandRegs->write8(write ? (m_SupportsLBA48 ? 0x34 : 0x30) : (m_SupportsLBA48 ? 0x24 : 0x20),

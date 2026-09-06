@@ -17,7 +17,7 @@
 
 namespace {
 constexpr int MayMove = 1, Fixed = 2, DontUnmap = 4;
-constexpr int Discard = 4;
+constexpr int Discard = 4, PageOut = 21;
 
 bool roundLength(size_t length, size_t& rounded) {
   const size_t mask = PhysicalMemoryManager::getPageSize() - 1;
@@ -227,7 +227,7 @@ int posix_madvise(void* address, size_t length, int advice) {
   const uintptr_t base = reinterpret_cast<uintptr_t>(address);
   const size_t mask = PhysicalMemoryManager::getPageSize() - 1;
   size_t extent;
-  if ((base & mask) || !roundLength(length, extent) || advice != Discard) {
+  if ((base & mask) || !roundLength(length, extent) || (advice != Discard && advice != PageOut)) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -235,6 +235,29 @@ int posix_madvise(void* address, size_t length, int advice) {
     return 0;
   if (!userRange(base, extent)) {
     SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
+  if (advice == PageOut) {
+    const auto status = MemoryMapManager::instance().pageOutRange(base, extent);
+    switch (status) {
+      case SwapStatus::Success:
+        syscallError(0);
+        return 0;
+      case SwapStatus::IoError:
+        SYSCALL_ERROR(IoError);
+        break;
+      case SwapStatus::NoMemory:
+      case SwapStatus::Unmapped:
+        SYSCALL_ERROR(OutOfMemory);
+        break;
+      case SwapStatus::Unsupported:
+      case SwapStatus::NotActive:
+        SYSCALL_ERROR(OperationNotSupported);
+        break;
+      default:
+        SYSCALL_ERROR(InvalidArgument);
+        break;
+    }
     return -1;
   }
   const auto status = MemoryMapManager::instance().discard(base, extent);

@@ -78,6 +78,25 @@ class EXPORTED_PUBLIC PhysicalMemoryManager {
   /** Allocate a single page with optional constraints.
    * \return physical address of the page or 0 if no page available. */
   virtual physical_uintptr_t allocatePage(size_t pageConstraints = 0) = 0;
+  // This path never invokes reclaim and reports exhaustion without panicking.
+  virtual physical_uintptr_t tryAllocatePage() {
+    return 0;
+  }
+  // The caller owns the entire aligned physical page throughout the copy.
+  virtual bool copyPhysicalPageToBuffer(physical_uintptr_t page, void* buffer) {
+    return false;
+  }
+  virtual bool copyPhysicalPageFromBuffer(physical_uintptr_t page, const void* buffer) {
+    return false;
+  }
+  struct MemorySnapshot {
+    uint64_t totalPages = 0;
+    uint64_t freePages = 0;
+    bool available = false;
+  };
+  virtual MemorySnapshot memorySnapshot() const {
+    return {};
+  }
   /** Free a page allocated with the allocatePage() function
    *\param[in] page physical address of the page */
   virtual void freePage(physical_uintptr_t page) = 0;
@@ -94,6 +113,7 @@ class EXPORTED_PUBLIC PhysicalMemoryManager {
   virtual void pin(physical_uintptr_t page) = 0;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  static EXPORTED_PUBLIC void setTryAllocationFailureForTest(ssize_t after);
   /** Returns the number of remaining freePage calls for a hosted test page. */
   static EXPORTED_PUBLIC size_t pageReferenceCountForTest(physical_uintptr_t page);
 #endif

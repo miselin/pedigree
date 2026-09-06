@@ -10,32 +10,6 @@
 #include "File.h"
 #include "MemoryMappedFile.h"
 
-MemoryMappedObject* AnonymousMemoryMap::stageSlice(uintptr_t source, size_t sourceLength,
-                                                   uintptr_t destination,
-                                                   size_t destinationLength) {
-  auto* result = new AnonymousMemoryMap(destination, destinationLength, m_Permissions);
-  if (!result)
-    return nullptr;
-  result->m_OwnsMappings = false;
-  result->m_LockMode = m_LockMode;
-  if (sourceLength == destinationLength && source < m_Address + m_Length &&
-      sourceLength > m_Address + m_Length - source)
-    result->m_Length = m_Address + m_Length - source;
-  result->m_bCopyOnWrite = m_bCopyOnWrite;
-  result->m_MaximumPermissions = m_MaximumPermissions;
-  result->m_Attachment = m_Attachment;
-  const size_t preserved = sourceLength < destinationLength ? sourceLength : destinationLength;
-  for (void* mapping : m_Mappings) {
-    const uintptr_t address = reinterpret_cast<uintptr_t>(mapping);
-    if (address >= source && address - source < preserved &&
-        !result->m_Mappings.tryPushBack(reinterpret_cast<void*>(destination + address - source))) {
-      delete result;
-      return nullptr;
-    }
-  }
-  return result;
-}
-
 bool MemoryMappedFile::backingRangeValid(uintptr_t source, size_t length) const {
   return source >= m_Address && source - m_Address <= ~size_t(0) - m_Offset &&
          length <= ~size_t(0) - (m_Offset + (source - m_Address));
@@ -50,6 +24,7 @@ MemoryMappedObject* MemoryMappedFile::stageSlice(uintptr_t source, size_t source
                                       m_Permissions, m_MaximumPermissions, m_Attachment, m_Origin);
   if (!result)
     return nullptr;
+  result->m_OwnerProcess = m_OwnerProcess;
   result->m_OwnsMappings = false;
   result->m_LockMode = m_LockMode;
   if (sourceLength == destinationLength && source < m_Address + m_Length &&
