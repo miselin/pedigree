@@ -862,6 +862,8 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/eventfd-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/FileDescriptor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-sync-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/module-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/xattr-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-handle-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/fanotify-syscalls.cc
@@ -891,6 +893,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/pthread-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/select-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/clock-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/clock-adjust-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/queued-signal.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/pending-signal.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/signalfd-syscalls.cc
@@ -978,6 +981,11 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vsyscall-${PEDIGREE_ASMDIR}.s
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-${PEDIGREE_ASMDIR}.s
         PROPERTIES LANGUAGE ASM_NASM)
+endif ()
+
+if (PEDIGREE_MODULE_SYSCALL_TESTS)
+    pedigree_module(module-unload-fixture "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/module-unload-fixture/main.cc)
 endif ()
 
 pedigree_module(native "" ""

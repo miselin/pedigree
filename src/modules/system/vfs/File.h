@@ -180,6 +180,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
    */
   virtual bool sync();
 
+  /** Sync cached pages overlapping a byte range; zero length extends to EOF. */
+  bool syncRange(size_t offset, size_t length);
+
   /**
    * Trigger a sync of an inner cache back to disk and report completion
    * (or queue admission for an asynchronous request).

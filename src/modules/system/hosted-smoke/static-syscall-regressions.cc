@@ -4685,7 +4685,8 @@ bool moduleUnloadOwnershipIsRetryable() {
 
   if (first != KernelElf::TestUnloadClaimed || concurrent != KernelElf::TestUnloadBusy ||
       repeat != KernelElf::TestUnloadComplete || missing != KernelElf::TestUnloadUnknown ||
-      !module.isUnloaded() || !module.unloadComplete) {
+      !module.isUnloaded() || !module.unloadComplete ||
+      !KernelElf::moduleExecutionWaitsForUnloadForTest()) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL module-unload-ownership: "
         "the first owner, concurrent retry, or completed tombstone was lost");

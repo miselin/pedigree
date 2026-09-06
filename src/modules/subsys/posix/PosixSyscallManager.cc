@@ -34,16 +34,19 @@
 #include <time.h>
 
 #include "PosixSyscallManager.h"
+#include "clock-adjust-syscalls.h"
 #include "console-syscalls.h"
 #include "epoll-syscalls.h"
 #include "eventfd-syscalls.h"
 #include "fanotify-syscalls.h"
 #include "file-handle-syscalls.h"
+#include "file-sync-syscalls.h"
 #include "file-syscalls.h"
 #include "inotify-syscalls.h"
 #include "linux-amd64-signal.h"
 #include "logging.h"
 #include "memfd-syscalls.h"
+#include "module-syscalls.h"
 #include "mqueue-syscalls.h"
 #include "namespace-syscalls.h"
 #include "net-syscalls.h"
@@ -233,6 +236,22 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
                           reinterpret_cast<LinuxRusage64*>(p5));
     case POSIX_PTRACE:
       return posix_ptrace(p1, static_cast<int32_t>(p2), p3, p4, linuxAbi);
+    case POSIX_DELETE_MODULE:
+      return posix_delete_module(reinterpret_cast<const char*>(p1), static_cast<unsigned>(p2));
+    case POSIX_ADJTIMEX:
+      return posix_adjtimex(reinterpret_cast<void*>(p1));
+    case POSIX_CLOCK_ADJTIME:
+      return posix_clock_adjtime(static_cast<int>(p1), reinterpret_cast<void*>(p2));
+    case POSIX_FDATASYNC:
+      return posix_fdatasync(static_cast<int>(p1));
+    case POSIX_READAHEAD:
+      return posix_readahead(static_cast<int>(p1), static_cast<off_t>(p2), p3);
+    case POSIX_FADVISE64:
+      return posix_fadvise64(static_cast<int>(p1), static_cast<off_t>(p2),
+                             static_cast<off_t>(p3), static_cast<int>(p4));
+    case POSIX_SYNC_FILE_RANGE:
+      return posix_sync_file_range(static_cast<int>(p1), static_cast<off_t>(p2),
+                                   static_cast<off_t>(p3), static_cast<unsigned>(p4));
     case POSIX_EXIT:
       NOTICE("POSIX exit request: pid="
              << Processor::information().getCurrentThread()->getParent()->getId()

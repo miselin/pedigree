@@ -503,7 +503,19 @@ void File::endMappingRelease() {
 }
 
 bool File::sync() {
+  return syncRange(0, 0);
+}
+
+bool File::syncRange(size_t offset, size_t length) {
+  if (length && length - 1 > ~size_t(0) - offset) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
   LockGuard<Mutex> dataGuard(dataMutationLock());
+  const bool filled = useFillCache();
+  const size_t blockSize = filled ? PhysicalMemoryManager::getPageSize() : getBlockSize();
+  const size_t firstBlock = offset / blockSize;
+  const size_t lastBlock = length ? (offset + length - 1) / blockSize : ~size_t(0);
   struct SyncPage {
     size_t block;
     uintptr_t buffer;
@@ -529,14 +541,13 @@ bool File::sync() {
       }
 
       const uintptr_t buffer = result.value().second();
-      if (buffer != FILE_BAD_BLOCK) {
-        pages.pushBack({result.value().first().hash(), buffer});
+      const size_t block = result.value().first().hash();
+      if (buffer != FILE_BAD_BLOCK && block >= firstBlock && block <= lastBlock) {
+        pages.pushBack({block, buffer});
       }
     }
   }
 
-  const bool filled = useFillCache();
-  const size_t blockSize = filled ? PhysicalMemoryManager::getPageSize() : getBlockSize();
   bool succeeded = true;
   for (const SyncPage& page : pages) {
     const uint64_t location = page.block * blockSize;

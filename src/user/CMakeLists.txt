@@ -258,6 +258,13 @@ pedigree_app(child-wait-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/errors.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/interruption.c)
 
+pedigree_app(file-sync-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-sync-contract-test/main.c)
+pedigree_app(clock-adjust-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/clock-adjust-contract-test/main.c)
+pedigree_app(module-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/module-contract-test/main.c)
+
 pedigree_app(ptrace-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/ptrace-contract-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/ptrace-contract-test/fixture.c

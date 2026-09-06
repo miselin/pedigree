@@ -153,6 +153,11 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
   bool unloadModule(const char* name, bool silent = false, bool progress = true);
   bool unloadModule(Module* module, bool silent = false, bool progress = true);
 
+  enum class RuntimeUnloadResult { Unloaded, NotFound, Busy, Pinned, DependedOn, Shutdown };
+
+  /** Unloads an active module; completed unloads are absent from this lookup. */
+  RuntimeUnloadResult unloadModuleRuntime(const char* name);
+
   /** Unloads all loaded modules. */
   void unloadModules();
 
@@ -189,6 +194,7 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
                                                              const char* name);
   static void completeModuleUnloadForTest(Module* module, bool wasFailed = false,
                                           bool runLifecycle = false);
+  static bool moduleExecutionWaitsForUnloadForTest();
 #endif
 
   /** Returns true if a module with the specified name has been loaded. */
@@ -242,6 +248,7 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
 
   /** Requires the module lock. */
   bool moduleDependenciesSatisfiedLocked(Module* module) const;
+  bool claimModuleExecutionLocked(Module* module);
   bool executeModule(Module* module);
 
   enum ModuleUnloadClaim {

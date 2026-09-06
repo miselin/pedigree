@@ -12,5 +12,6 @@ struct PosixClockSnapshot {
 
 PosixClockSnapshot posix_clock_snapshot();
 uint64_t posix_clock_change_generation();
+bool posix_clock_step(int64_t nanoseconds);
 
 #endif

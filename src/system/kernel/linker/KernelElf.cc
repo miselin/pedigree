@@ -550,24 +550,19 @@ void KernelElf::executeModules(bool silent, bool progress) {
       unlockModules();
       break;
     }
-    if (m_ModuleLoading) {
+    if (m_ModuleLoading || m_UnloadingModule) {
       unlockModules();
 #if THREADS
       Scheduler::instance().yield();
       continue;
 #else
-      FATAL("KERNELELF: Concurrent module load without scheduler support");
+      FATAL("KERNELELF: Concurrent module adjustment without scheduler support");
       break;
 #endif
     }
     executing = m_ModuleExecutions != 0;
     for (auto candidate : m_Modules) {
-      if (candidate->isPending() && moduleDependenciesSatisfiedLocked(candidate)) {
-        // Eligibility and the Preloaded -> Executing transition are one
-        // claim. An unload owner can therefore observe either state, but can
-        // never unmap a module between the dependency check and its launch.
-        candidate->status = Module::Executing;
-        ++m_ModuleExecutions;
+      if (claimModuleExecutionLocked(candidate)) {
         if (progress) {
           ++candidate->progressCredits;
           ++g_BootProgressCurrent;
@@ -952,6 +947,53 @@ bool KernelElf::unloadModule(Module* module, bool silent, bool progress) {
   return completeUnloadAttempt(module, claim, wasFailed, runLifecycle, silent, progress);
 }
 
+KernelElf::RuntimeUnloadResult KernelElf::unloadModuleRuntime(const char* name) {
+  String findName(name);
+  Module* module = nullptr;
+  ModuleUnloadClaim claim = UnloadUnknown;
+  bool wasFailed = false;
+  bool runLifecycle = false;
+
+  lockModules();
+  for (auto candidate : m_Modules) {
+    // Completed records remain for boot diagnostics and must not hide a reload.
+    if (!module && !candidate->isUnloaded() && candidate->name == findName) {
+      module = candidate;
+      break;
+    }
+  }
+  if (module) {
+    if (!module->isActive()) {
+      claim = UnloadBusy;
+    } else if (module->entry && !module->exit) {
+      claim = UnloadPinned;
+    } else {
+      claim = claimModuleUnloadLocked(module, false, true, true, wasFailed, runLifecycle);
+    }
+  }
+  unlockModules();
+
+  switch (claim) {
+    case UnloadClaimed:
+      return completeUnloadAttempt(module, claim, wasFailed, runLifecycle, true, false)
+                 ? RuntimeUnloadResult::Unloaded
+                 : RuntimeUnloadResult::Busy;
+    case UnloadUnknown:
+    case UnloadComplete:
+      return RuntimeUnloadResult::NotFound;
+    case UnloadBusy:
+      return RuntimeUnloadResult::Busy;
+    case UnloadPinned:
+    case UnloadRuntimePinned:
+      return RuntimeUnloadResult::Pinned;
+    case UnloadDependedOn:
+      return RuntimeUnloadResult::DependedOn;
+    case UnloadShutdown:
+      return RuntimeUnloadResult::Shutdown;
+  }
+  return RuntimeUnloadResult::Busy;
+}
+
 bool KernelElf::registerTerminalQuiesce(ModuleEntry ownerEntry, TerminalQuiesceHook hook) {
   if (!ownerEntry || !hook) {
     return false;
@@ -1241,6 +1283,47 @@ KernelElf::TestModuleUnloadClaim KernelElf::claimNamedModuleUnloadForTest(Module
 void KernelElf::completeModuleUnloadForTest(Module* module, bool wasFailed, bool runLifecycle) {
   instance().completeUnloadAttempt(module, UnloadClaimed, wasFailed, runLifecycle, true, false);
 }
+
+bool KernelElf::moduleExecutionWaitsForUnloadForTest() {
+  Module unloading;
+  unloading.name.assign("hosted-unload-admission-owner");
+  unloading.status = Module::Active;
+  Module pending;
+  pending.name.assign("hosted-execution-admission-probe");
+  pending.status = Module::Preloaded;
+
+  KernelElf& kernelElf = instance();
+  bool wasFailed = false;
+  bool runLifecycle = false;
+  kernelElf.lockModules();
+  const ModuleUnloadClaim claim = kernelElf.claimModuleUnloadLocked(
+      &unloading, true, false, false, wasFailed, runLifecycle);
+  if (claim != UnloadClaimed) {
+    kernelElf.unlockModules();
+    return false;
+  }
+  const bool admittedDuringUnload = kernelElf.claimModuleExecutionLocked(&pending);
+  const bool remainedPending = pending.isPending();
+  if (admittedDuringUnload) {
+    --kernelElf.m_ModuleExecutions;
+    pending.status = Module::Preloaded;
+  }
+  kernelElf.unlockModules();
+  kernelElf.finishClaimedUnload(&unloading, false);
+
+  kernelElf.lockModules();
+  const bool admittedAfterUnload = kernelElf.claimModuleExecutionLocked(&pending);
+  const bool admittedTwice = kernelElf.claimModuleExecutionLocked(&pending);
+  if (admittedAfterUnload) {
+    --kernelElf.m_ModuleExecutions;
+  }
+  if (admittedTwice) {
+    --kernelElf.m_ModuleExecutions;
+  }
+  kernelElf.unlockModules();
+  return !admittedDuringUnload && remainedPending && admittedAfterUnload && !admittedTwice &&
+         unloading.isUnloaded();
+}
 #endif
 
 bool KernelElf::moduleIsLoaded(char* name) {
@@ -1286,6 +1369,17 @@ char* KernelElf::getDependingModule(char* name) {
   }
   unlockModules();
   return result;
+}
+
+bool KernelElf::claimModuleExecutionLocked(Module* module) {
+  if (m_ModuleShutdown || m_ModuleLoading || m_UnloadingModule || !module->isPending() ||
+      !moduleDependenciesSatisfiedLocked(module)) {
+    return false;
+  }
+  // Eligibility and ownership are one claim, before any module code can run.
+  module->status = Module::Executing;
+  ++m_ModuleExecutions;
+  return true;
 }
 
 bool KernelElf::moduleDependenciesSatisfiedLocked(Module* module) const {

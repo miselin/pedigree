@@ -146,6 +146,29 @@ uint64_t posix_clock_change_generation() {
   return clockChangeGeneration;
 }
 
+bool posix_clock_step(int64_t nanoseconds) {
+  uint64_t generation;
+  {
+    LockGuard<Mutex> guard(clockChangeLock);
+    const Time::Timestamp now = Time::getTimeNanoseconds();
+    const uint64_t magnitude = nanoseconds < 0 ? 0 - static_cast<uint64_t>(nanoseconds)
+                                               : static_cast<uint64_t>(nanoseconds);
+    if (now > MaximumLinuxSleepNanoseconds ||
+        (nanoseconds < 0 ? magnitude > now : magnitude > MaximumLinuxSleepNanoseconds - now)) {
+      return false;
+    }
+    const Time::Timestamp target = nanoseconds < 0 ? now - magnitude : now + magnitude;
+    if (!Time::setTimeNanoseconds(target)) {
+      return false;
+    }
+    generation = ++clockChangeGeneration;
+    clockChanged.broadcast();
+  }
+  posix_mqueue_clock_changed();
+  posix_timerfd_clock_changed(generation);
+  return true;
+}
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 extern "C" EXPORTED_PUBLIC Time::Timestamp posixNanosleepAlarmDurationForTest(time_t seconds,
                                                                               long nanoseconds) {

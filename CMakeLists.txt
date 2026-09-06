@@ -149,6 +149,7 @@ set(PEDIGREE_UTS_NAMESPACE_TESTS FALSE CACHE BOOL "Run focused namespace lifecyc
 set(PEDIGREE_AFFINITY_TESTS FALSE CACHE BOOL "Run focused scheduler affinity and wake-publication regressions.")
 set(PEDIGREE_CHILD_WAIT_TESTS FALSE CACHE BOOL "Run focused child wait and reaper lifetime regressions.")
 set(PEDIGREE_PTRACE_TESTS FALSE CACHE BOOL "Run focused tracing frame and stop lifetime regressions.")
+set(PEDIGREE_MODULE_SYSCALL_TESTS FALSE CACHE BOOL "Include the module syscall lifecycle fixture.")
 
 # General build options.
 set(PEDIGREE_LTO FALSE CACHE BOOL "Enable LTO.")

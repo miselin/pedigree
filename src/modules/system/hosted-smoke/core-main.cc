@@ -6,6 +6,7 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/KernelElf.h"
 
 #include "modules/Module.h"
 
@@ -23,6 +24,13 @@ extern bool runPtraceFrameRegressions();
 
 static bool entry() {
   bool passed = runHostedWaitRegressions();
+  if (passed) {
+    passed = KernelElf::moduleExecutionWaitsForUnloadForTest();
+    if (passed)
+      NOTICE("HOSTED-MODULE-TEST: PASS execution-unload-admission");
+    else
+      ERROR("HOSTED-MODULE-TEST: FAIL execution-unload-admission");
+  }
 #if PEDIGREE_AFFINITY_TESTS
   if (passed)
     passed = runAffinityRegressions();

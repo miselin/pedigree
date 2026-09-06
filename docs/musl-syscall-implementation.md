@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 84 of 113 backlog entries implemented; 29 remain.
+Current checkpoint: 91 of 113 backlog entries implemented; 22 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,51 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## File synchronization, clock adjustment and module removal
+
+fdatasync uses existing file and Ext2 metadata writeback. sync_file_range flushes
+cached pages overlapping the requested byte range; every nonzero valid flag
+combination completes synchronously. Zero length extends through EOF. Failed
+pages remain available for retry while independent successful pages progress.
+No filesystem-wide or device-wide durability fence is implied by this range
+operation. readahead and POSIX_FADV_WILLNEED populate the real cache, preserve
+OFD positions and bound each prefetch to 2 MiB. Linux also treats zero-count
+readahead as WILLNEED through EOF. Other recognized advice remains explicitly
+unsupported. Global sync and syncfs still require filesystem-wide writeback.
+
+adjtimex and the realtime clock_adjtime route support unprivileged queries,
+privileged signed ADJ_SETOFFSET, and persistent MICRO/NANO output units. Clock
+steps reuse existing serialization, vDSO publication and realtime waiter/timerfd
+notifications without changing monotonic time. Replies report STA_UNSYNC and
+nonnegative TIME_ERROR; successful adjustment does not assert synchronization.
+PLL/FLL, frequency tuning, gradual slew, leap/TAI handling and other discipline
+modes remain unsupported. Invalid offsets are rejected before mutation; an
+output-copy fault may follow a committed change, matching Linux's copyout order.
+
+Privileged delete_module removes active, unloadable modules through the existing
+single-owner cleanup path. Completed records do not hide later live instances;
+lookup distinguishes missing, busy, pinned, depended-on and shutdown outcomes.
+Execution admission is serialized with unloading before dependency checks or
+relocation. Forced unload is unsupported. init_module still requires a fallible,
+validated loader transaction and owned image storage before accepting user data.
+
+Verification: 37 routing/ABI checks, 47 focused native filesystem tests, nine
+cross source compiles, ten hosted compile-only sources, a full image build, and
+actual Darwin hosted core execution passed. The latter exercises the production
+execution/unload admission helper. All 158 affected image source/object pairs
+were current, and 797 strong POSIX imports had available exports. Fresh serial
+one/four-CPU guests passed all 34 suites in 244.2/212.1 seconds. New public
+contracts ran against RAM-backed and Ext2 files, clock steps and privilege gates,
+and actual module exit/destructor markers. Disk writes were enabled only for
+disposable test disks; shared build settings were restored. These file tests do
+not claim cold-boot persistence or a new device-wide flush guarantee. Evidence:
+/private/tmp/pedigree-mount-expansion-20260906/completion-verification.json.
+
+The initial focused compile exposed a local descriptor-helper name collision;
+renaming that helper resolved it. The guest runner's initial preflight rejected
+the new digit-bearing suite name; its parser now admits digits. Both failures
+were preserved, and no guest had launched before the preflight correction.
 
 ## Mount lifetime prerequisite
 

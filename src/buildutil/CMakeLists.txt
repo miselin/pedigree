@@ -263,6 +263,7 @@ set(TESTSUITE_SRCS
     testsuite/test-Ext2FillCache.cc
     testsuite/test-CacheDiscard.cc
     testsuite/test-Ext2Writeback.cc
+    testsuite/test-FileRangeSync.cc
     testsuite/test-Ext2DirectorySync.cc
     testsuite/test-Ext2Xattr.cc
     testsuite/test-Ext2XattrCodec.cc
