@@ -114,6 +114,8 @@ class EXPORTED_PUBLIC RamFs : public Filesystem {
 
   virtual bool initialise(Disk* pDisk);
 
+  SyncStatus sync() override;
+
   void setProcessOwnership(bool bEnable) {
     m_bProcessOwners = bEnable;
   }

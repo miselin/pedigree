@@ -174,6 +174,10 @@ class UnixSocketConnection {
  */
 class UnixFilesystem : public Filesystem {
  public:
+  SyncStatus sync() override {
+    return SyncStatus::Success;
+  }
+
   UnixFilesystem();
   virtual ~UnixFilesystem();
 

@@ -107,6 +107,10 @@ bool Disk::sync(uint64_t location, bool async) {
   return false;
 }
 
+bool Disk::syncAll() {
+  return false;
+}
+
 bool Disk::retireCachePage(uint64_t location) {
   return false;
 }

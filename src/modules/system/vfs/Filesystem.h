@@ -42,6 +42,8 @@ class EXPORTED_PUBLIC Filesystem {
   friend class VFS;
 
  public:
+  enum class SyncStatus { Success, Unsupported, NoMemory, IoError };
+
   //
   // Public interface
   //
@@ -89,6 +91,9 @@ class EXPORTED_PUBLIC Filesystem {
   virtual FileHandleStatus encodeFileHandle(File& file, FileHandle& handle);
   virtual FileHandleStatus decodeFileHandle(const FileHandle& handle, RetainedFile& file);
   virtual FileHandleStatus fileHandleFsid(FileSystemId& id);
+
+  /** Completes data, metadata and device writeback for changes made before entry. */
+  virtual SyncStatus sync();
 
   /** Creates a file on the filesystem - fails if the file's parent directory
    * does not exist. */

@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -84,6 +85,12 @@ class MountTestDisk final : public Disk {
 
 class MountTestFilesystem final : public Filesystem {
  public:
+  std::function<SyncStatus()> syncAction;
+
+  SyncStatus sync() override {
+    return syncAction ? syncAction() : Filesystem::sync();
+  }
+
   explicit MountTestFilesystem(const String& label, VFS* registry = nullptr,
                                std::atomic<size_t>* destructions = nullptr,
                                std::atomic<size_t>* reentries = nullptr,
@@ -1523,6 +1530,53 @@ TEST(VFS, FilesystemPinsRejectRemovalWithoutClosingAdmission) {
   EXPECT_EQ(destroyed.load(), 1U);
   EXPECT_FALSE(identity.pin(pin));
   EXPECT_FALSE(vfs.pinFilesystem(filesystem, pin));
+}
+
+TEST(VFS, FilesystemSyncPinsBackingAndRunsWithoutPublicationLocks) {
+  VFS vfs;
+  auto* filesystem = new MountTestFilesystem(String("sync"));
+  ASSERT_TRUE(vfs.registerFilesystem(filesystem, String("sync")).length());
+  size_t calls = 0;
+  filesystem->syncAction = [&] {
+    ++calls;
+    Vector<VFS::MountSnapshot> mounts;
+    vfs.getMounts(mounts);
+    EXPECT_EQ(mounts.count(), 1U);
+    EXPECT_FALSE(vfs.unregisterFilesystem(filesystem));
+    return Filesystem::SyncStatus::IoError;
+  };
+  EXPECT_EQ(vfs.syncFilesystem(nullptr), Filesystem::SyncStatus::Unsupported);
+  EXPECT_EQ(vfs.syncFilesystem(filesystem), Filesystem::SyncStatus::IoError);
+  EXPECT_EQ(calls, 1U);
+  EXPECT_TRUE(vfs.unregisterFilesystem(filesystem));
+  EXPECT_EQ(vfs.syncFilesystem(filesystem), Filesystem::SyncStatus::Unsupported);
+}
+
+TEST(VFS, GlobalSyncAdmitsAllBackendsBeforeIoAndContinuesAfterErrors) {
+  VFS vfs;
+  auto* first = new MountTestFilesystem(String("first-sync"));
+  auto* second = new MountTestFilesystem(String("second-sync"));
+  ASSERT_TRUE(vfs.registerFilesystem(first, String("first-sync")).length());
+  ASSERT_TRUE(vfs.registerFilesystem(second, String("second-sync")).length());
+  std::vector<int> calls;
+  first->syncAction = [&] {
+    calls.push_back(1);
+    EXPECT_FALSE(vfs.unregisterFilesystem(second));
+    return Filesystem::SyncStatus::IoError;
+  };
+  second->syncAction = [&] {
+    calls.push_back(2);
+    EXPECT_FALSE(vfs.unregisterFilesystem(first));
+    return Filesystem::SyncStatus::Unsupported;
+  };
+  const auto result = vfs.syncAll();
+  ASSERT_EQ(calls.size(), 2U);
+  EXPECT_NE(calls[0], calls[1]);
+  EXPECT_EQ(result, calls[0] == 1 ? Filesystem::SyncStatus::IoError
+                                : Filesystem::SyncStatus::Unsupported);
+  EXPECT_TRUE(vfs.unregisterFilesystem(first));
+  EXPECT_TRUE(vfs.unregisterFilesystem(second));
+  EXPECT_EQ(vfs.syncAll(), Filesystem::SyncStatus::Success);
 }
 
 TEST(VFS, FilesystemPinsRemainCopyableWhileRegistryShutdownDrains) {

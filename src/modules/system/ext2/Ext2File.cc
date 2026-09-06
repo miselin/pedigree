@@ -277,7 +277,8 @@ bool Ext2File::sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t
     return false;
   }
   LockGuard<Mutex> guard(state->writebackLock);
-  if (state->orphan && !state->files.count()) {
+  if (state->orphan && !state->files.count() &&
+      !__atomic_load_n(&state->syncReferences, __ATOMIC_ACQUIRE)) {
     return true;
   }
   return writeBlocksLocked(state, location, page, PhysicalMemoryManager::getPageSize(), false);

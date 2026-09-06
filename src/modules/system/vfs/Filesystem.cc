@@ -40,6 +40,10 @@ Mutex Filesystem::m_StructureLock;
 
 Filesystem::~Filesystem() = default;
 
+Filesystem::SyncStatus Filesystem::sync() {
+  return m_bReadOnly ? SyncStatus::Success : SyncStatus::Unsupported;
+}
+
 FileHandleStatus Filesystem::encodeFileHandle(File&, FileHandle& handle) {
   handle = FileHandle();
   return FileHandleStatus::Unsupported;

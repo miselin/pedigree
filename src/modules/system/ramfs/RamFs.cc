@@ -343,6 +343,11 @@ RamFs::~RamFs() {
     delete m_pRoot;
 }
 
+Filesystem::SyncStatus RamFs::sync() {
+  // Files and shared mappings already modify the authoritative memory pages.
+  return SyncStatus::Success;
+}
+
 bool RamFs::initialise(Disk* pDisk) {
   // Root directory with ./.. entries
   m_pRoot = new RamDir(String(""), 0, this, 0);

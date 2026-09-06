@@ -612,6 +612,29 @@ bool ScsiDisk::sync(uint64_t location, bool async) {
   return succeeded;
 }
 
+bool ScsiDisk::syncAll() {
+#if CRIPPLE_HDD
+  return false;
+#else
+  ScsiController* controller = static_cast<ScsiController*>(m_pParent);
+  if (!controller) {
+    return false;
+  }
+  OperationBarrier::Lease operation;
+  if (!controller->acquireDiskOperation(operation)) {
+    return false;
+  }
+
+  const bool cacheSucceeded = m_Cache.syncAll();
+  // Previously submitted writes may still reside in the device even if the
+  // cache is empty, or another page failed during this drain.
+  const uint64_t flushed =
+      controller->addRequest(0, RequestQueue::NewRequest, SCSI_REQUEST_SYNC,
+                             reinterpret_cast<uint64_t>(this), SyncWholeDevice);
+  return cacheSucceeded && flushed != 0;
+#endif
+}
+
 bool ScsiDisk::retireCachePage(uint64_t location) {
   ScsiController* controller = static_cast<ScsiController*>(m_pParent);
   if (!controller) {
@@ -962,15 +985,17 @@ uint64_t ScsiDisk::doSync(uint64_t location) {
     return 0;
   }
 
+  const bool wholeDevice = location == SyncWholeDevice;
   const size_t nativeBlockSize = getNativeBlockSize();
-  const size_t validLength = getCachePageValidLength(location);
-  if (!nativeBlockSize || !validLength || (location % nativeBlockSize) ||
-      (validLength % nativeBlockSize)) {
+  const size_t validLength = wholeDevice ? 1 : getCachePageValidLength(location);
+  if (!nativeBlockSize || !getSize() || !validLength ||
+      (!wholeDevice && ((location % nativeBlockSize) || (validLength % nativeBlockSize)))) {
     return 0;
   }
 
-  size_t block = location / nativeBlockSize;
-  size_t count = validLength / nativeBlockSize;
+  // SBC defines zero blocks as the entire remaining medium, from LBA zero.
+  const size_t block = wholeDevice ? 0 : location / nativeBlockSize;
+  const size_t count = wholeDevice ? 0 : validLength / nativeBlockSize;
 
   bool bOk = false;
   ScsiCommand* pCommand;

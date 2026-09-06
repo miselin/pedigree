@@ -47,11 +47,13 @@ struct Ext2InodeState {
   Vector<uint32_t> namespaceSyncBlocks;
   size_t pageLoans;
   size_t references;
+  size_t syncReferences = 0;
   bool orphan;
   InodeEventSource inodeEvents;
   uintptr_t futexIdentity;
   Vector<Ext2File*> files;
   File::CacheState* cache = nullptr;
+  Inode* metadata;
   Ext2Filesystem* filesystem;
 };
 

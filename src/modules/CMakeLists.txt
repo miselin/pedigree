@@ -309,6 +309,7 @@ pedigree_module(ext2 "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Directory.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2File.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Filesystem.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Filesystem-sync.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Node.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Resize.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Rename.cc
@@ -362,6 +363,10 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/wait-regressions.cc)
         target_compile_definitions(
             hosted-core-smoke PRIVATE PEDIGREE_HOSTED_CORE_SMOKE=1)
+        if (PEDIGREE_GLOBAL_SYNC_TESTS)
+            target_compile_definitions(
+                hosted-core-smoke PRIVATE PEDIGREE_HOSTED_GLOBAL_SYNC_TESTS=1)
+        endif ()
         if (PEDIGREE_AFFINITY_TESTS)
             target_sources(hosted-core-smoke PRIVATE
                 ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/affinity-regressions.cc)
@@ -863,6 +868,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/FileDescriptor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-sync-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/global-sync-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/module-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/xattr-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-handle-syscalls.cc

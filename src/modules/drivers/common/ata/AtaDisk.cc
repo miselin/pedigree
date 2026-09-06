@@ -1132,14 +1132,16 @@ uint64_t AtaDisk::doSync(uint64_t location) {
     return ScsiDisk::doSync(location);
   }
 
+  const bool wholeDevice = location == SyncWholeDevice;
   const size_t nativeBlockSize = getNativeBlockSize();
-  if (location >= getSize()) {
+  if (!getSize() || (!wholeDevice && location >= getSize())) {
     return 0;
   }
   const size_t validLength =
-      min(static_cast<size_t>(getSize() - location), TargetInfo::getPageSize());
-  if (!nativeBlockSize || !validLength || (location % nativeBlockSize) ||
-      (validLength % nativeBlockSize) || !m_CommandRegs || !m_ControlRegs) {
+      wholeDevice ? 1 : min(static_cast<size_t>(getSize() - location), TargetInfo::getPageSize());
+  if (!nativeBlockSize || !validLength ||
+      (!wholeDevice && ((location % nativeBlockSize) || (validLength % nativeBlockSize))) ||
+      !m_CommandRegs || !m_ControlRegs) {
     return 0;
   }
 

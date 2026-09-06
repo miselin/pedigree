@@ -104,6 +104,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   virtual void write(uint64_t location);
   virtual void flush(uint64_t location);
   virtual bool sync(uint64_t location, bool async);
+  MUST_USE_RESULT virtual bool syncAll();
   MUST_USE_RESULT virtual bool retireCachePage(uint64_t location);
   virtual void align(uint64_t location);
 
@@ -116,6 +117,10 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   virtual uint64_t doRead(uint64_t location);
   virtual uint64_t doWrite(uint64_t location);
   virtual uint64_t doSync(uint64_t location);
+
+  // This value is outside every valid byte location, including a maximal disk.
+  // It is reserved for SCSI_REQUEST_SYNC and never enters cache page arithmetic.
+  static constexpr uint64_t SyncWholeDevice = ~uint64_t{0};
 
   virtual size_t getSize() const {
     return m_NumBlocks * m_NativeBlockSize;

@@ -168,6 +168,10 @@ class ProcFsDirectory : public Directory {
 /** This class provides /dev */
 class ProcFs : public Filesystem {
  public:
+  SyncStatus sync() override {
+    return SyncStatus::Success;
+  }
+
   ProcFs() : m_pRoot(0), m_NextInode(0) {}
 
   virtual ~ProcFs();

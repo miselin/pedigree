@@ -112,6 +112,10 @@ class EXPORTED_PUBLIC CacheManager :
     OperationBarrier::Lease lease;
   };
 
+  bool callbackContext() const {
+    return callbackActiveOnCurrentThread();
+  }
+
   /** Pins a registered Cache while a request is being published. */
   bool acquireCache(Cache* cache, uint64_t& generation, OperationBarrier::Lease& lease);
 
@@ -184,6 +188,11 @@ class EXPORTED_PUBLIC Cache {
     /// threads having access to the page.
     size_t refcnt;
     size_t writebackPins;
+
+    bool callbackActive;
+#if THREADS
+    Thread* callbackOwner;
+#endif
 
     enum class EvictionState {
       None,
@@ -424,6 +433,13 @@ class EXPORTED_PUBLIC Cache {
   bool sync(uintptr_t key, bool async);
 
   /**
+   * Synchronously writes a pinned snapshot, retaining failed pages for retry.
+   * A callback may drain a lower cache directly; a recursive or queue-dependent
+   * wait reports failure instead of deadlocking the shared CacheManager.
+   */
+  MUST_USE_RESULT bool syncAll();
+
+  /**
    * Triggers the cache to calculate the checksum of the given location.
    * This may be useful to avoid a spurious writeback when reading data into
    * a cache page for the first time.
@@ -568,6 +584,9 @@ class EXPORTED_PUBLIC Cache {
                                   uint64_t p6, uint64_t p7, uint64_t p8);
 
  private:
+  /** Writes an already pinned page, optionally joining an active callback. */
+  bool writebackPage(uintptr_t key, uintptr_t location, bool wait);
+
   /** Key-item pairs. */
   Tree<uintptr_t, CachePage*> m_Pages;
 

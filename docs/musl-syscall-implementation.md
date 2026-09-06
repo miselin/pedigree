@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 91 of 113 backlog entries implemented; 22 remain.
+Current checkpoint: 93 of 113 backlog entries implemented; 20 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -20,6 +20,53 @@ lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
 
+## Filesystem-wide synchronization
+
+syncfs now drains the filesystem behind a retained ordinary descriptor; sync
+attempts every registered filesystem, logging failures while preserving Linux's
+void-success contract. VFS admits and pins every selected backend before I/O,
+then drops publication locks. Ext2 snapshots shared inode state, including dirty
+cache pages retained after the last file alias closes, and preserves orphan
+storage through the final disk drain. Failed pages remain retryable and do not
+prevent independent inode progress. Ordered extended-attribute dependencies must
+succeed before the whole-disk flush may run.
+
+Cache-wide drains pin a bounded snapshot and join active writeback or retirement
+without holding the cache lock across callbacks. Same-cache recursive drains and
+queue-dependent waits fail without losing dirty pages. Disk and partition APIs
+propagate the result; SCSI/ATA issue a final whole-device flush even when their
+page cache is empty or an earlier page failed. Authoritative RAM filesystems and
+read-only mounts succeed without storage I/O. FAT, RawFs and unregistered private
+backends remain explicitly unsupported; this pass does not claim writeback for
+those backends.
+
+Verification: 37 routing/ABI checks, 62 focused native cache/VFS/Ext2 tests,
+12 cross source compiles, ten hosted compile-only sources, a full image build,
+and actual Darwin hosted execution passed. Hosted fixtures exercise concurrent
+cache drains and controlled SCSI failures, including final whole-device command
+ordering and retry. All 152 affected image source/object pairs were current;
+800 strong POSIX imports had available exports. Fresh one/four-CPU serial guests
+passed all 35 suites in 265.1/202.0 seconds.
+
+Each public sync call also passed a separate cold-restart pair on one and four
+CPUs: a shared mapping was dirtied after its numeric descriptor closed, the
+filesystem was synced through an unrelated directory descriptor or global sync,
+and QEMU was stopped with that mapping still alive. A second boot of the same
+disposable disk verified data, hardlink identity, rename/unlink metadata, and
+extended attributes. The cold runs prove persistence beyond guest caches; the
+controlled SCSI fixture independently proves hardware flush command dispatch.
+Ordinary metadata writeback may already persist some namespace changes, so the
+cold test alone does not establish their causal dependence on sync.
+
+Initial compile failures involved the new hosted fixture dependency declaration
+and an inconsistent override annotation. Two native test fixtures initially
+flushed their dirty pages at close before injecting failure; they now inject
+failure before close and verify retained-cache preconditions. Failures and final
+results are preserved under
+/private/tmp/pedigree-global-sync-expansion-20260906/verification.json.
+Disk writes were enabled only for disposable test disks; shared settings were
+restored after verification.
+
 ## File synchronization, clock adjustment and module removal
 
 fdatasync uses existing file and Ext2 metadata writeback. sync_file_range flushes
@@ -30,7 +77,7 @@ No filesystem-wide or device-wide durability fence is implied by this range
 operation. readahead and POSIX_FADV_WILLNEED populate the real cache, preserve
 OFD positions and bound each prefetch to 2 MiB. Linux also treats zero-count
 readahead as WILLNEED through EOF. Other recognized advice remains explicitly
-unsupported. Global sync and syncfs still require filesystem-wide writeback.
+unsupported. Filesystem-wide sync and syncfs are covered by the later pass above.
 
 adjtimex and the realtime clock_adjtime route support unprivileged queries,
 privileged signed ADJ_SETOFFSET, and persistent MICRO/NANO output units. Clock

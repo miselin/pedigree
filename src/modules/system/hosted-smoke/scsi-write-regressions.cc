@@ -46,7 +46,7 @@ constexpr uint64_t LookupPauseLocation = 36 * PageBytes;
 constexpr uint8_t CdDvdPeripheral = 0x05;
 
 enum class WriteMode { Initialising, FailAll, PassWrite12, UnitNotReady };
-enum class SyncMode { Pass10, Pass16, FailAll };
+enum class SyncMode { Pass10, Pass16, FailAll, FailWhole };
 enum class RequestEvent : uint8_t { Read = 1, Direct = 2 };
 
 class ScriptedScsiController final : public ScsiController {
@@ -59,7 +59,10 @@ class ScriptedScsiController final : public ScsiController {
         m_WriteCount(0),
         m_SyncMode(SyncMode::Pass10),
         m_SyncOpcodes(),
+        m_SyncWhole(),
         m_SyncCount(0),
+        m_SyncRequestLocations(),
+        m_SyncRequestCount(0),
         m_UnitReadyCount(0),
         m_LastWriteBuffer(0),
         m_DirectRequestCount(0),
@@ -151,14 +154,23 @@ class ScriptedScsiController final : public ScsiController {
       case 0x8a:
         return handleWrite(opcode, nCommandSize, pRespBuffer, nRespBytes, bWrite);
       case 0x35:
-      case 0x91:
+      case 0x91: {
         if (bWrite || pRespBuffer || nRespBytes || nCommandSize != (opcode == 0x35 ? 10 : 16) ||
             m_SyncCount >= sizeof(m_SyncOpcodes)) {
           m_Valid = false;
           return false;
         }
+        const uint8_t* command = reinterpret_cast<const uint8_t*>(pCommand);
+        bool whole = true;
+        for (size_t i = 1; i < nCommandSize; ++i) {
+          whole = whole && command[i] == 0;
+        }
+        m_SyncWhole[m_SyncCount] = whole;
         m_SyncOpcodes[m_SyncCount++] = opcode;
-        return m_SyncMode == SyncMode::Pass10 || (m_SyncMode == SyncMode::Pass16 && opcode == 0x91);
+        return m_SyncMode == SyncMode::Pass10 ||
+               (m_SyncMode == SyncMode::Pass16 && opcode == 0x91) ||
+               (m_SyncMode == SyncMode::FailWhole && !whole);
+      }
       default:
         m_Valid = false;
         return false;
@@ -176,15 +188,27 @@ class ScriptedScsiController final : public ScsiController {
     m_DirectPage = 0;
     m_LastWriteBytes = 0;
     m_SyncCount = 0;
+    m_SyncRequestCount = 0;
   }
 
   void beginSync(SyncMode mode) {
     m_SyncMode = mode;
     m_SyncCount = 0;
+    m_SyncRequestCount = 0;
   }
 
   bool syncTraceMatches(const uint8_t* expected, size_t count) const {
     return m_Valid && m_SyncCount == count && !MemoryCompare(m_SyncOpcodes, expected, count);
+  }
+
+  bool syncGeometryMatches(const bool* whole, size_t count) const {
+    return m_Valid && m_SyncCount == count &&
+           !MemoryCompare(m_SyncWhole, whole, count * sizeof(bool));
+  }
+
+  bool syncRequestsMatch(const uint64_t* locations, size_t count) const {
+    return m_Valid && m_SyncRequestCount == count &&
+           !MemoryCompare(m_SyncRequestLocations, locations, count * sizeof(uint64_t));
   }
 
   void beginRequestTrace() {
@@ -313,6 +337,14 @@ class ScriptedScsiController final : public ScsiController {
           return 0;
       }
     }
+    if (p1 == SCSI_REQUEST_SYNC) {
+      if (m_SyncRequestCount >=
+          sizeof(m_SyncRequestLocations) / sizeof(m_SyncRequestLocations[0])) {
+        m_Valid = false;
+        return 0;
+      }
+      m_SyncRequestLocations[m_SyncRequestCount++] = p3;
+    }
     if (p1 == SCSI_REQUEST_WRITE_DIRECT) {
       appendRequestEvent(RequestEvent::Direct);
       ++m_DirectRequestCount;
@@ -374,7 +406,10 @@ class ScriptedScsiController final : public ScsiController {
   size_t m_WriteCount;
   SyncMode m_SyncMode;
   uint8_t m_SyncOpcodes[8];
+  bool m_SyncWhole[8];
   size_t m_SyncCount;
+  uint64_t m_SyncRequestLocations[8];
+  size_t m_SyncRequestCount;
   size_t m_UnitReadyCount;
   uintptr_t m_LastWriteBuffer;
   size_t m_DirectRequestCount;
@@ -1436,6 +1471,80 @@ bool scsiCheckedSync() {
   return passed;
 }
 
+bool scsiSyncAll() {
+  constexpr uint64_t WholeRequest[] = {ScsiDisk::SyncWholeDevice};
+  constexpr uint64_t PageThenWhole[] = {CheckedSyncLocation, ScsiDisk::SyncWholeDevice};
+  constexpr uint8_t Pass10[] = {0x35};
+  constexpr uint8_t Pass16[] = {0x35, 0x35, 0x35, 0x91};
+  constexpr uint8_t FailAll[] = {0x35, 0x35, 0x35, 0x91, 0x91, 0x91};
+  constexpr uint8_t PageAndWhole[] = {0x35, 0x35};
+  constexpr uint8_t FinalFailed[] = {0x35, 0x35, 0x35, 0x35, 0x91, 0x91, 0x91};
+  constexpr bool WholeGeometry[] = {true, true, true, true, true, true};
+  constexpr bool PageAndWholeGeometry[] = {false, true};
+  constexpr bool FinalFailedGeometry[] = {false, true, true, true, true, true, true};
+  constexpr uint8_t FailedWrites[] = {0x2a, 0x2a, 0x2a, 0xaa, 0xaa, 0xaa, 0x8a, 0x8a, 0x8a};
+  constexpr uint8_t SuccessfulWrites[] = {0x2a, 0x2a, 0x2a, 0xaa};
+  Fixture fixture;
+  if (!fixture.ready) {
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-sync-all: fixture setup");
+    return false;
+  }
+
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::Pass10);
+  const bool emptyFlushed = fixture.disk.syncAll() && fixture.controller.writeCount() == 0 &&
+                            fixture.controller.syncRequestsMatch(WholeRequest, 1) &&
+                            fixture.controller.syncTraceMatches(Pass10, sizeof(Pass10)) &&
+                            fixture.controller.syncGeometryMatches(WholeGeometry, 1);
+  fixture.controller.beginSync(SyncMode::FailAll);
+  const bool emptyFailure = !fixture.disk.syncAll() &&
+                            fixture.controller.syncRequestsMatch(WholeRequest, 1) &&
+                            fixture.controller.syncTraceMatches(FailAll, sizeof(FailAll)) &&
+                            fixture.controller.syncGeometryMatches(WholeGeometry, 6);
+  fixture.controller.beginSync(SyncMode::Pass16);
+  const bool emptyRetry = fixture.disk.syncAll() &&
+                          fixture.controller.syncRequestsMatch(WholeRequest, 1) &&
+                          fixture.controller.syncTraceMatches(Pass16, sizeof(Pass16)) &&
+                          fixture.controller.syncGeometryMatches(WholeGeometry, 4);
+
+  const bool prepared = fixture.disk.preparePage(CheckedSyncLocation);
+  fixture.controller.beginWrites(WriteMode::FailAll);
+  fixture.controller.beginSync(SyncMode::Pass10);
+  const bool pageFailed =
+      prepared && !fixture.disk.syncAll() && fixture.disk.hasPage(CheckedSyncLocation) &&
+      fixture.controller.writeTraceMatches(FailedWrites, sizeof(FailedWrites)) &&
+      fixture.controller.syncRequestsMatch(PageThenWhole, 2) &&
+      fixture.controller.syncTraceMatches(PageAndWhole, sizeof(PageAndWhole)) &&
+      fixture.controller.syncGeometryMatches(PageAndWholeGeometry, 2);
+
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::FailWhole);
+  const bool finalFailed =
+      !fixture.disk.syncAll() && fixture.disk.hasPage(CheckedSyncLocation) &&
+      fixture.controller.writeTraceMatches(SuccessfulWrites, sizeof(SuccessfulWrites)) &&
+      fixture.controller.syncRequestsMatch(PageThenWhole, 2) &&
+      fixture.controller.syncTraceMatches(FinalFailed, sizeof(FinalFailed)) &&
+      fixture.controller.syncGeometryMatches(FinalFailedGeometry, 7);
+
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::Pass10);
+  const bool retried =
+      fixture.disk.syncAll() &&
+      fixture.controller.writeTraceMatches(SuccessfulWrites, sizeof(SuccessfulWrites)) &&
+      fixture.controller.syncRequestsMatch(PageThenWhole, 2) &&
+      fixture.controller.syncTraceMatches(PageAndWhole, sizeof(PageAndWhole)) &&
+      fixture.controller.syncGeometryMatches(PageAndWholeGeometry, 2);
+  const bool cleaned = fixture.disk.evictPage(CheckedSyncLocation);
+  const bool passed =
+      emptyFlushed && emptyFailure && emptyRetry && pageFailed && finalFailed && retried && cleaned;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-sync-all");
+  } else {
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-sync-all: empty flush, command geometry, failure, or retry");
+  }
+  return passed;
+}
+
 bool scsiTerminalCachePage() {
   constexpr size_t TerminalBytes = 512;
   constexpr uint64_t TerminalLocation = 4 * PageBytes;
@@ -1536,6 +1645,10 @@ bool scsiRejectsNativeBlocksLargerThanCachePages() {
 }
 }  // namespace
 
+EXPORTED_PUBLIC bool runHostedScsiSyncRegressions() {
+  return scsiSyncAll();
+}
+
 EXPORTED_PUBLIC bool runHostedScsiWriteRegressions() {
   Fixture fixture;
   const bool ataOwnership = ataQueuedWriteCacheOwnership(fixture);
@@ -1545,9 +1658,11 @@ EXPORTED_PUBLIC bool runHostedScsiWriteRegressions() {
   const bool readRetireAdmission = scsiReadRetireAdmission(fixture);
   const bool retireReadRecheck = scsiRetireReadRecheck(fixture);
   const bool checkedSync = scsiCheckedSync();
+  const bool syncAll = runHostedScsiSyncRegressions();
   const bool terminalPage = scsiTerminalCachePage();
   const bool opticalRead = scsiOpticalReadAfterToc();
   const bool largerNativeRejected = scsiRejectsNativeBlocksLargerThanCachePages();
   return ataOwnership && scsiResult && directResult && directOwnership && readRetireAdmission &&
-         retireReadRecheck && checkedSync && terminalPage && opticalRead && largerNativeRejected;
+         retireReadRecheck && checkedSync && syncAll && terminalPage && opticalRead &&
+         largerNativeRejected;
 }

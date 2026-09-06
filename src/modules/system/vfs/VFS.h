@@ -193,6 +193,12 @@ class EXPORTED_PUBLIC VFS {
   /** Copies a detached snapshot of all mounted filesystems. */
   void getMounts(Vector<MountSnapshot>& mounts) const;
 
+  /** Pins one registered backing filesystem before calling its sync operation. */
+  Filesystem::SyncStatus syncFilesystem(Filesystem* key);
+
+  /** Pins all registered filesystems, attempts each, and returns the first error. */
+  Filesystem::SyncStatus syncAll();
+
   /** Attempts to obtain a File for a specific path. */
   File* find(const String& path, File* pStartNode = 0);
 

@@ -112,6 +112,8 @@ class Partition : public Disk {
     return parent->sync(location + m_Start, async);
   }
 
+  MUST_USE_RESULT virtual bool syncAll();
+
   virtual size_t getSize() const {
     return getLength();
   }

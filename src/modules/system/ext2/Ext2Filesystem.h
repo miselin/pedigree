@@ -45,6 +45,7 @@ class Ext2Filesystem : public Filesystem {
   friend class Ext2XattrTestPeer;
   friend class Ext2FillCacheTestPeer;
   friend class Ext2WritebackTestPeer;
+  friend class Ext2FilesystemSyncTestPeer;
   friend class Ext2File;
   friend class Ext2Node;
   friend class Ext2Directory;
@@ -66,6 +67,7 @@ class Ext2Filesystem : public Filesystem {
   virtual FileHandleStatus encodeFileHandle(File&, FileHandle&);
   virtual FileHandleStatus decodeFileHandle(const FileHandle&, RetainedFile&);
   virtual FileHandleStatus fileHandleFsid(FileSystemId&);
+  virtual SyncStatus sync();
 
  protected:
   virtual bool createFile(File* parent, const String& filename, uint32_t mask);
@@ -77,6 +79,8 @@ class Ext2Filesystem : public Filesystem {
                           Directory* newParent, const String& newName, File* replaced);
 
  private:
+  class SyncSnapshot;
+  void releaseSyncState(uint32_t inode, Ext2InodeState* state);
   Ext2InodeState* acquireInodeState(uint32_t inode, Inode* metadata);
   Ext2InodeState* acquireInodeStateLocked(uint32_t inode, Inode* metadata);
   FileHandleStatus validateHandleInodeLocked(uint32_t inode, uint32_t generation, Inode*&);

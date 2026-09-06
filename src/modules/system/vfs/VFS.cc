@@ -594,6 +594,103 @@ void VFS::getMounts(Vector<MountSnapshot>& mounts) const {
   }
 }
 
+namespace {
+Filesystem::SyncStatus syncPinnedFilesystem(Filesystem* filesystem) {
+#if !defined(VFS_STANDALONE) && THREADS
+  Thread* thread = Processor::information().getCurrentThread();
+  const int previousError = thread ? thread->getErrno() : 0;
+  if (thread)
+    thread->setErrno(0);
+#endif
+  const auto result = filesystem->sync();
+#if !defined(VFS_STANDALONE) && THREADS
+  if (thread)
+    thread->setErrno(previousError);
+#endif
+  return result;
+}
+}  // namespace
+
+Filesystem::SyncStatus VFS::syncFilesystem(Filesystem* key) {
+#if !defined(VFS_STANDALONE) && THREADS
+  TerminationDeferral lifetime;
+#endif
+  if (!key)
+    return Filesystem::SyncStatus::Unsupported;
+  auto pin = SharedPointer<VfsFilesystemPin>::tryAllocate();
+  if (!pin)
+    return Filesystem::SyncStatus::NoMemory;
+  {
+    LockGuard<Mutex> guard(m_MountTableLock);
+    MountInfo* info = m_Mounts.lookup(key);
+    if (!info)
+      return Filesystem::SyncStatus::Unsupported;
+    if (!info->state->storagePins.tryAcquire(pin->admission))
+      return Filesystem::SyncStatus::IoError;
+    pin->state = info->state;
+  }
+  return syncPinnedFilesystem(pin->state->filesystem);
+}
+
+Filesystem::SyncStatus VFS::syncAll() {
+#if !defined(VFS_STANDALONE) && THREADS
+  TerminationDeferral lifetime;
+#endif
+  struct Snapshot {
+    ~Snapshot() {
+      delete[] pins;
+    }
+    VfsFilesystemPin* pins = nullptr;
+    size_t count = 0;
+  } snapshot;
+  for (;;) {
+    size_t capacity;
+    {
+      LockGuard<Mutex> guard(m_MountTableLock);
+      capacity = m_Mounts.count();
+    }
+    if (capacity > ~size_t(0) / sizeof(VfsFilesystemPin)) {
+      ERROR("VFS::syncAll: filesystem snapshot is too large");
+      return Filesystem::SyncStatus::NoMemory;
+    }
+    delete[] snapshot.pins;
+    snapshot.pins = capacity ? new VfsFilesystemPin[capacity] : nullptr;
+    if (capacity && !snapshot.pins) {
+      ERROR("VFS::syncAll: cannot allocate filesystem snapshot");
+      return Filesystem::SyncStatus::NoMemory;
+    }
+    {
+      LockGuard<Mutex> guard(m_MountTableLock);
+      // Registration may have grown the table while allocation was unlocked.
+      if (m_Mounts.count() > capacity)
+        continue;
+      for (auto it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
+        auto& pin = snapshot.pins[snapshot.count++];
+        pin.state = it.value()->state;
+        const bool admitted = pin.state->storagePins.tryAcquire(pin.admission);
+        (void)admitted;
+      }
+    }
+    break;
+  }
+
+  auto firstError = Filesystem::SyncStatus::Success;
+  for (size_t n = 0; n < snapshot.count; ++n) {
+    auto& pin = snapshot.pins[n];
+    const auto status = pin.admission ? syncPinnedFilesystem(pin.state->filesystem)
+                                      : Filesystem::SyncStatus::IoError;
+    if (status != Filesystem::SyncStatus::Success) {
+      const char* reason = status == Filesystem::SyncStatus::Unsupported ? "unsupported"
+                           : status == Filesystem::SyncStatus::NoMemory  ? "out of memory"
+                                                                         : "I/O error";
+      ERROR("VFS::syncAll: filesystem " << Dec << pin.state->id << " sync failed: " << reason);
+      if (firstError == Filesystem::SyncStatus::Success)
+        firstError = status;
+    }
+  }
+  return firstError;
+}
+
 File* VFS::find(const String& path, File* pStartNode) {
   // NOTICE("find: " << path);
 

@@ -250,6 +250,10 @@ class DevFsDirectory : public Directory {
 /** This class provides /dev */
 class DevFs : public Filesystem {
  public:
+  SyncStatus sync() override {
+    return SyncStatus::Success;
+  }
+
   DevFs() : m_pRoot(0), m_pTty(0), m_VtManager(0), m_pPsAuxFile(0) {}
 
   virtual ~DevFs();

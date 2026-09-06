@@ -12,6 +12,10 @@
 
 extern void system_reset();
 extern bool runHostedWaitRegressions();
+#if defined(PEDIGREE_HOSTED_GLOBAL_SYNC_TESTS)
+extern bool runHostedCacheSyncRegressions();
+extern bool runHostedScsiSyncRegressions();
+#endif
 #if PEDIGREE_AFFINITY_TESTS
 extern bool runAffinityRegressions();
 #endif
@@ -24,6 +28,10 @@ extern bool runPtraceFrameRegressions();
 
 static bool entry() {
   bool passed = runHostedWaitRegressions();
+#if defined(PEDIGREE_HOSTED_GLOBAL_SYNC_TESTS)
+  if (passed)
+    passed = runHostedCacheSyncRegressions() && runHostedScsiSyncRegressions();
+#endif
   if (passed) {
     passed = KernelElf::moduleExecutionWaitsForUnloadForTest();
     if (passed)
@@ -52,4 +60,8 @@ static bool entry() {
 
 static void exit() {}
 
+#if defined(PEDIGREE_HOSTED_GLOBAL_SYNC_TESTS)
+MODULE_INFO("hosted-core-smoke", &entry, &exit, "scsi");
+#else
 MODULE_INFO("hosted-core-smoke", &entry, &exit);
+#endif

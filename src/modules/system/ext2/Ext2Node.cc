@@ -42,6 +42,7 @@ Ext2InodeState::Ext2InodeState(Inode* pInode, Ext2Filesystem* filesystem)
       orphan(false),
       futexIdentity(0),
       files(),
+      metadata(pInode),
       filesystem(filesystem) {
   reloadMappings(pInode, filesystem);
 }

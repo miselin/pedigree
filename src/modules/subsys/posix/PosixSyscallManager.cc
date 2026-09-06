@@ -42,6 +42,7 @@
 #include "file-handle-syscalls.h"
 #include "file-sync-syscalls.h"
 #include "file-syscalls.h"
+#include "global-sync-syscalls.h"
 #include "inotify-syscalls.h"
 #include "linux-amd64-signal.h"
 #include "logging.h"
@@ -244,6 +245,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_clock_adjtime(static_cast<int>(p1), reinterpret_cast<void*>(p2));
     case POSIX_FDATASYNC:
       return posix_fdatasync(static_cast<int>(p1));
+    case POSIX_SYNC:
+      return posix_sync();
+    case POSIX_SYNCFS:
+      return posix_syncfs(static_cast<int>(p1));
     case POSIX_READAHEAD:
       return posix_readahead(static_cast<int>(p1), static_cast<off_t>(p2), p3);
     case POSIX_FADVISE64:

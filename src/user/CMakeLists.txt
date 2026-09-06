@@ -260,6 +260,8 @@ pedigree_app(child-wait-contract-test ON OFF OFF ""
 
 pedigree_app(file-sync-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-sync-contract-test/main.c)
+pedigree_app(global-sync-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/global-sync-contract-test/main.c)
 pedigree_app(clock-adjust-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/clock-adjust-contract-test/main.c)
 pedigree_app(module-contract-test ON OFF OFF ""

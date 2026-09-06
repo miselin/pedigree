@@ -1034,6 +1034,190 @@ bool retireWritebackContract() {
   return passed;
 }
 
+struct SyncAllContext {
+  SyncAllContext()
+      : cache(nullptr),
+        lower(nullptr),
+        entered(0),
+        allowReturn(0),
+        writes(0),
+        blockWriteback(false),
+        retirementSucceeds(false),
+        nestedSucceeded(0) {}
+
+  Cache* cache;
+  Cache* lower;
+  Semaphore entered;
+  Semaphore allowReturn;
+  Atomic<size_t> writes;
+  bool blockWriteback;
+  bool retirementSucceeds;
+  Atomic<size_t> nestedSucceeded;
+};
+
+bool syncAllCallback(CacheConstants::CallbackCause cause, uintptr_t, uintptr_t, void* parameter) {
+  auto* context = static_cast<SyncAllContext*>(parameter);
+  if (cause != CacheConstants::WriteBack) {
+    return true;
+  }
+  const size_t write = (context->writes += 1);
+  if (context->blockWriteback && write == 1) {
+    context->entered.release();
+    const bool released = context->allowReturn.acquireForCompletion();
+    (void)released;
+  }
+  if (context->lower) {
+    const bool succeeded = context->lower->syncAll();
+    context->nestedSucceeded = succeeded ? 1 : 0;
+    return succeeded;
+  }
+  return true;
+}
+
+bool syncAllRetirementCallback(uintptr_t, uintptr_t, void* parameter) {
+  auto* context = static_cast<SyncAllContext*>(parameter);
+  context->entered.release();
+  const bool released = context->allowReturn.acquireForCompletion();
+  (void)released;
+  return context->retirementSucceeds;
+}
+
+struct SyncAllCall {
+  enum Kind { All, QueuedPage, Retire };
+  SyncAllCall(SyncAllContext& state, uintptr_t cacheKey, Kind operation)
+      : context(state), key(cacheKey), kind(operation), done(0), result(0) {}
+  SyncAllContext& context;
+  uintptr_t key;
+  Kind kind;
+  Semaphore done;
+  Atomic<size_t> result;
+};
+
+int syncAllWorker(void* parameter) {
+  auto* call = static_cast<SyncAllCall*>(parameter);
+  bool succeeded = false;
+  if (call->kind == SyncAllCall::All) {
+    succeeded = call->context.cache->syncAll();
+  } else if (call->kind == SyncAllCall::QueuedPage) {
+    succeeded = call->context.cache->sync(call->key, false);
+  } else {
+    succeeded =
+        call->context.cache->retireWriteback(call->key, syncAllRetirementCallback, &call->context);
+  }
+  call->result = succeeded ? 1 : 0;
+  call->done.release();
+  return 0;
+}
+
+bool syncAllJoinsCallback() {
+  constexpr uintptr_t Key = 0xCA7EA00;
+  SyncAllContext context;
+  Cache cache;
+  context.cache = &cache;
+  context.blockWriteback = true;
+  cache.setCallback(syncAllCallback, &context);
+  if (!cache.insert(Key)) {
+    return false;
+  }
+  cache.markNoLongerEditing(Key);
+  SyncAllCall first(context, Key, SyncAllCall::All);
+  Thread* writer = new Thread(Scheduler::instance().getKernelProcess(), syncAllWorker, &first,
+                              nullptr, false, true);
+  const bool entered = context.entered.acquire(1, 2);
+  if (!entered) {
+    context.allowReturn.release();
+    writer->join();
+    return checkNamed(false, "cache-sync-all", "direct callback did not start");
+  }
+
+  SyncAllCall queued(context, Key, SyncAllCall::QueuedPage);
+  Thread* producer = new Thread(Scheduler::instance().getKernelProcess(), syncAllWorker, &queued,
+                                nullptr, false, true);
+  const bool queueCompleted = queued.done.acquire(1, 2);
+  const bool queueRejected = queueCompleted && queued.result == 0;
+  SyncAllCall second(context, Key, SyncAllCall::All);
+  Thread* joiner = new Thread(Scheduler::instance().getKernelProcess(), syncAllWorker, &second,
+                              nullptr, false, true);
+  const bool joinedCallback = waitUntilQueuedAt(joiner, Thread::CallbackDrain, Key);
+  context.allowReturn.release();
+  const bool writerJoined = writer->join();
+  const bool producerJoined = producer->join();
+  const bool joinerJoined = joiner->join();
+  const bool passed =
+      checkNamed(queueRejected && producerJoined, "cache-sync-all",
+                 "the CacheManager worker blocked behind a direct callback") &&
+      checkNamed(joinedCallback && writerJoined && joinerJoined && first.result == 1 &&
+                     second.result == 1 && context.writes == 2,
+                 "cache-sync-all", "synchronous drain did not join an active callback");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS cache-sync-all-callback");
+  }
+  return passed;
+}
+
+bool syncAllJoinsRetirement(bool succeeds) {
+  constexpr uintptr_t Key = 0xCA7EB00;
+  SyncAllContext context;
+  Cache cache;
+  context.cache = &cache;
+  context.retirementSucceeds = succeeds;
+  cache.setCallback(syncAllCallback, &context);
+  if (!cache.insert(Key)) {
+    return false;
+  }
+  cache.markNoLongerEditing(Key);
+  SyncAllCall retirement(context, Key, SyncAllCall::Retire);
+  Thread* retirer = new Thread(Scheduler::instance().getKernelProcess(), syncAllWorker, &retirement,
+                               nullptr, false, true);
+  const bool entered = context.entered.acquire(1, 2);
+  if (!entered) {
+    context.allowReturn.release();
+    retirer->join();
+    return checkNamed(false, "cache-sync-all", "retirement callback did not start");
+  }
+  SyncAllCall sync(context, Key, SyncAllCall::All);
+  Thread* joiner = new Thread(Scheduler::instance().getKernelProcess(), syncAllWorker, &sync,
+                              nullptr, false, true);
+  const bool joinedRetirement = waitUntilQueuedAt(joiner, Thread::CallbackDrain, Key);
+  context.allowReturn.release();
+  const bool retirerJoined = retirer->join();
+  const bool joinerJoined = joiner->join();
+  const bool passed = checkNamed(
+      joinedRetirement && retirerJoined && joinerJoined && sync.result == 1 &&
+          retirement.result == (succeeds ? 1U : 0U) && context.writes == (succeeds ? 0U : 1U) &&
+          cache.exists(Key, PageSize) != succeeds,
+      "cache-sync-all", "drain did not join retirement or retry its retained failure");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS cache-sync-all-retirement-" << (succeeds ? "success" : "retry"));
+  }
+  return passed;
+}
+
+bool syncAllFromCacheManager() {
+  constexpr uintptr_t Key = 0xCA7EC00;
+  SyncAllContext lowerContext;
+  Cache lower;
+  lowerContext.cache = &lower;
+  lower.setCallback(syncAllCallback, &lowerContext);
+  SyncAllContext upperContext;
+  Cache upper;
+  upperContext.cache = &upper;
+  upperContext.lower = &lower;
+  upper.setCallback(syncAllCallback, &upperContext);
+  if (!lower.insert(Key) || !upper.insert(Key)) {
+    return false;
+  }
+  lower.markNoLongerEditing(Key);
+  upper.markNoLongerEditing(Key);
+  const bool passed = checkNamed(
+      upper.sync(Key, false) && upperContext.nestedSucceeded == 1 && lowerContext.writes == 1,
+      "cache-sync-all", "a CacheManager callback could not drain an independent lower cache");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS cache-sync-all-nested");
+  }
+  return passed;
+}
+
 bool rangeExistence() {
   constexpr uintptr_t Key = 0xCA7E500;
   constexpr size_t Length = 3 * PageSize;
@@ -1127,9 +1311,14 @@ bool runHostedCacheDiscardRegressions() {
          rejectedLastWritebackPin();
 }
 
+bool runHostedCacheSyncRegressions() {
+  return syncAllJoinsCallback() && syncAllJoinsRetirement(true) && syncAllJoinsRetirement(false) &&
+         syncAllFromCacheManager();
+}
+
 bool runHostedCacheRegressions() {
   return callbackLifetime() && queuedRequestLifetime() && emptyAndReuse() &&
          retirementPublication() && failedPublicationDiscard() && retirePrepublicationWriteback() &&
          runHostedCacheDiscardRegressions() && retireWritebackContract() && rangeExistence() &&
-         strictRangeGeometry();
+         strictRangeGeometry() && runHostedCacheSyncRegressions();
 }

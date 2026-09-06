@@ -28,6 +28,7 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/Iterator.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -846,6 +847,10 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
 
       page->evictionState = CachePage::EvictionState::WriteBack;
       dirty = callback && (page->writebackFailed || !verifyChecksum(page));
+      page->callbackActive = dirty;
+#if THREADS
+      page->callbackOwner = dirty ? Processor::information().getCurrentThread() : nullptr;
+#endif
     }
 
     location = page->location;
@@ -856,6 +861,10 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
     {
       LockGuard<Spinlock> guard(m_Lock);
       page->writebackFailed = true;
+      page->callbackActive = false;
+#if THREADS
+      page->callbackOwner = nullptr;
+#endif
       page->evictionState = CachePage::EvictionState::None;
     }
 #if THREADS
@@ -877,6 +886,10 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
         return false;
       }
 
+      page->callbackActive = false;
+#if THREADS
+      page->callbackOwner = nullptr;
+#endif
       // A callback or concurrent lookup may have pinned the page while
       // the cache lock was dropped. In that case, restore ordinary
       // admission.
@@ -907,6 +920,12 @@ bool Cache::finishRetirement(CachePage* page, writeback_t callback, void* callba
 
   // Same-key insertions wait while the external cache index is invalidated.
   if (callback) {
+#if THREADS
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      page->callbackOwner = Processor::information().getCurrentThread();
+    }
+#endif
     callback(CacheConstants::Eviction, key, location, callbackMeta);
   }
 
@@ -1025,11 +1044,22 @@ bool Cache::retireWriteback(uintptr_t key, retirement_writeback_t callback, void
   }
 #endif
 
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    page->callbackActive = true;
+#if THREADS
+    page->callbackOwner = Processor::information().getCurrentThread();
+#endif
+  }
   const bool writebackSucceeded = callback(key, page->location, meta);
   bool retire = false;
   bool wake = false;
   {
     LockGuard<Spinlock> guard(m_Lock);
+    page->callbackActive = false;
+#if THREADS
+    page->callbackOwner = nullptr;
+#endif
     CachePage* current = nullptr;
     if (m_PageFilter.contains(key)) {
       current = m_Pages.lookup(key);
@@ -1248,6 +1278,207 @@ bool Cache::sync(uintptr_t key, bool async) {
   }
 }
 
+bool Cache::syncAll() {
+#if THREADS
+  TerminationDeferral terminationDeferral;
+  OperationBarrier::Lease operation;
+  if (!m_ManagerOperations.tryAcquire(operation)) {
+    return false;
+  }
+  Thread* currentThread = Processor::information().getCurrentThread();
+  const bool canWait = currentThread && !CacheManager::instance().callbackContext();
+#endif
+  struct Entry {
+    uintptr_t key;
+    uintptr_t location;
+    bool pinned;
+  };
+  Vector<Entry> entries;
+  bool snapshotted = false;
+  // Allocation stays outside the cache lock; bounded retries avoid chasing
+  // an indefinitely growing cache while holding the object's lifetime.
+  for (size_t attempt = 0; attempt < 4 && !snapshotted; ++attempt) {
+    size_t count = 0;
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      if (static_cast<size_t>(m_ShutdownState)) {
+        return false;
+      }
+      if (!m_Callback) {
+        return true;
+      }
+      count = m_Pages.count();
+    }
+    if (!entries.tryReserve(count)) {
+      return false;
+    }
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      if (m_Pages.count() > entries.size()) {
+        continue;
+      }
+      for (auto it = m_Pages.begin(); it != m_Pages.end(); ++it) {
+#if THREADS
+        if ((it.value()->callbackOwner && it.value()->callbackOwner == currentThread) ||
+            (!currentThread && it.value()->callbackActive)) {
+#else
+        if (it.value()->callbackActive) {
+#endif
+          return false;
+        }
+        CachePage* page = it.value();
+        if (page->evictionState != CachePage::EvictionState::Draining &&
+            page->evictionState != CachePage::EvictionState::Retiring &&
+            (page->refcnt == ~size_t{0} || page->writebackPins == ~size_t{0})) {
+          return false;
+        }
+      }
+      for (auto it = m_Pages.begin(); it != m_Pages.end(); ++it) {
+        CachePage* page = it.value();
+        const bool pinned = page->evictionState != CachePage::EvictionState::Draining &&
+                            page->evictionState != CachePage::EvictionState::Retiring;
+        if (pinned) {
+          ++page->refcnt;
+          ++page->writebackPins;
+        }
+        const Entry entry = {page->key, page->location, pinned};
+        entries.pushBack(entry);
+      }
+      snapshotted = true;
+    }
+  }
+  if (!snapshotted) {
+    return false;
+  }
+
+  bool succeeded = true;
+  for (size_t i = 0; i < entries.count(); ++i) {
+    Entry& entry = entries[i];
+    // Draining pages cannot be pinned: their retirement waits for pins to
+    // disappear. Join that operation, then retry if a failed page remains.
+    while (!entry.pinned) {
+#if THREADS
+      auto waitGuard = m_EvictionWaiters.acquire();
+#endif
+      CachePage* page = nullptr;
+      bool busy = false;
+      {
+        LockGuard<Spinlock> guard(m_Lock);
+        page = m_Pages.lookup(entry.key);
+        if (!page) {
+          break;
+        }
+        busy = page->evictionState == CachePage::EvictionState::Draining ||
+               page->evictionState == CachePage::EvictionState::Retiring;
+        if (!busy) {
+          if (page->refcnt == ~size_t{0} || page->writebackPins == ~size_t{0}) {
+            succeeded = false;
+            break;
+          }
+          ++page->refcnt;
+          ++page->writebackPins;
+          entry.location = page->location;
+          entry.pinned = true;
+        }
+#if THREADS
+        else if (!canWait || page->callbackOwner == currentThread) {
+          succeeded = false;
+          break;
+        }
+#endif
+      }
+      if (busy) {
+#if THREADS
+        const WaitQueue::WakeReason reason =
+            waitGuard.waitForCompletion(WaitQueue::Channel(page), Thread::CallbackDrain, entry.key);
+        (void)reason;
+#else
+        succeeded = false;
+        break;
+#endif
+      }
+    }
+    if (entry.pinned) {
+      const bool written = writebackPage(entry.key, entry.location, true);
+      succeeded = written && succeeded;
+      releaseWriteback(entry.key);
+      entry.pinned = false;
+    }
+  }
+  return succeeded;
+}
+
+bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait) {
+  CachePage* page = nullptr;
+  writeback_t callback = nullptr;
+  void* callbackMeta = nullptr;
+#if THREADS
+  Thread* currentThread = Processor::information().getCurrentThread();
+  const bool canWait = wait && currentThread && !CacheManager::instance().callbackContext();
+#else
+  (void)wait;
+#endif
+  while (true) {
+#if THREADS
+    auto waitGuard = m_EvictionWaiters.acquire();
+#endif
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      page = m_Pages.lookup(key);
+      if (!page || page->location != location || !m_Callback) {
+        return false;
+      }
+      if (wait && page->status == CachePage::Editing) {
+        return false;
+      }
+      if (!page->callbackActive && page->evictionState != CachePage::EvictionState::WriteBack) {
+        // A previously admitted writeback pin is allowed to finish while a
+        // retirement waits in Draining for precisely these pins to disappear.
+        page->callbackActive = true;
+#if THREADS
+        page->callbackOwner = currentThread;
+#endif
+        callback = m_Callback;
+        callbackMeta = m_CallbackMeta;
+        break;
+      }
+#if THREADS
+      if (!canWait || page->callbackOwner == currentThread) {
+#endif
+        page->writebackFailed = true;
+        return false;
+#if THREADS
+      }
+#endif
+    }
+#if THREADS
+    const WaitQueue::WakeReason reason =
+        waitGuard.waitForCompletion(WaitQueue::Channel(page), Thread::CallbackDrain, key);
+    (void)reason;
+#endif
+  }
+
+  uint64_t submittedChecksum[2];
+  checksum(reinterpret_cast<const void*>(location), CachePageSize, submittedChecksum);
+  const bool succeeded = callback(CacheConstants::WriteBack, key, location, callbackMeta);
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    page->writebackFailed = !succeeded;
+    if (succeeded) {
+      page->checksum[0] = submittedChecksum[0];
+      page->checksum[1] = submittedChecksum[1];
+    }
+    page->callbackActive = false;
+#if THREADS
+    page->callbackOwner = nullptr;
+#endif
+  }
+#if THREADS
+  m_EvictionWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(page));
+#endif
+  return succeeded;
+}
+
 void Cache::markDirty(uintptr_t key) {
   if (!ensureUsable("markDirty")) {
     return;
@@ -1427,21 +1658,6 @@ uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p
     return 1;
   }
 
-  writeback_t callback = nullptr;
-  void* callbackMeta = nullptr;
-  {
-    LockGuard<Spinlock> guard(m_Lock);
-    callback = m_Callback;
-    callbackMeta = m_CallbackMeta;
-  }
-  if (!callback) {
-    if (p5) {
-      // sync() transferred this pin to the request.
-      releaseWriteback(p3);
-    }
-    return 0;
-  }
-
   // sync() transfers a pin to its request before dropping the cache lock.
   // Timer-driven requests acquire their pin here.
   if (!p5) {
@@ -1455,27 +1671,9 @@ uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p
     ++page->writebackPins;
   }
 
-#if SUPERDEBUG
-  NOTICE("Cache: writeback for off=" << p3 << " @" << p3 << "!");
-#endif
-  uint64_t submittedChecksum[2];
-  checksum(reinterpret_cast<const void*>(p4), CachePageSize, submittedChecksum);
-  const bool succeeded =
-      callback(static_cast<CacheConstants::CallbackCause>(p2), p3, p4, callbackMeta);
-  {
-    LockGuard<Spinlock> guard(m_Lock);
-    CachePage* page = m_Pages.lookup(p3);
-    if (page && page->location == p4) {
-      page->writebackFailed = !succeeded;
-      if (succeeded) {
-        page->checksum[0] = submittedChecksum[0];
-        page->checksum[1] = submittedChecksum[1];
-      }
-    }
-  }
-#if SUPERDEBUG
-  NOTICE_NOLOCK("Cache: writeback for off=" << p3 << " @" << p3 << " complete!");
-#endif
+  // Never block the shared worker behind a direct callback which may itself
+  // submit work to CacheManager. A rejected request retains dirty data.
+  const bool succeeded = writebackPage(p3, p4, false);
 
   // Unpin page, writeback complete
   releaseWriteback(p3);

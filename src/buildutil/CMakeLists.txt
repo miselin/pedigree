@@ -184,6 +184,7 @@ add_library(ext2
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Directory.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2File.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Filesystem.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Filesystem-sync.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Node.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Resize.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Rename.cc
@@ -262,8 +263,10 @@ set(TESTSUITE_SRCS
     testsuite/test-DiskImage.cc
     testsuite/test-Ext2FillCache.cc
     testsuite/test-CacheDiscard.cc
+    testsuite/test-CacheSync.cc
     testsuite/test-Ext2Writeback.cc
     testsuite/test-FileRangeSync.cc
+    testsuite/test-Ext2FilesystemSync.cc
     testsuite/test-Ext2DirectorySync.cc
     testsuite/test-Ext2Xattr.cc
     testsuite/test-Ext2XattrCodec.cc

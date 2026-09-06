@@ -25,6 +25,12 @@ Partition::Partition(const String& type, uint64_t start, uint64_t length)
 
 Partition::~Partition() {}
 
+bool Partition::syncAll() {
+  Disk* parent = static_cast<Disk*>(getParent());
+  // A device-wide drain is stronger than the partition's persistence boundary.
+  return parent && parent->syncAll();
+}
+
 uint64_t Partition::getStart() {
   return m_Start;
 }

@@ -177,6 +177,9 @@ class EXPORTED_PUBLIC Disk : public Device {
    */
   virtual bool sync(uint64_t location, bool async);
 
+  /** Drains existing cached writes and the device write cache synchronously. */
+  MUST_USE_RESULT virtual bool syncAll();
+
   /**
    * Synchronously writes and retires the target cache page containing
    * \p location.
