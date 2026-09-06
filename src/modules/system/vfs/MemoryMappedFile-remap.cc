@@ -17,6 +17,10 @@ MemoryMappedObject* AnonymousMemoryMap::stageSlice(uintptr_t source, size_t sour
   if (!result)
     return nullptr;
   result->m_OwnsMappings = false;
+  result->m_LockMode = m_LockMode;
+  if (sourceLength == destinationLength && source < m_Address + m_Length &&
+      sourceLength > m_Address + m_Length - source)
+    result->m_Length = m_Address + m_Length - source;
   result->m_bCopyOnWrite = m_bCopyOnWrite;
   result->m_MaximumPermissions = m_MaximumPermissions;
   result->m_Attachment = m_Attachment;
@@ -47,8 +51,13 @@ MemoryMappedObject* MemoryMappedFile::stageSlice(uintptr_t source, size_t source
   if (!result)
     return nullptr;
   result->m_OwnsMappings = false;
+  result->m_LockMode = m_LockMode;
+  if (sourceLength == destinationLength && source < m_Address + m_Length &&
+      sourceLength > m_Address + m_Length - source)
+    result->m_Length = m_Address + m_Length - source;
   const size_t preserved = sourceLength < destinationLength ? sourceLength : destinationLength;
-  for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it) {
+  for (auto it = m_Mappings.count() ? m_Mappings.begin() : m_Mappings.end(); it != m_Mappings.end();
+       ++it) {
     if (it.key() >= source && it.key() - source < preserved &&
         !result->m_Mappings.tryInsert(destination + (it.key() - source), it.value())) {
       delete result;
@@ -238,6 +247,35 @@ MemoryMapManager::VmStatus MemoryMapManager::remap(const RemapRequest& request, 
         metadata.retired.pushBack(object);
       }
     }
+    auto* account = space.memoryLockAccount();
+    auto charge = account ? account->charge() : MemoryLockCharge{};
+    if (account) {
+      size_t removed = 0;
+      if (source->m_LockMode != MemoryLockMode::None)
+        removed += request.oldLength / pageSize;
+      for (auto* object : metadata.retired) {
+        if (object == source || object->m_LockMode == MemoryLockMode::None)
+          continue;
+        const uintptr_t first = object->address() > destination ? object->address() : destination;
+        const uintptr_t end = roundedEnd(object, pageMask);
+        const uintptr_t last =
+            end < destination + request.newLength ? end : destination + request.newLength;
+        removed += (last - first) / pageSize;
+      }
+      assert(removed <= charge.managedPages);
+      charge.managedPages -= removed;
+      if (source->m_LockMode != MemoryLockMode::None) {
+        const size_t added = request.newLength / pageSize;
+        if (added > ~size_t(0) - charge.managedPages)
+          return VmStatus::NoMemory;
+        charge.managedPages += added;
+        if (charge.rawPages > ~size_t(0) - charge.managedPages ||
+            (request.newLength > request.oldLength &&
+             !account->permitsTotalPages(charge.managedPages + charge.rawPages,
+                                         process->getEffectiveUserId() == 0)))
+          return VmStatus::LockLimit;
+      }
+    }
     if (request.fixed) {
       uintptr_t cursor = destination;
       const uintptr_t end = destination + request.newLength;
@@ -367,6 +405,10 @@ MemoryMapManager::VmStatus MemoryMapManager::remap(const RemapRequest& request, 
       }
     }
     delete objects;
+    if (account)
+      account->publish(charge, account->futureMode());
+    if (source->m_LockMode == MemoryLockMode::Eager && request.newLength > request.oldLength)
+      populateMemory(space, destination + request.oldLength, request.newLength - request.oldLength);
     result = destination;
     return VmStatus::Success;
   }

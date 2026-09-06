@@ -126,6 +126,8 @@ MemoryMapManager::VmStatus MemoryMapManager::discard(uintptr_t base, size_t leng
   return VmStatus::Unsupported;
 #endif
   VirtualAddressSpace& space = Processor::information().getVirtualAddressSpace();
+  if (hasLockedMemory(space, base, length))
+    return VmStatus::InvalidRange;
   MmObjectList* objects = m_MmObjectLists.lookup(&space);
   if (!objects)
     return VmStatus::Unmapped;

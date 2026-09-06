@@ -45,6 +45,9 @@ extern "C" bool x64RemapCoreRegression();
 #if !HOSTED && PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS
 extern bool runVmMappedOwnershipRegressions();
 #endif
+#if !HOSTED && PEDIGREE_MEMORY_LOCK_TESTS
+extern bool runMemoryLockRegressions();
+#endif
 
 static PosixSyscallManager g_PosixSyscallManager;
 
@@ -303,6 +306,11 @@ static bool init() {
 #if !HOSTED && PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS
   if (!runVmMappedOwnershipRegressions()) {
     FATAL("QEMU mapped ownership regression failed");
+  }
+#endif
+#if !HOSTED && PEDIGREE_MEMORY_LOCK_TESTS
+  if (!runMemoryLockRegressions()) {
+    FATAL("Memory-lock residency regression failed");
   }
 #endif
   return true;

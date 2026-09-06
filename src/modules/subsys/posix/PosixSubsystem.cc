@@ -216,6 +216,7 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
       m_SignalHandlers(),
       m_SignalHandlersLock(),
       m_AdvisoryOwner(AdvisoryOwner::Kind::Process),
+      m_MemoryLockAccount(s.m_MemoryLockAccount),
       m_FdMap(),
       m_NextFd(s.m_NextFd),
       m_FdLock(),
@@ -260,6 +261,17 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
   }
 
   m_NextThreadWaiter = s.m_NextThreadWaiter;
+}
+
+void PosixSubsystem::setProcess(Process* process) {
+  Subsystem::setProcess(process);
+  m_PendingSignals->attach(m_pProcess);
+  if (process) {
+    auto& space = *process->getAddressSpace();
+    MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+    MemoryMapManager::instance().bindMemoryLockPolicy(space);
+    space.setMemoryLockAccount(&m_MemoryLockAccount);
+  }
 }
 
 PosixSubsystem::~PosixSubsystem() {
@@ -372,6 +384,10 @@ PosixSubsystem::~PosixSubsystem() {
   }
 
   spinlock.release();
+
+  va->rawUserMemory().clear();
+  m_MemoryLockAccount.publish({}, MemoryLockMode::None);
+  va->setMemoryLockAccount(nullptr);
 
   // Give back the memory map lock now - we're interruptible again.
   MemoryMapManager::instance().releaseLock();
@@ -724,6 +740,14 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
   delete pProcess->getLinker();
 
   MemoryMapManager::instance().unmapAll();
+
+  {
+    MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+    auto& space = *pProcess->getAddressSpace();
+    space.rawUserMemory().clear();
+    m_MemoryLockAccount.publish({}, MemoryLockMode::None);
+    space.setMemoryLockAccount(nullptr);
+  }
 
   // If it's a POSIX process, remove group membership
   if (pProcess->getType() == Process::Posix) {
@@ -2352,12 +2376,19 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   execScope.adoptLeaderIdentity();
   DynamicLinker* oldLinker = pProcess->getLinker();
   pProcess->setLinker(nullptr);
-  MemoryMapManager::instance().unmapAll();
-  delete oldLinker;
+  pThread->retireInputUserStack();
+  {
+    MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+    MemoryMapManager::instance().unmapAll();
+    delete oldLinker;
 
-  // We now need to clean up the process' address space.
-  pProcess->resetUserReservations();
-  pProcess->getAddressSpace()->revertToKernelAddressSpace();
+    // We now need to clean up the process' address space.
+    pProcess->resetUserReservations();
+    pProcess->getAddressSpace()->rawUserMemory().clear();
+    m_MemoryLockAccount.publish({}, MemoryLockMode::None);
+    pProcess->getAddressSpace()->revertToKernelAddressSpace();
+    pProcess->getAddressSpace()->rawUserMemory().setCompleteInventory(X64 && !HOSTED);
+  }
 
   // The old mappings are gone, but Thread state levels still own their Stack
   // descriptors. Drop only that metadata: freeStack could otherwise unmap a

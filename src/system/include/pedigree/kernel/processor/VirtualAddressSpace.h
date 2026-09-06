@@ -21,6 +21,7 @@
 #define KERNEL_PROCESSOR_VIRTUALADDRESSSPACE_H
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/UserMemoryPolicy.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -77,6 +78,27 @@ class VirtualAddressSpace {
   static const size_t WriteProtected = 0x8000;
   /** The backing object, rather than this address space, owns the physical page. */
   static const size_t Borrowed = 0x10000;
+  /** Kernel-provided user ABI storage, permanently resident until owner retirement. */
+  static const size_t RuntimeMapping = 0x20000;
+
+  RawUserMemory& rawUserMemory() {
+    return m_RawUserMemory;
+  }
+  virtual size_t runtimeMappingPages(uintptr_t, size_t) {
+    return 0;
+  }
+  MemoryLockAccount* memoryLockAccount() const {
+    return m_MemoryLockAccount;
+  }
+  void setMemoryLockAccount(MemoryLockAccount* account) {
+    m_MemoryLockAccount = account;
+  }
+  UserMemoryPolicy* userMemoryPolicy() const {
+    return m_UserMemoryPolicy;
+  }
+  void setUserMemoryPolicy(UserMemoryPolicy* policy) {
+    m_UserMemoryPolicy = policy;
+  }
 
   /** Get the kernel virtual address space
    *\return reference to the kernel virtual address space */
@@ -368,7 +390,11 @@ class VirtualAddressSpace {
   /** Abstracts a stack. */
   class Stack {
    public:
-    Stack(void* top, size_t size) : m_Top(top), m_Size(size) {}
+    Stack(void* top, size_t size, uint64_t regionId = 0)
+        : m_Top(top), m_Size(size), m_RegionId(regionId) {}
+    uint64_t regionId() const {
+      return m_RegionId;
+    }
 
     void* getTop() const {
       return m_Top;
@@ -393,17 +419,28 @@ class VirtualAddressSpace {
    private:
     void* m_Top;
     size_t m_Size;
+    uint64_t m_RegionId;
   };
 
  protected:
+  bool admitRawMemoryChange(const PreparedMemoryLock& plan, bool privileged,
+                            MemoryLockCharge& charge) const;
+  void commitRawMemoryChange(PreparedMemoryLock& plan, MemoryLockCharge charge);
+  bool prepareZeroPage();
+  uint64_t m_HeapRegionId = 0;
+
   /** The constructor does nothing */
-  inline VirtualAddressSpace(void* Heap) : m_Heap(Heap), m_HeapEnd(Heap) {}
+  inline VirtualAddressSpace(void* Heap) : m_Heap(Heap), m_HeapEnd(Heap), m_RawUserMemory(*this) {}
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   static void copyOnWritePreCommitForTest(void* virtualAddress);
 #endif
 
  private:
+  RawUserMemory m_RawUserMemory;
+  MemoryLockAccount* m_MemoryLockAccount = nullptr;
+  UserMemoryPolicy* m_UserMemoryPolicy = nullptr;
+
   /** The default constructor */
   VirtualAddressSpace();
   /** The copy-constructor

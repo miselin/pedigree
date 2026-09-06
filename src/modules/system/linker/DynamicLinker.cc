@@ -32,6 +32,7 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Result.h"
@@ -44,6 +45,19 @@
 #include "modules/system/vfs/VFS.h"
 
 namespace {
+bool prepareNativeImageAllocation() {
+  auto& space = Processor::information().getVirtualAddressSpace();
+  auto* account = space.memoryLockAccount();
+  if (account && account->futureMode() != MemoryLockMode::None) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return false;
+  }
+  // This optional linker owns demand-paged raw ELF extents. The maintained
+  // POSIX loader uses managed mappings with a complete locking inventory.
+  space.rawUserMemory().setCompleteInventory(false);
+  return true;
+}
+
 class DemandPageStagingMapping {
  public:
   explicit DemandPageStagingMapping(physical_uintptr_t page)
@@ -169,6 +183,10 @@ bool DynamicLinker::loadProgram(File* pFile, bool bDryRun, bool bInterpreter,
   uintptr_t buffer = 0;
   MemoryMappedObject* pMmFile = MemoryMapManager::instance().mapFile(
       pFile, buffer, pFile->getSize(), MemoryMappedObject::Read);
+  if (!pMmFile) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
 
   String fileName;
   pFile->getName(fileName);
@@ -177,6 +195,11 @@ bool DynamicLinker::loadProgram(File* pFile, bool bDryRun, bool bInterpreter,
 #endif
 
   Elf* programElf = new Elf();
+  if (!programElf) {
+    MemoryMapManager::instance().unmap(pMmFile);
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
 
   if (!bDryRun) {
     delete m_pProgramElf;
@@ -190,7 +213,9 @@ bool DynamicLinker::loadProgram(File* pFile, bool bDryRun, bool bInterpreter,
       return false;
     }
 
-    if (!m_pProgramElf->allocate(reinterpret_cast<uint8_t*>(buffer), pFile->getSize(),
+    MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+    if (!prepareNativeImageAllocation() ||
+        !m_pProgramElf->allocate(reinterpret_cast<uint8_t*>(buffer), pFile->getSize(),
                                  m_ProgramStart, 0, false, &m_ProgramSize)) {
       ERROR("DynamicLinker: Main program ELF failed to load: `" << fileName << "'");
       MemoryMapManager::instance().unmap(pMmFile);
@@ -293,8 +318,17 @@ bool DynamicLinker::loadObject(File* pFile, bool bDryRun) {
   uintptr_t loadBase = 0;
   MemoryMappedObject* pMmFile = MemoryMapManager::instance().mapFile(
       pFile, buffer, pFile->getSize(), MemoryMappedObject::Read);
+  if (!pMmFile) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
 
   Elf* pElf = new Elf();
+  if (!pElf) {
+    MemoryMapManager::instance().unmap(pMmFile);
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
   SharedObject* pSo = 0;
 
   String fileName;
@@ -305,13 +339,17 @@ bool DynamicLinker::loadObject(File* pFile, bool bDryRun) {
     if (!pElf->create(reinterpret_cast<uint8_t*>(buffer), pFile->getSize())) {
       ERROR("DynamicLinker: ELF creation failed for file `" << pFile->getName() << "'");
       delete pElf;
+      MemoryMapManager::instance().unmap(pMmFile);
       return false;
     }
 
-    if (!pElf->allocate(reinterpret_cast<uint8_t*>(buffer), pFile->getSize(), loadBase,
+    MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+    if (!prepareNativeImageAllocation() ||
+        !pElf->allocate(reinterpret_cast<uint8_t*>(buffer), pFile->getSize(), loadBase,
                         m_pProgramElf->getSymbolTable(), false, &size)) {
       ERROR("DynamicLinker: ELF allocate failed for file `" << pFile->getName() << "'");
       delete pElf;
+      MemoryMapManager::instance().unmap(pMmFile);
       return false;
     }
 

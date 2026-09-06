@@ -136,6 +136,8 @@ set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/SlamAllocator.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/PhysicalMemoryManager.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/MemoryRegion.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/UserMemoryPolicy.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/RawUserMemory.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/time/Conversion.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/network/IpAddress.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/network/MacAddress.cc

@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 42 of 113 backlog entries implemented; 71 remain.
+Current checkpoint: 48 of 113 backlog entries implemented; 65 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,70 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Memory locking and locked-memory limits
+
+This pass adds `mlock`, `munlock`, `mlockall`, `munlockall`, `mlock2`, and
+successful `setrlimit` mutation for RLIMIT_MEMLOCK (six backlog numbers).
+`prlimit64` also reads and changes the caller's stored limit. The default soft
+and hard limits are 16 MiB; an unprivileged caller cannot raise the hard limit.
+Overlapping locks charge virtual pages once. Lowering the limit preserves
+existing locks, while later admission checks the current limit. Limit copyout
+follows mutation, so a failed old-limit copyout does not roll back an update.
+Other resource mutations and cross-process limit access remain explicit work.
+
+Eager locking populates accessible pages and resolves writable private CoW;
+ONFAULT charges the full eligible range without forcing residency. File-backed
+locks inhibit the actual mapping compactor and retain cache loans. Partial
+unlock, unmap, protection splits, remap and prepared file shrink preserve exact
+ownership and charge. Locked discard is rejected; MS_INVALIDATE reports EBUSY.
+Direct eager population failure retains the established lock metadata and any
+partial residency. CURRENT and mapping-prefault population are best effort.
+
+The maintained amd64 ELF path inventories both managed mappings and raw heap
+and stack owners. FUTURE quota admission precedes destructive fixed replacement
+or new raw allocation. Input callbacks preallocate their fallback stack before
+registration and retire it once after callback draining. Internal signal/event
+runtime mappings are reserved and excluded from ordinary lock accounting;
+user-provided musl TLS remains ordinary memory. Fork inherits resource limits
+but clears child locks and FUTURE policy; successful exec clears both while
+retaining limits. POSIX owns policy and credentials, VFS owns managed mapping
+transactions, and core exposes a generic raw-owner admission interface.
+
+Current scope limits:
+
+- Complete CURRENT/FUTURE inventory is advertised only by the maintained amd64
+  image path. Hosted and the optional native ELF loader report unsupported when
+  their raw allocation inventory is incomplete.
+- Linux brk continues to decline shrink. Generic native heap shrink retires its
+  own surviving raw pieces and preserves managed replacements. Fixed mremap
+  into raw-owned reservations remains unsupported.
+- Plans are bounded to 4096 managed objects/raw extents and 65536 affected
+  managed pages. Population reports typed backing/allocation failures; general
+  allocation-failure injection is not supplied by this pass.
+- SysV SHM_LOCK retains its separate implementation; per-real-UID shared-memory
+  lock accounting still needs its own resource policy. It is not charged as a
+  process's ordinary locked virtual mappings.
+
+The `memory-lock-contract-test` application covers limits, ranges, managed and
+raw mappings, fork/exec and threaded lifetime. The default-off
+`PEDIGREE_MEMORY_LOCK_TESTS` fixture additionally checks physical-page/cache-loan
+retention across the real file compactor, eager private copying, raw heap quota
+rollback, and callback-stack denial/retirement/retry. Callback dispatch itself
+and incomplete architectures are not claimed as runtime coverage.
+
+Verification passed 148 selected native tests, 37 routing/ABI checks, and 16
+affected hosted compiles. The actual Darwin core runtime completed its lifecycle
+and clean shutdown. Fresh headless one- and four-CPU guests passed all 22 suites
+(241.0 and 280.7 seconds), including five new public families and four
+kernel ownership cases. All 413 affected image source/object pairs were current.
+Disk writes remained disabled. Logs and image identities are under
+`/private/tmp/pedigree-memory-lock-expansion-20260905/verification.json`.
+
+Two initial boot failures are explained and retained: an unexported embedded account vtable, and
+the shared tree iterator treating two end iterators as unequal. The latter is
+repaired at the container boundary with symmetric empty/exhausted comparisons
+and native regression tests. The separately parked split/unmap fault is unchanged.
 
 ## File shrink residency prerequisite
 

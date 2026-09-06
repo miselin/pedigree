@@ -38,6 +38,7 @@
 #include "pedigree/kernel/utilities/Vector.h"
 
 #include "modules/subsys/posix/FileDescriptor.h"
+#include "modules/subsys/posix/PosixMemoryLockAccount.h"
 #include "modules/subsys/posix/logging.h"
 #include "modules/subsys/posix/queued-signal.h"
 #include "modules/system/vfs/Directory.h"
@@ -397,10 +398,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
       bool processDirected = false, uint64_t signalValue = 0,
       const SharedPointer<SignalEventState>& state = SharedPointer<SignalEventState>());
 
-  void setProcess(Process* process) override {
-    Subsystem::setProcess(process);
-    m_PendingSignals->attach(m_pProcess);
-  }
+  void setProcess(Process* process) override;
   SharedPointer<PendingSignalContext> pendingSignalContext() {
     return m_PendingSignals;
   }
@@ -415,6 +413,10 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   AdvisoryOwner& advisoryOwner() {
     return m_AdvisoryOwner;
+  }
+
+  PosixMemoryLockAccount& memoryLockAccount() {
+    return m_MemoryLockAccount;
   }
 
   /** Gets a signal handler */
@@ -709,6 +711,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   UnlikelyLock m_SignalHandlersLock;
   SharedPointer<PendingSignalContext> m_PendingSignals{new PendingSignalContext};
   AdvisoryOwner m_AdvisoryOwner;
+  PosixMemoryLockAccount m_MemoryLockAccount;
 
   /**
    * The file descriptor map. Maps number to pointers, the type of which is

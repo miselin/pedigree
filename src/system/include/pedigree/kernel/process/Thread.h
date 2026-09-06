@@ -204,6 +204,11 @@ class EXPORTED_PUBLIC Thread {
    * block and before the final scheduler handoff.
    */
   void notifySubsystemExit();
+  bool prepareInputUserStack();
+  void retireInputUserStack();
+  VirtualAddressSpace::Stack* inputUserStack() const {
+    return m_pInputUserStack;
+  }
 
   /* Forces the thread to run on the bootstrap processor. */
   void forceToStartupProcessor();
@@ -1067,6 +1072,7 @@ class EXPORTED_PUBLIC Thread {
   void* m_SchedulerReadyContext = nullptr;
 
   /** Memory mapping for the TLS base of this thread (userspace-only) */
+  VirtualAddressSpace::Stack* m_pInputUserStack = nullptr;
   void* m_pTlsBase = nullptr;
 
 #if MULTIPROCESSOR

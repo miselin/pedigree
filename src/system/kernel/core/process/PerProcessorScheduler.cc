@@ -35,6 +35,7 @@
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/eventNumbers.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -715,20 +716,22 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack, Thread::EventSe
 
     if (!usableUserStack) {
       VirtualAddressSpace::Stack* stateStack = pThread->getStateUserStack();
-      if (!stateStack) {
-        stateStack = va.allocateStack();
-        pThread->setStateUserStack(stateStack);
-      } else {
-        // Verify that the stack is mapped
-        if (!va.isMapped(adjust_pointer(stateStack->getTop(), -pageSz))) {
-          /// \todo This is a quickfix for a bigger problem. I imagine
-          ///       it has something to do with calling execve
-          ///       directly without fork, meaning the memory is
-          ///       cleaned up but the state level stack information
-          ///       is *not*.
-          stateStack = va.allocateStack();
-          pThread->setStateUserStack(stateStack);
+      const bool inputEvent =
+          !pEvent->isSignalEvent() && pEvent->getNumber() == EventNumbers::InputEvent;
+      if (inputEvent) {
+        stateStack = pThread->inputUserStack();
+        if (!stateStack || !va.isMapped(adjust_pointer(stateStack->getTop(), -pageSz))) {
+          pThread->popState(false);
+          eventDelivery.reset();
+          Processor::setInterrupts(bWasInterrupts);
+          return;
         }
+        pThread->setStateUserStack(stateStack);
+      } else if (!stateStack || !va.isMapped(adjust_pointer(stateStack->getTop(), -pageSz))) {
+        stateStack = va.allocateStack();
+        if (!stateStack)
+          panic("checkEventState: no user fallback stack");
+        pThread->setStateUserStack(stateStack);
       }
 
       userStack = reinterpret_cast<uintptr_t>(stateStack->getTop());
@@ -749,7 +752,7 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack, Thread::EventSe
       if (!p) {
         panic("checkEventState: Out of memory!");
       }
-      va.map(p, eventPage, VirtualAddressSpace::Write);
+      va.map(p, eventPage, VirtualAddressSpace::Write | VirtualAddressSpace::RuntimeMapping);
     }
   }
 

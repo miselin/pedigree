@@ -23,6 +23,7 @@
 #define PAGE_COPY_ON_WRITE 0x400
 #define PAGE_SHARED 0x800
 // Software bits outside the physical address and protection-key fields.
+#define PAGE_RUNTIME (1ULL << 55)
 #define PAGE_BORROWED (1ULL << 56)
 #define PAGE_NO_ACCESS (1ULL << 57)
 #define PAGE_WRITE_PROTECTED (1ULL << 58)
@@ -39,9 +40,9 @@
 
 #define TABLE_ENTRY(table, index) (&physicalAddress(reinterpret_cast<uint64_t*>(table))[index])
 
-#define PAGE_GET_FLAGS(x) (*x & 0x8700000000000FFFULL)
-#define PAGE_SET_FLAGS(x, f) *x = (*x & ~0x8700000000000FFFULL) | f
-#define PAGE_GET_PHYSICAL_ADDRESS(x) (*x & ~0x8700000000000FFFULL)
+#define PAGE_GET_FLAGS(x) (*x & 0x8780000000000FFFULL)
+#define PAGE_SET_FLAGS(x, f) *x = (*x & ~0x8780000000000FFFULL) | f
+#define PAGE_GET_PHYSICAL_ADDRESS(x) (*x & ~0x8780000000000FFFULL)
 
 static void beginMappingInvalidation(TlbInvalidationGuard& invalidation) {
   switch (Processor::beginTlbInvalidation(invalidation)) {

@@ -351,3 +351,71 @@ TEST(PedigreeTree, FallibleInsertionMovesOwnership) {
   tree.clear();
   EXPECT_EQ(tree.count(), 0U);
 }
+
+TEST(PedigreeTree, EmptyIteratorEqualityIsSymmetric) {
+  Tree<int, int> tree;
+  Tree<int, int>::Iterator initial;
+  Tree<int, int>::ConstIterator constInitial;
+  const auto end = tree.end();
+  EXPECT_EQ(initial, initial);
+  EXPECT_EQ(end, end);
+  EXPECT_EQ(initial, end);
+  EXPECT_EQ(end, initial);
+  EXPECT_EQ(initial, constInitial);
+  EXPECT_EQ(constInitial, initial);
+
+  auto empty = tree.begin();
+  EXPECT_EQ(empty, end);
+  EXPECT_EQ(end, empty);
+  EXPECT_EQ(empty, constInitial);
+  EXPECT_EQ(constInitial, empty);
+  const Tree<int, int>& readOnly = tree;
+  EXPECT_EQ(readOnly.begin(), end);
+  EXPECT_EQ(end, readOnly.begin());
+
+  // Prepared mapping code deliberately avoids allocating an empty cursor.
+  auto cursor = tree.count() ? tree.begin() : tree.end();
+  ASSERT_EQ(cursor, tree.end());
+  size_t visited = 0;
+  for (; cursor != tree.end(); ++cursor)
+    ++visited;
+  EXPECT_EQ(visited, 0U);
+}
+
+TEST(PedigreeTree, LiveAndExhaustedIteratorEqualityIsSymmetric) {
+  Tree<int, int> tree;
+  ASSERT_TRUE(tree.tryInsert(2, 20));
+  ASSERT_TRUE(tree.tryInsert(1, 10));
+  ASSERT_TRUE(tree.tryInsert(3, 30));
+  Tree<int, int>::Iterator initial;
+  const auto end = tree.end();
+  auto cursor = tree.begin();
+  Tree<int, int>::ConstIterator readOnly = cursor;
+  EXPECT_EQ(cursor, readOnly);
+  EXPECT_EQ(readOnly, cursor);
+  EXPECT_NE(cursor, end);
+  EXPECT_NE(end, cursor);
+  EXPECT_NE(initial, cursor);
+  EXPECT_NE(cursor, initial);
+  EXPECT_NE(readOnly, end);
+  EXPECT_NE(end, readOnly);
+
+  Tree<int, int> other;
+  other.insert(1, 10);
+  EXPECT_NE(cursor, other.begin());
+  EXPECT_NE(other.begin(), cursor);
+
+  size_t visited = 0;
+  for (; cursor != end; ++cursor) {
+    ASSERT_LT(visited, 3U);
+    EXPECT_EQ(cursor.key(), static_cast<int>(visited + 1));
+    ++visited;
+  }
+  EXPECT_EQ(visited, 3U);
+  EXPECT_EQ(cursor, end);
+  EXPECT_EQ(end, cursor);
+  EXPECT_EQ(cursor, initial);
+  EXPECT_EQ(initial, cursor);
+  EXPECT_EQ(readOnly, end);
+  EXPECT_EQ(end, readOnly);
+}

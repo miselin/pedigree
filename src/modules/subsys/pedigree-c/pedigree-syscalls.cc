@@ -28,6 +28,8 @@
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/process/eventNumbers.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
@@ -234,11 +236,18 @@ int pedigree_module_get_depending(char* name, char* buf, size_t bufsz) {
   return 1;
 }
 
-void pedigree_input_install_callback(void* p, uint32_t type, uintptr_t param) {
-  // First parameter is now obsolete, gotta remove it some time...
+int pedigree_input_install_callback(void* p, uint32_t type, uintptr_t param) {
+  Uninterruptible events;
+  TerminationDeferral termination;
+  Thread* thread = Processor::information().getCurrentThread();
+  if (!thread || !thread->prepareInputUserStack()) {
+    SYSCALL_ERROR(NoMoreProcesses);
+    return -1;
+  }
   InputManager::instance().installCallback(static_cast<InputManager::CallbackType>(type),
-                                           reinterpret_cast<InputManager::callback_t>(p), 0,
-                                           Processor::information().getCurrentThread(), param);
+                                           reinterpret_cast<InputManager::callback_t>(p), 0, thread,
+                                           param);
+  return 0;
 }
 
 void pedigree_input_remove_callback(void* p) {

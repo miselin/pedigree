@@ -33,10 +33,10 @@ linux_number,syscall,family,status,scope_and_verification
 146,sched_get_priority_max,Scheduling and resource discovery,pending,
 147,sched_get_priority_min,Scheduling and resource discovery,pending,
 148,sched_rr_get_interval,Scheduling and resource discovery,pending,
-149,mlock,Memory management,pending,
-150,munlock,Memory management,pending,
-151,mlockall,Memory management,pending,
-152,munlockall,Memory management,pending,
+149,mlock,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
+150,munlock,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
+151,mlockall,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
+152,munlockall,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
 153,vhangup,Linux administration and isolation,pending,
 155,pivot_root,Linux administration and isolation,pending,
 159,adjtimex,Linux administration and isolation,pending,
@@ -103,12 +103,12 @@ linux_number,syscall,family,status,scope_and_verification
 316,renameat2,Extended file interfaces,pending,
 319,memfd_create,Memory management,implemented,Anonymous memory file and all five bundled musl seals; public contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 322,execveat,Extended file interfaces,pending,
-325,mlock2,Memory management,pending,
+325,mlock2,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
 326,copy_file_range,Extended file interfaces,implemented,Transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 332,statx,Extended file interfaces,pending,
 452,fchmodat2,Extended file interfaces,pending,
 73,flock,Mapped unavailable operations,implemented,Advisory file-lock pass; flock and classic/OFD fcntl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
-160,setrlimit,Mapped unavailable operations,pending,
+160,setrlimit,Mapped unavailable operations,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
 191,getxattr,Mapped unavailable operations,pending,
 192,lgetxattr,Mapped unavailable operations,pending,
 193,fgetxattr,Mapped unavailable operations,pending,

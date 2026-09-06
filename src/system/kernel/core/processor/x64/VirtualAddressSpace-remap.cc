@@ -256,8 +256,8 @@ class X64PreparedPageRemap final : public VirtualAddressSpace::PreparedPageRemap
       return false;
     }
     const uint64_t value = __atomic_exchange_n(leaf, uint64_t{0}, __ATOMIC_ACQ_REL);
-    result.physical = value & ~0x8700000000000FFFULL;
-    result.flags = m_Space.fromFlags(value & 0x8700000000000FFFULL, true);
+    result.physical = value & ~0x8780000000000FFFULL;
+    result.flags = m_Space.fromFlags(value & 0x8780000000000FFFULL, true);
     result.mapped = true;
     return true;
   }

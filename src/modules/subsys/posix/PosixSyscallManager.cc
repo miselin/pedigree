@@ -520,6 +520,16 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_mincore(reinterpret_cast<void*>(p1), p2, reinterpret_cast<unsigned char*>(p3));
     case POSIX_MADVISE:
       return posix_madvise(reinterpret_cast<void*>(p1), p2, static_cast<int>(p3));
+    case POSIX_MLOCK:
+      return posix_mlock(reinterpret_cast<const void*>(p1), p2, 0);
+    case POSIX_MLOCK2:
+      return posix_mlock(reinterpret_cast<const void*>(p1), p2, static_cast<unsigned int>(p3));
+    case POSIX_MUNLOCK:
+      return posix_munlock(reinterpret_cast<const void*>(p1), p2);
+    case POSIX_MLOCKALL:
+      return posix_mlockall(static_cast<int>(p1));
+    case POSIX_MUNLOCKALL:
+      return posix_munlockall();
     case POSIX_MEMFD_CREATE:
       return posix_memfd_create(reinterpret_cast<const char*>(p1), static_cast<unsigned int>(p2));
     case POSIX_SENDFILE:

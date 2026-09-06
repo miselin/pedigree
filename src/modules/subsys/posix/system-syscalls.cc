@@ -295,35 +295,19 @@ long posix_sbrk(int delta) {
 
 uintptr_t posix_brk(uintptr_t theBreak) {
   SC_NOTICE("brk(" << theBreak << ")");
-
-  void* newBreak = reinterpret_cast<void*>(theBreak);
-
-  void* currentBreak = Processor::information().getVirtualAddressSpace().getEndOfHeap();
-  if (newBreak < currentBreak) {
-    SC_NOTICE(" -> " << currentBreak);
-    return reinterpret_cast<uintptr_t>(currentBreak);
+  MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+  auto& space = Processor::information().getVirtualAddressSpace();
+  const uintptr_t current = reinterpret_cast<uintptr_t>(space.getEndOfHeap());
+  // The Linux syscall returns the unchanged break on failed growth. Musl's
+  // allocator compares this value with the requested address.
+  Processor::information().getCurrentThread()->setErrno(0);
+  if (theBreak <= current || theBreak - current > static_cast<uintptr_t>(INTPTR_MAX))
+    return current;
+  if (!space.expandHeap(static_cast<intptr_t>(theBreak - current), VirtualAddressSpace::Write)) {
+    Processor::information().getCurrentThread()->setErrno(0);
+    return current;
   }
-
-  intptr_t difference = pointer_diff(currentBreak, newBreak);
-  if (!difference) {
-    SC_NOTICE(" -> " << currentBreak);
-    return reinterpret_cast<uintptr_t>(currentBreak);
-  }
-
-  // OK, good to go.
-  void* result = Processor::information().getVirtualAddressSpace().expandHeap(
-      difference, VirtualAddressSpace::Write);
-  if (!result) {
-    SYSCALL_ERROR(OutOfMemory);
-    SC_NOTICE(" -> ENOMEM");
-    return -1;
-  }
-
-  // Return new end of heap.
-  currentBreak = Processor::information().getVirtualAddressSpace().getEndOfHeap();
-
-  SC_NOTICE(" -> " << currentBreak);
-  return reinterpret_cast<uintptr_t>(currentBreak);
+  return reinterpret_cast<uintptr_t>(space.getEndOfHeap());
 }
 
 SyscallState posix_copy_clone_state(const SyscallState& state) {
@@ -348,9 +332,9 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     return -1;
   }
 
-  // Cloning switches address spaces while assembling the child image, but
-  // the syscall return path still needs the caller's IRQ state restored.
-  CloneInterruptScope interrupts;
+  // Allocation and the mapping policy may wait. Low-level page-table changes
+  // provide their own short critical sections; restore the caller's IRQ state.
+  CloneInterruptScope interrupts(true);
 
   // Must clone state as we make modifications for the new thread here.
   SyscallState clonedState = posix_copy_clone_state(state);
@@ -518,53 +502,58 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; sig++)
     Processor::information().getCurrentThread()->inhibitEvent(sig, true);
 
-  // Create a new process.
-  PosixProcess* pProcess = new PosixProcess(pParentProcess);
-  if (!pProcess) {
-    for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; sig++)
-      Processor::information().getCurrentThread()->inhibitEvent(sig, false);
-    SYSCALL_ERROR(OutOfMemory);
-    SC_NOTICE(" -> ENOMEM");
-    return -1;
-  }
-
-  PosixSubsystem* pSubsystem = new PosixSubsystem(*pParentSubsystem);
-  if (!pSubsystem) {
-    ERROR("Could not create a subsystem for the child process!");
-    delete pProcess;
-
-    SYSCALL_ERROR(OutOfMemory);
-
-    // Allow signals again, something went wrong
-    for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; sig++)
-      Processor::information().getCurrentThread()->inhibitEvent(sig, false);
-    SC_NOTICE(" -> ENOMEM");
-    return -1;
-  }
-  pProcess->setSubsystem(pSubsystem);
-  pSubsystem->setProcess(pProcess);
-
-  // Copy POSIX Process Group information if needed
-  if (pParentProcess->getType() == Process::Posix) {
-    PosixProcess* p = static_cast<PosixProcess*>(pParentProcess);
-
-    // Do not adopt leadership status.
-    if (p->getGroupMembership() == PosixProcess::Leader) {
-      SC_NOTICE("fork parent was a group leader.");
-    } else {
-      SC_NOTICE("fork parent had status " << static_cast<int>(p->getGroupMembership()) << "...");
+  PosixProcess* pProcess;
+  PosixSubsystem* pSubsystem;
+  {
+    // PTEs, raw allocation inventory, and managed metadata describe one snapshot.
+    MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
+    pProcess = new PosixProcess(pParentProcess);
+    if (!pProcess) {
+      for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; sig++)
+        Processor::information().getCurrentThread()->inhibitEvent(sig, false);
+      SYSCALL_ERROR(OutOfMemory);
+      SC_NOTICE(" -> ENOMEM");
+      return -1;
     }
-    pProcess->inheritProcessGroup(p);
-  }
 
-  // Register with the dynamic linker.
-  DynamicLinker* oldLinker = pProcess->getLinker();
-  if (oldLinker) {
-    DynamicLinker* newLinker = new DynamicLinker(*oldLinker);
-    pProcess->setLinker(newLinker);
-  }
+    pSubsystem = new PosixSubsystem(*pParentSubsystem);
+    if (!pSubsystem) {
+      ERROR("Could not create a subsystem for the child process!");
+      delete pProcess;
 
-  MemoryMapManager::instance().clone(pProcess);
+      SYSCALL_ERROR(OutOfMemory);
+
+      // Allow signals again, something went wrong
+      for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; sig++)
+        Processor::information().getCurrentThread()->inhibitEvent(sig, false);
+      SC_NOTICE(" -> ENOMEM");
+      return -1;
+    }
+    pProcess->setSubsystem(pSubsystem);
+    pSubsystem->setProcess(pProcess);
+
+    // Copy POSIX Process Group information if needed
+    if (pParentProcess->getType() == Process::Posix) {
+      PosixProcess* p = static_cast<PosixProcess*>(pParentProcess);
+
+      // Do not adopt leadership status.
+      if (p->getGroupMembership() == PosixProcess::Leader) {
+        SC_NOTICE("fork parent was a group leader.");
+      } else {
+        SC_NOTICE("fork parent had status " << static_cast<int>(p->getGroupMembership()) << "...");
+      }
+      pProcess->inheritProcessGroup(p);
+    }
+
+    // Register with the dynamic linker.
+    DynamicLinker* oldLinker = pProcess->getLinker();
+    if (oldLinker) {
+      DynamicLinker* newLinker = new DynamicLinker(*oldLinker);
+      pProcess->setLinker(newLinker);
+    }
+
+    MemoryMapManager::instance().clone(pProcess);
+  }
 
   // Copy the file descriptors from the parent
   pSubsystem->copyDescriptors(pParentSubsystem);
@@ -1729,147 +1718,6 @@ int posix_getgroups(size_t size, gid_t* list) {
     return -1;
   }
   return groups.count();
-}
-
-namespace {
-bool getRlimitValue(int resource, struct rlimit& result) {
-  result = {};
-  switch (resource) {
-    case RLIMIT_CPU:
-      result.rlim_cur = result.rlim_max = RLIM_INFINITY;
-      break;
-    case RLIMIT_FSIZE:
-      result.rlim_cur = result.rlim_max = RLIM_INFINITY;
-      break;
-    case RLIMIT_DATA:
-      result.rlim_cur = result.rlim_max = RLIM_INFINITY;
-      break;
-    case RLIMIT_STACK:
-      result.rlim_cur = result.rlim_max = RLIM_INFINITY;
-      break;
-    case RLIMIT_CORE:
-      result.rlim_cur = 0;
-      result.rlim_max = RLIM_INFINITY;
-      break;
-    case RLIMIT_RSS:
-      result.rlim_cur = result.rlim_max = 1ULL << 48ULL;
-      break;
-    case RLIMIT_NPROC:
-      result.rlim_cur = result.rlim_max = RLIM_INFINITY;
-      break;
-    case RLIMIT_NOFILE:
-      result.rlim_cur = result.rlim_max = 16384;
-      break;
-    case RLIMIT_MEMLOCK:
-      result.rlim_cur = result.rlim_max = 1ULL << 24ULL;
-      break;
-    case RLIMIT_AS:
-      result.rlim_cur = result.rlim_max = 1ULL << 48ULL;
-      break;
-    case RLIMIT_LOCKS:
-      result.rlim_cur = result.rlim_max = 1024;
-      break;
-    case RLIMIT_SIGPENDING:
-      result.rlim_cur = result.rlim_max = 16;
-      break;
-    case RLIMIT_MSGQUEUE:
-      result.rlim_cur = result.rlim_max = 0x100000;
-      break;
-    case RLIMIT_NICE:
-      result.rlim_cur = result.rlim_max = 1;
-      break;
-    case RLIMIT_RTPRIO:
-      result.rlim_cur = result.rlim_max = 0;
-      break;
-#ifdef RLIMIT_RTTIME
-    case RLIMIT_RTTIME:
-      result.rlim_cur = result.rlim_max = RLIM_INFINITY;
-      break;
-#endif
-    default:
-      SYSCALL_ERROR(InvalidArgument);
-      return false;
-  }
-
-  return true;
-}
-}  // namespace
-
-int posix_getrlimit(int resource, struct rlimit* rlim) {
-  SC_NOTICE("getrlimit(" << Dec << resource << ")");
-
-  struct rlimit result = {};
-  if (!getRlimitValue(resource, result)) {
-    SC_NOTICE(" -> unsupported resource");
-    return -1;
-  }
-
-  if (!PosixSubsystem::copyToUser(rlim, &result, sizeof(result))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-
-  SC_NOTICE(" -> cur = " << result.rlim_cur);
-  SC_NOTICE(" -> max = " << result.rlim_max);
-  return 0;
-}
-
-int posix_setrlimit(int resource, const struct rlimit* rlim) {
-  SC_NOTICE("setrlimit(" << Dec << resource << ")");
-
-  struct rlimit current = {};
-  if (!getRlimitValue(resource, current)) {
-    return -1;
-  }
-
-  (void)rlim;
-  SYSCALL_ERROR(Unimplemented);
-  return -1;
-}
-
-int posix_prlimit64(int pid, int resource, const LinuxRlimit64* newLimit, LinuxRlimit64* oldLimit) {
-  SC_NOTICE("prlimit64(" << Dec << pid << ", " << resource << ")");
-
-  Process* current = Processor::information().getCurrentThread()->getParent();
-  Scheduler::ProcessLease targetLease;
-  if (pid < 0) {
-    SYSCALL_ERROR(NoSuchProcess);
-    return -1;
-  }
-  if (pid && static_cast<size_t>(pid) != current->getId()) {
-    if (!Scheduler::instance().acquireProcessById(targetLease, static_cast<size_t>(pid)) ||
-        targetLease->getType() != Process::Posix) {
-      SYSCALL_ERROR(NoSuchProcess);
-      return -1;
-    }
-    // Reported limits are not stored per-process yet, so returning the
-    // caller's synthetic values for another process would be misleading.
-    SYSCALL_ERROR(Unimplemented);
-    return -1;
-  }
-
-  struct rlimit currentLimit = {};
-  if (!getRlimitValue(resource, currentLimit)) {
-    return -1;
-  }
-
-  // Limits are not yet stored or enforced per-process. Refuse mutation instead
-  // of claiming success while still supporting the query used by modern libc.
-  if (newLimit) {
-    SYSCALL_ERROR(Unimplemented);
-    return -1;
-  }
-
-  if (oldLimit) {
-    const LinuxRlimit64 result = {static_cast<uint64_t>(currentLimit.rlim_cur),
-                                  static_cast<uint64_t>(currentLimit.rlim_max)};
-    if (!PosixSubsystem::copyToUser(oldLimit, &result, sizeof(result))) {
-      SYSCALL_ERROR(BadAddress);
-      return -1;
-    }
-  }
-
-  return 0;
 }
 
 int posix_membarrier(int command, unsigned int flags, int cpuId) {

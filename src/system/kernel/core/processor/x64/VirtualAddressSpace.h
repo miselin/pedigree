@@ -100,6 +100,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
   //
   virtual bool isAddressValid(void* virtualAddress);
   virtual bool isMapped(void* virtualAddress);
+  virtual size_t runtimeMappingPages(uintptr_t base, size_t length);
 
   virtual bool map(physical_uintptr_t physAddress, void* virtualAddress, size_t flags);
   virtual bool mapHuge(physical_uintptr_t physAddress, void* virtualAddress, size_t count,
@@ -315,6 +316,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
 
   /** Allocates a stack with a given size. */
   Stack* doAllocateStack(size_t sSize);
+  Stack* allocateTrackedUserStack(size_t size);
 
   /** Physical address of the Page Map Level 4 */
   physical_uintptr_t m_PhysicalPML4;

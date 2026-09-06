@@ -268,14 +268,10 @@ template <typename originalT, class Struct, Struct* (Struct::*FunctionPrev)(),
           Struct* (Struct::*FunctionNext)(), typename K1, typename T1, typename K2, typename T2>
 bool operator==(const TreeIterator<originalT, Struct, FunctionPrev, FunctionNext, K1, T1>& x1,
                 const TreeIterator<originalT, Struct, FunctionPrev, FunctionNext, K2, T2>& x2) {
-  if (!x2.m_Node) {
-    if (!x1.m_Node)
-      return false;
-    else if (x1.m_Node->value)
-      return false;
-    return true;
-  }
-  return (x1.m_Node->value == x2.m_Node->value);
+  // Exhausted traversal retains its cursor object; end() has no cursor.
+  const auto* value1 = x1.m_Node ? x1.m_Node->value : nullptr;
+  const auto* value2 = x2.m_Node ? x2.m_Node->value : nullptr;
+  return value1 == value2;
 }
 
 /** @} */

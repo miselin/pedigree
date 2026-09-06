@@ -43,12 +43,12 @@ class PosixSyscallTranslationTests(unittest.TestCase):
         # the four inotify entry points, 18 IPC entry points, and nine signal,
         # timer and clock entry points, five signalfd/timerfd entry points,
         # three VM entry points, memfd_create, sendfile, copy_file_range,
-        # splice, tee, and vmsplice.
-        # This locks both sides of all 219 mappings.
-        self.assertEqual(len(mapping), 219)
+        # splice, tee, vmsplice, and five memory-lock entry points.
+        # This locks both sides of all 224 mappings.
+        self.assertEqual(len(mapping), 224)
         self.assertEqual(
             hashlib.sha256(serialized.encode()).hexdigest(),
-            "e42751909922ae76ac390a1b4d50b43df302fadfca5889ac57933807bc9a7b87",
+            "de42d0c4c10d3c9142bbb14bd3f72d04f7973a2badd37a1f64cad0805656cf0f",
         )
         self.assertEqual(len({name for name, _, _ in mapping}), len(mapping))
         self.assertEqual(len({number for _, number, _ in mapping}), len(mapping))

@@ -580,6 +580,7 @@ bool X64VirtualAddressSpace::unmapUnlocked(void* virtualAddress, X64MappingMutat
 }
 
 VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
+  UserMemoryOperation operation(*this);
   /// \todo figure out how to handle page tracking here
 
   // Create a new virtual address space
@@ -589,6 +590,12 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
     WARNING("X64VirtualAddressSpace: Clone() failed!");
     return 0;
   }
+
+  if (rawUserMemory().cloneInto(pClone->rawUserMemory()) != MemoryLockStatus::Success) {
+    delete pClone;
+    return nullptr;
+  }
+  pClone->m_HeapRegionId = m_HeapRegionId;
 
   {
     // Lock both address spaces so we can clone their mappings safely.
@@ -910,6 +917,38 @@ bool X64VirtualAddressSpace::mapPageStructuresAbove4GB(physical_uintptr_t physAd
   return false;
 }
 
+size_t X64VirtualAddressSpace::runtimeMappingPages(uintptr_t base, size_t length) {
+  if (length > ~uintptr_t(0) - base)
+    return 0;
+  LockGuard<Spinlock> guard(m_Lock);
+  const uintptr_t end = base + length;
+  size_t count = 0;
+  for (uintptr_t address = base; address < end;) {
+    uint64_t table = m_PhysicalPML4;
+    size_t missingShift = 0;
+    for (size_t shift = 39; shift > 12; shift -= 9) {
+      const uint64_t entry = *TABLE_ENTRY(table, (address >> shift) & 511);
+      if (!(entry & PAGE_PRESENT) || (entry & PAGE_2MB)) {
+        missingShift = shift;
+        break;
+      }
+      table = entry & ~0x8780000000000FFFULL;
+    }
+    if (missingShift) {
+      const uintptr_t next = ((address >> missingShift) + 1) << missingShift;
+      if (next <= address)
+        break;
+      address = next;
+      continue;
+    }
+    const uint64_t leaf = *TABLE_ENTRY(table, (address >> 12) & 511);
+    if ((leaf & PAGE_RUNTIME) && (leaf & (PAGE_PRESENT | PAGE_NO_ACCESS)))
+      ++count;
+    address += PhysicalMemoryManager::getPageSize();
+  }
+  return count;
+}
+
 VirtualAddressSpace::Stack* X64VirtualAddressSpace::allocateStack() {
   size_t sz = USERSPACE_VIRTUAL_STACK_SIZE;
   if (this == &m_KernelSpace)
@@ -924,6 +963,12 @@ VirtualAddressSpace::Stack* X64VirtualAddressSpace::allocateStack(size_t stackSz
 }
 
 VirtualAddressSpace::Stack* X64VirtualAddressSpace::doAllocateStack(size_t sSize) {
+  if (this != &m_KernelSpace && Processor::getInterrupts())
+    return allocateTrackedUserStack(sSize);
+  // Native generic events retain their existing IRQ-phase fallback. Such an
+  // image cannot advertise complete CURRENT/FUTURE memory-lock coverage.
+  if (this != &m_KernelSpace && rawUserMemory().completeInventory())
+    FATAL("Unprepared user stack in a complete memory-lock inventory");
   size_t flags = 0;
   bool bMapAll = false;
   if (this == &m_KernelSpace) {
@@ -989,7 +1034,104 @@ VirtualAddressSpace::Stack* X64VirtualAddressSpace::doAllocateStack(size_t sSize
   return stackInfo;
 }
 
+VirtualAddressSpace::Stack* X64VirtualAddressSpace::allocateTrackedUserStack(size_t size) {
+  const size_t page = PhysicalMemoryManager::getPageSize();
+  if (!size || size > ~size_t(0) - (page - 1))
+    return nullptr;
+  size = (size + page - 1) & ~(page - 1);
+  UserMemoryOperation operation(*this);
+  const uint64_t id = rawUserMemory().nextRegionId();
+  if (!id)
+    return nullptr;
+  // The operation gate serializes user stack allocation; kernel stacks use
+  // their separate address space and retain the scheduler-safe path above.
+  Stack* reusable = nullptr;
+  {
+    LockGuard<Spinlock> guard(m_StacksLock);
+    if (m_freeStacks.count() && m_freeStacks[m_freeStacks.count() - 1]->getSize() == size)
+      reusable = m_freeStacks.popBack();
+  }
+  if (reusable && userMemoryPolicy() &&
+      userMemoryPolicy()->overlapsManagedMemory(
+          *this, reinterpret_cast<uintptr_t>(reusable->getBase()), size)) {
+    delete reusable;
+    reusable = nullptr;
+  }
+  void* top = reusable ? reusable->getTop() : m_pStackTop;
+  const uintptr_t topValue = reinterpret_cast<uintptr_t>(top);
+  if (topValue < size + page || topValue - size < getUserStart()) {
+    if (reusable) {
+      LockGuard<Spinlock> guard(m_StacksLock);
+      m_freeStacks.pushBack(reusable);
+    }
+    return nullptr;
+  }
+  Stack* stack = new Stack(top, size, id);
+  if (!stack) {
+    if (reusable) {
+      LockGuard<Spinlock> guard(m_StacksLock);
+      m_freeStacks.pushBack(reusable);
+    }
+    return nullptr;
+  }
+  const uintptr_t base = topValue - size;
+  UserRegion region{id, base, size, UserRegion::Kind::Stack, true};
+  UniquePointer<PreparedMemoryLock> plan;
+  MemoryLockCharge charge;
+  bool ready = rawUserMemory().prepareChange(nullptr, &region, plan) == MemoryLockStatus::Success;
+  ready = ready && admitRawMemoryChange(*plan.get(), operation.privileged(), charge) &&
+          prepareZeroPage();
+  size_t mapped = 0;
+  if (ready) {
+    for (; mapped < size; mapped += page) {
+      PhysicalMemoryManager::instance().pin(m_ZeroPage);
+      if (!map(m_ZeroPage, reinterpret_cast<void*>(base + mapped), CopyOnWrite)) {
+        PhysicalMemoryManager::instance().freePage(m_ZeroPage);
+        ready = false;
+        break;
+      }
+    }
+    // Eager admission breaks private CoW before publishing the new region.
+    if (ready)
+      ready = plan.get()->populate() == PopulationStatus::Success;
+  }
+  if (!ready) {
+    for (size_t offset = 0; offset < mapped; offset += page) {
+      physical_uintptr_t physical = 0;
+      size_t flags = 0;
+      if (detachMapping(reinterpret_cast<void*>(base + offset), physical, flags))
+        PhysicalMemoryManager::instance().freePage(physical);
+    }
+    delete stack;
+    if (reusable) {
+      LockGuard<Spinlock> guard(m_StacksLock);
+      m_freeStacks.pushBack(reusable);
+    }
+    return nullptr;
+  }
+  commitRawMemoryChange(*plan.get(), charge);
+  if (!reusable)
+    m_pStackTop = reinterpret_cast<void*>(base - page);
+  delete reusable;
+  return stack;
+}
+
 void X64VirtualAddressSpace::freeStack(Stack* pStack) {
+  if (!pStack)
+    return;
+  if (pStack->regionId()) {
+    UserMemoryOperation operation(*this);
+    const size_t removed = rawUserMemory().retireRegion(pStack->regionId());
+    if (MemoryLockAccount* account = memoryLockAccount()) {
+      MemoryLockCharge charge = account->charge();
+      assert(removed <= charge.rawPages);
+      charge.rawPages -= removed;
+      account->publish(charge, account->futureMode());
+    }
+    LockGuard<Spinlock> guard(m_StacksLock);
+    m_freeStacks.pushBack(pStack);
+    return;
+  }
   const size_t pageSz = PhysicalMemoryManager::getPageSize();
 
   // Clean up the stack
@@ -1192,6 +1334,8 @@ uint64_t X64VirtualAddressSpace::toFlags(size_t flags, bool bFinal) const {
   if (flags & Borrowed) {
     Flags |= PAGE_BORROWED;
   }
+  if (flags & RuntimeMapping)
+    Flags |= PAGE_RUNTIME;
   if (flags & NoAccess) {
     Flags &= ~PAGE_PRESENT;
     Flags |= PAGE_NO_ACCESS;
@@ -1233,6 +1377,8 @@ size_t X64VirtualAddressSpace::fromFlags(uint64_t Flags, bool bFinal) const {
     flags |= Swapped;
   if (Flags & PAGE_BORROWED)
     flags |= Borrowed;
+  if (Flags & PAGE_RUNTIME)
+    flags |= RuntimeMapping;
   if (Flags & PAGE_NO_ACCESS)
     flags |= NoAccess;
   if (Flags & PAGE_WRITE_PROTECTED)

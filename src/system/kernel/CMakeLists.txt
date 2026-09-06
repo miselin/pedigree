@@ -321,6 +321,8 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/SyscallHandler.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/SyscallManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/VirtualAddressSpace.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/UserMemoryPolicy.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/RawUserMemory.cc
     # /core/lib/
     ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/cppsupport.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/DebugAllocator.cc

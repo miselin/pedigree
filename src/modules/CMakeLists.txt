@@ -621,6 +621,8 @@ pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/LockedFile.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-resize.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-lock.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-map.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-remap.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-advice.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Pipe.cc
@@ -842,6 +844,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/poll-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/posix.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PosixProcess.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PosixMemoryLockAccount.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PosixSubsystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PosixSyscallManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/ProcFs.cc
@@ -854,6 +857,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/signalfd-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/timerfd-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vm-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/memory-lock-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/advisory-lock-state.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/advisory-lock-table.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/advisory-lock-syscalls.cc
@@ -866,6 +870,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/posix-timer-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/signal-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/system-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/resource-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/UnixFilesystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/util.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/VirtualTerminal.cc
@@ -876,6 +881,10 @@ if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS)
     target_sources(posix PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/vm-permission-regressions.cc)
+endif ()
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_MEMORY_LOCK_TESTS)
+    target_sources(posix PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/memory-lock-regressions.cc)
 endif ()
 target_include_directories(posix PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}

@@ -142,6 +142,7 @@ set(PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS FALSE CACHE BOOL "Link the focused IRQ and
 set(PEDIGREE_CONCURRENCY_SMOKE_TESTS FALSE CACHE BOOL "Build focused kernel concurrency smoke tests for QEMU.")
 set(PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS FALSE CACHE BOOL "Build focused VM ownership smoke tests for QEMU with a root filesystem.")
 set(PEDIGREE_VM_REMAP_TESTS FALSE CACHE BOOL "Run focused x64 remap transaction regressions during POSIX startup.")
+set(PEDIGREE_MEMORY_LOCK_TESTS FALSE CACHE BOOL "Run focused memory-lock residency regressions during POSIX startup.")
 
 # General build options.
 set(PEDIGREE_LTO FALSE CACHE BOOL "Enable LTO.")

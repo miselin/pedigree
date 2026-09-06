@@ -449,14 +449,17 @@ void pedigree_init_pthreads() {
   PT_NOTICE("init_pthreads");
   // Make sure we can write to the trampoline area.
   Processor::information().getVirtualAddressSpace().setFlags(
-      reinterpret_cast<void*>(Event::getTrampoline()), VirtualAddressSpace::Write);
+      reinterpret_cast<void*>(Event::getTrampoline()), VirtualAddressSpace::Write |
+                                                           VirtualAddressSpace::Shared |
+                                                           VirtualAddressSpace::RuntimeMapping);
   MemoryCopy(
       reinterpret_cast<void*>(Event::getSecondaryTrampoline()),
       reinterpret_cast<void*>(pthread_stub),
       (reinterpret_cast<uintptr_t>(&pthread_stub_end) - reinterpret_cast<uintptr_t>(pthread_stub)));
   Processor::information().getVirtualAddressSpace().setFlags(
-      reinterpret_cast<void*>(Event::getTrampoline()),
-      VirtualAddressSpace::Execute | VirtualAddressSpace::Shared);
+      reinterpret_cast<void*>(Event::getTrampoline()), VirtualAddressSpace::Execute |
+                                                           VirtualAddressSpace::Shared |
+                                                           VirtualAddressSpace::RuntimeMapping);
 
   // Make sure the main thread is actually known.
   Thread* pThread = Processor::information().getCurrentThread();

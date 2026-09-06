@@ -26,6 +26,7 @@
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
+#include "pedigree/kernel/processor/UserMemoryPolicy.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -41,6 +42,7 @@
 class File;
 class Process;
 class VirtualAddressSpace;
+class VfsUserMemoryPolicy;
 using FileResidencyAccess = bool (*)(File*, void*);
 
 /** One logical mapping attachment, retained by every surviving fragment. */
@@ -147,7 +149,8 @@ class MemoryMappedObject {
         m_Permissions(perms),
         m_MaximumPermissions(maximumPerms),
         m_Attachment(),
-        m_OwnsMappings(true) {}
+        m_OwnsMappings(true),
+        m_LockMode(MemoryLockMode::None) {}
 
   virtual ~MemoryMappedObject();
 
@@ -247,7 +250,11 @@ class MemoryMappedObject {
    * the mapping of memory into the address space.
    * \return true if the trap was successful, false otherwise.
    */
-  virtual bool trap(uintptr_t address, bool bWrite) = 0;
+  virtual bool trap(uintptr_t address, bool bWrite, PopulationStatus* population = nullptr) = 0;
+  PopulationStatus populatePage(VirtualAddressSpace& space, uintptr_t address);
+  MemoryLockMode lockMode() const {
+    return m_LockMode;
+  }
 
   /**
    * Release memory that can be released.
@@ -327,6 +334,7 @@ class MemoryMappedObject {
   Permissions m_MaximumPermissions;
   SharedPointer<MappingAttachment> m_Attachment;
   bool m_OwnsMappings;
+  MemoryLockMode m_LockMode;
 };
 
 /**
@@ -356,7 +364,8 @@ class AnonymousMemoryMap : public MemoryMappedObject {
 
   virtual void unmap() override;
 
-  virtual bool trap(uintptr_t address, bool bWrite) override;
+  virtual bool trap(uintptr_t address, bool bWrite,
+                    PopulationStatus* population = nullptr) override;
 
  private:
   static physical_uintptr_t m_Zero;
@@ -416,7 +425,8 @@ class MemoryMappedFile : public MemoryMappedObject {
 
   virtual void unmap() override;
 
-  virtual bool trap(uintptr_t address, bool bWrite) override;
+  virtual bool trap(uintptr_t address, bool bWrite,
+                    PopulationStatus* population = nullptr) override;
 
   /**
    * Syncs back all dirty pages to their respective backing store.
@@ -483,6 +493,7 @@ class MemoryMappedFile : public MemoryMappedObject {
  */
 class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public MemoryPressureHandler {
   friend class PosixSubsystem;
+  friend class VfsUserMemoryPolicy;
 
  public:
   enum class Placement {
@@ -496,9 +507,10 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
     NoMemory,
     AddressInUse,
     PolicyDenied,
+    LockLimit,
   };
 
-  enum class VmStatus { Success, InvalidRange, Unmapped, Unsupported, NoMemory };
+  enum class VmStatus { Success, InvalidRange, Unmapped, Unsupported, NoMemory, LockLimit };
   struct RemapRequest {
     uintptr_t source, destination;
     size_t oldLength, newLength;
@@ -508,6 +520,15 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   VmStatus residency(uintptr_t base, size_t length, unsigned char* kernelVector,
                      FileResidencyAccess access, void* credentials);
   VmStatus discard(uintptr_t base, size_t length);
+
+  PopulationStatus populateMemory(VirtualAddressSpace& space, uintptr_t base, size_t length);
+  void bindMemoryLockPolicy(VirtualAddressSpace& space);
+  MemoryLockStatus lockMemory(VirtualAddressSpace& space, uintptr_t base, size_t length,
+                              MemoryLockMode mode, bool privileged);
+  MemoryLockStatus lockAllMemory(VirtualAddressSpace& space, bool current,
+                                 MemoryLockMode currentMode, MemoryLockMode futureMode,
+                                 bool privileged);
+  bool hasLockedMemory(VirtualAddressSpace& space, uintptr_t base, size_t length);
 
   /** Singleton instance */
   static MemoryMapManager& instance() {
@@ -540,7 +561,8 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
       MemoryMappedObject::Permissions maximumPerms = MemoryMappedObject::Read |
                                                      MemoryMappedObject::Write |
                                                      MemoryMappedObject::Exec,
-      const SharedPointer<MappingAttachment>& attachment = SharedPointer<MappingAttachment>());
+      const SharedPointer<MappingAttachment>& attachment = SharedPointer<MappingAttachment>(),
+      MemoryLockMode requestedLock = MemoryLockMode::None);
 
   /**
    * Create a new anonymous memory mapping.
@@ -550,7 +572,8 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
 
   MemoryMappedObject* mapAnon(uintptr_t& address, size_t length,
                               MemoryMappedObject::Permissions perms, Placement placement,
-                              MapStatus* status);
+                              MapStatus* status,
+                              MemoryLockMode requestedLock = MemoryLockMode::None);
 
   /**
    * Registers the current address space's mappings with the target
@@ -577,7 +600,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
    * This is the munmap path. MAP_FIXED replacement uses remove() so that the
    * replacement inherits the reservations of the mappings it displaces.
    */
-  size_t removeAndRelease(uintptr_t base, size_t length);
+  size_t removeAndRelease(uintptr_t base, size_t length, VmStatus* status = nullptr);
 
   /** Find a logical attachment even when its first fragment was unmapped. */
   SharedPointer<MappingAttachment> findAttachment(uintptr_t base);
@@ -722,16 +745,28 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   MemoryMapManager();
   ~MemoryMapManager();
 
+  class LockPlan;
+  MemoryLockStatus prepareManagedLocks(VirtualAddressSpace& space, uintptr_t base, size_t length,
+                                       MemoryLockMode mode, bool all,
+                                       UniquePointer<PreparedMemoryLock>& result);
+  MemoryMappedObject* publishMapping(File* file, uintptr_t& address, size_t length,
+                                     MemoryMappedObject::Permissions perms, size_t offset,
+                                     bool copyOnWrite, Placement placement, MapStatus* status,
+                                     MemoryMappedObject::Permissions maximumPerms,
+                                     const SharedPointer<MappingAttachment>& attachment,
+                                     MemoryLockMode requestedLock);
+  void retireLockedPages(VirtualAddressSpace& space, size_t pages);
+
   void enterOperation();
   bool tryEnterOperation();
   void leaveOperation();
 
-  size_t removeInternal(uintptr_t base, size_t length, bool releaseReservations);
+  size_t removeInternal(uintptr_t base, size_t length, bool releaseReservations,
+                        VmStatus* status = nullptr);
   void releaseReservation(Process* process, VirtualAddressSpace& addressSpace, uintptr_t base,
                           size_t length);
   bool handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent);
 
-  MapStatus sanitiseAddress(uintptr_t& address, size_t length, Placement placement);
 
   enum Ops {
     Sync,

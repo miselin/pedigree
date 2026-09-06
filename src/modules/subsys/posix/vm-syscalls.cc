@@ -104,6 +104,9 @@ void* posix_mremap(void* oldAddress, size_t oldLength, size_t newLength, int fla
     case MemoryMapManager::VmStatus::NoMemory:
       SYSCALL_ERROR(OutOfMemory);
       break;
+    case MemoryMapManager::VmStatus::LockLimit:
+      SYSCALL_ERROR(NoMoreProcesses);
+      break;
   }
   return reinterpret_cast<void*>(~uintptr_t(0));
 }

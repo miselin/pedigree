@@ -24,6 +24,7 @@
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -3244,6 +3245,7 @@ int posix_fcntl(int fd, int cmd, void* arg) {
 }
 
 void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off) {
+  TerminationDeferral lifetime;
   F_NOTICE("mmap");
   F_NOTICE("  -> addr=" << addr << ", len=" << len << ", prot=" << prot << ", flags=" << flags
                         << ", fildes=" << fd << ", off=" << off << ".");
@@ -3301,6 +3303,15 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
   }
 
   MemoryMapManager::MapStatus mapStatus = MemoryMapManager::MapStatus::NoMemory;
+  const MemoryLockMode requestedLock =
+      flags & MAP_LOCKED ? MemoryLockMode::Eager : MemoryLockMode::None;
+  if (requestedLock != MemoryLockMode::None) {
+    MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+    if (pProcess->getEffectiveUserId() != 0 && !pSubsystem->memoryLockAccount().limit().current) {
+      SYSCALL_ERROR(NotEnoughPermissions);
+      return MAP_FAILED;
+    }
+  }
 
   // Create permission set.
   MemoryMappedObject::Permissions perms;
@@ -3322,11 +3333,13 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
       return MAP_FAILED;
     }
 
-    MemoryMappedObject* pObject =
-        MemoryMapManager::instance().mapAnon(sanityAddress, len, perms, placement, &mapStatus);
+    MemoryMappedObject* pObject = MemoryMapManager::instance().mapAnon(
+        sanityAddress, len, perms, placement, &mapStatus, requestedLock);
     if (!pObject) {
       if (mapStatus == MemoryMapManager::MapStatus::AddressInUse) {
         SYSCALL_ERROR(FileExists);
+      } else if (mapStatus == MemoryMapManager::MapStatus::LockLimit) {
+        SYSCALL_ERROR(NoMoreProcesses);
       } else {
         SYSCALL_ERROR(OutOfMemory);
       }
@@ -3336,6 +3349,10 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
 
     F_NOTICE("  -> " << sanityAddress);
 
+    if ((flags & MAP_POPULATE) && !(flags & MAP_NONBLOCK)) {
+      MemoryMapManager::instance().populateMemory(va, sanityAddress, roundedLength);
+    }
+    Processor::information().getCurrentThread()->setErrno(0);
     return reinterpret_cast<void*>(sanityAddress);
   } else {
     // Valid file passed?
@@ -3375,14 +3392,16 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
     F_NOTICE("mmap: file name is " << fileToMap->getFullPath());
 
     bool bCopyOnWrite = (flags & MAP_SHARED) == 0;
-    MemoryMappedObject* pFile =
-        MemoryMapManager::instance().mapFile(fileToMap, sanityAddress, roundedLength, perms, off,
-                                             bCopyOnWrite, placement, &mapStatus, maximumPerms);
+    MemoryMappedObject* pFile = MemoryMapManager::instance().mapFile(
+        fileToMap, sanityAddress, roundedLength, perms, off, bCopyOnWrite, placement, &mapStatus,
+        maximumPerms, SharedPointer<MappingAttachment>(), requestedLock);
     if (!pFile) {
       if (mapStatus == MemoryMapManager::MapStatus::AddressInUse) {
         SYSCALL_ERROR(FileExists);
       } else if (mapStatus == MemoryMapManager::MapStatus::PolicyDenied) {
         SYSCALL_ERROR(NotEnoughPermissions);
+      } else if (mapStatus == MemoryMapManager::MapStatus::LockLimit) {
+        SYSCALL_ERROR(NoMoreProcesses);
       } else {
         SYSCALL_ERROR(OutOfMemory);
       }
@@ -3392,6 +3411,10 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
 
     F_NOTICE("  -> " << sanityAddress);
 
+    if ((flags & MAP_POPULATE) && !(flags & MAP_NONBLOCK)) {
+      MemoryMapManager::instance().populateMemory(va, sanityAddress, roundedLength);
+    }
+    Processor::information().getCurrentThread()->setErrno(0);
     return reinterpret_cast<void*>(sanityAddress);
   }
 }
@@ -3413,6 +3436,13 @@ int posix_msync(void* p, size_t len, int flags) {
     return -1;
   }
   int error = 0;
+  MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+  if ((flags & MS_INVALIDATE) && MemoryMapManager::instance().hasLockedMemory(
+                                     Processor::information().getVirtualAddressSpace(), address,
+                                     (len + pageMask) & ~pageMask)) {
+    SYSCALL_ERROR(DeviceBusy);
+    return -1;
+  }
   if (!MemoryMapManager::instance().sync(address, len, flags & MS_ASYNC, &error)) {
     syscallError(error);
     return -1;
@@ -3470,7 +3500,15 @@ int posix_munmap(void* addr, size_t len) {
     return -1;
   }
 
-  MemoryMapManager::instance().removeAndRelease(address, roundedLength);
+  MemoryMapManager::VmStatus status;
+  MemoryMapManager::instance().removeAndRelease(address, roundedLength, &status);
+  if (status != MemoryMapManager::VmStatus::Success) {
+    if (status == MemoryMapManager::VmStatus::Unsupported)
+      SYSCALL_ERROR(OperationNotSupported);
+    else
+      SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
 
   return 0;
 }

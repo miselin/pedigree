@@ -553,8 +553,16 @@ bool HostedVirtualAddressSpace::detachMapping(void* virtualAddress, physical_uin
 }
 
 VirtualAddressSpace* HostedVirtualAddressSpace::clone(bool copyOnWrite) {
+  UserMemoryOperation operation(*this);
   HostedVirtualAddressSpace* pNew =
       static_cast<HostedVirtualAddressSpace*>(VirtualAddressSpace::create());
+  if (!pNew)
+    return nullptr;
+  if (rawUserMemory().cloneInto(pNew->rawUserMemory()) != MemoryLockStatus::Success) {
+    delete pNew;
+    return nullptr;
+  }
+  pNew->m_HeapRegionId = m_HeapRegionId;
 
   {
     LockGuard<Spinlock> guard(m_Lock);

@@ -34,6 +34,7 @@
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
+#include "pedigree/kernel/process/eventNumbers.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -485,6 +486,69 @@ void Thread::notifySubsystemExit() {
   if (m_pParent) {
     m_pParent->threadExiting(this);
   }
+  retireInputUserStack();
+  // Robust-list and clear-TID work above still needs the departing user stack.
+  // Retire owned raw stacks here, before a later scheduler-locked destruction.
+  for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level) {
+    VirtualAddressSpace::Stack* stack = m_StateLevels[level].m_pUserStack;
+    if (!stack || !stack->regionId() || !m_pParent)
+      continue;
+    for (size_t other = level; other < MAX_NESTED_EVENTS; ++other) {
+      if (m_StateLevels[other].m_pUserStack == stack)
+        m_StateLevels[other].m_pUserStack = nullptr;
+    }
+    m_pParent->getAddressSpace()->freeStack(stack);
+  }
+}
+
+bool Thread::prepareInputUserStack() {
+  if (Processor::information().getCurrentThread() != this || !m_pParent ||
+      !Processor::getInterrupts())
+    return false;
+  Uninterruptible events;
+  TerminationDeferral termination;
+  if (m_pInputUserStack)
+    return true;
+  if (!acceptingEvents())
+    return false;
+  m_pInputUserStack = m_pParent->getAddressSpace()->allocateStack();
+  return m_pInputUserStack != nullptr;
+}
+
+void Thread::retireInputUserStack() {
+  // Never-used and already-retired threads also reach shutdown under scheduler
+  // locks. Their fast path must not enter the input or mapping gates.
+  if (!m_pInputUserStack)
+    return;
+  Uninterruptible events;
+  TerminationDeferral termination;
+  InputManager::instance().removeCallbackByThread(this);
+  while (true) {
+    Event* removed = nullptr;
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      for (auto it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
+        if (!(*it)->isSignalEvent() && (*it)->getNumber() == EventNumbers::InputEvent) {
+          removed = *it;
+          m_EventQueue.erase(it);
+          break;
+        }
+      }
+    }
+    if (!removed)
+      break;
+    removed->completeDelivery(this);
+  }
+  VirtualAddressSpace::Stack* stack = m_pInputUserStack;
+  m_pInputUserStack = nullptr;
+  for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level) {
+    if (m_StateLevels[level].m_pUserStack == stack)
+      m_StateLevels[level].m_pUserStack = nullptr;
+  }
+  if (m_pParent)
+    m_pParent->getAddressSpace()->freeStack(stack);
+  else
+    delete stack;
 }
 
 void Thread::shutdown() {
@@ -2477,8 +2541,9 @@ uintptr_t Thread::getTlsBase() {
 
     // Map.
     physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
-    m_pParent->getAddressSpace()->map(phys, reinterpret_cast<void*>(base),
-                                      VirtualAddressSpace::Write);
+    m_pParent->getAddressSpace()->map(
+        phys, reinterpret_cast<void*>(base),
+        VirtualAddressSpace::Write | VirtualAddressSpace::RuntimeMapping);
 
     // Set up our thread ID to start with in the TLS region, now that it's
     // actually mapped into the address space.
@@ -3351,7 +3416,8 @@ void Thread::cleanStateLevel(size_t level) {
   if (m_StateLevels[level].m_pUserStack && m_pParent) {
     // Can't use Processor::getCurrent.. as by the time we're called
     // we may have switched address spaces to allow the thread to die.
-    m_pParent->getAddressSpace()->freeStack(m_StateLevels[level].m_pUserStack);
+    if (m_StateLevels[level].m_pUserStack != m_pInputUserStack)
+      m_pParent->getAddressSpace()->freeStack(m_StateLevels[level].m_pUserStack);
     m_StateLevels[level].m_pUserStack = 0;
   }
 
