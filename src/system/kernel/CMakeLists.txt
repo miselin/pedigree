@@ -380,7 +380,10 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/graphics/GraphicsService.cc
     # /linker/
     ${CMAKE_CURRENT_SOURCE_DIR}/linker/Elf.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/linker/Elf-validation.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/linker/KernelElf.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/linker/KernelElf-runtime.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/linker/ModuleImage.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/linker/SymbolTable.cc
     # /machine/
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/Bus.cc

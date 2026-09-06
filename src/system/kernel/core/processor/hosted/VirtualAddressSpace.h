@@ -93,6 +93,7 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace {
   virtual bool tryCompareExchangeUser32(uintptr_t address, uint32_t& expected, uint32_t desired,
                                          bool& exchanged);
   virtual void setFlags(void* virtualAddress, size_t newFlags);
+  MUST_USE_RESULT bool trySetFlags(void* virtualAddress, size_t newFlags) override;
   virtual void unmap(void* virtualAddress);
   virtual bool detachMapping(void* virtualAddress, physical_uintptr_t& physical, size_t& flags,
                              size_t requiredFlags = 0);

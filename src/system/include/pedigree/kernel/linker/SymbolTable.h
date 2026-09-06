@@ -101,6 +101,9 @@ class SymbolTable {
   uintptr_t EXPORTED_PUBLIC lookup(const HashedStringView& name, Elf* pElf,
                                    Policy policy = LocalFirst, Binding* pBinding = 0);
 
+  /** Looks up only exports owned by the specified ELF, without allocating. */
+  uintptr_t lookupOwned(const HashedStringView& name, Elf* owner);
+
  private:
   /** Copy constructor.
       \note NOT implemented. */

@@ -455,8 +455,7 @@ static bool canSignalProcess(const PosixProcess* caller, const PosixProcess* tar
     return true;
   }
 
-  PosixSession* callerSession = caller->getSession();
-  return sig == SIGCONT && callerSession && callerSession == target->getSession();
+  return sig == SIGCONT && caller->sharesSession(*target);
 }
 
 static int queueThreadSignal(Process* process, Thread* thread, int sig) {

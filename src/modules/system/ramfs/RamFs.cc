@@ -28,10 +28,56 @@
 #include "pedigree/kernel/utilities/new"
 
 #include "modules/Module.h"
+#include "modules/system/vfs/Symlink.h"
 
 String RamFs::m_VolumeLabel("ramfs");
 
 namespace {
+class RamSymlink final : public Symlink {
+ public:
+  RamSymlink(const String& name, RamFs& filesystem, File* parent, const String& target)
+      : Symlink(name, 0, 0, 0, 0, &filesystem, target.length(), parent), m_OwnerPid(0) {
+    // A stored target is immutable and already loaded; generic link following
+    // must never reload and trim its trailing pathname characters.
+    m_sTarget = target;
+#if THREADS
+    m_OwnerPid = Processor::information().getCurrentThread()->getParent()->getId();
+#endif
+  }
+
+  bool canWrite() {
+    if (!static_cast<RamFs*>(getFilesystem())->getProcessOwnership())
+      return true;
+#if THREADS
+    return Processor::information().getCurrentThread()->getParent()->getId() == m_OwnerPid;
+#else
+    return true;
+#endif
+  }
+
+ protected:
+  uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool) override {
+    if (location >= m_sTarget.length())
+      return 0;
+    size_t amount = m_sTarget.length() - location;
+    if (amount > size)
+      amount = size;
+    MemoryCopy(reinterpret_cast<void*>(buffer), m_sTarget.cstr() + location, amount);
+    return amount;
+  }
+
+ private:
+  size_t m_OwnerPid;
+};
+
+bool canModifyRamNode(File* file) {
+  if (file->isDirectory())
+    return true;
+  if (file->isSymlink())
+    return static_cast<RamSymlink*>(file)->canWrite();
+  return static_cast<RamFile*>(file)->canWrite();
+}
+
 void initialiseCreatedNode(File& file, uint32_t mode) {
   // Creation attributes must be complete before another process can find the node.
   // VFS permissions place owner rights in the low bits, unlike Unix modes.
@@ -202,7 +248,7 @@ bool RamFile::resizeFile(size_t size) {
   for (size_t i = 0; i < m_BlockOffsets.count();) {
     const uint64_t offset = m_BlockOffsets[i];
     const uintptr_t buffer = m_FileBlocks.lookup(offset);
-    if (size < oldSize && offset >= size) {
+    if (size <= oldSize && offset >= size) {
       if (buffer) {
         m_FileBlocks.release(offset);
         m_FileBlocks.release(offset);
@@ -308,8 +354,10 @@ bool RamDir::addEntry(String filename, File* pFile) {
 
 bool RamDir::removeEntry(const String& filename, File* pFile) {
   LockGuard<Mutex> guard(m_DirectoryLock);
-  if (!pFile->isDirectory() && !static_cast<RamFile*>(pFile)->canWrite())
+  if (!canModifyRamNode(pFile)) {
+    SYSCALL_ERROR(PermissionDenied);
     return false;
+  }
 
   return removeDirectoryEntry(filename, pFile);
 }
@@ -397,7 +445,25 @@ bool RamFs::createDirectory(File* parent, const String& filename, uint32_t mask)
 }
 
 bool RamFs::createSymlink(File* parent, const String& filename, const String& value) {
-  return false;
+  if (!parent->isDirectory()) {
+    SYSCALL_ERROR(NotADirectory);
+    return false;
+  }
+  if (!value.length()) {
+    SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+  auto* link = new RamSymlink(filename, *this, parent, value);
+  if (!link) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  initialiseCreatedNode(*link, 0777);
+  if (!static_cast<RamDir*>(parent)->addEntry(filename, link)) {
+    delete link;
+    return false;
+  }
+  return true;
 }
 
 bool RamFs::removeNode(File* parent, const String& filename, File* file) {
@@ -411,8 +477,7 @@ bool RamFs::removeNode(File* parent, const String& filename, File* file) {
 bool RamFs::renameNode(Directory*, const String&, File* source, Directory*, const String&,
                        File* replaced) {
   if (m_bProcessOwners &&
-      ((!source->isDirectory() && !static_cast<RamFile*>(source)->canWrite()) ||
-       (replaced && !replaced->isDirectory() && !static_cast<RamFile*>(replaced)->canWrite()))) {
+      (!canModifyRamNode(source) || (replaced && !canModifyRamNode(replaced)))) {
     SYSCALL_ERROR(PermissionDenied);
     return false;
   }

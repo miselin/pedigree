@@ -59,6 +59,7 @@ class EXPORTED_PUBLIC RamFile : public File {
 
  protected:
   virtual bool resizeFile(size_t size);
+  virtual bool allocateFileRange(size_t offset, size_t length);
   virtual bool prepareShrink(const ShrinkContext& context, UniquePointer<PreparedShrink>& prepared);
   virtual uintptr_t readBlock(uint64_t location);
 

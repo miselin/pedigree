@@ -167,6 +167,22 @@ uintptr_t SymbolTable::lookup(const HashedStringView& name, Elf* pElf, Policy po
   return lookupResult;
 }
 
+uintptr_t SymbolTable::lookupOwned(const HashedStringView& name, Elf* owner) {
+  RAII_LOCK;
+  static SharedPointer<symbolTree_t> missing;
+  const parentedSymbolTree_t* tables[] = {&m_GlobalSymbols, &m_WeakSymbols};
+  for (const auto* table : tables) {
+    const auto& symbols = table->lookupRef(owner, missing);
+    if (symbols) {
+      auto found = symbols->lookup(name);
+      if (found.hasValue()) {
+        return found.value()->getValue();
+      }
+    }
+  }
+  return 0;
+}
+
 SymbolTable::symbolTree_t* SymbolTable::getOrInsertTree(Elf* p, Binding table) {
   // safe empty SharedPointer we can use for lookupRef()'s failed result
   static SharedPointer<symbolTree_t> v;

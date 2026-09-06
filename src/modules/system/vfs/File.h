@@ -395,6 +395,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /** Optionally preallocates blocks to fit the given size. */
   virtual void preallocate(size_t expectedSize, bool zero = true);
 
+  /** Reserve backing storage, optionally extending EOF after reservation succeeds. */
+  bool allocateRange(size_t offset, size_t length, bool keepSize = false);
+
   /** Obtain the actual File object to use when opening this file.
    *
    * This allows a File to exist and perform logic on an open() before
@@ -409,6 +412,8 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   virtual bool allowResize(size_t oldSize, size_t newSize);
   virtual bool prepareShrink(const ShrinkContext& context, UniquePointer<PreparedShrink>& prepared);
   virtual bool resizeFile(size_t size);
+  /** Called with write/data locks held; must reserve and zero newly allocated storage. */
+  virtual bool allocateFileRange(size_t offset, size_t length);
   virtual Mutex& writeSerializationLock();
   virtual Mutex& dataMutationLock();
   virtual size_t& physicalPageLoans();

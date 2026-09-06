@@ -21,7 +21,7 @@ linux_number,syscall,family,status,scope_and_verification
 101,ptrace,Linux administration and isolation,implemented,Cooperative tracing pass; single-thread TRACEME inspection and resume contracts passed in 1CPU and 4CPU guests; explicit request and admission bounds in companion document
 122,setfsuid,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 123,setfsgid,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
-124,getsid,Core file and process interfaces,pending,
+124,getsid,Core file and process interfaces,implemented,Session pass; retained process/task identity and group lifecycle; native and 1CPU/4CPU public contracts
 127,rt_sigpending,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 128,rt_sigtimedwait,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 129,rt_sigqueueinfo,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
@@ -45,7 +45,7 @@ linux_number,syscall,family,status,scope_and_verification
 167,swapon,Linux administration and isolation,pending,
 168,swapoff,Linux administration and isolation,pending,
 171,setdomainname,Linux administration and isolation,implemented,UTS namespace pass; real task membership and retained proc namespace descriptors; public musl and kernel lifecycle contracts passed in 1CPU and 4CPU guests; other namespace types deferred; bounds in companion document
-175,init_module,Linux administration and isolation,pending,
+175,init_module,Linux administration and isolation,implemented,"Runtime module pass; bounded native amd64 ET_DYN and empty parameters; native, Darwin runtime and 1CPU/4CPU public contracts"
 176,delete_module,Linux administration and isolation,implemented,Module removal pass; privileged non-forced active-module removal and typed errors; actual exit/destructor proof in 1CPU and 4CPU guests
 179,quotactl,Linux administration and isolation,pending,
 187,readahead,Extended file interfaces,implemented,Descriptor sync pass; bounded real prefetch including zero-count EOF semantics; public musl and residency checks in 1CPU and 4CPU guests
@@ -85,11 +85,11 @@ linux_number,syscall,family,status,scope_and_verification
 280,utimensat,Core file and process interfaces,pending,
 282,signalfd,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 283,timerfd_create,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
-285,fallocate,Core file and process interfaces,pending,
+285,fallocate,Core file and process interfaces,implemented,Allocation pass; real Ext2/RAM allocation and KEEP_SIZE; native and 1CPU/4CPU public contracts
 286,timerfd_settime,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 287,timerfd_gettime,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 289,signalfd4,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
-299,recvmmsg,Additional event and network interfaces,pending,
+299,recvmmsg,Additional event and network interfaces,implemented,"Batched receive pass; descriptor lifetime, timeout, restart, rights and deferred errors; 1CPU/4CPU public contracts"
 300,fanotify_init,Extended file interfaces,implemented,File-handle/fanotify pass; public musl contracts and cold-boot Ext2 handle persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 301,fanotify_mark,Extended file interfaces,implemented,File-handle/fanotify pass; public musl contracts and cold-boot Ext2 handle persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 303,name_to_handle_at,Extended file interfaces,implemented,File-handle/fanotify pass; public musl contracts and cold-boot Ext2 handle persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
@@ -100,9 +100,9 @@ linux_number,syscall,family,status,scope_and_verification
 309,getcpu,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
 310,process_vm_readv,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 311,process_vm_writev,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
-316,renameat2,Extended file interfaces,pending,
+316,renameat2,Extended file interfaces,implemented,Rename flags pass; flags zero and atomic NOREPLACE; native and 1CPU/4CPU public contracts
 319,memfd_create,Memory management,implemented,Anonymous memory file and all five bundled musl seals; public contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
-322,execveat,Extended file interfaces,pending,
+322,execveat,Extended file interfaces,implemented,"Descriptor exec pass; EMPTY_PATH, NOFOLLOW, O_PATH, procfd and scripts; native and 1CPU/4CPU public contracts"
 325,mlock2,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
 326,copy_file_range,Extended file interfaces,implemented,Transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 332,statx,Extended file interfaces,pending,

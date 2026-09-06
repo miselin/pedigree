@@ -164,6 +164,12 @@ static bool init() {
   PosixProcess* pProcess =
       new PosixProcess(Processor::information().getCurrentThread()->getParent());
 
+  if (!pProcess || !pProcess->jobControlReady()) {
+    delete pProcess;
+    error("Unable to initialise the process session");
+    return false;
+  }
+
   Process* bootstrap = Processor::information().getCurrentThread()->getParent();
   if (!pProcess->installUserIdentity(bootstrap->getUser(), bootstrap->getGroup(), nullptr, 0)) {
     delete pProcess;

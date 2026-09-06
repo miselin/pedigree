@@ -118,7 +118,8 @@ class EXPORTED_PUBLIC Filesystem {
   bool remove(const StringView& path, File* pStartNode, File* expected);
 
   /** Move one terminal namespace entry without following its symlink target. */
-  bool rename(const StringView& oldPath, File* oldStart, const StringView& newPath, File* newStart);
+  bool rename(const StringView& oldPath, File* oldStart, const StringView& newPath, File* newStart,
+              bool noReplace = false);
 
   /** Returns the disk in use */
   Disk* getDisk() {

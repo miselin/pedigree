@@ -19,6 +19,7 @@
 
 #include "Directory.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/Pair.h"
 #include "pedigree/kernel/utilities/Result.h"
@@ -136,6 +137,10 @@ File* Directory::getChild(size_t n) {
   }
   if (n == 1) {
     return getParent() ? getParent() : this;
+  }
+  if (!cacheResolvedChildren()) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return nullptr;
   }
 
   struct Context {
@@ -322,6 +327,10 @@ bool Directory::isCachePopulated() const {
 }
 
 File* Directory::lookup(const HashedStringView& s) const {
+  if (!cacheResolvedChildren()) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return nullptr;
+  }
   ChildLease child;
   if (lookupChild(s, child) != LookupStatus::Found) {
     return nullptr;
@@ -402,6 +411,31 @@ Directory::LookupStatus Directory::lookupChildInternal(const HashedStringView& s
                                                        bool hasCookie, ChildLease& child) const {
   Directory* self = const_cast<Directory*>(this);
   const String name = s.toString();
+
+  if (!cacheResolvedChildren()) {
+    if (isDetached())
+      return LookupStatus::NotFound;
+    File* candidate = nullptr;
+    LookupStatus status = hasCookie ? self->resolveChildAt(cookie, name.view(), candidate)
+                                    : self->resolveChild(name.view(), candidate);
+    if (status != LookupStatus::Found || !candidate) {
+      const bool invalid = candidate || status == LookupStatus::Found;
+      delete candidate;
+      return invalid ? LookupStatus::IoError : status;
+    }
+    if (isDetached()) {
+      delete candidate;
+      return LookupStatus::NotFound;
+    }
+    // No directory cache owns this reference. Keep the parent until the
+    // last lookup/OFD reference retires the generated child.
+    candidate->retainDetachedParent();
+    VFS::instance().trackFile(candidate);
+    ChildLease replacement;
+    replacement.adopt(candidate);
+    child.swap(replacement);
+    return LookupStatus::Found;
+  }
 
   while (true) {
     File* replacement = nullptr;

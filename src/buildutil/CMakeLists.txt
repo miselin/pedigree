@@ -170,6 +170,7 @@ endif ()
 
 add_library(vfs
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Directory.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/File-allocation.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/File.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/FileEvent.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Filesystem.cc
@@ -182,6 +183,7 @@ add_library(vfs
 
 add_library(ext2
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Directory.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2File-allocation.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2File.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Filesystem.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Filesystem-sync.cc
@@ -198,6 +200,7 @@ add_library(ext2
 )
 
 add_library(ramfs
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ramfs/RamFile-allocation.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ramfs/RamFs.cc
 )
 
@@ -266,6 +269,13 @@ set(TESTSUITE_SRCS
     testsuite/test-CacheSync.cc
     testsuite/test-Ext2Writeback.cc
     testsuite/test-FileRangeSync.cc
+    testsuite/test-FileAllocation.cc
+    testsuite/test-RenameNoReplace.cc
+    testsuite/test-SharedPointerAdopt.cc
+    testsuite/test-DynamicDirectory.cc
+    testsuite/test-ModuleImage.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/ModuleImage.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/Elf-validation.cc
     testsuite/test-Ext2FilesystemSync.cc
     testsuite/test-Ext2DirectorySync.cc
     testsuite/test-Ext2Xattr.cc
@@ -336,6 +346,9 @@ set(TESTSUITE_SRCS
     testsuite/test-VFS.cc)
 
 # non-ASAN testsuite
+set_source_files_properties(
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/Elf-validation.cc
+    PROPERTIES COMPILE_DEFINITIONS "BITS_32=0;MACH_HOSTED=1")
 add_executable(testsuite ${TESTSUITE_SRCS})
 target_link_libraries(testsuite PRIVATE
     debugger ext2 fat partition ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
@@ -362,6 +375,16 @@ if (HAVE_ASAN)
 endif ()
 
 add_executable(headerify headerify/main.cc)
+
+set(PEDIGREE_MODULE_IMAGE_FIXTURE_FILE "" CACHE FILEPATH "Native ELF module parser fixture.")
+if (PEDIGREE_MODULE_IMAGE_FIXTURE_FILE)
+    foreach(test_target testsuite testsuite-asan)
+        if (TARGET ${test_target})
+            target_compile_definitions(${test_target} PRIVATE
+                PEDIGREE_MODULE_IMAGE_FIXTURE_FILE="${PEDIGREE_MODULE_IMAGE_FIXTURE_FILE}")
+        endif ()
+    endforeach()
+endif ()
 
 if (BUILDUTILS_PROFILE_FLAGS)
     foreach (target kernel utility vfs ext2 fat ramfs partition debugger config posix

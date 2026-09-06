@@ -355,6 +355,8 @@ KernelElf::KernelElf()
       m_AdditionalSectionHeaders(0),
       m_Modules(),
       m_ModuleAllocator(),
+      m_ModuleAllocatorInitialised(false),
+      m_RuntimeModulesPrepared(false),
       m_pSectionHeaders(0),
       m_pSymbolTable(0),
       m_ModuleAdjustmentLock(false),
@@ -408,10 +410,11 @@ Module* KernelElf::loadModule(uint8_t* pModule, size_t len, bool silent) {
   // The module memory allocator requires dynamic memory - this isn't
   // initialised until after our constructor is called, so check here if we've
   // loaded any modules yet. If not, we can initialise our memory allocator.
-  if (m_Modules.count() == 0) {
+  if (!m_ModuleAllocatorInitialised) {
     uintptr_t start = VirtualAddressSpace::getKernelAddressSpace().getKernelModulesStart();
     uintptr_t end = VirtualAddressSpace::getKernelAddressSpace().getKernelModulesEnd();
     m_ModuleAllocator.free(start, end - start);
+    m_ModuleAllocatorInitialised = true;
   }
 
   Module* module = new Module;
@@ -831,6 +834,12 @@ bool KernelElf::completeUnloadAttempt(Module* module, ModuleUnloadClaim claim, b
     unlockModules();
     if (progressUpdated && g_BootProgressUpdate && !silent)
       g_BootProgressUpdate("moduleunload");
+  }
+
+  if (module->runtime) {
+    const bool retired = retireRuntimeModule(module, runLifecycle);
+    finishClaimedUnload(module, wasFailed);
+    return retired;
   }
 
   if (runLifecycle && module->exit)
@@ -1393,7 +1402,7 @@ bool KernelElf::moduleDependenciesSatisfiedLocked(Module* module) const {
       bool exists = false;
       bool attempted = false;
       for (auto mod : m_Modules) {
-        if (!StringCompare(mod->name.cstr(), depname)) {
+        if (!mod->isUnloaded() && !StringCompare(mod->name.cstr(), depname)) {
           exists = true;
           attempted = mod->wasAttempted();
           break;
@@ -1422,7 +1431,7 @@ bool KernelElf::moduleDependenciesSatisfiedLocked(Module* module) const {
 
     bool exists = false;
     for (auto mod : m_Modules) {
-      if (!StringCompare(mod->name.cstr(), depname)) {
+      if (!mod->isUnloaded() && !StringCompare(mod->name.cstr(), depname)) {
         exists = true;
         if (!mod->isActive()) {
           // module dependency is not yet active
@@ -1599,6 +1608,9 @@ void KernelElf::waitForModulesToLoad() {
 }
 
 void KernelElf::invokeInitModule() {
+  if (!prepareRuntimeModules()) {
+    WARNING("KernelElf: runtime module arena unavailable");
+  }
   lockModules();
   Module* mod = m_InitModule;
   if (mod == nullptr) {
@@ -1607,9 +1619,9 @@ void KernelElf::invokeInitModule() {
     return;
   }
 
-  if (m_ModuleShutdown) {
+  if (m_ModuleShutdown || m_ModuleLoading || m_UnloadingModule) {
     unlockModules();
-    WARNING("KernelElf: refusing to invoke init after shutdown began");
+    WARNING("KernelElf: refusing to invoke init during another module transition");
     return;
   }
 
@@ -1631,7 +1643,14 @@ void KernelElf::invokeInitModule() {
 }
 
 uintptr_t KernelElf::globalLookupSymbol(const char* pName) {
-  return m_SymbolTable.lookup(String(pName), this);
+  const uintptr_t legacy = m_SymbolTable.lookup(HashedStringView(pName), this);
+  if (legacy) {
+    return legacy;
+  }
+  lockModules();
+  const uintptr_t result = runtimeExportLocked(pName);
+  unlockModules();
+  return result;
 }
 
 const char* KernelElf::globalLookupSymbol(uintptr_t addr, uintptr_t* startAddr) {

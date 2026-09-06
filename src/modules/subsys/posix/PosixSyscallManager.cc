@@ -38,12 +38,16 @@
 #include "console-syscalls.h"
 #include "epoll-syscalls.h"
 #include "eventfd-syscalls.h"
+#include "execveat-syscalls.h"
 #include "fanotify-syscalls.h"
 #include "file-handle-syscalls.h"
 #include "file-sync-syscalls.h"
 #include "file-syscalls.h"
+#include "filesystem-capability-syscalls.h"
 #include "global-sync-syscalls.h"
+#include "init-module-syscalls.h"
 #include "inotify-syscalls.h"
+#include "job-control-syscalls.h"
 #include "linux-amd64-signal.h"
 #include "logging.h"
 #include "memfd-syscalls.h"
@@ -60,6 +64,7 @@
 #include "pthread-syscalls.h"
 #include "ptrace-syscalls.h"
 #include "queued-signal.h"
+#include "recvmmsg-syscalls.h"
 #include "scheduling-syscalls.h"
 #include "select-syscalls.h"
 #include "signal-syscalls.h"
@@ -228,6 +233,13 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_EXECVE:
       return posix_execve(reinterpret_cast<const char*>(p1), reinterpret_cast<const char**>(p2),
                           reinterpret_cast<const char**>(p3), state);
+    case POSIX_EXECVEAT:
+      return posix_execveat(static_cast<int>(p1), reinterpret_cast<const char*>(p2),
+                            reinterpret_cast<const char**>(p3), reinterpret_cast<const char**>(p4),
+                            static_cast<int>(p5), state);
+    case POSIX_INIT_MODULE:
+      return posix_init_module(reinterpret_cast<const void*>(p1), p2,
+                               reinterpret_cast<const char*>(p3));
     case POSIX_WAITPID:
       return posix_waitpid(p1, reinterpret_cast<int*>(p2), p3,
                            linuxAbi ? reinterpret_cast<LinuxRusage64*>(p4) : nullptr);
@@ -247,6 +259,19 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_fdatasync(static_cast<int>(p1));
     case POSIX_SYNC:
       return posix_sync();
+    case POSIX_GETSID:
+      return posix_getsid(p1);
+    case POSIX_FALLOCATE:
+      return posix_fallocate(static_cast<int>(p1), static_cast<int>(p2), static_cast<off_t>(p3),
+                             static_cast<off_t>(p4));
+    case POSIX_RENAMEAT2:
+      return posix_renameat2(static_cast<int>(p1), reinterpret_cast<const char*>(p2),
+                             static_cast<int>(p3), reinterpret_cast<const char*>(p4),
+                             static_cast<unsigned>(p5));
+    case POSIX_RECVMMSG:
+      return posix_recvmmsg(static_cast<int>(p1), reinterpret_cast<LinuxMmsghdr*>(p2),
+                            static_cast<unsigned>(p3), static_cast<unsigned>(p4),
+                            reinterpret_cast<LinuxKernelTimespec*>(p5));
     case POSIX_SYNCFS:
       return posix_syncfs(static_cast<int>(p1));
     case POSIX_READAHEAD:

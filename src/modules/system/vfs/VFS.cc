@@ -1156,11 +1156,13 @@ bool VFS::remove(const String& path, File* pStartNode, File* expected) {
   return pStartNode && pStartNode->getFilesystem()->remove(path, pStartNode, expected);
 }
 
-bool VFS::rename(const String& oldPath, File* oldStart, const String& newPath, File* newStart) {
+bool VFS::rename(const String& oldPath, File* oldStart, const String& newPath, File* newStart,
+                 bool noReplace) {
   oldStart = resolveStartNode(oldPath, oldStart);
   newStart = resolveStartNode(newPath, newStart);
   return oldStart && newStart &&
-         oldStart->getFilesystem()->rename(oldPath.view(), oldStart, newPath.view(), newStart);
+         oldStart->getFilesystem()->rename(oldPath.view(), oldStart, newPath.view(), newStart,
+                                           noReplace);
 }
 
 bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute) {

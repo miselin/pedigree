@@ -284,6 +284,11 @@ class EXPORTED_PUBLIC Directory : public File {
   /** Resolve one backing-store entry. A found File must be new and untracked. */
   virtual LookupStatus resolveChild(const StringView& name, File*& child);
 
+  /** Dynamic namespaces may return a fresh retained node on every lookup. */
+  virtual bool cacheResolvedChildren() const {
+    return true;
+  }
+
   /**
    * Resolve one backing record at a cookie returned by readDirectory().
    * Implementations must fall back to a full name lookup if the cookie has

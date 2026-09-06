@@ -150,6 +150,7 @@ set(PEDIGREE_AFFINITY_TESTS FALSE CACHE BOOL "Run focused scheduler affinity and
 set(PEDIGREE_CHILD_WAIT_TESTS FALSE CACHE BOOL "Run focused child wait and reaper lifetime regressions.")
 set(PEDIGREE_PTRACE_TESTS FALSE CACHE BOOL "Run focused tracing frame and stop lifetime regressions.")
 set(PEDIGREE_MODULE_SYSCALL_TESTS FALSE CACHE BOOL "Include the module syscall lifecycle fixture.")
+set(PEDIGREE_RUNTIME_MODULE_TESTS FALSE CACHE BOOL "Run hosted runtime module loading regressions.")
 set(PEDIGREE_GLOBAL_SYNC_TESTS FALSE CACHE BOOL "Run hosted cache and device sync regressions.")
 
 # General build options.

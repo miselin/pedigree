@@ -202,6 +202,7 @@ class EXPORTED_PUBLIC Elf {
   // PosixSubsystem can use memory mapped files to do its own (very basic)
   // ELF loading, which is an improvement on load()'s copies.
   friend class PosixSubsystem;
+  friend class ModuleImage;
 
  protected:
   // Forward declaration of ELF symbol type for lookupSymbol template.

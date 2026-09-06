@@ -155,7 +155,7 @@ void setExecutableValidationError(Elf::ExecutableValidationResult result, bool i
 }
 }  // namespace
 
-ProcessGroupManager::ProcessGroupManager() : m_GroupIds(), m_Groups(), m_GroupLock(false) {
+ProcessGroupManager::ProcessGroupManager() : m_GroupIds(), m_Groups(nullptr), m_GroupLock(false) {
   m_GroupIds.set(0);
 }
 
@@ -164,6 +164,8 @@ ProcessGroupManager::~ProcessGroupManager() {}
 size_t ProcessGroupManager::allocateGroupId() {
   RecursingLockGuard<Spinlock> guard(m_GroupLock);
   size_t bit = m_GroupIds.getFirstClear();
+  while (findGroup(bit) || m_GroupIds.test(bit))
+    ++bit;
   m_GroupIds.set(bit);
   return bit;
 }
@@ -180,7 +182,7 @@ void ProcessGroupManager::setGroupId(size_t gid) {
 
 bool ProcessGroupManager::isGroupIdValid(size_t gid) const {
   RecursingLockGuard<Spinlock> guard(m_GroupLock);
-  return m_GroupIds.test(gid);
+  return findGroup(gid) || m_GroupIds.test(gid);
 }
 
 void ProcessGroupManager::returnGroupId(size_t gid) {
@@ -190,26 +192,29 @@ void ProcessGroupManager::returnGroupId(size_t gid) {
 
 void ProcessGroupManager::registerGroup(size_t gid, ProcessGroup* group) {
   RecursingLockGuard<Spinlock> guard(m_GroupLock);
-  ProcessGroup* existing = m_Groups.lookup(gid);
-  if (existing && existing != group) {
-    FATAL("Two concrete POSIX process groups claimed one group ID.");
-  }
-  if (!existing) {
-    m_Groups.insert(gid, group);
-  }
-  m_GroupIds.set(gid);
+  assert(!findGroup(gid));
+  group->registryNext = m_Groups;
+  m_Groups = group;
+  group->registered = true;
 }
 
 void ProcessGroupManager::unregisterGroup(size_t gid, ProcessGroup* group) {
   RecursingLockGuard<Spinlock> guard(m_GroupLock);
-  if (m_Groups.lookup(gid) == group) {
-    m_Groups.remove(gid);
-    m_GroupIds.clear(gid);
+  ProcessGroup** link = &m_Groups;
+  while (*link && *link != group)
+    link = &(*link)->registryNext;
+  if (*link) {
+    *link = group->registryNext;
+    group->registryNext = nullptr;
+    group->registered = false;
   }
 }
 
 ProcessGroup* ProcessGroupManager::findGroup(size_t gid) const {
-  return m_Groups.lookup(gid);
+  for (ProcessGroup* group = m_Groups; group; group = group->registryNext)
+    if (static_cast<size_t>(group->processGroupId) == gid)
+      return group;
+  return nullptr;
 }
 
 PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
@@ -1557,6 +1562,29 @@ bool PosixSubsystem::acquireFileDescriptor(size_t fd, DescriptorLease& descripto
   return static_cast<bool>(descriptor);
 }
 
+bool PosixSubsystem::acquireNextFileDescriptor(size_t minimum, size_t& fd,
+                                               DescriptorLease& descriptor) {
+  descriptor.reset();
+  SharedPointer<FileDescriptor> retained;
+  size_t selected = ~size_t(0);
+  {
+    Uninterruptible throughout;
+    m_FdLock.enter();
+    for (auto it = m_FdMap.begin(); it != m_FdMap.end(); ++it) {
+      if (it.key() >= minimum && it.key() < selected && it.value()) {
+        selected = it.key();
+        retained = it.value();
+      }
+    }
+    m_FdLock.leave();
+  }
+  descriptor.retain(retained);
+  if (!descriptor)
+    return false;
+  fd = selected;
+  return true;
+}
+
 bool PosixSubsystem::descriptorMatchesOpenDescription(
     size_t fd, const FileDescriptor::OpenFileDescriptionLease& expected) {
   if (!expected) {
@@ -2238,11 +2266,18 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 
 bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vector<String>& argv,
                             Vector<String>& env, SyscallState& state) {
-  return invoke(originalFile, originalName, argv, env, &state);
+  return invoke(originalFile, originalName, argv, env, &state, false);
 }
 
 bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vector<String>& argv,
-                            Vector<String>& env, SyscallState* state) {
+                            Vector<String>& env, SyscallState& state,
+                            bool descriptorPathInaccessible) {
+  return invoke(originalFile, originalName, argv, env, &state, descriptorPathInaccessible);
+}
+
+bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vector<String>& argv,
+                            Vector<String>& env, SyscallState* state,
+                            bool descriptorPathInaccessible) {
   PS_NOTICE("PosixSubsystem::invoke(" << originalName << ")");
 
   uint8_t execRandom[16];
@@ -2308,6 +2343,12 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 
     if (!shebangInterpreter.length()) {
       SYSCALL_ERROR(ExecFormatError);
+      return false;
+    }
+
+    if (!shebangRewrites && descriptorPathInaccessible) {
+      // The interpreter would reopen a descriptor closed at exec commit.
+      SYSCALL_ERROR(DoesNotExist);
       return false;
     }
 
@@ -2458,6 +2499,9 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     SYSCALL_ERROR(Interrupted);
     return false;
   }
+
+  if (pProcess->getType() == Process::Posix)
+    static_cast<PosixProcess*>(pProcess)->markExecCommitted();
 
   invalidateUserImage();
 

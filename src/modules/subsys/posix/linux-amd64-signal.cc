@@ -222,6 +222,9 @@ bool restartableSyscall(const SyscallState& state) {
     case PedigreeLinuxAmd64Syscall_mq_timedsend:
     case PedigreeLinuxAmd64Syscall_mq_timedreceive:
       return true;
+    case PedigreeLinuxAmd64Syscall_recvmmsg:
+      // Replaying a supplied relative timeout would extend its deadline.
+      return state.getSyscallParameter(10) == 0;
     case PedigreeLinuxAmd64Syscall_futex:
       // Replaying a relative timeout would extend the caller's deadline.
       // Only the implemented, untimed FUTEX_WAIT operation is eligible.

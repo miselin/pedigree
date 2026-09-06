@@ -18,8 +18,9 @@
  */
 
 #include "DevFs.h"
-#include "PosixSubsystem.h"
 
+#include "PosixSubsystem.h"
+#include "descriptor-path.h"
 #include "modules/system/vfs/Pipe.h"
 #include "modules/system/vfs/VFS.h"
 
@@ -457,6 +458,11 @@ bool DevFs::initialise(Disk* pDisk) {
                           FILE_OX);
 
   VFS::instance().trackFile(m_pRoot);
+
+  File* descriptors = posix_make_dev_fd_link(*this, m_pRoot);
+  if (!descriptors)
+    return false;
+  m_pRoot->addEntry(descriptors->getName(), descriptors);
 
   // Create /dev/null and /dev/zero nodes
   NullFile* pNull = new NullFile(String("null"), getNextInode(), this, m_pRoot);

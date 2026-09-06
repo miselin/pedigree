@@ -262,6 +262,21 @@ pedigree_app(file-sync-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-sync-contract-test/main.c)
 pedigree_app(global-sync-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/global-sync-contract-test/main.c)
+pedigree_app(session-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/session-contract-test/main.c)
+pedigree_app(execveat-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/execveat-contract-test/main.c)
+if (TARGET init-module-contract-fixture)
+    pedigree_app(init-module-contract-test ON OFF OFF ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/applications/init-module-contract-test/main.c)
+    add_dependencies(app-init-module-contract-test init-module-contract-fixture)
+endif ()
+pedigree_app(recvmmsg-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/recvmmsg-contract-test/main.c)
+pedigree_app(rename-flags-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/rename-flags-contract-test/main.c)
+pedigree_app(filesystem-allocation-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/filesystem-allocation-contract-test/main.c)
 pedigree_app(clock-adjust-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/clock-adjust-contract-test/main.c)
 pedigree_app(module-contract-test ON OFF OFF ""

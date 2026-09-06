@@ -27,31 +27,13 @@
 #include "ProcFs.h"
 #include "modules/system/vfs/VFS.h"
 
-ProcessGroup::~ProcessGroup() {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
-
-  // Remove all processes in the list from this group
-  for (List<PosixProcess*>::Iterator it = Members.begin(); it != Members.end(); ++it) {
-    if (*it) {
-      if ((*it)->m_pProcessGroup == this) {
-        (*it)->m_pProcessGroup = 0;
-        (*it)->m_GroupMembership = PosixProcess::NoGroup;
-      }
-    }
-  }
-
-  if (registered) {
-    ProcessGroupManager::instance().unregisterGroup(processGroupId, this);
-  }
-
-  // All have been removed, update our list accordingly
-  Members.clear();
-}
-
 PosixProcess::PosixProcess()
     : Process(DeferredPublication()),
-      m_pSession(0),
-      m_pProcessGroup(0),
+      m_SessionId(0),
+      m_pProcessGroup(nullptr),
+      m_GroupPrevious(nullptr),
+      m_GroupNext(nullptr),
+      m_ExecCommitted(false),
       m_GroupMembership(NoGroup),
       m_Mask(0),
       m_RealIntervalTimer(this, IntervalTimer::Hardware),
@@ -59,14 +41,18 @@ PosixProcess::PosixProcess()
       m_ProfileIntervalTimer(this, IntervalTimer::Profile),
       m_Credentials(),
       m_bRegistered(false) {
+  initializeJobControl(nullptr);
   enableTimeAccountingReports();
 }
 
 /** Copy constructor. */
 PosixProcess::PosixProcess(Process* pParent, bool bCopyOnWrite)
     : Process(DeferredPublication(), pParent, bCopyOnWrite),
-      m_pSession(0),
-      m_pProcessGroup(0),
+      m_SessionId(0),
+      m_pProcessGroup(nullptr),
+      m_GroupPrevious(nullptr),
+      m_GroupNext(nullptr),
+      m_ExecCommitted(false),
       m_GroupMembership(NoGroup),
       m_Mask(0),
       m_RealIntervalTimer(this, IntervalTimer::Hardware),
@@ -74,11 +60,11 @@ PosixProcess::PosixProcess(Process* pParent, bool bCopyOnWrite)
       m_ProfileIntervalTimer(this, IntervalTimer::Profile),
       m_Credentials(),
       m_bRegistered(false) {
+  initializeJobControl(pParent);
   enableTimeAccountingReports();
 
   if (pParent->getType() == Posix) {
     PosixProcess* pPosixParent = static_cast<PosixProcess*>(pParent);
-    m_pSession = pPosixParent->m_pSession;
 
     // Child inherits parent's mask.
     m_Mask = pPosixParent->getMask();
@@ -105,132 +91,9 @@ PosixProcess::~PosixProcess() {
 void PosixProcess::publish() {
   // Scheduler enumeration must not observe this object until the caller has
   // installed all child-side state and a non-runnable initial Thread.
+  assert(jobControlReady());
   Process::publish();
   registerProcess();
-}
-
-void PosixProcess::setProcessGroup(ProcessGroup* newGroup) {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
-
-  ProcessGroup* oldGroup = m_pProcessGroup;
-  if (oldGroup == newGroup) {
-    return;
-  }
-
-  // Remove ourselves from our existing group.
-  if (oldGroup) {
-    for (List<PosixProcess*>::Iterator it = oldGroup->Members.begin();
-         it != oldGroup->Members.end();) {
-      if ((*it) == this) {
-        it = oldGroup->Members.erase(it);
-      } else
-        ++it;
-    }
-    if (oldGroup->Leader == this) {
-      oldGroup->Leader = 0;
-    }
-  }
-
-  // Now join the real group.
-  m_pProcessGroup = newGroup;
-  if (m_pProcessGroup) {
-    bool alreadyMember = false;
-    for (List<PosixProcess*>::Iterator it = m_pProcessGroup->Members.begin();
-         it != m_pProcessGroup->Members.end(); ++it) {
-      if (*it == this) {
-        alreadyMember = true;
-        break;
-      }
-    }
-    if (!alreadyMember) {
-      m_pProcessGroup->Members.pushBack(this);
-    }
-    if (!m_pProcessGroup->registered) {
-      ProcessGroupManager::instance().registerGroup(m_pProcessGroup->processGroupId,
-                                                    m_pProcessGroup);
-      m_pProcessGroup->registered = true;
-    }
-  }
-
-  if (oldGroup && oldGroup != m_pProcessGroup && !oldGroup->Members.count()) {
-    delete oldGroup;
-  }
-}
-
-void PosixProcess::inheritProcessGroup(PosixProcess* parent) {
-  if (!parent) {
-    return;
-  }
-
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
-  setProcessGroup(parent->m_pProcessGroup);
-  if (!m_pProcessGroup) {
-    m_GroupMembership = NoGroup;
-  } else if (parent->m_GroupMembership == Leader) {
-    m_GroupMembership = Member;
-  } else {
-    m_GroupMembership = parent->m_GroupMembership;
-  }
-}
-
-ProcessGroup* PosixProcess::getProcessGroup() const {
-  return m_pProcessGroup;
-}
-
-bool PosixProcess::getProcessGroupId(size_t& groupId) const {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
-  if (!m_pProcessGroup) {
-    return false;
-  }
-
-  groupId = m_pProcessGroup->processGroupId;
-  return true;
-}
-
-void PosixProcess::leaveProcessGroup() {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
-  ProcessGroup* group = m_pProcessGroup;
-  if (!group) {
-    m_GroupMembership = NoGroup;
-    return;
-  }
-
-  for (List<PosixProcess*>::Iterator it = group->Members.begin(); it != group->Members.end();) {
-    if (*it == this) {
-      it = group->Members.erase(it);
-    } else {
-      ++it;
-    }
-  }
-
-  if (group->Leader == this) {
-    group->Leader = 0;
-  }
-
-  // Clear the raw back-pointer before group destruction can run.
-  m_pProcessGroup = 0;
-  m_GroupMembership = NoGroup;
-  if (!group->Members.count()) {
-    delete group;
-  }
-}
-
-void PosixProcess::setGroupMembership(Membership type) {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
-  m_GroupMembership = type;
-}
-
-PosixProcess::Membership PosixProcess::getGroupMembership() const {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
-  return m_GroupMembership;
-}
-
-PosixSession* PosixProcess::getSession() const {
-  return m_pSession;
-}
-
-void PosixProcess::setSession(PosixSession* p) {
-  m_pSession = p;
 }
 
 Process::ProcessType PosixProcess::getType() {

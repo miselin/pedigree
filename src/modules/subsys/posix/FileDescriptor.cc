@@ -43,7 +43,7 @@ bool isReadWrite(int flags) {
 }
 
 void increaseFileReferences(File* file, int flags) {
-  if (!file) {
+  if (!file || (flags & O_PATH)) {
     return;
   }
 
@@ -58,7 +58,7 @@ void increaseFileReferences(File* file, int flags) {
 }
 
 void decreaseFileReferences(File* file, int flags) {
-  if (!file) {
+  if (!file || (flags & O_PATH)) {
     return;
   }
 
@@ -183,7 +183,7 @@ void FileDescriptor::OpenFileDescription::removeDescriptorOwner() {
   }
   if (closeEndpoint) {
     decreaseFileReferences(file, flags);
-    if (file) {
+    if (file && !(flags & O_PATH)) {
       file->publishEvent((flags & O_ACCMODE) == O_RDONLY ? FileEvents::CloseNoWrite
                                                          : FileEvents::CloseWrite);
     }

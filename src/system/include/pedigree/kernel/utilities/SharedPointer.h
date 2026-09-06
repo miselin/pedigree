@@ -118,6 +118,9 @@ class SharedPointer {
   template <class... Args>
   static SharedPointer<T> tryAllocate(Args...);
 
+  /** Takes ownership, deleting ptr if its control allocation fails. */
+  static SharedPointer<T> tryAdopt(T* ptr);
+
   /// \note No operator is provided for comparison with raw pointer types:
   ///       if that comparison were to ever succeed, it would indicate that
   ///       the SharedPointer could not safely free memory after the refcount
@@ -272,6 +275,17 @@ SharedPointer<T> SharedPointer<T>::tryAllocate(Args... args) {
   result.m_Control->ptr = new T(args...);
   if (!result.m_Control->ptr)
     result.reset();
+  return result;
+}
+
+template <class T>
+SharedPointer<T> SharedPointer<T>::tryAdopt(T* ptr) {
+  SharedPointer<T> result;
+  if (!ptr)
+    return result;
+  result.m_Control = new Control{ptr, 1};
+  if (!result.m_Control)
+    delete ptr;
   return result;
 }
 

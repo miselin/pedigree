@@ -220,6 +220,13 @@ class VirtualAddressSpace {
    *the page must still be mapped or marked as swapped out. \param[in]
    *virtualAddress the virtual address \param[in] newFlags the flags */
   virtual void setFlags(void* virtualAddress, size_t newFlags) = 0;
+
+  /** Changes an existing mapping, returning false without publishing failed protection. */
+  MUST_USE_RESULT virtual bool trySetFlags(void* virtualAddress, size_t newFlags) {
+    (void)virtualAddress;
+    (void)newFlags;
+    return false;
+  }
   /** Remove the page at the specific virtual address from the virtual address
    *space. \note This function is only valid on memory that was mapped with
    *VirtualAddressSpace::map() and that is still mapped or marked as swapped

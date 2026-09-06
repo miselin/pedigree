@@ -307,6 +307,7 @@ pedigree_module(console "" ""
 
 pedigree_module(ext2 "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Directory.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2File-allocation.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2File.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Filesystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Filesystem-sync.cc
@@ -607,6 +608,7 @@ pedigree_module(preload "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/preload/main.cc)
 
 pedigree_module(ramfs "" ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ramfs/RamFile-allocation.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ramfs/RamFs.cc)
 
 set(RAWFS_REGRESSION_SOURCES)
@@ -650,6 +652,7 @@ pedigree_module(users "" ""
 
 pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Directory.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/File-allocation.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/File.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/FileEvent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Filesystem.cc
@@ -869,6 +872,11 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-sync-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/global-sync-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/filesystem-capability-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/recvmmsg-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/execveat-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/descriptor-path.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/init-module-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/module-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/xattr-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-handle-syscalls.cc
@@ -890,6 +898,8 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/poll-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/posix.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PosixProcess.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PosixProcess-job-control.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/job-control-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PosixProcess-credentials.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PosixMemoryLockAccount.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PosixSubsystem.cc
@@ -992,6 +1002,38 @@ endif ()
 if (PEDIGREE_MODULE_SYSCALL_TESTS)
     pedigree_module(module-unload-fixture "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/system/module-unload-fixture/main.cc)
+    if (NOT PEDIGREE_STATIC_DRIVERS)
+        set(PEDIGREE_MODULE_init-module-contract-fixture FALSE)
+        pedigree_module(init-module-contract-fixture "" ""
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/init-module-contract-fixture/main.cc)
+    endif ()
+endif ()
+
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS AND
+    PEDIGREE_RUNTIME_MODULE_TESTS)
+    foreach(kind provider consumer undeclared)
+        # These are loader inputs; booting them would bypass the tested admission path.
+        set(PEDIGREE_MODULE_runtime-${kind}-fixture FALSE)
+        pedigree_module(runtime-${kind}-fixture "" ""
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/module-runtime-fixture/main.cc)
+    endforeach()
+    target_compile_definitions(runtime-consumer-fixture PRIVATE PEDIGREE_RUNTIME_CONSUMER=1)
+    target_compile_definitions(runtime-undeclared-fixture PRIVATE
+        PEDIGREE_RUNTIME_CONSUMER=1 PEDIGREE_RUNTIME_UNDECLARED=1)
+    set(runtime_images ${CMAKE_CURRENT_BINARY_DIR}/runtime-module-images.cc)
+    set(runtime_embed ${CMAKE_CURRENT_SOURCE_DIR}/system/module-runtime-tests/embed-fixtures.py)
+    add_custom_command(OUTPUT ${runtime_images}
+        COMMAND ${Python3_EXECUTABLE} ${runtime_embed}
+            --provider $<TARGET_FILE:runtime-provider-fixture>
+            --consumer $<TARGET_FILE:runtime-consumer-fixture>
+            --undeclared $<TARGET_FILE:runtime-undeclared-fixture>
+            --output ${runtime_images}
+        DEPENDS runtime-provider-fixture runtime-consumer-fixture runtime-undeclared-fixture
+            ${runtime_embed}
+        VERBATIM)
+    pedigree_module(module-runtime-tests "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/module-runtime-tests/main.cc ${runtime_images})
 endif ()
 
 pedigree_module(native "" ""

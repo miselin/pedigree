@@ -93,12 +93,15 @@ bool MqueueNetlinkSocket::canPoll() const {
 ReadyMask MqueueNetlinkSocket::queryReady(bool reading, bool writing) {
   (void)writing;
   LockGuard<Mutex> guard(m_Lock);
-  return m_Closed ? ReadyInvalid | ReadyHangup : reading && m_Count ? ReadyRead : ReadyNone;
+  const ReadyMask ready = m_Closed             ? ReadyInvalid | ReadyHangup
+                          : reading && m_Count ? ReadyRead
+                                               : ReadyNone;
+  return ready | pendingReceiveReadiness();
 }
 
 ReadinessGenerations MqueueNetlinkSocket::readinessGenerations() {
   LockGuard<Mutex> guard(m_Lock);
-  return m_Generations;
+  return withReceiveErrorGeneration(m_Generations);
 }
 
 ssize_t MqueueNetlinkSocket::recvfrom_msg(struct msghdr* message,

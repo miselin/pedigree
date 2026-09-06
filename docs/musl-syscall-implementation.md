@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 93 of 113 backlog entries implemented; 20 remain.
+Current checkpoint: 99 of 113 backlog entries implemented; 14 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,73 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Sessions, preallocation, batched receive, descriptor exec and module loading
+
+getsid now reports retained process or thread session identity. Session and group
+membership use numeric IDs and intrusive membership under one lock; group and
+session IDs survive leader exit. setpgid checks direct children, session membership,
+thread-group leaders and the successful exec boundary before changing membership.
+New-session and group allocation failure leaves the previous membership intact.
+
+fallocate implements ordinary allocation and KEEP_SIZE on Ext2 and RAM files.
+It reserves real backing storage, zeros newly exposed bytes, preserves OFD offsets,
+and retains accurate partial allocation when later reservation fails. Truncating
+at the existing EOF releases invisible preallocation. renameat2 supports flags zero
+and atomic RENAME_NOREPLACE under the existing VFS parent namespace locks,
+including same-name and hardlink-alias rejection. EXCHANGE and WHITEOUT remain
+unsupported. Absolute and relative rename endpoints resolve through their own
+filesystem roots before taking the common backend's structure lock.
+
+recvmmsg retains one socket description across the batch and waits through the
+existing readiness machinery. Per-call DONTWAIT does not alter shared flags.
+Partial errors remain available through receive/SO_ERROR and publish poll/epoll
+error readiness. Untimed calls support SA_RESTART; timed calls return EINTR without
+replaying a relative deadline. Existing recvmsg flag/backend limits remain.
+
+execveat supports absolute and dirfd-relative paths, EMPTY_PATH, NOFOLLOW, unlinked
+ELF files and script interpreter paths. Real /proc/self/fd and /dev/fd entries
+resolve current descriptor identity without a stale positive cache. O_PATH retains
+path identity without opening data; metadata and symlink operations preserve it.
+CLOEXEC script paths fail before exec commit. Absolute symlinks cross filesystem
+mounts through VFS; relative links retain their parent. RAM filesystems now create
+real symlinks, preserve exact targets, and safely rename and remove them.
+Cross-process procfd access remains denied pending a ptrace-read credential policy;
+mount-attachment migration remains separate from this file-identity support.
+
+init_module loads native Pedigree amd64 ET_DYN images with empty parameters.
+Four slots reserve 1 MiB copied input and 1 MiB mapped image each during trusted
+boot preparation. Runtime parsing, symbol resolution, relocation and publication
+perform no kernel heap/page allocations. The bounded parser validates all consumed
+tables and metadata; imports bind only to the kernel or declared active providers.
+W^X protection and single-owner cleanup precede slot reuse; failed cleanup
+quarantines storage. This does not load Linux ET_REL modules or parse Linux module
+parameters. Trusted reservation still uses the kernel's existing boot allocators.
+
+Verification passed 37 routing/ABI checks, 113 focused native tests, 13 targeted
+cross compiles, 16 hosted compile-only sources, full fresh image builds, and actual
+Darwin core execution. A separate Darwin runtime-loader suite passed six families:
+active admission, missing-provider preflight, protection rollback, failed-entry
+cleanup/retry/publication, dependency unload, and exhaustion/reload. Public session
+tests also ran natively, with explicit skips for Darwin's different setpgid child
+policy and Linux task IDs. All 397 affected image source/object pairs were current;
+811 strong POSIX imports had available exports. Fresh one/four-CPU headless guests
+passed all 43 suites in 310.3/242.8 seconds. Separate module-only guests also passed
+both CPU configurations. Allocation tests include actual Ext2 blocks and fsync;
+this pass does not add a cold-restart preallocation persistence claim.
+
+Initial failures are preserved. Oversized static runtime-module buffers exceeded
+the bootstrap's two page tables before normal kernel initialization. Bulk slots
+now allocate during later boot preparation, and an x64 linker assertion rejects
+images beyond that mapping; relinking the saved oversized objects proved rejection.
+Later public failures exposed mixed-root rename, absolute symlink traversal, and
+missing RAM symlink creation, all repaired with native and guest regressions.
+Two fixture assumptions were corrected against existing behavior: Unix datagram
+tests use bound sockets, and zero-length readlink checks distinguish musl's wrapper
+from the raw syscall. Native fixture setup failures and all failed guests remain
+under /private/tmp/pedigree-session-expansion-20260906/; verification.json records
+commands, outcomes, image identity and limitations. Shared build settings were
+restored after saving the tested images.
 
 ## Filesystem-wide synchronization
 

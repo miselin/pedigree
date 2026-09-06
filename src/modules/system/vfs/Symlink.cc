@@ -78,6 +78,8 @@ File* Symlink::followLinkRetained(Directory::ChildLease& result) {
     initialise();
     target = m_sTarget;
   }
+  if (target.length() && target[0] == '/')
+    return VFS::instance().findRetained(target, result);
   return m_pFilesystem->findRetained(target.view(), result, parent);
 }
 

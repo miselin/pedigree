@@ -87,4 +87,7 @@ SECTIONS
   . = ALIGN(4096);
 
   PROVIDE(kernel_end = .);
+  /* boot-standalone.s reserves two page tables for the initial kernel map. */
+  ASSERT(kernel_end <= 0xFFFFFFFF80400000,
+         "kernel exceeds the 4 MiB bootstrap mapping; move bulk storage to runtime allocation")
 }

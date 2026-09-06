@@ -32,42 +32,25 @@
 class PosixProcess;
 class Timer;
 
-class PosixSession {
- public:
-  PosixSession() : Leader(0) {}
-
-  ~PosixSession() {}
-
-  /** Session leader. */
-  PosixProcess* Leader;
-};
-
 class ProcessGroup {
- public:
-  ProcessGroup() : processGroupId(0), Leader(0), Members(), registered(false) {
-    Members.clear();
-  }
+  friend class PosixProcess;
+  friend class ProcessGroupManager;
 
+ public:
+  ProcessGroup() = default;
   virtual ~ProcessGroup();
 
-  /** The process group ID of this process group. */
-  int processGroupId;
-
-  /** The group leader of the process group. */
-  PosixProcess* Leader;
-
-  /** List of each Process that is in this process group.
-   *  Includes the Leader, iterate over this in order to
-   *  obtain every Process in the process group.
-   */
-  List<PosixProcess*> Members;
-
-  /** Whether this group ID was installed in ProcessGroupManager. */
-  bool registered;
+  int processGroupId = 0;
+  size_t sessionId = 0;
+  PosixProcess* Leader = nullptr;
 
  private:
-  ProcessGroup(const ProcessGroup&);
-  ProcessGroup& operator=(ProcessGroup&);
+  ProcessGroup(const ProcessGroup&) = delete;
+  ProcessGroup& operator=(const ProcessGroup&) = delete;
+  PosixProcess* firstMember = nullptr;
+  size_t memberCount = 0;
+  ProcessGroup* registryNext = nullptr;
+  bool registered = false;
 };
 
 class IntervalTimer : public TimerHandler {
@@ -165,8 +148,13 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   void setGroupMembership(Membership type);
   Membership getGroupMembership() const;
 
-  PosixSession* getSession() const;
-  void setSession(PosixSession* p);
+  size_t getSessionId() const;
+  bool sharesSession(const PosixProcess& other) const;
+  bool jobControlReady() const;
+  void markExecCommitted();
+  bool hasExecCommitted() const;
+  int createSession();
+  int changeProcessGroup(PosixProcess& caller, int groupId);
 
   virtual ProcessType getType();
 
@@ -220,8 +208,12 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   PosixProcess(const PosixProcess&);
   PosixProcess& operator=(const PosixProcess&);
 
-  PosixSession* m_pSession;
+  void initializeJobControl(Process* parent);
+  size_t m_SessionId;
   ProcessGroup* m_pProcessGroup;
+  PosixProcess* m_GroupPrevious;
+  PosixProcess* m_GroupNext;
+  bool m_ExecCommitted;
   Membership m_GroupMembership;
   uint32_t m_Mask;
 

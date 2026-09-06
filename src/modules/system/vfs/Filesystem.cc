@@ -370,13 +370,12 @@ bool Filesystem::remove(File* parent, File* file) {
 }
 
 bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringView& newPath,
-                        File* newStart) {
+                        File* newStart, bool noReplace) {
   if (!oldPath.length() || !newPath.length()) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
   InodeRetirementDrain retirement;
-  LockGuard<Mutex> structureGuard(m_StructureLock);
   TrueRootLease rootLease(this);
   if (!oldStart) {
     oldStart = rootLease.get();
@@ -384,18 +383,24 @@ bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringV
   if (!newStart) {
     newStart = rootLease.get();
   }
+  if (!oldStart || !newStart) {
+    SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
 
   String oldName;
   String newName;
   Directory::ChildLease oldParentLease;
   Directory::ChildLease newParentLease;
   File* retained = nullptr;
-  File* oldParentFile = findParent(oldPath, oldStart, oldName, &retained);
+  File* oldParentFile =
+      oldStart->getFilesystem()->findParent(oldPath, oldStart, oldName, &retained);
   if (retained) {
     oldParentLease.adopt(retained);
   }
   retained = nullptr;
-  File* newParentFile = findParent(newPath, newStart, newName, &retained);
+  File* newParentFile =
+      newStart->getFilesystem()->findParent(newPath, newStart, newName, &retained);
   if (retained) {
     newParentLease.adopt(retained);
   }
@@ -417,6 +422,7 @@ bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringV
     SYSCALL_ERROR(CrossDeviceLink);
     return false;
   }
+  LockGuard<Mutex> structureGuard(filesystem->m_StructureLock);
   if (filesystem->isReadOnly()) {
     SYSCALL_ERROR(ReadOnlyFilesystem);
     return false;
@@ -449,6 +455,10 @@ bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringV
   }
   File* source = sourceLease.get();
   if (oldParent == newParent && oldName == newName) {
+    if (noReplace) {
+      SYSCALL_ERROR(FileExists);
+      return false;
+    }
     return true;
   }
   const auto replacedStatus = newParent->lookupChild(HashedStringView(newName), replacedLease);
@@ -457,6 +467,12 @@ bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringV
     return false;
   }
   File* replaced = replacedLease.get();
+  // Both parent namespace locks exclude creators until reservation and commit.
+  // Check before the same-inode fast path: NOREPLACE rejects hard-link aliases too.
+  if (noReplace && replaced) {
+    SYSCALL_ERROR(FileExists);
+    return false;
+  }
   if (source->getFilesystem() != filesystem ||
       (replaced && replaced->getFilesystem() != filesystem)) {
     SYSCALL_ERROR(CrossDeviceLink);
@@ -775,6 +791,12 @@ File* Filesystem::findNode(File* pNode, StringView path, File* stableStart, File
   // Are we allowed to access files in this directory?
   if (!VFS::checkAccess(pNode, false, false, true)) {
     return 0;
+  }
+
+  if (!retainedResult && !pDir->cacheResolvedChildren()) {
+    // Generated nodes have no cache owner after the lookup lease leaves scope.
+    SYSCALL_ERROR(OperationNotSupported);
+    return nullptr;
   }
 
   Directory::ChildLease child;

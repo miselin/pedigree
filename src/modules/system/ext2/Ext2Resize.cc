@@ -257,7 +257,7 @@ bool Ext2Node::resizeData(size_t size) {
     SYSCALL_ERROR(FileTooLarge);
     return false;
   }
-  if (size >= m_nSize) {
+  if (size > m_nSize) {
     return ensureLargeEnough(size, 0, 0);
   }
   const size_t blockSize = m_pExt2Fs->m_BlockSize;

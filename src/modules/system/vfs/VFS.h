@@ -224,7 +224,8 @@ class EXPORTED_PUBLIC VFS {
   /** Remove a path only if its terminal entry still has the expected identity. */
   bool remove(const String& path, File* pStartNode, File* expected);
 
-  bool rename(const String& oldPath, File* oldStart, const String& newPath, File* newStart);
+  bool rename(const String& oldPath, File* oldStart, const String& newPath, File* newStart,
+              bool noReplace = false);
 
   /** Adds a filesystem probe callback - this is called when a device is
    * mounted. Duplicate registration is idempotent and revives an entry closed

@@ -50,6 +50,7 @@
 #include "modules/system/vfs/VFS.h"
 #include "mqueue-netlink.h"
 #include "net-syscalls.h"
+#include "recvmmsg-syscalls.h"
 #include "signalfd-syscalls.h"
 #include "timerfd-syscalls.h"
 
@@ -179,7 +180,7 @@ bool copySocketAddress(const struct sockaddr_storage* address, socklen_t length,
 }
 
 bool validateSocketMessageFlags(int flags, bool sending, int domain = 0) {
-  int supported = 0;
+  int supported = sending ? 0 : MSG_DONTWAIT;
 #ifdef MSG_NOSIGNAL
   if (sending || domain == 16) {
     // Socket writes do not currently raise SIGPIPE, so suppression requires
@@ -783,6 +784,11 @@ ssize_t posix_recvmsg_descriptor(const DescriptorLease& f, struct msghdr* messag
     return -1;
   }
 
+  const int pendingError = f->networkImpl->takeReceiveError();
+  if (pendingError) {
+    syscallError(pendingError);
+    return -1;
+  }
   SocketPayload payload;
   if (!payload.prepare(*message, f->networkImpl->getType(), f->networkImpl->getDomain(), false)) {
     return -1;
@@ -1096,7 +1102,12 @@ int posix_getsockopt(int sock, int level, int optname, void* optvalue, socklen_t
   if (!isSaneSocket(f)) {
     return -1;
   }
-  if (f->networkImpl->getsockopt(level, optname, &value, &length) < 0) {
+  const int pendingError =
+      level == SOL_SOCKET && optname == SO_ERROR ? f->networkImpl->takeReceiveError() : 0;
+  if (pendingError) {
+    value.scalar = pendingError;
+    length = sizeof(value.scalar);
+  } else if (f->networkImpl->getsockopt(level, optname, &value, &length) < 0) {
     return -1;
   }
   if (length > sizeof(value)) {
@@ -1209,10 +1220,23 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
     return -1;
   }
 
+  return posix_recvmsg_user_descriptor(f, msg, flags);
+}
+
+ssize_t posix_recvmsg_user_descriptor(const DescriptorLease& f, struct msghdr* msg, int flags,
+                                      unsigned int* receivedLength) {
+  if (!isSaneSocket(f) || !validateSocketMessageFlags(flags, false, f->networkImpl->getDomain()))
+    return -1;
   struct msghdr message = {};
   if (!PosixSubsystem::copyFromUser(&message, msg, sizeof(message)) ||
       !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(msg), sizeof(message),
                                     PosixSubsystem::SafeWrite)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  if (receivedLength &&
+      !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(receivedLength),
+                                    sizeof(*receivedLength), PosixSubsystem::SafeWrite)) {
     SYSCALL_ERROR(BadAddress);
     return -1;
   }
@@ -1382,7 +1406,9 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
       result.msg_flags |= MSG_CTRUNC;
     }
 #endif
-    if (!PosixSubsystem::copyToUser(msg, &result, sizeof(result))) {
+    const unsigned int length = static_cast<unsigned int>(n);
+    if ((receivedLength && !PosixSubsystem::copyToUser(receivedLength, &length, sizeof(length))) ||
+        !PosixSubsystem::copyToUser(msg, &result, sizeof(result))) {
       rollback();
       SYSCALL_ERROR(BadAddress);
       return -1;
@@ -1403,6 +1429,45 @@ NetworkSyscalls::NetworkSyscalls(int domain, int type, int protocol)
       m_DescriptorAdmissionOpen(true),
       m_LastDescriptorClosed(false),
       m_DescriptorLifetime() {}
+
+int NetworkSyscalls::takeReceiveError() {
+  int error;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_ReceiveErrorLock);
+    error = m_ReceiveError;
+    m_ReceiveError = 0;
+  }
+  if (error)
+    notifyReadiness(ReadyError);
+  return error;
+}
+
+void NetworkSyscalls::deferReceiveError(int error) {
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_ReceiveErrorLock);
+    if (!m_ReceiveError && error)
+      ++m_ReceiveErrorGeneration;
+    m_ReceiveError = error;
+  }
+  notifyReadiness(ReadyError);
+}
+
+ReadyMask NetworkSyscalls::pendingReceiveReadiness() const {
+  ConstexprLockGuard<Mutex, THREADS> guard(m_ReceiveErrorLock);
+  return m_ReceiveError ? ReadyError : ReadyNone;
+}
+
+ReadinessGenerations NetworkSyscalls::withReceiveErrorGeneration(
+    ReadinessGenerations generations) const {
+  ConstexprLockGuard<Mutex, THREADS> guard(m_ReceiveErrorLock);
+  // The independent error source must survive drain/refill callback reorder.
+  generations.error += m_ReceiveErrorGeneration;
+  return generations;
+}
+
+ReadinessGenerations NetworkSyscalls::readinessGenerations() {
+  return withReceiveErrorGeneration(ReadinessGenerations());
+}
 
 NetworkSyscalls::~NetworkSyscalls() {
   lastDescriptorClosed();
@@ -1477,7 +1542,7 @@ void NetworkSyscalls::unPoll(Semaphore* waiter) {}
 ReadyMask NetworkSyscalls::queryReady(bool reading, bool writing) {
   (void)reading;
   (void)writing;
-  return ReadyInvalid;
+  return ReadyInvalid | pendingReceiveReadiness();
 }
 
 bool NetworkSyscalls::addDescriptorOwner() {
@@ -1935,6 +2000,7 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
 
   const bool tcp = NETCONNTYPE_GROUP(netconn_type(m_Socket)) == NETCONN_TCP;
   const int inputFlags = msghdr->msg_flags;
+  const bool blocking = isBlocking() && !(inputFlags & MSG_DONTWAIT);
   if ((inputFlags & MSG_TRUNC) && (tcp || m_Type != SOCK_DGRAM)) {
     SYSCALL_ERROR(OperationNotSupported);
     return -1;
@@ -1954,7 +2020,7 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
   }
 
   // No data to read right now.
-  if (!isBlocking()) {
+  if (!blocking) {
     bool noData = false;
     {
       ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
@@ -2479,7 +2545,7 @@ ReadyMask LwipSocketSyscalls::queryReady(bool reading, bool writing) {
   if (!writing) {
     ready &= ~ReadyWrite;
   }
-  return ready;
+  return ready | pendingReceiveReadiness();
 }
 
 ReadinessGenerations LwipSocketSyscalls::readinessGenerations() {
@@ -2489,7 +2555,7 @@ ReadinessGenerations LwipSocketSyscalls::readinessGenerations() {
   }
 
   ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
-  return m_Metadata.generations;
+  return withReceiveErrorGeneration(m_Metadata.generations);
 }
 
 bool LwipSocketSyscalls::poll(bool& read, bool& write, bool& error, Semaphore* waiter) {
@@ -2513,7 +2579,7 @@ bool LwipSocketSyscalls::poll(bool& read, bool& write, bool& error, Semaphore* w
   }
 
   if (error) {
-    error = m_Metadata.error != ERR_OK;
+    error = m_Metadata.error != ERR_OK || pendingReceiveReadiness();
     ok = ok || error;
   }
 
@@ -3367,6 +3433,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
   }
 
   const int inputFlags = msghdr->msg_flags;
+  const bool blocking = isBlocking() && !(inputFlags & MSG_DONTWAIT);
 #ifdef MSG_TRUNC
   if ((inputFlags & MSG_TRUNC) && getType() != SOCK_DGRAM) {
     SYSCALL_ERROR(OperationNotSupported);
@@ -3410,7 +3477,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
     SharedPointer<SocketRights> receivedRights;
     consumedDatagram =
         localSocket->receiveDatagram(datagramCapacity, reinterpret_cast<uintptr_t>(buffer),
-                                     isBlocking(), remote, receivedRights, numRead, datagramLength);
+                                     blocking, remote, receivedRights, numRead, datagramLength);
     if (rights) {
       *rights = receivedRights;
     }
@@ -3426,7 +3493,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
     }
   } else {
     numRead = localSocket->receiveStream(msghdr->msg_iov, static_cast<size_t>(msghdr->msg_iovlen),
-                                         isBlocking(), rights, &interrupted);
+                                         blocking, rights, &interrupted);
   }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -3484,7 +3551,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
       return 0;
     }
 
-    if (!isBlocking()) {
+    if (!blocking) {
       SYSCALL_ERROR(NoMoreProcesses);
       N_NOTICE(" -> -1 (EAGAIN)");
       return -1;
@@ -3871,7 +3938,7 @@ ReadyMask UnixSocketSyscalls::queryReady(bool reading, bool writing) {
     if (!local->wasConnected()) {
       ready |= ReadyError;
     }
-    return ready;
+    return ready | pendingReceiveReadiness();
   }
 
   ReadyMask ready = ReadyNone;
@@ -3889,7 +3956,7 @@ ReadyMask UnixSocketSyscalls::queryReady(bool reading, bool writing) {
     }
   }
 
-  return ready;
+  return ready | pendingReceiveReadiness();
 }
 
 ReadinessGenerations UnixSocketSyscalls::readinessGenerations() {
@@ -3899,7 +3966,8 @@ ReadinessGenerations UnixSocketSyscalls::readinessGenerations() {
   }
 
   SharedPointer<UnixSocketGeneration> endpoint = acquireLocalEndpoint();
-  return endpoint ? endpoint->get()->readinessGenerations() : ReadinessGenerations();
+  return withReceiveErrorGeneration(endpoint ? endpoint->get()->readinessGenerations()
+                                             : ReadinessGenerations());
 }
 
 bool UnixSocketSyscalls::poll(bool& read, bool& write, bool& error, Semaphore* waiter) {
@@ -3909,7 +3977,7 @@ bool UnixSocketSyscalls::poll(bool& read, bool& write, bool& error, Semaphore* w
   const bool checkWrite = write;
   read = false;
   write = false;
-  error = false;
+  error = pendingReceiveReadiness();
 
   if (!local) {
     error = true;
@@ -3926,7 +3994,7 @@ bool UnixSocketSyscalls::poll(bool& read, bool& write, bool& error, Semaphore* w
     return true;
   }
 
-  bool ok = false;
+  bool ok = error;
   if (checkRead) {
     read = local->select(false, 0);
     ok = ok || read;

@@ -22,6 +22,7 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/linker/Elf.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
@@ -39,6 +40,7 @@ class BootstrapStruct_t;
 struct BootstrapStruct_t;
 #endif
 class String;
+struct RuntimeModuleSlot;
 
 /** @addtogroup kernellinker
  * @{ */
@@ -47,6 +49,7 @@ class Module {
  public:
   Module()
       : elf(nullptr),
+        runtime(nullptr),
         name(0),
         entry(0),
         exit(0),
@@ -67,6 +70,7 @@ class Module {
   }
 
   Elf* elf;
+  RuntimeModuleSlot* runtime;
   String name;
   bool (*entry)();
   void (*exit)();
@@ -157,6 +161,47 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
 
   /** Unloads an active module; completed unloads are absent from this lookup. */
   RuntimeUnloadResult unloadModuleRuntime(const char* name);
+
+  enum class RuntimeLoadResult {
+    Ready,
+    Loaded,
+    InvalidImage,
+    UnsupportedImage,
+    ImageTooLarge,
+    NoMemory,
+    Busy,
+    Shutdown,
+    Duplicate,
+    MissingDependency,
+    EntryFailed,
+    ProtectionFailed
+  };
+
+  /** Owns one preallocated input buffer and the loader transition claim. */
+  class EXPORTED_PUBLIC RuntimeLoad {
+   public:
+    RuntimeLoad();
+    ~RuntimeLoad();
+    uint8_t* data() const;
+
+   private:
+    friend class KernelElf;
+    RuntimeLoad(const RuntimeLoad&) = delete;
+    RuntimeLoad& operator=(const RuntimeLoad&) = delete;
+    TerminationDeferral lifetime;
+    RuntimeModuleSlot* slot;
+    size_t length;
+  };
+
+  /** Trusted boot preparation; runtime admission never allocates or maps pages. */
+  bool prepareRuntimeModules();
+  RuntimeLoadResult beginRuntimeModuleLoad(size_t length, RuntimeLoad& load);
+  RuntimeLoadResult loadModuleRuntime(RuntimeLoad& load);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  /** Fail one arena protection operation, then allow ordinary rollback. */
+  static void failRuntimeProtectionForTest(size_t operationsBeforeFailure);
+#endif
 
   /** Unloads all loaded modules. */
   void unloadModules();
@@ -276,6 +321,11 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
     ShutdownFailed,
   };
 
+  void abandonRuntimeModuleLoad(RuntimeLoad& load);
+  bool retireRuntimeModule(Module* module, bool runLifecycle);
+  uintptr_t runtimeExportLocked(const char* name, Module* owner = nullptr) const;
+  /** Requires the exclusive runtime load claim; providers cannot retire. */
+  uintptr_t resolveRuntimeImport(const char* name, Module* consumer);
   bool beginModuleLoad();
   void finishModuleLoad();
   bool moduleRegisteredLocked(Module* module) const;
@@ -294,6 +344,10 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
   template <class T>
   static T* rebase(Module* module, T* ptr) {
     EMIT_IF(STATIC_DRIVERS) {
+      return ptr;
+    }
+
+    if (module->runtime) {
       return ptr;
     }
 
@@ -324,6 +378,8 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
   Vector<Module*> m_Modules;
   /** Memory allocator for modules - where they can be loaded. */
   MemoryAllocator m_ModuleAllocator;
+  bool m_ModuleAllocatorInitialised;
+  bool m_RuntimeModulesPrepared;
 
   /**
    * Override Elf base class members.

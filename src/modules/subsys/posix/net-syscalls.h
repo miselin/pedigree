@@ -118,6 +118,7 @@ class NetworkSyscalls : public ReadinessSource {
 
   /** Return a level-triggered snapshot for the requested I/O directions. */
   virtual ReadyMask queryReady(bool reading, bool writing);
+  ReadinessGenerations readinessGenerations() override;
 
   /** Track descriptor owners independently of in-flight syscall leases. */
   MUST_USE_RESULT bool addDescriptorOwner();
@@ -155,7 +156,13 @@ class NetworkSyscalls : public ReadinessSource {
 
   virtual void setBlocking(bool blocking);
 
+  int takeReceiveError();
+  void deferReceiveError(int error);
+
  protected:
+  ReadyMask pendingReceiveReadiness() const;
+  ReadinessGenerations withReceiveErrorGeneration(ReadinessGenerations generations) const;
+
   /** Wins the one transition into lastDescriptorClosed(). */
   bool beginDescriptorClose();
 
@@ -169,6 +176,9 @@ class NetworkSyscalls : public ReadinessSource {
   int m_Protocol;
 
   Atomic<bool> m_Blocking;
+  mutable Mutex m_ReceiveErrorLock;
+  int m_ReceiveError = 0;
+  uint64_t m_ReceiveErrorGeneration = 0;
 
   /** Pins transport state across readiness queries and external notifications. */
   OperationBarrier m_ReadinessNotifications;

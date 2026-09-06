@@ -374,8 +374,7 @@ int posix_rt_sigqueueinfo(int pid, int signal, const LinuxQueuedSiginfo* info) {
   if (effective != 0 &&
       !((real >= 0 && (real == targetReal || real == saved)) ||
         (effective >= 0 && (effective == targetReal || effective == saved))) &&
-      !(signal == SIGCONT && caller->getSession() &&
-        caller->getSession() == recipient->getSession())) {
+      !(signal == SIGCONT && caller->sharesSession(*recipient))) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }

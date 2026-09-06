@@ -46,6 +46,7 @@ class Ext2Filesystem : public Filesystem {
   friend class Ext2FillCacheTestPeer;
   friend class Ext2WritebackTestPeer;
   friend class Ext2FilesystemSyncTestPeer;
+  friend class Ext2AllocationTestPeer;
   friend class Ext2File;
   friend class Ext2Node;
   friend class Ext2Directory;

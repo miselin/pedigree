@@ -495,6 +495,26 @@ void HostedVirtualAddressSpace::setFlags(void* virtualAddress, size_t newFlags) 
   }
 }
 
+bool HostedVirtualAddressSpace::trySetFlags(void* virtualAddress, size_t newFlags) {
+  virtualAddress = page_align(virtualAddress);
+  if (this != &getKernelAddressSpace() && getKernelAddressSpace().isMapped(virtualAddress)) {
+    return getKernelAddressSpace().trySetFlags(virtualAddress, newFlags);
+  }
+
+  LockGuard<Spinlock> guard(m_Lock);
+  for (size_t i = 0; i < m_KnownMapsSize; ++i) {
+    if (m_pKnownMaps[i].active && m_pKnownMaps[i].vaddr == virtualAddress) {
+      if (mprotect(virtualAddress, PhysicalMemoryManager::getPageSize(), toFlags(newFlags, true)) !=
+          0) {
+        return false;
+      }
+      m_pKnownMaps[i].flags = newFlags;
+      return true;
+    }
+  }
+  return false;
+}
+
 void HostedVirtualAddressSpace::unmap(void* virtualAddress) {
   LockGuard<Spinlock> guard(m_Lock);
 

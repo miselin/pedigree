@@ -89,11 +89,6 @@ bool priorityQueries(Process* kernelProcess) {
   PosixProcess* process = new PosixProcess(kernelProcess);
   process->setSubsystem(new PosixSubsystem);
   process->setUserId(TestUid);
-  ProcessGroup* group = new ProcessGroup;
-  group->processGroupId = static_cast<int>(process->getId());
-  group->Leader = process;
-  process->setProcessGroup(group);
-  process->setGroupMembership(PosixProcess::Leader);
   process->publish();
 
   PosixProcess* foreign = new PosixProcess(kernelProcess);

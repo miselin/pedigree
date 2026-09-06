@@ -8,6 +8,7 @@
 #include "PosixProcess.h"
 #include "PosixSubsystem.h"
 #include "ProcFs.h"
+#include "descriptor-path.h"
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 #include "namespace-file.h"
@@ -187,7 +188,7 @@ class ProcessDirectory final : public ProcFsDirectory {
                         filesystem.getRoot()),
         m_Context(context) {}
 
-  bool initialise(ProcFs& filesystem) {
+  bool initialise(ProcFs& filesystem, size_t pid) {
     if (!m_Context)
       return true;
     PosixUtsTarget leader;
@@ -201,6 +202,10 @@ class ProcessDirectory final : public ProcFsDirectory {
     if (!m_Tasks)
       return false;
     addEntry(String("task"), m_Tasks);
+    auto* descriptors = posix_make_descriptor_directory(filesystem, this, pid, m_Context);
+    if (!descriptors)
+      return false;
+    addEntry(String("fd"), descriptors);
     return true;
   }
 
@@ -284,7 +289,7 @@ ProcFsDirectory* ProcFs::createProcessDirectory(PosixProcess* process) {
   NormalStaticString name;
   name.append(process->getId());
   auto* directory = new ProcessDirectory(*this, String(name, name.length()), context);
-  if (directory && !directory->initialise(*this)) {
+  if (directory && !directory->initialise(*this, process->getId())) {
     delete directory;
     directory = nullptr;
   }

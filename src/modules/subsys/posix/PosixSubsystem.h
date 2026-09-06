@@ -171,7 +171,7 @@ class ProcessGroupManager {
    * Bitmap of available group IDs.
    */
   ExtensibleBitmap m_GroupIds;
-  Tree<size_t, ProcessGroup*> m_Groups;
+  ProcessGroup* m_Groups;
 
   mutable Spinlock m_GroupLock;
 };
@@ -498,6 +498,9 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
    */
   bool acquireFileDescriptor(size_t fd, DescriptorLease& descriptor);
 
+  /** Retain the lowest published descriptor at or after minimum. */
+  bool acquireNextFileDescriptor(size_t minimum, size_t& fd, DescriptorLease& descriptor);
+
   /** Compare publication identity without taking an OFD lock or retaining references. */
   bool descriptorMatchesOpenDescription(size_t fd,
                                         const FileDescriptor::OpenFileDescriptionLease& expected);
@@ -705,6 +708,9 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   virtual bool invoke(File* originalFile, const String& originalName, Vector<String>& argv,
                       Vector<String>& env, SyscallState& state);
 
+  bool invoke(File* originalFile, const String& originalName, Vector<String>& argv,
+              Vector<String>& env, SyscallState& state, bool descriptorPathInaccessible);
+
   virtual File* findFile(const String& path, File* workingDir);
 
   /** Find a file while retaining its VFS lifetime in result. */
@@ -739,7 +745,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   /** Invokes the given command - actual implementation. */
   bool invoke(File* originalFile, const String& originalName, Vector<String>& argv,
-              Vector<String>& env, SyscallState* state);
+              Vector<String>& env, SyscallState* state, bool descriptorPathInaccessible = false);
 
   /** Parse a bounded shebang line, if present. */
   bool parseShebang(File* pFile, String& interpreter, String& optionalArgument,

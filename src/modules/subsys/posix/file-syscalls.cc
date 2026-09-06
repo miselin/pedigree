@@ -569,7 +569,8 @@ int posix_read(int fd, char* ptr, int len) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
-  if (pFd->file && (pFd->getStatusFlags() & O_ACCMODE) == O_WRONLY) {
+  if (pFd->file &&
+      ((pFd->getStatusFlags() & O_PATH) || (pFd->getStatusFlags() & O_ACCMODE) == O_WRONLY)) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -786,7 +787,8 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
-  if (pFd->file && (pFd->getStatusFlags() & O_ACCMODE) == O_RDONLY) {
+  if (pFd->file &&
+      ((pFd->getStatusFlags() & O_PATH) || (pFd->getStatusFlags() & O_ACCMODE) == O_RDONLY)) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -1005,7 +1007,7 @@ ssize_t posix_pread64(int fd, char* ptr, size_t len, off_t offset) {
     return -1;
   }
   const int statusFlags = descriptor->getStatusFlags();
-  if ((statusFlags & O_ACCMODE) == O_WRONLY) {
+  if ((statusFlags & O_PATH) || (statusFlags & O_ACCMODE) == O_WRONLY) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -1116,7 +1118,7 @@ ssize_t posix_pwrite64(int fd, const char* ptr, size_t len, off_t offset) {
     return -1;
   }
   const int statusFlags = descriptor->getStatusFlags();
-  if ((statusFlags & O_ACCMODE) == O_RDONLY) {
+  if ((statusFlags & O_PATH) || (statusFlags & O_ACCMODE) == O_RDONLY) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -1371,7 +1373,8 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
-  if (descriptor->file && (descriptor->getStatusFlags() & O_ACCMODE) == O_RDONLY) {
+  if (descriptor->file && ((descriptor->getStatusFlags() & O_PATH) ||
+                           (descriptor->getStatusFlags() & O_ACCMODE) == O_RDONLY)) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -1568,7 +1571,8 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
-  if (descriptor->file && (descriptor->getStatusFlags() & O_ACCMODE) == O_WRONLY) {
+  if (descriptor->file && ((descriptor->getStatusFlags() & O_PATH) ||
+                           (descriptor->getStatusFlags() & O_ACCMODE) == O_WRONLY)) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -1847,7 +1851,7 @@ ssize_t positionalReadVector(int fd, const struct iovec* iov, int iovcnt, off_t 
   }
 
   const int statusFlags = descriptor->getStatusFlags();
-  if ((statusFlags & O_ACCMODE) == O_WRONLY) {
+  if ((statusFlags & O_PATH) || (statusFlags & O_ACCMODE) == O_WRONLY) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -1964,7 +1968,7 @@ ssize_t positionalWriteVector(int fd, const struct iovec* iov, int iovcnt, off_t
   }
 
   const int statusFlags = descriptor->getStatusFlags();
-  if ((statusFlags & O_ACCMODE) == O_RDONLY) {
+  if ((statusFlags & O_PATH) || (statusFlags & O_ACCMODE) == O_RDONLY) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -2126,6 +2130,11 @@ off_t posix_lseek(int file, off_t ptr, int dir) {
     return -1;
   }
 
+  if (pFd->getStatusFlags() & O_PATH) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
   if (pFd->getTimerFdImpl() || pFd->getSignalFdImpl() || pFd->getFanotifyImpl()) {
     if (dir < SEEK_SET || dir > 4) {
       SYSCALL_ERROR(InvalidArgument);
@@ -2168,68 +2177,6 @@ int posix_link(char* target, char* link) {
 
 int posix_readlink(const char* path, char* buf, unsigned int bufsize) {
   return posix_readlinkat(AT_FDCWD, path, buf, bufsize);
-}
-
-static bool parseProcSelfFdPath(const String& path, size_t& fd) {
-  static const char prefix[] = "/proc/self/fd/";
-  const size_t prefixLength = sizeof(prefix) - 1;
-  if (path.length() <= prefixLength || StringCompareN(path.cstr(), prefix, prefixLength)) {
-    return false;
-  }
-
-  const size_t maximum = ~static_cast<size_t>(0);
-  size_t result = 0;
-  for (size_t i = prefixLength; i < path.length(); ++i) {
-    const char value = path[i];
-    if (value < '0' || value > '9') {
-      return false;
-    }
-
-    const size_t digit = static_cast<size_t>(value - '0');
-    if (result > (maximum - digit) / 10) {
-      return false;
-    }
-    result = (result * 10) + digit;
-  }
-
-  fd = result;
-  return true;
-}
-
-static int readProcSelfFdTarget(size_t fd, char* buf, size_t bufsiz) {
-  Process* process = Processor::information().getCurrentThread()->getParent();
-  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
-  DescriptorLease descriptor;
-  if (!subsystem || !subsystem->acquireFileDescriptor(fd, descriptor)) {
-    // Linux exposes a closed descriptor as a missing procfs entry, not EBADF.
-    SYSCALL_ERROR(DoesNotExist);
-    return -1;
-  }
-
-  if (!bufsiz) {
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
-  String target;
-  if (descriptor->getTimerFdImpl()) {
-    target.assign("anon_inode:[timerfd]");
-  } else if (descriptor->getSignalFdImpl()) {
-    target.assign("anon_inode:[signalfd]");
-  } else if (descriptor->getFanotifyImpl()) {
-    target.assign("anon_inode:[fanotify]");
-  } else if (descriptor->file) {
-    descriptor->file->getFullPath(target);
-  } else {
-    SYSCALL_ERROR(DoesNotExist);
-    return -1;
-  }
-  const size_t copied = target.length() < bufsiz ? target.length() : bufsiz;
-  if (!PosixSubsystem::copyToUser(buf, target.cstr(), copied)) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-  return static_cast<int>(copied);
 }
 
 int posix_realpath(const char* path, char* buf, size_t bufsize) {
@@ -2360,6 +2307,11 @@ static int getdents_common(int fd,
   if (!pSubsystem->acquireFileDescriptor(fd, pFd) || !pFd->file) {
     // Error - no such file descriptor.
     F_NOTICE(" -> bad file");
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
+  if (pFd->getStatusFlags() & O_PATH) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -2575,6 +2527,11 @@ int posix_ioctl(int fd, size_t command, void* buf) {
   if (!pSubsystem->acquireFileDescriptor(fd, f)) {
     // Error - no such FD.
     F_NOTICE("  -> ioctl for a file that doesn't exist");
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
+  if (f->getStatusFlags() & O_PATH) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -3140,6 +3097,12 @@ int posix_fcntl(int fd, int cmd, void* arg) {
     return -1;
   }
 
+  if ((f->getStatusFlags() & O_PATH) && cmd != F_GETFL && cmd != F_GETFD && cmd != F_SETFD &&
+      cmd != F_DUPFD && cmd != F_DUPFD_CLOEXEC) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
   switch (cmd) {
 #ifdef F_DUPFD_CLOEXEC
     case F_DUPFD_CLOEXEC:
@@ -3530,6 +3493,10 @@ int posix_ftruncate(int a, off_t b) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
+  if (pFd->getStatusFlags() & O_PATH) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
   File* pFile = pFd->file;
   if (!pFile) {
     SYSCALL_ERROR(InvalidArgument);
@@ -3559,6 +3526,11 @@ int posix_fsync(int fd) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
+  if (pFd->getStatusFlags() & O_PATH) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
   File* pFile = pFd->file;
   if (!pFile) {
     SYSCALL_ERROR(InvalidArgument);
@@ -3624,11 +3596,37 @@ int posix_chown(const char* path, uid_t owner, gid_t group) {
 }
 
 int posix_fchmod(int fd, mode_t mode) {
-  return posix_fchmodat(fd, nullptr, mode, AT_EMPTY_PATH);
+  DescriptorLease descriptor;
+  if (!acquireDescriptor(fd, descriptor) || !descriptor->file ||
+      (descriptor->getStatusFlags() & O_PATH)) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  if (mode == static_cast<mode_t>(-1)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  File* file = descriptor->file;
+  if (file->getFilesystem() && file->getFilesystem()->isReadOnly()) {
+    SYSCALL_ERROR(ReadOnlyFilesystem);
+    return -1;
+  }
+  return doChmod(file, mode) ? 0 : -1;
 }
 
 int posix_fchown(int fd, uid_t owner, gid_t group) {
-  return posix_fchownat(fd, nullptr, owner, group, AT_EMPTY_PATH);
+  DescriptorLease descriptor;
+  if (!acquireDescriptor(fd, descriptor) || !descriptor->file ||
+      (descriptor->getStatusFlags() & O_PATH)) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  File* file = descriptor->file;
+  if (file->getFilesystem() && file->getFilesystem()->isReadOnly()) {
+    SYSCALL_ERROR(ReadOnlyFilesystem);
+    return -1;
+  }
+  return doChown(file, owner, group) ? 0 : -1;
 }
 
 int posix_fchdir(int fd) {
@@ -3921,18 +3919,22 @@ static File* check_dirfd(int dirfd, DescriptorLease& descriptor,
 int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
   F_NOTICE("openat");
 
-  DescriptorLease dirDescriptor;
-  Process::FileContextLease cwdLease;
-  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease);
-  if (!cwd) {
-    return -1;
-  }
-
   String pathnameCopy;
   if (!copyUserString(pathname, pathnameCopy)) {
     F_NOTICE("open -> invalid address");
     return -1;
   }
+
+  DescriptorLease dirDescriptor;
+  Process::FileContextLease cwdLease;
+  File* cwd = check_dirfd(pathnameCopy.length() && pathnameCopy[0] == '/' ? AT_FDCWD : dirfd,
+                          dirDescriptor, cwdLease);
+  if (!cwd)
+    return -1;
+
+  const bool pathOnly = flags & O_PATH;
+  if (pathOnly)
+    flags &= O_PATH | O_NOFOLLOW | O_DIRECTORY | O_CLOEXEC;
 
   F_NOTICE("openat(" << dirfd << ", " << pathnameCopy << ", " << flags << ", " << Oct << mode
                      << ")");
@@ -4037,13 +4039,37 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
     return -1;
   }
 
-  file = traverseSymlink(file, fileLease);
+  if (file->isSymlink() && (flags & O_NOFOLLOW)) {
+    if (!pathOnly) {
+      SYSCALL_ERROR(LoopExists);
+      pSubsystem->freeFd(fd);
+      return -1;
+    }
+  } else {
+    file = traverseSymlink(file, fileLease);
+  }
 
   if (!file) {
     if (!Processor::information().getCurrentThread()->getErrno())
       SYSCALL_ERROR(DoesNotExist);
     pSubsystem->freeFd(fd);
     return -1;
+  }
+
+  if ((flags & O_DIRECTORY) && !file->isDirectory()) {
+    SYSCALL_ERROR(NotADirectory);
+    pSubsystem->freeFd(fd);
+    return -1;
+  }
+  if (pathOnly) {
+    auto* descriptor = new FileDescriptor(file, 0, fd, 0, flags);
+    if (!descriptor) {
+      pSubsystem->freeFd(fd);
+      SYSCALL_ERROR(OutOfMemory);
+      return -1;
+    }
+    pSubsystem->addFileDescriptor(fd, descriptor);
+    return static_cast<int>(fd);
   }
 
   if (file->isDirectory() && (flags & (O_WRONLY | O_RDWR))) {
@@ -4540,18 +4566,18 @@ int posix_symlinkat(const char* oldpath, int newdirfd, const char* newpath) {
 int posix_readlinkat(int dirfd, const char* pathname, char* buf, size_t bufsiz) {
   F_NOTICE("readlinkat");
 
-  DescriptorLease dirDescriptor;
-  Process::FileContextLease cwdLease;
-  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease);
-  if (!cwd) {
-    return -1;
-  }
-
   String pathnameCopy;
   if (!copyUserString(pathname, pathnameCopy)) {
     F_NOTICE("readlink -> invalid address");
     return -1;
   }
+  DescriptorLease dirDescriptor;
+  Process::FileContextLease cwdLease;
+  File* cwd = check_dirfd(pathnameCopy.length() && pathnameCopy[0] == '/' ? AT_FDCWD : dirfd,
+                          dirDescriptor, cwdLease, pathnameCopy.length() ? 0 : AT_EMPTY_PATH);
+  if (!cwd)
+    return -1;
+
   if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), bufsiz,
                                     PosixSubsystem::SafeWrite)) {
     F_NOTICE("readlink -> invalid address");
@@ -4565,13 +4591,8 @@ int posix_readlinkat(int dirfd, const char* pathname, char* buf, size_t bufsiz) 
   String realPath;
   normalisePath(realPath, pathnameCopy.cstr());
 
-  size_t procFd = 0;
-  if (parseProcSelfFdPath(realPath, procFd)) {
-    return readProcSelfFdTarget(procFd, buf, bufsiz);
-  }
-
   Directory::ChildLease fileLease;
-  File* f = findFileWithAbiFallbacks(realPath, fileLease, cwd);
+  File* f = pathnameCopy.length() ? findFileWithAbiFallbacks(realPath, fileLease, cwd) : cwd;
   if (!f) {
     if (!Processor::information().getCurrentThread()->getErrno())
       SYSCALL_ERROR(DoesNotExist);
@@ -4587,7 +4608,8 @@ int posix_readlinkat(int dirfd, const char* pathname, char* buf, size_t bufsiz) 
     return -1;
 
   if (!bufsiz) {
-    return 0;
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
   }
   // Symlink target loading is bounded to one PATH_MAX-sized buffer.
   const size_t capacity = bufsiz < PATH_MAX ? bufsiz : PATH_MAX;
@@ -4852,6 +4874,18 @@ int posix_fstatat(int dirfd, const char* pathname, struct stat* buf, int flags) 
       }
       return 0;
     }
+    if (!descriptor->file) {
+      SYSCALL_ERROR(BadFileDescriptor);
+      return -1;
+    }
+    struct stat snapshot = {};
+    if (!doStat(0, descriptor->file, &snapshot, false))
+      return -1;
+    if (!PosixSubsystem::copyToUser(buf, &snapshot, sizeof(snapshot))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    return 0;
   }
 
   DescriptorLease dirDescriptor;
