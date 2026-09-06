@@ -24,6 +24,7 @@
 #include "modules/subsys/posix/IoEvent.h"
 #include "modules/subsys/posix/epoll-syscalls.h"
 #include "modules/subsys/posix/eventfd-syscalls.h"
+#include "modules/subsys/posix/fanotify-syscalls.h"
 #include "modules/subsys/posix/inotify-syscalls.h"
 #include "modules/subsys/posix/mqueue-syscalls.h"
 #include "modules/subsys/posix/signalfd-syscalls.h"
@@ -146,6 +147,11 @@ SharedPointer<InotifyInstance> FileDescriptor::OpenFileDescription::getInotifyIm
   return inotifyImpl;
 }
 
+SharedPointer<FanotifyInstance> FileDescriptor::OpenFileDescription::getFanotifyImpl() const {
+  LockGuard<Mutex> guard(lock);
+  return fanotifyImpl;
+}
+
 size_t FileDescriptor::OpenFileDescription::descriptorOwnerCount() const {
   LockGuard<Mutex> guard(lock);
   return descriptorOwners;
@@ -162,6 +168,7 @@ void FileDescriptor::OpenFileDescription::removeDescriptorOwner() {
   int flags = 0;
   SharedPointer<NetworkSyscalls> closingNetwork;
   SharedPointer<InotifyInstance> closingInotify;
+  SharedPointer<FanotifyInstance> closingFanotify;
   {
     LockGuard<Mutex> guard(lock);
     assert(descriptorOwners);
@@ -171,6 +178,7 @@ void FileDescriptor::OpenFileDescription::removeDescriptorOwner() {
     if (closeEndpoint) {
       closingNetwork = networkImpl;
       closingInotify = inotifyImpl;
+      closingFanotify = fanotifyImpl;
     }
   }
   if (closeEndpoint) {
@@ -184,6 +192,9 @@ void FileDescriptor::OpenFileDescription::removeDescriptorOwner() {
     }
     if (closingInotify) {
       closingInotify->lastDescriptorClosed();
+    }
+    if (closingFanotify) {
+      closingFanotify->lastDescriptorClosed();
     }
   }
 }
@@ -487,6 +498,16 @@ void FileDescriptor::setInotifyImpl(const SharedPointer<InotifyInstance>& implem
 
 SharedPointer<InotifyInstance> FileDescriptor::getInotifyImpl() const {
   return m_OpenFile->getInotifyImpl();
+}
+
+void FileDescriptor::setFanotifyImpl(const SharedPointer<FanotifyInstance>& implementation) {
+  LockGuard<Mutex> guard(m_OpenFile->lock);
+  assert(!m_OpenFile->fanotifyImpl);
+  m_OpenFile->fanotifyImpl = implementation;
+}
+
+SharedPointer<FanotifyInstance> FileDescriptor::getFanotifyImpl() const {
+  return m_OpenFile->getFanotifyImpl();
 }
 
 SharedPointer<PosixMessageQueue> FileDescriptor::OpenFileDescription::getMqueueImpl() const {

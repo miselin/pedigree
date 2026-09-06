@@ -40,7 +40,43 @@ Mutex Filesystem::m_StructureLock;
 
 Filesystem::~Filesystem() = default;
 
+FileHandleStatus Filesystem::encodeFileHandle(File&, FileHandle& handle) {
+  handle = FileHandle();
+  return FileHandleStatus::Unsupported;
+}
+
+FileHandleStatus Filesystem::decodeFileHandle(const FileHandle&, RetainedFile& file) {
+  file.reset();
+  return FileHandleStatus::Unsupported;
+}
+
+FileHandleStatus Filesystem::fileHandleFsid(FileSystemId& id) {
+  id = FileSystemId();
+  return FileHandleStatus::Unsupported;
+}
+
 namespace {
+class InodeRetirementDrain {
+ public:
+  ~InodeRetirementDrain() {
+    if (m_File)
+      m_File.get()->finishInodeRetirement();
+  }
+  bool retain(File* file) {
+    if (!file)
+      return true;
+    if (!file->retainVfsReference()) {
+      SYSCALL_ERROR(IoError);
+      return false;
+    }
+    m_File.adopt(file);
+    return true;
+  }
+
+ private:
+  RetainedFile m_File;
+};
+
 class TrueRootLease {
  public:
   explicit TrueRootLease(Filesystem* filesystem)
@@ -335,6 +371,7 @@ bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringV
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
+  InodeRetirementDrain retirement;
   LockGuard<Mutex> structureGuard(m_StructureLock);
   TrueRootLease rootLease(this);
   if (!oldStart) {
@@ -508,10 +545,12 @@ bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringV
     }
     // Overlay names have no backing record. Remove a backing victim before
     // the non-fallible namespace publication, keeping both names reserved.
-    if (replaced && !replacedEphemeral && !filesystem->removeNode(newParent, newName, replaced)) {
+    if (replaced && !replacedEphemeral &&
+        (!retirement.retain(replaced) || !filesystem->removeNode(newParent, newName, replaced))) {
       return false;
     }
-  } else if (!filesystem->renameNode(oldParent, oldName, source, newParent, newName,
+  } else if (!retirement.retain(replacedEphemeral ? nullptr : replaced) ||
+             !filesystem->renameNode(oldParent, oldName, source, newParent, newName,
                                      replacedEphemeral ? nullptr : replaced)) {
     return false;
   }
@@ -540,6 +579,7 @@ bool Filesystem::renameNode(Directory*, const String&, File*, Directory*, const 
 }
 
 bool Filesystem::removeChild(File* parent, const String& filename, File* expected) {
+  InodeRetirementDrain retirement;
   LockGuard<Mutex> structureGuard(m_StructureLock);
   if (!parent || !parent->isDirectory()) {
     SYSCALL_ERROR(NotADirectory);
@@ -611,7 +651,7 @@ bool Filesystem::removeChild(File* parent, const String& filename, File* expecte
     return true;
   }
 
-  if (!removeNode(parent, filename, target.get())) {
+  if (!retirement.retain(target.get()) || !removeNode(parent, filename, target.get())) {
     return false;
   }
 

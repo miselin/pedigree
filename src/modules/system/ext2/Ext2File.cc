@@ -39,10 +39,16 @@ Ext2File::Ext2File(const String& name, uintptr_t inode_num, Inode* inode, Ext2Fi
   LockGuard<Mutex> guard(m_State->dataLock);
   if (!m_State->cache) {
     m_State->cache = new CacheState;
+    if (!m_State->cache) {
+      return;
+    }
     m_State->cache->fill.setCallback(sharedFillCallback, m_State);
   }
   {
     LockGuard<Mutex> writebackGuard(m_State->writebackLock);
+    if (!m_State->files.tryReserve(m_State->files.count() + 1)) {
+      return;
+    }
     m_State->files.pushBack(this);
   }
   if (!m_State->futexIdentity) {
@@ -52,6 +58,7 @@ Ext2File::Ext2File(const String& name, uintptr_t inode_num, Inode* inode, Ext2Fi
   setPermissionsOnly(modeToPermissions(mode));
   setUidOnly(LITTLE_TO_HOST16(inode->i_uid));
   setGidOnly(LITTLE_TO_HOST16(inode->i_gid));
+  m_Initialized = true;
 }
 
 Ext2File::~Ext2File() {
@@ -67,7 +74,7 @@ Ext2File::~Ext2File() {
   }
   // Linked inode state owns the cache after the last alias closes, so failed
   // writebacks can retry without retaining an object in its destructor.
-  if (!m_State->files.count() && m_State->cache->fill.empty()) {
+  if (!m_State->files.count() && m_State->cache && m_State->cache->fill.empty()) {
     delete m_State->cache;
     m_State->cache = nullptr;
   }

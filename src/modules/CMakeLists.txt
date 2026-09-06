@@ -315,6 +315,9 @@ pedigree_module(ext2 "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Xattr.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Xattr-write.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Xattr-writeback.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Handles.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2InodeAllocation.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2InodeEvents.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Symlink.cc)
 
 set(FAT_REGRESSION_SOURCES)
@@ -835,6 +838,10 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/FileDescriptor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/xattr-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-handle-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/fanotify-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/fanotify-state.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/fanotify-queue.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/IoEvent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/inotify-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sysv-semaphore-syscalls.cc

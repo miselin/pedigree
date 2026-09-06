@@ -51,6 +51,7 @@
 #include "advisory-lock-syscalls.h"
 #include "console-syscalls.h"
 #include "eventfd-syscalls.h"
+#include "fanotify-syscalls.h"
 #include "file-syscalls.h"
 #include "inotify-syscalls.h"
 #include "memfd-syscalls.h"
@@ -644,6 +645,12 @@ int posix_read(int fd, char* ptr, int len) {
     pFd.reset();
     return inotify->readEventsToUser(reinterpret_cast<uint8_t*>(ptr), length, canBlock);
   }
+  auto fanotify = pFd->getFanotifyImpl();
+  if (fanotify) {
+    const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
+    pFd.reset();
+    return fanotify->readToUser(ptr, static_cast<size_t>(len), canBlock);
+  }
 
   if (pFd->networkImpl) {
     // Need to redirect to socket implementation.
@@ -813,7 +820,7 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
     return -1;
   }
 
-  if (pFd->getTimerFdImpl() || pFd->getSignalFdImpl()) {
+  if (pFd->getTimerFdImpl() || pFd->getSignalFdImpl() || pFd->getFanotifyImpl()) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -1404,7 +1411,8 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
     return 0;
   }
 
-  if (descriptor->getTimerFdImpl() || descriptor->getSignalFdImpl()) {
+  if (descriptor->getTimerFdImpl() || descriptor->getSignalFdImpl() ||
+      descriptor->getFanotifyImpl()) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -1595,11 +1603,13 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
   }
   auto timerFd = descriptor->getTimerFdImpl();
   auto signalFd = descriptor->getSignalFdImpl();
+  auto fanotify = descriptor->getFanotifyImpl();
   UniqueArray<struct iovec> vectorOwner;
   size_t totalLength = 0;
   // Record readers validate each destination at commit time. A later fault
   // must not suppress complete records copied before it.
-  if (!snapshotIoVectors(iov, iovcnt, false, vectorOwner, totalLength, !timerFd && !signalFd)) {
+  if (!snapshotIoVectors(iov, iovcnt, false, vectorOwner, totalLength,
+                         !timerFd && !signalFd && !fanotify)) {
     return -1;
   }
   struct iovec* vectors = vectorOwner.get();
@@ -1610,7 +1620,7 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
     return 0;
   }
 
-  if (timerFd || signalFd) {
+  if (timerFd || signalFd || fanotify) {
     const bool canBlock = !(descriptor->getStatusFlags() & O_NONBLOCK);
     descriptor.reset();
     struct Scatter {
@@ -1651,8 +1661,9 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
       }
       return true;
     };
-    return timerFd ? timerFd->readWithCopy(totalLength, canBlock, copy, &scatter)
-                   : signalFd->readWithCopy(totalLength, canBlock, copy, &scatter);
+    return timerFd    ? timerFd->readWithCopy(totalLength, canBlock, copy, &scatter)
+           : signalFd ? signalFd->readWithCopy(totalLength, canBlock, copy, &scatter)
+                      : fanotify->readWithCopy(totalLength, canBlock, copy, &scatter);
   }
 
   SharedPointer<EventFd> eventFd = descriptor->getEventFdImpl();
@@ -2144,7 +2155,7 @@ off_t posix_lseek(int file, off_t ptr, int dir) {
     return -1;
   }
 
-  if (pFd->getTimerFdImpl() || pFd->getSignalFdImpl()) {
+  if (pFd->getTimerFdImpl() || pFd->getSignalFdImpl() || pFd->getFanotifyImpl()) {
     if (dir < SEEK_SET || dir > 4) {
       SYSCALL_ERROR(InvalidArgument);
       return -1;
@@ -2234,6 +2245,8 @@ static int readProcSelfFdTarget(size_t fd, char* buf, size_t bufsiz) {
     target.assign("anon_inode:[timerfd]");
   } else if (descriptor->getSignalFdImpl()) {
     target.assign("anon_inode:[signalfd]");
+  } else if (descriptor->getFanotifyImpl()) {
+    target.assign("anon_inode:[fanotify]");
   } else if (descriptor->file) {
     descriptor->file->getFullPath(target);
   } else {
@@ -2607,7 +2620,10 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     }
     return 0;
   }
-  if (f->getTimerFdImpl() || f->getSignalFdImpl()) {
+  auto fanotify = f->getFanotifyImpl();
+  if (fanotify && command == FIONREAD)
+    return copyIoctlResult(buf, fanotify->queuedMetadataBytes());
+  if (f->getTimerFdImpl() || f->getSignalFdImpl() || fanotify) {
     if (command == FIOCLEX || command == FIONCLEX) {
       f->fdflags = command == FIOCLEX ? f->fdflags | FD_CLOEXEC : f->fdflags & ~FD_CLOEXEC;
       return 0;
@@ -4822,7 +4838,8 @@ int posix_fstatat(int dirfd, const char* pathname, struct stat* buf, int flags) 
       SYSCALL_ERROR(BadFileDescriptor);
       return -1;
     }
-    if (descriptor->getTimerFdImpl() || descriptor->getSignalFdImpl()) {
+    if (descriptor->getTimerFdImpl() || descriptor->getSignalFdImpl() ||
+        descriptor->getFanotifyImpl()) {
       // Linux's anonymous descriptor types share a pseudo inode, without a
       // regular-file type or data extent. Keep its identity independent of
       // kernel addresses and outside the VFS's existing short device ids.

@@ -43,6 +43,126 @@
 
 class Disk;
 
+class VfsMountState {
+ public:
+  VfsMountState(Filesystem* filesystem, uint32_t id) : filesystem(filesystem), id(id) {}
+  ~VfsMountState() {
+    operations.closeAndWait();
+  }
+
+  static uint32_t reserveId() {
+    static uint32_t next = 1;
+    uint32_t candidate = __atomic_load_n(&next, __ATOMIC_RELAXED);
+    while (candidate <= 0x7fffffffU) {
+      if (__atomic_compare_exchange_n(&next, &candidate, candidate + 1, false, __ATOMIC_RELAXED,
+                                      __ATOMIC_RELAXED))
+        return candidate;
+    }
+    return 0;
+  }
+
+  void retire() {
+    operations.wait();
+    filesystem = nullptr;
+    retirement.beginRetirement();
+    retirement.finishRetirement();
+  }
+
+  Filesystem* filesystem;
+  const uint32_t id;
+  OperationBarrier operations;
+  InodeEventSource retirement;
+};
+
+VFS::MountIdentity::MountIdentity() = default;
+VFS::MountIdentity::MountIdentity(const MountIdentity& other) = default;
+VFS::MountIdentity::MountIdentity(MountIdentity&& other) noexcept = default;
+VFS::MountIdentity::~MountIdentity() = default;
+VFS::MountIdentity& VFS::MountIdentity::operator=(const MountIdentity& other) = default;
+VFS::MountIdentity& VFS::MountIdentity::operator=(MountIdentity&& other) noexcept = default;
+
+VFS::MountInfo::MountInfo(const String& stableName, const String& path,
+                          const SharedPointer<VfsMountState>& state)
+    : stableName(stableName), path(path), state(state) {}
+VFS::MountInfo::~MountInfo() = default;
+
+uint32_t VFS::MountIdentity::id() const {
+  return m_State ? m_State->id : 0;
+}
+
+VFS::MountIdentity::operator bool() const {
+  return static_cast<bool>(m_State);
+}
+
+bool VFS::MountIdentity::acquire(MountOperation& operation) const {
+  operation.reset();
+  if (!m_State || !m_State->operations.tryAcquire(operation.m_Admission))
+    return false;
+  operation.m_State = m_State;
+  return true;
+}
+
+bool VFS::MountIdentity::subscribeRetirement(const SharedPointer<FileEventObserver>& observer,
+                                             FileEventSubscription& subscription) const {
+  if (!m_State) {
+    subscription.reset();
+    return false;
+  }
+  return m_State->retirement.subscribeFileEvents(FileEvents::SourceRetired, observer, subscription);
+}
+
+VFS::MountOperation::MountOperation() = default;
+
+VFS::MountOperation::MountOperation(MountOperation&& other) noexcept
+    : m_State(pedigree_std::move(other.m_State)),
+      m_Admission(pedigree_std::move(other.m_Admission)) {}
+
+VFS::MountOperation::~MountOperation() {
+  reset();
+}
+
+VFS::MountOperation& VFS::MountOperation::operator=(MountOperation&& other) noexcept {
+  if (this != &other) {
+    reset();
+    m_State = pedigree_std::move(other.m_State);
+    m_Admission = pedigree_std::move(other.m_Admission);
+  }
+  return *this;
+}
+
+Filesystem* VFS::MountOperation::filesystem() const {
+  return m_State ? m_State->filesystem : nullptr;
+}
+
+uint32_t VFS::MountOperation::id() const {
+  return m_State ? m_State->id : 0;
+}
+
+VFS::MountIdentity VFS::MountOperation::identity() const {
+  MountIdentity identity;
+  identity.m_State = m_State;
+  return identity;
+}
+
+VFS::MountOperation::operator bool() const {
+  return static_cast<bool>(m_Admission);
+}
+
+void VFS::MountOperation::reset() {
+  m_Admission = OperationBarrier::Lease();
+  m_State.reset();
+}
+
+bool VFS::acquireMount(Filesystem* key, MountOperation& operation) const {
+  operation.reset();
+  LockGuard<Mutex> guard(m_MountTableLock);
+  MountInfo* info = m_Mounts.lookup(key);
+  if (!info || !info->state->operations.tryAcquire(operation.m_Admission))
+    return false;
+  operation.m_State = info->state;
+  return true;
+}
+
 /// \todo Figure out a way to clean up files after deletion. Directory::remove()
 ///       is not the right place to do this. There needs to be a way to add a
 ///       File to some sort of queue that cleans it up once it hits refcount
@@ -115,6 +235,7 @@ VFS::~VFS() {
     LockGuard<Mutex> mutationGuard(m_MountMutationLock);
     LockGuard<Mutex> tableGuard(m_MountTableLock);
     for (auto it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
+      it.value()->state->operations.close();
       mountInfo.pushBack(it.value());
       filesystems.pushBack(it.key());
     }
@@ -125,6 +246,7 @@ VFS::~VFS() {
   // Filesystem destructors can re-enter VFS, so publication locks must no
   // longer be held when ownership is released.
   for (auto info : mountInfo) {
+    info->state->retire();
     delete info;
   }
   for (auto filesystem : filesystems) {
@@ -171,6 +293,11 @@ bool VFS::mount(Disk* pDisk, String& stableName, Filesystem** pMountedFs) {
         stableName = pFs->getVolumeLabel();
       }
       stableName = registerFilesystem(pFs, stableName);
+      if (!stableName.length()) {
+        delete pFs;
+        finishCallback(&item->state, invocation);
+        return false;
+      }
       dispatchMountCallbacks(owner);
 
       if (pMountedFs) {
@@ -194,6 +321,11 @@ bool VFS::mount(Disk* pDisk, String& stableName, Filesystem** pMountedFs) {
         stableName = pFs->getVolumeLabel();
       }
       stableName = registerFilesystem(pFs, stableName);
+
+      if (!stableName.length()) {
+        delete pFs;
+        return false;
+      }
 
       for (List<MountCallbackItem*>::Iterator it2 = m_MountCallbacks.begin();
            it2 != m_MountCallbacks.end(); it2++) {
@@ -236,8 +368,17 @@ String VFS::registerFilesystemLocked(Filesystem* pFs, const String& preferredSta
     NormalStaticString path;
     path += "/media/";
     path += stableName;
-    info = new MountInfo(stableName, String(path));
-    m_Mounts.insert(pFs, info);
+    const uint32_t id = VfsMountState::reserveId();
+    if (!id)
+      return String();
+    SharedPointer<VfsMountState> state(new VfsMountState(pFs, id));
+    if (!state)
+      return String();
+    info = new MountInfo(stableName, String(path), state);
+    if (!info || !m_Mounts.tryInsert(pFs, info)) {
+      delete info;
+      return String();
+    }
     root = m_pRootFilesystem;
   }
 
@@ -265,6 +406,7 @@ bool VFS::unregisterFilesystem(Filesystem* pFs, bool canDelete) {
       if (!m_Mounts.take(pFs, info)) {
         return false;
       }
+      info->state->operations.close();
 
       if (pFs == m_pRootFilesystem) {
         m_pRootFilesystem = nullptr;
@@ -282,6 +424,7 @@ bool VFS::unregisterFilesystem(Filesystem* pFs, bool canDelete) {
     }
   }
 
+  info->state->retire();
   delete info;
   if (canDelete) {
     delete pFs;
@@ -298,7 +441,8 @@ bool VFS::setRootFilesystem(Filesystem* pFs) {
       registered = m_Mounts.lookup(pFs) != nullptr;
     }
     if (!registered) {
-      registerFilesystemLocked(pFs, pFs->getVolumeLabel());
+      if (!registerFilesystemLocked(pFs, pFs->getVolumeLabel()).length())
+        return false;
     }
   }
 
@@ -937,6 +1081,14 @@ void VFS::trackFile(File* pFile) {
   size_t n = m_TrackedFiles.lookup(pFile);
   ++n;
   m_TrackedFiles.insert(pFile, n);
+}
+
+bool VFS::tryTrackFile(File* file) {
+  if (!file)
+    return false;
+  LockGuard<Mutex> guard(m_TrackedFilesLock);
+  const size_t count = m_TrackedFiles.lookup(file);
+  return count != ~size_t(0) && m_TrackedFiles.tryInsert(file, count + 1);
 }
 
 bool VFS::retainTrackedFile(File* pFile) {

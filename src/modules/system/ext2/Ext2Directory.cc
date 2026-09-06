@@ -528,9 +528,15 @@ Directory::LookupStatus Ext2Directory::resolveEntry(const ParsedEntry& entry,
 
   const String filename(entry.name, entry.nameLength);
   switch (fileType) {
-    case EXT2_FILE:
-      child = new Ext2File(filename, entry.inode, inode, m_pExt2Fs, this);
+    case EXT2_FILE: {
+      Ext2File* file = new Ext2File(filename, entry.inode, inode, m_pExt2Fs, this);
+      if (!file || !file->valid()) {
+        delete file;
+        return LookupStatus::IoError;
+      }
+      child = file;
       break;
+    }
     case EXT2_DIRECTORY:
       child = new Ext2Directory(filename, entry.inode, inode, m_pExt2Fs, this);
       break;

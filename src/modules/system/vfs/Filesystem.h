@@ -85,6 +85,11 @@ class EXPORTED_PUBLIC Filesystem {
   /** Returns a string identifying the volume label. */
   virtual const String& getVolumeLabel() const = 0;
 
+  /** Caller holds a VFS mount operation through handle access and publication. */
+  virtual FileHandleStatus encodeFileHandle(File& file, FileHandle& handle);
+  virtual FileHandleStatus decodeFileHandle(const FileHandle& handle, RetainedFile& file);
+  virtual FileHandleStatus fileHandleFsid(FileSystemId& id);
+
   /** Creates a file on the filesystem - fails if the file's parent directory
    * does not exist. */
   bool createFile(const StringView& path, uint32_t mask, File* pStartNode = 0);

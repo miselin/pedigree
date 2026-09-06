@@ -39,6 +39,7 @@
 
 #include "ExtendedAttributes.h"
 #include "FileEvent.h"
+#include "FileHandle.h"
 
 class Filesystem;
 class Thread;
@@ -310,6 +311,11 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   void publishEvent(FileEventMask mask, const StringView& name = StringView(),
                     bool targetIsDirectory = false);
 
+  virtual FileHandleStatus subscribeInodeEvents(FileEventMask mask,
+                                                const SharedPointer<FileEventObserver>& observer,
+                                                FileEventSubscription& subscription);
+  virtual void finishInodeRetirement();
+
   virtual void increaseRefCount(bool bIsWriter);
   virtual void decreaseRefCount(bool bIsWriter);
 
@@ -446,6 +452,8 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
    * be written over anyway.
    */
   virtual void extend(size_t newSize, uint64_t location, uint64_t size);
+
+  virtual void publishInodeEvent(const FileEvent& event);
 
   /** Internal function to notify all registered MonitorTargets. */
   void dataChanged();

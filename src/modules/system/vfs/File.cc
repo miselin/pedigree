@@ -39,6 +39,37 @@
 #include "MemoryMappedFile.h"
 #include "VFS.h"
 
+RetainedFile::RetainedFile() = default;
+
+RetainedFile::RetainedFile(RetainedFile&& other) noexcept : m_File(other.m_File) {
+  other.m_File = nullptr;
+}
+
+RetainedFile::~RetainedFile() {
+  reset();
+}
+
+RetainedFile& RetainedFile::operator=(RetainedFile&& other) noexcept {
+  if (this != &other) {
+    reset();
+    m_File = other.m_File;
+    other.m_File = nullptr;
+  }
+  return *this;
+}
+
+void RetainedFile::adopt(File* file) {
+  reset();
+  m_File = file;
+}
+
+void RetainedFile::reset() {
+  File* file = m_File;
+  m_File = nullptr;
+  if (file)
+    file->releaseVfsReference();
+}
+
 uintptr_t File::futexIdentity() {
   uintptr_t identity = __atomic_load_n(&m_FutexIdentity, __ATOMIC_ACQUIRE);
   if (!identity) {
@@ -634,8 +665,29 @@ void File::setFilesystem(Filesystem* pFs) {
 
 void File::fileAttributeChanged() {}
 
+FileHandleStatus File::subscribeInodeEvents(FileEventMask, const SharedPointer<FileEventObserver>&,
+                                            FileEventSubscription& subscription) {
+  subscription.reset();
+  return FileHandleStatus::Unsupported;
+}
+
+void File::publishInodeEvent(const FileEvent&) {}
+
+void File::finishInodeRetirement() {}
+
 void File::publishEvent(FileEventMask mask, const StringView& name, bool targetIsDirectory) {
-  const FileEvent event(mask, name, targetIsDirectory);
+  uint32_t producer = 0;
+#if THREADS && !defined(STANDALONE_MUTEXES)
+  Thread* thread = Processor::information().getCurrentThread();
+  if (thread && thread->getParent())
+    producer = static_cast<uint32_t>(thread->getParent()->getId());
+#endif
+  const FileEvent event(mask, name, targetIsDirectory, producer);
+  constexpr FileEventMask InodeEvents = FileEvents::Modify | FileEvents::Attributes |
+                                        FileEvents::Open | FileEvents::CloseWrite |
+                                        FileEvents::CloseNoWrite;
+  if (!name.length() && (mask & InodeEvents))
+    publishInodeEvent(FileEvent(mask & InodeEvents, name, isDirectory(), producer));
   if (mask & FileEvents::DeletedSelf) {
     notifyFinalFileEvent(event);
   } else {
@@ -650,7 +702,7 @@ void File::publishEvent(FileEventMask mask, const StringView& name, bool targetI
     String childName;
     getNamespace(parent, childName);
     if (parent.get()) {
-      parent.get()->notifyFileEvent(FileEvent(mask, childName.view(), isDirectory()));
+      parent.get()->notifyFileEvent(FileEvent(mask, childName.view(), isDirectory(), producer));
     }
   }
 }

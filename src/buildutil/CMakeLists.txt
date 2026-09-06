@@ -190,6 +190,9 @@ add_library(ext2
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Xattr.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Xattr-write.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Xattr-writeback.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Handles.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2InodeAllocation.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2InodeEvents.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Symlink.cc
 )
 
@@ -263,6 +266,9 @@ set(TESTSUITE_SRCS
     testsuite/test-Ext2DirectorySync.cc
     testsuite/test-Ext2Xattr.cc
     testsuite/test-Ext2XattrCodec.cc
+    testsuite/test-Ext2Handles.cc
+    testsuite/test-FanotifyQueue.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/fanotify-queue.cc
     testsuite/test-FatWriteback.cc
     testsuite/test-FileMetadata.cc
     testsuite/test-MemoryExtendedAttributes.cc

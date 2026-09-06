@@ -1281,3 +1281,264 @@ TEST(VFS, DetachedParentFallbackKeepsOnlyStableFilesystemRootBorrowed) {
   EXPECT_EQ(rooted.getParent(), root);
   EXPECT_EQ(parentDestructions.load(), 1U);
 }
+
+namespace {
+class InodeTestObserver final : public FileEventObserver {
+ public:
+  explicit InodeTestObserver(FileEventMask pausedMask = 0) : pausedMask(pausedMask) {}
+  void fileEvent(const FileEvent& event) override {
+    calls.fetch_add(1);
+    masks.fetch_or(event.mask);
+    pid.store(event.producerPid);
+    if (event.mask == pausedMask) {
+      std::unique_lock<std::mutex> guard(lock);
+      entered = true;
+      changed.notify_all();
+      changed.wait(guard, [&] { return released; });
+    }
+  }
+  bool waitUntilEntered() {
+    std::unique_lock<std::mutex> guard(lock);
+    return changed.wait_for(guard, std::chrono::seconds(2), [&] { return entered; });
+  }
+  void release() {
+    std::lock_guard<std::mutex> guard(lock);
+    released = true;
+    changed.notify_all();
+  }
+  std::atomic<size_t> calls{0};
+  std::atomic<FileEventMask> masks{0};
+  std::atomic<uint32_t> pid{0};
+
+ private:
+  const FileEventMask pausedMask;
+  std::mutex lock;
+  std::condition_variable changed;
+  bool entered = false, released = false;
+};
+
+class InodeAliasFile final : public File {
+ public:
+  explicit InodeAliasFile(InodeEventSource& source) : source(source) {}
+  FileHandleStatus subscribeInodeEvents(FileEventMask mask,
+                                        const SharedPointer<FileEventObserver>& observer,
+                                        FileEventSubscription& subscription) override {
+    return source.subscribeFileEvents(mask, observer, subscription) ? FileHandleStatus::Success
+                                                                    : FileHandleStatus::Stale;
+  }
+  void finishInodeRetirement() override {
+    source.finishRetirement();
+  }
+
+ protected:
+  void publishInodeEvent(const FileEvent& event) override {
+    source.publish(event);
+  }
+
+ private:
+  InodeEventSource& source;
+};
+}  // namespace
+
+TEST(VFS, RetainedHandleFileOwnsExactlyOneTrackedReference) {
+  std::atomic<size_t> destroyed{0};
+  auto* file = new SparseTestFile(String("decoded"), nullptr, destroyed);
+  ASSERT_TRUE(VFS::instance().tryTrackFile(file));
+  ASSERT_TRUE(VFS::instance().tryTrackFile(file));
+  RetainedFile first;
+  first.adopt(file);
+  RetainedFile second(pedigree_std::move(first));
+  EXPECT_FALSE(first);
+  EXPECT_EQ(second.get(), file);
+  second.reset();
+  EXPECT_EQ(destroyed.load(), 0U);
+  first.adopt(file);
+  MountTestFilesystem unsupported(String("unsupported"));
+  FileHandle handle;
+  handle.length = 7;
+  handle.type = 9;
+  EXPECT_EQ(unsupported.decodeFileHandle(handle, first), FileHandleStatus::Unsupported);
+  EXPECT_FALSE(first);
+  EXPECT_EQ(destroyed.load(), 1U);
+  File plain;
+  EXPECT_EQ(unsupported.encodeFileHandle(plain, handle), FileHandleStatus::Unsupported);
+  EXPECT_EQ(handle.length, 0U);
+  EXPECT_EQ(handle.type, 0);
+  FileSystemId id = {{1, 2}};
+  EXPECT_EQ(unsupported.fileHandleFsid(id), FileHandleStatus::Unsupported);
+  EXPECT_EQ(id.words[0] | id.words[1], 0U);
+}
+
+TEST(VFS, InodeEventsFollowAliasesWithoutNamespaceRetirement) {
+  InodeEventSource source;
+  auto* observed = new InodeTestObserver;
+  SharedPointer<FileEventObserver> observer(observed);
+  FileEventSubscription inode, namespaceEvents;
+  auto* namespaceObserved = new InodeTestObserver;
+  SharedPointer<FileEventObserver> namespaceObserver(namespaceObserved);
+  InodeAliasFile second(source);
+  {
+    InodeAliasFile first(source);
+    ASSERT_EQ(first.subscribeInodeEvents(
+                  FileEvents::Attributes | FileEvents::Modify | FileEvents::SourceRetired, observer,
+                  inode),
+              FileHandleStatus::Success);
+    ASSERT_TRUE(first.subscribeFileEvents(FileEvents::Attributes | FileEvents::DeletedSelf,
+                                          namespaceObserver, namespaceEvents));
+    first.publishEvent(FileEvents::Attributes);
+    EXPECT_EQ(observed->calls.load(), 1U);
+    EXPECT_EQ(namespaceObserved->calls.load(), 1U);
+    first.publishEvent(FileEvents::Modify, StringView("child"));
+    EXPECT_EQ(observed->calls.load(), 1U);
+    first.publishEvent(FileEvents::DeletedSelf);
+    EXPECT_EQ(observed->calls.load(), 1U);
+    EXPECT_EQ(namespaceObserved->calls.load(), 2U);
+  }
+  second.publishEvent(FileEvents::Modify);
+  EXPECT_EQ(observed->calls.load(), 2U);
+  EXPECT_EQ(observed->pid.load(), 0U);
+  source.beginRetirement();
+  second.finishInodeRetirement();
+  EXPECT_EQ(observed->calls.load(), 3U);
+  EXPECT_TRUE(observed->masks.load() & FileEvents::SourceRetired);
+  second.publishEvent(FileEvents::Modify);
+  FileEventSubscription late;
+  EXPECT_EQ(second.subscribeInodeEvents(FileEvents::Modify, observer, late),
+            FileHandleStatus::Stale);
+  EXPECT_EQ(observed->calls.load(), 3U);
+  namespaceEvents.reset();
+  inode.reset();
+}
+
+TEST(VFS, InodeRetirementClosesAdmissionBeforeCallbackDrain) {
+  InodeEventSource source;
+  auto* observed = new InodeTestObserver(FileEvents::Modify);
+  SharedPointer<FileEventObserver> observer(observed);
+  FileEventSubscription subscription;
+  ASSERT_TRUE(source.subscribeFileEvents(FileEvents::Modify | FileEvents::SourceRetired, observer,
+                                         subscription));
+  std::thread publisher(
+      [&] { source.publish(FileEvent(FileEvents::Modify, StringView(), false, 123)); });
+  const bool entered = observed->waitUntilEntered();
+  EXPECT_TRUE(entered);
+  if (!entered) {
+    observed->release();
+    publisher.join();
+    return;
+  }
+  EXPECT_EQ(observed->pid.load(), 123U);
+  source.beginRetirement();
+  EXPECT_EQ(observed->calls.load(), 2U);
+  FileEventSubscription late;
+  EXPECT_FALSE(source.subscribeFileEvents(FileEvents::Modify, observer, late));
+  source.publish(FileEvent(FileEvents::Modify, StringView(), false));
+  EXPECT_EQ(observed->calls.load(), 2U);
+  std::atomic<bool> drainStarted{false}, drained{false};
+  std::thread drainer([&] {
+    drainStarted.store(true);
+    source.finishRetirement();
+    drained.store(true);
+  });
+  const auto drainDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (!drainStarted.load() && std::chrono::steady_clock::now() < drainDeadline)
+    std::this_thread::yield();
+  EXPECT_TRUE(drainStarted.load());
+  EXPECT_FALSE(drained.load());
+  observed->release();
+  publisher.join();
+  drainer.join();
+  EXPECT_TRUE(drained.load());
+  subscription.reset();
+}
+
+TEST(VFS, MountRetirementWaitsForOperationsButNotIdentityTokens) {
+  VFS vfs;
+  std::atomic<size_t> destroyed{0};
+  auto* filesystem = new MountTestFilesystem(String("leased"), nullptr, &destroyed);
+  ASSERT_TRUE(vfs.registerFilesystem(filesystem, String("leased")).length());
+  VFS::MountOperation operation;
+  ASSERT_TRUE(vfs.acquireMount(filesystem, operation));
+  EXPECT_EQ(operation.filesystem(), filesystem);
+  VFS::MountIdentity identity = operation.identity();
+  const uint32_t id = identity.id();
+  EXPECT_GT(id, 0U);
+  auto* observed = new InodeTestObserver;
+  SharedPointer<FileEventObserver> observer(observed);
+  FileEventSubscription retirement;
+  ASSERT_TRUE(identity.subscribeRetirement(observer, retirement));
+  std::atomic<bool> removed{false};
+  std::thread remover([&] { removed.store(vfs.unregisterFilesystem(filesystem)); });
+  bool closed = false;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (std::chrono::steady_clock::now() < deadline) {
+    VFS::MountOperation probe;
+    if (!identity.acquire(probe)) {
+      closed = true;
+      break;
+    }
+    std::this_thread::yield();
+  }
+  EXPECT_TRUE(closed);
+  EXPECT_FALSE(removed.load());
+  EXPECT_EQ(destroyed.load(), 0U);
+  EXPECT_EQ(observed->calls.load(), 0U);
+  VFS::MountOperation missing;
+  EXPECT_FALSE(vfs.acquireMount(filesystem, missing));
+  operation.reset();
+  remover.join();
+  EXPECT_TRUE(removed.load());
+  EXPECT_EQ(destroyed.load(), 1U);
+  EXPECT_EQ(observed->calls.load(), 1U);
+  EXPECT_EQ(observed->masks.load(), FileEvents::SourceRetired);
+  EXPECT_EQ(identity.id(), id);
+  EXPECT_FALSE(identity.acquire(missing));
+  retirement.reset();
+}
+
+TEST(VFS, MountRetirementDrainsCallbacksOutsidePublicationLocks) {
+  VFS vfs;
+  std::atomic<size_t> destroyed{0};
+  auto* filesystem = new MountTestFilesystem(String("callback"), nullptr, &destroyed);
+  ASSERT_TRUE(vfs.registerFilesystem(filesystem, String("callback")).length());
+  VFS::MountOperation operation;
+  ASSERT_TRUE(vfs.acquireMount(filesystem, operation));
+  auto identity = operation.identity();
+  auto* observed = new InodeTestObserver(FileEvents::SourceRetired);
+  SharedPointer<FileEventObserver> observer(observed);
+  FileEventSubscription retirement;
+  ASSERT_TRUE(identity.subscribeRetirement(observer, retirement));
+  operation.reset();
+  std::thread remover([&] { EXPECT_TRUE(vfs.unregisterFilesystem(filesystem)); });
+  const bool entered = observed->waitUntilEntered();
+  EXPECT_TRUE(entered);
+  if (entered) {
+    Vector<VFS::MountSnapshot> mounts;
+    vfs.getMounts(mounts);
+    EXPECT_EQ(mounts.count(), 0U);
+    EXPECT_EQ(destroyed.load(), 0U);
+    EXPECT_FALSE(identity.acquire(operation));
+  }
+  observed->release();
+  remover.join();
+  EXPECT_EQ(destroyed.load(), 1U);
+  retirement.reset();
+}
+
+TEST(VFS, RetiredMountIdentityCannotReviveAtTheSameFilesystemAddress) {
+  VFS vfs;
+  MountTestFilesystem filesystem(String("reused"));
+  ASSERT_TRUE(vfs.registerFilesystem(&filesystem, String("reused")).length());
+  VFS::MountOperation first;
+  ASSERT_TRUE(vfs.acquireMount(&filesystem, first));
+  auto oldIdentity = first.identity();
+  first.reset();
+  ASSERT_TRUE(vfs.unregisterFilesystem(&filesystem, false));
+  ASSERT_TRUE(vfs.registerFilesystem(&filesystem, String("reused")).length());
+  VFS::MountOperation current;
+  ASSERT_TRUE(vfs.acquireMount(&filesystem, current));
+  EXPECT_NE(current.id(), oldIdentity.id());
+  EXPECT_FALSE(oldIdentity.acquire(first));
+  EXPECT_EQ(current.filesystem(), &filesystem);
+  current.reset();
+  EXPECT_TRUE(vfs.unregisterFilesystem(&filesystem, false));
+}

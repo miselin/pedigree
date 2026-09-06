@@ -40,6 +40,7 @@ class EventFd;
 class TimerFd;
 class SignalFd;
 class InotifyInstance;
+class FanotifyInstance;
 class PosixMessageQueue;
 
 /** Abstraction of a file descriptor, which defines an open file
@@ -72,6 +73,7 @@ class EXPORTED_PUBLIC FileDescriptor {
     SharedPointer<TimerFd> getTimerFdImpl() const;
     SharedPointer<SignalFd> getSignalFdImpl() const;
     SharedPointer<InotifyInstance> getInotifyImpl() const;
+    SharedPointer<FanotifyInstance> getFanotifyImpl() const;
     SharedPointer<PosixMessageQueue> getMqueueImpl() const;
     size_t descriptorOwnerCount() const;
 
@@ -94,6 +96,7 @@ class EXPORTED_PUBLIC FileDescriptor {
     SharedPointer<TimerFd> timerFdImpl;
     SharedPointer<SignalFd> signalFdImpl;
     SharedPointer<InotifyInstance> inotifyImpl;
+    SharedPointer<FanotifyInstance> fanotifyImpl;
     SharedPointer<PosixMessageQueue> mqueueImpl;
     uint64_t offset;
     int statusFlags;
@@ -219,6 +222,8 @@ class EXPORTED_PUBLIC FileDescriptor {
 
   /** Retain the inotify queue behind this descriptor, if any. */
   SharedPointer<InotifyInstance> getInotifyImpl() const;
+  void setFanotifyImpl(const SharedPointer<FanotifyInstance>& implementation);
+  SharedPointer<FanotifyInstance> getFanotifyImpl() const;
 
   void setMqueueImpl(const SharedPointer<PosixMessageQueue>& implementation);
   SharedPointer<PosixMessageQueue> getMqueueImpl() const;

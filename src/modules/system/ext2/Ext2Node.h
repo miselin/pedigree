@@ -48,6 +48,7 @@ struct Ext2InodeState {
   size_t pageLoans;
   size_t references;
   bool orphan;
+  InodeEventSource inodeEvents;
   uintptr_t futexIdentity;
   Vector<Ext2File*> files;
   File::CacheState* cache = nullptr;
@@ -60,6 +61,7 @@ class Ext2Node {
 
  private:
   /** Copy constructors are hidden - unused! */
+  Ext2Node(uintptr_t inode, Inode* metadata, Ext2Filesystem* filesystem, Ext2InodeState& admitted);
   Ext2Node(const Ext2Node& file);
   Ext2Node& operator=(const Ext2Node&);
 

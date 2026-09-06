@@ -90,10 +90,10 @@ linux_number,syscall,family,status,scope_and_verification
 287,timerfd_gettime,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 289,signalfd4,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 299,recvmmsg,Additional event and network interfaces,pending,
-300,fanotify_init,Extended file interfaces,pending,
-301,fanotify_mark,Extended file interfaces,pending,
-303,name_to_handle_at,Extended file interfaces,pending,
-304,open_by_handle_at,Extended file interfaces,pending,
+300,fanotify_init,Extended file interfaces,implemented,File-handle/fanotify pass; public musl contracts and cold-boot Ext2 handle persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+301,fanotify_mark,Extended file interfaces,implemented,File-handle/fanotify pass; public musl contracts and cold-boot Ext2 handle persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+303,name_to_handle_at,Extended file interfaces,implemented,File-handle/fanotify pass; public musl contracts and cold-boot Ext2 handle persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+304,open_by_handle_at,Extended file interfaces,implemented,File-handle/fanotify pass; public musl contracts and cold-boot Ext2 handle persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 305,clock_adjtime,Linux administration and isolation,pending,
 306,syncfs,Extended file interfaces,pending,
 308,setns,Linux administration and isolation,pending,

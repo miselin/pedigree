@@ -12,7 +12,7 @@
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 class FileEventTarget {
@@ -30,12 +30,6 @@ class FileEventTarget {
     return (mask & m_Interest) != 0;
   }
 
-  void notify(const FileEvent& event) {
-    OperationBarrier::Lease notification;
-    if (m_Notifications.tryAcquire(notification)) {
-      m_pObserver->fileEvent(event);
-    }
-  }
 
   bool admit() {
     return m_Notifications.tryEnter();
@@ -46,9 +40,15 @@ class FileEventTarget {
     m_Notifications.leave();
   }
 
+  void closeAdmission() {
+    m_Notifications.close();
+  }
+
   void retire() {
     m_Notifications.closeAndWait();
   }
+
+  size_t sequence = 0;
 
  private:
   FileEventMask m_Interest;
@@ -72,7 +72,9 @@ class FileEventState {
     if (!m_Open) {
       return false;
     }
-    m_Targets.pushBack(target);
+    if (m_NextSequence == ~size_t(0) || !m_Targets.tryPushBack(target))
+      return false;
+    target->sequence = m_NextSequence++;
     return true;
   }
 
@@ -90,45 +92,101 @@ class FileEventState {
   }
 
   void notify(const FileEvent& event) {
-    Vector<SharedPointer<FileEventTarget>> targets;
+    OperationBarrier::Lease publication;
+    if (!m_Publications.tryAcquire(publication))
+      return;
+    size_t boundary;
     {
       LockGuard<Mutex> guard(m_Lock);
-      if (!m_Open) {
+      if (!m_Open)
         return;
-      }
-      for (const auto& target : m_Targets) {
-        if (target->interestedIn(event.mask)) {
-          targets.pushBack(target);
+      boundary = m_NextSequence - 1;
+    }
+    size_t after = 0;
+    while (true) {
+      SharedPointer<FileEventTarget> selected;
+      {
+        LockGuard<Mutex> guard(m_Lock);
+        if (!m_Open)
+          return;
+        for (const auto& target : m_Targets) {
+          if (target->sequence > after && target->sequence <= boundary &&
+              target->interestedIn(event.mask) && target->admit()) {
+            selected = target;
+            after = target->sequence;
+            break;
+          }
         }
       }
-    }
-    for (auto& target : targets) {
-      target->notify(event);
+      if (!selected)
+        return;
+      selected->notifyAdmitted(event);
     }
   }
 
-  void close(const FileEvent* finalEvent = nullptr) {
-    Vector<SharedPointer<FileEventTarget>> targets;
-    Vector<SharedPointer<FileEventTarget>> finalTargets;
-    bool deliverFinal = false;
+  void beginClose(const FileEvent* finalEvent = nullptr) {
+    size_t boundary;
     {
       LockGuard<Mutex> guard(m_Lock);
-      if (m_Open) {
-        m_Open = false;
-        deliverFinal = finalEvent != nullptr;
-      }
-      for (const auto& target : m_Targets) {
-        targets.pushBack(target);
-        if (deliverFinal && target->interestedIn(finalEvent->mask) && target->admit()) {
-          finalTargets.pushBack(target);
+      if (!m_Open)
+        return;
+      m_Open = false;
+      // The closing publisher is separately counted so a concurrent drain
+      // cannot return before the final callbacks have been admitted.
+      const bool admitted = m_ClosingPublication.tryEnter();
+      assert(admitted);
+      m_ClosingPublication.close();
+      m_Publications.close();
+      boundary = m_NextSequence - 1;
+    }
+    size_t after = 0;
+    while (true) {
+      SharedPointer<FileEventTarget> selected;
+      bool deliver = false;
+      {
+        LockGuard<Mutex> guard(m_Lock);
+        for (const auto& target : m_Targets) {
+          if (target->sequence > after && target->sequence <= boundary) {
+            selected = target;
+            after = target->sequence;
+            deliver = finalEvent && target->interestedIn(finalEvent->mask) && target->admit();
+            target->closeAdmission();
+            break;
+          }
         }
       }
+      if (!selected)
+        break;
+      if (deliver)
+        selected->notifyAdmitted(*finalEvent);
     }
-    for (auto& target : finalTargets) {
-      target->notifyAdmitted(*finalEvent);
+    m_ClosingPublication.leave();
+  }
+
+  void drain() {
+    {
+      LockGuard<Mutex> guard(m_Lock);
+      if (m_Open)
+        return;
     }
-    for (auto& target : targets) {
-      target->retire();
+    m_ClosingPublication.wait();
+    m_Publications.wait();
+    size_t after = 0;
+    while (true) {
+      SharedPointer<FileEventTarget> selected;
+      {
+        LockGuard<Mutex> guard(m_Lock);
+        for (const auto& target : m_Targets) {
+          if (target->sequence > after) {
+            selected = target;
+            after = target->sequence;
+            break;
+          }
+        }
+      }
+      if (!selected)
+        return;
+      selected->retire();
     }
   }
 
@@ -136,6 +194,9 @@ class FileEventState {
   Mutex m_Lock;
   List<SharedPointer<FileEventTarget>> m_Targets;
   bool m_Open;
+  size_t m_NextSequence = 1;
+  OperationBarrier m_Publications;
+  OperationBarrier m_ClosingPublication;
 };
 
 FileEventSubscription::FileEventSubscription() : m_State(), m_Target(), m_Observer() {}
@@ -189,6 +250,8 @@ bool FileEventSource::subscribeFileEvents(FileEventMask interest,
   }
 
   SharedPointer<FileEventTarget> target(new FileEventTarget(interest, observer.get()));
+  if (!target || !m_FileEventState)
+    return false;
   subscription.m_State = m_FileEventState;
   subscription.m_Target = target;
   subscription.m_Observer = observer;
@@ -200,20 +263,46 @@ bool FileEventSource::subscribeFileEvents(FileEventMask interest,
 }
 
 void FileEventSource::notifyFileEvent(const FileEvent& event) {
-  if (event.mask) {
+  if (event.mask && m_FileEventState) {
     SharedPointer<FileEventState> state = m_FileEventState;
     state->notify(event);
   }
 }
 
 void FileEventSource::notifyFinalFileEvent(const FileEvent& event) {
-  if (event.mask) {
+  if (event.mask && m_FileEventState) {
     SharedPointer<FileEventState> state = m_FileEventState;
-    state->close(&event);
+    state->beginClose(&event);
+    state->drain();
   }
 }
 
 void FileEventSource::closeFileEvents() {
   SharedPointer<FileEventState> state = m_FileEventState;
-  state->close();
+  if (!state)
+    return;
+  state->beginClose();
+  state->drain();
+}
+
+void FileEventSource::beginFinalFileEvent(const FileEvent& event) {
+  if (m_FileEventState)
+    m_FileEventState->beginClose(&event);
+}
+
+void FileEventSource::drainFileEvents() {
+  if (m_FileEventState)
+    m_FileEventState->drain();
+}
+
+void InodeEventSource::publish(const FileEvent& event) {
+  notifyFileEvent(event);
+}
+
+void InodeEventSource::beginRetirement() {
+  beginFinalFileEvent(FileEvent(FileEvents::SourceRetired, StringView(), false));
+}
+
+void InodeEventSource::finishRetirement() {
+  drainFileEvents();
 }

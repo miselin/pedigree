@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 61 of 113 backlog entries implemented; 52 remain.
+Current checkpoint: 65 of 113 backlog entries implemented; 48 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,72 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## File handles and fanotify
+
+`name_to_handle_at` and `open_by_handle_at` export and reopen linked Ext2 regular
+files. The opaque handle includes filesystem UUID, inode number and persistent
+inode generation. Hardlink and rename aliases keep the same identity. Final
+unlink prevents new decode while existing open descriptions remain usable;
+reallocation advances the generation before publishing the inode. Exhausted
+generations are not reused. Decode checks allocation and identity while holding
+an inode admission reference, then creates a separately tracked file wrapper.
+
+VFS now provides retained handle results, mount-operation leases and inert mount
+identities. Mount retirement closes new admission, waits for active operations,
+then retires observers outside publication locks. Long-lived marks retain only
+identity and subscriptions. These contracts protect the new export paths; they
+do not redesign every existing open-file/unmount lifetime. Private unregistered
+filesystems, RamFs, directories and symlink handles remain unsupported. Decode
+uses the current effective-root policy; Linux capabilities are not emulated.
+
+`fanotify_init` supports notification groups with mandatory FAN_REPORT_FID,
+CLOEXEC and NONBLOCK. Inode marks support MODIFY, ATTRIB, OPEN, CLOSE_WRITE and
+CLOSE_NOWRITE on exportable Ext2 regular files. Alias wrappers publish through a
+shared inode event source. Each record snapshots its handle and producer PID;
+reading it needs neither a live producer nor a live inode. Retired inode or
+mount sources release mark quota immediately and prevent further delivery.
+
+The POSIX-owned queue holds 256 ordinary records and one overflow record,
+coalesces adjacent records for the same producer and target, and integrates with
+read/readv, poll, epoll, ioctl, dup, fork, exec and descriptor transfer. Short
+record buffers preserve the head; copyout failure drops the selected record,
+including a later EFAULT overriding a previously copied prefix. The last file
+owner closes the group and wakes readers even if an epoll watch still retains
+its state. Limits are 64 groups, 256 marks per group and 4096 global marks.
+Existing readiness fanout may allocate; preallocated event storage is not an
+end-to-end allocation-free guarantee.
+
+Default event-FD mode, directory and mount marks, ACCESS events, permission
+mediation and unprivileged group creation require further implementations.
+Unsupported requests fail explicitly. Ext2 handle persistence does not promise
+journaled or power-loss-atomic inode allocation.
+
+Verification passed 193 selected native cases (20 new handle, mount and queue
+cases), 37 routing/ABI checks, 20 affected cross and hosted compiles, and the
+actual Darwin core runtime. All 125 affected image source/object pairs were
+current. Fresh headless one- and four-CPU guests passed all 25 suites in 167.8
+and 132.3 seconds, including six new public families and the prior kernel
+memory-lock/remap fixtures.
+
+Independent write-enabled disks passed writer and cold-boot reader stages on
+both CPU configurations. Saved linked handles reopened exact payloads and
+hardlink identities; deleted handles remained stale. All four read-only e2fsck
+checks were clean. Host inspection independently matched handle UUID, inode
+number and generation against disk metadata. These are fsync/close and cold-boot
+checks, without a power-loss claim. The persistence image and final guest image
+have identical kernel and all 45 module hashes; only the overflow test fixture
+changed between them.
+
+Initial guests exposed an unsupported-private-filesystem error mismatch,
+corrected from ESTALE to EOPNOTSUPP. A subsequent overflow fixture exceeded its
+unchanged deadline while creating hundreds of dirty files. The final fixture
+uses 32 targets and nine distinct producer processes, preserving the 256-record,
+one-overflow and recovery checks with less unrelated disk I/O. Failed runs,
+review findings, image identities and full verification are retained under
+`/private/tmp/pedigree-fanotify-handles-expansion-20260906/verification.json`.
+Shared build settings were restored after saving the verification images. The
+previously parked split/unmap fault remains outside this pass.
 
 ## Extended attributes
 

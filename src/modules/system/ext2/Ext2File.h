@@ -41,6 +41,13 @@ class Ext2File : public File, public Ext2Node {
            File* pParent = 0);
   /** Destructor */
   virtual ~Ext2File();
+  bool valid() const {
+    return m_Initialized;
+  }
+  virtual FileHandleStatus subscribeInodeEvents(FileEventMask,
+                                                const SharedPointer<FileEventObserver>&,
+                                                FileEventSubscription&);
+  virtual void finishInodeRetirement();
 
   virtual void preallocate(size_t expectedSize, bool zero = true);
 
@@ -75,6 +82,7 @@ class Ext2File : public File, public Ext2Node {
   virtual XattrStatus removeExtendedAttribute(const StringView&);
 
  protected:
+  virtual void publishInodeEvent(const FileEvent&);
   virtual CacheState& cacheState();
   virtual bool useFillCache() const;
   virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
@@ -87,6 +95,7 @@ class Ext2File : public File, public Ext2Node {
   virtual void writeBlocks(uint64_t location, uintptr_t addr, size_t length);
 
  private:
+  bool m_Initialized = false;
   static bool sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t location,
                                  uintptr_t page, void* state);
   static bool writeBlocksLocked(Ext2InodeState* state, uint64_t location, uintptr_t address,

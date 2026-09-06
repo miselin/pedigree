@@ -28,17 +28,23 @@ enum Event : FileEventMask {
   Created = 1U << 6,
   Removed = 1U << 7,
   DeletedSelf = 1U << 8,
+  SourceRetired = 1U << 9,
 };
 }  // namespace FileEvents
 
 struct FileEvent {
-  FileEvent(FileEventMask eventMask, const StringView& eventName, bool eventTargetIsDirectory)
-      : mask(eventMask), name(eventName), targetIsDirectory(eventTargetIsDirectory) {}
+  FileEvent(FileEventMask eventMask, const StringView& eventName, bool eventTargetIsDirectory,
+            uint32_t producer = 0)
+      : mask(eventMask),
+        name(eventName),
+        targetIsDirectory(eventTargetIsDirectory),
+        producerPid(producer) {}
 
   FileEventMask mask;
   /** Valid only for the duration of FileEventObserver::fileEvent(). */
   StringView name;
   bool targetIsDirectory;
+  uint32_t producerPid;
 };
 
 class FileEventState;
@@ -97,6 +103,9 @@ class EXPORTED_PUBLIC FileEventSource {
   void notifyFileEvent(const FileEvent& event);
   /** Atomically closes subscription admission and delivers a final event. */
   void notifyFinalFileEvent(const FileEvent& event);
+  /** Closes admission and emits a terminal event without draining older callbacks. */
+  void beginFinalFileEvent(const FileEvent& event);
+  void drainFileEvents();
   void closeFileEvents();
 
  private:
@@ -104,6 +113,15 @@ class EXPORTED_PUBLIC FileEventSource {
   FileEventSource& operator=(const FileEventSource&) = delete;
 
   SharedPointer<FileEventState> m_FileEventState;
+};
+
+/** Shared backing source, independent of any one namespace wrapper. */
+class EXPORTED_PUBLIC InodeEventSource : public FileEventSource {
+ public:
+  void publish(const FileEvent& event);
+  void beginRetirement();
+  /** Called after beginRetirement, outside backend and namespace locks. */
+  void finishRetirement();
 };
 
 #endif

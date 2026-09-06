@@ -27,6 +27,7 @@
 #endif
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/LruCache.h"
@@ -40,6 +41,7 @@
 class Disk;
 class File;
 class StringView;
+class VfsMountState;
 
 /** Set to zero to disable the builtin VFS LRU caches. */
 #define VFS_WITH_LRU_CACHES 0
@@ -47,6 +49,52 @@ class StringView;
 /** This class implements a single-root virtual filesystem namespace. */
 class EXPORTED_PUBLIC VFS {
  public:
+  class MountOperation;
+  class EXPORTED_PUBLIC MountIdentity {
+   public:
+    MountIdentity();
+    MountIdentity(const MountIdentity& other);
+    MountIdentity(MountIdentity&& other) noexcept;
+    ~MountIdentity();
+    MountIdentity& operator=(const MountIdentity& other);
+    MountIdentity& operator=(MountIdentity&& other) noexcept;
+    uint32_t id() const;
+    explicit operator bool() const;
+    bool acquire(MountOperation& operation) const;
+    bool subscribeRetirement(const SharedPointer<FileEventObserver>& observer,
+                             FileEventSubscription& subscription) const;
+
+   private:
+    friend class VFS;
+    friend class MountOperation;
+    SharedPointer<VfsMountState> m_State;
+  };
+
+  class EXPORTED_PUBLIC MountOperation {
+   public:
+    MountOperation();
+    MountOperation(MountOperation&& other) noexcept;
+    ~MountOperation();
+    MountOperation& operator=(MountOperation&& other) noexcept;
+    Filesystem* filesystem() const;
+    uint32_t id() const;
+    MountIdentity identity() const;
+    explicit operator bool() const;
+    void reset();
+
+   private:
+    friend class VFS;
+    friend class MountIdentity;
+    MountOperation(const MountOperation&) = delete;
+    MountOperation& operator=(const MountOperation&) = delete;
+    TerminationDeferral m_Lifetime;
+    SharedPointer<VfsMountState> m_State;
+    OperationBarrier::Lease m_Admission;
+  };
+
+  /** Compares key without dereferencing it, then admits live filesystem access. */
+  bool acquireMount(Filesystem* key, MountOperation& operation) const;
+
   /** Callback type, called when a disk is mounted or unmounted. */
   typedef void (*MountCallback)();
 
@@ -172,6 +220,8 @@ class EXPORTED_PUBLIC VFS {
    * maintain that safety.
    */
   void trackFile(File* pFile);
+  /** Fallible initial publication; success owns one additional tracked reference. */
+  bool tryTrackFile(File* pFile);
 
   /** Retain an already tracked File without publishing an untracked pointer. */
   MUST_USE_RESULT bool retainTrackedFile(File* pFile);
@@ -194,10 +244,13 @@ class EXPORTED_PUBLIC VFS {
 
  private:
   struct MountInfo {
-    MountInfo(const String& stableName, const String& path) : stableName(stableName), path(path) {}
+    MountInfo(const String& stableName, const String& path,
+              const SharedPointer<VfsMountState>& state);
+    ~MountInfo();
 
     String stableName;
     String path;
+    SharedPointer<VfsMountState> state;
   };
 
   typedef Tree<Filesystem*, MountInfo*> MountTable;

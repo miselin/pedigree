@@ -344,7 +344,7 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
   /// \todo Endianness!
   Inode* newInode = getInode(inode_num);
   if (!inodeOverride) {
-    ByteSet(reinterpret_cast<uint8_t*>(newInode), 0, m_InodeSize);
+    // Allocation has already cleared the inode and advanced its generation.
     newInode->i_mode = HOST_TO_LITTLE16(mask | type);
     newInode->i_uid = HOST_TO_LITTLE16(uid);
     newInode->i_atime = newInode->i_ctime = newInode->i_mtime = HOST_TO_LITTLE32(timestamp);
@@ -370,6 +370,14 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
   switch (type) {
     case EXT2_S_IFREG: {
       Ext2File* pNewFile = new Ext2File(filename, inode_num, newInode, this, parent);
+      if (!pNewFile || !pNewFile->valid()) {
+        if (!inodeOverride) {
+          releaseInode(inode_num, pNewFile);
+        }
+        delete pNewFile;
+        SYSCALL_ERROR(OutOfMemory);
+        return false;
+      }
       pFile = pNewFile;
       pNewNode = pNewFile;
       break;
@@ -907,86 +915,6 @@ size_t Ext2Filesystem::findFreeBlocksInGroup(uint32_t group, size_t maxCount,
   return currentCount;
 }
 
-uint32_t Ext2Filesystem::findFreeInode() {
-#if THREADS || defined(STANDALONE_MUTEXES)
-  LockGuard<Mutex> guard(m_WriteLock);
-#endif
-
-  for (uint32_t group = 0; group < m_nGroupDescriptors; group++) {
-    // Any free inodes here?
-    GroupDesc* pDesc = m_pGroupDescriptors[group];
-    if (!pDesc->bg_free_inodes_count) {
-      // No inodes free in this group.
-      continue;
-    }
-
-    // Make sure this block group's inode bitmap has been loaded.
-    if (!ensureFreeInodeBitmapLoaded(group)) {
-      return 0;
-    }
-
-    // 8 inodes per byte - i == bitmap offset in bytes.
-    Vector<size_t>& list = m_pInodeBitmaps[group];
-    for (size_t i = 0; i < LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group) / 8;
-         i += sizeof(uint32_t)) {
-      // Calculate block index into the bitmap.
-      size_t idx = i / (m_BlockSize * 8);
-      size_t off = i % (m_BlockSize * 8);
-
-      // Grab the specific block for the bitmap.
-      /// \todo Endianness - to ensure correct operation, must ptr be
-      /// little endian?
-      uintptr_t block = list[idx];
-      uint32_t* ptr = reinterpret_cast<uint32_t*>(block + off);
-      uint32_t tmp = *ptr;
-
-      // If all bits set, avoid searching the bitmap.
-      if (tmp == ~0U)
-        continue;
-
-      // Check each bit for free inode.
-      for (size_t j = 0; j < 32; j++, tmp >>= 1) {
-        // Free?
-        if ((tmp & 1) == 0) {
-          // This inode is free! Mark used.
-          *ptr |= (1 << j);
-          pDesc->bg_free_inodes_count--;
-
-          // Update superblock.
-          m_pSuperblock->s_free_inodes_count--;
-          m_pDisk->write(1024ULL);
-
-          // Update bitmap on disk.
-          uint32_t desc_block = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_bitmap) + idx;
-          writeBlock(desc_block);
-
-          // Update group descriptor count on disk.
-          /// \todo save group descriptor block number elsewhere
-          uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
-          uint32_t result = (group * sizeof(GroupDesc)) / m_BlockSize;
-          writeBlock(gdBlock + result);
-
-          // First inode of this group...
-          uint32_t inode = group * LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
-          // Inodes skipped so far (i == offset in bytes)...
-          inode += i * 8;
-          // Inodes skipped so far (j == bits ie inodes)...
-          // Note: inodes start counting at one, not zero.
-          inode += j + 1;
-          // Return inode.
-          return inode;
-        }
-      }
-
-      // Shouldn't get here - if there were no available blocks here it
-      // should have hit the "continue" above!
-      assert(false);
-    }
-  }
-
-  return 0;
-}
-
 void Ext2Filesystem::releaseBlock(uint32_t block) {
 #if THREADS || defined(STANDALONE_MUTEXES)
   LockGuard<Mutex> guard(m_WriteLock);
@@ -1081,6 +1009,23 @@ Ext2InodeState* Ext2Filesystem::acquireInodeState(uint32_t inode, Inode* metadat
   return state;
 }
 
+Ext2InodeState* Ext2Filesystem::acquireInodeStateLocked(uint32_t inode, Inode* metadata) {
+  Ext2InodeState* state = m_InodeStates.lookup(inode);
+  if (state) {
+    if (!state->references && !state->cache) {
+      state->reloadMappings(metadata, this);
+    }
+    ++state->references;
+    return state;
+  }
+  state = new Ext2InodeState(metadata, this);
+  if (!state || !m_InodeStates.tryInsert(inode, state)) {
+    delete state;
+    return nullptr;
+  }
+  return state;
+}
+
 void Ext2Filesystem::releaseInodeState(uint32_t inode, Ext2InodeState* state, Ext2Node* lastNode) {
   LockGuard<Mutex> stateGuard(m_InodeStateLock);
   assert(state == m_InodeStates.lookup(inode) && state->references);
@@ -1119,6 +1064,7 @@ bool Ext2Filesystem::releaseInode(uint32_t inodeNumber, Ext2Node* retiringNode) 
   if (remove) {
     if (state) {
       state->orphan = true;
+      state->inodeEvents.beginRetirement();
     } else {
       retireInodeLocked(inodeNumber, retiringNode);
     }

@@ -46,6 +46,7 @@ enum PosixError {
   IsADirectory = 21,           // EISDIR
   InvalidArgument = 22,        // EINVAL
   TooManyOpenFiles = 23,       // ENFILE
+  ProcessFileLimit = 24,       // EMFILE
   NotAConsole = 25,            // ENOTTY
   FileTooLarge = 27,           // EFBIG
   NoSpaceLeftOnDevice = 28,    // ENOSPC
@@ -80,6 +81,7 @@ enum PosixError {
   HostUnreachable = 113,       // EHOSTUNREACH
   Already = 114,               // EALREADY
   InProgress = 115,            // EINPROGRESS
+  StaleFileHandle = 116,       // ESTALE
   Cancelled = 125,             // ECANCELED
 };
 }

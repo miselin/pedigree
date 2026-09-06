@@ -139,6 +139,16 @@ Ext2Node::Ext2Node(uintptr_t inode_num, Inode* pInode, Ext2Filesystem* pFs)
       m_nMetadataBlocks(m_State->metadataBlocks),
       m_nSize(m_State->size) {}
 
+Ext2Node::Ext2Node(uintptr_t inode, Inode* metadata, Ext2Filesystem* filesystem,
+                   Ext2InodeState& admitted)
+    : m_State(&admitted),
+      m_pInode(metadata),
+      m_InodeNumber(inode),
+      m_pExt2Fs(filesystem),
+      m_Blocks(admitted.blocks),
+      m_nMetadataBlocks(admitted.metadataBlocks),
+      m_nSize(admitted.size) {}
+
 Ext2Node::~Ext2Node() {
   m_pExt2Fs->releaseInodeState(m_InodeNumber, m_State, this);
 }

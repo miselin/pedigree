@@ -41,6 +41,7 @@ class Vector;
 
 /** This class provides an implementation of the second extended filesystem. */
 class Ext2Filesystem : public Filesystem {
+  friend class Ext2HandlesTestPeer;
   friend class Ext2XattrTestPeer;
   friend class Ext2FillCacheTestPeer;
   friend class Ext2WritebackTestPeer;
@@ -62,6 +63,9 @@ class Ext2Filesystem : public Filesystem {
   static Filesystem* probe(Disk* pDisk);
   virtual File* getRoot() const;
   virtual const String& getVolumeLabel() const;
+  virtual FileHandleStatus encodeFileHandle(File&, FileHandle&);
+  virtual FileHandleStatus decodeFileHandle(const FileHandle&, RetainedFile&);
+  virtual FileHandleStatus fileHandleFsid(FileSystemId&);
 
  protected:
   virtual bool createFile(File* parent, const String& filename, uint32_t mask);
@@ -74,6 +78,8 @@ class Ext2Filesystem : public Filesystem {
 
  private:
   Ext2InodeState* acquireInodeState(uint32_t inode, Inode* metadata);
+  Ext2InodeState* acquireInodeStateLocked(uint32_t inode, Inode* metadata);
+  FileHandleStatus validateHandleInodeLocked(uint32_t inode, uint32_t generation, Inode*&);
   void releaseInodeState(uint32_t inode, Ext2InodeState* state, Ext2Node* lastNode);
   void retireInodeLocked(uint32_t inode, Ext2Node* lastNode);
   enum class AttributeWriteKind { Payload, Allocation, Inode };

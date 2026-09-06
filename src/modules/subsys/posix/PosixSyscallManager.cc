@@ -37,6 +37,8 @@
 #include "console-syscalls.h"
 #include "epoll-syscalls.h"
 #include "eventfd-syscalls.h"
+#include "fanotify-syscalls.h"
+#include "file-handle-syscalls.h"
 #include "file-syscalls.h"
 #include "inotify-syscalls.h"
 #include "linux-amd64-signal.h"
@@ -833,6 +835,15 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_LREMOVEXATTR:
       return posix_lremovexattr(reinterpret_cast<const char*>(p1),
                                 reinterpret_cast<const char*>(p2));
+    case POSIX_FANOTIFY_INIT:
+      return posix_fanotify_init(p1, p2);
+    case POSIX_FANOTIFY_MARK:
+      return posix_fanotify_mark(p1, p2, p3, p4, reinterpret_cast<const char*>(p5));
+    case POSIX_NAME_TO_HANDLE_AT:
+      return posix_name_to_handle_at(p1, reinterpret_cast<const char*>(p2),
+                                     reinterpret_cast<void*>(p3), reinterpret_cast<int*>(p4), p5);
+    case POSIX_OPEN_BY_HANDLE_AT:
+      return posix_open_by_handle_at(p1, reinterpret_cast<const void*>(p2), p3);
     case POSIX_FREMOVEXATTR:
       return posix_fremovexattr(p1, reinterpret_cast<const char*>(p2));
     case POSIX_MKNOD:

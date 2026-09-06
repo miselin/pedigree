@@ -221,6 +221,17 @@ pedigree_app(xattr-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/xattr-contract-test/ext2.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/xattr-contract-test/persistence.c)
 
+pedigree_app(fanotify-handle-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/fanotify-handle-contract-test/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/fanotify-handle-contract-test/fixture.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/fanotify-handle-contract-test/handles.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/fanotify-handle-contract-test/admission.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/fanotify-handle-contract-test/events.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/fanotify-handle-contract-test/queue.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/fanotify-handle-contract-test/lifetime.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/fanotify-handle-contract-test/waits.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/fanotify-handle-contract-test/persistence.c)
+
 pedigree_app(memfd-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memfd-contract-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memfd-contract-test/creation.c
