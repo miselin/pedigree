@@ -14,6 +14,9 @@ extern bool runHostedWaitRegressions();
 #if PEDIGREE_AFFINITY_TESTS
 extern bool runAffinityRegressions();
 #endif
+#if PEDIGREE_CHILD_WAIT_TESTS
+extern bool runChildWaitRegressions();
+#endif
 
 static bool entry() {
   if (!runHostedWaitRegressions()) {
@@ -22,6 +25,12 @@ static bool entry() {
   }
 #if PEDIGREE_AFFINITY_TESTS
   if (!runAffinityRegressions()) {
+    system_reset();
+    return true;
+  }
+#endif
+#if PEDIGREE_CHILD_WAIT_TESTS
+  if (!runChildWaitRegressions()) {
     system_reset();
     return true;
   }

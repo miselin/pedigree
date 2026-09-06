@@ -75,7 +75,7 @@ linux_number,syscall,family,status,scope_and_verification
 243,mq_timedreceive,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 244,mq_notify,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 245,mq_getsetattr,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
-247,waitid,Core file and process interfaces,pending,
+247,waitid,Core file and process interfaces,implemented,Child-wait pass; public musl selection and observation contracts passed in 1CPU and 4CPU guests; hosted terminal observer and sole reaper checks passed; bounds in companion document
 259,mknodat,Core file and process interfaces,pending,
 272,unshare,Linux administration and isolation,implemented,UTS namespace pass; real task membership and retained proc namespace descriptors; public musl and kernel lifecycle contracts passed in 1CPU and 4CPU guests; other namespace types deferred; bounds in companion document
 275,splice,Extended file interfaces,implemented,Pipe transfer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document

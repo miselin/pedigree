@@ -7,6 +7,7 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <time.h>
 
 #include <sys/types.h>
 
@@ -36,6 +37,7 @@ int sc_sample(int cpu);
 int sc_register_syscall(long number, long a, long b, long c, long* result);
 int64_t sc_now(void);
 int sc_wait(atomic_uint* value, unsigned expected);
+int sc_wait_for_task_retirement(pid_t tid, const struct timespec* expected_interval);
 int sc_read(int fd, void* buffer, size_t length);
 int sc_write(int fd, const void* buffer, size_t length);
 int sc_send(int fd, char value);

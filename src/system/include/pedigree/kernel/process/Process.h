@@ -525,9 +525,14 @@ class EXPORTED_PUBLIC Process {
   bool waitUntilTerminationReapableForTerminalCoordinator();
 
   /**
-   * Consumes a selected pending child transition without discarding an
-   * unrequested transition. The caller holds the parent's child-state guard.
+   * Selects a pending child transition, optionally consuming it. Unrequested
+   * transitions remain pending; a miss clears the output. The caller holds
+   * the parent's child-state guard.
    */
+  bool selectPendingChildTransition(bool includeStopped, bool includeContinued, bool consume,
+                                    ChildTransition& transition);
+
+  /** Consuming compatibility entry point for existing child waiters. */
   bool takePendingChildTransition(bool includeStopped, bool includeContinued,
                                   ChildTransition& transition);
 

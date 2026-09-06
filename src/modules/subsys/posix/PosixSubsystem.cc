@@ -790,11 +790,8 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
     space.setMemoryLockAccount(nullptr);
   }
 
-  // If it's a POSIX process, remove group membership
-  if (pProcess->getType() == Process::Posix) {
-    PosixProcess* p = static_cast<PosixProcess*>(pProcess);
-    p->leaveProcessGroup();
-  }
+  // Group membership must survive for wait's zombie selection. PosixProcess
+  // retires it after removal from lookup and drainage of retained observers.
 
   posix_mqueue_process_exit(pProcess->getId());
 

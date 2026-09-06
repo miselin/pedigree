@@ -258,6 +258,7 @@ static int interval_abi(void) {
   atomic_store_explicit(&peer.stop, 1, memory_order_release);
   CHECK(pthread_join(thread, NULL) == 0);
   created = 0;
+  CHECK(sc_wait_for_task_retirement(peer.tid, &baseline) == 0);
   errno = 0;
   CHECK(sched_rr_get_interval(peer.tid, &value) == -1 && errno == ESRCH);
 out:

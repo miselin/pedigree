@@ -45,6 +45,9 @@ static int inheritance(void) {
   CHECK(sc_pin(0, sc_cpus[0]) == 0);
   pid_t retired;
   CHECK(check_inherited_thread(sc_cpus[0], &retired) == 0);
+  struct timespec interval;
+  CHECK(sched_rr_get_interval(0, &interval) == 0);
+  CHECK(sc_wait_for_task_retirement(retired, &interval) == 0);
   cpu_set_t mask;
   struct sched_param param = {.sched_priority = 0};
   errno = 0;

@@ -98,6 +98,28 @@ int sc_wait(atomic_uint* value, unsigned expected) {
           atomic_load_explicit(value, memory_order_acquire));
   return -1;
 }
+int sc_wait_for_task_retirement(pid_t tid, const struct timespec* expected_interval) {
+  // The clear-TID wake can precede removal from numeric task lookup.
+  int64_t now = sc_now(), end = now + INT64_C(10000000000);
+  while (now >= 0 && now < end) {
+    struct timespec value;
+    errno = 0;
+    int result = sched_rr_get_interval(tid, &value);
+    if (result == -1)
+      return errno == ESRCH ? 0 : -1;
+    if (result != 0 || value.tv_sec != expected_interval->tv_sec ||
+        value.tv_nsec != expected_interval->tv_nsec) {
+      fprintf(stderr, "retiring task %d returned inconsistent interval\n", tid);
+      return -1;
+    }
+    sched_yield();
+    now = sc_now();
+  }
+  if (now >= 0)
+    errno = ETIMEDOUT;
+  fprintf(stderr, "task retirement timeout tid=%d errno=%d\n", tid, errno);
+  return -1;
+}
 int sc_read(int fd, void* buffer, size_t length) {
   unsigned char* bytes = buffer;
   while (length) {

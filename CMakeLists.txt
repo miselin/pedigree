@@ -147,6 +147,7 @@ set(PEDIGREE_REMAP_FILE_PAGES_TESTS FALSE CACHE BOOL "Run focused file-offset re
 set(PEDIGREE_PROCESS_MEMORY_TESTS FALSE CACHE BOOL "Run focused process-memory copy regressions during POSIX startup.")
 set(PEDIGREE_UTS_NAMESPACE_TESTS FALSE CACHE BOOL "Run focused namespace lifecycle regressions during POSIX startup.")
 set(PEDIGREE_AFFINITY_TESTS FALSE CACHE BOOL "Run focused scheduler affinity and wake-publication regressions.")
+set(PEDIGREE_CHILD_WAIT_TESTS FALSE CACHE BOOL "Run focused child wait and reaper lifetime regressions.")
 
 # General build options.
 set(PEDIGREE_LTO FALSE CACHE BOOL "Enable LTO.")

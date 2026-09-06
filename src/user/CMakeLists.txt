@@ -248,6 +248,16 @@ pedigree_app(uts-namespace-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/uts-namespace-contract-test/lifetime.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/uts-namespace-contract-test/admission.c)
 
+pedigree_app(child-wait-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/fixture.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/selectors.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/events.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/lifetime.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/copyout.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/errors.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/interruption.c)
+
 pedigree_app(scheduling-contract-test ON OFF ON ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/scheduling-contract-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/scheduling-contract-test/fixture.c

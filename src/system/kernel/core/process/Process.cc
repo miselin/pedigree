@@ -1937,19 +1937,27 @@ void Process::resume() {
   }
 }
 
-bool Process::takePendingChildTransition(bool includeStopped, bool includeContinued,
-                                         ChildTransition& transition) {
+bool Process::selectPendingChildTransition(bool includeStopped, bool includeContinued, bool consume,
+                                           ChildTransition& transition) {
   auto suspensionGuard = m_SuspensionWaiters.acquire();
   const bool selected =
       (includeStopped && m_PendingChildTransition.kind == ChildTransitionKind::Stopped) ||
       (includeContinued && m_PendingChildTransition.kind == ChildTransitionKind::Continued);
   if (!selected) {
+    transition = ChildTransition();
     return false;
   }
 
   transition = m_PendingChildTransition;
-  m_PendingChildTransition = ChildTransition();
+  if (consume) {
+    m_PendingChildTransition = ChildTransition();
+  }
   return true;
+}
+
+bool Process::takePendingChildTransition(bool includeStopped, bool includeContinued,
+                                         ChildTransition& transition) {
+  return selectPendingChildTransition(includeStopped, includeContinued, true, transition);
 }
 
 int64_t Process::getUserId() const {

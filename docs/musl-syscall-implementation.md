@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 82 of 113 backlog entries implemented; 31 remain.
+Current checkpoint: 83 of 113 backlog entries implemented; 30 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,60 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Child wait and non-consuming observation
+
+waitid supports P_ALL, P_PID and P_PGID, exited/stopped/continued events,
+WNOHANG and WNOWAIT. Reports include numeric real UID, cause and exit/signal
+status. Group-zero selection snapshots the caller group at entry. Known clone
+and PIDFD forms remain explicitly unsupported. Tracing reports are a subsequent
+pass.
+
+waitid and wait4 share child selection, interruption handling, reaping and final
+CPU accounting. WNOWAIT retains the Process through off-stack completion without
+consuming its event or accounting it to the parent. A concurrent consumer can
+claim the single reaper; destruction waits for retained observers after removing
+the child from new lookup. Stop/continue peeks preserve a pending transition
+until consumption or replacement. A fully exited child cannot keep waits for
+only stop/continue events eligible.
+
+Process-group membership now survives through zombie observation. Previously,
+exit removed it before wait could select the zombie by group. The existing
+PosixProcess destructor removes membership after lookup removal and observer
+drainage, keeping both numeric selection and group-member pointers valid.
+
+The raw waitid ABI accepts optional siginfo and rusage. It writes only the six
+defined siginfo result fields, preserving padding and unrelated fields; no-result
+and error paths clear those fields. wait4 writes status before rusage; waitid
+writes rusage before siginfo. Copyout failures can consume events, while WNOWAIT
+retains them. Existing cancellation/restart handling is shared, and waitid joins
+the restartable syscall set. The Linux rusage prefix is 144 bytes; musl's reserved
+tail remains untouched.
+
+Verification passed 37 routing/ABI checks, six cross source compiles, seven
+hosted compile-only sources, the full image build and actual Darwin hosted core
+runtime. The native fixture covers transition selection and a retained terminal
+observer alongside the sole reaper. Its exact parked-reaper check uses a hosted
+hook and is explicitly skipped in guests. Fresh headless one- and four-CPU guests
+passed all 29 public suites in 214.8 and 175.7 seconds, respectively; all 187
+affected image source/object pairs were current. Disk writes were enabled only
+on disposable disks. The six new public families cover selectors, event classes,
+lifetime/accounting, ordered copyout, admission errors and interruption.
+Artifacts, saved image hashes and results are recorded in
+/private/tmp/pedigree-wait-expansion-20260906/verification.json.
+
+Failed candidates are preserved. A selector fixture initially assumed a real
+bootstrap process group where getpgrp instead fabricated a PID; it now creates
+an explicit group, and the bootstrap inconsistency remains a session follow-up.
+The next run exposed the repaired zombie group-lifetime bug. An existing
+scheduling fixture also assumed immediate numeric task removal after musl's
+pthread_join; bounded retirement observation now precedes its stale-ID checks.
+
+One four-CPU run stalled in the existing affinity kernel fixture before the new
+wait fixture. Later runs of both the same saved image and the final image passed;
+phase diagnostics and bounded source review did not establish a cause. This
+remains an unresolved scheduling follow-up, not a claimed repair. The separate
+parked VM split/unmap fault is unchanged.
 
 ## Scheduling and CPU placement
 

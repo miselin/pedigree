@@ -67,6 +67,7 @@
 #include "timerfd-syscalls.h"
 #include "transfer-syscalls.h"
 #include "vm-syscalls.h"
+#include "wait-syscalls.h"
 #include "xattr-syscalls.h"
 
 namespace {
@@ -225,6 +226,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_WAITPID:
       return posix_waitpid(p1, reinterpret_cast<int*>(p2), p3,
                            linuxAbi ? reinterpret_cast<LinuxRusage64*>(p4) : nullptr);
+    case POSIX_WAITID:
+      return posix_waitid(static_cast<int>(p1), static_cast<int32_t>(p2),
+                          reinterpret_cast<void*>(p3), static_cast<int>(p4),
+                          reinterpret_cast<LinuxRusage64*>(p5));
     case POSIX_EXIT:
       NOTICE("POSIX exit request: pid="
              << Processor::information().getCurrentThread()->getParent()->getId()

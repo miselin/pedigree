@@ -212,6 +212,7 @@ bool restartableSyscall(const SyscallState& state) {
     case PedigreeLinuxAmd64Syscall_preadv2:
     case PedigreeLinuxAmd64Syscall_pwritev2:
     case PedigreeLinuxAmd64Syscall_wait4:
+    case PedigreeLinuxAmd64Syscall_waitid:
     case PedigreeLinuxAmd64Syscall_accept:
     case PedigreeLinuxAmd64Syscall_accept4:
     case PedigreeLinuxAmd64Syscall_sendto:

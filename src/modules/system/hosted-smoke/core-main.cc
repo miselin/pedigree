@@ -14,12 +14,19 @@ extern bool runHostedWaitRegressions();
 #if PEDIGREE_AFFINITY_TESTS
 extern bool runAffinityRegressions();
 #endif
+#if PEDIGREE_CHILD_WAIT_TESTS
+extern bool runChildWaitRegressions();
+#endif
 
 static bool entry() {
   bool passed = runHostedWaitRegressions();
 #if PEDIGREE_AFFINITY_TESTS
   if (passed)
     passed = runAffinityRegressions();
+#endif
+#if PEDIGREE_CHILD_WAIT_TESTS
+  if (passed)
+    passed = runChildWaitRegressions();
 #endif
   if (passed) {
     NOTICE("HOSTED-SMOKE: Darwin core smoke executed");

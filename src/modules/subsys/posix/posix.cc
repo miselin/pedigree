@@ -344,6 +344,12 @@ static bool init() {
     FATAL("Scheduler affinity regression failed");
   }
 #endif
+#if !HOSTED && PEDIGREE_CHILD_WAIT_TESTS
+  extern bool runChildWaitRegressions();
+  if (!runChildWaitRegressions()) {
+    FATAL("Child wait regression failed");
+  }
+#endif
   return true;
 }
 
