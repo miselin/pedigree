@@ -492,6 +492,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
     Success,
     NoMemory,
     AddressInUse,
+    PolicyDenied,
   };
 
   enum class VmStatus { Success, InvalidRange, Unmapped, Unsupported, NoMemory };
@@ -526,6 +527,9 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   MemoryMappedObject* mapFile(File* pFile, uintptr_t& address, size_t length,
                               MemoryMappedObject::Permissions perms, size_t offset = 0,
                               bool bCopyOnWrite = true);
+
+  /** Retain an outer OperationGuard when using this query before publication. */
+  bool hasSharedWriteCapability(File* backing);
 
   MemoryMappedObject* mapFile(
       File* pFile, uintptr_t& address, size_t length, MemoryMappedObject::Permissions perms,

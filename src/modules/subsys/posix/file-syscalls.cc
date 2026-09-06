@@ -52,6 +52,7 @@
 #include "eventfd-syscalls.h"
 #include "file-syscalls.h"
 #include "inotify-syscalls.h"
+#include "memfd-syscalls.h"
 #include "modules/subsys/posix/IoEvent.h"
 #include "modules/system/console/Console.h"
 #include "modules/system/ramfs/RamFs.h"
@@ -3203,6 +3204,9 @@ int posix_fcntl(int fd, int cmd, void* arg) {
       f->setStatusFlags(reinterpret_cast<size_t>(arg));
       F_NOTICE("  -> new flags " << f->getStatusFlags());
       return 0;
+    case F_GET_SEALS:
+    case F_ADD_SEALS:
+      return posix_memfd_fcntl(f, cmd, reinterpret_cast<uintptr_t>(arg));
     case F_GETLK:
     case F_SETLK:
     case F_SETLKW:
@@ -3377,6 +3381,8 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
     if (!pFile) {
       if (mapStatus == MemoryMapManager::MapStatus::AddressInUse) {
         SYSCALL_ERROR(FileExists);
+      } else if (mapStatus == MemoryMapManager::MapStatus::PolicyDenied) {
+        SYSCALL_ERROR(NotEnoughPermissions);
       } else {
         SYSCALL_ERROR(OutOfMemory);
       }

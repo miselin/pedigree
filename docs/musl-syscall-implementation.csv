@@ -101,7 +101,7 @@ linux_number,syscall,family,status,scope_and_verification
 310,process_vm_readv,Linux administration and isolation,pending,
 311,process_vm_writev,Linux administration and isolation,pending,
 316,renameat2,Extended file interfaces,pending,
-319,memfd_create,Memory management,pending,
+319,memfd_create,Memory management,implemented,Anonymous memory file and all five bundled musl seals; public contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 322,execveat,Extended file interfaces,pending,
 325,mlock2,Memory management,pending,
 326,copy_file_range,Extended file interfaces,pending,

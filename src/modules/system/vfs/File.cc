@@ -870,6 +870,14 @@ bool File::clearDataCache() {
   return true;
 }
 
+bool File::allowMapping(bool, bool, bool&) {
+  return true;
+}
+
+bool File::allowResize(size_t, size_t) {
+  return true;
+}
+
 bool File::resize(size_t size) {
   if (!supportsRegularFileOperations()) {
     syscallError(isDirectory() ? Error::IsADirectory : Error::InvalidArgument);
@@ -886,6 +894,10 @@ bool File::resize(size_t size) {
     return false;
   }
   const size_t oldSize = getSize();
+  // Reject backing policy before retiring cache loans or changing mappings.
+  if (!allowResize(oldSize, size)) {
+    return false;
+  }
   if (size == oldSize) {
     return resizeFile(size);
   }

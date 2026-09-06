@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 36 of 113 backlog entries implemented; 77 remain.
+Current checkpoint: 37 of 113 backlog entries implemented; 76 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,50 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Anonymous memory files and seals
+
+The memfd pass adds `memfd_create` and `fcntl(F_GET_SEALS/F_ADD_SEALS)`.
+Files are anonymous, seekable, initially empty O_RDWR descriptions with mode
+0777, effective creator credentials, and zero links. Empty labels and labels up
+to 249 bytes are accepted; repeated labels create independent files. CLOEXEC
+and ALLOW_SEALING are supported. Other creation flags, including huge pages,
+return EINVAL.
+
+All five seals in the bundled musl are supported: SEAL, SHRINK, GROW, WRITE,
+and FUTURE_WRITE. Seal state follows the backing file through dup, fork, exec,
+descriptor passing, and mappings that outlive their last descriptor. Failed
+seal additions publish none of the requested bits. Write and resize restrictions
+are checked before changing data or retiring mapping loans.
+
+WRITE admission rejects shared mappings that retain write capability, including
+unfaulted, read-only, PROT_NONE, and child mappings. FUTURE_WRITE preserves that
+capability in existing mappings; new shared read-only mappings cannot later gain
+write access. Private writable mappings retain copy-on-write behavior. Splitting,
+moving, discarding resident pages, and changing current protections preserve
+the admitted capability; final unmap or teardown releases it. A policy-denied
+MAP_FIXED leaves its victim intact.
+
+The new backing and seal state remain POSIX-local. Generic VFS admission hooks
+coordinate with the existing VM operation gate. There is no general writable
+page-pin API in the current memfd call graph; future vmsplice/GUP/DMA borrowers
+must participate in seal admission. Existing SharedPointer control-block and
+container allocation failures are not fully recoverable. A read-only memfd OFD
+cannot yet be obtained through `/proc/self/fd` reopening, so that access-mode
+test remains unavailable.
+
+`memfd-contract-test` covers creation, seals, mappings, lifetime, and synchronized
+write/mmap races. All 18 integration suites passed on fresh headless one- and
+four-CPU guests, including per-suite zero exit statuses and final markers.
+Native verification passed 126 String, lock-engine, and VFS metadata tests;
+37 routing/ABI checks passed, and four affected hosted units compiled.
+
+The first guest run exposed a shared String bug: appending an empty String copied
+a terminator from null storage. Empty append is now a no-op, with four native
+regressions. Both initial failures are retained alongside the passing runs.
+Image identities, logs, checks, and limits are recorded in
+`/private/tmp/pedigree-memfd-expansion-20260905/verification.json`. Disk writes
+remained disabled; the separately parked VM failure was not reopened.
 
 ## Advisory file locks
 

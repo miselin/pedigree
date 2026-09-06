@@ -103,6 +103,10 @@ String& String::operator=(const Cord& x) {
 String& String::operator+=(const String& x) {
   assert(assignable());
 
+  // Empty strings need not have storage, even for a terminating byte.
+  if (!x.length())
+    return *this;
+
   if (this == &x) {
     // The copy breaks self-append aliasing before the recursive append.
     // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)

@@ -264,6 +264,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /** Whether the backing supports ordinary file range operations. */
   bool supportsRegularFileOperations();
 
+  /** Admit a new mapping and restrict its later write upgrades if needed. */
+  virtual bool allowMapping(bool shared, bool writeRequested, bool& mayWrite);
+
   uintptr_t getInode() const;
   virtual void setInode(uintptr_t inode);
 
@@ -365,6 +368,7 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
  protected:
   virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
   virtual bool prepareWrite(uint64_t location, uint64_t size);
+  virtual bool allowResize(size_t oldSize, size_t newSize);
   virtual bool resizeFile(size_t size);
   virtual Mutex& writeSerializationLock();
   virtual Mutex& dataMutationLock();

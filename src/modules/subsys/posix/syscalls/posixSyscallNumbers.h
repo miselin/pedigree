@@ -351,5 +351,6 @@
 #define POSIX_MREMAP 336
 #define POSIX_MINCORE 337
 #define POSIX_MADVISE 338
+#define POSIX_MEMFD_CREATE 339
 
 #endif

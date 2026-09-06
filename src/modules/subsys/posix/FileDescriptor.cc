@@ -342,7 +342,9 @@ FileDescriptor::~FileDescriptor() {
 #endif
   }
 
-  m_OpenFile->removeDescriptorOwner();
+  if (m_OpenFile) {
+    m_OpenFile->removeDescriptorOwner();
+  }
 
   /// \note sockets are cleaned up by their reference count hitting zero
   /// (SharedPointer)

@@ -611,6 +611,49 @@ TEST(PedigreeString, AppendOtherString) {
   EXPECT_STREQ(s1.cstr(), "hello world");
 }
 
+TEST(PedigreeString, AppendDefaultEmptyString) {
+  String destination;
+  String empty;
+  destination += empty;
+  EXPECT_EQ(destination.length(), size_t(0));
+  EXPECT_EQ(destination, "");
+  destination += String("hello");
+  EXPECT_STREQ(destination.cstr(), "hello");
+}
+
+TEST(PedigreeString, AppendConstructedEmptyString) {
+  const char buffer[] = "";
+  String destination;
+  destination += String("");
+  destination += String(buffer, 0, true);
+  EXPECT_EQ(destination.length(), size_t(0));
+  EXPECT_EQ(destination, "");
+  destination += String("hello");
+  EXPECT_STREQ(destination.cstr(), "hello");
+}
+
+TEST(PedigreeString, AppendEmptyStringPreservesValue) {
+  String destination("hello");
+  const auto hash = destination.hash();
+  String empty;
+  destination += empty;
+  destination += String("");
+  EXPECT_STREQ(destination.cstr(), "hello");
+  EXPECT_EQ(destination.length(), size_t(5));
+  EXPECT_EQ(destination.hash(), hash);
+}
+
+TEST(PedigreeString, AppendStringToSelf) {
+  String empty;
+  empty += empty;
+  EXPECT_EQ(empty.length(), size_t(0));
+  EXPECT_EQ(empty, "");
+
+  String nonempty(BIGSTRING);
+  nonempty += nonempty;
+  EXPECT_STREQ(nonempty.cstr(), BIGSTRING BIGSTRING);
+}
+
 TEST(PedigreeString, AppendOtherCString) {
   String s1("hello");
   s1 += " world";

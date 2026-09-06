@@ -1006,6 +1006,17 @@ MemoryMappedObject* MemoryMapManager::mapFile(File* pFile, uintptr_t& address, s
     length = (length + pageSz - 1) & ~(pageSz - 1);
   }
 
+  bool mayWrite = maximumPerms & MemoryMappedObject::Write;
+  if (!pFile->allowMapping(!bCopyOnWrite, perms & MemoryMappedObject::Write, mayWrite)) {
+    if (status) {
+      *status = MapStatus::PolicyDenied;
+    }
+    return nullptr;
+  }
+  if (!mayWrite) {
+    maximumPerms &= ~MemoryMappedObject::Write;
+  }
+
   const MapStatus placementStatus = sanitiseAddress(address, length, placement);
   if (status) {
     *status = placementStatus;
@@ -1873,6 +1884,21 @@ MemoryMapManager::MapStatus MemoryMapManager::sanitiseAddress(uintptr_t& address
   // Fixed mappings may target a range which an internal caller reserved
   // before asking the memory-map manager to publish the object.
   return MapStatus::Success;
+}
+
+bool MemoryMapManager::hasSharedWriteCapability(File* backing) {
+  OperationGuard operation(*this);
+  const uintptr_t identity = backing->futexIdentity();
+  for (auto spaces = m_MmObjectLists.begin(); spaces != m_MmObjectLists.end(); ++spaces) {
+    for (auto objects = spaces.value()->begin(); objects != spaces.value()->end(); ++objects) {
+      const auto* object = *objects;
+      if (!object->m_bCopyOnWrite && (object->maximumPermissions() & MemoryMappedObject::Write) &&
+          object->usesBacking(identity)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 bool MemoryMapManager::prepareFileResize(File* file) {
