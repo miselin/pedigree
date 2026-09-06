@@ -216,6 +216,7 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
     : Subsystem(s),
       m_SignalHandlers(),
       m_SignalHandlersLock(),
+      m_CallbackSchedulingDomain(s.m_CallbackSchedulingDomain),
       m_AdvisoryOwner(AdvisoryOwner::Kind::Process),
       m_MemoryLockAccount(s.m_MemoryLockAccount),
       m_FdMap(),
@@ -1001,6 +1002,16 @@ void PosixSubsystem::sendSignal(Thread* pThread, int signal, bool yield, bool pr
     // dropping!");
     NOTICE("No event configured for signal #" << signal << ", silently dropping!");
   }
+}
+
+bool PosixSubsystem::admitLegacyUserSignals() {
+  MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+  if (m_CallbackSchedulingDomain == CallbackSchedulingDomain::Affinity)
+    return false;
+  // A serialized legacy handler retains a lower kernel continuation after
+  // its Event lease retires. Its image must keep that continuation's CPU.
+  m_CallbackSchedulingDomain = CallbackSchedulingDomain::LegacySignals;
+  return true;
 }
 
 void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler* handler) {
@@ -2451,6 +2462,10 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   pThread->retireInputUserStack();
   {
     MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+    // Exec is irreversible here. Old continuations cannot resume, and the
+    // clean user-return gate runs only after their remaining cleanup.
+    if (m_CallbackSchedulingDomain == CallbackSchedulingDomain::LegacySignals)
+      m_CallbackSchedulingDomain = CallbackSchedulingDomain::Unrestricted;
     MemoryMapManager::instance().unmapAll();
     delete oldLinker;
 
@@ -2683,9 +2698,10 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
       return failAfterCommit(Error::ValueTooLarge);
     }
     // Publish the user Thread only after its initial stack has an owner.
+    const ThreadPlacement placement = ThreadPlacement::initialUser();
     Thread* pNewThread =
         new Thread(pProcess, reinterpret_cast<Thread::ThreadStartFunc>(interpreterEntryPoint), 0,
-                   loaderStack, false, false, true);
+                   loaderStack, false, false, true, &placement);
     if (!pNewThread) {
       invalidateUserImage();
       delete stack;

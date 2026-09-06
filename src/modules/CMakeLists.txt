@@ -362,6 +362,10 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/wait-regressions.cc)
         target_compile_definitions(
             hosted-core-smoke PRIVATE PEDIGREE_HOSTED_CORE_SMOKE=1)
+        if (PEDIGREE_AFFINITY_TESTS)
+            target_sources(hosted-core-smoke PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/affinity-regressions.cc)
+        endif ()
     else ()
     pedigree_module(hosted-smoke "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/main.cc
@@ -397,6 +401,10 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/network-stack/Filter.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/UnixFilesystem.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/hosted-unix-regressions.cc)
+    if (PEDIGREE_AFFINITY_TESTS)
+        target_sources(hosted-smoke PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/affinity-regressions.cc)
+    endif ()
     endif ()
 endif ()
 
@@ -890,6 +898,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/uts-namespace.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/namespace-file.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/namespace-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/scheduling-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/ProcFs-namespaces.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/resource-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/UnixFilesystem.cc
@@ -914,6 +923,10 @@ endif ()
 if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_UTS_NAMESPACE_TESTS)
     target_sources(posix PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/uts-namespace-regressions.cc)
+endif ()
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_AFFINITY_TESTS)
+    target_sources(posix PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/affinity-regressions.cc)
 endif ()
 if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_PROCESS_MEMORY_TESTS)
     target_sources(posix PRIVATE

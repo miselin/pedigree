@@ -36,8 +36,8 @@ class IoBase;
 /** Base class for an ATA controller. */
 class AtaController : public ScsiController, public IrqHandler {
  public:
-  AtaController(Controller* pDev, int nController = 0)
-      : ScsiController(pDev), m_nController(nController) {
+  AtaController(Controller* pDev, int nController = 0, bool startWorker = true)
+      : ScsiController(pDev, startWorker), m_nController(nController) {
     setSpecificType(String("ata-controller"));
 
     // Ensure we have no stupid children lying around.

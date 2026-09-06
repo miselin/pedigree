@@ -17,8 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/RoundRobinCoreAllocator.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -53,7 +56,14 @@ bool RoundRobinCoreAllocator::initialise(List<PerProcessorScheduler*>& procList)
 }
 
 PerProcessorScheduler* RoundRobinCoreAllocator::allocateThread(Thread* pThread) {
-  PerProcessorScheduler* pReturn = m_ProcMap.lookup(m_pNext);
-  m_pNext = pReturn;
-  return pReturn;
+  ThreadPlacement placement;
+  pThread->snapshotPlacementLocked(placement);
+  LockGuard<Spinlock> guard(m_Lock);
+  PerProcessorScheduler* first = m_pNext;
+  do {
+    m_pNext = m_ProcMap.lookup(m_pNext);
+    if (placement.allowed.empty() || placement.allowed.contains(m_pNext->logicalCpu()))
+      return m_pNext;
+  } while (m_pNext != first);
+  FATAL("Thread allocator found no allowed online processor.");
 }

@@ -192,17 +192,19 @@ class CpuTimeSample {
 }  // namespace
 
 Thread::Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
-               bool semiUser, bool bDontPickCore, bool delayedStart)
+               bool semiUser, bool bDontPickCore, bool delayedStart,
+               const ThreadPlacement* placement)
     : Thread(pParent, pStartFunction, pParam, pStack, semiUser, bDontPickCore, delayedStart,
-             nullptr) {}
+             nullptr, placement) {}
 
 Thread::Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
                bool semiUser, bool bDontPickCore, bool delayedStart,
-               ThreadStartCleanup startCleanup)
+               ThreadStartCleanup startCleanup, const ThreadPlacement* placement)
     : m_pParent(pParent), m_DeferredReapNode(this) {
   if (pParent == 0) {
     FATAL("Thread::Thread(): Parent process was NULL!");
   }
+  initialisePlacement(placement);
 
   // Initialise our kernel stack.
   m_pAllocatedStack = 0;
@@ -266,7 +268,7 @@ Thread::Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, v
   }
 
   // Add to the scheduler
-  if (!bDontPickCore) {
+  if (!bDontPickCore || placement) {
     ProcessorThreadAllocator::instance().addThread(this, pStartFunction, pParam, bUserMode, pStack,
                                                    startCleanup);
   } else {
@@ -294,11 +296,13 @@ Thread::Thread(Process* pParent)
   Scheduler::instance().addThread(this, *m_pScheduler);
 }
 
-Thread::Thread(Process* pParent, SyscallState& state, bool delayedStart)
+Thread::Thread(Process* pParent, SyscallState& state, bool delayedStart,
+               const ThreadPlacement* placement)
     : m_pParent(pParent), m_DeferredReapNode(this) {
   if (pParent == 0) {
     FATAL("Thread::Thread(): Parent process was NULL!");
   }
+  initialisePlacement(placement);
 
   // Initialise our kernel stack.
   // m_pKernelStack =
@@ -513,9 +517,11 @@ bool Thread::prepareInputUserStack() {
   TerminationDeferral termination;
   if (m_pInputUserStack)
     return true;
-  if (!acceptingEvents())
+  if (!acceptingEvents() || !tryPinLegacyUserCallbacks())
     return false;
   m_pInputUserStack = m_pParent->getAddressSpace()->allocateStack();
+  if (!m_pInputUserStack)
+    unpinLegacyUserCallbacks();
   return m_pInputUserStack != nullptr;
 }
 
@@ -553,6 +559,10 @@ void Thread::retireInputUserStack() {
     m_pParent->getAddressSpace()->freeStack(stack);
   else
     delete stack;
+  // Only committed exec and terminal teardown retire this domain. An old
+  // nested callback cannot resume; exec reaches its migration gate only after
+  // abandoning those states. Removing a public registration is not sufficient.
+  unpinLegacyUserCallbacks();
 }
 
 void Thread::shutdown() {
@@ -665,9 +675,8 @@ uintptr_t Thread::takeRobustList(size_t& ownerId) {
 }
 
 void Thread::forceToStartupProcessor() {
-  if (m_pScheduler == Scheduler::instance().getBootstrapProcessorScheduler()) {
-    // No need to move - we already think we're associated with the right
-    // CPU, and that's all we'll do below anyway.
+  PerProcessorScheduler* destination = Scheduler::instance().getBootstrapProcessorScheduler();
+  if (getScheduler() == destination) {
     return;
   }
 
@@ -678,13 +687,39 @@ void Thread::forceToStartupProcessor() {
     return;
   }
 
-  Scheduler::instance().removeThread(this);
-  m_pScheduler = Scheduler::instance().getBootstrapProcessorScheduler();
-  Scheduler::instance().addThread(this, *m_pScheduler);
-  Scheduler::instance().yield();
+  const bool interrupts = Processor::getInterrupts();
+  TerminationDeferral lifetime;
+  bool migratable;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    migratable = m_Placement.migratable;
+    m_Placement.migratable = true;
+  }
+  CpuAffinityMask startup;
+  startup.set(destination->logicalCpu());
+  while (true) {
+    uint64_t generation = 0;
+    const auto result = requestAffinity(startup, generation);
+    if (result != AffinityResult::Success && result != AffinityResult::Busy)
+      FATAL("Cannot admit startup processor migration.");
+    if (waitAffinity(generation) != AffinityResult::Success)
+      FATAL("Startup processor migration was terminated.");
+    if (result == AffinityResult::Success)
+      break;
+  }
+  if (completeAffinityAtSafePoint() != AffinityResult::Success)
+    FATAL("Startup processor migration was terminated at its safe point.");
+  Processor::setInterrupts(interrupts);
+  LockGuard<Spinlock> guard(m_Lock);
+  m_Placement.migratable = migratable;
 }
 
 void Thread::setStatus(Thread::Status s) {
+  LockGuard<Spinlock> guard(m_Lock);
+  setStatusUnlocked(s);
+}
+
+void Thread::setStatusUnlocked(Thread::Status s) {
   if (m_Status == Thread::Zombie) {
     if (s != Thread::Zombie) {
       WARNING("Error condition in Thread::setStatus, more info below...");
@@ -697,33 +732,17 @@ void Thread::setStatus(Thread::Status s) {
     return;
   }
 
-  Thread::Status previousStatus = m_Status;
+  if (s == Thread::Zombie) {
+    // shutdown owns event cleanup outside m_Lock; deleteThread publishes
+    // terminal retirement only after the stack handoff.
+    FATAL("Thread zombie transition must use off-stack retirement.");
+  }
 
   m_Status = s;
 
-  if (s == Thread::Zombie) {
-    Vector<Event*> pendingEvents;
-
-    // Wipe out any pending events that currently exist.
-    for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
-      pendingEvents.pushBack(*it);
-    }
-
-    m_EventQueue.clear();
-
-    for (auto pEvent : pendingEvents) {
-      pEvent->completeDelivery(this);
-    }
-
-    // Process termination is published from deleteThread(), after the
-    // scheduler has switched away from this stack.
-  }
-
-  if (m_Status == Thread::Ready && previousStatus != Thread::Running) {
-  }
-
-  if (m_pScheduler) {
-    m_pScheduler->threadStatusChanged(this);
+  PerProcessorScheduler* scheduler = getScheduler();
+  if (scheduler) {
+    scheduler->m_pSchedulingAlgorithm->threadStatusChanged(this);
   }
 }
 
@@ -3383,11 +3402,11 @@ void Thread::disarmAtomicStateCleanup(AtomicStateCleanupRecord& record) {
 }
 
 void Thread::setScheduler(class PerProcessorScheduler* pScheduler) {
-  m_pScheduler = pScheduler;
+  __atomic_store_n(&m_pScheduler, pScheduler, __ATOMIC_RELEASE);
 }
 
 PerProcessorScheduler* Thread::getScheduler() const {
-  return m_pScheduler;
+  return __atomic_load_n(&m_pScheduler, __ATOMIC_ACQUIRE);
 }
 
 void Thread::cleanStateLevel(size_t level) {
@@ -3526,6 +3545,7 @@ bool Thread::interruptWaitUnlocked(WaitQueue::WakeReason reason,
 
   if (m_Status == Sleeping) {
     m_Status = Ready;
+    __atomic_store_n(&m_ReadyPublicationPending, true, __ATOMIC_RELEASE);
     readyScheduler = waiter.scheduler;
     assert(readyScheduler);
     return true;

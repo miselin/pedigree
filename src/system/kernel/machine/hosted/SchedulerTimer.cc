@@ -31,6 +31,10 @@
 #define ONE_SECOND 1000000000
 #define HZ 10
 
+uint64_t HostedSchedulerTimer::nominalQuantumNs() const {
+  return uint64_t(ONE_SECOND) / HZ;
+}
+
 HostedSchedulerTimer HostedSchedulerTimer::m_Instance;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

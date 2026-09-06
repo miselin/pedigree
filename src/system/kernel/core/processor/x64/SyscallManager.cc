@@ -68,6 +68,35 @@ class SyscallReturnScope {
   const SyscallState* m_Previous;
   Thread::StackDiscardScope m_Discard;
 };
+
+bool finishAffinityReturn(SyscallState& state, const SyscallState* original) {
+  Thread* current = Processor::information().getCurrentThread();
+  while (true) {
+    bool waited = false;
+    if (current->completeAffinityAtSafePoint(&waited) == AffinityResult::Terminal)
+      return true;
+    if (!waited)
+      return false;
+    Processor::setInterrupts(true);
+    SyscallReturnScope returnScope(original);
+    if (Processor::information().getScheduler().serviceUserReturnWork(state))
+      return true;
+  }
+}
+
+bool finishAffinityReturn(InterruptState& state) {
+  Thread* current = Processor::information().getCurrentThread();
+  while (true) {
+    bool waited = false;
+    if (current->completeAffinityAtSafePoint(&waited) == AffinityResult::Terminal)
+      return true;
+    if (!waited)
+      return false;
+    Processor::setInterrupts(true);
+    if (Processor::information().getScheduler().serviceUserReturnWork(state))
+      return true;
+  }
+}
 }  // namespace
 
 SyscallManager& SyscallManager::instance() {
@@ -85,6 +114,7 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
   bool exitCurrentProcess = false;
   bool rebootSystem = false;
   bool userReturnTerminal = false;
+  bool interruptedWithoutProgress = false;
   int processExitCode = 0;
   Subsystem::ExitCause processExitCause = Subsystem::ExitCause::Normal;
   {
@@ -101,7 +131,6 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
 
     size_t serviceNumber = syscallState.getSyscallService();
     bool handled = false;
-    bool interruptedWithoutProgress = false;
     PostSyscallAction action;
     if (LIKELY(serviceNumber < serviceEnd)) {
       // The lease must retire before the deferral allows a pending terminal
@@ -131,17 +160,17 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
       }
     }
 
-    PerProcessorScheduler& scheduler = Processor::information().getScheduler();
     if (!handled) {
       // Even an invalid service or a temporarily missing handler came from a
       // real userspace frame and must not bypass pending return work.
-      userReturnTerminal = scheduler.serviceUserReturnWork(syscallState);
+      userReturnTerminal =
+          Processor::information().getScheduler().serviceUserReturnWork(syscallState);
     } else {
       const bool directUserTransition =
           action.kind == ReturnFromEvent || action.kind == PopEventState ||
           action.kind == RestoreProcessorState || action.kind == JumpToUserspace;
       if (directUserTransition) {
-        userReturnTerminal = scheduler.serviceProcessStopAtUserReturn(
+        userReturnTerminal = Processor::information().getScheduler().serviceProcessStopAtUserReturn(
             PerProcessorScheduler::ProcessStopGateMode::DirectUserTransition);
         Thread* current = Processor::information().getCurrentThread();
         if (current && current->getUnwindState() != Thread::Continue) {
@@ -162,7 +191,7 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
             break;
           }
           tracker.finishInKernel();
-          scheduler.eventHandlerReturned();
+          Processor::information().getScheduler().eventHandlerReturned();
           break;
         case PopEventState:
           if (!userReturnTerminal) {
@@ -185,24 +214,48 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
           // rt_sigreturn restores the old mask before committing this frame.
           // Service newly unblocked signals against that exact restored image
           // so none escape briefly to userspace or wait for another syscall.
-          userReturnTerminal = scheduler.serviceUserReturnWork(*returnState);
+          userReturnTerminal =
+              Processor::information().getScheduler().serviceUserReturnWork(*returnState);
           if (userReturnTerminal) {
             break;
           }
-          tracker.finish();
-          Processor::setInterrupts(false);
-          Processor::information().getCurrentThread()->transitionTime(CpuTimeMode::Kernel,
-                                                                      CpuTimeMode::User);
+          tracker.finishInKernel();
+          Thread* current = Processor::information().getCurrentThread();
+          if (finishAffinityReturn(*returnState)) {
+            userReturnTerminal = true;
+            Processor::setInterrupts(true);
+            break;
+          }
+          current->transitionTime(CpuTimeMode::Kernel, CpuTimeMode::User);
           Processor::contextSwitch(returnState);
         }
         case JumpToUserspace: {
           if (userReturnTerminal) {
             break;
           }
-          tracker.finish();
+          tracker.finishInKernel();
           Processor::setInterrupts(false);
           Thread* current = Processor::information().getCurrentThread();
           current->abandonAllStates();
+          while (true) {
+            bool waited = false;
+            if (current->completeAffinityAtSafePoint(&waited) == AffinityResult::Terminal) {
+              userReturnTerminal = true;
+              break;
+            }
+            if (!waited)
+              break;
+            Processor::setInterrupts(true);
+            if (Processor::information().getScheduler().serviceProcessStopAtUserReturn(
+                    PerProcessorScheduler::ProcessStopGateMode::DirectUserTransition)) {
+              userReturnTerminal = true;
+              break;
+            }
+          }
+          if (userReturnTerminal) {
+            Processor::setInterrupts(true);
+            break;
+          }
           current->transitionTime(CpuTimeMode::Kernel, CpuTimeMode::User);
           Processor::jumpUser(nullptr, action.state.getInstructionPointer(),
                               action.state.getStackPointer());
@@ -212,7 +265,8 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
           break;
         case NoPostSyscallAction: {
           SyscallReturnScope returnScope(interruptedWithoutProgress ? &originalState : nullptr);
-          userReturnTerminal = scheduler.serviceUserReturnWork(syscallState);
+          userReturnTerminal =
+              Processor::information().getScheduler().serviceUserReturnWork(syscallState);
           break;
         }
       }
@@ -246,6 +300,7 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     NOTICE("SYSCALL pid=" << Dec << pProcess->getId() << " service=" << serviceNumber
                           << " num=" << syscallNumber << " ns=" << value << Hex);
 #endif
+    tracker.finishInKernel();
   }
 
   if (rebootSystem) {
@@ -262,6 +317,16 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
   if (commitThreadExit) {
     Processor::information().getScheduler().commitCurrentThreadExit();
   }
+
+  // No syscall handler, return-action lease, or accounting scope survives
+  // this boundary. Keep IRQs disabled from the final mask check through SYSRET.
+  Thread* current = Processor::information().getCurrentThread();
+  if (finishAffinityReturn(syscallState, interruptedWithoutProgress ? &originalState : nullptr)) {
+    Processor::setInterrupts(true);
+    Processor::information().getScheduler().commitUserReturnTerminalState();
+    FATAL_NOLOCK("Terminal affinity return unexpectedly returned");
+  }
+  current->transitionTime(CpuTimeMode::Kernel, CpuTimeMode::User);
 }
 
 uintptr_t X64SyscallManager::syscall(Service_t service, uintptr_t function, uintptr_t p1,

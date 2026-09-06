@@ -20,6 +20,10 @@ WaitQueue::BeforeBlockHook WaitQueue::m_BeforeBlockHook = nullptr;
 #endif
 
 namespace {
+#if PEDIGREE_AFFINITY_TESTS
+Thread* g_ReadyPublicationTarget = nullptr;
+WaitQueue::ReadyPublicationHook g_ReadyPublicationHook = nullptr;
+#endif
 WaitQueue::WakeReason terminalWakeReason(Thread::UnwindType state) {
   if (state == Thread::Exit) {
     return WaitQueue::WakeReason::Unwinding;
@@ -404,6 +408,7 @@ bool WaitQueue::completeWaiter(Guard& guard, Waiter* waiter, WakeReason reason) 
     completed = true;
     if (thread->m_Status == Thread::Sleeping) {
       thread->m_Status = Thread::Ready;
+      __atomic_store_n(&thread->m_ReadyPublicationPending, true, __ATOMIC_RELEASE);
       becameReady = true;
     }
   }
@@ -418,11 +423,21 @@ bool WaitQueue::completeWaiter(Guard& guard, Waiter* waiter, WakeReason reason) 
 void WaitQueue::publishReady(Waiter* waiter) {
   assert(waiter);
   Thread* thread = waiter->thread;
-  PerProcessorScheduler* scheduler = waiter->scheduler;
   assert(thread);
-  assert(scheduler);
-  scheduler->publishReadyFromWait(thread);
+#if PEDIGREE_AFFINITY_TESTS
+  const auto hook = __atomic_load_n(&g_ReadyPublicationHook, __ATOMIC_ACQUIRE);
+  if (hook && thread == __atomic_load_n(&g_ReadyPublicationTarget, __ATOMIC_ACQUIRE))
+    hook(thread);
+#endif
+  thread->publishReadyNotification();
 }
+
+#if PEDIGREE_AFFINITY_TESTS
+void WaitQueue::setReadyPublicationHookForTest(Thread* target, ReadyPublicationHook hook) {
+  __atomic_store_n(&g_ReadyPublicationTarget, target, __ATOMIC_RELEASE);
+  __atomic_store_n(&g_ReadyPublicationHook, hook, __ATOMIC_RELEASE);
+}
+#endif
 
 void WaitQueue::removeWaiterLocked(Waiter* waiter) {
   if (!waiter->isQueued()) {
@@ -486,6 +501,7 @@ void WaitQueue::cancel(Waiter* waiter, WakeReason reason) {
     thread->m_Lock.acquire();
     if (thread->m_Status == Thread::Sleeping) {
       thread->m_Status = Thread::Ready;
+      __atomic_store_n(&thread->m_ReadyPublicationPending, true, __ATOMIC_RELEASE);
       becameReady = true;
     }
     thread->m_Lock.release();

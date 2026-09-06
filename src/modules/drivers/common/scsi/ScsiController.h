@@ -36,7 +36,7 @@ class ScsiDisk;
 /** Generic class for Scsi Controllers */
 class EXPORTED_PUBLIC ScsiController : public Controller, public RequestQueue {
  public:
-  ScsiController(Controller* pDev);
+  ScsiController(Controller* pDev, bool startWorker = true);
   ScsiController();
 
   virtual ~ScsiController();

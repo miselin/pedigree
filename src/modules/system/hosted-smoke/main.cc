@@ -11,12 +11,21 @@
 
 extern void system_reset();
 extern bool runHostedWaitRegressions();
+#if PEDIGREE_AFFINITY_TESTS
+extern bool runAffinityRegressions();
+#endif
 
 static bool entry() {
   if (!runHostedWaitRegressions()) {
     system_reset();
     return true;
   }
+#if PEDIGREE_AFFINITY_TESTS
+  if (!runAffinityRegressions()) {
+    system_reset();
+    return true;
+  }
+#endif
 
   NOTICE("HOSTED-SMOKE: populated initrd executed");
   system_reset();

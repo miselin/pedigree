@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 72 of 113 backlog entries implemented; 41 remain.
+Current checkpoint: 82 of 113 backlog entries implemented; 31 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,74 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Scheduling and CPU placement
+
+Ten new Linux syscall routes supply scheduling queries, ordinary-policy
+validation, CPU affinity and getcpu. Static priority zero under SCHED_OTHER
+remains the actual scheduler policy; valid unsupported policies return
+EOPNOTSUPP, malformed parameters EINVAL. Priority-bound queries describe the
+Linux policy ranges. sched_rr_get_interval reports the active scheduler timer's
+nominal quantum, without promising an observed scheduling latency. Four direct
+bundled musl policy wrappers still return ENOSYS locally; public pthread
+scheduling interfaces use the implemented raw routes.
+
+Affinity addresses Linux task IDs and inherits from the actual creator through
+pthread creation and fork. Exec retains the surviving task's mask. Masks use
+logical online CPU indices, independently of firmware/APIC identities, with
+capacity for 1024 CPUs. Foreign changes require effective root or a matching
+real/effective target UID. Queries release target leases before user copy.
+getcpu returns the actual logical CPU and node zero; the former constant-zero
+vDSO now reaches the same query.
+
+A source-CPU coordinator commits affinity policy only while the target is
+off-stack. A blocked syscall can acknowledge the new policy while retaining its
+existing kernel continuation on its original CPU. Physical movement occurs at
+an audited clean return gate before the next user instruction. Gate waits
+recheck pending signal/stop work, and the final transition remains
+IRQ-disabled. This avoids moving arbitrary kernel continuations that hold
+CPU-local references. Queued work retains independent Thread/Process pins
+through cancellation and wake publication.
+
+Legacy native Input callbacks pin the task to their owner CPU until
+irreversible exec/exit retirement; removing the public callback stops producers
+but retains the image's pin. Excluding that CPU returns EOPNOTSUPP, while
+containing masks remain usable. Generic Pedigree user signal callbacks and
+explicit affinity use mutually exclusive process domains because nested
+callbacks can retain lower kernel continuations. Modern Linux signal frames
+remain supported. PCI ATA workers receive fixed BSP placement at construction
+so their queue wake binding remains stable.
+
+Verification passed 37 routing/ABI checks, affected cross and hosted source
+compiles, the full cross image build and the actual Darwin hosted core runtime.
+All 28 public suites passed in fresh headless guests on one CPU (211.5 seconds)
+and four CPUs (168.3 seconds). The new suite covers six scheduling families,
+including exact task permission checks, registers/TLS across movement, blocked
+waits, signal/cancellation, ordinary and nonleader exec, concurrent setters,
+retired task IDs, and native Input pin retention/reset. The core fixture forces
+held wake publication, policy acknowledgement before movement, clean-gate
+movement, counted callback pins and terminal cancellation. All 496 affected
+image source/object pairs were current. A further four-CPU run passed all 28
+suites in 166.4 seconds with APIC IDs 0, 1, 2 and 4; the installed QEMU
+topology was independently confirmed through its monitor. Disk writes were
+enabled on disposable disks. Logs, saved images, hashes and results are recorded in
+/private/tmp/pedigree-scheduler-expansion-20260906/verification.json.
+
+Earlier failed runs are preserved and explained: nested use of the new status
+publisher under a plain Thread lock caused a bootstrap deadlock; explicit
+locked operations repaired it. A four-CPU run then found the constant-zero
+getcpu vDSO. Subsequent placement runs exposed stale Thread capture during
+arbitrary kernel-continuation migration. A diagnostic reproduced the mismatch
+at construction, before deferred-scope registration; restricting physical
+migration to audited return gates repaired that path. The diagnostic remains
+test-only and still fails on an identity mismatch.
+
+Signal/stop arrival specifically during an architectural gate wait, nonzero
+bootstrap topology slots, generation exhaustion, and actual hardware Input
+callback delivery were source-reviewed or remain unavailable, rather than
+claimed as deterministic runtime coverage. One-CPU migration/exclusion cases
+are explicitly skipped. No CPU hotplug or real-time scheduling is added. The
+parked VM split/unmap fault remains unchanged.
 
 ## UTS namespaces and task membership
 

@@ -24,11 +24,12 @@
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Pci.h"
-#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/CpuAffinity.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -39,13 +40,15 @@
 #include "modules/drivers/common/scsi/ScsiController.h"
 
 PciAtaController::PciAtaController(Controller* pDev, int nController)
-    : AtaController(pDev, nController),
+    : AtaController(pDev, nController, false),
       m_pCommandRegs(nullptr),
       m_pControlRegs(nullptr),
       m_PciControllerType(UnknownController),
       m_IrqIds(),
       m_IrqCount(0),
       m_nController(nController) {
+  // Base construction must finish before the queue selects our placement.
+  initialise();
   setSpecificType(String("ata-controller"));
 
   // Determine controller type
@@ -367,11 +370,16 @@ bool PciAtaController::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCo
   return pDisk->sendCommand(nUnit, pCommand, nCommandSize, pRespBuffer, nRespBytes, bWrite);
 }
 
+bool PciAtaController::workerPlacement(ThreadPlacement& placement) const {
+  // IDE completion depends on BSP-routed IRQs. Set placement before a request
+  // can suspend a kernel continuation on another CPU.
+  placement = {};
+  placement.allowed.set(Scheduler::instance().getBootstrapProcessorScheduler()->logicalCpu());
+  return true;
+}
+
 uint64_t PciAtaController::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
                                           uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8) {
-  // Pin handling threads to the BSP as we depend on IRQs.
-  Processor::information().getCurrentThread()->forceToStartupProcessor();
-
   AtaDisk* pDisk = reinterpret_cast<AtaDisk*>(p2);
   if (p1 == SCSI_REQUEST_READ)
     return pDisk->doRead(p3);

@@ -36,6 +36,10 @@
 
 Pit Pit::m_Instance;
 
+uint64_t Pit::nominalQuantumNs() const {
+  return uint64_t(1000000000) / PIT_FREQUENCY;
+}
+
 bool Pit::registerHandler(SchedulerTimerHandler* handler) {
   return m_Handler.publish(0, handler);
 }

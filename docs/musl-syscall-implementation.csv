@@ -26,13 +26,13 @@ linux_number,syscall,family,status,scope_and_verification
 128,rt_sigtimedwait,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 129,rt_sigqueueinfo,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 135,personality,Linux administration and isolation,pending,
-142,sched_setparam,Scheduling and resource discovery,pending,
-143,sched_getparam,Scheduling and resource discovery,pending,
-144,sched_setscheduler,Scheduling and resource discovery,pending,
-145,sched_getscheduler,Scheduling and resource discovery,pending,
-146,sched_get_priority_max,Scheduling and resource discovery,pending,
-147,sched_get_priority_min,Scheduling and resource discovery,pending,
-148,sched_rr_get_interval,Scheduling and resource discovery,pending,
+142,sched_setparam,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
+143,sched_getparam,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
+144,sched_setscheduler,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
+145,sched_getscheduler,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
+146,sched_get_priority_max,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
+147,sched_get_priority_min,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
+148,sched_rr_get_interval,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
 149,mlock,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
 150,munlock,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
 151,mlockall,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
@@ -58,8 +58,8 @@ linux_number,syscall,family,status,scope_and_verification
 197,removexattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 198,lremovexattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 199,fremovexattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
-203,sched_setaffinity,Scheduling and resource discovery,pending,
-204,sched_getaffinity,Scheduling and resource discovery,pending,
+203,sched_setaffinity,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
+204,sched_getaffinity,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
 216,remap_file_pages,Memory management,implemented,File-page remap pass; public musl and kernel mapping contracts passed in 1CPU and 4CPU guests with disk writes enabled; bounds and limitations in companion document
 220,semtimedop,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 221,fadvise64,Core file and process interfaces,pending,
@@ -97,7 +97,7 @@ linux_number,syscall,family,status,scope_and_verification
 305,clock_adjtime,Linux administration and isolation,pending,
 306,syncfs,Extended file interfaces,pending,
 308,setns,Linux administration and isolation,implemented,UTS namespace pass; real task membership and retained proc namespace descriptors; public musl and kernel lifecycle contracts passed in 1CPU and 4CPU guests; other namespace types deferred; bounds in companion document
-309,getcpu,Scheduling and resource discovery,pending,
+309,getcpu,Scheduling and resource discovery,implemented,Scheduling pass; real ordinary policy queries and task CPU affinity; public musl and kernel gate/lifetime contracts passed in 1CPU and 4CPU guests; policy and callback limits in companion document
 310,process_vm_readv,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 311,process_vm_writev,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 316,renameat2,Extended file interfaces,pending,

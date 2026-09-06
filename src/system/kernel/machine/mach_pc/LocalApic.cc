@@ -67,6 +67,10 @@
 /** 100 hz, as per the PIT which would do scheduling on non-MP builds. */
 #define INITIAL_HZ 100
 
+uint64_t LocalApic::nominalQuantumNs() const {
+  return uint64_t(1000000000) / INITIAL_HZ;
+}
+
 static constexpr size_t IcrDeliveryPollLimit = 100000;
 static constexpr size_t ProcessorControlPollLimit = 10000000;
 static constexpr size_t TlbShootdownPollLimit = 10000000;

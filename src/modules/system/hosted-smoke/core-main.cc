@@ -11,9 +11,16 @@
 
 extern void system_reset();
 extern bool runHostedWaitRegressions();
+#if PEDIGREE_AFFINITY_TESTS
+extern bool runAffinityRegressions();
+#endif
 
 static bool entry() {
-  const bool passed = runHostedWaitRegressions();
+  bool passed = runHostedWaitRegressions();
+#if PEDIGREE_AFFINITY_TESTS
+  if (passed)
+    passed = runAffinityRegressions();
+#endif
   if (passed) {
     NOTICE("HOSTED-SMOKE: Darwin core smoke executed");
   }

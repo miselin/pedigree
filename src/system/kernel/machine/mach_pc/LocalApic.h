@@ -161,6 +161,7 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
   //
   // SchedulerTimer interface
   //
+  uint64_t nominalQuantumNs() const override;
   virtual bool registerHandler(SchedulerTimerHandler* handler) {
     // Logical Processor::id() is assigned after early BSP timer setup and
     // can change during topology construction. The LAPIC's raw physical

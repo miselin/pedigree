@@ -401,6 +401,9 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   if (utsPrepared != UtsStatus::Success)
     return posix_uts_error(utsPrepared);
 
+  const ThreadPlacement placement =
+      ThreadPlacement::inherit(*Processor::information().getCurrentThread());
+
   if (route == CloneRoute::Thread) {
     // clone vm doesn't actually copy the address space, it shares it
 
@@ -449,7 +452,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
         return -1;
       }
 
-      pThread = new Thread(pParentProcess, clonedState, true);
+      pThread = new Thread(pParentProcess, clonedState, true, &placement);
       if (!pThread) {
         SYSCALL_ERROR(OutOfMemory);
         return -1;
@@ -622,7 +625,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   }
 
   // Create a new thread for the new process.
-  Thread* pThread = new Thread(pProcess, clonedState, true);
+  Thread* pThread = new Thread(pProcess, clonedState, true, &placement);
   if (!pThread) {
     delete pProcess;
     SYSCALL_ERROR(OutOfMemory);

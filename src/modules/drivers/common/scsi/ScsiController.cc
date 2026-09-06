@@ -23,9 +23,10 @@
 
 #include "ScsiDisk.h"
 
-ScsiController::ScsiController(Controller* pDev)
+ScsiController::ScsiController(Controller* pDev, bool startWorker)
     : Controller(pDev), RequestQueue(MakeConstantString("ScsiController")) {
-  initialise();
+  if (startWorker)
+    initialise();
 }
 
 ScsiController::ScsiController() : RequestQueue(MakeConstantString("ScsiController")) {

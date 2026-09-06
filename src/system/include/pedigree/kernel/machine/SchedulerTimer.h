@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_MACHINE_SCHEDULERTIMER_H
 #define KERNEL_MACHINE_SCHEDULERTIMER_H
+#include "pedigree/kernel/processor/types.h"
 
 class SchedulerTimerHandler;
 
@@ -33,6 +34,7 @@ class SchedulerTimer {
    * Registration, dispatch, and removal are processor-local operations.
    */
   virtual bool registerHandler(SchedulerTimerHandler* handler) = 0;
+  virtual uint64_t nominalQuantumNs() const = 0;
   /**
    * Remove the calling processor's exact current owner.
    *

@@ -243,6 +243,10 @@ static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sig
 
   // Publish the validated replacement disposition.
   if (act) {
+    bool legacyUserHandler = handlerType == 0;
+#if X64
+    legacyUserHandler = legacyUserHandler && pSubsystem->getAbi() != PosixSubsystem::LinuxAbi;
+#endif
     PosixSubsystem::SignalHandler* sigHandler = new PosixSubsystem::SignalHandler;
     sigHandler->flags = act->sa_flags;
     sigHandler->restorer = reinterpret_cast<uintptr_t>(act->sa_restorer);
@@ -250,7 +254,7 @@ static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sig
     MemoryCopy(&sigHandler->sigMask, &act->sa_mask, sizeof(sigHandler->sigMask));
 
 #if X64
-    if (handlerType == 0 && pSubsystem->getAbi() == PosixSubsystem::LinuxAbi) {
+    if (handlerType == 0 && !legacyUserHandler) {
       sigHandler->pEvent = new LinuxAmd64Signal::AsyncEvent(
           newHandler, static_cast<size_t>(sig), sigHandler->sigMask,
           !(sigHandler->flags & SA_NODEFER), sigHandler->flags, sigHandler->restorer,
@@ -265,6 +269,11 @@ static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sig
           handlerType == 0 ? SignalEvent::DeliveryDisposition::CaughtHandler
                            : SignalEvent::DeliveryDisposition::DefaultAction,
           handlerType == 0 && (sigHandler->flags & SA_ONSTACK));
+    }
+    if (legacyUserHandler && !pSubsystem->admitLegacyUserSignals()) {
+      delete sigHandler;
+      SYSCALL_ERROR(OperationNotSupported);
+      return -1;
     }
     SG_NOTICE("Creating the event (" << reinterpret_cast<uintptr_t>(sigHandler->pEvent) << ").");
     pSubsystem->setSignalHandler(sig, sigHandler);

@@ -35,6 +35,7 @@
 #endif
 
 class Thread;
+struct ThreadPlacement;
 class Timer;
 class PerProcessorScheduler;
 
@@ -386,6 +387,10 @@ class EXPORTED_PUBLIC RequestQueue {
   bool drain();
 
  protected:
+  virtual bool workerPlacement(ThreadPlacement&) const {
+    return false;
+  }
+
   /** Callback - classes are expected to inherit and override this function.
      It's called when a request needs to be executed (by the worker thread).
    */

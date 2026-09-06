@@ -170,7 +170,10 @@ class LinuxAsyncSignalTests(unittest.TestCase):
         restore = syscall_manager.split("case RestoreProcessorState:", 1)[1].split(
             "case JumpToUserspace:", 1
         )[0]
-        self.assertIn("scheduler.serviceUserReturnWork(*returnState)", restore)
+        self.assertIn(
+            "Processor::information().getScheduler().serviceUserReturnWork(*returnState)",
+            restore,
+        )
 
 
 if __name__ == "__main__":

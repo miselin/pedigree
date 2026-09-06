@@ -387,6 +387,16 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   /** Sets a signal handler */
   void setSignalHandler(size_t sig, SignalHandler* handler);
 
+  bool admitLegacyUserSignals();
+
+  // Affinity admission holds the VM operation gate through policy queuing.
+  bool affinityPolicyAllowed() const {
+    return m_CallbackSchedulingDomain != CallbackSchedulingDomain::LegacySignals;
+  }
+  void recordAffinityPolicyUse() {
+    m_CallbackSchedulingDomain = CallbackSchedulingDomain::Affinity;
+  }
+
   /**
    * Installs a complete exec-time disposition table and rebinds pending
    * deliveries to it. Takes ownership of every entry in \p handlers.
@@ -726,6 +736,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   /** A lock for access to the signal handlers tree */
   UnlikelyLock m_SignalHandlersLock;
+  enum class CallbackSchedulingDomain { Unrestricted, LegacySignals, Affinity };
+  CallbackSchedulingDomain m_CallbackSchedulingDomain = CallbackSchedulingDomain::Unrestricted;
   SharedPointer<PendingSignalContext> m_PendingSignals{new PendingSignalContext};
   AdvisoryOwner m_AdvisoryOwner;
   PosixMemoryLockAccount m_MemoryLockAccount;

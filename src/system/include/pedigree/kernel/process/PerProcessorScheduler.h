@@ -112,6 +112,13 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
 
   void threadStatusChanged(Thread* pThread);
 
+  size_t logicalCpu() const {
+    return m_LogicalCpu;
+  }
+  uint64_t nominalQuantumNs() const {
+    return m_NominalQuantumNs;
+  }
+
   /** Atomic hard-IRQ publication; does not touch a lock or ready queue. */
   void ringIrqWorkDoorbell();
 
@@ -175,6 +182,8 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
 
   /** Picks another runnable thread and switches to it. */
   void schedule(Thread::Status nextStatus = Thread::Ready, bool dispatchEvents = true);
+  void scheduleWithInterruptState(Thread::Status nextStatus, bool dispatchEvents,
+                                  bool previousInterruptState);
 
   /** Blocks the current thread after WaitQueue has published its wait record. */
   void blockCurrent();
@@ -220,6 +229,10 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   int runTimeAccountingWorker();
   void publishDeferredThreadReap(Thread* thread);
   bool drainDeferredThreadReaps();
+  bool enqueueAffinity(Thread* thread, bool accepted = false);
+  void drainAffinityRequests();
+  void prompt();
+  Thread* selectNext(Thread* current);
 
   /** The current SchedulingAlgorithm */
   SchedulingAlgorithm* m_pSchedulingAlgorithm;
@@ -240,6 +253,14 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   Atomic<size_t> m_StopTimeAccountingWorker;
   OwnedThread m_TimeAccountingWorker;
   Atomic<size_t> m_IrqWorkDoorbell;
+  Spinlock m_AffinityQueueLock;
+  Thread* m_AffinityHead = nullptr;
+  Thread* m_AffinityTail = nullptr;
+  Atomic<size_t> m_AffinityRequests;
+  bool m_AffinityAdmissionOpen = false;
+  size_t m_LogicalCpu = ~size_t(0);
+  size_t m_PhysicalCpu = 0;
+  uint64_t m_NominalQuantumNs = 0;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   Atomic<size_t> m_nDeferredThreadReapCompletions;

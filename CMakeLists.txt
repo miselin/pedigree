@@ -146,6 +146,7 @@ set(PEDIGREE_MEMORY_LOCK_TESTS FALSE CACHE BOOL "Run focused memory-lock residen
 set(PEDIGREE_REMAP_FILE_PAGES_TESTS FALSE CACHE BOOL "Run focused file-offset remapping regressions during POSIX startup.")
 set(PEDIGREE_PROCESS_MEMORY_TESTS FALSE CACHE BOOL "Run focused process-memory copy regressions during POSIX startup.")
 set(PEDIGREE_UTS_NAMESPACE_TESTS FALSE CACHE BOOL "Run focused namespace lifecycle regressions during POSIX startup.")
+set(PEDIGREE_AFFINITY_TESTS FALSE CACHE BOOL "Run focused scheduler affinity and wake-publication regressions.")
 
 # General build options.
 set(PEDIGREE_LTO FALSE CACHE BOOL "Enable LTO.")

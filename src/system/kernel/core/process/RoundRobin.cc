@@ -150,7 +150,8 @@ void RoundRobin::threadStatusChanged(Thread* pThread) {
 }
 
 bool RoundRobin::isReady(Thread* pThread) {
-  return pThread->getStatus() == Thread::Ready;
+  return pThread->getStatus() == Thread::Ready &&
+         !__atomic_load_n(&pThread->m_ReadyPublicationPending, __ATOMIC_ACQUIRE);
 }
 
 bool RoundRobin::isEligible(Thread* pThread) {

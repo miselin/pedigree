@@ -338,6 +338,12 @@ static bool init() {
     FATAL("UTS namespace lifecycle regression failed");
   }
 #endif
+#if !HOSTED && PEDIGREE_AFFINITY_TESTS
+  extern bool runAffinityRegressions();
+  if (!runAffinityRegressions()) {
+    FATAL("Scheduler affinity regression failed");
+  }
+#endif
   return true;
 }
 

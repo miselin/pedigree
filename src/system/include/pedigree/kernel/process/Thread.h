@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
+#include "pedigree/kernel/process/CpuAffinity.h"
 #include "pedigree/kernel/process/DeferredScope.h"
 #include "pedigree/kernel/process/DeferredThreadReap.h"
 #include "pedigree/kernel/process/DeferredTimeAccounting.h"
@@ -69,6 +70,7 @@ class AdmittedThread;
  */
 class EXPORTED_PUBLIC Thread {
   friend class PerProcessorScheduler;
+  friend class Scheduler;
   friend class PageFaultHandler;
   friend class Process;
   friend class WaitQueue;
@@ -175,7 +177,8 @@ class EXPORTED_PUBLIC Thread {
    delayedStart (Optional) Start the thread in a halted state.
    */
   Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack = 0,
-         bool semiUser = false, bool bDontPickCore = false, bool delayedStart = false);
+         bool semiUser = false, bool bDontPickCore = false, bool delayedStart = false,
+         const ThreadPlacement* placement = nullptr);
 
   /** Alternative constructor - this should be used only by
    * initialiseMultitasking() to define the first kernel thread. */
@@ -184,7 +187,29 @@ class EXPORTED_PUBLIC Thread {
   /** Constructor for when forking a process. Assumes pParent has already been
    * set up with a clone of the current address space and sets up the new
    * thread to return to the caller in that address space. */
-  Thread(Process* pParent, SyscallState& state, bool delayedStart = false);
+  Thread(Process* pParent, SyscallState& state, bool delayedStart = false,
+         const ThreadPlacement* placement = nullptr);
+
+  void snapshotPlacement(ThreadPlacement& placement);
+  /** The allocator already holds the new Thread's construction lock. */
+  void snapshotPlacementLocked(ThreadPlacement& placement) const;
+  /** Success admits the returned generation; Busy names the existing one. */
+  AffinityResult requestAffinity(const CpuAffinityMask& mask, uint64_t& generation);
+  /** Wait without retaining caller locks; the caller must retain this Thread. */
+  AffinityResult waitAffinity(uint64_t generation);
+  /**
+   * Current-thread gate for an audited continuation without CPU-local state.
+   * Applies the latest acknowledged mask without changing it; returns with
+   * interrupts disabled, including Terminal. Ordinary waits are not gates.
+   */
+  AffinityResult completeAffinityAtSafePoint(bool* waited = nullptr);
+  /** Placement inhibition only; the registration retains its own lifetime. */
+  bool tryPinLegacyUserCallbacks();
+  void unpinLegacyUserCallbacks();
+#if PEDIGREE_AFFINITY_TESTS
+  using AffinityCommitHook = void (*)(Thread*);
+  static void setAffinityCommitHookForTest(Thread* target, AffinityCommitHook hook);
+#endif
 
   /** Destroys the Thread.
    *
@@ -853,7 +878,8 @@ class EXPORTED_PUBLIC Thread {
  private:
   /** Kernel-owned start cleanup; unloadable code must use AdmittedThread. */
   Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
-         bool semiUser, bool bDontPickCore, bool delayedStart, ThreadStartCleanup startCleanup);
+         bool semiUser, bool bDontPickCore, bool delayedStart, ThreadStartCleanup startCleanup,
+         const ThreadPlacement* placement = nullptr);
 
   /** Copy-constructor */
   Thread(const Thread&);
@@ -862,6 +888,9 @@ class EXPORTED_PUBLIC Thread {
 
   /** Adds one elapsed interval to this Thread and its Process aggregate. */
   void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed);
+
+  void initialisePlacement(const ThreadPlacement* placement);
+  void publishReadyNotification();
 
   /** Cleans up the given state level. */
   void cleanStateLevel(size_t level);
@@ -899,6 +928,7 @@ class EXPORTED_PUBLIC Thread {
 
   /** Scheduler-only status transition primitive. */
   void setStatus(Status s);
+  void setStatusUnlocked(Status s);
 
   /**
    * Completes exit after the scheduler has switched away from our stack.
@@ -1064,6 +1094,19 @@ class EXPORTED_PUBLIC Thread {
   size_t m_DebugStateGeneration = 0;
 
   class PerProcessorScheduler* m_pScheduler = nullptr;
+
+  ThreadPlacement m_Placement;
+  CpuAffinityMask m_RequestedAffinity;
+  WaitQueue m_AffinityWaiters;
+  uint64_t m_AffinityGeneration = 0;
+  uint64_t m_AffinityCompleted = 0;
+  bool m_AffinityPending = false;
+  bool m_AffinityGatePending = false;
+  bool m_AffinityWorkQueued = false;
+  size_t m_LegacyUserCallbackPins = 0;
+  Thread* m_AffinityNext = nullptr;
+  bool m_HasSchedulerContext = false;
+  bool m_ReadyPublicationPending = false;
 
   /** Thread priority: 0..MAX_PRIORITIES-1, 0 being highest. */
   size_t m_Priority = DEFAULT_PRIORITY;

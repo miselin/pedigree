@@ -36,6 +36,14 @@ ProcessorInformation ProcessorBase::m_SafeBspProcessorInformation(0);
 
 size_t ProcessorBase::m_nProcessors = 1;
 
+ProcessorInformation* ProcessorBase::informationAt(size_t cpu) {
+  if (cpu >= getCount())
+    return nullptr;
+  if (cpu < m_ProcessorInformation.count())
+    return m_ProcessorInformation[cpu];
+  return cpu == 0 && !m_ProcessorInformation.count() ? &m_SafeBspProcessorInformation : nullptr;
+}
+
 namespace {
 #if HOSTED
 const char* deviceHardIrqViolationMessage(DeviceHardIrqOperation operation) {

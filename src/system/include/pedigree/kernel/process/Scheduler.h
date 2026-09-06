@@ -22,6 +22,7 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/CpuAffinity.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/WaitQueue.h"
@@ -115,6 +116,11 @@ class EXPORTED_PUBLIC Scheduler {
 
   /** Causes a manual reschedule. */
   void yield();
+
+  static CpuAffinityMask onlineAffinity();
+  static size_t affinityBytes();
+  static PerProcessorScheduler* schedulerForCpu(size_t cpu);
+  void rebindThread(Thread* thread, PerProcessorScheduler& scheduler);
 
   /** Returns the number of processes currently in operation. */
   size_t getNumProcesses();

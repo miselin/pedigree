@@ -55,6 +55,7 @@
 #include "process-vm-syscalls.h"
 #include "pthread-syscalls.h"
 #include "queued-signal.h"
+#include "scheduling-syscalls.h"
 #include "select-syscalls.h"
 #include "signal-syscalls.h"
 #include "signalfd-syscalls.h"
@@ -884,6 +885,26 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_setns(p1, p2);
     case POSIX_SETDOMAINNAME:
       return posix_setdomainname(reinterpret_cast<const char*>(p1), p2);
+    case POSIX_SCHED_SETPARAM:
+      return posix_sched_setparam(p1, reinterpret_cast<const void*>(p2));
+    case POSIX_SCHED_GETPARAM:
+      return posix_sched_getparam(p1, reinterpret_cast<void*>(p2));
+    case POSIX_SCHED_SETSCHEDULER:
+      return posix_sched_setscheduler(p1, p2, reinterpret_cast<const void*>(p3));
+    case POSIX_SCHED_GETSCHEDULER:
+      return posix_sched_getscheduler(p1);
+    case POSIX_SCHED_GET_PRIORITY_MAX:
+      return posix_sched_get_priority_max(p1);
+    case POSIX_SCHED_GET_PRIORITY_MIN:
+      return posix_sched_get_priority_min(p1);
+    case POSIX_SCHED_RR_GET_INTERVAL:
+      return posix_sched_rr_get_interval(p1, reinterpret_cast<void*>(p2));
+    case POSIX_SCHED_SETAFFINITY:
+      return posix_sched_setaffinity(p1, p2, reinterpret_cast<const void*>(p3));
+    case POSIX_SCHED_GETAFFINITY:
+      return posix_sched_getaffinity(p1, p2, reinterpret_cast<void*>(p3));
+    case POSIX_GETCPU:
+      return posix_getcpu(reinterpret_cast<unsigned int*>(p1), reinterpret_cast<unsigned int*>(p2));
     case POSIX_SETHOSTNAME:
       return posix_sethostname(reinterpret_cast<const char*>(p1), p2);
     case POSIX_IOPERM:

@@ -21,6 +21,7 @@
 
 #if THREADS
 
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
@@ -104,6 +105,8 @@ Scheduler::Scheduler()
       m_ProcessRemovalWaiters() {}
 
 bool Scheduler::initialise(Process* pKernelProcess) {
+  if (Processor::getCount() > CpuAffinityMask::MaximumCpus)
+    FATAL("Processor topology exceeds the affinity mask capacity.");
   RoundRobinCoreAllocator* pRoundRobin = new RoundRobinCoreAllocator();
   ProcessorThreadAllocator::instance().setAlgorithm(pRoundRobin);
 
@@ -131,6 +134,12 @@ bool Scheduler::initialise(Process* pKernelProcess) {
 void Scheduler::addThread(Thread* pThread, PerProcessorScheduler& PPSched) {
   m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
   m_TPMap.insert(pThread, &PPSched);
+  pThread->setScheduler(&PPSched);
+  if (!pThread->m_Placement.migratable) {
+    pThread->m_Placement.allowed = CpuAffinityMask();
+    const size_t cpu = PPSched.logicalCpu();
+    pThread->m_Placement.allowed.set(cpu == ~size_t(0) ? Processor::index() : cpu);
+  }
   m_SchedulerLock.release();
 }
 
@@ -211,6 +220,33 @@ void Scheduler::removeProcess(Process* pProcess) {
 
 void Scheduler::yield() {
   Processor::information().getScheduler().schedule();
+}
+
+CpuAffinityMask Scheduler::onlineAffinity() {
+  CpuAffinityMask mask;
+  const size_t count = Processor::getCount();
+  assert(count <= CpuAffinityMask::MaximumCpus);
+  for (size_t cpu = 0; cpu < count; ++cpu)
+    mask.set(cpu);
+  return mask;
+}
+
+size_t Scheduler::affinityBytes() {
+  return ((Processor::getCount() + CpuAffinityMask::WordBits - 1) / CpuAffinityMask::WordBits) *
+         sizeof(unsigned long);
+}
+
+PerProcessorScheduler* Scheduler::schedulerForCpu(size_t cpu) {
+  ProcessorInformation* information = Processor::informationAt(cpu);
+  return information ? &information->getScheduler() : nullptr;
+}
+
+void Scheduler::rebindThread(Thread* thread, PerProcessorScheduler& scheduler) {
+  LockGuard<Spinlock> guard(m_SchedulerLock);
+  assert(m_TPMap.lookup(thread));
+  m_TPMap.insert(thread, &scheduler);
+  thread->setScheduler(&scheduler);
+  thread->setCpuId(scheduler.m_PhysicalCpu);
 }
 
 size_t Scheduler::getNumProcesses() {
@@ -386,10 +422,8 @@ void Scheduler::threadStatusChanged(Thread* pThread) {
     hook(pThread);
   }
 #endif
-  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
-  PerProcessorScheduler* pSched = m_TPMap.lookup(pThread);
+  PerProcessorScheduler* pSched = pThread->getScheduler();
   assert(pSched);
-  m_SchedulerLock.release();
 
   pSched->threadStatusChanged(pThread);
 }

@@ -283,8 +283,10 @@ bool RequestQueue::startWorker() {
   }
 
   Process* process = Scheduler::instance().getKernelProcess();
-  Thread* worker =
-      new Thread(process, &trampoline, reinterpret_cast<void*>(this), nullptr, false, true, true);
+  ThreadPlacement placement;
+  const bool explicitPlacement = workerPlacement(placement);
+  Thread* worker = new Thread(process, &trampoline, reinterpret_cast<void*>(this), nullptr, false,
+                              true, true, explicitPlacement ? &placement : nullptr);
   worker->setName("RequestQueue worker");
   if (!worker->setSchedulerReadyPredicate(workerReady, this)) {
     FATAL("RequestQueue '" << m_Name << "' could not install its ready predicate");
@@ -298,7 +300,7 @@ bool RequestQueue::startWorker() {
     assert(m_PublicationState.value() & PublicationClosed);
     m_OverrunChecker.resetBaselineLocked();
     m_pThread = worker;
-    m_pWorkerScheduler = &Processor::information().getScheduler();
+    m_pWorkerScheduler = worker->getScheduler();
   }
 
   // The delayed worker cannot observe partially published queue state.

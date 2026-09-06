@@ -115,11 +115,19 @@ void PerProcessorScheduler::startTimeAccountingWorker(Process* pParent) {
   while (!m_DeferredThreadReapPublicationState.compareAndSwap(DeferredReapPublicationClosed, 0)) {
     Scheduler::instance().yield();
   }
+  {
+    LockGuard<Spinlock> guard(m_AffinityQueueLock);
+    m_AffinityAdmissionOpen = true;
+  }
 }
 
 void PerProcessorScheduler::stopTimeAccountingWorker() {
   if (!m_TimeAccountingWorker) {
     return;
+  }
+  {
+    LockGuard<Spinlock> guard(m_AffinityQueueLock);
+    m_AffinityAdmissionOpen = false;
   }
 
   // Close allocation-free producers before allowing the worker to exit. The
@@ -134,7 +142,7 @@ void PerProcessorScheduler::stopTimeAccountingWorker() {
   ringIrqWorkDoorbell();
   serviceIrqWorkDoorbell();
   m_TimeAccountingWorker.join();
-  if (m_nDeferredThreadReaps.value()) {
+  if (m_nDeferredThreadReaps.value() || m_AffinityRequests.value()) {
     FATAL("Deferred Thread reap worker stopped with pending targets.");
   }
 }
@@ -147,7 +155,7 @@ bool PerProcessorScheduler::timeAccountingWorkerReady(void* instance) {
   PerProcessorScheduler* scheduler = reinterpret_cast<PerProcessorScheduler*>(instance);
   return scheduler->m_TimeAccountingState.ready(scheduler->m_StopTimeAccountingWorker.value() !=
                                                 0) ||
-         scheduler->m_nDeferredThreadReaps.value();
+         scheduler->m_nDeferredThreadReaps.value() || scheduler->m_AffinityRequests.value();
 }
 
 int PerProcessorScheduler::runTimeAccountingWorker() {
@@ -157,9 +165,10 @@ int PerProcessorScheduler::runTimeAccountingWorker() {
     Scheduler::instance().drainDeferredTimeAccounting();
     m_TimeAccountingState.finishBatch(target);
     drainDeferredThreadReaps();
+    drainAffinityRequests();
 
     if (m_StopTimeAccountingWorker.value() && m_TimeAccountingState.caughtUp() &&
-        !m_nDeferredThreadReaps.value()) {
+        !m_nDeferredThreadReaps.value() && !m_AffinityRequests.value()) {
       break;
     }
 
@@ -379,10 +388,27 @@ int PerProcessorScheduler::processorAddThread(void* instance) {
 }
 
 void PerProcessorScheduler::initialise(Thread* pThread) {
+  m_LogicalCpu = Processor::index();
+  m_PhysicalCpu = Processor::id();
+  // Bootstrap identity accessors still return zero here. The discovered
+  // topology already distinguishes its logical slot from the firmware ID.
+  for (size_t cpu = 0; cpu < Processor::getCount(); ++cpu) {
+    ProcessorInformation* information = Processor::informationAt(cpu);
+    if (information && &information->getScheduler() == this) {
+      m_LogicalCpu = cpu;
+      m_PhysicalCpu = information->processorId();
+      break;
+    }
+  }
   m_pSchedulingAlgorithm = new RoundRobin();
 
+  if (!pThread->m_Placement.migratable) {
+    pThread->m_Placement.allowed = CpuAffinityMask();
+    pThread->m_Placement.allowed.set(m_LogicalCpu);
+  }
+  pThread->m_HasSchedulerContext = true;
   pThread->setStatus(Thread::Running);
-  pThread->setCpuId(Processor::id());
+  pThread->setCpuId(m_PhysicalCpu);
   Processor::information().setCurrentThread(pThread);
   pThread->recordTime(CpuTimeMode::Kernel);
 
@@ -402,6 +428,7 @@ void PerProcessorScheduler::initialise(Thread* pThread) {
   if (!pTimer->registerHandler(this)) {
     FATAL("Per-processor scheduler timer handler is already owned.");
   }
+  m_NominalQuantumNs = pTimer->nominalQuantumNs();
 }
 
 void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEvents) {
@@ -411,6 +438,16 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEve
 
   bool bWasInterrupts = Processor::getInterrupts();
   Processor::setInterrupts(false);
+
+  // The explicit affinity gate may have moved after its caller selected a
+  // scheduler. Resolve the receiver only once IRQs exclude another handoff.
+  Processor::information().getScheduler().scheduleWithInterruptState(nextStatus, dispatchEvents,
+                                                                     bWasInterrupts);
+}
+
+void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus,
+                                                       bool dispatchEvents, bool bWasInterrupts) {
+  assert(!Processor::getInterrupts());
 
   Thread* pCurrentThread = Processor::information().getCurrentThread();
   if (!pCurrentThread) {
@@ -452,7 +489,7 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEve
 
   // Now attempt to get another thread to run.
   // This will also get the lock for the returned thread.
-  Thread* pNextThread = m_pSchedulingAlgorithm->getNext(pCurrentThread);
+  Thread* pNextThread = selectNext(pCurrentThread);
   if (pNextThread == 0) {
     // No other thread in the scheduler - take a round trip through the
     // idle thread before we schedule back to the yielding thread.
@@ -468,6 +505,8 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEve
       return;
     } else {
       pNextThread = m_pIdleThread;
+      if (pNextThread != pCurrentThread)
+        pNextThread->getLock().acquire();
     }
   }
 
@@ -480,8 +519,6 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEve
     return;
   }
 
-  pNextThread->getLock().acquire();
-
 #if VERBOSE_SCHEDULER
   NOTICE_NOLOCK("schedule: " << pCurrentThread << " -> " << pNextThread << " -- "
                              << pCurrentThread->getName() << " -> " << pNextThread->getName());
@@ -489,8 +526,8 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEve
 
   // Now neither thread can be moved, we're safe to switch.
   if (pCurrentThread != m_pIdleThread)
-    pCurrentThread->setStatus(nextStatus);
-  pNextThread->setStatus(Thread::Running);
+    pCurrentThread->setStatusUnlocked(nextStatus);
+  pNextThread->setStatusUnlocked(Thread::Running);
   Processor::information().setCurrentThread(pNextThread);
 
   // Load the new kernel stack into the TSS, and the new TLS base and switch
@@ -531,7 +568,7 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEve
 #endif
     Processor::setInterrupts(bWasInterrupts);
     if (dispatchEvents && !waitOwnsEventDispatch) {
-      checkEventState(0);
+      Processor::information().getScheduler().checkEventState(0);
     }
   }
   else {
@@ -549,7 +586,7 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEve
       if (dispatchEvents && !waitOwnsEventDispatch) {
         // We don't have a user-mode stack available here, so pass zero
         // and don't execute user-mode event handlers.
-        checkEventState(0);
+        Processor::information().getScheduler().checkEventState(0);
       }
 
       return;
@@ -873,11 +910,13 @@ void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc p
 
   m_pSchedulingAlgorithm->addThread(pThread);
 
+  assert(pThread->m_Placement.allowed.contains(m_LogicalCpu));
+  pThread->m_HasSchedulerContext = true;
   // Now neither thread can be moved, we're safe to switch.
   if (pCurrentThread != m_pIdleThread) {
-    pCurrentThread->setStatus(Thread::Ready);
+    pCurrentThread->setStatusUnlocked(Thread::Ready);
   }
-  pThread->setStatus(Thread::Running);
+  pThread->setStatusUnlocked(Thread::Running);
   Processor::information().setCurrentThread(pThread);
   void* kernelStack = pThread->getKernelStack();
   Processor::information().setKernelStack(reinterpret_cast<uintptr_t>(kernelStack));
@@ -984,12 +1023,14 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
 
   m_pSchedulingAlgorithm->addThread(pThread);
 
+  assert(pThread->m_Placement.allowed.contains(m_LogicalCpu));
+  pThread->m_HasSchedulerContext = true;
   // Now neither thread can be moved, we're safe to switch.
 
   if (pCurrentThread != m_pIdleThread) {
-    pCurrentThread->setStatus(Thread::Ready);
+    pCurrentThread->setStatusUnlocked(Thread::Ready);
   }
-  pThread->setStatus(Thread::Running);
+  pThread->setStatusUnlocked(Thread::Running);
   Processor::information().setCurrentThread(pThread);
   void* kernelStack = pThread->getKernelStack();
   Processor::information().setKernelStack(reinterpret_cast<uintptr_t>(kernelStack));
@@ -1140,6 +1181,7 @@ void PerProcessorScheduler::finishCurrentThreadExit(Spinlock* pLock, bool transf
   pThread->shutdown();
 
   Processor::setInterrupts(false);
+  PerProcessorScheduler& owner = Processor::information().getScheduler();
 
   // Removing the current thread. Grab its lock.
   pThread->getLock().acquire();
@@ -1158,23 +1200,22 @@ void PerProcessorScheduler::finishCurrentThreadExit(Spinlock* pLock, bool transf
 
   // Get another thread ready to schedule.
   // This will also get the lock for the returned thread.
-  Thread* pNextThread = transferToIdle ? m_pIdleThread : m_pSchedulingAlgorithm->getNext(pThread);
+  Thread* pNextThread = transferToIdle ? nullptr : owner.selectNext(pThread);
 
-  if (transferToIdle && (!pNextThread || pNextThread == pThread)) {
+  if (transferToIdle && (!owner.m_pIdleThread || owner.m_pIdleThread == pThread)) {
     panic("Current thread has no distinct idle shutdown owner!");
   }
 
-  if (pNextThread == 0 && m_pIdleThread == 0) {
+  if (pNextThread == 0 && owner.m_pIdleThread == 0) {
     // Nothing to switch to, we're in a VERY bad situation.
     panic("Attempting to kill only thread on this processor!");
   } else if (pNextThread == 0) {
-    pNextThread = m_pIdleThread;
+    pNextThread = owner.m_pIdleThread;
+    if (pNextThread != pThread)
+      pNextThread->getLock().acquire();
   }
 
-  if (pNextThread != pThread)
-    pNextThread->getLock().acquire();
-
-  pNextThread->setStatus(Thread::Running);
+  pNextThread->setStatusUnlocked(Thread::Running);
   Processor::information().setCurrentThread(pNextThread);
   void* kernelStack = pNextThread->getKernelStack();
   Processor::information().setKernelStack(reinterpret_cast<uintptr_t>(kernelStack));
@@ -1275,9 +1316,18 @@ void PerProcessorScheduler::publishReadyFromWait(Thread* pThread) {
     assert(false);
     return;
   }
-  assert(pThread->getScheduler() == this);
-  assert(pThread->getStatus() == Thread::Ready);
-  m_pSchedulingAlgorithm->threadStatusChanged(pThread);
+  pThread->publishReadyNotification();
+}
+
+Thread* PerProcessorScheduler::selectNext(Thread* current) {
+  while (Thread* candidate = m_pSchedulingAlgorithm->getNext(current)) {
+    candidate->m_Lock.acquire();
+    if (candidate->getScheduler() == this && candidate->m_Status == Thread::Ready &&
+        !candidate->m_ReadyPublicationPending)
+      return candidate;
+    candidate->m_Lock.release();
+  }
+  return nullptr;
 }
 
 void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
@@ -1318,7 +1368,10 @@ void PerProcessorScheduler::threadStatusChanged(Thread* pThread) {
   if (wakeWorker) {
     m_NewThreadDataCondition.signal();
   }
-  m_pSchedulingAlgorithm->threadStatusChanged(pThread);
+  LockGuard<Spinlock> guard(pThread->m_Lock);
+  PerProcessorScheduler* owner = pThread->getScheduler();
+  assert(owner);
+  owner->m_pSchedulingAlgorithm->threadStatusChanged(pThread);
 }
 
 void PerProcessorScheduler::ringIrqWorkDoorbell() {
@@ -1412,7 +1465,7 @@ bool PerProcessorScheduler::serviceProcessStopAtUserReturn(ProcessStopGateMode m
     if (dispatchKernelEvent) {
       // Direct transitions have no reusable user stack. A selection-specific
       // dequeue prevents a racing resume from broadening stopped delivery.
-      checkEventState(0, selection);
+      Processor::information().getScheduler().checkEventState(0, selection);
       continue;
     }
     if (reason == WaitQueue::WakeReason::Terminating ||
@@ -1426,28 +1479,30 @@ bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state) {
   // Terminal requests and process stops win over later work. The architecture
   // caller owns the final commit after its return-tail scopes and accounting
   // have retired.
-  if (serviceProcessStopAtUserReturn()) {
+  if (Processor::information().getScheduler().serviceProcessStopAtUserReturn()) {
     return true;
   }
-  serviceDeferredSubsystemException(state);
+  Processor::information().getScheduler().serviceDeferredSubsystemException(state);
   Thread* current = Processor::information().getCurrentThread();
   if (current && !current->isTerminationDeferred() &&
       current->getUnwindState() != Thread::Continue) {
     return true;
   }
-  if (serviceProcessStopAtUserReturn()) {
+  if (Processor::information().getScheduler().serviceProcessStopAtUserReturn()) {
     return true;
   }
-  checkEventState(state.getStackPointer(), Thread::EventSelection::AnyDeliverable, &state, nullptr);
-  return serviceProcessStopAtUserReturn();
+  Processor::information().getScheduler().checkEventState(
+      state.getStackPointer(), Thread::EventSelection::AnyDeliverable, &state, nullptr);
+  return Processor::information().getScheduler().serviceProcessStopAtUserReturn();
 }
 
 bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state) {
-  if (serviceProcessStopAtUserReturn()) {
+  if (Processor::information().getScheduler().serviceProcessStopAtUserReturn()) {
     return true;
   }
-  checkEventState(state.getStackPointer(), Thread::EventSelection::AnyDeliverable, nullptr, &state);
-  return serviceProcessStopAtUserReturn();
+  Processor::information().getScheduler().checkEventState(
+      state.getStackPointer(), Thread::EventSelection::AnyDeliverable, nullptr, &state);
+  return Processor::information().getScheduler().serviceProcessStopAtUserReturn();
 }
 
 void PerProcessorScheduler::serviceDeferredSubsystemException(InterruptState& state) {

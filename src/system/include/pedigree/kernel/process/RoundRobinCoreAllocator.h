@@ -20,6 +20,7 @@
 #ifndef ROUND_ROBIN_CORE_ALLOCATOR_H
 #define ROUND_ROBIN_CORE_ALLOCATOR_H
 
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/ThreadToCoreAllocationAlgorithm.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Tree.h"
@@ -40,6 +41,7 @@ class RoundRobinCoreAllocator : public ThreadToCoreAllocationAlgorithm {
   Tree<PerProcessorScheduler*, PerProcessorScheduler*> m_ProcMap;
 
   PerProcessorScheduler* m_pNext;
+  Spinlock m_Lock;
 };
 
 #endif

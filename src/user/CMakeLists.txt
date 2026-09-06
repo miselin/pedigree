@@ -248,6 +248,16 @@ pedigree_app(uts-namespace-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/uts-namespace-contract-test/lifetime.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/uts-namespace-contract-test/admission.c)
 
+pedigree_app(scheduling-contract-test ON OFF ON ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/scheduling-contract-test/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/scheduling-contract-test/fixture.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/scheduling-contract-test/api.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/scheduling-contract-test/placement.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/scheduling-contract-test/wakeups.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/scheduling-contract-test/lifecycle.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/scheduling-contract-test/permissions.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/scheduling-contract-test/input.c)
+
 pedigree_app(process-memory-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/process-memory-contract-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/process-memory-contract-test/copies.c

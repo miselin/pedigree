@@ -302,6 +302,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/SignalEvent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/TerminationDeferral.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Thread.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Thread-affinity.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/ThreadToCoreAllocationAlgorithm.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/TimeTracker.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Uninterruptible.cc

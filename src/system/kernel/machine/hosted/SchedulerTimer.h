@@ -44,6 +44,7 @@ class HostedSchedulerTimer : public SchedulerTimer, private SchedulerIrqHandler 
   // SchedulerTimer interface
   //
   virtual bool registerHandler(SchedulerTimerHandler* handler);
+  uint64_t nominalQuantumNs() const override;
 
   virtual bool removeHandler(SchedulerTimerHandler* handler);
 

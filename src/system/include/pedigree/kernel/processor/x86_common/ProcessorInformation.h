@@ -75,6 +75,13 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
 
   PerProcessorScheduler& getScheduler();
 
+  ProcessorId processorId() const {
+    return m_ProcessorId;
+  }
+  uint8_t localApicId() const {
+    return m_LocalApicId;
+  }
+
   /** Installs this processor's immutable high-resolution clock anchor. */
   void initialiseTscClockAnchor(uint64_t tsc, uint64_t nanoseconds);
 

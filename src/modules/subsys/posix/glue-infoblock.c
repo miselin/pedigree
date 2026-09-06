@@ -78,15 +78,20 @@ int __vdso_gettimeofday(struct timeval* tv, void* tz) {
 }
 
 int __vdso_getcpu(unsigned* cpu, unsigned* node, struct getcpu_cache* cache) {
-  if (cpu) {
-    *cpu = 0;
-  }
-
-  if (node) {
-    *node = 0;
-  }
-
-  return 0;
+#if X64
+  // The shared info block cannot identify the calling task's current CPU.
+  long result = 309;
+  __asm__ volatile("syscall"
+                   : "+a"(result)
+                   : "D"(cpu), "S"(node), "d"(cache)
+                   : "rcx", "r11", "memory", "cc");
+  return (int)result;
+#else
+  (void)cpu;
+  (void)node;
+  (void)cache;
+  return -ENOSYS;
+#endif
 }
 
 time_t __vdso_time(time_t* tloc) {

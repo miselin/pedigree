@@ -462,6 +462,9 @@ class EXPORTED_PUBLIC ProcessorBase {
    *\return the ProcessorInformation structure of this processor */
   static ProcessorInformation& information();
 
+  /** Resolves a discovered logical slot, including before BSP identity is live. */
+  static ProcessorInformation* informationAt(size_t cpu);
+
   /** Get the number of CPUs currently available */
   static size_t getCount();
 

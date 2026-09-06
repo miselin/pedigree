@@ -276,8 +276,17 @@ void X64InterruptManager::returnFromInterrupt(InterruptState& interruptState) {
   // handler scope are complete. Finish the architecture accounting tail
   // before a terminal transition consumes this root stack.
   Processor::setInterrupts(true);
-  const bool terminal =
-      Processor::information().getScheduler().serviceUserReturnWork(interruptState);
+  bool terminal = false;
+  while (true) {
+    terminal = Processor::information().getScheduler().serviceUserReturnWork(interruptState);
+    if (terminal)
+      break;
+    bool waited = false;
+    terminal = thread->completeAffinityAtSafePoint(&waited) == AffinityResult::Terminal;
+    if (terminal || !waited)
+      break;
+    Processor::setInterrupts(true);
+  }
   Processor::setInterrupts(false);
   InterruptTimeAccounting::finishUserReturn(thread);
   if (terminal) {

@@ -138,6 +138,11 @@ class EXPORTED_PUBLIC WaitQueue {
 
   size_t waiterCount();
 
+#if PEDIGREE_AFFINITY_TESTS
+  using ReadyPublicationHook = void (*)(Thread*);
+  static void setReadyPublicationHookForTest(Thread* target, ReadyPublicationHook hook);
+#endif
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   using BeforeBlockHook = void (*)(WaitQueue* queue, Thread* thread, const Channel& channel,
                                    size_t debugState);

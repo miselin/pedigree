@@ -84,6 +84,8 @@ class PciAtaController : public AtaController {
   void diskHelper(bool master, IoBase* cmd, IoBase* ctl, BusMasterIde* dma, size_t irq);
 
  protected:
+  virtual bool workerPlacement(ThreadPlacement& placement) const;
+
   int m_nController;
 };
 

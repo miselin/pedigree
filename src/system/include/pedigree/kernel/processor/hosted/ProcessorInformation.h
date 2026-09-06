@@ -56,6 +56,10 @@ class HostedProcessorInformation {
   void setCurrentThread(Thread* pThread);
   PerProcessorScheduler& getScheduler();
 
+  ProcessorId processorId() const {
+    return m_ProcessorId;
+  }
+
  protected:
   /** Construct a HostedProcessorInformation object
    *\param[in] processorId Identifier of the processor */
