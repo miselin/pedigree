@@ -20,14 +20,12 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
-#include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "Console.h"
@@ -47,16 +45,13 @@ ConsoleFile::ConsoleFile(size_t consoleNumber, String consoleName, Filesystem* p
       m_Flags(DEFAULT_FLAGS),
       m_Rows(25),
       m_Cols(80),
-      m_LineBuffer(),
-      m_LineBufferSize(0),
-      m_LineBufferFirstNewline(~0),
-      m_Last(0),
-      m_Buffer(PTY_BUFFER_SIZE),
+      m_IoLock(),
+      m_IoChanged(),
+      m_HangingUp(false),
+      m_IoState(SharedPointer<ConsoleIoState>::tryAllocate()),
+      m_ControlState(),
       m_ConsoleNumber(consoleNumber),
-      m_ConsoleName(consoleName),
-      m_pEvent(0),
-      m_EventTrigger(0),
-      m_EventSerialiser() {
+      m_ConsoleName(consoleName) {
   MemoryCopy(m_ControlChars, defaultControl, MAX_CONTROL_CHAR);
 
   // r/w for all (todo: when a console is locked, it should become owned
@@ -66,43 +61,167 @@ ConsoleFile::ConsoleFile(size_t consoleNumber, String consoleName, Filesystem* p
   setGidOnly(0);
 }
 
-int ConsoleFile::select(bool bWriting, int timeout) {
-  if (bWriting) {
-    Buffer<char>& destination = m_pOther ? m_pOther->m_Buffer : m_Buffer;
-    return destination.canWrite(timeout > 0) ? 1 : 0;
-  } else {
-    return m_Buffer.canRead(timeout > 0) ? 1 : 0;
+ConsoleIoState::ConsoleIoState()
+    : operations(),
+      input(PTY_BUFFER_SIZE),
+      output(PTY_BUFFER_SIZE),
+      inputLock(),
+      line(),
+      lineSize(0),
+      firstNewline(~0UL),
+      physicalWake(0, true),
+      m_Revoked(false) {}
+
+bool ConsoleIoState::revoked() const {
+  return __atomic_load_n(&m_Revoked, __ATOMIC_ACQUIRE);
+}
+
+void ConsoleIoState::closeAdmission() {
+  __atomic_store_n(&m_Revoked, true, __ATOMIC_RELEASE);
+  operations.close();
+}
+
+void ConsoleIoState::cancelAndDrain() {
+  input.disableReads();
+  input.disableWrites();
+  output.disableReads();
+  output.disableWrites();
+  physicalWake.release();
+  operations.wait();
+}
+
+ConsoleFile* ConsoleFile::stateOwner() {
+  return isMaster() ? m_pOther : this;
+}
+
+SharedPointer<ConsoleIoState> ConsoleFile::captureOpenEpoch(bool waitForReopen) {
+  ConsoleFile* owner = stateOwner();
+  LockGuard<Mutex> guard(owner->m_IoLock);
+  while (waitForReopen && owner->m_HangingUp)
+    owner->m_IoChanged.waitForCompletion(owner->m_IoLock);
+  if (waitForReopen && !owner->m_IoState)
+    owner->m_IoState = SharedPointer<ConsoleIoState>::tryAllocate();
+  return owner->m_IoState;
+}
+
+bool ConsoleFile::beginRevocation(SharedPointer<ConsoleIoState>& retired) {
+  assert(!retired);
+  ConsoleFile* owner = stateOwner();
+  LockGuard<Mutex> guard(owner->m_IoLock);
+  if (owner->m_HangingUp)
+    return false;
+  owner->m_HangingUp = true;
+  retired = owner->m_IoState;
+  if (retired)
+    retired->closeAdmission();
+  return true;
+}
+
+void ConsoleFile::finishRevocation(const SharedPointer<ConsoleIoState>& retired,
+                                   const SharedPointer<ConsoleIoState>& replacement) {
+  TerminationDeferral deferral;
+  ConsoleFile* owner = stateOwner();
+  if (retired)
+    retired->cancelAndDrain();
+  {
+    LockGuard<Mutex> guard(owner->m_IoLock);
+    assert(owner->m_HangingUp && owner->m_IoState.get() == retired.get());
+    owner->m_IoState = replacement;
+    owner->m_Flags = DEFAULT_FLAGS;
+    MemoryCopy(owner->m_ControlChars, defaultControl, MAX_CONTROL_CHAR);
+    owner->m_HangingUp = false;
+    owner->m_IoChanged.broadcast();
+  }
+  changed();
+}
+
+SharedPointer<ConsoleControlState> ConsoleFile::controlState() {
+  ConsoleFile* owner = stateOwner();
+  LockGuard<Mutex> guard(owner->m_IoLock);
+  return owner->m_ControlState;
+}
+
+void ConsoleFile::setControlState(const SharedPointer<ConsoleControlState>& state) {
+  ConsoleFile* owner = stateOwner();
+  SharedPointer<ConsoleControlState> retired;
+  {
+    LockGuard<Mutex> guard(owner->m_IoLock);
+    retired = pedigree_std::move(owner->m_ControlState);
+    owner->m_ControlState = state;
   }
 }
 
-ReadyMask ConsoleFile::queryReady(bool reading, bool writing) {
+uint64_t ConsoleFile::readEpoch(const SharedPointer<ConsoleIoState>& epoch, uint64_t size,
+                                uintptr_t buffer, bool canBlock) {
+  TerminationDeferral deferral;
+  OperationBarrier::Lease operation;
+  if (!epoch || !epoch->operations.tryAcquire(operation) || epoch->revoked())
+    return 0;
+  uint64_t amount = readIo(*epoch, size, buffer, canBlock);
+  return epoch->revoked() ? 0 : amount;
+}
+
+uint64_t ConsoleFile::writeEpoch(const SharedPointer<ConsoleIoState>& epoch, uint64_t size,
+                                 uintptr_t buffer, bool canBlock) {
+  TerminationDeferral deferral;
+  OperationBarrier::Lease operation;
+  if (!epoch || !epoch->operations.tryAcquire(operation) || epoch->revoked()) {
+    SYSCALL_ERROR(IoError);
+    return 0;
+  }
+  uint64_t amount = writeIo(*epoch, size, buffer, canBlock);
+  if (epoch->revoked() && !amount)
+    SYSCALL_ERROR(IoError);
+  return amount;
+}
+
+void ConsoleFile::changed() {
+  dataChanged();
+  if (m_pOther)
+    m_pOther->dataChanged();
+}
+
+int ConsoleFile::select(bool writing, int timeout) {
+  auto state = captureOpenEpoch(false);
+  if (!state)
+    return 0;
+  Buffer<char>& source = isMaster() ? state->output : state->input;
+  Buffer<char>& destination = isMaster() ? state->input : state->output;
+  return (writing ? destination.canWrite(timeout > 0) : source.canRead(timeout > 0)) ? 1 : 0;
+}
+
+ReadyMask ConsoleFile::queryEpoch(const SharedPointer<ConsoleIoState>& epoch, bool reading,
+                                  bool writing) {
+  if (!epoch || epoch->revoked())
+    return ReadyRead | ReadyWrite | ReadyError | ReadyHangup;
+  if (getPhysicalConsoleNumber() != ~0U)
+    return File::queryReady(reading, writing);
   ReadyMask ready = ReadyNone;
-  if (reading && m_Buffer.canRead(false)) {
+  Buffer<char>& source = isMaster() ? epoch->output : epoch->input;
+  Buffer<char>& destination = isMaster() ? epoch->input : epoch->output;
+  if (reading && source.canRead(false))
     ready |= ReadyRead;
-  }
-  if (writing) {
-    Buffer<char>& destination = m_pOther ? m_pOther->m_Buffer : m_Buffer;
-    if (destination.canWrite(false)) {
-      ready |= ReadyWrite;
-    }
-  }
+  if (writing && destination.canWrite(false))
+    ready |= ReadyWrite;
   return ready;
 }
 
-ReadinessGenerations ConsoleFile::readinessGenerations() {
-  ReadinessGenerations generations;
-  generations.read = m_Buffer.readableGeneration();
-  Buffer<char>& destination = m_pOther ? m_pOther->m_Buffer : m_Buffer;
-  generations.write = destination.writableGeneration();
-  return generations;
+ReadyMask ConsoleFile::queryReady(bool reading, bool writing) {
+  return queryEpoch(captureOpenEpoch(false), reading, writing);
 }
 
-void ConsoleFile::inject(char* buf, size_t len, bool canBlock) {
-  m_Buffer.write(buf, len, canBlock);
-  dataChanged();
-  if (m_pOther) {
-    m_pOther->dataChanged();
+ReadinessGenerations ConsoleFile::epochGenerations(const SharedPointer<ConsoleIoState>& epoch) {
+  ReadinessGenerations result;
+  if (epoch) {
+    result.read = (isMaster() ? epoch->output : epoch->input).readableGeneration();
+    result.write = (isMaster() ? epoch->input : epoch->output).writableGeneration();
+    result.error = result.hangup = epoch->revoked() ? 1 : 0;
   }
+  return result;
+}
+
+ReadinessGenerations ConsoleFile::readinessGenerations() {
+  return epochGenerations(captureOpenEpoch(false));
 }
 
 size_t ConsoleFile::outputLineDiscipline(char* buf, size_t len, size_t maxSz, size_t flags) {
@@ -197,8 +316,11 @@ size_t ConsoleFile::processInput(char* buf, size_t len) {
   return realLen;
 }
 
-void ConsoleFile::inputLineDiscipline(char* buf, size_t len, size_t flags,
-                                      const char* controlChars) {
+void ConsoleFile::inputLineDiscipline(ConsoleIoState& state, char* buf, size_t len, bool canBlock,
+                                      size_t flags, const char* controlChars) {
+  LockGuard<Mutex> inputGuard(state.inputLock);
+  if (state.revoked())
+    return;
   // Make sure we always have the latest flags from the slave.
   if (flags == ~0U) {
     flags = m_pOther->m_Flags;
@@ -225,13 +347,19 @@ void ConsoleFile::inputLineDiscipline(char* buf, size_t len, size_t flags,
 
     // Iterate over the buffer
     while (!bAppBufferComplete) {
-      for (size_t i = 0; i < len; i++) {
+      for (size_t i = 0; i < len && !state.revoked(); i++) {
+        if (state.lineSize == LINEBUFFER_MAXIMUM) {
+          state.input.write(state.line, state.lineSize, canBlock);
+          state.lineSize = 0;
+          state.firstNewline = ~0UL;
+        }
         // Handle incoming newline
         bool isCanonical = (slaveFlags & ConsoleManager::LCookedMode);
         if (isCanonical && (buf[i] == slaveControlChars[VEOF])) {
           // EOF. Write it and it alone to the slave.
-          performInject(&buf[i], 1, true);
+          state.input.write(&buf[i], 1, canBlock);
           delete[] destBuff;
+          changed();
           return;
         }
 
@@ -240,101 +368,99 @@ void ConsoleFile::inputLineDiscipline(char* buf, size_t len, size_t flags,
           // buffer.
           if ((slaveFlags & ConsoleManager::LEcho) || (slaveFlags & ConsoleManager::LCookedMode)) {
             // Only echo the newline if we are supposed to
-            m_LineBuffer[m_LineBufferSize++] = '\n';
+            state.line[state.lineSize++] = '\n';
             if ((slaveFlags & ConsoleManager::LEchoNewline) ||
                 (slaveFlags & ConsoleManager::LEcho)) {
               char tmp[] = {'\n', 0};
-              m_Buffer.write(tmp, 1);
+              state.output.write(tmp, 1);
               ++localWritten;
             }
 
             if ((slaveFlags & ConsoleManager::LCookedMode) && !bAppBufferComplete) {
               // Transmit full buffer to slave.
-              size_t realSize = m_LineBufferSize;
-              if (m_LineBufferFirstNewline < realSize) {
-                realSize = m_LineBufferFirstNewline;
-                m_LineBufferFirstNewline = ~0UL;
+              size_t realSize = state.lineSize;
+              if (state.firstNewline < realSize) {
+                realSize = state.firstNewline;
+                state.firstNewline = ~0UL;
               }
 
-              performInject(m_LineBuffer, realSize, true);
+              state.input.write(state.line, realSize, canBlock);
 
               // And now move the buffer over the space we just
               // consumed
-              uint64_t nConsumedBytes = m_LineBufferSize - realSize;
+              uint64_t nConsumedBytes = state.lineSize - realSize;
               if (nConsumedBytes)  // If zero, the buffer was
                                    // consumed completely
-                MemoryCopy(m_LineBuffer, &m_LineBuffer[realSize], nConsumedBytes);
+                MemoryCopy(state.line, &state.line[realSize], nConsumedBytes);
 
               // Reduce the buffer size now
-              m_LineBufferSize -= realSize;
+              state.lineSize -= realSize;
 
               // The buffer has been filled!
               bAppBufferComplete = true;
-            } else if ((slaveFlags & ConsoleManager::LCookedMode) &&
-                       (m_LineBufferFirstNewline == ~0UL)) {
+            } else if ((slaveFlags & ConsoleManager::LCookedMode) && (state.firstNewline == ~0UL)) {
               // Application buffer has already been filled, let
               // future runs know where the limit is
-              m_LineBufferFirstNewline = m_LineBufferSize - 1;
+              state.firstNewline = state.lineSize - 1;
             } else if (!(slaveFlags & ConsoleManager::LCookedMode)) {
               // Inject this byte into the slave...
               destBuff[destBuffOffset++] = buf[i];
             }
 
             // Ignore the \n if one is present
-            if (buf[i + 1] == '\n')
+            if (i + 1 < len && buf[i + 1] == '\n')
               i++;
           }
         } else if (buf[i] == m_ControlChars[VERASE]) {
           if (slaveFlags & (ConsoleManager::LCookedMode | ConsoleManager::LEchoErase)) {
-            if ((slaveFlags & ConsoleManager::LCookedMode) && m_LineBufferSize) {
+            if ((slaveFlags & ConsoleManager::LCookedMode) && state.lineSize) {
               char ctl[3] = {'\x08', ' ', '\x08'};
-              m_Buffer.write(ctl, 3);
-              m_LineBufferSize--;
+              state.output.write(ctl, 3);
+              state.lineSize--;
               ++localWritten;
             } else if ((!(slaveFlags & ConsoleManager::LCookedMode)) && destBuffOffset) {
               char ctl[3] = {'\x08', ' ', '\x08'};
-              m_Buffer.write(ctl, 3);
+              state.output.write(ctl, 3);
               destBuffOffset--;
               ++localWritten;
             }
           }
         } else {
           // Do we need to handle this character differently?
-          if (checkForEvent(slaveFlags, buf[i], controlChars)) {
+          if (isControlCharacter(slaveFlags, buf[i], controlChars)) {
             // So, normally we'll be fine to print nicely, but if
             // we can't write to the ring buffer, we must not try
             // to do so. This event may be necessary to unblock the
             // buffer!
-            if (!m_Buffer.canWrite(false)) {
+            if (!state.output.canWrite(false)) {
               // Forcefully clear out bytes so we can write what
               // we need to to the ring buffer.
               WARNING(
                   "Console: dropping bytes to be able to "
                   "render visual control code (e.g. ^C)");
               char tmp[3];
-              m_Buffer.read(tmp, 3);
+              state.output.read(tmp, 3);
             }
 
             // Write it to the master nicely (eg, ^C, ^D)
             char ctl_c = '@' + buf[i];
             char ctl[3] = {'^', ctl_c, '\n'};
-            m_Buffer.write(ctl, 3);
+            state.output.write(ctl, 3);
             ++localWritten;
 
-            // Trigger the actual event.
-            triggerEvent(buf[i]);
+            notifyControlCharacter(buf[i], controlChars);
             continue;
           }
 
           // Write the character to the slave
           if (slaveFlags & ConsoleManager::LEcho) {
-            m_Buffer.write(&buf[i], 1);
+            state.output.write(&buf[i], 1);
             ++localWritten;
           }
 
           // Add to the buffer
           if (slaveFlags & ConsoleManager::LCookedMode)
-            m_LineBuffer[m_LineBufferSize++] = buf[i];
+            state.line[state.lineSize++] = buf[i];
           else {
             destBuff[destBuffOffset++] = buf[i];
           }
@@ -342,22 +468,22 @@ void ConsoleFile::inputLineDiscipline(char* buf, size_t len, size_t flags,
       }
 
       // We appear to have hit the top of the line buffer!
-      if (m_LineBufferSize >= LINEBUFFER_MAXIMUM) {
+      if (state.lineSize >= LINEBUFFER_MAXIMUM) {
         // Our best bet is to return early, giving the application what
         // we can of the line buffer
-        size_t numBytesToRemove = m_LineBufferSize;
+        size_t numBytesToRemove = state.lineSize;
 
         // Copy the buffer across
-        performInject(m_LineBuffer, numBytesToRemove, true);
+        state.input.write(state.line, numBytesToRemove, canBlock);
 
         // And now move the buffer over the space we just consumed
-        uint64_t nConsumedBytes = m_LineBufferSize - numBytesToRemove;
+        uint64_t nConsumedBytes = state.lineSize - numBytesToRemove;
         if (nConsumedBytes)  // If zero, the buffer was consumed
                              // completely
-          MemoryCopy(m_LineBuffer, &m_LineBuffer[numBytesToRemove], nConsumedBytes);
+          MemoryCopy(state.line, &state.line[numBytesToRemove], nConsumedBytes);
 
         // Reduce the buffer size now
-        m_LineBufferSize -= numBytesToRemove;
+        state.lineSize -= numBytesToRemove;
       }
 
       /// \todo remove me, this is because of the port
@@ -365,29 +491,28 @@ void ConsoleFile::inputLineDiscipline(char* buf, size_t len, size_t flags,
     }
 
     if (destBuffOffset) {
-      performInject(destBuff, destBuffOffset, true);
+      state.input.write(destBuff, destBuffOffset, canBlock);
     }
 
     delete[] destBuff;
   } else {
-    for (size_t i = 0; i < len; ++i) {
-      // Do we need to send an event?
-      if (checkForEvent(slaveFlags, buf[i], controlChars)) {
-        triggerEvent(buf[i]);
+    for (size_t i = 0; i < len && !state.revoked(); ++i) {
+      if (isControlCharacter(slaveFlags, buf[i], controlChars)) {
+        notifyControlCharacter(buf[i], controlChars);
         continue;
       }
 
       // No event. Simply write the character out.
-      performInject(&buf[i], 1, true);
+      state.input.write(&buf[i], 1, canBlock);
     }
   }
 
   // Wake up anything waiting on data to read from us.
-  if (localWritten)
-    dataChanged();
+  (void)localWritten;
+  changed();
 }
 
-bool ConsoleFile::checkForEvent(size_t flags, char check, const char* controlChars) {
+bool ConsoleFile::isControlCharacter(size_t flags, char check, const char* controlChars) {
   // ISIG?
   if (flags & ConsoleManager::LGenerateEvent) {
     if (check && (check == controlChars[VINTR] || check == controlChars[VQUIT] ||
@@ -398,29 +523,16 @@ bool ConsoleFile::checkForEvent(size_t flags, char check, const char* controlCha
   return false;
 }
 
-void ConsoleFile::triggerEvent(char cause) {
-  if (m_pOther->m_pEvent) {
-    // The handler reads m_Last asynchronously and acknowledges through a
-    // shared token. Keep each character paired with its own acknowledgement.
-    TerminationDeferral terminationDeferral;
-    LockGuard<Mutex> serialiser(m_EventSerialiser);
-    Thread* pThread = Processor::information().getCurrentThread();
-    m_Last = cause;
-    if (!pThread->sendEvent(m_pOther->m_pEvent)) {
-      ERROR("ConsoleFile could not publish its control event");
-      return;
-    }
-
-    if (!m_EventTrigger.acquireForCompletion()) {
-      FATAL("Console event completion barrier failed.");
-    }
-  }
-}
-
-void ConsoleFile::performInject(char* buf, size_t len, bool canBlock) {
-  m_pOther->inject(buf, len, canBlock);
-}
-
-void ConsoleFile::performEventTrigger(char cause) {
-  triggerEvent(cause);
+void ConsoleFile::notifyControlCharacter(char cause, const char* controlChars) {
+  auto control = controlState();
+  if (!control)
+    return;
+  // The retained callback does not need the console mutex or an event ack.
+  // Its POSIX implementation queues signals without dispatching user code.
+  if (cause == controlChars[VINTR])
+    control->controlCharacter(ConsoleControlState::Character::Interrupt);
+  else if (cause == controlChars[VQUIT])
+    control->controlCharacter(ConsoleControlState::Character::Quit);
+  else if (cause == controlChars[VSUSP])
+    control->controlCharacter(ConsoleControlState::Character::Suspend);
 }

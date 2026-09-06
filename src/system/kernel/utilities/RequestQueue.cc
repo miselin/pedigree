@@ -808,6 +808,38 @@ bool RequestQueue::callbackActiveOnCurrentThread() const {
   return RequestQueueCallbackScope::contains(this);
 }
 
+bool RequestQueue::canWaitForCompletion() {
+  if (callbackActiveOnCurrentThread())
+    return false;
+#if THREADS
+  Thread* current = Processor::information().getCurrentThread();
+  if (!current || !Processor::getInterrupts() || m_LifecycleMutex.isOwnedByCurrentThread())
+    return false;
+  auto guard = m_RequestQueueWaiters.acquire();
+  return m_pThread != current;
+#else
+  return true;
+#endif
+}
+
+bool RequestQueue::waitForPreallocated(PreallocatedRequest& request) {
+  if (!canWaitForCompletion())
+    return false;
+  TerminationDeferral lifetime;
+#if THREADS
+  while (true) {
+    auto guard = m_RequestQueueWaiters.acquire();
+    if (request.isAvailable())
+      return true;
+    const auto reason =
+        guard.waitForCompletion(WaitQueue::Channel(&request), Thread::CallbackDrain);
+    (void)reason;
+  }
+#else
+  return request.isAvailable();
+#endif
+}
+
 bool RequestQueue::drain() {
 #if THREADS
   if (callbackActiveOnCurrentThread()) {
@@ -1009,7 +1041,15 @@ void RequestQueue::releasePreallocatedRequest(Request* request) {
     assert(state == PreallocatedRequest::Published || state == PreallocatedRequest::Idle);
     break;
   }
+#if THREADS
+  // Availability can immediately release token storage. All later accesses
+  // belong to the retained queue, including the notification predicate guard.
+  auto guard = m_RequestQueueWaiters.acquire();
+#endif
   owner->m_ReleaseDepth -= 1;
+#if THREADS
+  guard.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(owner));
+#endif
 }
 
 #if THREADS

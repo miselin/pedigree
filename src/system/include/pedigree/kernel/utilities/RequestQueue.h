@@ -328,6 +328,13 @@ class EXPORTED_PUBLIC RequestQueue {
                            uint64_t p4 = 0, uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0,
                            uint64_t p8 = 0);
 
+  /** False for worker/callback callers or contexts which cannot sleep. */
+  bool canWaitForCompletion();
+
+  /** Joins execution, cancellation, and release callback retirement. The
+   * caller retains this queue and owns the token until this returns. */
+  MUST_USE_RESULT bool waitForPreallocated(PreallocatedRequest& request);
+
   /**
    * Publishes allocation-free work using a preallocated token.
    *

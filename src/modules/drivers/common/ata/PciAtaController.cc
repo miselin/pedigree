@@ -381,6 +381,11 @@ bool PciAtaController::workerPlacement(ThreadPlacement& placement) const {
 uint64_t PciAtaController::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
                                           uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8) {
   AtaDisk* pDisk = reinterpret_cast<AtaDisk*>(p2);
+  if (p1 == SCSI_REQUEST_PAGING) {
+    auto* request = reinterpret_cast<PagingRequest*>(p3);
+    request->result = pDisk->doPagingTransfer(request->operation, request->offset, request->page);
+    return request->result == PagingStatus::Success;
+  }
   if (p1 == SCSI_REQUEST_READ)
     return pDisk->doRead(p3);
   else if (p1 == SCSI_REQUEST_WRITE)

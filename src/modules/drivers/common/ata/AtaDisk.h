@@ -34,6 +34,7 @@
 #include "modules/drivers/common/scsi/ScsiDisk.h"
 
 class IoBase;
+class AtaPagingTransport;
 
 /**
  * An ATA device.
@@ -44,6 +45,11 @@ class IoBase;
  */
 class AtaDisk : public ScsiDisk {
  private:
+  friend class AtaPagingTransport;
+  void preparePagingStorage();
+  void releasePagingStorage();
+  AtaPagingTransport* m_Paging;
+
   /**
    * Publishes stack-owned command completion storage to the IRQ handler and
    * withdraws it under the same non-sleeping lock before destruction.
@@ -103,6 +109,8 @@ class AtaDisk : public ScsiDisk {
   virtual uint64_t doRead(uint64_t location);
   virtual uint64_t doWrite(uint64_t location);
   virtual uint64_t doSync(uint64_t location);
+  PagingStatus preparePagingTransport(PagingTransport*& transport) override;
+  PagingStatus doPagingTransfer(PagingOperation operation, uint64_t offset, void* page) override;
 
   /** Called when an IRQ is received by the controller. */
   virtual void irqReceived();

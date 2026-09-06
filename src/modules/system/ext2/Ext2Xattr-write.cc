@@ -11,6 +11,23 @@
 #include "Ext2Xattr.h"
 #include "ext2.h"
 
+namespace {
+XattrStatus quotaAttributeStatus(QuotaStatus status) {
+  switch (status) {
+    case QuotaStatus::Success:
+      return XattrStatus::Success;
+    case QuotaStatus::Limit:
+      return XattrStatus::Quota;
+    case QuotaStatus::Overflow:
+      return XattrStatus::Overflow;
+    case QuotaStatus::NoMemory:
+      return XattrStatus::NoMemory;
+    default:
+      return XattrStatus::IoError;
+  }
+}
+}  // namespace
+
 XattrStatus Ext2Node::changeXattr(const StringView& name, const void* value, size_t length,
                                   unsigned flags, bool remove) {
   auto replacement = UniqueArray<uint8_t>::allocate(m_pExt2Fs->m_BlockSize);
@@ -18,10 +35,15 @@ XattrStatus Ext2Node::changeXattr(const StringView& name, const void* value, siz
     return XattrStatus::NoMemory;
   LockGuard<Mutex> inodeGuard(m_State->writebackLock);
   LockGuard<Mutex> allocationGuard(m_pExt2Fs->m_WriteLock);
+  if (m_State->quotaFile)
+    return XattrStatus::Denied;
   if (m_pExt2Fs->isReadOnly())
     return XattrStatus::ReadOnly;
   if (!m_State->allocationValid)
     return XattrStatus::IoError;
+  const auto quotaStatus = m_pExt2Fs->prepareQuotaInodeLocked(m_InodeNumber);
+  if (quotaStatus != QuotaStatus::Success)
+    return quotaAttributeStatus(quotaStatus);
   auto status = m_pExt2Fs->attributeFormatStatus();
   if (status != XattrStatus::Success)
     return status;
@@ -55,6 +77,11 @@ XattrStatus Ext2Node::changeXattr(const StringView& name, const void* value, siz
     destination = &allocated;
   }
   const uint32_t newBlock = empty ? 0 : destination->block;
+  if (newBlock && !old.block) {
+    const auto charged = m_pExt2Fs->m_Quota.reserve(m_InodeNumber, m_pExt2Fs->m_BlockSize);
+    if (charged != QuotaStatus::Success)
+      return quotaAttributeStatus(charged);
+  }
   if (!empty) {
     MemoryCopy(reinterpret_cast<void*>(destination->buffer), replacement.get(),
                m_pExt2Fs->m_BlockSize);
@@ -76,6 +103,8 @@ XattrStatus Ext2Node::changeXattr(const StringView& name, const void* value, siz
   m_pExt2Fs->recordAttributeInodeLocked(m_InodeNumber);
   if (old.block && old.block != newBlock)
     m_pExt2Fs->commitAttributeRetirementLocked(old);
+  if (old.block && !newBlock)
+    m_pExt2Fs->m_Quota.refund(m_InodeNumber, m_pExt2Fs->m_BlockSize);
   return XattrStatus::Success;
 }
 

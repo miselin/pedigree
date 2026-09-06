@@ -25,11 +25,14 @@
 
 #include "Ext2Node.h"
 #include "modules/system/vfs/File.h"
+#include "modules/system/vfs/QuotaTable.h"
 
 struct Inode;
 
 /** A File is a file, a directory or a symlink. */
 class Ext2File : public File, public Ext2Node {
+  friend class Ext2Filesystem;
+
  private:
   /** Copy constructors are hidden - unused! */
   Ext2File(const Ext2File& file);
@@ -86,6 +89,9 @@ class Ext2File : public File, public Ext2Node {
   virtual CacheState& cacheState();
   virtual bool useFillCache() const;
   virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
+  virtual bool changeOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid);
+  virtual bool allowResize(size_t oldSize, size_t newSize);
+  virtual bool allowPhysicalPage() const;
   virtual bool prepareWrite(uint64_t location, uint64_t size);
   virtual bool resizeFile(size_t size);
   virtual bool allocateFileRange(size_t offset, size_t length);
@@ -96,6 +102,10 @@ class Ext2File : public File, public Ext2Node {
   virtual void writeBlocks(uint64_t location, uintptr_t addr, size_t length);
 
  private:
+  QuotaStatus beginQuota(QuotaTable& loaded);
+  QuotaStatus endQuota(QuotaType type, bool requireClean);
+  QuotaStatus writeQuotaRecord(uint32_t id, const QuotaRecord& record);
+  bool m_OwnsQuotaProtection = false;
   bool m_Initialized = false;
   static bool sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t location,
                                  uintptr_t page, void* state);

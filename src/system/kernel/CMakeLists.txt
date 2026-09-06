@@ -391,6 +391,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/Device.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/DeviceHashTree.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/Disk.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/machine/DiskPaging.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/Display.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/Framebuffer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/HidInputManager.cc

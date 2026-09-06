@@ -321,6 +321,11 @@ VFS::~VFS() {
 bool VFS::mount(Disk* pDisk, String& stableName, Filesystem** pMountedFs) {
 #if THREADS
   TerminationDeferral dispatchDeferral;
+#endif
+  DiskUse diskUse;
+  if (pDisk && !pDisk->acquireUse(diskUse))
+    return false;
+#if THREADS
   Thread* current = Processor::information().getCurrentThread();
   void* owner =
       current ? static_cast<void*>(current) : static_cast<void*>(&Processor::information());
@@ -353,6 +358,8 @@ bool VFS::mount(Disk* pDisk, String& stableName, Filesystem** pMountedFs) {
         continue;
       }
 
+      pFs->m_DiskUse = pedigree_std::move(diskUse);
+
       if (stableName.length() == 0) {
         stableName = pFs->getVolumeLabel();
       }
@@ -381,6 +388,8 @@ bool VFS::mount(Disk* pDisk, String& stableName, Filesystem** pMountedFs) {
        it != m_ProbeCallbacks.end(); it++) {
     Filesystem* pFs = (*it)->callback(pDisk);
     if (pFs) {
+      pFs->m_DiskUse = pedigree_std::move(diskUse);
+
       if (stableName.length() == 0) {
         stableName = pFs->getVolumeLabel();
       }
@@ -418,6 +427,8 @@ String VFS::registerFilesystemLocked(Filesystem* pFs, const String& preferredSta
   if (!pFs) {
     return String();
   }
+  if (pFs->m_pDisk && !pFs->m_DiskUse && !pFs->m_pDisk->acquireUse(pFs->m_DiskUse))
+    return String();
 
   MountInfo* info = nullptr;
   Filesystem* root = nullptr;
@@ -1446,3 +1457,33 @@ static void destroyVFS() {}
 
 MODULE_INFO("vfs", &initVFS, &destroyVFS);
 #endif
+
+bool VFS::diskMount(uint32_t id, MountIdentity& identity) const {
+  identity = MountIdentity();
+  if (!id || id > 0xfffff)
+    return false;
+  LockGuard<Mutex> guard(m_MountTableLock);
+  for (auto it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
+    const auto& state = it.value()->state;
+    if (state->id == id && state->filesystem->getDisk() && state->operations.isOpen()) {
+      identity.m_State = state;
+      return true;
+    }
+  }
+  return false;
+}
+bool VFS::snapshotDiskMounts(Vector<MountIdentity>& mounts) const {
+  mounts.clear();
+  LockGuard<Mutex> guard(m_MountTableLock);
+  if (!mounts.tryReserve(m_Mounts.count()))
+    return false;
+  for (auto it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
+    const auto& state = it.value()->state;
+    if (state->id > 0xfffff || !state->filesystem->getDisk() || !state->operations.isOpen())
+      continue;
+    MountIdentity identity;
+    identity.m_State = state;
+    mounts.pushBack(identity);
+  }
+  return true;
+}

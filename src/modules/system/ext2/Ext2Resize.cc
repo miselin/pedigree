@@ -152,12 +152,12 @@ void Ext2Node::commitTrim(TrimPlan& plan, bool allocationLockHeld) {
   updateAllocatedSectorCount();
   m_pExt2Fs->writeInode(getInodeNumber());
   for (uint32_t block : plan.retiredData)
-    m_pExt2Fs->releaseBlockLocked(block);
+    m_pExt2Fs->releaseBlockLocked(block, m_InodeNumber);
   for (MappingPage& page : plan.pages) {
     m_pExt2Fs->unpinBlock(page.block);
     page.buffer = 0;
     if (page.first >= keep)
-      m_pExt2Fs->releaseBlockLocked(page.block);
+      m_pExt2Fs->releaseBlockLocked(page.block, m_InodeNumber);
   }
 }
 

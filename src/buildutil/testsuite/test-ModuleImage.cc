@@ -8,16 +8,14 @@
 
 #include <gtest/gtest.h>
 
+#ifdef PEDIGREE_MODULE_IMAGE_FIXTURE_FILE
 namespace {
 std::vector<uint8_t> fixture() {
-#ifdef PEDIGREE_MODULE_IMAGE_FIXTURE_FILE
   std::ifstream input(PEDIGREE_MODULE_IMAGE_FIXTURE_FILE, std::ios::binary);
   return std::vector<uint8_t>(std::istreambuf_iterator<char>(input), {});
-#else
-  return {};
-#endif
 }
 }  // namespace
+#endif
 
 TEST(ModuleImage, BoundedEmptyInput) {
   ModuleImage plan;
@@ -27,10 +25,8 @@ TEST(ModuleImage, BoundedEmptyInput) {
             ModuleImage::Result::TooLarge);
 }
 
+#ifdef PEDIGREE_MODULE_IMAGE_FIXTURE_FILE
 TEST(ModuleImage, NativeFixtureAndTruncatedTables) {
-#ifndef PEDIGREE_MODULE_IMAGE_FIXTURE_FILE
-  GTEST_SKIP() << "Native module fixture path was not configured";
-#else
   auto image = fixture();
   ASSERT_FALSE(image.empty());
   ModuleImage plan;
@@ -44,13 +40,9 @@ TEST(ModuleImage, NativeFixtureAndTruncatedTables) {
   header.shoff = image.size() - sizeof(ModuleImage::Section) + 1;
   MemoryCopy(image.data(), &header, sizeof(header));
   EXPECT_EQ(plan.preflight(image.data(), image.size()), ModuleImage::Result::Malformed);
-#endif
 }
 
 TEST(ModuleImage, RejectsUnterminatedMetadataBeforeExecution) {
-#ifndef PEDIGREE_MODULE_IMAGE_FIXTURE_FILE
-  GTEST_SKIP() << "Native module fixture path was not configured";
-#else
   auto image = fixture();
   ASSERT_FALSE(image.empty());
   ModuleImage plan;
@@ -65,5 +57,5 @@ TEST(ModuleImage, RejectsUnterminatedMetadataBeforeExecution) {
   const size_t length = StringLength(plan.name);
   image[offset + length] = '!';
   EXPECT_NE(plan.preflight(image.data(), image.size()), ModuleImage::Result::Valid);
-#endif
 }
+#endif

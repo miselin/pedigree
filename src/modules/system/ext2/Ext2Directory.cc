@@ -221,33 +221,30 @@ bool Ext2Directory::addEntry(const String& filename, File* pFile, size_t type) {
     uint32_t block = m_pExt2Fs->findFreeBlock(getInodeNumber());
     if (block == 0) {
       // We had a problem.
-      SYSCALL_ERROR(NoSpaceLeftOnDevice);
       return false;
     }
-    if (!addBlock(block))
+    const uintptr_t buffer = m_pExt2Fs->readBlock(block);
+    if (!buffer) {
+      m_pExt2Fs->releaseBlock(block, getInodeNumber());
+      SYSCALL_ERROR(IoError);
       return false;
+    }
+    // Publish a valid empty directory block only after its contents are ready.
+    ByteSet(reinterpret_cast<void*>(buffer), 0, m_pExt2Fs->m_BlockSize);
+    pDir = reinterpret_cast<Dir*>(buffer);
+    pDir->d_reclen = HOST_TO_LITTLE16(m_pExt2Fs->m_BlockSize);
+    m_pExt2Fs->writeBlock(block);
+    if (!addBlock(block)) {
+      const int failure = m_pExt2Fs->currentIoError();
+      m_pExt2Fs->unpinBlock(block);
+      m_pExt2Fs->releaseBlock(block, getInodeNumber());
+      syscallError(failure);
+      return false;
+    }
     i = m_Blocks.count() - 1;
     m_nSize = m_Blocks.count() * m_pExt2Fs->m_BlockSize;
     m_Size = m_nSize;
     fileAttributeChanged();
-
-    /// \todo Previous directory entry might need its reclen updated to
-    ///       point to this new entry (as directory entries cannot cross
-    ///       block boundaries).
-
-    if (!ensureBlockLoaded(i)) {
-      return false;
-    }
-    uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
-    if (!buffer) {
-      return false;
-    }
-
-    ByteSet(reinterpret_cast<void*>(buffer), 0, m_pExt2Fs->m_BlockSize);
-    pDir = reinterpret_cast<Dir*>(buffer);
-    pDir->d_reclen = HOST_TO_LITTLE16(m_pExt2Fs->m_BlockSize);
-
-    /// \todo Update our i_size for our directory.
   }
 
   const bool special = filename.compare(".") || filename.compare("..");

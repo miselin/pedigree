@@ -165,7 +165,7 @@ ReadyMask queryWatch(const EpollWatch& watch) {
   const bool reading = watch.canRead && (watch.events & (ReadEvents | LinuxEpoll::ReadHangup));
   const bool writing = watch.canWrite && (watch.events & WriteEvents);
   if (watch.file) {
-    return watch.file->queryReady(reading, writing);
+    return watch.description->queryFileReady(reading, writing);
   }
   if (watch.network) {
     return watch.network->queryReady(reading, writing);
@@ -190,8 +190,10 @@ uint32_t sampleWatch(EpollWatch& watch) {
   if (watch.events & LinuxEpoll::EdgeTriggered) {
     ReadinessSource* source = watchSource(watch);
     const ReadinessGenerations generations =
-        watch.signalView ? watch.signalView->callerReadinessGenerations()
-                         : (source ? source->readinessGenerations() : ReadinessGenerations());
+        watch.signalView
+            ? watch.signalView->callerReadinessGenerations()
+            : (watch.file ? watch.description->fileReadinessGenerations()
+                          : (source ? source->readinessGenerations() : ReadinessGenerations()));
     const uint64_t writeGeneration = watch.eventFd ? watch.eventFd->writeGeneration() : 0;
     // Keep edges which have not yet been consumed, but do not return a stale
     // edge after another thread has made that predicate false. Source-owned
@@ -461,7 +463,9 @@ int EpollInstance::control(int operation, int targetFd, const LinuxEpollEvent* e
           watch->observedGenerations =
               watch->signalView
                   ? watch->signalView->callerReadinessGenerations()
-                  : (source ? source->readinessGenerations() : ReadinessGenerations());
+                  : (watch->file
+                         ? watch->description->fileReadinessGenerations()
+                         : (source ? source->readinessGenerations() : ReadinessGenerations()));
           found = true;
           break;
         }

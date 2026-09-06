@@ -127,17 +127,16 @@ bool Ext2Directory::prepareRenameSpace(const String& name, RenameRecord& record,
   record.owner = this;
   record.block = m_pExt2Fs->findFreeBlock(getInodeNumber());
   if (!record.block) {
-    SYSCALL_ERROR(NoSpaceLeftOnDevice);
     return false;
   }
   record.buffer = m_pExt2Fs->readBlock(record.block);
   if (!record.buffer) {
-    m_pExt2Fs->releaseBlock(record.block);
+    m_pExt2Fs->releaseBlock(record.block, m_InodeNumber);
     SYSCALL_ERROR(IoError);
     return false;
   }
   if (!addBlock(record.block)) {
-    m_pExt2Fs->releaseBlock(record.block);
+    m_pExt2Fs->releaseBlock(record.block, m_InodeNumber);
     trimToBlocks(oldBlocks);
     return false;
   }
@@ -155,6 +154,11 @@ bool Ext2Directory::prepareRenameSpace(const String& name, RenameRecord& record,
 
 bool Ext2Filesystem::renameNode(Directory* oldParent, const String& oldName, File* source,
                                 Directory* newParent, const String& newName, File* replaced) {
+  LockGuard<Mutex> quotaNamespace(m_QuotaNamespaceLock);
+  if (isQuotaFile(source->getInode()) || (replaced && isQuotaFile(replaced->getInode()))) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return false;
+  }
   if (oldName.length() > 255 || newName.length() > 255) {
     SYSCALL_ERROR(NameTooLong);
     return false;

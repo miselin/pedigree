@@ -81,6 +81,7 @@ Ext2Filesystem::Ext2Filesystem()
 }
 
 Ext2Filesystem::~Ext2Filesystem() {
+  closeQuotaFiles();
   delete m_pRoot;
   drainAttributeWrites();
 
@@ -312,6 +313,11 @@ const String& Ext2Filesystem::getVolumeLabel() const {
 
 bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t mask,
                                 const String& value, size_t type, uint32_t inodeOverride) {
+  LockGuard<Mutex> quotaNamespace(m_QuotaNamespaceLock);
+  if (inodeOverride && isQuotaFile(inodeOverride)) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return false;
+  }
   NOTICE("CREATE: " << filename);
 
   // Quick sanity check;
@@ -341,9 +347,8 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
   // Find a free inode.
   uint32_t inode_num = inodeOverride;
   if (!inode_num) {
-    inode_num = findFreeInode();
+    inode_num = findFreeInode(uid, gid);
     if (inode_num == 0) {
-      SYSCALL_ERROR(NoSpaceLeftOnDevice);
       return false;
     }
   }
@@ -356,9 +361,7 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
   if (!inodeOverride) {
     // Allocation has already cleared the inode and advanced its generation.
     newInode->i_mode = HOST_TO_LITTLE16(mask | type);
-    Ext2Owner::setUid(*newInode, uid);
     newInode->i_atime = newInode->i_ctime = newInode->i_mtime = HOST_TO_LITTLE32(timestamp);
-    Ext2Owner::setGid(*newInode, gid);
   }
 
   // If we have a value to store, and it's small enough, use the block
@@ -403,11 +406,13 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
       if (!inodeOverride) {
         // Dot entries are backing metadata, not separate VFS objects. Avoid
         // manufacturing a second directory object and mutex for this inode.
+        syscallError(0);
         dotEntryCreated = pE2Dir->addEntry(String("."), pE2Dir, EXT2_S_IFDIR);
         if (dotEntryCreated) {
           dotDotEntryCreated = pE2Dir->addEntry(String(".."), pE2Parent, EXT2_S_IFDIR);
         }
         if (!dotEntryCreated || !dotDotEntryCreated) {
+          const int failure = currentIoError();
           if (dotEntryCreated && !pE2Dir->removeEntry(String("."), pE2Dir)) {
             ERROR("EXT2: Failed to unwind a new directory's self link");
             releaseInode(inode_num, pE2Dir);
@@ -415,7 +420,7 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
             releaseInode(inode_num, pE2Dir);
           }
           delete pE2Dir;
-          SYSCALL_ERROR(IoError);
+          syscallError(failure);
           return false;
         }
       }
@@ -434,11 +439,22 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
 
   // Else case from earlier.
   if (value.length() && value.length() >= 4 * 15) {
-    pFile->write(0ULL, value.length(), reinterpret_cast<uintptr_t>(value.cstr()));
+    syscallError(0);
+    if (pFile->write(0ULL, value.length(), reinterpret_cast<uintptr_t>(value.cstr())) !=
+        value.length()) {
+      const int failure = currentIoError();
+      if (!inodeOverride)
+        releaseInode(inode_num, pNewNode);
+      delete pFile;
+      syscallError(failure);
+      return false;
+    }
   }
 
   // Add to the parent directory.
+  syscallError(0);
   if (!pE2Parent->addEntry(filename, pFile, type)) {
+    const int failure = currentIoError();
     ERROR("EXT2: Internal error adding directory entry.");
     if (!inodeOverride) {
       if (pNewDirectory && dotDotEntryCreated &&
@@ -456,6 +472,7 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
       }
     }
     delete pFile;
+    syscallError(failure);
     return false;
   }
 
@@ -538,6 +555,11 @@ bool Ext2Filesystem::createLink(File* parent, const String& filename, File* targ
 }
 
 bool Ext2Filesystem::removeNode(File* parent, const String& filename, File* file) {
+  LockGuard<Mutex> quotaNamespace(m_QuotaNamespaceLock);
+  if (isQuotaFile(file->getInode())) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return false;
+  }
   // Quick sanity check.
   if (!parent->isDirectory()) {
     SYSCALL_ERROR(IoError);
@@ -778,24 +800,52 @@ bool Ext2Filesystem::findFreeBlocks(uint32_t inode, size_t count, Vector<uint32_
   LockGuard<Mutex> guard(m_WriteLock);
 #endif
 
-  // Inode zero is invalid, so make sure we are getting local blocks.
+  if (!count)
+    return true;
+  if (!blocks.tryReserve(count)) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  if (!m_BlockSize || count > ~uint64_t(0) / m_BlockSize) {
+    SYSCALL_ERROR(ValueTooLarge);
+    return false;
+  }
+  const uint64_t reserved = static_cast<uint64_t>(count) * m_BlockSize;
+  auto status = prepareQuotaInodeLocked(inode);
+  if (status == QuotaStatus::Success)
+    status = m_Quota.reserve(inode, reserved);
+  if (!quotaSucceeded(status))
+    return false;
+  const uint32_t inodeNumber = inode;
+  // The ledger includes reservations before callers attach their mappings.
   --inode;
 
   // Try to allocate near the inode's group (but we can fall back to a
   // different group if needed).
   uint32_t group = inode / LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
   uint32_t startGroup = group;
+  int error = 0;
 
   for (; count && group < m_nGroupDescriptors; ++group) {
+    // A zero allocation result also means full storage. Check the fallible
+    // bitmap load separately so I/O failures survive reservation rollback.
+    if (m_pGroupDescriptors[group]->bg_free_blocks_count && !ensureFreeBlockBitmapLoaded(group)) {
+      error = currentIoError();
+      break;
+    }
     count -= findFreeBlocksInGroup(group, count, blocks);
   }
 
   // Try again from the start of the disk if we couldn't find a group (if
   // we started e.g. halfway through the disk due to the inode closeness
   // thing above, we need to check the rest of the groups).
-  if (count)
+  if (count && !error)
     ERROR("FALLING BACK TO STARTING FROM ZERO");
-  for (group = 0; count && group < startGroup; ++group) {
+  for (group = 0; count && !error && group < startGroup; ++group) {
+    if (m_pGroupDescriptors[group]->bg_free_blocks_count && !ensureFreeBlockBitmapLoaded(group)) {
+      error = currentIoError();
+      break;
+    }
     count -= findFreeBlocksInGroup(group, count, blocks);
   }
 
@@ -804,6 +854,8 @@ bool Ext2Filesystem::findFreeBlocks(uint32_t inode, size_t count, Vector<uint32_
       releaseBlockLocked(block);
     }
     blocks.clear();
+    m_Quota.refund(inodeNumber, reserved);
+    syscallError(error ? error : Error::NoSpaceLeftOnDevice);
   }
   return count == 0;
 }
@@ -925,12 +977,12 @@ size_t Ext2Filesystem::findFreeBlocksInGroup(uint32_t group, size_t maxCount,
   return currentCount;
 }
 
-void Ext2Filesystem::releaseBlock(uint32_t block) {
+void Ext2Filesystem::releaseBlock(uint32_t block, uint32_t inode) {
 #if THREADS || defined(STANDALONE_MUTEXES)
   LockGuard<Mutex> guard(m_WriteLock);
 #endif
 
-  releaseBlockLocked(block);
+  releaseBlockLocked(block, inode);
 }
 
 bool Ext2Filesystem::prepareBlockReleaseLocked(uint32_t block) {
@@ -952,7 +1004,7 @@ bool Ext2Filesystem::prepareInodeWrite(uint32_t inode) {
   return ensureInodeTableLoaded((inode - 1) / perGroup);
 }
 
-void Ext2Filesystem::releaseBlockLocked(uint32_t block) {
+void Ext2Filesystem::releaseBlockLocked(uint32_t block, uint32_t inode) {
   // In some ext2 filesystems, this is zero so we don't need to do this. But
   // for those that do, not doing this messes up the bit offsets below.
   block -= LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block);
@@ -982,9 +1034,13 @@ void Ext2Filesystem::releaseBlockLocked(uint32_t block) {
   uintptr_t diskBlock = list[bitmapField];
   uint8_t* ptr = reinterpret_cast<uint8_t*>(diskBlock + bitmapOffset);
   uint8_t bit = (index % 8);
-  if ((*ptr & (1 << bit)) == 0)
+  if ((*ptr & (1 << bit)) == 0) {
     ERROR("bit already freed for block " << Dec << block << Hex);
+    return;
+  }
   *ptr &= ~(1 << bit);
+  if (inode)
+    m_Quota.refund(inode, m_BlockSize);
 
   // Update hints.
   pDesc->bg_free_blocks_count++;
@@ -1140,6 +1196,7 @@ void Ext2Filesystem::retireInodeLocked(uint32_t inodeNumber, Ext2Node* retiringN
     uintptr_t block = list[bitmapField];
     uint8_t* ptr = reinterpret_cast<uint8_t*>(block + bitmapOffset);
     *ptr &= ~(1 << (index % 8));
+    m_Quota.forget(inodeNumber);
     if (attributes.block) {
       const uint32_t bitmap = LITTLE_TO_HOST32(pDesc->bg_inode_bitmap) + bitmapField;
       recordAttributeWriteLocked(static_cast<uint64_t>(bitmap) * m_BlockSize,
@@ -1290,6 +1347,11 @@ bool Ext2Filesystem::ensureFreeInodeBitmapLoaded(size_t group) {
   if (inodesPerGroup % (m_BlockSize * 8))
     nBlocks++;
 
+  if (!list.tryReserve(nBlocks)) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+
   const uint32_t start = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_bitmap);
   for (size_t i = 0; i < nBlocks; i++) {
     uint32_t blockNumber = start + i;
@@ -1298,6 +1360,7 @@ bool Ext2Filesystem::ensureFreeInodeBitmapLoaded(size_t group) {
         unpinBlock(start + list.count() - 1);
         list.popBack();
       }
+      SYSCALL_ERROR(IoError);
       return false;
     }
     uintptr_t buffer = readBlock(blockNumber);
@@ -1306,6 +1369,7 @@ bool Ext2Filesystem::ensureFreeInodeBitmapLoaded(size_t group) {
         unpinBlock(start + list.count() - 1);
         list.popBack();
       }
+      SYSCALL_ERROR(IoError);
       return false;
     }
     list.pushBack(buffer);
@@ -1335,6 +1399,7 @@ bool Ext2Filesystem::ensureInodeTableLoaded(size_t group) {
   if (!nBlocks) {
     ERROR("inode table has zero blocks [inode size=" << m_InodeSize
                                                      << "], possibly corrupted filesystem.");
+    SYSCALL_ERROR(IoError);
     return false;
   }
 
@@ -1346,6 +1411,7 @@ bool Ext2Filesystem::ensureInodeTableLoaded(size_t group) {
   // Load each block in the inode table.
   const uint32_t inodeTableStart = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table);
   if (!inodeTableStart) {
+    SYSCALL_ERROR(IoError);
     return false;
   }
   for (size_t i = 0; i < nBlocks; i++) {

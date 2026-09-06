@@ -19,8 +19,6 @@
 
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/process/Process.h"
-#include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/process/eventNumbers.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
@@ -33,6 +31,7 @@
 #include <stddef.h>
 #include <termios.h>
 
+#include "TerminalControl.h"
 #include "console-syscalls.h"
 #include "file-syscalls.h"
 #include "logging.h"
@@ -66,85 +65,19 @@ struct LinuxAmd64Termios {
 static_assert(sizeof(LinuxAmd64Termios) == 36, "Linux amd64 termios extent");
 static_assert(offsetof(LinuxAmd64Termios, c_cc) == 17, "Linux amd64 control characters");
 
-class PosixTerminalEvent : public Event {
- public:
-  PosixTerminalEvent();
-  PosixTerminalEvent(uintptr_t handlerAddress, size_t groupId, ConsoleFile* tty,
-                     size_t specificNestingLevel = ~0UL);
-  virtual ~PosixTerminalEvent();
-
-  virtual size_t serialize(uint8_t* pBuffer);
-
-  static bool unserialize(uint8_t* pBuffer, Event& event);
-
-  virtual size_t getGroupId() const;
-  virtual ConsoleFile* getConsole() const;
-
-  virtual size_t getNumber();
-  virtual bool isDeletable();
-
- private:
-  size_t m_GroupId;
-  ConsoleFile* pConsole;
-};
-
-static void terminalEventHandler(uintptr_t serializeBuffer) {
-  PosixTerminalEvent evt;
-  if (!PosixTerminalEvent::unserialize(reinterpret_cast<uint8_t*>(serializeBuffer), evt)) {
-    return;
+int posix_tcgetattr(int fd, struct termios* p) {
+  auto* process = Processor::information().getCurrentThread()->getParent();
+  auto* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+  DescriptorLease descriptor;
+  if (!subsystem || !subsystem->acquireFileDescriptor(fd, descriptor)) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
   }
-
-  ConsoleFile* pConsole = evt.getConsole();
-  const size_t groupId = evt.getGroupId();
-
-  // Grab the character which caused the event.
-  char which = pConsole->getLast();
-
-  // Grab the special characters - we'll use these to figure out what we hit.
-  char specialChars[NCCS];
-  pConsole->getControlCharacters(specialChars);
-
-  // Identify what happened.
-  Subsystem::ExceptionType what = Subsystem::Other;
-  if (which == specialChars[VINTR]) {
-    F_NOTICE(" -> terminal event: interrupt");
-    what = Subsystem::Interrupt;
-  } else if (which == specialChars[VQUIT]) {
-    F_NOTICE(" -> terminal event: quit");
-    what = Subsystem::Quit;
-  } else if (which == specialChars[VSUSP]) {
-    F_NOTICE(" -> terminal event: suspend");
-    what = Subsystem::Stop;
-  }
-
-  // Send to each process.
-  if (what != Subsystem::Other) {
-    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i) {
-      Scheduler::ProcessLease process;
-      if (!Scheduler::instance().acquireProcess(process, i) ||
-          process->getType() != Process::Posix) {
-        continue;
-      }
-      PosixProcess* pProcess = static_cast<PosixProcess*>(process.get());
-      size_t candidateGroupId = 0;
-      if (!pProcess->getProcessGroupId(candidateGroupId) || candidateGroupId != groupId) {
-        continue;
-      }
-      PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
-      Process::ThreadLease target;
-      const bool targetAcquired = pProcess->acquireProcessSignalThread(target);
-      if (pSubsystem && targetAcquired) {
-        pSubsystem->threadException(target.get(), what);
-      }
-    }
-  }
-
-  // We have finished handling this event.
-  pConsole->eventComplete();
+  return console_tcgetattr(descriptor, p);
 }
 
-int posix_tcgetattr(int fd, struct termios* p) {
-  F_NOTICE("posix_tcgetattr(" << fd << ")");
+int console_tcgetattr(const DescriptorLease& pFd, struct termios* p) {
+  F_NOTICE("posix_tcgetattr(" << pFd->fd << ")");
 
   // Lookup this process.
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
@@ -154,11 +87,9 @@ int posix_tcgetattr(int fd, struct termios* p) {
     return -1;
   }
 
-  DescriptorLease pFd;
-  if (!pSubsystem->acquireFileDescriptor(fd, pFd)) {
-    // Error - no such file descriptor.
-    SYSCALL_ERROR(BadFileDescriptor);
-    F_NOTICE(" -> EBADF");
+  FileDescriptor::TerminalOperation operation;
+  if (!pFd->acquireTerminalOperation(operation)) {
+    SYSCALL_ERROR(IoError);
     return -1;
   }
 
@@ -233,6 +164,17 @@ int posix_tcgetattr(int fd, struct termios* p) {
 }
 
 int posix_tcsetattr(int fd, int optional_actions, struct termios* p) {
+  auto* process = Processor::information().getCurrentThread()->getParent();
+  auto* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+  DescriptorLease descriptor;
+  if (!subsystem || !subsystem->acquireFileDescriptor(fd, descriptor)) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  return console_tcsetattr(descriptor, optional_actions, p);
+}
+
+int console_tcsetattr(const DescriptorLease& pFd, int optional_actions, struct termios* p) {
   // Lookup this process.
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -263,16 +205,14 @@ int posix_tcsetattr(int fd, int optional_actions, struct termios* p) {
     return -1;
   }
 
-  F_NOTICE("posix_tcsetattr(" << fd << ", " << optional_actions << ")");
+  F_NOTICE("posix_tcsetattr(" << pFd->fd << ", " << optional_actions << ")");
   F_NOTICE(" -> {c_iflag=" << pc->c_iflag << ", c_oflag=" << pc->c_oflag
                            << ", c_lflag=" << pc->c_lflag << "}");
   F_NOTICE(" -> {c_cflag=" << pc->c_cflag << "}");
 
-  DescriptorLease pFd;
-  if (!pSubsystem->acquireFileDescriptor(fd, pFd)) {
-    // Error - no such file descriptor.
-    SYSCALL_ERROR(BadFileDescriptor);
-    F_NOTICE(" -> EBADF");
+  FileDescriptor::TerminalOperation operation;
+  if (!pFd->acquireTerminalOperation(operation)) {
+    SYSCALL_ERROR(IoError);
     return -1;
   }
 
@@ -424,155 +364,60 @@ int console_ttyname(int fd, char* buf) {
   return 0;
 }
 
-static void setConsoleGroup(Process* pProcess, size_t groupId) {
-  // Okay, we have a group. Create a PosixTerminalEvent with the relevant
-  // information.
-  ConsoleFile* pConsole = static_cast<ConsoleFile*>(pProcess->getCtty());
-  PosixTerminalEvent* pEvent =
-      new PosixTerminalEvent(reinterpret_cast<uintptr_t>(terminalEventHandler), groupId, pConsole);
-
-  // Remove any existing event that might be on the terminal.
-  if (pConsole->getEvent()) {
-    PosixTerminalEvent* pOldEvent = static_cast<PosixTerminalEvent*>(pConsole->getEvent());
-    pConsole->setEvent(0);
-    // A console trigger may already have admitted or queued a delivery.
-    // Drain it after detaching the raw console pointer, before releasing
-    // the event storage.
-    pOldEvent->waitForDeliveries();
-    delete pOldEvent;
-  }
-
-  // Set as the new event - we are now the foreground process!
-  /// \todo This doesn't work for SIGTTIN and SIGTTOU...
-  pConsole->setEvent(pEvent);
-}
-
 int console_setctty(File* file, bool steal) {
-  Process* pProcess = Processor::information().getCurrentThread()->getParent();
-
-  /// \todo Check we are session leader.
-  /// \todo If we are root and steal == 1, we can steal a ctty from another
-  ///       session group.
-
-  // All is well.
-  pProcess->setCtty(file);
-
-  PosixProcess* pPosixProcess = static_cast<PosixProcess*>(pProcess);
-  size_t processGroupId = 0;
-  if (pPosixProcess->getProcessGroupId(processGroupId)) {
-    // Move the terminal into the same process group as this process.
-    setConsoleGroup(pProcess, processGroupId);
+  if (!ConsoleManager::instance().isConsole(file)) {
+    SYSCALL_ERROR(NotAConsole);
+    return -1;
   }
-
-  return 0;
+  return TerminalControl::attach(*static_cast<ConsoleFile*>(file), steal);
 }
 
 int console_setctty(int fd, bool steal) {
-  Process* pProcess = Processor::information().getCurrentThread()->getParent();
-  PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
-  if (!pSubsystem) {
-    ERROR("No subsystem for one or both of the processes!");
-    return -1;
-  }
-
-  DescriptorLease pFd;
-  if (!pSubsystem->acquireFileDescriptor(fd, pFd)) {
-    // Error - no such file descriptor.
+  auto* process = Processor::information().getCurrentThread()->getParent();
+  auto* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+  DescriptorLease descriptor;
+  if (!subsystem || !subsystem->acquireFileDescriptor(fd, descriptor)) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
-
-  if (!ConsoleManager::instance().isConsole(pFd->file)) {
+  if (!ConsoleManager::instance().isConsole(descriptor->file)) {
     SYSCALL_ERROR(NotAConsole);
     return -1;
   }
-
-  if (pProcess->getCtty()) {
-    // Already have a controlling terminal!
-    /// \todo SYSCALL_ERROR of some sort.
-    return -1;
-  }
-
-  return console_setctty(pFd->file, steal);
+  return TerminalControl::attach(*static_cast<ConsoleFile*>(descriptor->file), steal, false,
+                                 descriptor->terminalEpoch());
 }
 
-int posix_tcsetpgrp(int fd, pid_t pgid_id) {
-  F_NOTICE("tcsetpgrp(" << fd << ", " << pgid_id << ")");
-  Process* pProcess = Processor::information().getCurrentThread()->getParent();
-  PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
-  if (!pSubsystem) {
-    ERROR("No subsystem for one or both of the processes!");
-    return -1;
-  }
-
-  DescriptorLease pFd;
-  if (!pSubsystem->acquireFileDescriptor(fd, pFd)) {
-    // Error - no such file descriptor.
+int posix_tcsetpgrp(int fd, pid_t group) {
+  auto* process = Processor::information().getCurrentThread()->getParent();
+  auto* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+  DescriptorLease descriptor;
+  if (!subsystem || !subsystem->acquireFileDescriptor(fd, descriptor)) {
     SYSCALL_ERROR(BadFileDescriptor);
-    F_NOTICE(" -> EBADF");
     return -1;
   }
-
-  if ((!pProcess->getCtty()) || (pProcess->getCtty() != pFd->file) ||
-      (!ConsoleManager::instance().isConsole(pFd->file))) {
+  if (!ConsoleManager::instance().isConsole(descriptor->file)) {
     SYSCALL_ERROR(NotAConsole);
-    F_NOTICE(" -> ENOTTY");
     return -1;
   }
-
-  {
-    RecursingLockGuard<Spinlock> groupGuard(ProcessGroupManager::instance().lock());
-    if (!ProcessGroupManager::instance().findGroup(pgid_id)) {
-      SYSCALL_ERROR(PermissionDenied);
-      F_NOTICE(" -> EPERM");
-      return -1;
-    }
-  }
-
-  setConsoleGroup(pProcess, pgid_id);
-
-  F_NOTICE(" -> ok");
-  return 0;
+  return TerminalControl::setForeground(*static_cast<ConsoleFile*>(descriptor->file), group,
+                                        descriptor->terminalEpoch());
 }
 
 pid_t posix_tcgetpgrp(int fd) {
-  F_NOTICE("tcgetpgrp(" << fd << ")");
-
-  Process* pProcess = Processor::information().getCurrentThread()->getParent();
-  PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
-  if (!pSubsystem) {
-    ERROR("No subsystem for one or both of the processes!");
-    return -1;
-  }
-
-  DescriptorLease pFd;
-  if (!pSubsystem->acquireFileDescriptor(fd, pFd)) {
-    // Error - no such file descriptor.
+  auto* process = Processor::information().getCurrentThread()->getParent();
+  auto* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+  DescriptorLease descriptor;
+  if (!subsystem || !subsystem->acquireFileDescriptor(fd, descriptor)) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
-
-  if ((!pProcess->getCtty()) || (pProcess->getCtty() != pFd->file) ||
-      (!ConsoleManager::instance().isConsole(pFd->file))) {
+  if (!ConsoleManager::instance().isConsole(descriptor->file)) {
     SYSCALL_ERROR(NotAConsole);
     return -1;
   }
-
-  // Remove any existing event that might be on the terminal.
-  ConsoleFile* pConsole = static_cast<ConsoleFile*>(pProcess->getCtty());
-
-  pid_t result = 0;
-  if (pConsole->getEvent()) {
-    PosixTerminalEvent* pEvent = static_cast<PosixTerminalEvent*>(pConsole->getEvent());
-    result = pEvent->getGroupId();
-  } else {
-    // Return a group ID greater than one, and not an existing process group
-    // ID.
-    result = ProcessGroupManager::instance().allocateGroupId();
-  }
-
-  F_NOTICE("tcgetpgrp -> " << result);
-  return result;
+  return TerminalControl::foreground(*static_cast<ConsoleFile*>(descriptor->file),
+                                     descriptor->terminalEpoch());
 }
 
 unsigned int console_getptn(int fd) {
@@ -610,56 +455,4 @@ unsigned int console_getptn(int fd) {
   }
   F_NOTICE(" -> " << result);
   return result;
-}
-
-PosixTerminalEvent::PosixTerminalEvent() : Event(0, false), m_GroupId(0), pConsole(0) {}
-
-PosixTerminalEvent::PosixTerminalEvent(uintptr_t handlerAddress, size_t groupId, ConsoleFile* tty,
-                                       size_t specificNestingLevel)
-    : Event(handlerAddress, false, specificNestingLevel), m_GroupId(groupId), pConsole(tty) {}
-
-PosixTerminalEvent::~PosixTerminalEvent() {
-  // Remove us from the console if needed.
-  if (pConsole && (pConsole->getEvent() == this)) {
-    pConsole->setEvent(0);
-  }
-}
-
-size_t PosixTerminalEvent::serialize(uint8_t* pBuffer) {
-  size_t eventNumber = EventNumbers::TerminalEvent;
-  size_t offset = 0;
-  MemoryCopy(pBuffer + offset, &eventNumber, sizeof(eventNumber));
-  offset += sizeof(eventNumber);
-  MemoryCopy(pBuffer + offset, &m_GroupId, sizeof(m_GroupId));
-  offset += sizeof(m_GroupId);
-  MemoryCopy(pBuffer + offset, &pConsole, sizeof(pConsole));
-  offset += sizeof(pConsole);
-  return offset;
-}
-
-bool PosixTerminalEvent::unserialize(uint8_t* pBuffer, Event& event) {
-  PosixTerminalEvent& t = static_cast<PosixTerminalEvent&>(event);
-  if (Event::getEventType(pBuffer) != EventNumbers::TerminalEvent)
-    return false;
-  size_t offset = sizeof(size_t);
-  MemoryCopy(&t.m_GroupId, pBuffer + offset, sizeof(t.m_GroupId));
-  offset += sizeof(t.m_GroupId);
-  MemoryCopy(&t.pConsole, pBuffer + offset, sizeof(t.pConsole));
-  return true;
-}
-
-size_t PosixTerminalEvent::getGroupId() const {
-  return m_GroupId;
-}
-
-ConsoleFile* PosixTerminalEvent::getConsole() const {
-  return pConsole;
-}
-
-size_t PosixTerminalEvent::getNumber() {
-  return EventNumbers::TerminalEvent;
-}
-
-bool PosixTerminalEvent::isDeletable() {
-  return false;
 }

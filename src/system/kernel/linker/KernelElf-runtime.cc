@@ -393,6 +393,7 @@ bool KernelElf::retireRuntimeModule(Module* module, bool runLifecycle) {
   slot.state = restored ? RuntimeModuleSlot::Free : RuntimeModuleSlot::Quarantined;
   module->entry = nullptr;
   module->exit = nullptr;
+  module->unloadAdmission = nullptr;
   module->depends = nullptr;
   module->depends_opt = nullptr;
   unlockModules();
@@ -404,7 +405,15 @@ void KernelElf::abandonRuntimeModuleLoad(RuntimeLoad& load) {
   lockModules();
   module.status = Module::Failed;
   unlockModules();
-  retireRuntimeModule(&module, load.slot->lifecycleStarted);
+  const bool admitted = !load.slot->lifecycleStarted || !module.unloadAdmission ||
+                        module.unloadAdmission(false) == Module::UnloadAdmission::Ready;
+  if (admitted) {
+    retireRuntimeModule(&module, load.slot->lifecycleStarted);
+  } else {
+    load.slot->state = RuntimeModuleSlot::Quarantined;
+    module.unloadable = false;
+    module.runtimeUnloadable = false;
+  }
   lockModules();
   module.status = Module::Failed;
   module.unloadComplete = load.slot->lifecycleComplete;

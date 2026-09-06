@@ -38,6 +38,7 @@ enum PosixError {
   OutOfMemory = 12,            // ENOMEM
   PermissionDenied = 13,       // EACCES
   BadAddress = 14,             // EFAULT
+  NotABlockDevice = 15,        // ENOTBLK
   DeviceBusy = 16,             // EBUSY
   FileExists = 17,             // EEXIST
   CrossDeviceLink = 18,        // EXDEV
@@ -82,6 +83,7 @@ enum PosixError {
   Already = 114,               // EALREADY
   InProgress = 115,            // EINPROGRESS
   StaleFileHandle = 116,       // ESTALE
+  QuotaExceeded = 122,         // EDQUOT
   Cancelled = 125,             // ECANCELED
 };
 }

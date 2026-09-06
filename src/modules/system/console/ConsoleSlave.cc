@@ -35,9 +35,9 @@ ConsoleSlaveFile::ConsoleSlaveFile(size_t consoleNumber, String consoleName, Fil
                                    File* pParent)
     : ConsoleFile(consoleNumber, consoleName, pFs, pParent) {}
 
-uint64_t ConsoleSlaveFile::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
-                                        bool bCanBlock) {
-  uint64_t nBytes = m_Buffer.read(reinterpret_cast<char*>(buffer), size, bCanBlock);
+uint64_t ConsoleSlaveFile::readIo(ConsoleIoState& state, uint64_t size, uintptr_t buffer,
+                                  bool bCanBlock) {
+  uint64_t nBytes = state.input.read(reinterpret_cast<char*>(buffer), size, bCanBlock);
   if (!nBytes) {
     return 0;
   }
@@ -52,10 +52,17 @@ uint64_t ConsoleSlaveFile::readBytewise(uint64_t location, uint64_t size, uintpt
   return endSize;
 }
 
-uint64_t ConsoleSlaveFile::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
-                                         bool bCanBlock) {
-  // Send straight to the master.
-  m_pOther->inject(reinterpret_cast<char*>(buffer), size, bCanBlock);
+uint64_t ConsoleSlaveFile::writeIo(ConsoleIoState& state, uint64_t size, uintptr_t buffer,
+                                   bool bCanBlock) {
+  size_t amount = state.output.write(reinterpret_cast<char*>(buffer), size, bCanBlock);
+  changed();
+  return amount;
+}
 
-  return size;
+uint64_t ConsoleSlaveFile::readBytewise(uint64_t, uint64_t size, uintptr_t buffer, bool canBlock) {
+  return readEpoch(captureOpenEpoch(), size, buffer, canBlock);
+}
+
+uint64_t ConsoleSlaveFile::writeBytewise(uint64_t, uint64_t size, uintptr_t buffer, bool canBlock) {
+  return writeEpoch(captureOpenEpoch(), size, buffer, canBlock);
 }

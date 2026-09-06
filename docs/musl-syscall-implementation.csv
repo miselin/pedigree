@@ -37,17 +37,17 @@ linux_number,syscall,family,status,scope_and_verification
 150,munlock,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
 151,mlockall,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
 152,munlockall,Memory management,implemented,Memory-lock pass; public musl and kernel ownership contracts passed in 1CPU and 4CPU guests; setrlimit supports RLIMIT_MEMLOCK; bounds and limitations in companion document
-153,vhangup,Linux administration and isolation,pending,
+153,vhangup,Linux administration and isolation,implemented,Administration pass; public musl contracts passed in 1CPU and 4CPU guests; supported controls and backend limits in companion document
 155,pivot_root,Linux administration and isolation,pending,
 159,adjtimex,Linux administration and isolation,implemented,Clock adjustment pass; query and signed SETOFFSET with MICRO/NANO units; no PLL or slew discipline; public musl in 1CPU and 4CPU guests
 162,sync,Core file and process interfaces,implemented,Filesystem-wide sync pass; Ext2 and authoritative RAM backends; native failure/retry and hosted device flush contracts; public wrappers and cold-restart persistence passed on 1CPU and 4CPU; limits in companion document
-163,acct,Linux administration and isolation,pending,
+163,acct,Linux administration and isolation,implemented,Administration pass; public musl contracts passed in 1CPU and 4CPU guests; supported controls and backend limits in companion document
 167,swapon,Linux administration and isolation,pending,
 168,swapoff,Linux administration and isolation,pending,
 171,setdomainname,Linux administration and isolation,implemented,UTS namespace pass; real task membership and retained proc namespace descriptors; public musl and kernel lifecycle contracts passed in 1CPU and 4CPU guests; other namespace types deferred; bounds in companion document
 175,init_module,Linux administration and isolation,implemented,"Runtime module pass; bounded native amd64 ET_DYN and empty parameters; native, Darwin runtime and 1CPU/4CPU public contracts"
 176,delete_module,Linux administration and isolation,implemented,Module removal pass; privileged non-forced active-module removal and typed errors; actual exit/destructor proof in 1CPU and 4CPU guests
-179,quotactl,Linux administration and isolation,pending,
+179,quotactl,Linux administration and isolation,implemented,Administration pass; public musl contracts passed in 1CPU and 4CPU guests; supported controls and backend limits in companion document
 187,readahead,Extended file interfaces,implemented,Descriptor sync pass; bounded real prefetch including zero-count EOF semantics; public musl and residency checks in 1CPU and 4CPU guests
 188,setxattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 189,lsetxattr,Extended file interfaces,implemented,Xattr pass; public musl contracts and cold-boot Ext2 persistence passed in 1CPU and 4CPU guests; bounds and limitations in companion document

@@ -34,16 +34,16 @@
 class Partition : public Disk {
  public:
   Partition(const String& type, uint64_t start, uint64_t length);
-  virtual ~Partition();
+  virtual ~Partition() override;
 
-  virtual void getName(String& str) {
+  virtual void getName(String& str) override {
     NormalStaticString str2;
     str2 += m_Type;
     str2 += " partition";
     str.assign(str2, str2.length());
   }
 
-  virtual void dump(String& str) {
+  virtual void dump(String& str) override {
     LargeStaticString str2;
     str2 += m_Type;
     str2 += " partition at 0x";
@@ -53,7 +53,7 @@ class Partition : public Disk {
     str.assign(str2, str2.length());
   }
 
-  virtual BufferView read(uint64_t location) {
+  virtual BufferView read(uint64_t location) override {
     if (!containsCachePage(location))
       return BufferView();
 
@@ -70,7 +70,7 @@ class Partition : public Disk {
     return remaining < view.size() ? view.first(static_cast<size_t>(remaining)) : view;
   }
 
-  virtual void write(uint64_t location) {
+  virtual void write(uint64_t location) override {
     if (!containsCachePage(location))
       return;
 
@@ -81,7 +81,7 @@ class Partition : public Disk {
     pParent->write(location + m_Start);
   }
 
-  virtual void flush(uint64_t location) {
+  virtual void flush(uint64_t location) override {
     if (!containsCachePage(location))
       return;
 
@@ -92,7 +92,7 @@ class Partition : public Disk {
     pParent->flush(location + m_Start);
   }
 
-  MUST_USE_RESULT virtual bool retireCachePage(uint64_t location) {
+  MUST_USE_RESULT virtual bool retireCachePage(uint64_t location) override {
     if (!containsCachePage(location))
       return false;
 
@@ -103,7 +103,7 @@ class Partition : public Disk {
     return pParent->retireCachePage(location + m_Start);
   }
 
-  virtual bool sync(uint64_t location, bool async) {
+  virtual bool sync(uint64_t location, bool async) override {
     if (!containsCachePage(location))
       return false;
 
@@ -112,18 +112,23 @@ class Partition : public Disk {
     return parent->sync(location + m_Start, async);
   }
 
-  MUST_USE_RESULT virtual bool syncAll();
+  MUST_USE_RESULT virtual bool syncAll() override;
 
-  virtual size_t getSize() const {
+  Disk* physicalDisk() override {
+    Disk* parent = static_cast<Disk*>(getParent());
+    return parent ? parent->physicalDisk() : nullptr;
+  }
+
+  virtual size_t getSize() const override {
     return getLength();
   }
 
-  virtual size_t getBlockSize() const {
+  virtual size_t getBlockSize() const override {
     const Disk* pParent = static_cast<const Disk*>(getParent());
     return pParent->getBlockSize();
   }
 
-  virtual bool pin(uint64_t location) {
+  virtual bool pin(uint64_t location) override {
     if (!containsCachePage(location))
       return false;
     Disk* pParent = static_cast<Disk*>(getParent());
@@ -131,7 +136,7 @@ class Partition : public Disk {
     return pParent->pin(location + m_Start);
   }
 
-  virtual void unpin(uint64_t location) {
+  virtual void unpin(uint64_t location) override {
     if (!containsCachePage(location))
       return;
     Disk* pParent = static_cast<Disk*>(getParent());

@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/DiskPaging.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/BufferView.h"
 
@@ -38,6 +39,26 @@ class EXPORTED_PUBLIC Disk : public Device {
   Disk(Device* p);
   virtual ~Disk();
 
+  virtual Disk* physicalDisk();
+  bool acquireUse(DiskUse& use);
+  uint32_t endpointId();
+
+  /** Called while the endpoint excludes new ordinary users. */
+  virtual PagingStatus preparePagingTransport(PagingTransport*& transport);
+
+  /** Withdraws selectors and joins users before derived driver teardown. */
+  void retireEndpoint();
+  bool tryCloseEndpoint();
+  void reopenEndpoint();
+
+ protected:
+  void reserveEndpoint();
+  void publishEndpoint();
+
+ private:
+  DiskEndpoint* m_Endpoint;
+
+ public:
   virtual Type getType();
 
   virtual SubType getSubType();

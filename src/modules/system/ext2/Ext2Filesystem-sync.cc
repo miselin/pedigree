@@ -38,6 +38,8 @@ Filesystem::SyncStatus Ext2Filesystem::sync() {
   if (!m_pDisk || !m_pSuperblock || !m_BlockSize)
     return SyncStatus::IoError;
 
+  const auto quotaStatus = flushQuotas();
+
   SyncSnapshot snapshot(*this);
   for (;;) {
     size_t required;
@@ -65,7 +67,7 @@ Filesystem::SyncStatus Ext2Filesystem::sync() {
       return SyncStatus::NoMemory;
   }
 
-  bool succeeded = true;
+  bool succeeded = quotaStatus == QuotaStatus::Success;
   for (const auto& entry : snapshot.entries) {
     LockGuard<Mutex> data(entry.state->dataLock);
     if (!entry.state->allocationValid)
@@ -83,5 +85,7 @@ Filesystem::SyncStatus Ext2Filesystem::sync() {
       return SyncStatus::IoError;
     succeeded = m_pDisk->syncAll() && succeeded;
   }
-  return succeeded ? SyncStatus::Success : SyncStatus::IoError;
+  return succeeded                              ? SyncStatus::Success
+         : quotaStatus == QuotaStatus::NoMemory ? SyncStatus::NoMemory
+                                                : SyncStatus::IoError;
 }

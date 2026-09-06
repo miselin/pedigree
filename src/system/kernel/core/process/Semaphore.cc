@@ -171,6 +171,32 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
       FATAL("Mutex acquisition must request exactly one item");
     }
     if (state == currentMutexOwner()) {
+      ERROR_NOLOCK("Recursive mutex " << Hex << reinterpret_cast<uintptr_t>(this)
+                                      << " caller "
+                                      << reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
+#if X86_COMMON && !defined(PEDIGREE_BUILDUTILS)
+      // The debugger may itself need locks or mappings; preserve the original
+      // callers first, without consulting the address-space implementation.
+      Thread* thread = Processor::information().getCurrentThread();
+      if (thread) {
+        size_t stackSize = 0;
+        uintptr_t stackBase = reinterpret_cast<uintptr_t>(thread->getKernelStackBase(&stackSize));
+        uintptr_t frame = Processor::getBasePointer();
+        for (size_t depth = 0; stackSize >= 2 * sizeof(uintptr_t) && depth < 12; ++depth) {
+          if ((frame & (alignof(uintptr_t) - 1)) || frame < stackBase ||
+              frame - stackBase > stackSize - 2 * sizeof(uintptr_t)) {
+            break;
+          }
+          const uintptr_t* words = reinterpret_cast<const uintptr_t*>(frame);
+          ERROR_NOLOCK("Recursive mutex frame " << Dec << depth << " pc " << Hex << words[1]);
+          uintptr_t next = words[0];
+          if (next <= frame) {
+            break;
+          }
+          frame = next;
+        }
+      }
+#endif
       FATAL("Recursive Mutex acquisition");
     }
   }

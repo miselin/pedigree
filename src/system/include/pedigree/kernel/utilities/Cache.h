@@ -371,6 +371,10 @@ class EXPORTED_PUBLIC Cache {
   class EXPORTED_PUBLIC PreparedDiscard {
    public:
     ~PreparedDiscard();
+    /** Writes exclusively claimed pages without reopening lookup admission.
+     * All pages remain dirty until commit: the owner must still flush hardware.
+     */
+    MUST_USE_RESULT bool writeback(retirement_writeback_t callback, void* context);
     void commit();
 
    private:

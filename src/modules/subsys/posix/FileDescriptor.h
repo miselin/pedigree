@@ -23,6 +23,8 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
+#include "pedigree/kernel/process/Readiness.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
@@ -30,6 +32,7 @@
 
 #include "advisory-lock-state.h"
 
+class ConsoleIoState;
 class File;
 class LockedFile;
 class UnixSocket;
@@ -68,6 +71,9 @@ class EXPORTED_PUBLIC FileDescriptor {
     }
 
     File* getFile() const;
+    ReadyMask queryFileReady(bool reading, bool writing) const;
+    ReadinessGenerations fileReadinessGenerations() const;
+    SharedPointer<ConsoleIoState> terminalEpoch(bool waitForReopen = true) const;
     SharedPointer<NetworkSyscalls> getNetworkImpl() const;
     SharedPointer<EventFd> getEventFdImpl() const;
     SharedPointer<TimerFd> getTimerFdImpl() const;
@@ -98,6 +104,7 @@ class EXPORTED_PUBLIC FileDescriptor {
     SharedPointer<InotifyInstance> inotifyImpl;
     SharedPointer<FanotifyInstance> fanotifyImpl;
     SharedPointer<PosixMessageQueue> mqueueImpl;
+    SharedPointer<ConsoleIoState> consoleEpoch;
     uint64_t offset;
     int statusFlags;
     size_t descriptorOwners;
@@ -245,6 +252,25 @@ class EXPORTED_PUBLIC FileDescriptor {
 
   /** Write while applying this open-file description's offset policy. */
   uint64_t write(uint64_t size, uintptr_t buffer, bool canBlock = true);
+
+  class TerminalOperation {
+   public:
+    TerminalOperation();
+    ~TerminalOperation();
+
+   private:
+    friend class FileDescriptor;
+    TerminationDeferral lifetime;
+    SharedPointer<ConsoleIoState> state;
+    OperationBarrier::Lease operation;
+  };
+
+  bool acquireTerminalOperation(TerminalOperation& operation) const;
+  bool terminalHungUp() const;
+  bool terminalAvailable() const;
+  SharedPointer<ConsoleIoState> terminalEpoch(bool waitForReopen = true) const;
+  uint64_t readFile(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
+  uint64_t writeFile(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
 
   /// Our open file pointer
   File* file;

@@ -104,6 +104,10 @@ void Ext2File::updateAttributes(const Attributes& attributes, uint32_t mask) {
 bool Ext2File::prepareSharedMapping(size_t offset, size_t length) {
   LockGuard<Mutex> dataGuard(m_State->dataLock);
   LockGuard<Mutex> guard(m_State->writebackLock);
+  if (m_State->quotaFile) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return false;
+  }
   if (m_pExt2Fs->isReadOnly()) {
     SYSCALL_ERROR(ReadOnlyFilesystem);
     return false;
@@ -125,6 +129,10 @@ bool Ext2File::prepareSharedMapping(size_t offset, size_t length) {
 
 bool Ext2File::prepareWrite(uint64_t location, uint64_t size) {
   LockGuard<Mutex> guard(m_State->writebackLock);
+  if (m_State->quotaFile && !m_State->quotaInternalWrite) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return false;
+  }
   if (m_pExt2Fs->isReadOnly()) {
     SYSCALL_ERROR(ReadOnlyFilesystem);
     return false;
@@ -195,18 +203,30 @@ void Ext2File::preallocate(size_t expectedSize, bool zero) {
   LockGuard<Mutex> writeGuard(m_State->writeLock);
   LockGuard<Mutex> dataGuard(m_State->dataLock);
   LockGuard<Mutex> guard(m_State->writebackLock);
+  if (m_State->quotaFile) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return;
+  }
   // No need to change the actual file size, just allocate the blocks.
   Ext2Node::ensureLargeEnough(expectedSize, 0, 0, true, !zero);
 }
 
 void Ext2File::extend(size_t newSize) {
   LockGuard<Mutex> guard(m_State->writebackLock);
+  if (m_State->quotaFile) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return;
+  }
   Ext2Node::extend(newSize, 0, 0);
   m_Size = m_nSize;
 }
 
 void Ext2File::extend(size_t newSize, uint64_t location, uint64_t size) {
   LockGuard<Mutex> guard(m_State->writebackLock);
+  if (m_State->quotaFile) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return;
+  }
   Ext2Node::extend(newSize, location, size);
   m_Size = m_nSize;
 }

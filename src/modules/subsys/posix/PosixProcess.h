@@ -28,6 +28,7 @@
 
 #include "PosixSubsystem.h"
 #include "credential-state.h"
+#include "process-accounting.h"
 
 class PosixProcess;
 class Timer;
@@ -153,6 +154,7 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   bool jobControlReady() const;
   void markExecCommitted();
   bool hasExecCommitted() const;
+  void snapshotAccountingMemory();
   int createSession();
   int changeProcessGroup(PosixProcess& caller, int groupId);
 
@@ -209,6 +211,7 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   PosixProcess& operator=(const PosixProcess&);
 
   void initializeJobControl(Process* parent);
+  ProcessAccountingLifetime m_AccountingLifetime;
   size_t m_SessionId;
   ProcessGroup* m_pProcessGroup;
   PosixProcess* m_GroupPrevious;

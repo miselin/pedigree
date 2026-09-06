@@ -179,7 +179,7 @@ static bool init() {
 
   pProcess->description() = "init";
   pProcess->setCwd(VFS::instance().find(String("/")));
-  pProcess->setCtty(0);
+  pProcess->setCttyContext(SharedPointer<Process::ControllingTerminal>());
 
   PosixSubsystem* pSubsystem = new PosixSubsystem;
   if (!pSubsystem) {

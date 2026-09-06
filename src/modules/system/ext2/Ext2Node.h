@@ -49,6 +49,8 @@ struct Ext2InodeState {
   size_t references;
   size_t syncReferences = 0;
   bool orphan;
+  bool quotaFile = false;
+  bool quotaInternalWrite = false;
   InodeEventSource inodeEvents;
   uintptr_t futexIdentity;
   Vector<Ext2File*> files;
@@ -86,6 +88,7 @@ class Ext2Node {
 
   File::Attributes inodeAttributes() const;
   void updateInodeAttributes(const File::Attributes& attributes, uint32_t mask);
+  bool changeInodeOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid);
 
   /** Wipes the node of data - frees all blocks. */
   bool wipe(bool allocationLockHeld = false);

@@ -1,13 +1,14 @@
 /* Copyright (c) 2026, Pedigree Developers. */
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "Ext2Filesystem.h"
 #include "ext2.h"
 
-uint32_t Ext2Filesystem::findFreeInode() {
+uint32_t Ext2Filesystem::findFreeInode(uint32_t uid, uint32_t gid) {
 #if THREADS || defined(STANDALONE_MUTEXES)
   LockGuard<Mutex> guard(m_WriteLock);
 #endif
@@ -46,7 +47,11 @@ uint32_t Ext2Filesystem::findFreeInode() {
       // Decode checks the same allocation lock and rejects links==0. Publish
       // the new generation before allocation, keeping creation private until
       // the directory insertion publishes its first link.
+      if (!quotaSucceeded(m_Quota.create(static_cast<uint32_t>(number), uid, gid)))
+        return 0;
       ByteSet(inode, 0, m_InodeSize);
+      Ext2Owner::setUid(*inode, uid);
+      Ext2Owner::setGid(*inode, gid);
       inode->i_generation = HOST_TO_LITTLE32(generation + 1);
       writeInode(static_cast<uint32_t>(number));
       *byte |= bit;
@@ -61,5 +66,6 @@ uint32_t Ext2Filesystem::findFreeInode() {
       return static_cast<uint32_t>(number);
     }
   }
+  SYSCALL_ERROR(NoSpaceLeftOnDevice);
   return 0;
 }

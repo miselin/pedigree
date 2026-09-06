@@ -19,6 +19,7 @@
 
 #include "ScsiController.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/utilities/new"
 
 #include "ScsiDisk.h"
@@ -46,6 +47,11 @@ bool ScsiController::acquireDiskOperation(OperationBarrier::Lease& operation) {
 }
 
 void ScsiController::shutdownDiskCaches() {
+  // Retained paging channels must finish while their request worker and I/O
+  // mappings remain available. Retiring endpoints rejects fresh selectors.
+  for (size_t i = 0; i < getNumChildren(); ++i)
+    static_cast<ScsiDisk*>(getChild(i))->retireEndpoint();
+
   // No new client may publish queue work or acquire cache ownership after
   // this point. Cache callbacks deliberately bypass this gate below.
   m_DiskOperations.closeAndWait();
@@ -76,6 +82,11 @@ void ScsiController::searchDisks() {
 uint64_t ScsiController::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
                                         uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8) {
   ScsiDisk* pDisk = reinterpret_cast<ScsiDisk*>(p2);
+  if (p1 == SCSI_REQUEST_PAGING) {
+    auto* request = reinterpret_cast<PagingRequest*>(p3);
+    request->result = pDisk->doPagingTransfer(request->operation, request->offset, request->page);
+    return request->result == PagingStatus::Success;
+  }
   if (p1 == SCSI_REQUEST_READ)
     return pDisk->doRead(p3);
   else if (p1 == SCSI_REQUEST_WRITE) {
@@ -93,8 +104,36 @@ uint64_t ScsiController::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, u
 }
 
 void ScsiController::cancelRequest(const Request& request) {
+  if (request.p1 == SCSI_REQUEST_PAGING && request.p3)
+    reinterpret_cast<PagingRequest*>(request.p3)->result = PagingStatus::Closed;
+
   if (request.p1 == SCSI_REQUEST_WRITE && request.p2) {
     ScsiDisk* disk = reinterpret_cast<ScsiDisk*>(request.p2);
     disk->unpin(request.p3);
   }
+}
+
+bool ScsiController::prepareDiskRemoval() {
+  if (!canWaitForCompletion())
+    return false;
+  TerminationDeferral lifetime;
+  for (size_t i = 0; i < getNumChildren(); ++i) {
+    if (!static_cast<ScsiDisk*>(getChild(i))->tryCloseEndpoint()) {
+      cancelDiskRemoval();
+      return false;
+    }
+  }
+  // Endpoints stay closed after each temporary cache loan check. A successful
+  // check therefore cannot be invalidated by a new caller-owned cache view.
+  for (size_t i = 0; i < getNumChildren(); ++i) {
+    if (!static_cast<ScsiDisk*>(getChild(i))->hasNoCacheLoans()) {
+      cancelDiskRemoval();
+      return false;
+    }
+  }
+  return true;
+}
+void ScsiController::cancelDiskRemoval() {
+  for (size_t i = 0; i < getNumChildren(); ++i)
+    static_cast<ScsiDisk*>(getChild(i))->reopenEndpoint();
 }

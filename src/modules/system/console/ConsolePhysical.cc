@@ -17,7 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -30,80 +34,86 @@ class Filesystem;
 
 ConsolePhysicalFile::ConsolePhysicalFile(size_t nth, File* pTerminal, String consoleName,
                                          Filesystem* pFs)
-    : ConsoleFile(~0U, consoleName, pFs),
-      m_pTerminal(pTerminal),
-      m_ProcessedInput(PTY_BUFFER_SIZE),
-      m_TerminalNumber(nth) {}
+    : ConsoleFile(~0U, consoleName, pFs), m_pTerminal(pTerminal), m_TerminalNumber(nth) {}
 
-uint64_t ConsolePhysicalFile::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
-                                           bool bCanBlock) {
-  // read from terminal and perform line discipline as needed
-  // we loop because we need to perform line discipline even though a
-  // terminal might give us input a byte a time (e.g. cooked mode won't have
-  // real input to return until we've done line discipline for every
-  // character including the carriage return)
-  while (true) {
-    if (!m_ProcessedInput.canRead(false)) {
-      char* temp = new char[size];
-      size_t nRead =
-          m_pTerminal->read(location, size, reinterpret_cast<uintptr_t>(temp), bCanBlock);
-
-      if (nRead) {
-        inputLineDiscipline(temp, nRead, m_Flags, m_ControlChars);
-      }
-      delete[] temp;
-    }
-
-    // handle any bytes that the input discipline created
-    while (m_Buffer.canRead(false)) {
-      char* buff = new char[512];
-      size_t nTransfer = m_Buffer.read(buff, 512);
-      write(0, nTransfer, reinterpret_cast<uintptr_t>(buff), true);
-      delete[] buff;
-    }
-
-    // and then return the processed content to the caller when ready
-    if (m_ProcessedInput.canRead(false)) {
-      return m_ProcessedInput.read(reinterpret_cast<char*>(buffer), size, bCanBlock);
-    } else if (!bCanBlock) {
-      return 0;
-    }
+namespace {
+// Physical sources without notifications retain their existing polling policy,
+// but sleep between nonblocking attempts so revocation can cancel every wait.
+bool waitPhysical(ConsoleIoState& state) {
+  if (state.revoked())
+    return false;
+  Semaphore::SemaphoreError error = Semaphore::NoError;
+  if (!state.physicalWake.acquireWithError(1, 0, 10000, error) && error != Semaphore::TimedOut) {
+    SYSCALL_ERROR(Interrupted);
+    return false;
   }
+  return !state.revoked();
+}
+}  // namespace
+
+uint64_t ConsolePhysicalFile::readIo(ConsoleIoState& state, uint64_t size, uintptr_t buffer,
+                                     bool canBlock) {
+  while (!state.revoked()) {
+    if (state.input.canRead(false))
+      return state.input.read(reinterpret_cast<char*>(buffer), size, false);
+    char input[512];
+    size_t amount = m_pTerminal->read(0, sizeof(input), reinterpret_cast<uintptr_t>(input), false);
+    if (amount)
+      inputLineDiscipline(state, input, amount, canBlock, m_Flags, m_ControlChars);
+    char echo[512];
+    while (!state.revoked() && state.output.canRead(false)) {
+      size_t echoed = state.output.read(echo, sizeof(echo), false);
+      if (!echoed || writeIo(state, echoed, reinterpret_cast<uintptr_t>(echo), canBlock) != echoed)
+        break;
+    }
+    if (state.input.canRead(false))
+      continue;
+    if (!canBlock || !waitPhysical(state))
+      break;
+  }
+  return 0;
 }
 
-uint64_t ConsolePhysicalFile::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
-                                            bool bCanBlock) {
-  // we allocate a buffer to allow for a input buffer exclusively filled with
-  // NL characters to be converted to CRNL
-  char* outputBuffer = new char[size * 2];
-  ByteSet(outputBuffer, 0, size * 2);
-  StringCopyN(outputBuffer, reinterpret_cast<char*>(buffer), size);
-  size_t disciplineSize = outputLineDiscipline(outputBuffer, size, size * 2, m_Flags);
-  /// \todo handle small writes
-  /// \todo disciplineSize can be bigger than size due to edits, how do we
-  /// manage this instead of lying?
-  m_pTerminal->write(location, disciplineSize, reinterpret_cast<uintptr_t>(outputBuffer),
-                     bCanBlock);
-  delete[] outputBuffer;
-  return size;
+uint64_t ConsolePhysicalFile::writeIo(ConsoleIoState& state, uint64_t size, uintptr_t buffer,
+                                      bool canBlock) {
+  size_t total = 0;
+  while (total < size && !state.revoked()) {
+    char output[512];
+    size_t chunk = size - total;
+    if (chunk > sizeof(output) / 2)
+      chunk = sizeof(output) / 2;
+    MemoryCopy(output, reinterpret_cast<const void*>(buffer + total), chunk);
+    size_t length = outputLineDiscipline(output, chunk, sizeof(output), m_Flags);
+    size_t sent = 0;
+    while (sent < length && !state.revoked()) {
+      size_t amount =
+          m_pTerminal->write(0, length - sent, reinterpret_cast<uintptr_t>(output + sent), false);
+      sent += amount;
+      if (!amount && (!canBlock || !waitPhysical(state)))
+        return total;
+    }
+    if (sent != length)
+      break;
+    total += chunk;
+  }
+  return total;
 }
 
-void ConsolePhysicalFile::performInject(char* buf, size_t len, bool canBlock) {
-  m_ProcessedInput.write(buf, len, canBlock);
-  dataChanged();
+uint64_t ConsolePhysicalFile::readBytewise(uint64_t, uint64_t size, uintptr_t buffer,
+                                           bool canBlock) {
+  return readEpoch(captureOpenEpoch(), size, buffer, canBlock);
 }
 
-int ConsolePhysicalFile::select(bool bWriting, int timeout) {
-  // if we're writing, we only care about the attached terminal
-  if (bWriting) {
+uint64_t ConsolePhysicalFile::writeBytewise(uint64_t, uint64_t size, uintptr_t buffer,
+                                            bool canBlock) {
+  return writeEpoch(captureOpenEpoch(), size, buffer, canBlock);
+}
+
+int ConsolePhysicalFile::select(bool writing, int timeout) {
+  if (writing)
     return m_pTerminal->select(true, timeout);
-  }
-
-  // if we're reading, though, we might be able to return quickly
-  if (m_ProcessedInput.canRead(false)) {
+  auto state = captureOpenEpoch(false);
+  if (state && state->input.canRead(false))
     return 1;
-  }
-
-  // or maybe not
   return m_pTerminal->select(false, timeout);
 }

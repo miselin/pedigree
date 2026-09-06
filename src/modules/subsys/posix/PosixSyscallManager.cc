@@ -61,6 +61,8 @@
 #include "posix-timer-syscalls.h"
 #include "posixSyscallNumbers.h"
 #include "process-vm-syscalls.h"
+#include "process-accounting.h"
+#include "quota-syscalls.h"
 #include "pthread-syscalls.h"
 #include "ptrace-syscalls.h"
 #include "queued-signal.h"
@@ -75,6 +77,7 @@
 #include "sysv-semaphore-syscalls.h"
 #include "sysv-shm-syscalls.h"
 #include "timerfd-syscalls.h"
+#include "terminal-syscalls.h"
 #include "transfer-syscalls.h"
 #include "vm-syscalls.h"
 #include "wait-syscalls.h"
@@ -240,6 +243,13 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_INIT_MODULE:
       return posix_init_module(reinterpret_cast<const void*>(p1), p2,
                                reinterpret_cast<const char*>(p3));
+    case POSIX_ACCT:
+      return posix_acct(reinterpret_cast<const char*>(p1));
+    case POSIX_VHANGUP:
+      return posix_vhangup();
+    case POSIX_QUOTACTL:
+      return posix_quotactl(static_cast<int>(p1), reinterpret_cast<const char*>(p2),
+                            static_cast<int>(p3), reinterpret_cast<void*>(p4));
     case POSIX_WAITPID:
       return posix_waitpid(p1, reinterpret_cast<int*>(p2), p3,
                            linuxAbi ? reinterpret_cast<LinuxRusage64*>(p4) : nullptr);

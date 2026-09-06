@@ -4,6 +4,7 @@
 #include "pedigree/kernel/utilities/assert.h"
 
 #include "PosixProcess.h"
+#include "TerminalControl.h"
 
 ProcessGroup::~ProcessGroup() {
   RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
@@ -13,8 +14,12 @@ ProcessGroup::~ProcessGroup() {
 }
 
 void PosixProcess::initializeJobControl(Process* parent) {
+  LockGuard<Mutex> terminalGuard(TerminalControl::lock());
   if (parent && parent->getType() == Posix) {
     inheritProcessGroup(static_cast<PosixProcess*>(parent));
+    // Core construction precedes POSIX session staging. Re-snapshot both
+    // authorities under the same policy lock used by setsid and terminal claims.
+    setCttyContext(parent->acquireCttyContext());
     return;
   }
   auto* group = new ProcessGroup;
@@ -121,6 +126,7 @@ bool PosixProcess::hasExecCommitted() const {
 }
 
 int PosixProcess::createSession() {
+  LockGuard<Mutex> terminalGuard(TerminalControl::lock());
   auto prepared = UniquePointer<ProcessGroup>::allocate();
   if (!prepared) {
     SYSCALL_ERROR(OutOfMemory);
@@ -136,9 +142,10 @@ int PosixProcess::createSession() {
       prepared.get()->sessionId = getId();
       prepared.get()->Leader = this;
       setProcessGroup(prepared.releaseOwnership());
-      setCtty(nullptr);
     }
   }
+  if (!error)
+    setCttyContext(SharedPointer<Process::ControllingTerminal>());
   syscallError(error);
   return error ? -1 : static_cast<int>(getId());
 }

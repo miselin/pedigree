@@ -26,11 +26,13 @@
 
 #include <config.h>
 
+#include "Ext2Quota.h"
 #include "modules/system/vfs/ExtendedAttributes.h"
 #include "modules/system/vfs/Filesystem.h"
 
 class Disk;
 class Ext2Node;
+class Ext2File;
 struct Ext2InodeState;
 class File;
 struct GroupDesc;
@@ -47,6 +49,7 @@ class Ext2Filesystem : public Filesystem {
   friend class Ext2WritebackTestPeer;
   friend class Ext2FilesystemSyncTestPeer;
   friend class Ext2AllocationTestPeer;
+  friend class Ext2QuotaTestPeer;
   friend class Ext2File;
   friend class Ext2Node;
   friend class Ext2Directory;
@@ -69,6 +72,7 @@ class Ext2Filesystem : public Filesystem {
   virtual FileHandleStatus decodeFileHandle(const FileHandle&, RetainedFile&);
   virtual FileHandleStatus fileHandleFsid(FileSystemId&);
   virtual SyncStatus sync();
+  virtual QuotaStatus quotaControl(const QuotaRequest&, QuotaResponse&, File* quotaFile = nullptr);
 
  protected:
   virtual bool createFile(File* parent, const String& filename, uint32_t mask);
@@ -80,6 +84,23 @@ class Ext2Filesystem : public Filesystem {
                           Directory* newParent, const String& newName, File* replaced);
 
  private:
+  static bool quotaSucceeded(QuotaStatus status);
+  static QuotaStatus quotaIoStatus();
+  static int currentIoError();
+  QuotaStatus prepareQuotaInodeLocked(uint32_t inode);
+  QuotaStatus scanQuotaInodesLocked();
+  QuotaStatus flushQuotaLocked(QuotaType type);
+  QuotaStatus flushQuotas();
+  void closeQuotaFiles();
+  bool isQuotaFile(uint32_t inode);
+  Ext2QuotaLedger m_Quota;
+  Mutex m_QuotaControlLock;
+  Mutex m_QuotaNamespaceLock;
+  Ext2File* m_QuotaFiles[2] = {};
+#if defined(PEDIGREE_BUILDUTILS)
+  void (*m_QuotaOffTestHook)(void*) = nullptr;
+  void* m_QuotaOffTestContext = nullptr;
+#endif
   class SyncSnapshot;
   void releaseSyncState(uint32_t inode, Ext2InodeState* state);
   Ext2InodeState* acquireInodeState(uint32_t inode, Inode* metadata);
@@ -141,9 +162,9 @@ class Ext2Filesystem : public Filesystem {
   uint32_t findFreeBlock(uint32_t inode);
   bool findFreeBlocks(uint32_t inode, size_t count, Vector<uint32_t>& blocks);
   size_t findFreeBlocksInGroup(uint32_t group, size_t maxCount, Vector<uint32_t>& blocks);
-  uint32_t findFreeInode();
+  uint32_t findFreeInode(uint32_t uid = 0, uint32_t gid = 0);
 
-  void releaseBlock(uint32_t block);
+  void releaseBlock(uint32_t block, uint32_t inode = 0);
   /** Releases the given inode, returns true if the inode had no more links.
    */
   bool releaseInode(uint32_t inode, Ext2Node* retiringNode = nullptr);
@@ -155,7 +176,7 @@ class Ext2Filesystem : public Filesystem {
   bool ensureFreeInodeBitmapLoaded(size_t group);
   bool ensureInodeTableLoaded(size_t group);
 
-  void releaseBlockLocked(uint32_t block);
+  void releaseBlockLocked(uint32_t block, uint32_t inode = 0);
   bool prepareBlockReleaseLocked(uint32_t block);
   bool prepareInodeWrite(uint32_t inode);
 

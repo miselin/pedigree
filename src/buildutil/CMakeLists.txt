@@ -75,6 +75,7 @@ set(KERNEL_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Device.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/DeviceHashTree.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Disk.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/DiskPaging.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Serial.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/SymbolTable.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/IoBase.cc
@@ -171,6 +172,8 @@ endif ()
 add_library(vfs
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Directory.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/File-allocation.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Quota.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/QuotaTable.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/File.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/FileEvent.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Filesystem.cc
@@ -184,6 +187,10 @@ add_library(vfs
 add_library(ext2
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Directory.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2File-allocation.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2File-quota.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Filesystem-quota.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Node-quota.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Quota.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2File.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Filesystem.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Filesystem-sync.cc
@@ -274,6 +281,11 @@ set(TESTSUITE_SRCS
     testsuite/test-SharedPointerAdopt.cc
     testsuite/test-DynamicDirectory.cc
     testsuite/test-ModuleImage.cc
+    testsuite/test-AccountingRecord.cc
+    testsuite/test-CachePaging.cc
+    testsuite/test-DiskPaging.cc
+    testsuite/test-QuotaAccounting.cc
+    testsuite/test-Ext2Quota.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/ModuleImage.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/Elf-validation.cc
     testsuite/test-Ext2FilesystemSync.cc

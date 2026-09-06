@@ -21,10 +21,12 @@
 #define FILESYSTEM_H
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/DiskPaging.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 
 #include "Directory.h"
+#include "Quota.h"
 
 class Disk;
 class File;
@@ -94,6 +96,7 @@ class EXPORTED_PUBLIC Filesystem {
 
   /** Completes data, metadata and device writeback for changes made before entry. */
   virtual SyncStatus sync();
+  virtual QuotaStatus quotaControl(const QuotaRequest&, QuotaResponse&, File* quotaFile = nullptr);
 
   /** Creates a file on the filesystem - fails if the file's parent directory
    * does not exist. */
@@ -166,6 +169,7 @@ class EXPORTED_PUBLIC Filesystem {
   bool m_bReadOnly;
   /** Disk device(if any). */
   Disk* m_pDisk;
+  DiskUse m_DiskUse;
 
  private:
   /** Serializes changes to directory ancestry against removal. */

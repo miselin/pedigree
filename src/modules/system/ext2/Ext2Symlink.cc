@@ -21,6 +21,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "Ext2Filesystem.h"
@@ -74,16 +75,18 @@ uint64_t Ext2Symlink::readBytewise(uint64_t location, uint64_t size, uintptr_t b
 
 uint64_t Ext2Symlink::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                     bool canBlock) {
-  Ext2Node::extend(size);
-  m_Size = m_nSize;
-
-  if (getSize() > m_pExt2Fs->m_BlockSize) {
-    WARNING("Ext2: rather large symlink found, not handled yet");
+  LockGuard<Mutex> inode(m_State->writebackLock);
+  if (location > m_pExt2Fs->m_BlockSize || size > m_pExt2Fs->m_BlockSize - location) {
+    SYSCALL_ERROR(FileTooLarge);
     return 0;
   }
+  if (!ensureLargeEnough(location + size, location, size))
+    return 0;
+  m_Size = m_nSize;
 
   uintptr_t block = Ext2Node::readBlock(location);
   if (!block) {
+    SYSCALL_ERROR(IoError);
     return 0;
   }
   MemoryCopy(reinterpret_cast<void*>(block), reinterpret_cast<void*>(buffer), size);

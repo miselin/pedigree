@@ -23,6 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/WaitQueue.h"
@@ -97,6 +98,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
 
   /** Drains cache callbacks while the disk/controller state is still live. */
   void shutdownCache();
+  bool hasNoCacheLoans();
 
   bool initialise(class ScsiController* pController, size_t nUnit);
 
@@ -117,6 +119,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   virtual uint64_t doRead(uint64_t location);
   virtual uint64_t doWrite(uint64_t location);
   virtual uint64_t doSync(uint64_t location);
+  virtual PagingStatus doPagingTransfer(PagingOperation operation, uint64_t offset, void* page);
 
   // This value is outside every valid byte location, including a maximal disk.
   // It is reserved for SCSI_REQUEST_SYNC and never enters cache page arithmetic.
@@ -146,6 +149,9 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   virtual void unpin(uint64_t location);
 
  protected:
+  ScsiController* acquirePagingController(OperationBarrier::Lease& use);
+  PagingStatus preparePagingCache(PagingTransport& transport);
+
   /**
    * Size of one cache fill performed by this implementation.
    *

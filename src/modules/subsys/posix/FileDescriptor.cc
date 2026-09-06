@@ -29,6 +29,7 @@
 #include "modules/subsys/posix/mqueue-syscalls.h"
 #include "modules/subsys/posix/signalfd-syscalls.h"
 #include "modules/subsys/posix/timerfd-syscalls.h"
+#include "modules/system/console/Console.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
 #include "net-syscalls.h"  // to get destructor for SharedPointer<NetworkSyscalls>
@@ -103,6 +104,10 @@ FileDescriptor::OpenFileDescription::OpenFileDescription(File* newFile, uint64_t
       eventFdImpl(nullptr),
       inotifyImpl(nullptr),
       mqueueImpl(nullptr),
+      consoleEpoch(newFile && !(initialStatusFlags & O_PATH) &&
+                           ConsoleManager::instance().isConsole(newFile)
+                       ? static_cast<ConsoleFile*>(newFile)->captureOpenEpoch()
+                       : SharedPointer<ConsoleIoState>()),
       offset(initialOffset),
       statusFlags(initialStatusFlags),
       descriptorOwners(1),
@@ -120,6 +125,66 @@ FileDescriptor::OpenFileDescription::~OpenFileDescription() {
 
 File* FileDescriptor::OpenFileDescription::getFile() const {
   return file;
+}
+
+SharedPointer<ConsoleIoState> FileDescriptor::OpenFileDescription::terminalEpoch(
+    bool waitForReopen) const {
+  if (file && ConsoleManager::instance().isMasterConsole(file))
+    return static_cast<ConsoleFile*>(file)->captureOpenEpoch(waitForReopen);
+  return consoleEpoch;
+}
+
+ReadyMask FileDescriptor::OpenFileDescription::queryFileReady(bool reading, bool writing) const {
+  if (file && ConsoleManager::instance().isConsole(file))
+    return static_cast<ConsoleFile*>(file)->queryEpoch(terminalEpoch(false), reading, writing);
+  return file ? file->queryReady(reading, writing) : ReadyInvalid;
+}
+
+ReadinessGenerations FileDescriptor::OpenFileDescription::fileReadinessGenerations() const {
+  if (file && ConsoleManager::instance().isConsole(file))
+    return static_cast<ConsoleFile*>(file)->epochGenerations(terminalEpoch(false));
+  return file ? file->readinessGenerations() : ReadinessGenerations();
+}
+
+FileDescriptor::TerminalOperation::TerminalOperation() = default;
+FileDescriptor::TerminalOperation::~TerminalOperation() = default;
+
+SharedPointer<ConsoleIoState> FileDescriptor::terminalEpoch(bool waitForReopen) const {
+  return m_OpenFile->terminalEpoch(waitForReopen);
+}
+
+bool FileDescriptor::terminalHungUp() const {
+  if (!file || !ConsoleManager::instance().isConsole(file))
+    return false;
+  auto epoch = terminalEpoch();
+  return !epoch || epoch->revoked();
+}
+
+bool FileDescriptor::terminalAvailable() const {
+  return !file || (getStatusFlags() & O_PATH) || !ConsoleManager::instance().isConsole(file) ||
+         static_cast<bool>(terminalEpoch());
+}
+
+bool FileDescriptor::acquireTerminalOperation(TerminalOperation& operation) const {
+  if (!file || !ConsoleManager::instance().isConsole(file))
+    return true;
+  operation.state = terminalEpoch();
+  return operation.state && operation.state->operations.tryAcquire(operation.operation) &&
+         !operation.state->revoked();
+}
+
+uint64_t FileDescriptor::readFile(uint64_t location, uint64_t size, uintptr_t buffer,
+                                  bool canBlock) {
+  if (file && ConsoleManager::instance().isConsole(file))
+    return static_cast<ConsoleFile*>(file)->readEpoch(terminalEpoch(), size, buffer, canBlock);
+  return file ? file->read(location, size, buffer, canBlock) : 0;
+}
+
+uint64_t FileDescriptor::writeFile(uint64_t location, uint64_t size, uintptr_t buffer,
+                                   bool canBlock) {
+  if (file && ConsoleManager::instance().isConsole(file))
+    return static_cast<ConsoleFile*>(file)->writeEpoch(terminalEpoch(), size, buffer, canBlock);
+  return file ? file->write(location, size, buffer, canBlock) : 0;
 }
 
 SharedPointer<NetworkSyscalls> FileDescriptor::OpenFileDescription::getNetworkImpl() const {
@@ -595,7 +660,7 @@ uint64_t FileDescriptor::read(uint64_t size, uintptr_t buffer, bool canBlock) {
     return 0;
   }
   if (!file->isSeekable()) {
-    return file->read(0, size, buffer, canBlock && !(getStatusFlags() & O_NONBLOCK));
+    return readFile(0, size, buffer, canBlock && !(getStatusFlags() & O_NONBLOCK));
   }
 
   LockGuard<Mutex> guard(m_OpenFile->lock);
@@ -610,7 +675,7 @@ uint64_t FileDescriptor::write(uint64_t size, uintptr_t buffer, bool canBlock) {
     return 0;
   }
   if (!file->isSeekable()) {
-    return file->write(0, size, buffer, canBlock && !(getStatusFlags() & O_NONBLOCK));
+    return writeFile(0, size, buffer, canBlock && !(getStatusFlags() & O_NONBLOCK));
   }
 
   LockGuard<Mutex> guard(m_OpenFile->lock);

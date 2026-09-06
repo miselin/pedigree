@@ -792,7 +792,8 @@ void KernelElf::finishClaimedUnload(Module* module, bool wasFailed) {
 }
 
 bool KernelElf::completeUnloadAttempt(Module* module, ModuleUnloadClaim claim, bool wasFailed,
-                                      bool runLifecycle, bool silent, bool progress) {
+                                      bool runLifecycle, bool silent, bool progress,
+                                      bool terminal) {
   switch (claim) {
     case UnloadComplete:
       return true;
@@ -817,6 +818,19 @@ bool KernelElf::completeUnloadAttempt(Module* module, ModuleUnloadClaim claim, b
       return false;
     case UnloadClaimed:
       break;
+  }
+
+  if (runLifecycle && module->unloadAdmission &&
+      module->unloadAdmission(terminal) != Module::UnloadAdmission::Ready) {
+    lockModules();
+    module->status = wasFailed ? Module::Failed : Module::Active;
+    if (terminal)
+      module->unloadable = false;
+    m_UnloadingModule = nullptr;
+    unlockModules();
+    if (terminal)
+      WARNING("KERNELELF: Retaining module with live resources " << module->name);
+    return false;
   }
 
   NOTICE("KERNELELF: Unloading module " << module->name);
@@ -920,6 +934,7 @@ bool KernelElf::completeUnloadAttempt(Module* module, ModuleUnloadClaim claim, b
 
   delete module->elf;
   module->elf = nullptr;
+  module->unloadAdmission = nullptr;
 
   finishClaimedUnload(module, wasFailed);
   return true;
@@ -1001,6 +1016,27 @@ KernelElf::RuntimeUnloadResult KernelElf::unloadModuleRuntime(const char* name) 
       return RuntimeUnloadResult::Shutdown;
   }
   return RuntimeUnloadResult::Busy;
+}
+
+bool KernelElf::registerUnloadAdmission(ModuleEntry ownerEntry, Module::UnloadAdmissionHook hook) {
+  if (!ownerEntry || !hook)
+    return false;
+  lockModules();
+  if (m_ModuleShutdown || m_UnloadingModule) {
+    unlockModules();
+    return false;
+  }
+  for (auto module : m_Modules) {
+    if (module->entry == ownerEntry && (module->isExecuting() || module->isActive())) {
+      const bool accepted = !module->unloadAdmission || module->unloadAdmission == hook;
+      if (accepted)
+        module->unloadAdmission = hook;
+      unlockModules();
+      return accepted;
+    }
+  }
+  unlockModules();
+  return false;
 }
 
 bool KernelElf::registerTerminalQuiesce(ModuleEntry ownerEntry, TerminalQuiesceHook hook) {
@@ -1188,7 +1224,7 @@ void KernelElf::unloadModules() {
     unlockModules();
 
     if (candidate && claim == UnloadClaimed) {
-      completeUnloadAttempt(candidate, claim, wasFailed, runLifecycle, false, false);
+      completeUnloadAttempt(candidate, claim, wasFailed, runLifecycle, false, false, true);
       continue;
     }
     if (waiting || (candidate && claim == UnloadBusy)) {
@@ -1291,6 +1327,11 @@ KernelElf::TestModuleUnloadClaim KernelElf::claimNamedModuleUnloadForTest(Module
 
 void KernelElf::completeModuleUnloadForTest(Module* module, bool wasFailed, bool runLifecycle) {
   instance().completeUnloadAttempt(module, UnloadClaimed, wasFailed, runLifecycle, true, false);
+}
+
+bool KernelElf::completeGuardedModuleUnloadForTest(Module* module, bool terminal) {
+  return instance().completeUnloadAttempt(module, UnloadClaimed, false, true, true, false,
+                                          terminal);
 }
 
 bool KernelElf::moduleExecutionWaitsForUnloadForTest() {

@@ -19,6 +19,7 @@
 
 #include "DevFs.h"
 
+#include "DevFs-block.h"
 #include "PosixSubsystem.h"
 #include "descriptor-path.h"
 #include "modules/system/vfs/Pipe.h"
@@ -458,6 +459,11 @@ bool DevFs::initialise(Disk* pDisk) {
                           FILE_OX);
 
   VFS::instance().trackFile(m_pRoot);
+
+  File* block = posix_make_block_directory(*this, m_pRoot);
+  if (!block)
+    return false;
+  m_pRoot->addEntry(block->getName(), block);
 
   File* descriptors = posix_make_dev_fd_link(*this, m_pRoot);
   if (!descriptors)

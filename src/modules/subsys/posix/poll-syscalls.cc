@@ -209,7 +209,8 @@ short queryDescriptorPoll(const FileDescriptor& descriptor, short events,
     const int accessMode = descriptor.getStatusFlags() & O_ACCMODE;
     const bool canRead = accessMode != O_WRONLY;
     const bool canWrite = accessMode != O_RDONLY;
-    return readyMaskToPoll(descriptor.file->queryReady(canRead, canWrite), events);
+    return readyMaskToPoll(
+        descriptor.acquireOpenFileDescription()->queryFileReady(canRead, canWrite), events);
   }
 
   if (descriptor.networkImpl) {

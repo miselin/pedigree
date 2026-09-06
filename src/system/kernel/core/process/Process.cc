@@ -413,7 +413,7 @@ Process::Process(DeferredPublication)
       m_FilesystemContextLock(),
       m_Cwd(0),
       m_bCwdVfsReference(false),
-      m_Ctty(0),
+      m_Ctty(),
       m_SpaceAllocator(false),
       m_DynamicSpaceAllocator(false),
       m_UserReservationLock(false),
@@ -480,7 +480,7 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
       m_FilesystemContextLock(),
       m_Cwd(0),
       m_bCwdVfsReference(false),
-      m_Ctty(pParent->m_Ctty),
+      m_Ctty(),
       m_SpaceAllocator(false),
       m_DynamicSpaceAllocator(false),
       m_UserReservationLock(false),
@@ -535,6 +535,7 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
   {
     TerminationDeferral filesystemContextDeferral;
     LockGuard<Mutex> guard(pParent->m_FilesystemContextLock);
+    m_Ctty = pParent->m_Ctty;
     m_Cwd = pParent->m_Cwd;
     m_pRootFile = pParent->m_pRootFile;
     if (m_Cwd && pParent->m_bCwdVfsReference) {
@@ -569,6 +570,66 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
   } else {
     str += "<F>";  // F for forked.
   }
+}
+
+namespace {
+class CoreControllingTerminal : public Process::ControllingTerminal {
+ public:
+  explicit CoreControllingTerminal(File* file) : m_File(file) {}
+  ~CoreControllingTerminal() override {
+    m_File->releaseVfsReference();
+  }
+  File* file() const override {
+    return m_File;
+  }
+
+ private:
+  File* m_File;
+};
+}  // namespace
+
+SharedPointer<Process::ControllingTerminal> Process::acquireCttyContext() const {
+  LockGuard<Mutex> guard(m_FilesystemContextLock);
+  return m_Ctty;
+}
+
+File* Process::acquireCtty(FileContextLease& lease) const {
+  auto context = acquireCttyContext();
+  FileContextLease replacement;
+  File* file = context ? context->file() : nullptr;
+  if (file && file->retainVfsReference())
+    replacement.adopt(file, true);
+  lease.swap(replacement);
+  return lease.get();
+}
+
+void Process::setCttyContext(const SharedPointer<ControllingTerminal>& context) {
+  TerminationDeferral deferral;
+  SharedPointer<ControllingTerminal> retired;
+  {
+    LockGuard<Mutex> guard(m_FilesystemContextLock);
+    retired = pedigree_std::move(m_Ctty);
+    m_Ctty = context;
+  }
+}
+
+bool Process::setCtty(File* file) {
+  if (!file) {
+    setCttyContext(SharedPointer<ControllingTerminal>());
+    return true;
+  }
+  if (!file->retainVfsReference())
+    return false;
+  auto* raw = new CoreControllingTerminal(file);
+  if (!raw) {
+    file->releaseVfsReference();
+    return false;
+  }
+  auto context = SharedPointer<ControllingTerminal>::tryAdopt(raw);
+  if (!context)
+    return false;
+  setCttyContext(context);
+  return true;
 }
 
 File* Process::getCwd() {

@@ -35,6 +35,7 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
+#include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
@@ -408,14 +409,17 @@ class EXPORTED_PUBLIC Process {
   /** Sets the current working directory. */
   void setCwd(File* f);
 
-  /** Returns the current controlling terminal. */
-  File* getCtty() {
-    return m_Ctty;
-  }
-  /** Sets the controlling terminal. */
-  void setCtty(File* f) {
-    m_Ctty = f;
-  }
+  class EXPORTED_PUBLIC ControllingTerminal {
+   public:
+    virtual ~ControllingTerminal() = default;
+    virtual File* file() const = 0;
+  };
+
+  SharedPointer<ControllingTerminal> acquireCttyContext() const;
+  MUST_USE_RESULT File* acquireCtty(FileContextLease& lease) const;
+  void setCttyContext(const SharedPointer<ControllingTerminal>& context);
+  /** Null is infallible; a positive install can fail to retain or allocate. */
+  MUST_USE_RESULT bool setCtty(File* file);
 
   enum class UserRegion { Normal, Dynamic };
 
@@ -758,7 +762,7 @@ class EXPORTED_PUBLIC Process {
   /**
    * Current controlling terminal.
    */
-  File* m_Ctty;
+  SharedPointer<ControllingTerminal> m_Ctty;
   /**
    * Memory allocator for primary address space.
    */

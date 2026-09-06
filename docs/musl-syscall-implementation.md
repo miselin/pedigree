@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 99 of 113 backlog entries implemented; 14 remain.
+Current checkpoint: 102 of 113 backlog entries implemented; 11 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,57 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Accounting, terminal revocation and disk quotas
+
+acct appends Linux amd64 acct_v3 records once per process exit, before waiters
+observe completion. Birth and elapsed time survive exec; individual thread exits
+do not emit records. The selected writable regular file retains its filesystem,
+file identity and enabling credentials across rename, unlink and credential changes.
+Enable, replacement, disable and record append serialize inside POSIX. Unsupported
+I/O, fault and swap accounting fields remain zero. Exit-time append errors are
+reported without preventing process retirement.
+
+vhangup revokes the controlling terminal's current slave epoch, wakes blocked
+readers and writers, detaches its session, and delivers SIGHUP/SIGCONT. Existing
+slave descriptions retain the revoked state across dup, fork and descriptor
+passing; subsequent opens receive a fresh epoch. Terminal control characters use
+retained callbacks and queue signals after validating session/group membership.
+Policy locks are released before cancellation and operation draining, allowing
+signal handlers to reenter terminal ioctls and revocation. PTY contracts cover
+blocked I/O, readiness, foreign sessions, reopen and leader exit. Physical terminal
+polling compiles but has no new hardware or VGA interaction proof.
+
+quotactl supports user/group hard block and inode quotas on Ext2 using QFMT_VFS_OLD
+quota files: enable, disable, format/query, limit updates and synchronization.
+Reservations precede bitmap allocation; failed work rolls back reservations and
+preserves its original I/O error. Ownership transfer checks both ledgers before
+commit. Accounting includes preallocation, indirect blocks, directories, long
+symlinks, extended attributes and open-unlinked inodes. Active quota files are
+protected from ordinary mutation. Quota writeback clears only matching snapshots
+after checked metadata and whole-device flush. Soft limits, grace periods,
+administrative usage overrides and other formats remain unsupported. Public
+disable/re-enable tests exercise recounting; they do not establish cold-boot quota
+persistence.
+
+The shared storage prerequisite exposes retained physical disk endpoints and an
+exclusive prepared paging channel. Cache admission closes before dirty data drains;
+failure reopens it without discarding dirty pages. Controller/module unload checks
+retain live transport owners and dependencies. No anonymous swap capability is
+claimed by this checkpoint.
+
+Verification passed 37 routing/ABI checks, 151 focused native tests, the optional
+module-fixture-disabled native build/test, full image builds, and actual Darwin
+hosted storage/lifecycle execution. All 298 affected image source/object pairs
+were current; 848 strong POSIX imports had available exports. Fresh one/four-CPU
+headless guests passed all 47 suites in 520.6/336.2 seconds. Shared build settings
+were restored. Verification results and preserved failed runs are recorded in
+/private/tmp/pedigree-administration-expansion-20260906/verification.json.
+Failures identified a stale terminal export, recursively acquired pipe write guards,
+and eager ENOSPC values escaping successful allocation. Those paths now have
+targeted public or native regressions. Native mutex shims preserve selected syscall
+errors, and fixture-dependent module tests also compile when their optional ELF
+fixture is disabled.
 
 ## Sessions, preallocation, batched receive, descriptor exec and module loading
 

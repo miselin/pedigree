@@ -394,6 +394,8 @@ uint64_t File::WriteGuard::append(uint64_t size, uintptr_t buffer, uint64_t& loc
 
 physical_uintptr_t File::getPhysicalPage(size_t offset) {
   LockGuard<Mutex> guard(dataMutationLock());
+  if (!allowPhysicalPage())
+    return ~0UL;
   if (m_bDirect) {
     WARNING("File in direct mode, cannot get backing page.");
     return ~0UL;
@@ -755,13 +757,21 @@ uint32_t File::getPermissions() const {
   return getAttributes().permissions;
 }
 
-void File::setOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid) {
+bool File::setOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid) {
   if (!changeUid && !changeGid)
-    return;
+    return true;
+  if (!changeOwnership(uid, gid, changeUid, changeGid))
+    return false;
+  publishEvent(FileEvents::Attributes);
+  return true;
+}
+
+bool File::changeOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid) {
   Attributes attributes = getAttributes();
   attributes.uid = uid;
   attributes.gid = gid;
   updateAttributes(attributes, (changeUid ? Owner : 0U) | (changeGid ? Group : 0U));
+  return true;
 }
 
 void File::setUid(size_t uid) {

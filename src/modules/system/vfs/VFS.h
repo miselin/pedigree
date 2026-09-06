@@ -125,6 +125,8 @@ class EXPORTED_PUBLIC VFS {
   };
 
   bool pinFilesystem(Filesystem* key, FilesystemPin& pin) const;
+  bool diskMount(uint32_t id, MountIdentity& identity) const;
+  bool snapshotDiskMounts(Vector<MountIdentity>& mounts) const;
 
   /** Callback type, called when a disk is mounted or unmounted. */
   typedef void (*MountCallback)();

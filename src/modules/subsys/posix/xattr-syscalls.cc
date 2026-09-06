@@ -150,6 +150,12 @@ ssize_t finish(XattrStatus status, size_t count = 0) {
     case XattrStatus::Range:
       SYSCALL_ERROR(BadRange);
       break;
+    case XattrStatus::Quota:
+      SYSCALL_ERROR(QuotaExceeded);
+      break;
+    case XattrStatus::Overflow:
+      SYSCALL_ERROR(ValueTooLarge);
+      break;
     case XattrStatus::NoSpace:
       SYSCALL_ERROR(NoSpaceLeftOnDevice);
       break;

@@ -7,6 +7,10 @@
 
 bool Ext2File::allocateFileRange(size_t offset, size_t length) {
   LockGuard<Mutex> guard(m_State->writebackLock);
+  if (m_State->quotaFile) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return false;
+  }
   if (!m_State->allocationValid) {
     SYSCALL_ERROR(IoError);
     return false;

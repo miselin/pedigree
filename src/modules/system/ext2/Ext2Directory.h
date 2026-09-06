@@ -82,6 +82,7 @@ class Ext2Directory : public Directory, public Ext2Node {
 
  protected:
   void updateAttributes(const Attributes& attributes, uint32_t mask) override;
+  bool changeOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid) override;
 
  private:
   struct ParsedEntry {

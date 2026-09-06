@@ -254,10 +254,12 @@ ScsiDisk::ScsiDisk()
       m_BlockSize(ScsiCachePageBytes),
       m_NativeBlockSize(0),
       m_DeviceType(NoDevice) {
+  reserveEndpoint();
   m_Cache.setCallback(cacheCallback, this);
 }
 
 ScsiDisk::~ScsiDisk() {
+  retireEndpoint();
   m_Cache.shutdown();
 }
 
@@ -346,6 +348,8 @@ bool ScsiDisk::initialise(ScsiController* pController, size_t nUnit) {
   SCSI_DEBUG_LOG("ScsiDisk: Capacity: "
                  << Dec << m_NumBlocks << " blocks, each " << m_NativeBlockSize << " bytes - "
                  << (m_NativeBlockSize * m_NumBlocks) << Hex << " bytes in total.");
+
+  publishEndpoint();
 
   // Chat to the partition service and let it pick up that we're around now
   ServiceFeatures* pFeatures = ServiceManager::instance().enumerateOperations(String("partition"));
@@ -438,6 +442,11 @@ bool ScsiDisk::sendCommand(ScsiCommand* pCommand, uintptr_t pRespBuffer, uint16_
 }
 
 BufferView ScsiDisk::read(uint64_t location) {
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return BufferView();
+
   ScsiController* pParent = static_cast<ScsiController*>(m_pParent);
   if (!pParent) {
     return BufferView();
@@ -522,6 +531,11 @@ BufferView ScsiDisk::read(uint64_t location) {
 }
 
 void ScsiDisk::write(uint64_t location) {
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return;
+
   ScsiController* pParent = static_cast<ScsiController*>(m_pParent);
   if (!pParent) {
     return;
@@ -579,6 +593,11 @@ void ScsiDisk::flush(uint64_t location) {
 }
 
 bool ScsiDisk::sync(uint64_t location, bool async) {
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return false;
+
   ScsiController* pParent = static_cast<ScsiController*>(m_pParent);
   if (!pParent) {
     return false;
@@ -613,6 +632,11 @@ bool ScsiDisk::sync(uint64_t location, bool async) {
 }
 
 bool ScsiDisk::syncAll() {
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return false;
+
 #if CRIPPLE_HDD
   return false;
 #else
@@ -636,6 +660,11 @@ bool ScsiDisk::syncAll() {
 }
 
 bool ScsiDisk::retireCachePage(uint64_t location) {
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return false;
+
   ScsiController* controller = static_cast<ScsiController*>(m_pParent);
   if (!controller) {
     return false;
@@ -713,6 +742,11 @@ bool ScsiDisk::flushCachePage(uint64_t location, uintptr_t page) {
 }
 
 void ScsiDisk::align(uint64_t location) {
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return;
+
   ScsiController* pParent = static_cast<ScsiController*>(m_pParent);
   if (!pParent) {
     return;
@@ -1026,6 +1060,11 @@ uint64_t ScsiDisk::doSync(uint64_t location) {
 }
 
 bool ScsiDisk::pin(uint64_t location) {
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return false;
+
   ScsiController* pParent = static_cast<ScsiController*>(m_pParent);
   if (!pParent) {
     return false;

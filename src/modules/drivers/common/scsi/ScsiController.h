@@ -30,6 +30,7 @@
 #define SCSI_REQUEST_WRITE 2
 #define SCSI_REQUEST_SYNC 3
 #define SCSI_REQUEST_WRITE_DIRECT 4
+#define SCSI_REQUEST_PAGING 5
 
 class ScsiDisk;
 
@@ -40,6 +41,8 @@ class EXPORTED_PUBLIC ScsiController : public Controller, public RequestQueue {
   ScsiController();
 
   virtual ~ScsiController();
+  bool prepareDiskRemoval();
+  void cancelDiskRemoval();
 
   virtual bool sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
                            uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite) = 0;

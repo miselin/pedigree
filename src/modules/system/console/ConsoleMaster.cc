@@ -28,15 +28,15 @@ class Filesystem;
 ConsoleMasterFile::ConsoleMasterFile(size_t consoleNumber, String consoleName, Filesystem* pFs)
     : ConsoleFile(consoleNumber, consoleName, pFs), bLocked(false), pLocker(0) {}
 
-uint64_t ConsoleMasterFile::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
-                                         bool bCanBlock) {
+uint64_t ConsoleMasterFile::readIo(ConsoleIoState& state, uint64_t size, uintptr_t buffer,
+                                   bool bCanBlock) {
   // Check for NL->CRNL conversion which requires special logic.
   size_t slaveFlags = m_pOther->m_Flags;
   if (!(slaveFlags & ConsoleManager::OPostProcess) ||
       !(slaveFlags & ConsoleManager::OMapNLToCRNL)) {
     // Easy read/write - output line discipline will not need to do any
     // conversions that involve expansion.
-    uint64_t nBytes = m_Buffer.read(reinterpret_cast<char*>(buffer), size, bCanBlock);
+    uint64_t nBytes = state.output.read(reinterpret_cast<char*>(buffer), size, bCanBlock);
     if (!nBytes) {
       return 0;
     }
@@ -63,7 +63,7 @@ uint64_t ConsoleMasterFile::readBytewise(uint64_t location, uint64_t size, uintp
     // content in the buffer by that stage).
     // Note: the integer division will floor() which is intentional.
     uint64_t nBytes =
-        m_Buffer.read(reinterpret_cast<char*>(buffer + totalBytes), size / 2, bCanBlock);
+        state.output.read(reinterpret_cast<char*>(buffer + totalBytes), size / 2, bCanBlock);
     if (!nBytes) {
       break;
     }
@@ -90,14 +90,23 @@ uint64_t ConsoleMasterFile::readBytewise(uint64_t location, uint64_t size, uintp
   return totalBytes;
 }
 
-uint64_t ConsoleMasterFile::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
-                                          bool bCanBlock) {
-  if (!m_pOther->m_Buffer.canWrite(bCanBlock)) {
+uint64_t ConsoleMasterFile::writeIo(ConsoleIoState& state, uint64_t size, uintptr_t buffer,
+                                    bool bCanBlock) {
+  if (!state.input.canWrite(bCanBlock)) {
     return 0;
   }
 
   // Pass on to the input discipline, which will write to the slave.
-  inputLineDiscipline(reinterpret_cast<char*>(buffer), size);
+  inputLineDiscipline(state, reinterpret_cast<char*>(buffer), size, bCanBlock);
 
-  return size;
+  return state.revoked() ? 0 : size;
+}
+
+uint64_t ConsoleMasterFile::readBytewise(uint64_t, uint64_t size, uintptr_t buffer, bool canBlock) {
+  return readEpoch(captureOpenEpoch(), size, buffer, canBlock);
+}
+
+uint64_t ConsoleMasterFile::writeBytewise(uint64_t, uint64_t size, uintptr_t buffer,
+                                          bool canBlock) {
+  return writeEpoch(captureOpenEpoch(), size, buffer, canBlock);
 }

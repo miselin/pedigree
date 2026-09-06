@@ -22,10 +22,13 @@
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Buffer.h"
+#include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -35,7 +38,6 @@
 #include "modules/system/vfs/Filesystem.h"
 
 class Disk;
-class Event;
 class Process;
 class RequestQueue;
 
@@ -48,7 +50,33 @@ class RequestQueue;
    static_cast<size_t>(ConsoleManager::LCookedMode) |                                             \
    static_cast<size_t>(ConsoleManager::LGenerateEvent))
 
-class ConsoleFile : public File {
+class EXPORTED_PUBLIC ConsoleControlState {
+ public:
+  enum class Character { Interrupt, Quit, Suspend };
+  virtual ~ConsoleControlState() = default;
+  virtual void controlCharacter(Character) {}
+};
+
+class EXPORTED_PUBLIC ConsoleIoState {
+ public:
+  ConsoleIoState();
+  bool revoked() const;
+  void closeAdmission();
+  void cancelAndDrain();
+  OperationBarrier operations;
+  Buffer<char> input;
+  Buffer<char> output;
+  Mutex inputLock;
+  char line[LINEBUFFER_MAXIMUM];
+  size_t lineSize;
+  size_t firstNewline;
+  Semaphore physicalWake;
+
+ private:
+  bool m_Revoked;
+};
+
+class EXPORTED_PUBLIC ConsoleFile : public File {
   friend class ConsoleMasterFile;
   friend class ConsoleSlaveFile;
   friend class ConsoleManager;
@@ -57,6 +85,19 @@ class ConsoleFile : public File {
   ConsoleFile(size_t consoleNumber, String consoleName, Filesystem* pFs);
   ConsoleFile(size_t consoleNumber, String consoleName, Filesystem* pFs, File* pParent);
   virtual ~ConsoleFile() {}
+
+  SharedPointer<ConsoleIoState> captureOpenEpoch(bool waitForReopen = true);
+  bool beginRevocation(SharedPointer<ConsoleIoState>& retired);
+  void finishRevocation(const SharedPointer<ConsoleIoState>& retired,
+                        const SharedPointer<ConsoleIoState>& replacement);
+  uint64_t readEpoch(const SharedPointer<ConsoleIoState>& epoch, uint64_t size, uintptr_t buffer,
+                     bool canBlock);
+  uint64_t writeEpoch(const SharedPointer<ConsoleIoState>& epoch, uint64_t size, uintptr_t buffer,
+                      bool canBlock);
+  ReadyMask queryEpoch(const SharedPointer<ConsoleIoState>& epoch, bool reading, bool writing);
+  ReadinessGenerations epochGenerations(const SharedPointer<ConsoleIoState>& epoch);
+  SharedPointer<ConsoleControlState> controlState();
+  void setControlState(const SharedPointer<ConsoleControlState>& state);
 
   virtual bool isMaster() = 0;
 
@@ -69,28 +110,6 @@ class ConsoleFile : public File {
 
   bool supportsReadinessNotifications() const override {
     return true;
-  }
-
-  void setEvent(Event* e) {
-    if (isMaster())
-      m_pOther->m_pEvent = e;
-    else
-      m_pEvent = e;
-  }
-
-  /**
-   * getLast - get the most recent character we handled.
-   * This is to be used by event handlers, which will be called when
-   * a special character is handled. The event handler can then call
-   * this function to identify the character and perform the relevant
-   * processing it needs to.
-   */
-  virtual char getLast() {
-    return m_Last;
-  }
-
-  Event* getEvent() const {
-    return m_pEvent;
   }
 
   /// Grabs the current array of control characters.
@@ -110,32 +129,16 @@ class ConsoleFile : public File {
     return ~0U;
   }
 
-  /**
-   * In order to ensure getLast is always the most recent character,
-   * the thread that wrote a special character to the input stream
-   * is put to sleep until the event handler calls this function.
-   */
-  virtual void eventComplete() {
-    if (!isMaster())
-      m_pOther->eventComplete();
-    else
-      m_EventTrigger.release();
-  }
-
  protected:
   /// select - check and optionally for a particular state.
   virtual int select(bool bWriting, int timeout);
 
-  /// inject - inject bytes into the ring buffer
-  void inject(char* buf, size_t len, bool canBlock);
-
-  /// Override to permit different injection semantics.
-  /// The default is to call m_pOther->inject.
-  virtual void performInject(char* buf, size_t len, bool canBlock);
-
-  /// Performs an event trigger.
-  /// The default is to call triggerEvent which uses m_pOther.
-  virtual void performEventTrigger(char cause);
+  virtual uint64_t readIo(ConsoleIoState& state, uint64_t size, uintptr_t buffer,
+                          bool canBlock) = 0;
+  virtual uint64_t writeIo(ConsoleIoState& state, uint64_t size, uintptr_t buffer,
+                           bool canBlock) = 0;
+  void changed();
+  ConsoleFile* stateOwner();
 
   /// Other side of the console.
   ConsoleFile* m_pOther;
@@ -153,44 +156,21 @@ class ConsoleFile : public File {
   size_t processInput(char* buf, size_t len);
 
   /// Input line discipline
-  void inputLineDiscipline(char* buf, size_t len, size_t flags = ~0U, const char* controlChars = 0);
+  void inputLineDiscipline(ConsoleIoState& state, char* buf, size_t len, bool canBlock,
+                           size_t flags = ~0U, const char* controlChars = nullptr);
 
-  /// Input line buffer.
-  char m_LineBuffer[LINEBUFFER_MAXIMUM];
-
-  /// Size of the input line buffer.
-  size_t m_LineBufferSize;
-
-  /// Location of the first newline in the line buffer. ~0 if none.
-  size_t m_LineBufferFirstNewline;
-
-  /// Character that triggered an event.
-  char m_Last;
-
-  Buffer<char> m_Buffer;
+  mutable Mutex m_IoLock;
+  ConditionVariable m_IoChanged;
+  bool m_HangingUp;
+  SharedPointer<ConsoleIoState> m_IoState;
+  SharedPointer<ConsoleControlState> m_ControlState;
 
  private:
   size_t m_ConsoleNumber;
   String m_ConsoleName;
 
-  /**
-   * Event to fire when an event takes place that needs action. For
-   * example, when ^C is typed. The handler for the event figures
-   * out what to do.
-   */
-  Event* m_pEvent;
-
-  /// One completion token is posted when an event handler finishes.
-  Semaphore m_EventTrigger;
-
-  /// Serialises m_Last with the matching event completion.
-  Mutex m_EventSerialiser;
-
-  /// Check if the given character requires an event.
-  bool checkForEvent(size_t flags, char check, const char* controlChars);
-
-  /// Triggers our event.
-  void triggerEvent(char cause);
+  bool isControlCharacter(size_t flags, char check, const char* controlChars);
+  void notifyControlCharacter(char cause, const char* controlChars);
 
   virtual bool isBytewise() const {
     return true;
@@ -224,6 +204,8 @@ class EXPORTED_PUBLIC ConsoleMasterFile : public ConsoleFile {
   }
 
  private:
+  uint64_t readIo(ConsoleIoState&, uint64_t, uintptr_t, bool) override;
+  uint64_t writeIo(ConsoleIoState&, uint64_t, uintptr_t, bool) override;
 };
 
 class EXPORTED_PUBLIC ConsoleSlaveFile : public ConsoleFile {
@@ -245,9 +227,9 @@ class EXPORTED_PUBLIC ConsoleSlaveFile : public ConsoleFile {
     return false;
   }
 
-  virtual char getLast() {
-    return m_pOther->getLast();
-  }
+ private:
+  uint64_t readIo(ConsoleIoState&, uint64_t, uintptr_t, bool) override;
+  uint64_t writeIo(ConsoleIoState&, uint64_t, uintptr_t, bool) override;
 };
 
 class EXPORTED_PUBLIC ConsolePhysicalFile : public ConsoleFile {
@@ -262,11 +244,6 @@ class EXPORTED_PUBLIC ConsolePhysicalFile : public ConsoleFile {
 
   virtual bool isMaster() {
     return false;
-  }
-
-  virtual char getLast() {
-    /// \todo this is no good
-    return '\0';
   }
 
   virtual size_t getPhysicalConsoleNumber() const {
@@ -285,10 +262,10 @@ class EXPORTED_PUBLIC ConsolePhysicalFile : public ConsoleFile {
 
  private:
   File* m_pTerminal;
-  Buffer<char> m_ProcessedInput;
   size_t m_TerminalNumber;
 
-  virtual void performInject(char* buf, size_t len, bool canBlock);
+  uint64_t readIo(ConsoleIoState&, uint64_t, uintptr_t, bool) override;
+  uint64_t writeIo(ConsoleIoState&, uint64_t, uintptr_t, bool) override;
 };
 
 /** This class provides a way for consoles (TTYs) to be created to interact with

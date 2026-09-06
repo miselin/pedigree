@@ -35,6 +35,7 @@
 #include "modules/system/ramfs/RamFs.h"
 #include "modules/system/vfs/VFS.h"
 #include "net-syscalls.h"
+#include "process-accounting.h"
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
 
@@ -224,6 +225,7 @@ static bool terminalQuiesce() {
 #endif
 #endif
 
+  posix_stop_accounting();
   g_PosixTerminalLifetime = PosixTerminalLifetimeState::Quiesced;
 
 #if THREADS && HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

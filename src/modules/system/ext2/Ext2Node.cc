@@ -278,7 +278,6 @@ bool Ext2Node::ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize
   const size_t deltaBlocks = delta / blockSize + (delta % blockSize != 0);
   Vector<uint32_t> newBlocks;
   if (!m_pExt2Fs->findFreeBlocks(m_InodeNumber, deltaBlocks, newBlocks)) {
-    SYSCALL_ERROR(NoSpaceLeftOnDevice);
     return false;
   }
   Vector<uint32_t> pendingWrites;
@@ -312,7 +311,7 @@ bool Ext2Node::ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize
   }
   if (!success) {
     for (size_t i = attached; i < newBlocks.count(); ++i) {
-      m_pExt2Fs->releaseBlock(newBlocks[i]);
+      m_pExt2Fs->releaseBlock(newBlocks[i], m_InodeNumber);
     }
     if (!trimToBlocks(oldBlocks)) {
       ERROR("Ext2: unable to retire partially allocated extension blocks");
@@ -468,7 +467,6 @@ bool Ext2Node::setBlockNumber(size_t blockNum, uint32_t blockValue,
       numbers[level] = m_pExt2Fs->findFreeBlock(m_InodeNumber);
       allocated[level] = numbers[level] != 0;
       if (!allocated[level]) {
-        SYSCALL_ERROR(NoSpaceLeftOnDevice);
         ready = false;
         break;
       }
@@ -502,7 +500,7 @@ bool Ext2Node::setBlockNumber(size_t blockNum, uint32_t blockValue,
       m_pExt2Fs->unpinBlock(numbers[level]);
     }
     if (!ready && allocated[level]) {
-      m_pExt2Fs->releaseBlock(numbers[level]);
+      m_pExt2Fs->releaseBlock(numbers[level], m_InodeNumber);
     }
   }
   return ready;
@@ -537,12 +535,11 @@ bool Ext2Node::ensureWritableRange(size_t location, size_t length) {
     }
     const uint32_t block = m_pExt2Fs->findFreeBlock(m_InodeNumber);
     if (!block) {
-      SYSCALL_ERROR(NoSpaceLeftOnDevice);
       return false;
     }
     const uintptr_t buffer = m_pExt2Fs->readBlock(block);
     if (!buffer) {
-      m_pExt2Fs->releaseBlock(block);
+      m_pExt2Fs->releaseBlock(block, m_InodeNumber);
       SYSCALL_ERROR(IoError);
       return false;
     }
@@ -550,7 +547,7 @@ bool Ext2Node::ensureWritableRange(size_t location, size_t length) {
     m_pExt2Fs->writeBlock(block);
     m_pExt2Fs->unpinBlock(block);
     if (!setBlockNumber(index, block)) {
-      m_pExt2Fs->releaseBlock(block);
+      m_pExt2Fs->releaseBlock(block, m_InodeNumber);
       return false;
     }
     m_Blocks[index] = block;
@@ -590,6 +587,14 @@ File::Attributes Ext2Node::inodeAttributes() const {
 }
 
 void Ext2Node::updateInodeAttributes(const File::Attributes& attributes, uint32_t mask) {
+  if (mask & (File::Owner | File::Group)) {
+    if (!changeInodeOwnership(attributes.uid, attributes.gid, mask & File::Owner,
+                              mask & File::Group))
+      return;
+    mask &= ~(File::Owner | File::Group);
+    if (!mask)
+      return;
+  }
   LockGuard<Mutex> guard(m_State->writebackLock);
   if (mask & File::AccessTime) {
     m_pInode->i_atime = HOST_TO_LITTLE32(attributes.accessed);
@@ -599,12 +604,6 @@ void Ext2Node::updateInodeAttributes(const File::Attributes& attributes, uint32_
   }
   m_pInode->i_ctime =
       HOST_TO_LITTLE32((mask & File::ChangeTime) ? attributes.changed : Time::getTime());
-  if (mask & File::Owner) {
-    Ext2Owner::setUid(*m_pInode, attributes.uid);
-  }
-  if (mask & File::Group) {
-    Ext2Owner::setGid(*m_pInode, attributes.gid);
-  }
   if (mask & File::Permissions) {
     const uint16_t mode = LITTLE_TO_HOST16(m_pInode->i_mode);
     m_pInode->i_mode =

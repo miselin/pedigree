@@ -277,6 +277,12 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
 
   /** Returns true if the File is actually a directory. */
   virtual bool isDirectory();
+  virtual bool isBlockDevice() const {
+    return false;
+  }
+  virtual uint64_t deviceNumber() const {
+    return 0;
+  }
 
   /** Returns true if the File is actually a pipe. */
   virtual bool isPipe() const;
@@ -339,7 +345,7 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   void setPermissions(uint32_t perms);
   uint32_t getPermissions() const;
 
-  void setOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid);
+  bool setOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid);
   void setUid(size_t uid);
   size_t getUid() const;
 
@@ -408,6 +414,10 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
 
  protected:
   virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
+  virtual bool changeOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid);
+  virtual bool allowPhysicalPage() const {
+    return true;
+  }
   virtual bool prepareWrite(uint64_t location, uint64_t size);
   virtual bool allowResize(size_t oldSize, size_t newSize);
   virtual bool prepareShrink(const ShrinkContext& context, UniquePointer<PreparedShrink>& prepared);

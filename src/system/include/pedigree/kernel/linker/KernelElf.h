@@ -47,12 +47,15 @@ struct RuntimeModuleSlot;
 
 class Module {
  public:
+  enum class UnloadAdmission { Ready, Busy, KeepMapped };
+  using UnloadAdmissionHook = UnloadAdmission (*)(bool terminal);
   Module()
       : elf(nullptr),
         runtime(nullptr),
         name(0),
         entry(0),
         exit(0),
+        unloadAdmission(nullptr),
         depends(0),
         depends_opt(0),
         buffer(0),
@@ -74,6 +77,7 @@ class Module {
   String name;
   bool (*entry)();
   void (*exit)();
+  UnloadAdmissionHook unloadAdmission;
   const char** depends;
   const char** depends_opt;
   uint8_t* buffer;
@@ -213,6 +217,11 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
    */
   bool registerTerminalQuiesce(ModuleEntry ownerEntry, TerminalQuiesceHook hook);
 
+  /** Called outside the module lock after exclusive unload claim. Refusal
+   * must reopen any resource admission the hook closed. Ready must retain
+   * closed admission through exit; terminal refusal preserves mapped code. */
+  bool registerUnloadAdmission(ModuleEntry ownerEntry, Module::UnloadAdmissionHook hook);
+
   /** Removes a terminal callback only when both its owner and function match. */
   bool unregisterTerminalQuiesce(ModuleEntry ownerEntry, TerminalQuiesceHook hook);
 
@@ -240,6 +249,7 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
   static void completeModuleUnloadForTest(Module* module, bool wasFailed = false,
                                           bool runLifecycle = false);
   static bool moduleExecutionWaitsForUnloadForTest();
+  static bool completeGuardedModuleUnloadForTest(Module* module, bool terminal);
 #endif
 
   /** Returns true if a module with the specified name has been loaded. */
@@ -337,7 +347,7 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
                                             bool requireMembership, bool enforceDependencies,
                                             bool& wasFailed, bool& runLifecycle);
   bool completeUnloadAttempt(Module* module, ModuleUnloadClaim claim, bool wasFailed,
-                             bool runLifecycle, bool silent, bool progress);
+                             bool runLifecycle, bool silent, bool progress, bool terminal = false);
   void finishClaimedUnload(Module* module, bool wasFailed);
 
   /** Rebase a pointer for the given loaded module. */

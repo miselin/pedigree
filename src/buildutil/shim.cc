@@ -434,40 +434,39 @@ Mutex::~Mutex() {
 }
 
 bool Mutex::acquire() {
-  errno = 0;
-
+  const int savedError = errno;
   pthread_mutex_t* mutex = reinterpret_cast<pthread_mutex_t*>(m_Private);
   int r = pthread_mutex_lock(mutex);
-  if (r == 0) {
-    return true;
-  } else {
+  if (r != 0) {
+    errno = r;
     perror("pthread_mutex_lock");
   }
-
-  return false;
+  errno = savedError;
+  return r == 0;
 }
 
 bool Mutex::tryAcquire() {
+  const int savedError = errno;
   pthread_mutex_t* mutex = reinterpret_cast<pthread_mutex_t*>(m_Private);
   int r = pthread_mutex_trylock(mutex);
-  if (r == 0) {
-    return true;
-  } else if (r != EBUSY) {
+  if (r != 0 && r != EBUSY) {
     errno = r;
     perror("pthread_mutex_trylock");
   }
-
-  return false;
+  errno = savedError;
+  return r == 0;
 }
 
 void Mutex::release() {
-  errno = 0;
-
+  // Kernel mutex cleanup must not replace the selected syscall error.
+  const int savedError = errno;
   pthread_mutex_t* mutex = reinterpret_cast<pthread_mutex_t*>(m_Private);
   int r = pthread_mutex_unlock(mutex);
   if (r != 0) {
+    errno = r;
     perror("pthread_mutex_unlock");
   }
+  errno = savedError;
 }
 
 ssize_t Mutex::getValue() {

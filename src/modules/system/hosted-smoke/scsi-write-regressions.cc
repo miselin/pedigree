@@ -1540,7 +1540,11 @@ bool scsiSyncAll() {
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS scsi-sync-all");
   } else {
-    ERROR("HOSTED-WAIT-TEST: FAIL scsi-sync-all: empty flush, command geometry, failure, or retry");
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-sync-all: empty=" << emptyFlushed
+          << ", empty-failure=" << emptyFailure << ", empty-retry=" << emptyRetry
+          << ", prepared=" << prepared << ", page-failure=" << pageFailed
+          << ", final-failure=" << finalFailed << ", retry=" << retried
+          << ", cleanup=" << cleaned);
   }
   return passed;
 }

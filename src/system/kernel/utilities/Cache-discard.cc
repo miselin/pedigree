@@ -13,6 +13,8 @@
 
 #if THREADS
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #endif
 
 static constexpr size_t CachePageSize = TargetInfo::getPageSize();
@@ -40,6 +42,47 @@ Cache::PreparedDiscard::~PreparedDiscard() {
     m_Cache.m_EvictionWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(page));
 #endif
   }
+}
+
+bool Cache::PreparedDiscard::writeback(retirement_writeback_t callback, void* context) {
+  if (m_Committed || !callback)
+    return false;
+  {
+    LockGuard<Spinlock> guard(m_Cache.m_Lock);
+    for (size_t i = 0; i < m_Count; ++i) {
+      CachePage* page = m_Entries.get()[i].page;
+      if (m_Entries.get()[i].references || page->refcnt != 1 || page->writebackPins ||
+          page->callbackActive || page->evictionState != CachePage::EvictionState::Draining)
+        return false;
+    }
+  }
+  bool succeeded = true;
+  for (size_t i = 0; i < m_Count; ++i) {
+    CachePage* page = m_Entries.get()[i].page;
+    {
+      LockGuard<Spinlock> guard(m_Cache.m_Lock);
+      page->callbackActive = true;
+#if THREADS
+      page->callbackOwner = Processor::information().getCurrentThread();
+#endif
+      // A later device-cache flush may fail even after this write succeeds.
+      // Rollback must leave every submitted page eligible for another write.
+      page->writebackFailed = true;
+    }
+    if (!callback(page->key, page->location, context))
+      succeeded = false;
+    {
+      LockGuard<Spinlock> guard(m_Cache.m_Lock);
+      page->callbackActive = false;
+#if THREADS
+      page->callbackOwner = nullptr;
+#endif
+    }
+#if THREADS
+    m_Cache.m_EvictionWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(page));
+#endif
+  }
+  return succeeded;
 }
 
 void Cache::PreparedDiscard::commit() {

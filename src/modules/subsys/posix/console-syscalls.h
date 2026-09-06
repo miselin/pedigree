@@ -23,6 +23,11 @@
 #include "modules/system/vfs/File.h"
 #include <sys/types.h>
 
+class DescriptorLease;
+class ConsoleFile;
+int console_tcgetattr(const DescriptorLease& descriptor, struct termios* attributes);
+int console_tcsetattr(const DescriptorLease& descriptor, int action, struct termios* attributes);
+
 struct termios;
 struct winsize;
 

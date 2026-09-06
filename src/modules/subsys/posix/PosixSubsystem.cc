@@ -778,6 +778,8 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
 
   // We're the lowest in the stack, so we can proceed with the exit function.
 
+  static_cast<PosixProcess*>(pProcess)->snapshotAccountingMemory();
+
   posix_advisory_owner_closed(m_AdvisoryOwner);
 
   // Peer shutdown has consumed their registrations. The final owner must

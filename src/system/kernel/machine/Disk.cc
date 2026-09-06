@@ -20,13 +20,58 @@
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/utilities/String.h"
 
-Disk::Disk() {
+Disk::Disk() : m_Endpoint(nullptr) {
   m_SpecificType.assign("Generic Disk", 13);
 }
 
-Disk::Disk(Device* p) : Device(p) {}
+Disk::Disk(Device* p) : Device(p), m_Endpoint(nullptr) {}
 
-Disk::~Disk() {}
+Disk::~Disk() {
+  retireEndpoint();
+}
+
+Disk* Disk::physicalDisk() {
+  return this;
+}
+
+bool Disk::acquireUse(DiskUse& use) {
+  Disk* physical = physicalDisk();
+  if (!physical) {
+    use.reset();
+    return false;
+  }
+  if (!physical->m_Endpoint) {
+    use.reset();
+    return true;
+  }
+  return DiskEndpoints::acquire(physical->m_Endpoint, physical, use);
+}
+
+uint32_t Disk::endpointId() {
+  Disk* physical = physicalDisk();
+  return physical ? DiskEndpoints::id(physical->m_Endpoint, physical) : 0;
+}
+
+void Disk::reserveEndpoint() {
+  if (!m_Endpoint)
+    m_Endpoint = DiskEndpoints::reserve(this);
+}
+void Disk::publishEndpoint() {
+  DiskEndpoints::publish(m_Endpoint);
+}
+void Disk::retireEndpoint() {
+  DiskEndpoints::retire(m_Endpoint, this);
+}
+bool Disk::tryCloseEndpoint() {
+  return DiskEndpoints::tryClose(m_Endpoint, this);
+}
+void Disk::reopenEndpoint() {
+  DiskEndpoints::reopen(m_Endpoint, this);
+}
+PagingStatus Disk::preparePagingTransport(PagingTransport*& transport) {
+  transport = nullptr;
+  return PagingStatus::Unsupported;
+}
 
 Device::Type Disk::getType() {
   return Device::Disk;

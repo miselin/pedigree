@@ -59,6 +59,7 @@ class Ext2Symlink : public Symlink, public Ext2Node {
 
  protected:
   virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
+  virtual bool changeOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid);
 };
 
 #endif

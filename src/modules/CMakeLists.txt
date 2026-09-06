@@ -308,6 +308,10 @@ pedigree_module(console "" ""
 pedigree_module(ext2 "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Directory.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2File-allocation.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2File-quota.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Filesystem-quota.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Node-quota.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Quota.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2File.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Filesystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Filesystem-sync.cc
@@ -358,6 +362,8 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/primitive-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/process-exit-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/requestqueue-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/paging-request-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/module-admission-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/signal-interruption-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/storage-page-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/timer-regressions.cc
@@ -653,6 +659,8 @@ pedigree_module(users "" ""
 pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Directory.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/File-allocation.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Quota.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/QuotaTable.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/File.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/FileEvent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Filesystem.cc
@@ -687,6 +695,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     pedigree_module(ata "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/AtaController.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/AtaDisk.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/AtaDisk-paging.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/BusMasterIde.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/IsaAtaController.cc
         $<$<BOOL:${PEDIGREE_MACHINE_HASPCI}>:${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/PciAtaController.cc>
@@ -740,6 +749,7 @@ pedigree_module(scsi "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/scsi/ScsiCommands.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/scsi/ScsiController.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/scsi/ScsiDisk.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/scsi/ScsiDisk-paging.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/scsi/main.cc
     ${SCSI_REGRESSION_SOURCES})
 
@@ -866,6 +876,11 @@ add_custom_target(vdso-header DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/vdso.h)
 pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/console-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/DevFs.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/DevFs-block.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/TerminalControl.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/terminal-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/process-accounting.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/quota-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/epoll-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/eventfd-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/FileDescriptor.cc

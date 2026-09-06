@@ -16,6 +16,8 @@ enum class XattrStatus {
   IoError,
   Invalid,
   ReadOnly,
+  Quota,
+  Overflow,
 };
 
 namespace Xattr {

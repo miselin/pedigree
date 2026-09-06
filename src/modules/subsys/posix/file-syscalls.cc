@@ -48,6 +48,8 @@
 #include <termios.h>
 #include <utime.h>
 
+#include "DevFs-block.h"
+#include "TerminalControl.h"
 #include "advisory-lock-syscalls.h"
 #include "console-syscalls.h"
 #include "eventfd-syscalls.h"
@@ -207,6 +209,8 @@ static bool doStat(const char* name, File* pFile, struct stat* st, bool traverse
       (pFile && pFile->getName() == nullName)) {
     F_NOTICE("    -> S_IFCHR");
     mode = S_IFCHR;
+  } else if (pFile->isBlockDevice()) {
+    mode = S_IFBLK;
   } else if (pFile->isDirectory()) {
     F_NOTICE("    -> S_IFDIR");
     mode = S_IFDIR;
@@ -254,6 +258,14 @@ static bool doStat(const char* name, File* pFile, struct stat* st, bool traverse
   Filesystem* pFs = pFile->getFilesystem();
 
   st->st_dev = static_cast<short>(reinterpret_cast<uintptr_t>(pFile->getFilesystem()));
+  VFS::MountOperation mount;
+  if (VFS::instance().acquireMount(pFs, mount) && mount.filesystem()->getDisk()) {
+    if (mount.id() > PosixBlock::MaximumMinor) {
+      SYSCALL_ERROR(ValueTooLarge);
+      return false;
+    }
+    st->st_dev = PosixBlock::encode(PosixBlock::MountedMajor, mount.id());
+  }
   F_NOTICE("    -> " << st->st_dev);
   st->st_ino = pFile->getInode();
   F_NOTICE("    -> " << st->st_ino);
@@ -263,7 +275,7 @@ static bool doStat(const char* name, File* pFile, struct stat* st, bool traverse
   st->st_gid = attributes.gid;
   F_NOTICE("    -> uid=" << Dec << st->st_uid);
   F_NOTICE("    -> gid=" << Dec << st->st_gid);
-  st->st_rdev = 0;
+  st->st_rdev = pFile->isBlockDevice() ? pFile->deviceNumber() : 0;
   st->st_size = attributes.size;
   F_NOTICE("    -> " << st->st_size);
   st->st_atime = attributes.accessed;
@@ -337,8 +349,7 @@ static bool doChown(File* pFile, uid_t owner, gid_t group) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return false;
   }
-  pFile->setOwnership(newOwner, newGroup, owner != UINT32_MAX, group != UINT32_MAX);
-  return true;
+  return pFile->setOwnership(newOwner, newGroup, owner != UINT32_MAX, group != UINT32_MAX);
 }
 
 // NON-special-case remappings.
@@ -403,7 +414,8 @@ bool normalisePath(String& nameToOpen, const char* name, bool* onDevFs) {
   // legacy name never rewrites a merely similar modern path.
   if (!StringCompare(name, "/dev/tty")) {
     // Get controlling console, unless we have none.
-    if (!pProcess->getCtty()) {
+    auto cttyContext = pProcess->acquireCttyContext();
+    if (!cttyContext || !cttyContext->file()) {
       if (onDevFs)
         *onDevFs = true;
     }
@@ -687,7 +699,7 @@ int posix_read(int fd, char* ptr, int len) {
       // after it has already made progress during this syscall.
       const bool operationCanBlock = canBlock && (position || !totalRead);
       if (!operationCanBlock) {
-        const ReadyMask ready = pFd->file->queryReady(true, false);
+        const ReadyMask ready = pFd->acquireOpenFileDescription()->queryFileReady(true, false);
         if (!(ready & (ReadyRead | ReadyError | ReadyHangup))) {
           if (totalRead) {
             break;
@@ -713,12 +725,14 @@ int posix_read(int fd, char* ptr, int len) {
         amount = pFd->file->read(position->offset(), requested,
                                  reinterpret_cast<uintptr_t>(bounce.get()), operationCanBlock);
       } else {
-        amount = pFd->file->read(0, requested, reinterpret_cast<uintptr_t>(bounce.get()),
-                                 operationCanBlock);
+        amount = pFd->readFile(0, requested, reinterpret_cast<uintptr_t>(bounce.get()),
+                               operationCanBlock);
       }
       const bool signalInterrupted =
           pThread->getInterruptionReason() == Thread::InterruptedBySignal;
 
+      if (!amount && pFd->terminalHungUp())
+        break;
       if (!amount) {
         if (!totalRead && signalInterrupted) {
           pThread->clearInterruption();
@@ -841,6 +855,10 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
   }
 
   if (!len) {
+    if (pFd->terminalHungUp()) {
+      SYSCALL_ERROR(IoError);
+      return -1;
+    }
     return 0;
   }
 
@@ -902,9 +920,10 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
         if (amount) {
           position->setOffset(location + amount);
         }
+      } else if (ConsoleManager::instance().isConsole(pFd->file)) {
+        amount = pFd->writeFile(0, requested, reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
       } else {
-        amount =
-            writeGuard.write(0, requested, reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
+        amount = writeGuard.write(0, requested, reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
       }
       const bool signalInterrupted =
           pThread->getInterruptionReason() == Thread::InterruptedBySignal;
@@ -915,7 +934,7 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
           pThread->setErrno(0);
           break;
         }
-        if (signalInterrupted) {
+        if (signalInterrupted && !pFd->terminalHungUp()) {
           pThread->clearInterruption();
           SYSCALL_ERROR(Interrupted);
           F_NOTICE(" -> interrupted");
@@ -1268,6 +1287,8 @@ static int writeFileVectorElement(Thread* thread, const DescriptorLease& descrip
     if (written) {
       position->setOffset(location + written);
     }
+  } else if (ConsoleManager::instance().isConsole(file)) {
+    written = descriptor->writeFile(0, length, reinterpret_cast<uintptr_t>(buffer), canBlock);
   } else {
     written = writeGuard.write(0, length, reinterpret_cast<uintptr_t>(buffer), canBlock);
   }
@@ -1275,7 +1296,7 @@ static int writeFileVectorElement(Thread* thread, const DescriptorLease& descrip
   signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
   const size_t backendError = thread->getErrno();
   thread->clearInterruption();
-  if (!written && signalInterrupted) {
+  if (!written && signalInterrupted && !descriptor->terminalHungUp()) {
     if (reportError) {
       SYSCALL_ERROR(Interrupted);
     } else {
@@ -1321,12 +1342,12 @@ static int readFileVectorElement(Thread* thread, const DescriptorLease& descript
     assert(position);
     amount = file->read(position->offset(), length, reinterpret_cast<uintptr_t>(buffer), canBlock);
   } else {
-    amount = file->read(0, length, reinterpret_cast<uintptr_t>(buffer), canBlock);
+    amount = descriptor->readFile(0, length, reinterpret_cast<uintptr_t>(buffer), canBlock);
   }
 
   signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
   thread->clearInterruption();
-  if (!amount && signalInterrupted) {
+  if (!amount && signalInterrupted && !descriptor->terminalHungUp()) {
     if (reportError) {
       SYSCALL_ERROR(Interrupted);
     }
@@ -1679,7 +1700,8 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
       const size_t readCapacity = totalLength < PIPE_BUF_MAX ? totalLength : PIPE_BUF_MAX;
       UniqueArray<uint8_t> aggregate = UniqueArray<uint8_t>::allocate(readCapacity);
       if (statusFlags & O_NONBLOCK) {
-        const ReadyMask ready = descriptor->file->queryReady(true, false);
+        const ReadyMask ready =
+            descriptor->acquireOpenFileDescription()->queryFileReady(true, false);
         if (!(ready & (ReadyRead | ReadyError | ReadyHangup))) {
           SYSCALL_ERROR(NoMoreProcesses);
           return -1;
@@ -1754,7 +1776,8 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
         // bounce chunk into a second blocking operation.
         const bool operationCanBlock = !(statusFlags & O_NONBLOCK) && (position || !totalRead);
         if (!operationCanBlock) {
-          const ReadyMask ready = descriptor->file->queryReady(true, false);
+          const ReadyMask ready =
+              descriptor->acquireOpenFileDescription()->queryFileReady(true, false);
           if (!(ready & (ReadyRead | ReadyError | ReadyHangup))) {
             if (totalRead) {
               return totalRead;
@@ -2536,6 +2559,14 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     return -1;
   }
 
+  FileDescriptor::TerminalOperation terminalOperation;
+  const bool terminalPolicyCommand =
+      command == TIOCSCTTY || command == TIOCGPGRP || command == TIOCSPGRP;
+  if (!terminalPolicyCommand && !f->acquireTerminalOperation(terminalOperation)) {
+    SYSCALL_ERROR(IoError);
+    return -1;
+  }
+
   if (command == FIONBIO) {
     int enabled = 0;
     if (!copyIoctlInput(buf, enabled)) {
@@ -2700,7 +2731,7 @@ int posix_ioctl(int fd, size_t command, void* buf) {
 
     case TCGETS: {
       if (ConsoleManager::instance().isConsole(f->file)) {
-        return posix_tcgetattr(fd, reinterpret_cast<struct termios*>(buf));
+        return console_tcgetattr(f, reinterpret_cast<struct termios*>(buf));
       } else {
         SYSCALL_ERROR(NotAConsole);
         return -1;
@@ -2709,7 +2740,7 @@ int posix_ioctl(int fd, size_t command, void* buf) {
 
     case TCSETS: {
       if (ConsoleManager::instance().isConsole(f->file)) {
-        return posix_tcsetattr(fd, TCSANOW, reinterpret_cast<struct termios*>(buf));
+        return console_tcsetattr(f, TCSANOW, reinterpret_cast<struct termios*>(buf));
       } else {
         SYSCALL_ERROR(NotAConsole);
         return -1;
@@ -2718,7 +2749,7 @@ int posix_ioctl(int fd, size_t command, void* buf) {
 
     case TCSETSW: {
       if (ConsoleManager::instance().isConsole(f->file)) {
-        return posix_tcsetattr(fd, TCSADRAIN, reinterpret_cast<struct termios*>(buf));
+        return console_tcsetattr(f, TCSADRAIN, reinterpret_cast<struct termios*>(buf));
       } else {
         SYSCALL_ERROR(NotAConsole);
         return -1;
@@ -2727,7 +2758,7 @@ int posix_ioctl(int fd, size_t command, void* buf) {
 
     case TCSETSF: {
       if (ConsoleManager::instance().isConsole(f->file)) {
-        return posix_tcsetattr(fd, TCSAFLUSH, reinterpret_cast<struct termios*>(buf));
+        return console_tcsetattr(f, TCSAFLUSH, reinterpret_cast<struct termios*>(buf));
       } else {
         SYSCALL_ERROR(NotAConsole);
         return -1;
@@ -2736,7 +2767,8 @@ int posix_ioctl(int fd, size_t command, void* buf) {
 
     case TIOCGPGRP: {
       if (ConsoleManager::instance().isConsole(f->file)) {
-        pid_t pgrp = posix_tcgetpgrp(fd);
+        pid_t pgrp =
+            TerminalControl::foreground(*static_cast<ConsoleFile*>(f->file), f->terminalEpoch());
         return pgrp < 0 ? -1 : copyIoctlResult(buf, pgrp);
       } else {
         SYSCALL_ERROR(NotAConsole);
@@ -2747,7 +2779,10 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     case TIOCSPGRP: {
       if (ConsoleManager::instance().isConsole(f->file)) {
         pid_t pgrp = 0;
-        return copyIoctlInput(buf, pgrp) ? posix_tcsetpgrp(fd, pgrp) : -1;
+        return copyIoctlInput(buf, pgrp)
+                   ? TerminalControl::setForeground(*static_cast<ConsoleFile*>(f->file), pgrp,
+                                                    f->terminalEpoch())
+                   : -1;
       } else {
         SYSCALL_ERROR(NotAConsole);
         return -1;
@@ -2793,7 +2828,9 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     case TIOCSCTTY: {
       if (ConsoleManager::instance().isConsole(f->file)) {
         F_NOTICE(" -> TIOCSCTTY");
-        return console_setctty(fd, reinterpret_cast<uintptr_t>(buf) == 1);
+        return TerminalControl::attach(*static_cast<ConsoleFile*>(f->file),
+                                       reinterpret_cast<uintptr_t>(buf) == 1, false,
+                                       f->terminalEpoch());
       } else {
         SYSCALL_ERROR(NotAConsole);
         return -1;
@@ -3073,7 +3110,7 @@ int posix_isatty(int fd) {
     return 0;
   }
 
-  int result = ConsoleManager::instance().isConsole(pFd->file) ? 1 : 0;
+  int result = ConsoleManager::instance().isConsole(pFd->file) && !pFd->terminalHungUp() ? 1 : 0;
   NOTICE("isatty(" << fd << ") -> " << result);
   return result;
 }
@@ -3973,14 +4010,17 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
 
   bool onDevFs = false;
   bool openingCtty = false;
+  Process::FileContextLease cttyLease;
   String nameToOpen;
   normalisePath(nameToOpen, pathnameCopy.cstr(), &onDevFs);
   if (nameToOpen.compare("/dev/tty")) {
     openingCtty = true;
 
-    file = pProcess->getCtty();
+    file = pProcess->acquireCtty(cttyLease);
     if (!file) {
       F_NOTICE("  -> returning -1, no controlling tty");
+      pSubsystem->freeFd(fd);
+      SYSCALL_ERROR(NoSuchDevice);
       return -1;
     } else if (ConsoleManager::instance().isMasterConsole(file)) {
       // If we happened to somehow open a master console, get its slave.
@@ -4139,13 +4179,16 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
       // Slave - set as controlling unless noctty is set.
       if ((flags & O_NOCTTY) == 0 && !openingCtty) {
         F_NOTICE("  -> setting opened terminal '" << file->getName() << "' to be controlling");
-        console_setctty(file, false);
+        if (TerminalControl::attach(*static_cast<ConsoleFile*>(file), false, true) < 0) {
+          pSubsystem->freeFd(fd);
+          return -1;
+        }
       }
     }
   }
 
   // Permissions were OK.
-  if ((flags & O_TRUNC) && !file->isDirectory() && !file->isPipe() && !file->isFifo() &&
+  if ((flags & O_TRUNC) && !file->isDirectory() && !file->isBlockDevice() && !file->isPipe() && !file->isFifo() &&
       file->getFilesystem() != g_pDevFs && !ConsoleManager::instance().isConsole(file)) {
     F_NOTICE("  -> {O_TRUNC}");
     if (!file->resize(0)) {
@@ -4181,6 +4224,12 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
   }
 
   FileDescriptor* f = new FileDescriptor(file, 0, fd, 0, flags);
+  if (!f || !f->terminalAvailable()) {
+    delete f;
+    pSubsystem->freeFd(fd);
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
   if (f) {
     pSubsystem->addFileDescriptor(fd, f);
     file->publishEvent(FileEvents::Open);

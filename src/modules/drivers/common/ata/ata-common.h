@@ -634,6 +634,22 @@ MUST_USE_RESULT inline bool ataPioWrite512ByteSectors(IoBase* commandRegs, IoBas
   return ataPollPioWriteStatus(commandRegs, controlRegs, budget, finalStatus, false);
 }
 
+MUST_USE_RESULT inline bool ataPioRead512ByteSectors(IoBase* commandRegs, IoBase* controlRegs,
+                                                     uint16_t* target, size_t sectorCount,
+                                                     AtaPioPollBudget& budget,
+                                                     AtaStatus& finalStatus) {
+  finalStatus.__reg_contents = 0;
+  if (!commandRegs || !target || !sectorCount)
+    return false;
+  for (size_t sector = 0; sector < sectorCount; ++sector) {
+    if (!ataPollPioWriteStatus(commandRegs, controlRegs, budget, finalStatus, true))
+      return false;
+    for (size_t word = 0; word < 256; ++word)
+      target[sector * 256 + word] = commandRegs->read16(0);
+  }
+  return ataPollPioWriteStatus(commandRegs, controlRegs, budget, finalStatus, false);
+}
+
 /// Logs the given AtaStatus object.
 inline void logAtaStatus(AtaStatus& status) {
   NormalStaticString s;

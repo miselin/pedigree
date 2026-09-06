@@ -25,10 +25,12 @@
 
 #include "IntervalTimerState.h"
 #include "ProcFs.h"
+#include "TerminalControl.h"
 #include "modules/system/vfs/VFS.h"
 
 PosixProcess::PosixProcess()
     : Process(DeferredPublication()),
+      m_AccountingLifetime(false),
       m_SessionId(0),
       m_pProcessGroup(nullptr),
       m_GroupPrevious(nullptr),
@@ -48,6 +50,7 @@ PosixProcess::PosixProcess()
 /** Copy constructor. */
 PosixProcess::PosixProcess(Process* pParent, bool bCopyOnWrite)
     : Process(DeferredPublication(), pParent, bCopyOnWrite),
+      m_AccountingLifetime(true),
       m_SessionId(0),
       m_pProcessGroup(nullptr),
       m_GroupPrevious(nullptr),
@@ -156,6 +159,8 @@ void PosixProcess::processTerminated() {
   m_RealIntervalTimer.disarm();
   m_VirtualIntervalTimer.disarm();
   m_ProfileIntervalTimer.disarm();
+  posix_account_process_exit(*this, m_AccountingLifetime);
+  TerminalControl::processTerminated(*this);
 }
 
 IntervalTimer::IntervalTimer(PosixProcess* pProcess, Mode mode)

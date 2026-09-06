@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/machine/Controller.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/processor/types.h"
@@ -192,6 +193,19 @@ static Device* probeDisk(Device* pDev) {
   return pDev;
 }
 
+static Module::UnloadAdmission admitUnload(bool terminal) {
+  for (auto* controller : g_Controllers) {
+    if (controller && !controller->prepareDiskRemoval()) {
+      for (auto* rollback : g_Controllers) {
+        if (rollback)
+          rollback->cancelDiskRemoval();
+      }
+      return terminal ? Module::UnloadAdmission::KeepMapped : Module::UnloadAdmission::Busy;
+    }
+  }
+  return Module::UnloadAdmission::Ready;
+}
+
 static bool entry() {
   /// \todo this iterates the device tree up to FOUR times.
   /// Needs some more thinking about how to do this better.
@@ -216,7 +230,7 @@ static bool entry() {
     Device::foreach (probeDisk);
   }
 
-  return bFound;
+  return bFound && KernelElf::instance().registerUnloadAdmission(&entry, &admitUnload);
 }
 
 static Device* removeAtaController(Device* device) {

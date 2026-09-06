@@ -211,6 +211,7 @@ void AtaDisk::IrqCompletion::withdraw() {
 AtaDisk::AtaDisk(AtaController* pDev, bool isMaster, IoBase* commandRegs, IoBase* controlRegs,
                  BusMasterIde* busMaster)
     : ScsiDisk(),
+      m_Paging(nullptr),
       m_IsMaster(isMaster),
       m_SupportsLBA28(true),
       m_SupportsLBA48(false),
@@ -231,7 +232,9 @@ AtaDisk::AtaDisk(AtaController* pDev, bool isMaster, IoBase* commandRegs, IoBase
   m_pParent = pDev;
 }
 
-AtaDisk::~AtaDisk() {}
+AtaDisk::~AtaDisk() {
+  releasePagingStorage();
+}
 
 void AtaDisk::maskInterrupts() {
   if (m_ControlRegs) {
@@ -595,6 +598,9 @@ bool AtaDisk::initialise(size_t nUnit) {
       return false;
     }
   }
+
+  preparePagingStorage();
+  publishEndpoint();
 
   NOTICE("Detected ATA device '" << m_pName << "', '" << m_pSerialNumber << "', '"
                                  << m_pFirmwareRevision << "'");
