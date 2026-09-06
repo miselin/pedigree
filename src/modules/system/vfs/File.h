@@ -261,6 +261,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /** Whether ordinary reads and writes consume a persistent byte offset. */
   virtual bool isSeekable() const;
 
+  /** Whether the backing supports ordinary file range operations. */
+  bool supportsRegularFileOperations();
+
   uintptr_t getInode() const;
   virtual void setInode(uintptr_t inode);
 

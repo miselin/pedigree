@@ -56,11 +56,13 @@ enum PosixError {
   BadRange = 34,               // ERANGE
   Deadlock = 35,               // EDEADLK
   NameTooLong = 36,            // ENAMETOOLONG
+  NoLocksAvailable = 37,       // ENOLCK
   Unimplemented = 38,          // ENOSYS
   NotEmpty = 39,               // ENOTEMPTY
   LoopExists = 40,             // ELOOP
   NoMessage = 42,              // ENOMSG
   IdentifierRemoved = 43,      // EIDRM
+  ValueTooLarge = 75,          // EOVERFLOW
   BadSharedLibrary = 80,       // ELIBBAD
   ProtocolWrongType = 91,      // EPROTOTYPE
   ProtocolNotAvailable = 92,   // ENOPROTOOPT

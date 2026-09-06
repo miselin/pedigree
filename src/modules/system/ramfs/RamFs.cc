@@ -30,6 +30,47 @@
 
 String RamFs::m_VolumeLabel("ramfs");
 
+namespace {
+void initialiseCreatedNode(File& file, uint32_t mode) {
+  // Creation attributes must be complete before another process can find the node.
+  // VFS permissions place owner rights in the low bits, unlike Unix modes.
+  uint32_t permissions = mode & FILE_AMASK;
+  if (mode & 0400)
+    permissions |= FILE_UR;
+  if (mode & 0200)
+    permissions |= FILE_UW;
+  if (mode & 0100)
+    permissions |= FILE_UX;
+  if (mode & 0040)
+    permissions |= FILE_GR;
+  if (mode & 0020)
+    permissions |= FILE_GW;
+  if (mode & 0010)
+    permissions |= FILE_GX;
+  if (mode & 0004)
+    permissions |= FILE_OR;
+  if (mode & 0002)
+    permissions |= FILE_OW;
+  if (mode & 0001)
+    permissions |= FILE_OX;
+  file.setPermissions(permissions);
+#if THREADS
+  Thread* thread = Processor::information().getCurrentThread();
+  if (thread) {
+    Process* process = thread->getParent();
+    int64_t uid = process->getEffectiveUserId();
+    int64_t gid = process->getEffectiveGroupId();
+    if (uid < 0)
+      uid = process->getUserId();
+    if (gid < 0)
+      gid = process->getGroupId();
+    file.setUid(uid < 0 ? 0 : static_cast<size_t>(uid));
+    file.setGid(gid < 0 ? 0 : static_cast<size_t>(gid));
+  }
+#endif
+}
+}  // namespace
+
 RamFile::RamFile(const String& name, uintptr_t inode, Filesystem* pParentFS, File* pParent)
     : File(name, 0, 0, 0, inode, pParentFS, 0, pParent),
       m_FileBlocks(),
@@ -193,10 +234,17 @@ bool RamFs::initialise(Disk* pDisk) {
 }
 
 bool RamFs::createFile(File* parent, const String& filename, uint32_t mask) {
-  if (!parent->isDirectory())
+  if (!parent->isDirectory()) {
+    SYSCALL_ERROR(NotADirectory);
     return false;
+  }
 
   File* f = new RamFile(filename, 0, this, parent);
+  if (!f) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  initialiseCreatedNode(*f, mask);
 
   RamDir* p = static_cast<RamDir*>(parent);
   if (!p->addEntry(filename, f)) {
@@ -207,10 +255,17 @@ bool RamFs::createFile(File* parent, const String& filename, uint32_t mask) {
 }
 
 bool RamFs::createDirectory(File* parent, const String& filename, uint32_t mask) {
-  if (!parent->isDirectory())
+  if (!parent->isDirectory()) {
+    SYSCALL_ERROR(NotADirectory);
     return false;
+  }
 
   RamDir* pDir = new RamDir(filename, 0, this, parent);
+  if (!pDir) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  initialiseCreatedNode(*pDir, mask);
 
   RamDir* pParent = static_cast<RamDir*>(parent);
   if (!pParent->addEntry(filename, pDir)) {

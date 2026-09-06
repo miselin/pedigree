@@ -47,6 +47,7 @@
 #include <termios.h>
 #include <utime.h>
 
+#include "advisory-lock-syscalls.h"
 #include "console-syscalls.h"
 #include "eventfd-syscalls.h"
 #include "file-syscalls.h"
@@ -3202,12 +3203,13 @@ int posix_fcntl(int fd, int cmd, void* arg) {
       f->setStatusFlags(reinterpret_cast<size_t>(arg));
       F_NOTICE("  -> new flags " << f->getStatusFlags());
       return 0;
-    case F_GETLK:   // Get record-locking information
-    case F_SETLK:   // Set or clear a record lock (without blocking
-    case F_SETLKW:  // Set or clear a record lock (with blocking)
-      F_NOTICE("  -> advisory record locking is not implemented");
-      SYSCALL_ERROR(Unimplemented);
-      return -1;
+    case F_GETLK:
+    case F_SETLK:
+    case F_SETLKW:
+    case F_OFD_GETLK:
+    case F_OFD_SETLK:
+    case F_OFD_SETLKW:
+      return posix_advisory_fcntl(*pSubsystem, fd, f, cmd, arg);
     case F_GETOWN:
       F_NOTICE("  -> F_GETOWN (stubbed)");
       return 0;
@@ -3840,9 +3842,7 @@ int posix_flock(int fd, int operation) {
     return -1;
   }
 
-  F_NOTICE(" -> advisory whole-file locking is not implemented");
-  SYSCALL_ERROR(Unimplemented);
-  return -1;
+  return posix_advisory_flock(descriptor, operation);
 }
 
 static File* check_dirfd(int dirfd, DescriptorLease& descriptor,

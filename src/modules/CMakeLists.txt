@@ -849,6 +849,9 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/signalfd-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/timerfd-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vm-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/advisory-lock-state.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/advisory-lock-table.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/advisory-lock-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/posix-timer-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/signal-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/system-syscalls.cc

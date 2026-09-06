@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 35 of 113 backlog entries implemented; 78 remain.
+Current checkpoint: 36 of 113 backlog entries implemented; 77 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,56 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Advisory file locks
+
+The file-lock pass adds `flock` and the classic/OFD record-lock commands of
+`fcntl`: GETLK, SETLK, and SETLKW. Locks are advisory; ordinary I/O remains
+permitted. Classic process locks and OFD record locks conflict with one another;
+local `flock` uses a separate namespace.
+
+Process record locks are shared by threads, absent in a fork child, retained by
+exec, and removed when their process closes any descriptor for the inode. OFD
+and flock locks follow the shared open description through dup, fork, and
+SCM_RIGHTS, ending at its final lifetime release. A blocked classic acquisition
+rechecks the numeric descriptor's open-description identity before granting a
+lock, so concurrent close/reuse cannot leave a grant on the retired file.
+
+Ranges support shared/exclusive modes, partial unlock, conversion, signed
+SEEK_SET/CUR/END normalization, and zero length through future EOF. Capacity
+failure preserves the original range set. Blocking classic requests detect
+cycles across process owners and inodes; OFD and flock waits do not promise
+deadlock detection. Waits are interruptible, and F_SETLKW follows musl's
+cancellation-point path.
+
+The registry is POSIX-local, with at most 4,096 granted intervals and 256 blocked
+requests. Exhaustion returns ENOLCK. Its first admitted descriptor class is
+ordinary regular files; unsupported classes fail explicitly. Waiters use
+broadcast/recheck, without a FIFO fairness guarantee.
+
+RamFs file and directory creation now applies the supplied mode and effective
+creator UID/GID before namespace publication. Constructor defaults for synthetic
+kernel nodes remain separate. Special set-ID inheritance is existing metadata
+work outside this slice.
+
+`file-lock-contract-test` covers flock, records, lifetime, blocking, and creation
+families. Native verification passed eight shared-engine cases, including 1,000
+transactions compared with an independent byte model, plus 30 VFS/file-metadata
+regressions. All 17 integration suites passed on fresh headless one- and
+four-CPU guests, with individual zero exit statuses and final markers. The
+37 routing/ABI checks passed, and six affected hosted translation units compiled.
+
+The first guest fixtures assumed an unavailable `close_range` route; that
+prerequisite was removed, while close, dup2, CLOEXEC, fork, exec, and descriptor
+passing remain covered. The creation check then caught a Unix-to-VFS permission
+encoding error in the new RamFs helper; its conversion is corrected. Failure logs
+are retained. Numeric-close waiter enrollment uses a bounded timing check because
+public wrappers do not expose kernel enrollment. Global capacity exhaustion has
+native reduced-capacity coverage.
+
+Artifacts and exact image/check identities are under
+`/private/tmp/pedigree-file-lock-expansion-20260905/verification.json`. Disk writes
+remained disabled; the hardlink/rename tests do not claim persistence coverage.
 
 ## Remapping, residency and page discard
 
@@ -75,7 +125,8 @@ and four CPUs; it is disabled in the ordinary image configuration.
 Initial failures are retained under `/private/tmp/pedigree-vm-expansion-20260905/`.
 The new CoW fixture undercounted its retained physical-page references and was
 corrected. The residency fixture now establishes file mode explicitly because
-RamFs creation currently ignores the supplied mode, a follow-up for the file pass.
+RamFs creation ignored the supplied mode at that checkpoint; the file-lock pass
+above repairs creation metadata.
 An existing clock fixture could consume its deadline while creating workers; it
 now gates startup and checks the observation window, with failure diagnostics.
 The original clock failure lacked timestamps sufficient to prove its exact cause.

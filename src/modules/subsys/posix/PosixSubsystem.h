@@ -203,6 +203,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
       : Subsystem(Posix),
         m_SignalHandlers(),
         m_SignalHandlersLock(),
+        m_AdvisoryOwner(AdvisoryOwner::Kind::Process),
         m_FdMap(),
         m_NextFd(0),
         m_FdLock(),
@@ -225,6 +226,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
       : Subsystem(type),
         m_SignalHandlers(),
         m_SignalHandlersLock(),
+        m_AdvisoryOwner(AdvisoryOwner::Kind::Process),
         m_FdMap(),
         m_NextFd(0),
         m_FdLock(),
@@ -411,6 +413,10 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   void retireDescriptor(FileDescriptor* descriptor);
 
+  AdvisoryOwner& advisoryOwner() {
+    return m_AdvisoryOwner;
+  }
+
   /** Gets a signal handler */
   SignalHandler* getSignalHandler(size_t sig) {
     if (sig > MaximumSupportedSignal) {
@@ -448,6 +454,10 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
    * another thread closes or replaces the descriptor in the meantime.
    */
   bool acquireFileDescriptor(size_t fd, DescriptorLease& descriptor);
+
+  /** Compare publication identity without taking an OFD lock or retaining references. */
+  bool descriptorMatchesOpenDescription(size_t fd,
+                                        const FileDescriptor::OpenFileDescriptionLease& expected);
 
   /**
    * Unpublishes fd only if it still names the generation in descriptor.
@@ -698,6 +708,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   /** A lock for access to the signal handlers tree */
   UnlikelyLock m_SignalHandlersLock;
   SharedPointer<PendingSignalContext> m_PendingSignals{new PendingSignalContext};
+  AdvisoryOwner m_AdvisoryOwner;
 
   /**
    * The file descriptor map. Maps number to pointers, the type of which is

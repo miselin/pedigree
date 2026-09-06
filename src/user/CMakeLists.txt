@@ -179,6 +179,14 @@ pedigree_app(vm-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/vm-contract-test/remap-shm.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/vm-contract-test/residency.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/vm-contract-test/discard.c)
+
+pedigree_app(file-lock-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-lock-contract-test/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-lock-contract-test/flock.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-lock-contract-test/records.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-lock-contract-test/lifetime.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-lock-contract-test/blocking.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-lock-contract-test/creation.c)
 pedigree_app(signal-exec-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-exec-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-exec-test/signals.c

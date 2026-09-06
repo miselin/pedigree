@@ -107,7 +107,7 @@ linux_number,syscall,family,status,scope_and_verification
 326,copy_file_range,Extended file interfaces,pending,
 332,statx,Extended file interfaces,pending,
 452,fchmodat2,Extended file interfaces,pending,
-73,flock,Mapped unavailable operations,pending,
+73,flock,Mapped unavailable operations,implemented,Advisory file-lock pass; flock and classic/OFD fcntl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 160,setrlimit,Mapped unavailable operations,pending,
 191,getxattr,Mapped unavailable operations,pending,
 192,lgetxattr,Mapped unavailable operations,pending,

@@ -27,6 +27,8 @@
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/String.h"
 
+#include "advisory-lock-state.h"
+
 class File;
 class LockedFile;
 class UnixSocket;
@@ -54,6 +56,10 @@ class EXPORTED_PUBLIC FileDescriptor {
    public:
     ~OpenFileDescription();
 
+    AdvisoryOwner& advisoryOwner() {
+      return m_AdvisoryOwner;
+    }
+
     File* getFile() const;
     SharedPointer<NetworkSyscalls> getNetworkImpl() const;
     SharedPointer<EventFd> getEventFdImpl() const;
@@ -73,6 +79,7 @@ class EXPORTED_PUBLIC FileDescriptor {
     void removeDescriptorOwner();
     void ensureVfsLease();
 
+    AdvisoryOwner m_AdvisoryOwner;
     mutable Mutex lock;
     File* file;
     SharedPointer<NetworkSyscalls> networkImpl;
@@ -222,6 +229,8 @@ class EXPORTED_PUBLIC FileDescriptor {
   int fdflags;
 
  private:
+  friend class PosixSubsystem;
+
   /** State and serialization shared by aliases of one open file. */
   OpenFileDescriptionLease m_OpenFile;
 

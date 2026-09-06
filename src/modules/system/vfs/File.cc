@@ -607,6 +607,11 @@ bool File::isSeekable() const {
   return true;
 }
 
+bool File::supportsRegularFileOperations() {
+  return !isDirectory() && !isSymlink() && !isPipe() && !isFifo() && !isSocket() && !isBytewise() &&
+         isSeekable() && !isDirectPhysicalMapping();
+}
+
 uintptr_t File::getInode() const {
   return m_Inode;
 }
@@ -866,8 +871,7 @@ bool File::clearDataCache() {
 }
 
 bool File::resize(size_t size) {
-  if (isDirectory() || isPipe() || isFifo() || isSocket() || isSymlink() || isBytewise() ||
-      !isSeekable()) {
+  if (!supportsRegularFileOperations()) {
     syscallError(isDirectory() ? Error::IsADirectory : Error::InvalidArgument);
     return false;
   }

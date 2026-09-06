@@ -244,6 +244,8 @@ target_compile_definitions(memorytracer PRIVATE -DMEMORY_TRACING)
 set(TESTSUITE_SRCS
     ext2img/DiskImage.cc
     ${CMAKE_SOURCE_DIR}/src/modules/drivers/common/scsi/ScsiCommands.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/advisory-lock-table.cc
+    testsuite/test-AdvisoryLockTable.cc
     testsuite/test-BloomFilter.cc
     testsuite/test-DiskImage.cc
     testsuite/test-Ext2FillCache.cc

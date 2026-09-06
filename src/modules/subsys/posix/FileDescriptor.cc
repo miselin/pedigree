@@ -95,7 +95,8 @@ RadixTree<LockedFile*> g_PosixGlobalLockedFiles;
 
 FileDescriptor::OpenFileDescription::OpenFileDescription(File* newFile, uint64_t initialOffset,
                                                          int initialStatusFlags)
-    : lock(),
+    : m_AdvisoryOwner(AdvisoryOwner::Kind::OpenDescription),
+      lock(),
       file(newFile),
       networkImpl(nullptr),
       eventFdImpl(nullptr),
@@ -110,6 +111,7 @@ FileDescriptor::OpenFileDescription::OpenFileDescription(File* newFile, uint64_t
 
 FileDescriptor::OpenFileDescription::~OpenFileDescription() {
   assert(!descriptorOwners);
+  posix_advisory_owner_closed(m_AdvisoryOwner);
   if (vfsLease) {
     file->releaseVfsReference();
   }

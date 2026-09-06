@@ -215,6 +215,7 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
     : Subsystem(s),
       m_SignalHandlers(),
       m_SignalHandlersLock(),
+      m_AdvisoryOwner(AdvisoryOwner::Kind::Process),
       m_FdMap(),
       m_NextFd(s.m_NextFd),
       m_FdLock(),
@@ -282,6 +283,10 @@ PosixSubsystem::~PosixSubsystem() {
   m_SignalHandlers.clear();
 
   release();
+
+  // Process destruction may arrive with the table pre-acquired. Registry
+  // teardown must follow that release, including construction-failure fallback.
+  posix_advisory_owner_closed(m_AdvisoryOwner);
 
   // For sanity's sake, destroy any remaining descriptors
   freeMultipleFds();
@@ -707,6 +712,8 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
   }
 
   // We're the lowest in the stack, so we can proceed with the exit function.
+
+  posix_advisory_owner_closed(m_AdvisoryOwner);
 
   // Peer shutdown has consumed their registrations. The final owner must
   // retire its user-memory exit state before process teardown removes it.
@@ -1461,6 +1468,21 @@ bool PosixSubsystem::acquireFileDescriptor(size_t fd, DescriptorLease& descripto
   return static_cast<bool>(descriptor);
 }
 
+bool PosixSubsystem::descriptorMatchesOpenDescription(
+    size_t fd, const FileDescriptor::OpenFileDescriptionLease& expected) {
+  if (!expected) {
+    return false;
+  }
+
+  const SharedPointer<FileDescriptor> missing;
+  Uninterruptible throughout;
+  m_FdLock.enter();
+  const SharedPointer<FileDescriptor>& current = m_FdMap.lookupRef(fd, missing);
+  const bool matches = current && current->m_OpenFile.get() == expected.get();
+  m_FdLock.leave();
+  return matches;
+}
+
 bool PosixSubsystem::closeFileDescriptor(size_t fd, const DescriptorLease& descriptor) {
   if (!descriptor) {
     return false;
@@ -1641,6 +1663,9 @@ void PosixSubsystem::preserveProcessSignalsForThreadExit(Thread* thread) {
 }
 
 void PosixSubsystem::retireDescriptor(FileDescriptor* descriptor) {
+  if (descriptor->file) {
+    posix_advisory_descriptor_closed(m_AdvisoryOwner, descriptor->file->futexIdentity());
+  }
   SharedPointer<PosixMessageQueue> queue = descriptor->getMqueueImpl();
   if (queue && m_pProcess) {
     posix_mqueue_close(queue.get(), m_pProcess->getId());
