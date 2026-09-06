@@ -30,6 +30,13 @@
 /** @addtogroup kernelprocessorx64
  * @{ */
 
+struct X64UserEntryMetadata {
+  uint16_t ds, es, fs, gs;
+  uint64_t fsBase, gsBase, origRax;
+} PACKED;
+
+static_assert(sizeof(X64UserEntryMetadata) == 32, "x64 entry metadata layout");
+
 /** x64 Interrupt State */
 class EXPORTED_PUBLIC X64InterruptState {
   friend class X64ProcessorState;
@@ -37,6 +44,14 @@ class EXPORTED_PUBLIC X64InterruptState {
   friend class PageFaultHandler;
 
  public:
+  const X64UserEntryMetadata& getUserEntryMetadata() const {
+    return m_UserEntry;
+  }
+  void setUserEntryMetadata(const X64UserEntryMetadata& metadata) {
+    m_UserEntry = metadata;
+  }
+  void refreshUserTlsBase();
+
   //
   // General Interface (InterruptState, SyscallState & ProcessorState)
   //
@@ -108,7 +123,8 @@ class EXPORTED_PUBLIC X64InterruptState {
 
   /** Construct a dummy interruptstate on the stack given in 'state', which
    * when executed will set the processor to 'state'. */
-  static X64InterruptState* construct(class X64ProcessorState& state, bool userMode);
+  static X64InterruptState* construct(class X64ProcessorState& state, bool userMode,
+                                      const X64UserEntryMetadata& metadata);
 
  private:
   /** The default constructor
@@ -123,6 +139,8 @@ class EXPORTED_PUBLIC X64InterruptState {
   /** The destructor
    *\note NOT implemented */
   ~X64InterruptState();
+
+  X64UserEntryMetadata m_UserEntry;
 
   /** The R15 general purpose register */
   uint64_t m_R15;
@@ -176,6 +194,14 @@ class X64SyscallState {
   friend class X64SyscallManager;
 
  public:
+  const X64UserEntryMetadata& getUserEntryMetadata() const {
+    return m_UserEntry;
+  }
+  void setUserEntryMetadata(const X64UserEntryMetadata& metadata) {
+    m_UserEntry = metadata;
+  }
+  void refreshUserTlsBase();
+
   //
   // General Interface (InterruptState, SyscallState & ProcessorState)
   //
@@ -238,6 +264,8 @@ class X64SyscallState {
   inline void setFlags(uint64_t newFlags);
 
  public:
+  X64UserEntryMetadata m_UserEntry;
+
   /** The R15 general purpose register */
   uint64_t m_R15;
   /** The R14 general purpose register */

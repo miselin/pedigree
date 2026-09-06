@@ -77,6 +77,7 @@ int prepareWait4(int pid, unsigned options, PosixWait::Request& request) {
     return -1;
   }
   eventOptions(options | Exited, request);
+  request.traceStops = true;
   if (pid > 0) {
     request.selector = PosixWait::Selector::Pid;
     request.id = pid;
@@ -132,6 +133,7 @@ int encodedStatus(const PosixWait::Report& report) {
   switch (report.cause) {
     case PosixWait::Exit:
       return (report.status & 0xFF) << 8;
+    case PosixWait::Trapped:
     case PosixWait::Stop:
       return ((report.status & 0xFF) << 8) | 0x7F;
     case PosixWait::Continue:

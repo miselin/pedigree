@@ -15,6 +15,8 @@
 ; ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+extern pedigree_restore_user_entry
+
 ; bool ProcessorBase::saveState(SchedulerState &)
 global _ZN13ProcessorBase9saveStateER17X64SchedulerState:function hidden
 ; void ProcessorBase::restoreState(SchedulerState &, volatile uintptr_t *)
@@ -140,6 +142,10 @@ _ZN13ProcessorBase12restoreStateER15X64SyscallStatePVm:
     ;; Release lock.
     mov     qword [rsi], 1
 .no_lock:
+
+    mov     rdi, rsp
+    call    pedigree_restore_user_entry
+    add     rsp, 32
 
 ;; Restore the registers
     pop     r15

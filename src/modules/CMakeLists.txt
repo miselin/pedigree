@@ -370,6 +370,10 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
             target_sources(hosted-core-smoke PRIVATE
                 ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/child-wait-regressions.cc)
         endif ()
+        if (PEDIGREE_PTRACE_TESTS)
+            target_sources(hosted-core-smoke PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ptrace-frame-regressions.cc)
+        endif ()
     else ()
     pedigree_module(hosted-smoke "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/main.cc
@@ -412,6 +416,10 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     if (PEDIGREE_CHILD_WAIT_TESTS)
         target_sources(hosted-smoke PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/child-wait-regressions.cc)
+    endif ()
+    if (PEDIGREE_PTRACE_TESTS)
+        target_sources(hosted-smoke PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ptrace-frame-regressions.cc)
     endif ()
     endif ()
 endif ()
@@ -909,6 +917,12 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/scheduling-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/wait-state.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/wait-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/ptrace-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/trace-context.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/trace-admission.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/trace-state.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/trace-signals.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/trace-syscall-state.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/ProcFs-namespaces.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/resource-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/UnixFilesystem.cc
@@ -941,6 +955,10 @@ endif ()
 if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_CHILD_WAIT_TESTS)
     target_sources(posix PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/child-wait-regressions.cc)
+endif ()
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_PTRACE_TESTS)
+    target_sources(posix PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ptrace-frame-regressions.cc)
 endif ()
 if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_PROCESS_MEMORY_TESTS)
     target_sources(posix PRIVATE

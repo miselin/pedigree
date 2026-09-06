@@ -350,6 +350,12 @@ static bool init() {
     FATAL("Child wait regression failed");
   }
 #endif
+#if !HOSTED && PEDIGREE_PTRACE_TESTS
+  extern bool runPtraceFrameRegressions();
+  if (!runPtraceFrameRegressions()) {
+    FATAL("Tracing frame regression failed");
+  }
+#endif
   return true;
 }
 

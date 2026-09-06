@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 83 of 113 backlog entries implemented; 30 remain.
+Current checkpoint: 84 of 113 backlog entries implemented; 29 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -20,13 +20,66 @@ lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
 
+## Cooperative tracing
+
+ptrace now supplies a successful amd64 Linux TRACEME path for a consenting,
+single-threaded child. The exact creating task owns GETREGS, GETREGSET,
+GETSIGINFO, CONT and DETACH; another thread in the parent can consume shared
+wait reports but cannot control the tracee. Task tokens survive exec and close
+before retirement, avoiding PID reuse and permanent Process/Thread pins.
+Credentials and dumpability are checked at enrollment and inspection. Native
+callbacks, multithreaded enrollment, ATTACH/SEIZE, memory/register mutation,
+stepping and other optional trace modes remain explicitly unsupported.
+
+The complete 216-byte amd64 register image includes selectors, FS/GS bases and
+original syscall RAX. Entry metadata belongs to the saved machine frame; the
+x64 return tails that consume these frames restore it. Exec exposes and enters
+one canonical frame.
+GETREGSET supports NT_PRSTATUS, aligned partial/oversized lengths and Linux's
+ordered data-then-iov_len stores. Copyout and invalid-request failures preserve
+the immutable stop. GETSIGINFO supplies 128 bytes and distinguishes signal,
+group and exec stops. Group stops report EINVAL for GETSIGINFO; CONT releases
+them, while SIGCONT alone preserves their inspectable tracing stop.
+
+Signal selection occurs before disposition consumption. CONT can suppress,
+preserve or replace the signal; blocked replacements return to ordinary pending
+selection. Replacement allocation and queue admission precede resume commitment,
+so ENOMEM/EAGAIN preserve the original stop. Stack abandonment releases selected
+deliveries, parked-state flags and prepared replacements. SIGKILL bypasses the
+parked gate. Stop publication supplies CLD_TRAPPED wait reports and SIGCHLD,
+respecting SA_NOCLDSTOP. WNOWAIT retains reports; consuming one does not resume
+execution. Tracer loss detaches, and successful tracer or tracee exec preserves
+the surviving relation.
+
+Verification passed 37 routing/ABI checks, 23 cross source compiles, 20
+hosted compile-only sources, the full image build and actual Darwin hosted core
+runtime. Fresh headless one- and four-CPU guests passed all 30 public suites in
+225.0 and 187.0 seconds; all 316 affected image source/object pairs were
+current. Disk writes were enabled only on disposable disks, and build settings
+were restored. Results and saved image hashes are in
+/private/tmp/pedigree-tracing-expansion-20260906/verification.json.
+Public families cover registers, inspection, signals, ownership, lifecycle and
+errors. A separate static ELF records its first resumed instruction before any
+interpreter or CRT, independently checking the exec
+snapshot. Hardware metadata round-trip checks cover GS-base restoration;
+public FS-base comparison uses ARCH_GET_FS. Deterministic allocation-failure
+injection and a negative SA_NOCLDSTOP observation were not exercised. Real queue
+exhaustion and stop preservation are covered.
+
+The initial shared-kernel build rejected direct relocations to the new assembly
+helpers. Protected visibility binds those internal calls while retaining module
+exports. Initial guests then exposed a test fixture's use of a private kernel
+IRQ guard; the fixture now saves/restores IRQ state explicitly. Failed images
+and logs are preserved. A preflight confirms all strong POSIX imports have
+available image exports, with runtime still responsible for load-order proof.
+
 ## Child wait and non-consuming observation
 
 waitid supports P_ALL, P_PID and P_PGID, exited/stopped/continued events,
 WNOHANG and WNOWAIT. Reports include numeric real UID, cause and exit/signal
 status. Group-zero selection snapshots the caller group at entry. Known clone
-and PIDFD forms remain explicitly unsupported. Tracing reports are a subsequent
-pass.
+and PIDFD forms remain explicitly unsupported. Cooperative tracing reports use
+the same selection engine.
 
 waitid and wait4 share child selection, interruption handling, reaping and final
 CPU accounting. WNOWAIT retains the Process through off-stack completion without

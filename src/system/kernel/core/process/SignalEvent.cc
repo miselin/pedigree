@@ -56,6 +56,7 @@ SignalEvent::SignalEvent(const SignalEvent& other, bool isDeletable)
       m_SenderProcess(other.m_SenderProcess),
       m_SenderUser(other.m_SenderUser),
       m_SignalValue(other.m_SignalValue),
+      m_TraceBypass(other.m_TraceBypass),
       m_ChildStatus(other.m_ChildStatus),
       m_ChildUserTime(other.m_ChildUserTime),
       m_ChildSystemTime(other.m_ChildSystemTime) {}

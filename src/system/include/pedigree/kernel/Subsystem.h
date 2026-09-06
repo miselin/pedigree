@@ -28,6 +28,8 @@
 class File;
 class Process;
 class Thread;
+class Event;
+class UserReturnFrame;
 template <class T>
 class Vector;
 
@@ -43,6 +45,15 @@ class EXPORTED_PUBLIC Subsystem {
   friend class Process;
 
  public:
+  enum class UserReturnResult { Continue, Terminal };
+  enum class UserReturnEventResult { Deliver, Consumed, Terminal };
+  virtual UserReturnResult userReturnCheckpoint(Thread&, UserReturnFrame&) {
+    return UserReturnResult::Continue;
+  }
+  virtual UserReturnEventResult userReturnEvent(Thread&, Event&, UserReturnFrame&) {
+    return UserReturnEventResult::Deliver;
+  }
+
   /** Defines the different types of subsystems */
   enum SubsystemType { Posix = 0, Native = 1, None = 255 };
 

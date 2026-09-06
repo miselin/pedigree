@@ -85,11 +85,15 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
   bool queuedIndividually() const {
     return m_SignalNumber >= 32 || (m_DeliveryState && m_DeliveryState->timer());
   }
+  bool hasDeliveryState() const {
+    return bool(m_DeliveryState);
+  }
   void setDeliveryState(const SharedPointer<SignalEventState>& state) {
     m_DeliveryState = state;
   }
   void transferDeliveryStateTo(SignalEvent& event) {
     event.m_DeliveryState = pedigree_std::move(m_DeliveryState);
+    event.m_TraceBypass = m_TraceBypass;
   }
   const void* deliverySource() const {
     return m_DeliveryState ? m_DeliveryState->source() : nullptr;
@@ -111,6 +115,14 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
     }
   }
 
+  void setTraceBypass(bool value = true) {
+    m_TraceBypass = value;
+  }
+  bool consumeTraceBypass() {
+    bool value = m_TraceBypass;
+    m_TraceBypass = false;
+    return value;
+  }
   virtual size_t serialize(uint8_t* pBuffer);
   static bool unserialize(uint8_t* pBuffer, Event& event);
 
@@ -218,6 +230,7 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
   uint32_t m_SenderUser;
   uint64_t m_SignalValue;
   SharedPointer<SignalEventState> m_DeliveryState;
+  bool m_TraceBypass = false;
   uint64_t m_RebindGeneration = 0;
   uint64_t m_QueueSequence = 0;
   int32_t m_ChildStatus = 0;

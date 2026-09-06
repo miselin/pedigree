@@ -258,6 +258,32 @@ pedigree_app(child-wait-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/errors.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/interruption.c)
 
+pedigree_app(ptrace-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ptrace-contract-test/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ptrace-contract-test/fixture.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ptrace-contract-test/tracee.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ptrace-contract-test/registers.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ptrace-contract-test/inspect.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ptrace-contract-test/signals.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ptrace-contract-test/ownership.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ptrace-contract-test/lifecycle.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ptrace-contract-test/errors.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ptrace-contract-test/sentinel.S)
+
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    # Capture the first resumed instruction before a loader or CRT changes it.
+    add_executable(app-ptrace-entry-test
+        ${CMAKE_CURRENT_SOURCE_DIR}/applications/ptrace-contract-test/exec-entry.S)
+    set_target_properties(app-ptrace-entry-test PROPERTIES
+        OUTPUT_NAME "ptrace-entry-test" LINKER_LANGUAGE C)
+    target_link_options(app-ptrace-entry-test PRIVATE
+        -nostdlib -static -no-pie -Wl,-e,tc_exec_entry
+        -Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}
+        -Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE})
+    list(APPEND PEDIGREE_APPS $<TARGET_FILE:app-ptrace-entry-test>)
+    list(APPEND PEDIGREE_APPS_TARGETS app-ptrace-entry-test)
+endif ()
+
 pedigree_app(scheduling-contract-test ON OFF ON ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/scheduling-contract-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/scheduling-contract-test/fixture.c

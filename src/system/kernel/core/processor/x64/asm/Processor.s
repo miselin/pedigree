@@ -15,6 +15,8 @@
 ; ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+extern pedigree_restore_user_entry
+
 ; uintptr_t ProcessorBase::getBasePointer()
 global _ZN13ProcessorBase14getBasePointerEv:function hidden
 ; uintptr_t ProcessorBase::getStackPointer()
@@ -53,6 +55,10 @@ _ZN13ProcessorBase14getDebugStatusEv:
 _ZN13ProcessorBase13contextSwitchEP17X64InterruptState:
   ; Change the stack pointer to point to the top of the passed InterruptState object.
   mov rsp, rdi
+
+  mov rdi, rsp
+  call pedigree_restore_user_entry
+  add rsp, 32
 
   ; Restore the registers
   pop r15

@@ -17,6 +17,9 @@ extern bool runAffinityRegressions();
 #if PEDIGREE_CHILD_WAIT_TESTS
 extern bool runChildWaitRegressions();
 #endif
+#if PEDIGREE_PTRACE_TESTS
+extern bool runPtraceFrameRegressions();
+#endif
 
 static bool entry() {
   if (!runHostedWaitRegressions()) {
@@ -31,6 +34,12 @@ static bool entry() {
 #endif
 #if PEDIGREE_CHILD_WAIT_TESTS
   if (!runChildWaitRegressions()) {
+    system_reset();
+    return true;
+  }
+#endif
+#if PEDIGREE_PTRACE_TESTS
+  if (!runPtraceFrameRegressions()) {
     system_reset();
     return true;
   }

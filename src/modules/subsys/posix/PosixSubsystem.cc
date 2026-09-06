@@ -267,6 +267,8 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
 
 void PosixSubsystem::setProcess(Process* process) {
   Subsystem::setProcess(process);
+  if (process)
+    m_TraceContext.attach(*process);
   m_PendingSignals->attach(m_pProcess);
   if (process && m_Namespaces)
     m_Namespaces->attach(*process);
@@ -312,6 +314,7 @@ bool PosixSubsystem::publishUserImage(VirtualAddressSpace& space) {
 }
 
 PosixSubsystem::~PosixSubsystem() {
+  m_TraceContext.close();
   if (m_Namespaces)
     m_Namespaces->close();
   m_PendingSignals->close();
@@ -735,6 +738,7 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
   Process* pProcess = pThread->getParent();
   NOTICE("PosixSubsystem::exit(" << Dec << pProcess->getId() << ", code=" << code << ")");
 
+  m_TraceContext.close();
   if (!pProcess->beginTermination(code, cause)) {
     // Another thread owns or has reserved process-wide cleanup. A competitor
     // must take only the thread exit path; the owner will retire every peer.
@@ -940,6 +944,8 @@ void PosixSubsystem::threadException(Thread* pThread, ExceptionType eType, Inter
 
 #if X64
   if (signal > 0 && pState && getAbi() == LinuxAbi) {
+    if (traceException(*pThread, signal, *pState, eType, faultAddress, errorCode))
+      return;
     SignalDisposition disposition;
     if (getSignalDisposition(signal, disposition, true) && disposition.type == 0) {
       LinuxAmd64Signal::DeliveryResult result = LinuxAmd64Signal::deliverSynchronous(
@@ -1003,7 +1009,9 @@ void PosixSubsystem::sendSignal(Thread* pThread, int signal, bool yield, bool pr
 
 bool PosixSubsystem::admitLegacyUserSignals() {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  if (m_CallbackSchedulingDomain == CallbackSchedulingDomain::Affinity)
+  TraceRelationRef trace;
+  if (m_CallbackSchedulingDomain == CallbackSchedulingDomain::Affinity ||
+      m_TraceContext.acquireIncoming(trace))
     return false;
   // A serialized legacy handler retains a lower kernel continuation after
   // its Event lease retires. Its image must keep that continuation's CPU.
@@ -1235,6 +1243,9 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(
   // ignored. Publish Active before a caught handler can enter the event queue.
   if (sig == SIGCONT) {
     process->resume();
+    TraceRelationRef trace;
+    if (m_TraceContext.acquireIncoming(trace))
+      trace->continued(*process);
   }
 
   SignalHandler* handler = m_SignalHandlers.lookup(sig);
@@ -1243,7 +1254,7 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(
       handler && (handler->type == 2 || (handler->type == 1 && defaultSignalActionIsIgnore(sig)));
   const uint64_t bit = uint64_t(1) << (sig - 1);
   const bool blocked = (target->getSignalMask() | target->getSynchronousSignalMask()) & bit;
-  const bool suppressDelivery = ignored && !blocked;
+  const bool suppressDelivery = ignored && !blocked && !target->requiresSignalFrames();
   // A blocked ignored signal still belongs to sigwait/sigpending. Its inert
   // prototype also handles a later unblock without invoking a user handler.
   if (ignored && !handler->pEvent) {
@@ -1295,8 +1306,14 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(
     static uint64_t nextSignalSequence = 0;
     delivery->setQueueSequence(__atomic_add_fetch(&nextSignalSequence, 1, __ATOMIC_RELAXED));
     delivery->setDeliveryState(deliveryState);
-    if (sig == SIGCHLD && signalCode == 0 && senderProcess &&
-        senderProcess->getParent() == process && senderProcess->getState() == Process::Terminated) {
+    if (sig == SIGCHLD && signalCode == 4 && senderProcess &&
+        senderProcess->getParent() == process) {
+      delivery->setChildStatus(static_cast<int32_t>(signalValue),
+                               senderProcess->getUserTime() / (Time::Multiplier::Second / 100),
+                               senderProcess->getKernelTime() / (Time::Multiplier::Second / 100));
+    } else if (sig == SIGCHLD && signalCode == 0 && senderProcess &&
+               senderProcess->getParent() == process &&
+               senderProcess->getState() == Process::Terminated) {
       const int status = senderProcess->getExitStatus();
       signalCode = (status & 0x7f) ? ((status & 0x80) ? 3 : 2) : 1;
       delivery->setChildStatus((status & 0x7f) ? (status & 0x7f) : ((status >> 8) & 0xff),
@@ -1753,6 +1770,7 @@ void PosixSubsystem::threadExiting(Thread* pThread) {
   if (!pThread) {
     return;
   }
+  m_TraceContext.retireTask(*pThread);
 
   if (m_Namespaces) {
     const size_t taskId = pThread->getTaskId();
@@ -2412,11 +2430,16 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   }
 
   UniquePointer<PreparedUtsThread> initialUts;
+  UniquePointer<PreparedTraceTask> initialTrace;
   if (!m_Namespaces || !m_Namespaces->valid()) {
     SYSCALL_ERROR(OutOfMemory);
     return false;
   }
   if (!state) {
+    if (m_TraceContext.prepareTask(initialTrace) != TraceStatus::Success) {
+      SYSCALL_ERROR(OutOfMemory);
+      return false;
+    }
     UtsRef currentUts;
     if (!m_Namespaces->acquireThread(*pThread, currentUts)) {
       posix_uts_error(UtsStatus::Missing);
@@ -2452,6 +2475,12 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   const size_t previousTaskId = pThread->getTaskId();
   execScope.adoptLeaderIdentity();
   m_Namespaces->promoteExec(*pThread);
+  m_TraceContext.promoteExec(*pThread);
+  {
+    TraceRelationRef trace;
+    if (m_TraceContext.acquireIncoming(trace))
+      trace->imageCommitted();
+  }
   procfsInvalidateNamespaceTask(m_Namespaces, pProcess->getId(), previousTaskId);
   procfsInvalidateNamespaceTask(m_Namespaces, pProcess->getId(), pProcess->getId());
   DynamicLinker* oldLinker = pProcess->getLinker();
@@ -2705,6 +2734,9 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
       return failAfterCommit(Error::OutOfMemory);
     }
     m_Namespaces->publishThread(initialUts, *pNewThread, true);
+    if (m_TraceContext.publishTask(initialTrace, *pNewThread) != TraceStatus::Success &&
+        pNewThread->getUnwindState() != Thread::TerminateThread)
+      FATAL("Initial trace task publication failed");
     pNewThread->adoptInitialUserStackForExec(stack);
     pNewThread->setName("ld.so thread");
     if (!pNewThread->startDetached()) {

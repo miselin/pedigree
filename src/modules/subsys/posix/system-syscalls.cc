@@ -382,6 +382,25 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   }
 
   PosixSubsystem* creatorSubsystem = getSubsystem();
+  TraceCloneAdmission traceCreation;
+  TraceTaskRef creatorTask;
+  UniquePointer<PreparedTraceTask> preparedTrace;
+  if (!creatorSubsystem || !creatorSubsystem->traceContext().taskToken(
+                               *Processor::information().getCurrentThread(), creatorTask)) {
+    SYSCALL_ERROR(NoSuchProcess);
+    return -1;
+  }
+  if (route == CloneRoute::Thread) {
+    if (creatorSubsystem->traceContext().reserveThreadCreation(traceCreation) !=
+        TraceStatus::Success) {
+      SYSCALL_ERROR(OperationNotSupported);
+      return -1;
+    }
+    if (creatorSubsystem->traceContext().prepareTask(preparedTrace) != TraceStatus::Success) {
+      SYSCALL_ERROR(OutOfMemory);
+      return -1;
+    }
+  }
   auto creatorNamespaces = creatorSubsystem ? creatorSubsystem->namespaceContext()
                                             : SharedPointer<PosixNamespaceContext>();
   UtsRef creatorUts;
@@ -458,6 +477,10 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
         return -1;
       }
       creatorNamespaces->publishThread(preparedUts, *pThread, false);
+      if (creatorSubsystem->traceContext().publishTask(preparedTrace, *pThread) !=
+              TraceStatus::Success &&
+          pThread->getUnwindState() != Thread::TerminateThread)
+        FATAL("clone trace task publication failed");
       pThread->setName("posix clone() thread");
       if (setTls) {
         pThread->setTlsBase(newtls);
@@ -616,6 +639,13 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     }
   }
 
+  pSubsystem->traceContext().setCreator(creatorTask);
+  if (pSubsystem->traceContext().prepareTask(preparedTrace) != TraceStatus::Success) {
+    delete pProcess;
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
+
   // The process is still unpublished, so this image is not remotely reachable
   // until its remaining thread state is assembled and publish() runs below.
   if (!pSubsystem->publishUserImage(*pProcess->getAddressSpace())) {
@@ -632,6 +662,9 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     return -1;
   }
   pSubsystem->namespaceContext()->publishThread(preparedUts, *pThread, true);
+  if (pSubsystem->traceContext().publishTask(preparedTrace, *pThread) != TraceStatus::Success &&
+      pThread->getUnwindState() != Thread::TerminateThread)
+    FATAL("fork trace task publication failed");
   pThread->setName("posix clone() forked thread");
   pThread->detach();
   if (flags & CLONE_CHILD_CLEARTID) {

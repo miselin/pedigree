@@ -7,7 +7,7 @@
 namespace PosixWait {
 enum class Selector { All, Pid, Pgid };
 enum Event : unsigned { Exited = 1, Stopped = 2, Continued = 4 };
-enum Cause : int32_t { Exit = 1, Killed = 2, Dumped = 3, Stop = 5, Continue = 6 };
+enum Cause : int32_t { Exit = 1, Killed = 2, Dumped = 3, Trapped = 4, Stop = 5, Continue = 6 };
 
 struct Request {
   Selector selector = Selector::All;
@@ -15,6 +15,7 @@ struct Request {
   unsigned events = Exited;
   bool noHang = false;
   bool noWait = false;
+  bool traceStops = false;
 };
 
 struct Report {

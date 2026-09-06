@@ -41,6 +41,7 @@
 #include "modules/subsys/posix/PosixMemoryLockAccount.h"
 #include "modules/subsys/posix/logging.h"
 #include "modules/subsys/posix/queued-signal.h"
+#include "modules/subsys/posix/trace-context.h"
 #include "modules/subsys/posix/uts-namespace.h"
 #include "modules/system/vfs/Directory.h"
 
@@ -246,6 +247,19 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   SharedPointer<PosixNamespaceContext> namespaceContext() const {
     return m_Namespaces;
   }
+
+  PosixTraceContext& traceContext() {
+    return m_TraceContext;
+  }
+  bool tracePolicyAllowed() const {
+    return affinityPolicyAllowed() && m_Abi == LinuxAbi;
+  }
+  UserReturnResult userReturnCheckpoint(Thread&, UserReturnFrame&) override;
+  UserReturnEventResult userReturnEvent(Thread&, Event&, UserReturnFrame&) override;
+  bool traceException(Thread&, int& signal, InterruptState&, ExceptionType, uintptr_t, uintptr_t);
+  TraceStatus prepareTraceSignal(Thread&, int signal, int32_t pid, uint32_t uid,
+                                 bool inheritReservation, UniquePointer<SignalEvent>&);
+  bool publishTraceSignal(Thread&, UniquePointer<SignalEvent>&, SignalEvent* source);
 
   /** Default destructor */
   virtual ~PosixSubsystem();
@@ -732,6 +746,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
                     bool& hasOptionalArgument);
 
   /** Signal handlers */
+  PosixTraceContext m_TraceContext;
   Tree<size_t, SignalHandler*> m_SignalHandlers;
 
   /** A lock for access to the signal handlers tree */

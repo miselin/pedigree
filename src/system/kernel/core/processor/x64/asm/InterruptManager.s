@@ -15,6 +15,9 @@
 ; ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+extern pedigree_capture_user_entry
+extern pedigree_restore_user_entry
+
 ; X64InterruptManager::interrupt(InterruptState &interruptState)
 extern _ZN19X64InterruptManager9interruptER17X64InterruptState
 ; X64InterruptManager::returnFromInterrupt(InterruptState &interruptState)
@@ -50,6 +53,11 @@ interrupt_handler:
   push r14
   push r15
 
+  sub rsp, 32
+  mov qword [rsp+24], -1
+  mov rdi, rsp
+  call pedigree_capture_user_entry
+
   mov ax, 0x10
   mov ss, ax
   mov ds, ax
@@ -67,6 +75,10 @@ interrupt_handler:
   ; frame, run pending Event and terminal work at an IRQ-enabled C++ boundary.
   mov rdi, rsp
   call _ZN19X64InterruptManager19returnFromInterruptER17X64InterruptState
+
+  mov rdi, rsp
+  call pedigree_restore_user_entry
+  add rsp, 32
 
   ; Restore the registers
   pop r15

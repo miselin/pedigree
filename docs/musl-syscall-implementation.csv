@@ -18,7 +18,7 @@ linux_number,syscall,family,status,scope_and_verification
 76,truncate,Core file and process interfaces,pending,
 94,lchown,Core file and process interfaces,pending,
 99,sysinfo,Scheduling and resource discovery,pending,
-101,ptrace,Linux administration and isolation,pending,
+101,ptrace,Linux administration and isolation,implemented,Cooperative tracing pass; single-thread TRACEME inspection and resume contracts passed in 1CPU and 4CPU guests; explicit request and admission bounds in companion document
 122,setfsuid,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 123,setfsgid,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 124,getsid,Core file and process interfaces,pending,

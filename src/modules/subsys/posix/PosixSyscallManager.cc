@@ -54,6 +54,7 @@
 #include "posixSyscallNumbers.h"
 #include "process-vm-syscalls.h"
 #include "pthread-syscalls.h"
+#include "ptrace-syscalls.h"
 #include "queued-signal.h"
 #include "scheduling-syscalls.h"
 #include "select-syscalls.h"
@@ -230,6 +231,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_waitid(static_cast<int>(p1), static_cast<int32_t>(p2),
                           reinterpret_cast<void*>(p3), static_cast<int>(p4),
                           reinterpret_cast<LinuxRusage64*>(p5));
+    case POSIX_PTRACE:
+      return posix_ptrace(p1, static_cast<int32_t>(p2), p3, p4, linuxAbi);
     case POSIX_EXIT:
       NOTICE("POSIX exit request: pid="
              << Processor::information().getCurrentThread()->getParent()->getId()
@@ -745,21 +748,37 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_PEDIGREE_GET_INFO_BLOCK:
       return VirtualAddressSpace::getKernelAddressSpace().getGlobalInfoBlock();
 
-    case POSIX_SET_TLS_AREA:
+    case POSIX_SET_TLS_AREA: {
       if (!PosixSubsystem::copyToUser(reinterpret_cast<void*>(p1), &p1, sizeof(p1))) {
         SYSCALL_ERROR(BadAddress);
         return -1;
       }
       Processor::information().getCurrentThread()->setTlsBase(p1);
+#if X64 && !HOSTED
+      auto metadata = state.getUserEntryMetadata();
+      metadata.fsBase = p1;
+      state.setUserEntryMetadata(metadata);
+#endif
       return 0;
+    }
 
     case POSIX_FUTEX:
       return posix_futex(reinterpret_cast<int*>(p1), static_cast<int>(p2), static_cast<int>(p3), p4,
                          reinterpret_cast<int*>(p5), static_cast<int>(p6));
     case POSIX_UNAME:
       return posix_uname(reinterpret_cast<struct utsname*>(p1));
-    case POSIX_ARCH_PRCTL:
-      return posix_arch_prctl(p1, p2);
+    case POSIX_ARCH_PRCTL: {
+      const int result = posix_arch_prctl(p1, p2);
+#if X64 && !HOSTED
+      if (!result && static_cast<int>(p1) == 0x1002) {  // ARCH_SET_FS.
+        // The return frame owns the base even if this syscall was preempted.
+        auto metadata = state.getUserEntryMetadata();
+        metadata.fsBase = p2;
+        state.setUserEntryMetadata(metadata);
+      }
+#endif
+      return result;
+    }
     case POSIX_CLONE: {
       return posix_clone(state, p1, reinterpret_cast<void*>(p2), reinterpret_cast<int*>(p3),
                          reinterpret_cast<int*>(p4), p5, linuxAbi);

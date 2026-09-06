@@ -108,6 +108,7 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/SyscallManager.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/InterruptManager.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/Scheduler.s
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/UserReturnMetadata.s
         # /core/processor/x86_common/
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/Disassembler.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/IoPort.cc
@@ -128,6 +129,7 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/InterruptManager.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/boot-standalone.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/Scheduler.s
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/UserReturnMetadata.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/x64/fastmemory.s
         PROPERTIES LANGUAGE ASM_NASM)
 elseif (PEDIGREE_ARCHDIR STREQUAL "hosted")
@@ -303,6 +305,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/TerminationDeferral.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Thread.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Thread-affinity.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Thread-user-return.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/ThreadToCoreAllocationAlgorithm.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/TimeTracker.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Uninterruptible.cc
@@ -319,6 +322,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/PageFaultHandler.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/PhysicalMemoryManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/Processor.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/UserReturnFrame.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/StackFrameBase.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/SyscallHandler.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/SyscallManager.cc

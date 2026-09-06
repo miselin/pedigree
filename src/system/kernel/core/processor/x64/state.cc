@@ -188,7 +188,8 @@ const char* X64SyscallState::getRegisterName(size_t index) const {
   return X64SyscallStateRegisterName[index];
 }
 
-X64InterruptState* X64InterruptState::construct(X64ProcessorState& state, bool userMode) {
+X64InterruptState* X64InterruptState::construct(X64ProcessorState& state, bool userMode,
+                                                const X64UserEntryMetadata& metadata) {
   // Obtain the stack pointer.
   uintptr_t* pStack = reinterpret_cast<uintptr_t*>(state.getStackPointer());
 
@@ -215,7 +216,25 @@ X64InterruptState* X64InterruptState::construct(X64ProcessorState& state, bool u
   *--pStack = state.r14;
   *--pStack = state.r15;
 
+  pStack -= sizeof(X64UserEntryMetadata) / sizeof(uintptr_t);
   X64InterruptState* toRet = reinterpret_cast<X64InterruptState*>(pStack);
+  toRet->setUserEntryMetadata(metadata);
 
   return toRet;
 }
+
+#if X64 && !HOSTED
+namespace {
+uint64_t installedUserTlsBase() {
+  uint32_t low, high;
+  asm volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(0xc0000100));
+  return (uint64_t(high) << 32) | low;
+}
+}  // namespace
+void X64InterruptState::refreshUserTlsBase() {
+  m_UserEntry.fsBase = installedUserTlsBase();
+}
+void X64SyscallState::refreshUserTlsBase() {
+  m_UserEntry.fsBase = installedUserTlsBase();
+}
+#endif

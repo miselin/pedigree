@@ -72,7 +72,7 @@ void Thread::snapshotPlacementLocked(ThreadPlacement& placement) const {
 bool Thread::tryPinLegacyUserCallbacks() {
   LockGuard<Spinlock> guard(m_Lock);
   PerProcessorScheduler* owner = getScheduler();
-  if (!owner || m_bShutdown || getUnwindState() != Continue ||
+  if (!owner || m_bShutdown || m_SignalFramesRequired || getUnwindState() != Continue ||
       m_LegacyUserCallbackPins == ~size_t(0) ||
       !m_Placement.allowed.contains(owner->logicalCpu()) ||
       (m_AffinityPending && !m_RequestedAffinity.contains(owner->logicalCpu())))

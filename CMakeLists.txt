@@ -148,6 +148,7 @@ set(PEDIGREE_PROCESS_MEMORY_TESTS FALSE CACHE BOOL "Run focused process-memory c
 set(PEDIGREE_UTS_NAMESPACE_TESTS FALSE CACHE BOOL "Run focused namespace lifecycle regressions during POSIX startup.")
 set(PEDIGREE_AFFINITY_TESTS FALSE CACHE BOOL "Run focused scheduler affinity and wake-publication regressions.")
 set(PEDIGREE_CHILD_WAIT_TESTS FALSE CACHE BOOL "Run focused child wait and reaper lifetime regressions.")
+set(PEDIGREE_PTRACE_TESTS FALSE CACHE BOOL "Run focused tracing frame and stop lifetime regressions.")
 
 # General build options.
 set(PEDIGREE_LTO FALSE CACHE BOOL "Enable LTO.")

@@ -28,6 +28,7 @@
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/UserReturnFrame.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/IntrusiveMpscQueue.h"
@@ -149,10 +150,12 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
    * Delivers pending Events and terminal work immediately before a user
    * return, after the raw interrupt frame has released its C++ scopes.
    */
-  MUST_USE_RESULT bool serviceUserReturnWork(InterruptState& state);
+  MUST_USE_RESULT bool serviceUserReturnWork(
+      InterruptState& state, UserReturnFrame::Origin origin = UserReturnFrame::Origin::Interrupt);
 
   /** Delivers pending Events immediately before returning from a syscall. */
-  MUST_USE_RESULT bool serviceUserReturnWork(SyscallState& state);
+  MUST_USE_RESULT bool serviceUserReturnWork(
+      SyscallState& state, UserReturnFrame::Origin origin = UserReturnFrame::Origin::Syscall);
 
   /** Commits terminal state after architecture return-tail cleanup is done. */
   void commitUserReturnTerminalState();

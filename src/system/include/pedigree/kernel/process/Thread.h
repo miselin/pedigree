@@ -54,6 +54,7 @@ class RoundRobin;
 class RequestQueueCallbackScope;
 class SchedulerTimerDispatchCleanup;
 class AdmittedThread;
+class UserReturnFrame;
 
 /** Thread TLS area size */
 #define THREAD_TLS_SIZE PAGE_SIZE
@@ -100,6 +101,29 @@ class EXPORTED_PUBLIC Thread {
     Thread* m_pThread;
     DeferredScopeRecord m_Record;
   };
+
+  class EXPORTED_PUBLIC UserReturnFrameScope {
+   public:
+    UserReturnFrameScope(Thread& owner, UserReturnFrame& frame);
+    ~UserReturnFrameScope();
+
+   private:
+    NOT_COPYABLE_OR_ASSIGNABLE(UserReturnFrameScope);
+    static void restore(void* context);
+    Thread* m_Owner;
+    size_t m_StateLevel;
+    UserReturnFrame* m_Frame;
+    UserReturnFrame* m_Previous;
+    DeferredScopeRecord m_Record;
+  };
+
+  UserReturnFrame* currentUserReturnFrame() const;
+  bool tryRequireSignalFrames();
+  void clearSignalFrameRequirement();
+  void setUserReturnSignalParked(bool parked);
+  bool requiresSignalFrames() const {
+    return __atomic_load_n(&m_SignalFramesRequired, __ATOMIC_ACQUIRE);
+  }
 
   /** Temporarily replaces this state level's signal mask for one blocking wait. */
   class EXPORTED_PUBLIC TemporarySignalMask {
@@ -909,6 +933,7 @@ class EXPORTED_PUBLIC Thread {
   };
 
   /** Checks one event against masks and process state while m_Lock is held. */
+  bool eventNeedsUserReturnFrameUnlocked(Event* event) const;
   bool eventIsDeliverableUnlocked(Event* event,
                                   EventSelection selection = EventSelection::AnyDeliverable);
 
@@ -988,6 +1013,7 @@ class EXPORTED_PUBLIC Thread {
 
     /** The processor state for this level. */
     SchedulerState* m_State;
+    UserReturnFrame* m_UserReturnFrame = nullptr;
 
     /** Our kernel stack. */
     VirtualAddressSpace::Stack* m_pKernelStack;
@@ -1104,6 +1130,8 @@ class EXPORTED_PUBLIC Thread {
   bool m_AffinityGatePending = false;
   bool m_AffinityWorkQueued = false;
   size_t m_LegacyUserCallbackPins = 0;
+  bool m_SignalFramesRequired = false;
+  bool m_UserReturnSignalParked = false;
   Thread* m_AffinityNext = nullptr;
   bool m_HasSchedulerContext = false;
   bool m_ReadyPublicationPending = false;

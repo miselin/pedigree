@@ -190,6 +190,12 @@ static bool init() {
   pSubsystem->addFileDescriptor(0, stdinDescriptor);
   pSubsystem->addFileDescriptor(1, stdoutDescriptor);
 
+  UniquePointer<PreparedTraceTask> preparedTrace;
+  if (pSubsystem->traceContext().prepareTask(preparedTrace) != TraceStatus::Success) {
+    delete pProcess;
+    error("Unable to initialise the process task identity");
+    return false;
+  }
   UtsRef initialUts;
   UniquePointer<PreparedUtsThread> preparedUts;
   if (!pSubsystem->namespaceContext() || !pSubsystem->namespaceContext()->valid() ||
@@ -207,6 +213,9 @@ static bool init() {
     return false;
   }
   pSubsystem->namespaceContext()->publishThread(preparedUts, *g_pStage2Thread, true);
+  if (pSubsystem->traceContext().publishTask(preparedTrace, *g_pStage2Thread) !=
+      TraceStatus::Success)
+    FATAL("Initial trace task publication failed");
   g_pStage2Thread->setName("init");
   pProcess->publish();
   if (!g_pStage2Thread->start()) {

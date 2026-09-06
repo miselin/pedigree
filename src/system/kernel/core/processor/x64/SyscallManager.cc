@@ -84,7 +84,7 @@ bool finishAffinityReturn(SyscallState& state, const SyscallState* original) {
   }
 }
 
-bool finishAffinityReturn(InterruptState& state) {
+bool finishAffinityReturn(InterruptState& state, UserReturnFrame::Origin origin) {
   Thread* current = Processor::information().getCurrentThread();
   while (true) {
     bool waited = false;
@@ -93,7 +93,7 @@ bool finishAffinityReturn(InterruptState& state) {
     if (!waited)
       return false;
     Processor::setInterrupts(true);
-    if (Processor::information().getScheduler().serviceUserReturnWork(state))
+    if (Processor::information().getScheduler().serviceUserReturnWork(state, origin))
       return true;
   }
 }
@@ -206,22 +206,25 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
           // image; it does not own a Pedigree event state to pop.
           const uintptr_t userStack = action.state.rsp;
           const uint64_t userFlags = action.state.rflags;
-          uintptr_t interruptStack[24] = {};
-          action.state.setStackPointer(reinterpret_cast<uintptr_t>(interruptStack + 24));
-          InterruptState* returnState = InterruptState::construct(action.state, true);
+          alignas(16) unsigned char interruptStack[sizeof(InterruptState)] = {};
+          action.state.setStackPointer(
+              reinterpret_cast<uintptr_t>(interruptStack + sizeof(interruptStack)));
+          X64UserEntryMetadata metadata = syscallState.getUserEntryMetadata();
+          metadata.origRax = ~uint64_t(0);
+          InterruptState* returnState = InterruptState::construct(action.state, true, metadata);
           returnState->setStackPointer(userStack);
           returnState->setFlags(userFlags);
           // rt_sigreturn restores the old mask before committing this frame.
           // Service newly unblocked signals against that exact restored image
           // so none escape briefly to userspace or wait for another syscall.
-          userReturnTerminal =
-              Processor::information().getScheduler().serviceUserReturnWork(*returnState);
+          userReturnTerminal = Processor::information().getScheduler().serviceUserReturnWork(
+              *returnState, UserReturnFrame::Origin::SignalRestore);
           if (userReturnTerminal) {
             break;
           }
           tracker.finishInKernel();
           Thread* current = Processor::information().getCurrentThread();
-          if (finishAffinityReturn(*returnState)) {
+          if (finishAffinityReturn(*returnState, UserReturnFrame::Origin::SignalRestore)) {
             userReturnTerminal = true;
             Processor::setInterrupts(true);
             break;
@@ -230,35 +233,46 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
           Processor::contextSwitch(returnState);
         }
         case JumpToUserspace: {
-          if (userReturnTerminal) {
+          if (userReturnTerminal)
             break;
-          }
           tracker.finishInKernel();
           Processor::setInterrupts(false);
           Thread* current = Processor::information().getCurrentThread();
           current->abandonAllStates();
+          SyscallState newImage;
+          ByteSet(&newImage, 0, sizeof(newImage));
+          newImage.setInstructionPointer(action.state.getInstructionPointer());
+          newImage.setStackPointer(action.state.getStackPointer());
+          newImage.setFlags(0x202);
+          X64UserEntryMetadata metadata = {};
+          metadata.ds = metadata.es = 0x23;
+          metadata.origRax = 59;
+          newImage.setUserEntryMetadata(metadata);
+          // invoke reset TLS to the new image's actual scheduler-owned base.
+          newImage.refreshUserTlsBase();
+          Processor::setInterrupts(true);
+          // Materialize the loader-owned stack before the final IRQ-off tail.
+          *reinterpret_cast<volatile uint64_t*>(newImage.getStackPointer() - 8) = 0;
           while (true) {
-            bool waited = false;
-            if (current->completeAffinityAtSafePoint(&waited) == AffinityResult::Terminal) {
-              userReturnTerminal = true;
+            userReturnTerminal = Processor::information().getScheduler().serviceUserReturnWork(
+                newImage, UserReturnFrame::Origin::NewImage);
+            if (userReturnTerminal)
               break;
-            }
-            if (!waited)
+            bool waited = false;
+            userReturnTerminal =
+                current->completeAffinityAtSafePoint(&waited) == AffinityResult::Terminal;
+            if (userReturnTerminal || !waited)
               break;
             Processor::setInterrupts(true);
-            if (Processor::information().getScheduler().serviceProcessStopAtUserReturn(
-                    PerProcessorScheduler::ProcessStopGateMode::DirectUserTransition)) {
-              userReturnTerminal = true;
-              break;
-            }
           }
           if (userReturnTerminal) {
             Processor::setInterrupts(true);
             break;
           }
           current->transitionTime(CpuTimeMode::Kernel, CpuTimeMode::User);
-          Processor::jumpUser(nullptr, action.state.getInstructionPointer(),
-                              action.state.getStackPointer());
+          // This tail restores the same image exposed by the stop and retains
+          // jumpUser's CR0.TS lazy-FPU setup.
+          Processor::restoreState(newImage, nullptr);
         }
         case RebootSystem:
           rebootSystem = true;

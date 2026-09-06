@@ -7,6 +7,7 @@
 #include "pedigree/kernel/syscallError.h"
 
 #include "PosixProcess.h"
+#include "PosixSubsystem.h"
 #include "wait-state.h"
 
 namespace PosixWait {
@@ -95,6 +96,14 @@ int collect(const Request& request, Report& report) {
           hasResult = true;
         } else {
           hasEligibleChild = true;
+          auto* childSubsystem = static_cast<PosixSubsystem*>(child->getSubsystem());
+          if (childSubsystem &&
+              childSubsystem->traceContext().selectStop(
+                  parent->getId(), request.traceStops || (request.events & Stopped),
+                  request.events & Continued, !request.noWait, selected)) {
+            hasResult = true;
+            break;
+          }
           Process::ChildTransition transition;
           if (!child->selectPendingChildTransition(request.events & Stopped,
                                                    request.events & Continued, !request.noWait,

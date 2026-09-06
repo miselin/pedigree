@@ -645,6 +645,28 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack, Thread::EventSe
     return;
   }
 
+  UserReturnFrame* frame = pThread->currentUserReturnFrame();
+  Subsystem* subsystem = pThread->getParent() ? pThread->getParent()->getSubsystem() : nullptr;
+  if (frame && subsystem && pEvent->isSignalEvent() && pEvent->getNumber() != 9) {
+    if (!bWasInterrupts)
+      FATAL_NOLOCK("User-return event interception requires IRQ-enabled entry");
+    Subsystem::UserReturnEventResult intercepted;
+    {
+      // A tracing stop may be killed without returning through this stack.
+      Thread::StackDiscardScope deliveryDiscard(
+          [](void* value) { static_cast<Event::Delivery*>(value)->reset(); }, &eventDelivery);
+      Processor::setInterrupts(true);
+      intercepted = subsystem->userReturnEvent(*pThread, *pEvent, *frame);
+      Processor::setInterrupts(false);
+    }
+    if (intercepted != Subsystem::UserReturnEventResult::Deliver) {
+      frame->m_Terminal = intercepted == Subsystem::UserReturnEventResult::Terminal;
+      eventDelivery.reset();
+      Processor::setInterrupts(bWasInterrupts);
+      return;
+    }
+  }
+
   if (pEvent->requiresExactUserReturnState()) {
     Event::UserReturnDelivery result = Event::UserReturnDelivery::NotApplicable;
     if (interruptState || syscallState) {
@@ -1055,6 +1077,11 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
       FATAL("Lock checker disallowed this reschedule.");
     }
   }
+
+#if X64 && !HOSTED
+  // CLONE_SETTLS may have replaced the copied parent's base above.
+  state.refreshUserTlsBase();
+#endif
 
   // Copy the SyscallState into this thread's kernel stack.
   uintptr_t kStack = reinterpret_cast<uintptr_t>(pThread->getKernelStack());
@@ -1475,7 +1502,24 @@ bool PerProcessorScheduler::serviceProcessStopAtUserReturn(ProcessStopGateMode m
   }
 }
 
-bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state) {
+bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state,
+                                                  UserReturnFrame::Origin origin) {
+  Thread* owner = Processor::information().getCurrentThread();
+  if (!owner)
+    return false;
+#if X64 && !HOSTED
+  {
+    EnsureInterrupts interrupts(false);
+    state.setFlags(state.getFlags() | 0x202);
+  }
+#endif
+  UserReturnFrame frame(*owner, state, origin);
+  Thread::UserReturnFrameScope frameScope(*owner, frame);
+  Subsystem* subsystem = owner->getParent() ? owner->getParent()->getSubsystem() : nullptr;
+  if (subsystem &&
+      subsystem->userReturnCheckpoint(*owner, frame) == Subsystem::UserReturnResult::Terminal)
+    return true;
+
   // Terminal requests and process stops win over later work. The architecture
   // caller owns the final commit after its return-tail scopes and accounting
   // have retired.
@@ -1493,16 +1537,35 @@ bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state) {
   }
   Processor::information().getScheduler().checkEventState(
       state.getStackPointer(), Thread::EventSelection::AnyDeliverable, &state, nullptr);
-  return Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  return frame.m_Terminal ||
+         Processor::information().getScheduler().serviceProcessStopAtUserReturn();
 }
 
-bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state) {
+bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
+                                                  UserReturnFrame::Origin origin) {
+  Thread* owner = Processor::information().getCurrentThread();
+  if (!owner)
+    return false;
+#if X64 && !HOSTED
+  {
+    EnsureInterrupts interrupts(false);
+    state.setFlags(state.getFlags() | 0x202);
+  }
+#endif
+  UserReturnFrame frame(*owner, state, origin);
+  Thread::UserReturnFrameScope frameScope(*owner, frame);
+  Subsystem* subsystem = owner->getParent() ? owner->getParent()->getSubsystem() : nullptr;
+  if (subsystem &&
+      subsystem->userReturnCheckpoint(*owner, frame) == Subsystem::UserReturnResult::Terminal)
+    return true;
+
   if (Processor::information().getScheduler().serviceProcessStopAtUserReturn()) {
     return true;
   }
   Processor::information().getScheduler().checkEventState(
       state.getStackPointer(), Thread::EventSelection::AnyDeliverable, nullptr, &state);
-  return Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  return frame.m_Terminal ||
+         Processor::information().getScheduler().serviceProcessStopAtUserReturn();
 }
 
 void PerProcessorScheduler::serviceDeferredSubsystemException(InterruptState& state) {

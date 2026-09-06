@@ -2023,7 +2023,7 @@ bool Thread::finishTemporarySignalMask(size_t stateLevel, bool deferForUserRetur
   if (deferForUserReturn && interrupted && stateLevel == m_nStateLevel) {
     for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
       Event* event = *it;
-      if (event->isSignalEvent() && event->requiresExactUserReturnState() &&
+      if (event->isSignalEvent() && eventNeedsUserReturnFrameUnlocked(event) &&
           eventIsDeliverableUnlocked(event, EventSelection::AnyDeliverable)) {
         deferRestore = true;
         break;
@@ -2413,6 +2413,8 @@ bool Thread::hasEvents() {
 
 bool Thread::eventIsDeliverableUnlocked(Event* event, EventSelection selection) {
   const size_t eventNumber = event->getNumber();
+  if (m_UserReturnSignalParked && event->isSignalEvent() && eventNumber != 9)
+    return false;
   if (event->isSignalEvent() &&
       (!static_cast<SignalEvent*>(event)->deliveryActive() ||
        (eventNumber > 0 && eventNumber <= 64 &&
@@ -2423,7 +2425,11 @@ bool Thread::eventIsDeliverableUnlocked(Event* event, EventSelection selection) 
       event->isSignalEvent() && eventNumber > 0 && eventNumber <= 64 &&
       (m_StateLevels[m_nStateLevel].m_SignalMask & (static_cast<uint64_t>(1) << (eventNumber - 1)));
   const bool exactUserReturnUnavailable =
-      selection == EventSelection::WithoutExactUserReturn && event->requiresExactUserReturnState();
+      (selection == EventSelection::WithoutExactUserReturn &&
+       eventNeedsUserReturnFrameUnlocked(event)) ||
+      (selection != EventSelection::AnyDeliverable && m_SignalFramesRequired &&
+       event->isSignalEvent() && eventNumber != 9 &&
+       !m_StateLevels[m_nStateLevel].m_UserReturnFrame);
   bool processBlocksEvent = false;
   if (selection == EventSelection::StoppedProcessKernel) {
     // This policy is selected only after the caller has observed Suspended
@@ -2453,7 +2459,7 @@ void Thread::markDeferredUserReturnSignalInterruption() {
   bool caughtSignalDeferred = false;
   for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
     Event* event = *it;
-    if (event->isSignalEvent() && event->requiresExactUserReturnState() &&
+    if (event->isSignalEvent() && eventNeedsUserReturnFrameUnlocked(event) &&
         eventIsDeliverableUnlocked(event, EventSelection::AnyDeliverable)) {
       caughtSignalDeferred = true;
       break;

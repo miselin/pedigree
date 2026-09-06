@@ -15,6 +15,9 @@
 ; ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+extern pedigree_capture_user_entry
+extern pedigree_restore_user_entry
+
 ; X64SyscallManager::syscall(SyscallState &syscallState)
 extern _ZN17X64SyscallManager7syscallER15X64SyscallState
 
@@ -65,7 +68,11 @@ syscall_handler:
   mov rcx, 0xFFFFFFFF
   and rax, rcx
   add rsp, rax
-  sub rsp, 0x80
+  sub rsp, 0xa0
+  mov rax, [rsp+128]
+  mov [rsp+24], rax
+  mov rdi, rsp
+  call pedigree_capture_user_entry
 
   ; Call the C++ handler function
   mov rdi, rsp
@@ -73,8 +80,9 @@ syscall_handler:
 
   cli
 
-  mov ax, 0x23
-  mov ds, ax
+  mov rdi, rsp
+  call pedigree_restore_user_entry
+  add rsp, 32
         
   pop r15
   pop r14

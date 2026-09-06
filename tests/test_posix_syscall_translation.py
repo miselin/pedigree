@@ -46,12 +46,12 @@ class PosixSyscallTranslationTests(unittest.TestCase):
         # splice, tee, vmsplice, five memory-lock entry points, remap_file_pages,
         # nine additional xattr entry points, four fanotify/file-handle entries,
         # four filesystem-ID/process-memory entries, three namespace entries,
-        # ten scheduling entries, and waitid.
-        # This locks both sides of all 256 mappings.
-        self.assertEqual(len(mapping), 256)
+        # ten scheduling entries, waitid, and cooperative ptrace.
+        # This locks both sides of all 257 mappings.
+        self.assertEqual(len(mapping), 257)
         self.assertEqual(
             hashlib.sha256(serialized.encode()).hexdigest(),
-            "e7b45f19e699a8b4abff155766d212a1d2a2b4ae005c5a2586b6f6633d33258c",
+            "61e43347478dbe2227aa03558bffa54d456b0b6b62a5421f470d9b254bdad11a",
         )
         self.assertEqual(len({name for name, _, _ in mapping}), len(mapping))
         self.assertEqual(len({number for _, number, _ in mapping}), len(mapping))
