@@ -1495,6 +1495,104 @@ TEST(VFS, MountRetirementWaitsForOperationsButNotIdentityTokens) {
   retirement.reset();
 }
 
+TEST(VFS, FilesystemPinsRejectRemovalWithoutClosingAdmission) {
+  VFS vfs;
+  std::atomic<size_t> destroyed{0};
+  auto* filesystem = new MountTestFilesystem(String("pinned"), nullptr, &destroyed);
+  ASSERT_TRUE(vfs.registerFilesystem(filesystem, String("pinned")).length());
+  VFS::FilesystemPin pin;
+  ASSERT_TRUE(vfs.pinFilesystem(filesystem, pin));
+  auto identity = pin.identity();
+  VFS::FilesystemPin copied(pin);
+  VFS::FilesystemPin moved(pedigree_std::move(copied));
+  EXPECT_FALSE(copied);
+  pin.reset();
+  std::thread remover([&] { EXPECT_FALSE(vfs.unregisterFilesystem(filesystem)); });
+  remover.join();
+  EXPECT_EQ(destroyed.load(), 0U);
+  EXPECT_EQ(moved.filesystem(), filesystem);
+  EXPECT_EQ(vfs.getFilesystemAt(String("/media/pinned")), filesystem);
+  VFS::MountOperation operation;
+  EXPECT_TRUE(identity.acquire(operation));
+  operation.reset();
+  EXPECT_TRUE(identity.pin(pin));
+  moved.reset();
+  EXPECT_FALSE(vfs.unregisterFilesystem(filesystem, false));
+  pin.reset();
+  EXPECT_TRUE(vfs.unregisterFilesystem(filesystem));
+  EXPECT_EQ(destroyed.load(), 1U);
+  EXPECT_FALSE(identity.pin(pin));
+  EXPECT_FALSE(vfs.pinFilesystem(filesystem, pin));
+}
+
+TEST(VFS, FilesystemPinsRemainCopyableWhileRegistryShutdownDrains) {
+  auto* vfs = new VFS;
+  std::atomic<size_t> destroyed{0};
+  std::atomic<bool> finished{false};
+  auto* filesystem = new MountTestFilesystem(String("shutdown"), nullptr, &destroyed);
+  ASSERT_TRUE(vfs->registerFilesystem(filesystem, String("shutdown")).length());
+  VFS::FilesystemPin pin;
+  ASSERT_TRUE(vfs->pinFilesystem(filesystem, pin));
+  auto identity = pin.identity();
+  std::thread remover([&] {
+    delete vfs;
+    finished.store(true);
+  });
+  bool closed = false;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (std::chrono::steady_clock::now() < deadline) {
+    VFS::MountOperation probe;
+    if (!identity.acquire(probe)) {
+      closed = true;
+      break;
+    }
+    std::this_thread::yield();
+  }
+  EXPECT_TRUE(closed);
+  EXPECT_FALSE(finished.load());
+  EXPECT_EQ(destroyed.load(), 0U);
+  VFS::FilesystemPin late;
+  EXPECT_FALSE(identity.pin(late));
+  VFS::FilesystemPin copied = pin;
+  pin.reset();
+  EXPECT_EQ(copied.filesystem()->getVolumeLabel(), String("shutdown"));
+  EXPECT_FALSE(finished.load());
+  copied.reset();
+  remover.join();
+  EXPECT_TRUE(finished.load());
+  EXPECT_EQ(destroyed.load(), 1U);
+}
+
+TEST(VFS, FilesystemPinAdmissionAndRemovalHaveOneWinner) {
+  for (size_t attempt = 0; attempt < 64; ++attempt) {
+    VFS vfs;
+    std::atomic<size_t> destroyed{0};
+    auto* filesystem = new MountTestFilesystem(String("race"), nullptr, &destroyed);
+    ASSERT_TRUE(vfs.registerFilesystem(filesystem, String("race")).length());
+    VFS::FilesystemPin pin;
+    StartGate gate(2);
+    bool acquired = false, removed = false;
+    std::thread pinner([&] {
+      gate.arriveAndWait();
+      acquired = vfs.pinFilesystem(filesystem, pin);
+    });
+    std::thread remover([&] {
+      gate.arriveAndWait();
+      removed = vfs.unregisterFilesystem(filesystem);
+    });
+    pinner.join();
+    remover.join();
+    EXPECT_NE(acquired, removed);
+    EXPECT_EQ(destroyed.load(), removed ? 1U : 0U);
+    if (acquired) {
+      EXPECT_EQ(pin.filesystem()->getVolumeLabel(), String("race"));
+      pin.reset();
+      EXPECT_TRUE(vfs.unregisterFilesystem(filesystem));
+    }
+    EXPECT_EQ(destroyed.load(), 1U);
+  }
+}
+
 TEST(VFS, MountRetirementDrainsCallbacksOutsidePublicationLocks) {
   VFS vfs;
   std::atomic<size_t> destroyed{0};
@@ -1538,7 +1636,11 @@ TEST(VFS, RetiredMountIdentityCannotReviveAtTheSameFilesystemAddress) {
   ASSERT_TRUE(vfs.acquireMount(&filesystem, current));
   EXPECT_NE(current.id(), oldIdentity.id());
   EXPECT_FALSE(oldIdentity.acquire(first));
+  VFS::FilesystemPin pin;
+  EXPECT_FALSE(oldIdentity.pin(pin));
+  EXPECT_TRUE(current.identity().pin(pin));
   EXPECT_EQ(current.filesystem(), &filesystem);
   current.reset();
+  pin.reset();
   EXPECT_TRUE(vfs.unregisterFilesystem(&filesystem, false));
 }

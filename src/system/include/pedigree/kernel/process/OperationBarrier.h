@@ -67,6 +67,9 @@ class EXPORTED_PUBLIC OperationBarrier {
   /** Rejects future admissions without waiting for existing work. */
   void close();
 
+  /** Closes only when idle; a busy result leaves admission unchanged. */
+  MUST_USE_RESULT bool tryCloseIfIdle();
+
   /** Waits for admitted work after close() has been called. */
   void wait();
 

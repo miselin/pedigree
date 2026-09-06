@@ -502,6 +502,25 @@ bool ownedThreadTerminalJoin(Process* kernelProcess) {
   return passed;
 }
 
+bool idleOnlyAdmissionClose() {
+  OperationBarrier barrier;
+  OperationBarrier::Lease first, second;
+  bool passed = check(barrier.tryAcquire(first) && !barrier.tryCloseIfIdle() &&
+                          barrier.isOpen() && barrier.tryAcquire(second),
+                      "busy close changed operation admission");
+  first = OperationBarrier::Lease();
+  passed &= check(!barrier.tryCloseIfIdle(), "busy close lost a remaining admission");
+  second = OperationBarrier::Lease();
+  passed &= check(barrier.tryCloseIfIdle() && barrier.isClosedAndDrained() &&
+                       !barrier.tryAcquire(first),
+                   "idle close did not prevent subsequent admission");
+  barrier.closeAndWait();
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS idle-only-admission-close");
+  }
+  return passed;
+}
+
 bool admittedThreadTerminalReleaseOrder() {
   OperationBarrier barrier;
   Atomic<size_t> releases(0);
@@ -854,7 +873,8 @@ bool openFinalThreadLeaseRelease(Process* kernelProcess) {
 bool runHostedLifetimeLeaseRegressions() {
   Process* kernelProcess = Scheduler::instance().getKernelProcess();
   const bool passed =
-      admittedThreadPreStartCancellation() && admittedThreadTerminalReleaseOrder() &&
+      idleOnlyAdmissionClose() && admittedThreadPreStartCancellation() &&
+      admittedThreadTerminalReleaseOrder() &&
       ownedThreadTerminalJoin(kernelProcess) && processLeaseBarrier(kernelProcess) &&
       openFinalProcessLeaseRelease(kernelProcess) &&
       closedFinalProcessLeaseHandoff(kernelProcess) && threadLeaseIdLookup(kernelProcess) &&

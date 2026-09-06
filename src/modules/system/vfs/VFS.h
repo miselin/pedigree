@@ -43,6 +43,7 @@ class Disk;
 class File;
 class StringView;
 class VfsMountState;
+class VfsFilesystemPin;
 
 /** Set to zero to disable the builtin VFS LRU caches. */
 #define VFS_WITH_LRU_CACHES 0
@@ -51,6 +52,7 @@ class VfsMountState;
 class EXPORTED_PUBLIC VFS {
  public:
   class MountOperation;
+  class FilesystemPin;
   class EXPORTED_PUBLIC MountIdentity {
    public:
     MountIdentity();
@@ -62,12 +64,14 @@ class EXPORTED_PUBLIC VFS {
     uint32_t id() const;
     explicit operator bool() const;
     bool acquire(MountOperation& operation) const;
+    bool pin(FilesystemPin& pin) const;
     bool subscribeRetirement(const SharedPointer<FileEventObserver>& observer,
                              FileEventSubscription& subscription) const;
 
    private:
     friend class VFS;
     friend class MountOperation;
+    friend class FilesystemPin;
     SharedPointer<VfsMountState> m_State;
   };
 
@@ -95,6 +99,32 @@ class EXPORTED_PUBLIC VFS {
 
   /** Compares key without dereferencing it, then admits live filesystem access. */
   bool acquireMount(Filesystem* key, MountOperation& operation) const;
+
+  /**
+   * Retains backing storage for long-lived paths without a thread-owned scope.
+   * Copies share an admission; ordinary unregistration fails while any remain.
+   * This identifies a filesystem, not a particular namespace attachment.
+   */
+  class EXPORTED_PUBLIC FilesystemPin {
+   public:
+    FilesystemPin();
+    FilesystemPin(const FilesystemPin& other);
+    FilesystemPin(FilesystemPin&& other) noexcept;
+    ~FilesystemPin();
+    FilesystemPin& operator=(const FilesystemPin& other);
+    FilesystemPin& operator=(FilesystemPin&& other) noexcept;
+    Filesystem* filesystem() const;
+    MountIdentity identity() const;
+    explicit operator bool() const;
+    void reset();
+
+   private:
+    friend class VFS;
+    friend class MountIdentity;
+    SharedPointer<VfsFilesystemPin> m_Pin;
+  };
+
+  bool pinFilesystem(Filesystem* key, FilesystemPin& pin) const;
 
   /** Callback type, called when a disk is mounted or unmounted. */
   typedef void (*MountCallback)();
@@ -135,7 +165,8 @@ class EXPORTED_PUBLIC VFS {
    * Remove a registered filesystem and optionally destroy it.
    * When canDelete is true, the caller must provide exclusive ownership;
    * success consumes the pointer, while false leaves it unconsumed. When
-   * canDelete is false, ownership always remains external.
+   * canDelete is false, ownership always remains external. Live FilesystemPins
+   * reject unregistration without changing publication or closing admission.
    */
   bool unregisterFilesystem(Filesystem* pFs, bool canDelete = true);
 

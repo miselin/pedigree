@@ -20,6 +20,21 @@ lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
 
+## Mount lifetime prerequisite
+
+VFS now provides copyable filesystem pins for long-lived path ownership. A live
+pin rejects ordinary unregistration without changing the mount table or closing
+access admission. Registry shutdown closes new admission and drains pins outside
+publication locks; existing pins remain valid and copyable until released.
+Identity tokens remain independent and cannot revive a retired registration.
+
+This is a prerequisite for attachment-aware paths and pivot_root, with no new
+syscall counted. Existing Process and descriptor paths have not yet adopted the
+pin. All 35 native VFS tests passed, including concurrent admission/removal and
+shutdown/copy behavior. Affected cross compiles and the actual Darwin hosted
+kernel's idle-close admission contract passed. Evidence is under
+/private/tmp/pedigree-mount-expansion-20260906/.
+
 ## Cooperative tracing
 
 ptrace now supplies a successful amd64 Linux TRACEME path for a consenting,

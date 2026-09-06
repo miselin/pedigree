@@ -47,6 +47,7 @@ class VfsMountState {
  public:
   VfsMountState(Filesystem* filesystem, uint32_t id) : filesystem(filesystem), id(id) {}
   ~VfsMountState() {
+    storagePins.closeAndWait();
     operations.closeAndWait();
   }
 
@@ -62,6 +63,7 @@ class VfsMountState {
   }
 
   void retire() {
+    storagePins.wait();
     operations.wait();
     filesystem = nullptr;
     retirement.beginRetirement();
@@ -71,8 +73,69 @@ class VfsMountState {
   Filesystem* filesystem;
   const uint32_t id;
   OperationBarrier operations;
+  OperationBarrier storagePins;
   InodeEventSource retirement;
 };
+
+class VfsFilesystemPin {
+ public:
+  // Release admission before the state that owns its barrier. Copies of the
+  // outer pin may survive registry shutdown and do not need fresh admission.
+  SharedPointer<VfsMountState> state;
+  OperationBarrier::Lease admission;
+};
+
+VFS::FilesystemPin::FilesystemPin() = default;
+VFS::FilesystemPin::FilesystemPin(const FilesystemPin& other) = default;
+VFS::FilesystemPin::FilesystemPin(FilesystemPin&& other) noexcept = default;
+VFS::FilesystemPin::~FilesystemPin() = default;
+VFS::FilesystemPin& VFS::FilesystemPin::operator=(const FilesystemPin& other) = default;
+VFS::FilesystemPin& VFS::FilesystemPin::operator=(FilesystemPin&& other) noexcept = default;
+
+Filesystem* VFS::FilesystemPin::filesystem() const {
+  return m_Pin ? m_Pin->state->filesystem : nullptr;
+}
+
+VFS::MountIdentity VFS::FilesystemPin::identity() const {
+  MountIdentity identity;
+  if (m_Pin)
+    identity.m_State = m_Pin->state;
+  return identity;
+}
+
+VFS::FilesystemPin::operator bool() const {
+  return static_cast<bool>(m_Pin);
+}
+
+void VFS::FilesystemPin::reset() {
+  m_Pin.reset();
+}
+
+bool VFS::MountIdentity::pin(FilesystemPin& pin) const {
+  pin.reset();
+  auto retained = SharedPointer<VfsFilesystemPin>::tryAllocate();
+  if (!retained || !m_State || !m_State->storagePins.tryAcquire(retained->admission))
+    return false;
+  retained->state = m_State;
+  pin.m_Pin = pedigree_std::move(retained);
+  return true;
+}
+
+bool VFS::pinFilesystem(Filesystem* key, FilesystemPin& pin) const {
+  pin.reset();
+  auto retained = SharedPointer<VfsFilesystemPin>::tryAllocate();
+  if (!retained)
+    return false;
+  {
+    LockGuard<Mutex> guard(m_MountTableLock);
+    MountInfo* info = m_Mounts.lookup(key);
+    if (!info || !info->state->storagePins.tryAcquire(retained->admission))
+      return false;
+    retained->state = info->state;
+  }
+  pin.m_Pin = pedigree_std::move(retained);
+  return true;
+}
 
 VFS::MountIdentity::MountIdentity() = default;
 VFS::MountIdentity::MountIdentity(const MountIdentity& other) = default;
@@ -235,6 +298,7 @@ VFS::~VFS() {
     LockGuard<Mutex> mutationGuard(m_MountMutationLock);
     LockGuard<Mutex> tableGuard(m_MountTableLock);
     for (auto it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
+      it.value()->state->storagePins.close();
       it.value()->state->operations.close();
       mountInfo.pushBack(it.value());
       filesystems.pushBack(it.key());
@@ -403,9 +467,11 @@ bool VFS::unregisterFilesystem(Filesystem* pFs, bool canDelete) {
     LockGuard<Mutex> mutationGuard(m_MountMutationLock);
     {
       LockGuard<Mutex> tableGuard(m_MountTableLock);
-      if (!m_Mounts.take(pFs, info)) {
+      info = m_Mounts.lookup(pFs);
+      if (!info || !info->state->storagePins.tryCloseIfIdle()) {
         return false;
       }
+      m_Mounts.take(pFs, info);
       info->state->operations.close();
 
       if (pFs == m_pRootFilesystem) {

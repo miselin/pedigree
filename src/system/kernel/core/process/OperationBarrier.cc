@@ -86,6 +86,15 @@ void OperationBarrier::close() {
   m_Open = false;
 }
 
+bool OperationBarrier::tryCloseIfIdle() {
+  auto guard = m_Waiters.acquire();
+  if (m_ActiveOperations) {
+    return false;
+  }
+  m_Open = false;
+  return true;
+}
+
 void OperationBarrier::wait() {
   TerminationDeferral terminationDeferral;
   while (true) {
