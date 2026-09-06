@@ -29,6 +29,7 @@
 #include <config.h>
 
 class X64MappingMutationScope;
+class X64PreparedPageRemap;
 
 /**
  * Virtual address space layout
@@ -114,6 +115,11 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
   virtual void unmap(void* virtualAddress);
   virtual bool detachMapping(void* virtualAddress, physical_uintptr_t& physical, size_t& flags,
                              size_t requiredFlags = 0);
+  RemapStatus prepareRemap(const PageRemapRequest& request,
+                           UniquePointer<PreparedPageRemap>& plan) override;
+  void setRemapPreparationFailureForTest(ssize_t allocations) override {
+    __atomic_store_n(&m_RemapPreparationFailure, allocations, __ATOMIC_RELEASE);
+  }
   virtual Stack* allocateStack();
   virtual Stack* allocateStack(size_t stackSz);
   virtual void freeStack(Stack* pStack);
@@ -231,6 +237,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
   }
 
  private:
+  friend class X64PreparedPageRemap;
   bool tryAccessUserWord(uintptr_t address, size_t width, uintptr_t& value,
                          const uintptr_t* replacement);
   /** The default constructor */
@@ -311,6 +318,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
 
   /** Physical address of the Page Map Level 4 */
   physical_uintptr_t m_PhysicalPML4;
+  ssize_t m_RemapPreparationFailure = -1;
   /** Current top of the stacks */
   void* m_pStackTop;
   /** List of free stacks */

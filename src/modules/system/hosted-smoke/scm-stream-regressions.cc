@@ -402,7 +402,7 @@ int runStreamWorker(void* parameter) {
       Processor::information().getCurrentThread()->getParent()->getSubsystem());
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   uintptr_t mappingAddress = 0;
-  if (!context->process->getSpaceAllocator().allocate(pageSize, mappingAddress)) {
+  if (!context->process->allocateUserRange(Process::UserRegion::Normal, pageSize, mappingAddress)) {
     context->completed = true;
     return 1;
   }
@@ -414,7 +414,7 @@ int runStreamWorker(void* parameter) {
     if (mapping) {
       MemoryMapManager::instance().remove(mappedAddress, pageSize);
     }
-    context->process->getSpaceAllocator().free(mappingAddress, pageSize);
+    context->process->freeUserRange(Process::UserRegion::Normal, mappingAddress, pageSize);
     context->completed = true;
     return 1;
   }
@@ -429,7 +429,7 @@ int runStreamWorker(void* parameter) {
   passed = emptyPayloadAndCloseDrain(subsystem, *fixture) && passed;
 
   MemoryMapManager::instance().remove(mappingAddress, pageSize);
-  context->process->getSpaceAllocator().free(mappingAddress, pageSize);
+  context->process->freeUserRange(Process::UserRegion::Normal, mappingAddress, pageSize);
   context->result = passed;
   context->completed = true;
   return 0;

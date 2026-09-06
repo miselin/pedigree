@@ -172,6 +172,13 @@ pedigree_app(event-descriptor-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/event-descriptor-contract-test/signalfd.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/event-descriptor-contract-test/timerfd.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/event-descriptor-contract-test/clock.c)
+pedigree_app(vm-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/vm-contract-test/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/vm-contract-test/remap.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/vm-contract-test/remap-file.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/vm-contract-test/remap-shm.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/vm-contract-test/residency.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/vm-contract-test/discard.c)
 pedigree_app(signal-exec-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-exec-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-exec-test/signals.c

@@ -517,8 +517,8 @@ int pedigree_event_return() {
 void* pedigree_sys_request_mem(size_t len) {
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
   uintptr_t mapAddress = 0;
-  if (!pProcess->getDynamicSpaceAllocator().allocate(len, mapAddress)) {
-    if (!pProcess->getSpaceAllocator().allocate(len, mapAddress)) {
+  if (!pProcess->allocateUserRange(Process::UserRegion::Dynamic, len, mapAddress)) {
+    if (!pProcess->allocateUserRange(Process::UserRegion::Normal, len, mapAddress)) {
       return 0;
     }
   }

@@ -401,7 +401,7 @@ int childResourceWorker(void* parameter) {
   ChildResourceContext* context = reinterpret_cast<ChildResourceContext*>(parameter);
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   uintptr_t address = 0;
-  if (!context->process->getSpaceAllocator().allocate(pageSize, address)) {
+  if (!context->process->allocateUserRange(Process::UserRegion::Normal, pageSize, address)) {
     context->returned += 1;
     return 1;
   }
@@ -413,7 +413,7 @@ int childResourceWorker(void* parameter) {
     if (mapping) {
       MemoryMapManager::instance().remove(mappedAddress, pageSize);
     }
-    context->process->getSpaceAllocator().free(address, pageSize);
+    context->process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
     context->returned += 1;
     return 1;
   }
@@ -429,7 +429,7 @@ int childResourceWorker(void* parameter) {
                       concurrentReaperAccounting(context->process);
 
   MemoryMapManager::instance().remove(address, pageSize);
-  context->process->getSpaceAllocator().free(address, pageSize);
+  context->process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
   context->passed = passed;
   context->returned += 1;
   return passed ? 0 : 1;

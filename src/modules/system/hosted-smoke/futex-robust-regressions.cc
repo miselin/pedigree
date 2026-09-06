@@ -158,7 +158,7 @@ int contractWorker(void* parameter) {
   MemoryMapManager& mappings = MemoryMapManager::instance();
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   uintptr_t address = 0;
-  if (!process->getSpaceAllocator().allocate(pageSize, address)) {
+  if (!process->allocateUserRange(Process::UserRegion::Normal, pageSize, address)) {
     return 1;
   }
   uintptr_t mappedAddress = address;
@@ -308,8 +308,8 @@ int cleanupWorker(void* parameter) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   if (context->address) {
     MemoryMapManager::instance().remove(context->address, pageSize);
-    Processor::information().getCurrentThread()->getParent()->getSpaceAllocator().free(
-        context->address, pageSize);
+    Processor::information().getCurrentThread()->getParent()->freeUserRange(
+        Process::UserRegion::Normal, context->address, pageSize);
   }
   return 0;
 }

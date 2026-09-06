@@ -38,6 +38,10 @@
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
 
+#if X64 && PEDIGREE_VM_REMAP_TESTS
+extern "C" bool x64RemapCoreRegression();
+#endif
+
 #if !HOSTED && PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS
 extern bool runVmMappedOwnershipRegressions();
 #endif
@@ -289,6 +293,13 @@ static bool init() {
     return false;
   }
   g_PosixTerminalLifetime = PosixTerminalLifetimeState::HookOwned;
+#if X64 && PEDIGREE_VM_REMAP_TESTS
+  NOTICE("VM-REMAP-CORE: BEGIN");
+  if (!x64RemapCoreRegression()) {
+    FATAL("VM-REMAP-CORE: FAIL");
+  }
+  NOTICE("VM-REMAP-CORE: PASS");
+#endif
 #if !HOSTED && PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS
   if (!runVmMappedOwnershipRegressions()) {
     FATAL("QEMU mapped ownership regression failed");

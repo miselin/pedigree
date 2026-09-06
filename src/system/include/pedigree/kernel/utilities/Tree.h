@@ -165,6 +165,29 @@ class EXPORTED_PUBLIC Tree {
       ++nItems;
   }
 
+  /** A failed insertion leaves the tree unchanged; existing keys need no allocation. */
+  bool tryInsert(const K& key, const E& value) {
+    bool inserted = false;
+    Node* node = createInsertionNode(key, inserted);
+    if (!node)
+      return false;
+    node->element = value;
+    if (inserted)
+      ++nItems;
+    return true;
+  }
+
+  bool tryInsert(const K& key, E&& value) {
+    bool inserted = false;
+    Node* node = createInsertionNode(key, inserted);
+    if (!node)
+      return false;
+    node->element = pedigree_std::move(value);
+    if (inserted)
+      ++nItems;
+    return true;
+  }
+
   /** Attempts to find an element with the given key.
    *\return the element found, or NULL if not found. */
   E lookup(const K& key) const {
@@ -508,69 +531,48 @@ class EXPORTED_PUBLIC Tree {
   }
 
   Node* createInsertionNode(const K& key, bool& inserted) {
-    Node* insertionNode = nullptr;
     inserted = false;
+    Node* parent = nullptr;
+    Node* current = root;
+    while (current) {
+      if (key == current->key)
+        return current;
+      parent = current;
+      current = key > current->key ? current->rightChild : current->leftChild;
+    }
 
-    if (root == 0) {
-      insertionNode = new Node;
-      insertionNode->key = key;
-
-      root = insertionNode;  // We are the root node.
-      inserted = true;
-
-      if (m_Begin) {
-        delete m_Begin;
-      }
-      m_Begin = new IteratorNode(root, 0, nItems);
-    } else {
-      // Traverse the tree.
-      Node* currentNode = root;
-
-      bool foundPosition = false;
-      while (!foundPosition) {
-        if (key > currentNode->key) {
-          if (currentNode->rightChild == 0)  // We have found our insert point.
-          {
-            insertionNode = new Node;
-            insertionNode->key = key;
-            insertionNode->parent = currentNode;
-            currentNode->rightChild = insertionNode;
-            inserted = true;
-            foundPosition = true;
-          } else {
-            currentNode = currentNode->rightChild;
-          }
-        } else if (key == currentNode->key) {
-          // overwrite existing value
-          insertionNode = currentNode;
-          foundPosition = true;
-        } else {
-          if (currentNode->leftChild == 0)  // We have found our insert point.
-          {
-            insertionNode = new Node;
-            insertionNode->key = key;
-            insertionNode->parent = currentNode;
-            currentNode->leftChild = insertionNode;
-            inserted = true;
-            foundPosition = true;
-          } else {
-            currentNode = currentNode->leftChild;
-          }
-        }
-      }
-
-      // The value has been inserted, but has that messed up the balance
-      // of the tree?
-      while (currentNode) {
-        int b = balanceFactor(currentNode);
-        if ((b < -1) || (b > 1)) {
-          rebalanceNode(currentNode);
-        }
-        currentNode = currentNode->parent;
+    Node* node = new Node;
+    if (!node)
+      return nullptr;
+    node->key = key;
+    node->parent = parent;
+    IteratorNode* beginning = m_Begin;
+    if (!beginning) {
+      beginning = new IteratorNode;
+      if (!beginning) {
+        delete node;
+        return nullptr;
       }
     }
 
-    return insertionNode;
+    // The node and iteration state are both admitted before linking anything.
+    m_Begin = beginning;
+    if (!parent) {
+      root = node;
+      m_Begin->reset(root, nullptr, 1);
+    } else if (key > parent->key) {
+      parent->rightChild = node;
+    } else {
+      parent->leftChild = node;
+    }
+    inserted = true;
+    while (parent) {
+      const int balance = balanceFactor(parent);
+      if (balance < -1 || balance > 1)
+        rebalanceNode(parent);
+      parent = parent->parent;
+    }
+    return node;
   }
 
   Node* root;

@@ -39,7 +39,7 @@ bool closeDescriptor(PosixSubsystem* subsystem, size_t fd) {
 
 bool allocateUserMapping(Process* process, size_t length, uintptr_t& address) {
   address = 0;
-  if (!process->getSpaceAllocator().allocate(length, address)) {
+  if (!process->allocateUserRange(Process::UserRegion::Normal, length, address)) {
     return false;
   }
 
@@ -48,7 +48,7 @@ bool allocateUserMapping(Process* process, size_t length, uintptr_t& address) {
       mappedAddress, length, MemoryMappedObject::Read | MemoryMappedObject::Write);
   if (!mapping || mappedAddress != address) {
     MemoryMapManager::instance().remove(address, length);
-    process->getSpaceAllocator().free(address, length);
+    process->freeUserRange(Process::UserRegion::Normal, address, length);
     address = 0;
     return false;
   }
@@ -266,7 +266,7 @@ int positionalVectorWorker(void* parameter) {
   context->errors[8] = thread->getErrno();
 
   MemoryMapManager::instance().remove(address, mappingLength);
-  context->process->getSpaceAllocator().free(address, mappingLength);
+  context->process->freeUserRange(Process::UserRegion::Normal, address, mappingLength);
   context->setup = true;
   context->returned += 1;
   return 0;

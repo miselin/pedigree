@@ -459,7 +459,7 @@ bool vectorReadBounceAndScatter(Process* kernelProcess) {
 
 bool allocateUserMapping(Process* process, size_t length, uintptr_t& address) {
   address = 0;
-  if (!process->getSpaceAllocator().allocate(length, address)) {
+  if (!process->allocateUserRange(Process::UserRegion::Normal, length, address)) {
     return false;
   }
 
@@ -468,7 +468,7 @@ bool allocateUserMapping(Process* process, size_t length, uintptr_t& address) {
       mappedAddress, length, MemoryMappedObject::Read | MemoryMappedObject::Write);
   if (!mapping || mappedAddress != address) {
     MemoryMapManager::instance().remove(address, length);
-    process->getSpaceAllocator().free(address, length);
+    process->freeUserRange(Process::UserRegion::Normal, address, length);
     address = 0;
     return false;
   }
@@ -599,7 +599,7 @@ int vectorFaultWorker(void* parameter) {
   context->firstWriteFaultResult = posix_writev(static_cast<int>(context->writeFd), &badVector, 1);
   context->firstWriteFaultError = thread->getErrno();
   MemoryMapManager::instance().remove(writeAddress, mappingLength);
-  context->process->getSpaceAllocator().free(writeAddress, mappingLength);
+  context->process->freeUserRange(Process::UserRegion::Normal, writeAddress, mappingLength);
 
   uintptr_t readAddress = 0;
   if (!allocateUserMapping(context->process, mappingLength, readAddress)) {
@@ -623,7 +623,7 @@ int vectorFaultWorker(void* parameter) {
   context->firstReadFaultResult = posix_readv(static_cast<int>(context->readFd), &badVector, 1);
   context->firstReadFaultError = thread->getErrno();
   MemoryMapManager::instance().remove(readAddress, mappingLength);
-  context->process->getSpaceAllocator().free(readAddress, mappingLength);
+  context->process->freeUserRange(Process::UserRegion::Normal, readAddress, mappingLength);
 
   context->setup = true;
   context->returned += 1;

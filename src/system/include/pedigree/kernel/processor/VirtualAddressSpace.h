@@ -22,6 +22,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include <config.h>
@@ -198,6 +199,47 @@ class VirtualAddressSpace {
     physical = 0;
     flags = 0;
     return false;
+  }
+
+  enum class RemapStatus { Success, InvalidRange, Unsupported, NoMemory, Retry };
+  static constexpr size_t MaximumRemapPages = 65536;
+  struct RemapRange {
+    uintptr_t base;
+    size_t length;
+  };
+  struct PageRemapRequest {
+    uintptr_t source, destination;
+    size_t oldLength, newLength;
+    bool replace;
+    const RemapRange* victims = nullptr;
+    size_t victimCount = 0;
+  };
+  struct DetachedPage {
+    uintptr_t address;
+    physical_uintptr_t physical;
+    size_t flags;
+    bool mapped;
+  };
+  using RemapAdmission = bool (*)(void* context);
+  class PreparedPageRemap {
+   public:
+    virtual ~PreparedPageRemap() = default;
+    /** The callback cannot allocate, sleep or acquire another VAS lock. */
+    virtual RemapStatus commit(RemapAdmission admission, void* context) = 0;
+    virtual const DetachedPage* detachedPages() const = 0;
+    virtual size_t detachedPageCount() const = 0;
+  };
+  /** Preparation changes no live leaf or reservation; Retry changes neither. */
+  virtual RemapStatus prepareRemap(const PageRemapRequest& request,
+                                   UniquePointer<PreparedPageRemap>& plan) {
+    (void)request;
+    plan.reset();
+    return RemapStatus::Unsupported;
+  }
+
+  /** One-shot failure after the given number of successful preparation allocations. */
+  virtual void setRemapPreparationFailureForTest(ssize_t allocations) {
+    (void)allocations;
   }
 
   /** Allocates a single stack for a thread. Will use the default kernel

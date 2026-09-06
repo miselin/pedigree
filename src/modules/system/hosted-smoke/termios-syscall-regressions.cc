@@ -72,7 +72,7 @@ int termiosWorker(void* parameter) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const size_t reservedLength = pageSize * 2;
   uintptr_t address = 0;
-  if (!context->process->getSpaceAllocator().allocate(reservedLength, address)) {
+  if (!context->process->allocateUserRange(Process::UserRegion::Normal, reservedLength, address)) {
     return 1;
   }
   uintptr_t mappedAddress = address;
@@ -80,7 +80,7 @@ int termiosWorker(void* parameter) {
       mappedAddress, pageSize, MemoryMappedObject::Read | MemoryMappedObject::Write);
   if (!mapping || mappedAddress != address) {
     MemoryMapManager::instance().remove(address, pageSize);
-    context->process->getSpaceAllocator().free(address, reservedLength);
+    context->process->freeUserRange(Process::UserRegion::Normal, address, reservedLength);
     return 1;
   }
 
@@ -152,7 +152,7 @@ int termiosWorker(void* parameter) {
   }
 
   MemoryMapManager::instance().remove(address, pageSize);
-  context->process->getSpaceAllocator().free(address, reservedLength);
+  context->process->freeUserRange(Process::UserRegion::Normal, address, reservedLength);
   context->returned += 1;
   return 0;
 }

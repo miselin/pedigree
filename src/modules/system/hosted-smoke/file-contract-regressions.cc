@@ -124,7 +124,7 @@ int contractWorker(void* parameter) {
   Process* process = thread->getParent();
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   uintptr_t address = 0;
-  if (!process->getSpaceAllocator().allocate(pageSize, address)) {
+  if (!process->allocateUserRange(Process::UserRegion::Normal, pageSize, address)) {
     context->returned += 1;
     return 1;
   }
@@ -133,7 +133,7 @@ int contractWorker(void* parameter) {
                                             MemoryMappedObject::Read | MemoryMappedObject::Write) ||
       mappedAddress != address) {
     MemoryMapManager::instance().remove(address, pageSize);
-    process->getSpaceAllocator().free(address, pageSize);
+    process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
     context->returned += 1;
     return 1;
   }
@@ -255,7 +255,7 @@ int contractWorker(void* parameter) {
   context->writeErrors = writeErrors;
 
   MemoryMapManager::instance().remove(address, pageSize);
-  process->getSpaceAllocator().free(address, pageSize);
+  process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
   context->returned += 1;
   return 0;
 }

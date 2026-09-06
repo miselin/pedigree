@@ -97,7 +97,8 @@ set(PEDIGREE_MODULE_LINKSCRIPT "${CMAKE_CURRENT_BINARY_DIR}/link.ld")
 set(PEDIGREE_MODULE_STATICLINKSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/link_static.ld")
 set(PEDIGREE_MODULE_FLAGS ${GENERIC_FLAGS} ${ARCH_MODULE_FLAGS} "-nostdlib")
 set(PEDIGREE_MODULE_CFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CFLAGS})
-set(PEDIGREE_MODULE_CXXFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CXXFLAGS} "-fno-use-cxa-atexit" "-fno-exceptions")
+# Modules use the kernel's nullable allocation ABI.
+set(PEDIGREE_MODULE_CXXFLAGS ${PEDIGREE_MODULE_FLAGS} ${GENERIC_CXXFLAGS} "-fno-use-cxa-atexit" "-fno-exceptions" "-fcheck-new")
 set(PEDIGREE_MODULE_LINKFLAGS "-nodefaultlibs" "-nostartfiles" ${ARCH_MODULE_LINKFLAGS})
 if (PEDIGREE_STATIC_DRIVERS)
     set(CMAKE_SHARED_LINKER_FLAGS "-r -nostdlib")
@@ -618,6 +619,8 @@ pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Filesystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/LockedFile.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-remap.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-advice.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Pipe.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Symlink.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/VFS.cc)
@@ -845,6 +848,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/pending-signal.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/signalfd-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/timerfd-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vm-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/posix-timer-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/signal-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/system-syscalls.cc

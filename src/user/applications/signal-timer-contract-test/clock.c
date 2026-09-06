@@ -14,8 +14,8 @@ struct clock_wait {
   clockid_t clock;
   int flags, result;
   struct timespec request;
-  volatile int entered, done;
-  int64_t started, finished;
+  volatile int *release, ready, entered, done;
+  int64_t deadline_delay, started, finished, realtime_started, realtime_finished;
 };
 static void wait_done(void* argument) {
   __atomic_store_n((volatile int*)argument, 1, __ATOMIC_RELEASE);
@@ -23,12 +23,52 @@ static void wait_done(void* argument) {
 static void* clock_wait(void* argument) {
   struct clock_wait* waiter = argument;
   pthread_cleanup_push(wait_done, (void*)&waiter->done);
-  waiter->started = st_now(CLOCK_MONOTONIC);
-  __atomic_store_n(&waiter->entered, 1, __ATOMIC_RELEASE);
-  waiter->result = clock_nanosleep(waiter->clock, waiter->flags, &waiter->request, NULL);
-  waiter->finished = st_now(CLOCK_MONOTONIC);
+  __atomic_store_n(&waiter->ready, 1, __ATOMIC_RELEASE);
+  if (!waiter->release || st_wait(waiter->release, 5000) == 0) {
+    waiter->started = st_now(CLOCK_MONOTONIC);
+    waiter->realtime_started = st_now(CLOCK_REALTIME);
+    if (waiter->deadline_delay)
+      waiter->request = st_timespec(
+          (waiter->clock == CLOCK_REALTIME ? waiter->realtime_started : waiter->started) +
+          waiter->deadline_delay);
+    __atomic_store_n(&waiter->entered, 1, __ATOMIC_RELEASE);
+    waiter->result = clock_nanosleep(waiter->clock, waiter->flags, &waiter->request, NULL);
+    waiter->finished = st_now(CLOCK_MONOTONIC);
+    waiter->realtime_finished = st_now(CLOCK_REALTIME);
+  } else {
+    waiter->result = ETIMEDOUT;
+  }
   pthread_cleanup_pop(1);
   return NULL;
+}
+
+struct clock_jump {
+  int64_t before_real, before_mono, target, after_real, after_mono, observed_real, observed_mono;
+};
+static void diagnose_backward(const char* stage, const struct clock_wait waits[3],
+                              const struct clock_jump* jump) {
+  fprintf(stderr,
+          "SIGNAL-TIMER-CONTRACT: clock backward stage=%s real=%lld mono=%lld "
+          "jump_before=%lld/%lld target=%lld jump_after=%lld/%lld observed=%lld/%lld\n",
+          stage, (long long)st_now(CLOCK_REALTIME), (long long)st_now(CLOCK_MONOTONIC),
+          (long long)jump->before_real, (long long)jump->before_mono, (long long)jump->target,
+          (long long)jump->after_real, (long long)jump->after_mono, (long long)jump->observed_real,
+          (long long)jump->observed_mono);
+  for (int n = 0; n < 3; ++n) {
+    const int entered = __atomic_load_n(&waits[n].entered, __ATOMIC_ACQUIRE);
+    const int done = __atomic_load_n(&waits[n].done, __ATOMIC_ACQUIRE);
+    // A running worker has not published its result or finish timestamps yet.
+    fprintf(
+        stderr,
+        "SIGNAL-TIMER-CONTRACT: clock worker=%d clock=%d flags=%d ready=%d entered=%d "
+        "done=%d result=%d start=%lld/%lld finish=%lld/%lld request=%lld.%09ld\n",
+        n, (int)waits[n].clock, waits[n].flags, __atomic_load_n(&waits[n].ready, __ATOMIC_ACQUIRE),
+        entered, done, done ? waits[n].result : -1,
+        entered ? (long long)waits[n].realtime_started : -1,
+        entered ? (long long)waits[n].started : -1,
+        done ? (long long)waits[n].realtime_finished : -1, done ? (long long)waits[n].finished : -1,
+        entered ? (long long)waits[n].request.tv_sec : -1, entered ? waits[n].request.tv_nsec : 0L);
+  }
 }
 static int restore_clock(int64_t realtime, int64_t monotonic) {
   struct timespec target = st_timespec(realtime + st_now(CLOCK_MONOTONIC) - monotonic);
@@ -119,6 +159,9 @@ out:
 
 int signal_timer_test_clock(void) {
   int failed = 0, changed = 0, active[3] = {0}, timer_live[3] = {0};
+  volatile int release = 0;
+  const char* backward_stage = NULL;
+  struct clock_jump jump = {0};
   pthread_t workers[3];
   struct clock_wait waits[3] = {0};
   timer_t timers[3];
@@ -170,34 +213,60 @@ int signal_timer_test_clock(void) {
   CHECK(st_now(CLOCK_MONOTONIC) - before_mono < 300000000);
   CHECK(restore_clock(realtime, monotonic) == 0);
 
-  waits[0] = (struct clock_wait){.clock = CLOCK_REALTIME,
-                                 .flags = TIMER_ABSTIME,
-                                 .request = st_timespec(st_now(CLOCK_REALTIME) + 400000000)};
-  waits[1] = (struct clock_wait){.clock = CLOCK_MONOTONIC,
-                                 .flags = TIMER_ABSTIME,
-                                 .request = st_timespec(st_now(CLOCK_MONOTONIC) + 250000000)};
+  backward_stage = "prepare";
+  waits[0] = (struct clock_wait){
+      .clock = CLOCK_REALTIME, .flags = TIMER_ABSTIME, .deadline_delay = 1000000000};
+  waits[1] = (struct clock_wait){
+      .clock = CLOCK_MONOTONIC, .flags = TIMER_ABSTIME, .deadline_delay = 250000000};
   waits[2] = (struct clock_wait){.clock = CLOCK_REALTIME, .request = {0, 250000000}};
   for (int n = 0; n < 3; ++n) {
+    waits[n].release = &release;
     CHECK(pthread_create(&workers[n], NULL, clock_wait, &waits[n]) == 0);
     active[n] = 1;
-    CHECK(st_wait(&waits[n].entered, 1000) == 0);
+    CHECK(st_wait(&waits[n].ready, 1000) == 0);
   }
+  // Thread creation must not consume the deadline being tested. Each worker
+  // samples its absolute deadline only after all three workers exist.
+  backward_stage = "start";
+  __atomic_store_n(&release, 1, __ATOMIC_RELEASE);
+  for (int n = 0; n < 3; ++n)
+    CHECK(st_wait(&waits[n].entered, 1000) == 0);
   st_pause(30);
-  target = st_timespec(st_now(CLOCK_REALTIME) - 1000000000);
-  CHECK(clock_settime(CLOCK_REALTIME, &target) == 0);
-  st_pause(500);
+  backward_stage = "before-jump";
+  jump.before_real = st_now(CLOCK_REALTIME);
+  jump.before_mono = st_now(CLOCK_MONOTONIC);
+  const int64_t original_deadline =
+      (int64_t)waits[0].request.tv_sec * 1000000000 + waits[0].request.tv_nsec;
+  CHECK(original_deadline - jump.before_real >= 500000000);
   CHECK(__atomic_load_n(&waits[0].done, __ATOMIC_ACQUIRE) == 0);
+  jump.target = jump.before_real - 3000000000;
+  target = st_timespec(jump.target);
+  CHECK(clock_settime(CLOCK_REALTIME, &target) == 0);
+  jump.after_real = st_now(CLOCK_REALTIME);
+  jump.after_mono = st_now(CLOCK_MONOTONIC);
+  backward_stage = "after-jump";
+  st_pause(1200);
+  jump.observed_real = st_now(CLOCK_REALTIME);
+  jump.observed_mono = st_now(CLOCK_MONOTONIC);
+  // Observe after the original deadline but before the shifted deadline, so
+  // neither an already-expired setup nor a late supervisor can yield a pass.
+  CHECK(jump.observed_mono - waits[0].started >= waits[0].deadline_delay);
+  CHECK(jump.observed_real < original_deadline);
+  CHECK(__atomic_load_n(&waits[0].done, __ATOMIC_ACQUIRE) == 0);
+  backward_stage = "unaffected-waits";
   for (int n = 1; n < 3; ++n) {
     CHECK(st_wait(&waits[n].done, 1000) == 0 && waits[n].result == 0);
     CHECK(waits[n].finished - waits[n].started >= 200000000 &&
           waits[n].finished - waits[n].started < 2000000000);
   }
+  backward_stage = "restore";
   CHECK(restore_clock(realtime, monotonic) == 0);
   CHECK(st_wait(&waits[0].done, 1500) == 0 && waits[0].result == 0);
   for (int n = 0; n < 3; ++n) {
     CHECK(pthread_join(workers[n], NULL) == 0);
     active[n] = 0;
   }
+  backward_stage = NULL;
 
   waits[0] = (struct clock_wait){.clock = CLOCK_REALTIME,
                                  .flags = TIMER_ABSTIME,
@@ -225,6 +294,8 @@ int signal_timer_test_clock(void) {
     CHECK(timer_gettime(timers[n], &observed) == 0 && observed.it_value.tv_sec >= 1);
 
 out:
+  if (failed && backward_stage)
+    diagnose_backward(backward_stage, waits, &jump);
   if (changed && restore_clock(realtime, monotonic))
     failed = 1;
   for (int n = 0; n < 3; ++n) {

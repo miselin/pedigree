@@ -1042,8 +1042,8 @@ bool Elf::allocate(uint8_t* pBuffer, size_t length, uintptr_t& loadBase, SymbolT
       ERROR("Elf::allocate: non-zero-based dynamic object is unsupported");
       return false;
     }
-    if (!pProcess->getDynamicSpaceAllocator().allocate(allocationSize, loadBase)) {
-      if (!pProcess->getSpaceAllocator().allocate(allocationSize, loadBase)) {
+    if (!pProcess->allocateUserRange(Process::UserRegion::Dynamic, allocationSize, loadBase)) {
+      if (!pProcess->allocateUserRange(Process::UserRegion::Normal, allocationSize, loadBase)) {
         return false;
       }
     }
@@ -1053,7 +1053,8 @@ bool Elf::allocate(uint8_t* pBuffer, size_t length, uintptr_t& loadBase, SymbolT
     // Make sure the Process knows that we've just plonked an Elf at a
     // specific place, and doesn't try to allocate mmaps or libraries over
     // it!
-    if (!pProcess->getSpaceAllocator().allocateSpecific(alignedStart, allocationSize))
+    if (!pProcess->allocateSpecificUserRange(Process::UserRegion::Normal, alignedStart,
+                                             allocationSize))
       return false;
   }
 

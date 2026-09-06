@@ -41,7 +41,7 @@ int resourceSyscallWorker(void* parameter) {
   Thread* thread = Processor::information().getCurrentThread();
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   uintptr_t address = 0;
-  if (!context->process->getSpaceAllocator().allocate(pageSize, address)) {
+  if (!context->process->allocateUserRange(Process::UserRegion::Normal, pageSize, address)) {
     context->returned += 1;
     return 1;
   }
@@ -53,7 +53,7 @@ int resourceSyscallWorker(void* parameter) {
     if (mapping) {
       MemoryMapManager::instance().remove(mappedAddress, pageSize);
     }
-    context->process->getSpaceAllocator().free(address, pageSize);
+    context->process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
     context->returned += 1;
     return 1;
   }
@@ -295,7 +295,7 @@ int resourceSyscallWorker(void* parameter) {
   thread->setName(originalName);
 
   MemoryMapManager::instance().remove(address, pageSize);
-  context->process->getSpaceAllocator().free(address, pageSize);
+  context->process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
   context->passed = passed;
   context->returned += 1;
   return passed ? 0 : 1;

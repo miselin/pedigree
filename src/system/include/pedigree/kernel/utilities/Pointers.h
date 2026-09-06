@@ -97,6 +97,11 @@ class UniquePointer : public UniqueCommon<T> {
     return *this;
   }
 
+  /** Take sole ownership, including a derived object with a virtual destructor. */
+  static UniquePointer<T> adopt(T* pointer) {
+    return UniquePointer<T>(pointer);
+  }
+
   template <class... Args>
   static UniquePointer<T> allocate(Args&&... args) {
     return UniquePointer<T>(new T(args...));

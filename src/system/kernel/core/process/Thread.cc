@@ -456,12 +456,10 @@ Thread::~Thread() {
 
     // Give the address space back to the process.
     uintptr_t base = reinterpret_cast<uintptr_t>(m_pTlsBase);
-    m_pParent->m_Lock.acquire(true);
     if (m_pParent->getAddressSpace()->getDynamicStart())
-      m_pParent->getDynamicSpaceAllocator().free(base, THREAD_TLS_SIZE);
+      m_pParent->freeUserRange(Process::UserRegion::Dynamic, base, THREAD_TLS_SIZE);
     else
-      m_pParent->getSpaceAllocator().free(base, THREAD_TLS_SIZE);
-    m_pParent->m_Lock.release();
+      m_pParent->freeUserRange(Process::UserRegion::Normal, base, THREAD_TLS_SIZE);
   } else if (m_pTlsBase && !m_bTlsBaseOverride) {
     ERROR("Thread: no parent, but a TLS base exists.");
   }
@@ -2466,9 +2464,9 @@ uintptr_t Thread::getTlsBase() {
     // Get ourselves some space.
     uintptr_t base = 0;
     if (m_pParent->getAddressSpace()->getDynamicStart())
-      m_pParent->getDynamicSpaceAllocator().allocate(THREAD_TLS_SIZE, base);
+      m_pParent->allocateUserRange(Process::UserRegion::Dynamic, THREAD_TLS_SIZE, base);
     else
-      m_pParent->getSpaceAllocator().allocate(THREAD_TLS_SIZE, base);
+      m_pParent->allocateUserRange(Process::UserRegion::Normal, THREAD_TLS_SIZE, base);
 
     if (!base) {
       // Failed to allocate space.

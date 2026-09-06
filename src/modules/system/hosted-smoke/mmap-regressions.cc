@@ -94,7 +94,11 @@ struct UnmapRacerContext {
 };
 
 bool findFreeDynamicRange(Process* process, size_t pageSize, size_t length, uintptr_t& address) {
-  MemoryAllocator& allocator = process->getDynamicSpaceAllocator();
+  Process::UserReservationSnapshot snapshot;
+  if (!process->snapshotUserReservations(snapshot)) {
+    return false;
+  }
+  const MemoryAllocator& allocator = snapshot.dynamic;
   const uintptr_t mask = pageSize - 1;
   for (size_t i = 0; i < allocator.size(); ++i) {
     MemoryAllocator::Range range(0, 0);
@@ -112,20 +116,35 @@ bool findFreeDynamicRange(Process* process, size_t pageSize, size_t length, uint
   return false;
 }
 
-MemoryAllocator* allocatorFor(Process* process, uintptr_t address, size_t length) {
+struct ReservationProbe {
+  Process* process = nullptr;
+  Process::UserRegion region = Process::UserRegion::Normal;
+
+  explicit operator bool() const {
+    return process != nullptr;
+  }
+  bool allocateSpecific(uintptr_t address, size_t length) const {
+    return process->allocateSpecificUserRange(region, address, length);
+  }
+  void free(uintptr_t address, size_t length) const {
+    process->freeUserRange(region, address, length);
+  }
+};
+
+ReservationProbe allocatorFor(Process* process, uintptr_t address, size_t length) {
   VirtualAddressSpace* addressSpace = process->getAddressSpace();
   const uintptr_t end = address + length;
   if (addressSpace->getDynamicStart() && address >= addressSpace->getDynamicStart() &&
       end <= addressSpace->getDynamicEnd()) {
-    return &process->getDynamicSpaceAllocator();
+    return {process, Process::UserRegion::Dynamic};
   }
   if (address >= addressSpace->getUserStart() && end <= addressSpace->getUserReservedStart()) {
-    return &process->getSpaceAllocator();
+    return {process, Process::UserRegion::Normal};
   }
-  return nullptr;
+  return {};
 }
 
-bool reservationHeld(MemoryAllocator& allocator, uintptr_t address, size_t length) {
+bool reservationHeld(ReservationProbe allocator, uintptr_t address, size_t length) {
   if (!allocator.allocateSpecific(address, length)) {
     return true;
   }
@@ -133,7 +152,7 @@ bool reservationHeld(MemoryAllocator& allocator, uintptr_t address, size_t lengt
   return false;
 }
 
-bool reservationAvailableExactlyOnce(MemoryAllocator& allocator, uintptr_t address, size_t length) {
+bool reservationAvailableExactlyOnce(ReservationProbe allocator, uintptr_t address, size_t length) {
   const bool first = allocator.allocateSpecific(address, length);
   const bool second = first && allocator.allocateSpecific(address, length);
   if (first) {
@@ -229,7 +248,7 @@ bool runOverlappingUnmapRace(Process* process, size_t pageSize) {
   }
 
   const uintptr_t address = reinterpret_cast<uintptr_t>(mapping);
-  MemoryAllocator* allocator = allocatorFor(process, address, mappingLength);
+  ReservationProbe allocator = allocatorFor(process, address, mappingLength);
   if (!allocator) {
     posix_munmap(mapping, mappingLength);
     return false;
@@ -256,7 +275,7 @@ bool runOverlappingUnmapRace(Process* process, size_t pageSize) {
   }
 
   const bool releasedExactlyOnce =
-      reservationAvailableExactlyOnce(*allocator, address, mappingLength);
+      reservationAvailableExactlyOnce(allocator, address, mappingLength);
   const bool passed = firstStarted && secondStarted && firstJoined && secondJoined &&
                       first.returned == 1 && second.returned == 1 && !first.result &&
                       !second.result && first.error == PreservedErrno &&
@@ -276,24 +295,24 @@ bool anonymousReservationReclamation(Process* process, size_t pageSize) {
   }
 
   const uintptr_t address = reinterpret_cast<uintptr_t>(mapping);
-  MemoryAllocator* allocator = allocatorFor(process, address, mappingLength + pageSize);
+  ReservationProbe allocator = allocatorFor(process, address, mappingLength + pageSize);
   if (!allocator) {
     posix_munmap(mapping, mappingLength);
     return false;
   }
 
-  const bool adjacentAvailable = allocator->allocateSpecific(address + mappingLength, pageSize);
+  const bool adjacentAvailable = allocator.allocateSpecific(address + mappingLength, pageSize);
   if (adjacentAvailable) {
-    allocator->free(address + mappingLength, pageSize);
+    allocator.free(address + mappingLength, pageSize);
   }
 
   const uintptr_t middle = address + pageSize;
   const bool middleUnmapped = !posix_munmap(reinterpret_cast<void*>(middle), pageSize);
-  const bool prefixHeld = reservationHeld(*allocator, address, pageSize);
-  const bool suffixHeld = reservationHeld(*allocator, address + (pageSize * 2), pageSize);
-  const bool middleAvailable = allocator->allocateSpecific(middle, pageSize);
+  const bool prefixHeld = reservationHeld(allocator, address, pageSize);
+  const bool suffixHeld = reservationHeld(allocator, address + (pageSize * 2), pageSize);
+  const bool middleAvailable = allocator.allocateSpecific(middle, pageSize);
   if (middleAvailable) {
-    allocator->free(middle, pageSize);
+    allocator.free(middle, pageSize);
   }
 
   void* middleMapping =
@@ -303,7 +322,7 @@ bool anonymousReservationReclamation(Process* process, size_t pageSize) {
 
   const bool remainderUnmapped = !posix_munmap(mapping, mappingLength);
   const bool releasedExactlyOnce =
-      reservationAvailableExactlyOnce(*allocator, address, mappingLength);
+      reservationAvailableExactlyOnce(allocator, address, mappingLength);
   if (!releasedExactlyOnce) {
     posix_munmap(mapping, mappingLength);
   }
@@ -326,14 +345,14 @@ bool fixedReplacementReservesHoles(Process* process, size_t pageSize) {
           ? posix_mmap(reinterpret_cast<void*>(address), replacementLength, PROT_READ | PROT_WRITE,
                        MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0)
           : MAP_FAILED;
-  const bool holesUnavailable =
-      replacement == reinterpret_cast<void*>(address) &&
-      !process->getDynamicSpaceAllocator().allocateSpecific(address + pageSize, pageSize * 2);
+  const bool holesUnavailable = replacement == reinterpret_cast<void*>(address) &&
+                                !process->allocateSpecificUserRange(
+                                    Process::UserRegion::Dynamic, address + pageSize, pageSize * 2);
 
   bool releasedExactlyOnce = false;
   if (replacement != MAP_FAILED) {
     if (!posix_munmap(replacement, replacementLength)) {
-      releasedExactlyOnce = reservationAvailableExactlyOnce(process->getDynamicSpaceAllocator(),
+      releasedExactlyOnce = reservationAvailableExactlyOnce({process, Process::UserRegion::Dynamic},
                                                             address, replacementLength);
     }
   } else if (initial != MAP_FAILED) {
@@ -374,12 +393,12 @@ int exerciseMmapPlacement(void* parameter) {
   context->noReplaceCollision = originalMapped && noReplace == MAP_FAILED &&
                                 thread->getErrno() == Error::FileExists &&
                                 *reinterpret_cast<volatile uint8_t*>(original) == OriginalSentinel;
-  MemoryAllocator* originalAllocator =
+  ReservationProbe originalAllocator =
       originalMapped ? allocatorFor(process, reinterpret_cast<uintptr_t>(original), pageSize)
-                     : nullptr;
+                     : ReservationProbe{};
   context->failedPlacementPreserved =
       context->noReplaceCollision && originalAllocator &&
-      reservationHeld(*originalAllocator, reinterpret_cast<uintptr_t>(original), pageSize);
+      reservationHeld(originalAllocator, reinterpret_cast<uintptr_t>(original), pageSize);
 
   thread->setErrno(0);
   const void* invalidFixed = posix_mmap(nullptr, pageSize, PROT_READ | PROT_WRITE,
@@ -396,7 +415,7 @@ int exerciseMmapPlacement(void* parameter) {
   const bool overflowUnmapRejected =
       originalMapped && overflowUnmap == -1 && thread->getErrno() == Error::InvalidArgument &&
       *reinterpret_cast<volatile uint8_t*>(original) == OriginalSentinel && originalAllocator &&
-      reservationHeld(*originalAllocator, reinterpret_cast<uintptr_t>(original), pageSize);
+      reservationHeld(originalAllocator, reinterpret_cast<uintptr_t>(original), pageSize);
   context->inputValidation = nullFixedRejected && overflowMmapRejected && overflowUnmapRejected;
 
   thread->setErrno(PreservedErrno);
@@ -420,11 +439,11 @@ int exerciseMmapPlacement(void* parameter) {
   }
   if (replacement != MAP_FAILED) {
     const uintptr_t replacementAddress = reinterpret_cast<uintptr_t>(replacement);
-    MemoryAllocator* replacementAllocator = allocatorFor(process, replacementAddress, pageSize);
+    ReservationProbe replacementAllocator = allocatorFor(process, replacementAddress, pageSize);
     const bool unmapped = !posix_munmap(replacement, pageSize);
     context->exactReservation =
         replacementAllocator && unmapped &&
-        reservationAvailableExactlyOnce(*replacementAllocator, replacementAddress, pageSize);
+        reservationAvailableExactlyOnce(replacementAllocator, replacementAddress, pageSize);
   } else if (originalMapped) {
     posix_munmap(original, pageSize);
   }

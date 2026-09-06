@@ -225,6 +225,9 @@ class MemFile : public File {
   ~MemFile() {}
 
   virtual physical_uintptr_t getPhysicalPage(size_t offset);
+  bool isDirectPhysicalMapping() const override {
+    return true;
+  }
   virtual void returnPhysicalPage(size_t offset);
 };
 

@@ -58,6 +58,7 @@
 #include "sysv-semaphore-syscalls.h"
 #include "sysv-shm-syscalls.h"
 #include "timerfd-syscalls.h"
+#include "vm-syscalls.h"
 
 namespace {
 off_t linuxAmd64VectorOffset(uintptr_t low, uintptr_t high) {
@@ -509,6 +510,13 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
                                                     static_cast<int>(p5), static_cast<off_t>(p6)));
     case POSIX_MUNMAP:
       return posix_munmap(reinterpret_cast<void*>(p1), p2);
+    case POSIX_MREMAP:
+      return reinterpret_cast<uintptr_t>(posix_mremap(
+          reinterpret_cast<void*>(p1), p2, p3, static_cast<int>(p4), reinterpret_cast<void*>(p5)));
+    case POSIX_MINCORE:
+      return posix_mincore(reinterpret_cast<void*>(p1), p2, reinterpret_cast<unsigned char*>(p3));
+    case POSIX_MADVISE:
+      return posix_madvise(reinterpret_cast<void*>(p1), p2, static_cast<int>(p3));
     case POSIX_SHUTDOWN:
       return posix_shutdown(static_cast<int>(p1), static_cast<int>(p2));
     case POSIX_ACCESS:

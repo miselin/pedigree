@@ -150,6 +150,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
    * Returns (physical_uintptr_t) ~0 if the offset isn't in the cache.
    */
   virtual physical_uintptr_t getPhysicalPage(size_t offset);
+  virtual bool isDirectPhysicalMapping() const {
+    return false;
+  }
 
   /**
    * Specifies that the system is done with the physical page retrieved

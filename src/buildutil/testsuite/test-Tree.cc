@@ -314,3 +314,40 @@ TEST(PedigreeTree, InsertMove) {
   EXPECT_EQ(x.lookupRef(1).get(), ptr);
   EXPECT_EQ(y.get(), nullptr);
 }
+
+TEST(PedigreeTree, FallibleInsertionBalancesAndReplaces) {
+  Tree<int, int> tree;
+  // Exercise both rotations while using the same path as staged VM metadata.
+  for (int i = 0; i < 128; ++i)
+    ASSERT_TRUE(tree.tryInsert(i * 37 % 128, i));
+  ASSERT_EQ(tree.count(), 128U);
+  for (int i = 0; i < 128; ++i)
+    ASSERT_TRUE(tree.tryInsert(i, i + 1000));
+  ASSERT_EQ(tree.count(), 128U);
+  int expected = 0;
+  for (auto it = tree.begin(); it != tree.end(); ++it) {
+    EXPECT_EQ(it.key(), expected);
+    EXPECT_EQ(it.value(), expected + 1000);
+    ++expected;
+  }
+  EXPECT_EQ(expected, 128);
+  for (int i = 0; i < 128; i += 2)
+    tree.remove(i);
+  for (int i = 0; i < 128; ++i)
+    EXPECT_EQ(tree.contains(i), (i & 1) != 0);
+}
+
+TEST(PedigreeTree, FallibleInsertionMovesOwnership) {
+  Tree<int, SharedPointer<int>> tree;
+  auto first = SharedPointer<int>::allocate(7);
+  auto second = SharedPointer<int>::allocate(9);
+  int* retained = second.get();
+  ASSERT_TRUE(tree.tryInsert(1, pedigree_std::move(first)));
+  ASSERT_TRUE(tree.tryInsert(1, pedigree_std::move(second)));
+  EXPECT_EQ(first.get(), nullptr);
+  EXPECT_EQ(second.get(), nullptr);
+  EXPECT_EQ(tree.count(), 1U);
+  EXPECT_EQ(tree.lookup(1).get(), retained);
+  tree.clear();
+  EXPECT_EQ(tree.count(), 0U);
+}

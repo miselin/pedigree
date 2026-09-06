@@ -293,3 +293,51 @@ TEST(PedigreeRangeList, SelfAssignmentPreservesFreeRanges) {
   EXPECT_TRUE(list.allocateSpecific(0, 64));
   EXPECT_TRUE(list.allocateSpecific(256, 64));
 }
+
+TEST(PedigreeRangeList, StorageSwapTransfersReservationsAndAllocationPreference) {
+  RangeList<uintptr_t> first(false), second(true);
+  first.free(0x1000, 0x3000);
+  ASSERT_TRUE(first.allocateSpecific(0x2000, 0x1000));
+  second.free(0x10000, 0x1000);
+  second.free(0x20000, 0x1000);
+  first.swap(second);
+  first.free(0x30000, 0x1000);
+  second.free(0x5000, 0x1000);
+  uintptr_t address = 0;
+  ASSERT_TRUE(first.allocate(0x1000, address));
+  EXPECT_EQ(address, 0x30000U);
+  EXPECT_FALSE(second.allocateSpecific(0x2000, 0x1000));
+  ASSERT_TRUE(second.allocate(0x1000, address));
+  EXPECT_EQ(address, 0x1000U);
+  ASSERT_TRUE(second.allocate(0x1000, address));
+  EXPECT_EQ(address, 0x3000U);
+  second.swap(second);
+  ASSERT_TRUE(second.allocate(0x1000, address));
+  EXPECT_EQ(address, 0x5000U);
+  RangeList<uintptr_t> empty;
+  first.swap(empty);
+  EXPECT_EQ(first.size(), 0U);
+  EXPECT_TRUE(empty.allocateSpecific(0x10000, 0x1000));
+  EXPECT_TRUE(empty.allocateSpecific(0x20000, 0x1000));
+}
+
+TEST(PedigreeRangeList, ReusesExhaustedStorageWithoutAllocation) {
+  RangeList<uintptr_t> ranges(false);
+  ASSERT_TRUE(ranges.tryFree(0x1000, 0x4000));
+  ASSERT_TRUE(ranges.tryFree(0x9000, 0x1000));
+  EXPECT_FALSE(ranges.allocateSpecificWithoutAllocation(0x2000, 0x1000));
+  uintptr_t address = 0;
+  ASSERT_TRUE(ranges.allocateSpecificWithoutAllocation(0x9000, 0x1000));
+  ASSERT_TRUE(ranges.allocateSpecificWithoutAllocation(0x2000, 0x1000));
+  EXPECT_EQ(ranges.size(), 2U);
+  ASSERT_TRUE(ranges.allocateWithoutAllocation(0x1000, address));
+  EXPECT_EQ(address, 0x1000U);
+  ASSERT_TRUE(ranges.freeWithoutAllocation(0x7000, 0x1000));
+  EXPECT_EQ(ranges.size(), 2U);
+  ASSERT_TRUE(ranges.freeWithoutAllocation(0x5000, 0x1000));
+  ASSERT_TRUE(ranges.allocateWithoutAllocation(0x3000, address));
+  EXPECT_EQ(address, 0x3000U);
+  ASSERT_TRUE(ranges.allocateWithoutAllocation(0x1000, address));
+  EXPECT_EQ(address, 0x7000U);
+  EXPECT_FALSE(ranges.allocateWithoutAllocation(1, address));
+}

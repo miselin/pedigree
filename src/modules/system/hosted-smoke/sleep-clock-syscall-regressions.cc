@@ -75,7 +75,8 @@ int exerciseSleepClockValidation(void* parameter) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const size_t mappingLength = pageSize * 3;
   uintptr_t address = 0;
-  const bool allocated = process->getSpaceAllocator().allocate(mappingLength, address);
+  const bool allocated =
+      process->allocateUserRange(Process::UserRegion::Normal, mappingLength, address);
   uintptr_t mappedAddress = address;
   MemoryMappedObject* mapping =
       allocated
@@ -87,7 +88,7 @@ int exerciseSleepClockValidation(void* parameter) {
       MemoryMapManager::instance().remove(mappedAddress, mappingLength);
     }
     if (allocated) {
-      process->getSpaceAllocator().free(address, mappingLength);
+      process->freeUserRange(Process::UserRegion::Normal, address, mappingLength);
     }
     context->returned += 1;
     return 1;
@@ -293,7 +294,7 @@ int exerciseSleepClockValidation(void* parameter) {
 
   MemoryMapManager::instance().remove(address, pageSize);
   MemoryMapManager::instance().remove(address + (pageSize * 2), pageSize);
-  process->getSpaceAllocator().free(address, mappingLength);
+  process->freeUserRange(Process::UserRegion::Normal, address, mappingLength);
 
   context->passed = passed;
   context->returned += 1;
@@ -338,7 +339,7 @@ int exerciseInterruptedSleep(void* parameter) {
 
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   uintptr_t address = 0;
-  const bool allocated = process->getSpaceAllocator().allocate(pageSize, address);
+  const bool allocated = process->allocateUserRange(Process::UserRegion::Normal, pageSize, address);
   uintptr_t mappedAddress = address;
   MemoryMappedObject* mapping =
       allocated ? MemoryMapManager::instance().mapAnon(
@@ -349,7 +350,7 @@ int exerciseInterruptedSleep(void* parameter) {
       MemoryMapManager::instance().remove(mappedAddress, pageSize);
     }
     if (allocated) {
-      process->getSpaceAllocator().free(address, pageSize);
+      process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
     }
     context->returned += 1;
     return 1;
@@ -378,7 +379,7 @@ int exerciseInterruptedSleep(void* parameter) {
       (context->target == ValidRemainder &&
        !PosixSubsystem::copyToUser(output, &untouchedRemainder, sizeof(untouchedRemainder)))) {
     MemoryMapManager::instance().remove(address, pageSize);
-    process->getSpaceAllocator().free(address, pageSize);
+    process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
     context->returned += 1;
     return 1;
   }
@@ -401,7 +402,7 @@ int exerciseInterruptedSleep(void* parameter) {
   }
 
   MemoryMapManager::instance().remove(address, pageSize);
-  process->getSpaceAllocator().free(address, pageSize);
+  process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
   context->returned += 1;
   return 0;
 }

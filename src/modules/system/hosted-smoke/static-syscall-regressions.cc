@@ -1467,7 +1467,7 @@ bool mappingManagerSplitLifetime(Process* process, bool exactSuffix) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const size_t mappingLength = pageSize * 3;
   uintptr_t address = 0;
-  if (!process->getSpaceAllocator().allocate(mappingLength, address)) {
+  if (!process->allocateUserRange(Process::UserRegion::Normal, mappingLength, address)) {
     return false;
   }
 
@@ -1492,7 +1492,7 @@ bool mappingManagerSplitLifetime(Process* process, bool exactSuffix) {
   }
 
   MemoryMapManager::instance().remove(address, mappingLength);
-  process->getSpaceAllocator().free(address, mappingLength);
+  process->freeUserRange(Process::UserRegion::Normal, address, mappingLength);
   const bool namespaceWasFinal = VFS::instance().untrackFile(file);
   const bool emergencyWasFinal = VFS::instance().untrackFile(file);
   passed =
@@ -4172,7 +4172,7 @@ int cloneVmWhileProcessExits(void* parameter) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const size_t length = (sizeof(CloneVmUserFixture) + pageSize - 1) & ~(pageSize - 1);
   uintptr_t address = 0;
-  if (!context->process->getSpaceAllocator().allocate(length, address)) {
+  if (!context->process->allocateUserRange(Process::UserRegion::Normal, length, address)) {
     context->callerReturned += 1;
     return 1;
   }
@@ -4183,7 +4183,7 @@ int cloneVmWhileProcessExits(void* parameter) {
     if (mapping) {
       MemoryMapManager::instance().remove(mappedAddress, length);
     }
-    context->process->getSpaceAllocator().free(address, length);
+    context->process->freeUserRange(Process::UserRegion::Normal, address, length);
     context->callerReturned += 1;
     return 1;
   }
@@ -4217,7 +4217,7 @@ int cleanupCloneVmUserFixture(void* parameter) {
     const size_t pageSize = PhysicalMemoryManager::getPageSize();
     const size_t length = (sizeof(CloneVmUserFixture) + pageSize - 1) & ~(pageSize - 1);
     MemoryMapManager::instance().remove(context->userAddress, length);
-    context->process->getSpaceAllocator().free(context->userAddress, length);
+    context->process->freeUserRange(Process::UserRegion::Normal, context->userAddress, length);
     context->userAddress = 0;
   }
   return 0;

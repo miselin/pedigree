@@ -144,6 +144,9 @@ class ShmAttachment final : public MappingAttachment {
   uintptr_t baseAddress() const override {
     return m_Base;
   }
+  void relocate(uintptr_t newBase) override {
+    m_Base = newBase;
+  }
   size_t pid() const {
     return m_Pid;
   }

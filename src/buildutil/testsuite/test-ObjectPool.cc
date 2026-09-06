@@ -22,6 +22,7 @@
 #include "pedigree/kernel/utilities/ObjectPool.h"
 
 #include <gtest/gtest.h>
+#include <new>
 
 TEST(PedigreeObjectPool, EmptyPoolAllocation) {
   ObjectPool<int> x;
@@ -106,4 +107,33 @@ TEST(PedigreeObjectPool, DISABLED_DeallocatedTooMany) {
   delete c;
   delete a2;
   delete b2;
+}
+
+namespace {
+struct FalliblePoolValue {
+  static bool fail;
+  static void* operator new(size_t size) noexcept {
+    return fail ? nullptr : ::operator new(size, std::nothrow);
+  }
+  static void operator delete(void* value) noexcept {
+    ::operator delete(value);
+  }
+};
+bool FalliblePoolValue::fail = false;
+}  // namespace
+
+TEST(PedigreeObjectPool, FallibleAllocationPreservesReuse) {
+  ObjectPool<FalliblePoolValue, 2> pool;
+  FalliblePoolValue* first = pool.tryAllocate();
+  ASSERT_NE(first, nullptr);
+  pool.deallocate(first);
+  FalliblePoolValue::fail = true;
+  FalliblePoolValue* reused = pool.tryAllocate();
+  FalliblePoolValue* failed = pool.tryAllocate();
+  FalliblePoolValue::fail = false;
+  EXPECT_EQ(reused, first);
+  EXPECT_EQ(failed, nullptr);
+  pool.deallocate(reused);
+  EXPECT_EQ(pool.tryAllocate(), first);
+  delete first;
 }

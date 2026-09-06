@@ -1818,13 +1818,14 @@ bool PosixSubsystem::loadElf(const ExecutableImage& image, uintptr_t& loadBias) 
   const size_t allocationSize = metadata.loadEnd - metadata.loadStart;
   if (metadata.type == ET_DYN) {
     uintptr_t allocation = 0;
-    if (!pProcess->getDynamicSpaceAllocator().allocate(allocationSize, allocation) &&
-        !pProcess->getSpaceAllocator().allocate(allocationSize, allocation)) {
+    if (!pProcess->allocateUserRange(Process::UserRegion::Dynamic, allocationSize, allocation) &&
+        !pProcess->allocateUserRange(Process::UserRegion::Normal, allocationSize, allocation)) {
       return false;
     }
     loadBias = allocation - metadata.loadStart;
   } else {
-    if (!pProcess->getSpaceAllocator().allocateSpecific(metadata.loadStart, allocationSize)) {
+    if (!pProcess->allocateSpecificUserRange(Process::UserRegion::Normal, metadata.loadStart,
+                                             allocationSize)) {
       return false;
     }
     loadBias = 0;
@@ -2326,16 +2327,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   delete oldLinker;
 
   // We now need to clean up the process' address space.
-  pProcess->getSpaceAllocator().clear();
-  pProcess->getDynamicSpaceAllocator().clear();
-  pProcess->getSpaceAllocator().free(pProcess->getAddressSpace()->getUserStart(),
-                                     pProcess->getAddressSpace()->getUserReservedStart() -
-                                         pProcess->getAddressSpace()->getUserStart());
-  if (pProcess->getAddressSpace()->getDynamicStart()) {
-    pProcess->getDynamicSpaceAllocator().free(pProcess->getAddressSpace()->getDynamicStart(),
-                                              pProcess->getAddressSpace()->getDynamicEnd() -
-                                                  pProcess->getAddressSpace()->getDynamicStart());
-  }
+  pProcess->resetUserReservations();
   pProcess->getAddressSpace()->revertToKernelAddressSpace();
 
   // The old mappings are gone, but Thread state levels still own their Stack

@@ -11,9 +11,10 @@ set(PEDIGREE_DEBUG_ALLOCATOR FALSE CACHE BOOL "Replace SLAM with a debug allocat
 set(GENERIC_KERNEL_FLAGS
     "-fno-common" "-fno-omit-frame-pointer" "-ggdb" "-g3" "-gdwarf-2")
 set(GENERIC_KERNEL_CFLAGS "")
+# Slam's allocation ABI can return null; constructors must not run on failed storage.
 set(GENERIC_KERNEL_CXXFLAGS
     "-fno-exceptions" "-fno-rtti" "-fno-asynchronous-unwind-tables"
-    "-fno-use-cxa-atexit")
+    "-fno-use-cxa-atexit" "-fcheck-new")
 if (PEDIGREE_HOSTED_DARWIN)
     set(GENERIC_KERNEL_LINKFLAGS "")
 else ()
@@ -98,6 +99,8 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/state.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/SyscallManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/VirtualAddressSpace.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/VirtualAddressSpace-remap.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/VirtualAddressSpace-remap-regressions.cc
         # /core/processor/x64/asm/
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/Processor.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/instrument.s
@@ -287,6 +290,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/OperationBarrier.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/PerProcessorScheduler.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Process.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Process-reservations.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/ProcessorThreadAllocator.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Readiness.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/RoundRobin.cc

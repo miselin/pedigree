@@ -95,6 +95,9 @@ class EXPORTED_PUBLIC List {
   /** Add a value to the end of the List
    *\param[in] value the value that should be added */
   void pushBack(T&& value);
+  /** A failed insertion leaves the list unchanged. */
+  bool tryPushBack(const T& value);
+  bool tryPushBack(T&& value);
   /** Remove the last element from the List
    *\return the previously last element */
   T popBack();
@@ -238,6 +241,38 @@ void List<T, nodePoolSize>::pushBack(T&& value) {
 
   m_Last = newNode;
   ++m_Count;
+}
+template <typename T, size_t nodePoolSize>
+bool List<T, nodePoolSize>::tryPushBack(const T& value) {
+  node_t* newNode = m_NodePool.tryAllocate();
+  if (!newNode)
+    return false;
+  newNode->m_Next = nullptr;
+  newNode->m_Previous = m_Last;
+  newNode->value = value;
+  if (m_Last)
+    m_Last->m_Next = newNode;
+  else
+    m_First = newNode;
+  m_Last = newNode;
+  ++m_Count;
+  return true;
+}
+template <typename T, size_t nodePoolSize>
+bool List<T, nodePoolSize>::tryPushBack(T&& value) {
+  node_t* newNode = m_NodePool.tryAllocate();
+  if (!newNode)
+    return false;
+  newNode->m_Next = nullptr;
+  newNode->m_Previous = m_Last;
+  newNode->value = pedigree_std::move(value);
+  if (m_Last)
+    m_Last->m_Next = newNode;
+  else
+    m_First = newNode;
+  m_Last = newNode;
+  ++m_Count;
+  return true;
 }
 template <typename T, size_t nodePoolSize>
 T List<T, nodePoolSize>::popBack() {

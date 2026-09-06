@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 32 of 113 backlog entries implemented; 81 remain.
+Current checkpoint: 35 of 113 backlog entries implemented; 78 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,70 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Remapping, residency and page discard
+
+The VM pass adds `mremap`, `mincore`, and `madvise(MADV_DONTNEED)`.
+Remapping supports shrinking, in-place growth, MAYMOVE relocation, and FIXED
+replacement for anonymous memory and ordinary shared/private file mappings.
+Source subranges preserve their surrounding mappings, backing offsets, protection
+limits, and copy-on-write behavior. Whole contiguous System V attachments can
+move or shrink without changing attachment counts.
+
+Preparation allocates replacement metadata, address reservations, page tables,
+and a retirement journal before mutation. Commit checks the reservation epoch
+and transfers the current PTEs under the address-space mutation lock; detached
+references are retired afterwards. Process reservation access now uses serialized
+operations instead of exposing its allocators. Fallible container operations and
+checked nullable allocation support let preparation report exhaustion without
+partially changing mappings.
+
+`mincore` reports residency without faulting pages in, includes cached file pages
+and present PROT_NONE mappings, and masks file information for callers who neither
+own nor may write the file. Copyout uses bounded kernel snapshots. DONTNEED drops
+private changes while retaining the mapping and permissions; shared file and SHM
+contents remain in their backing storage.
+
+The initial contract has explicit limits:
+
+- Remapping operates within one managed source object. Zero-size shared mapping
+  duplication, DONTUNMAP, direct physical mappings, and unmanaged initial
+  address-space mappings are unsupported. SHM growth and fragmented or partial
+  source attachments are unsupported.
+- Preparation admits at most 65,536 aggregate pages across the new extent and
+  complete affected source/victim objects, 4,096 existing objects, and 32
+  reservation retries. Capacity exhaustion returns ENOMEM.
+- DONTNEED is the only accepted advice. Other advice values return EINVAL.
+- Production PTE transfer is implemented for amd64. Hosted builds provide compile
+  coverage; other architectures do not gain a remap implementation from this pass.
+- Ordinary allocator free-list growth retains the pre-existing fatal allocation
+  failure limitation. The remap transaction prepares its release metadata before
+  commit. Existing fork/TLS snapshot coherence and the separately parked VM fault
+  are outside this pass.
+
+`vm-contract-test` contains bounded remap, residency, and discard families.
+The default-off `PEDIGREE_VM_REMAP_TESTS` fixture exercises preparation allocation
+failure, stale reservations, a CoW change after preparation, protection transfer,
+and exact displaced-page retirement. A standalone native fixture injects actual
+allocation failure into the shared metadata containers.
+
+Native verification passed 119 affected utility cases and 38 routing/ABI/fallible
+allocation checks. Six affected hosted translation units compiled; the scheduler
+regression unit passed C++ syntax checking only because its existing ELF assembly
+is not accepted by the Darwin assembler. The remap kernel fixture passed with one
+and four CPUs; it is disabled in the ordinary image configuration.
+
+Initial failures are retained under `/private/tmp/pedigree-vm-expansion-20260905/`.
+The new CoW fixture undercounted its retained physical-page references and was
+corrected. The residency fixture now establishes file mode explicitly because
+RamFs creation currently ignores the supplied mode, a follow-up for the file pass.
+An existing clock fixture could consume its deadline while creating workers; it
+now gates startup and checks the observation window, with failure diagnostics.
+The original clock failure lacked timestamps sufficient to prove its exact cause.
+Final fresh headless one- and four-CPU ordinary images passed all three VM
+families and all 16 integration suites, including per-suite zero exit statuses
+and the final marker. `verification.json` in that artifact directory records the
+image identity, logs, and checks. Disk writes remained disabled.
 
 ## Signal and timer descriptors
 

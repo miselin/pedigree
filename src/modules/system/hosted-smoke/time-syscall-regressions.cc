@@ -110,7 +110,8 @@ int exerciseTimeSyscalls(void* parameter) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const size_t mappingLength = pageSize * 3;
   uintptr_t address = 0;
-  const bool allocated = process->getSpaceAllocator().allocate(mappingLength, address);
+  const bool allocated =
+      process->allocateUserRange(Process::UserRegion::Normal, mappingLength, address);
   uintptr_t mappedAddress = address;
   MemoryMappedObject* mapping =
       allocated
@@ -122,7 +123,7 @@ int exerciseTimeSyscalls(void* parameter) {
       MemoryMapManager::instance().remove(mappedAddress, mappingLength);
     }
     if (allocated) {
-      process->getSpaceAllocator().free(address, mappingLength);
+      process->freeUserRange(Process::UserRegion::Normal, address, mappingLength);
     }
     context->passed = false;
     context->returned += 1;
@@ -400,7 +401,7 @@ int exerciseTimeSyscalls(void* parameter) {
     MemoryMapManager::instance().remove(address + (pageSize * 2), pageSize);
   }
   if (allocated) {
-    process->getSpaceAllocator().free(address, mappingLength);
+    process->freeUserRange(Process::UserRegion::Normal, address, mappingLength);
   }
 
   context->passed = passed;

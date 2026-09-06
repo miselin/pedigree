@@ -371,3 +371,22 @@ TEST(PedigreeList, PointerRotatePop) {
   EXPECT_EQ(x.popFront(), reinterpret_cast<void*>(0));
   EXPECT_EQ(p, p_);
 }
+
+TEST(PedigreeList, FallibleInsertionReusesRollbackNodes) {
+  List<int, 2> list;
+  for (int pass = 0; pass < 3; ++pass) {
+    for (int i = 0; i < 5; ++i) {
+      const int value = pass * 10 + i;
+      ASSERT_TRUE(list.tryPushBack(value));
+    }
+    ASSERT_EQ(list.count(), 5U);
+    EXPECT_EQ(list.popFront(), pass * 10);
+    EXPECT_EQ(list.popBack(), pass * 10 + 4);
+    int expected = pass * 10 + 1;
+    for (int value : list)
+      EXPECT_EQ(value, expected++);
+    list.clear();
+    EXPECT_EQ(list.count(), 0U);
+    EXPECT_EQ(list.begin(), list.end());
+  }
+}

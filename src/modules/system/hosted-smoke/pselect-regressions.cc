@@ -230,7 +230,7 @@ int pselectValidationWorker(void* parameter) {
 
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   uintptr_t address = 0;
-  const bool allocated = process->getSpaceAllocator().allocate(pageSize, address);
+  const bool allocated = process->allocateUserRange(Process::UserRegion::Normal, pageSize, address);
   uintptr_t mappedAddress = address;
   MemoryMappedObject* mapping =
       allocated ? MemoryMapManager::instance().mapAnon(
@@ -258,12 +258,12 @@ int pselectValidationWorker(void* parameter) {
                       isSet(highBits, context->highReadFd);
 
     dynamicBitmaps &= MemoryMapManager::instance().remove(address, pageSize) == 1;
-    process->getSpaceAllocator().free(address, pageSize);
+    process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
   } else if (allocated) {
     if (mapping) {
       MemoryMapManager::instance().remove(mappedAddress, pageSize);
     }
-    process->getSpaceAllocator().free(address, pageSize);
+    process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
   }
   passed &= dynamicBitmaps;
   passed &= eventFd >= 0 && posix_close(eventFd) == 0;
@@ -450,7 +450,7 @@ int pselectOutputFaultWorker(void* parameter) {
   const int nfds = static_cast<int>(context->readFd + 1);
   const size_t extent = bitmapExtent(nfds);
   uintptr_t address = 0;
-  const bool allocated = process->getSpaceAllocator().allocate(pageSize, address);
+  const bool allocated = process->allocateUserRange(Process::UserRegion::Normal, pageSize, address);
   uintptr_t mappedAddress = address;
   MemoryMappedObject* mapping =
       allocated ? MemoryMapManager::instance().mapAnon(
@@ -491,7 +491,7 @@ int pselectOutputFaultWorker(void* parameter) {
     MemoryMapManager::instance().remove(address, pageSize);
   }
   if (allocated) {
-    process->getSpaceAllocator().free(address, pageSize);
+    process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
   }
   context->returned += 1;
   return context->passed ? 0 : 1;

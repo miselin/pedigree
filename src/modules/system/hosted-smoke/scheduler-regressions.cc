@@ -203,16 +203,7 @@ int resetTlsBaseThread(void* parameter) {
                                                  reinterpret_cast<void*>(initialBase));
 
   Process* process = current->getParent();
-  process->getSpaceAllocator().clear();
-  process->getDynamicSpaceAllocator().clear();
-  process->getSpaceAllocator().free(process->getAddressSpace()->getUserStart(),
-                                    process->getAddressSpace()->getUserReservedStart() -
-                                        process->getAddressSpace()->getUserStart());
-  if (process->getAddressSpace()->getDynamicStart()) {
-    process->getDynamicSpaceAllocator().free(process->getAddressSpace()->getDynamicStart(),
-                                             process->getAddressSpace()->getDynamicEnd() -
-                                                 process->getAddressSpace()->getDynamicStart());
-  }
+  process->resetUserReservations();
   process->getAddressSpace()->revertToKernelAddressSpace();
 
   current->resetTlsBase();

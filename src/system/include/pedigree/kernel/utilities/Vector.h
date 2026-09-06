@@ -138,6 +138,8 @@ class EXPORTED_PUBLIC Vector {
   void setAt(size_t idx, const T& value);
   /** Swap the two elements. */
   void swap(Iterator a, Iterator b);
+  /** Exchange storage without constructing, allocating or destroying elements. */
+  void swap(Vector& other) noexcept;
   /** Insert into the vector, moving all items after the given position along.
    */
   void insert(size_t index, const T& value);
@@ -195,6 +197,7 @@ class EXPORTED_PUBLIC Vector {
    *\param[in] size the number of elements to reserve space for
    *\param[in] copy Should we copy the old contents over? */
   void reserve(size_t size, bool copy);
+  bool tryReserve(size_t size, bool copy = true);
 
  private:
   /** Internal reserve() function.
@@ -420,6 +423,33 @@ void Vector<T>::assign(const Vector& x) {
 }
 
 template <class T>
+bool Vector<T>::tryReserve(size_t size, bool copy) {
+  if (size <= m_Size) {
+    return true;
+  }
+  const size_t maximum = ~size_t{0} / sizeof(T);
+  if (size > maximum) {
+    return false;
+  }
+  if (m_Size <= maximum / m_ReserveFactor && size < m_Size * m_ReserveFactor) {
+    size = m_Size * m_ReserveFactor;
+  }
+  T* replacement = new T[size];
+  if (!replacement) {
+    return false;
+  }
+  if (copy && m_Count) {
+    pedigree_std::copy(replacement, m_Data + m_Start, m_Count);
+  }
+  T* old = m_Data;
+  m_Data = replacement;
+  m_Size = size;
+  m_Start = 0;
+  delete[] old;
+  return true;
+}
+
+template <class T>
 void Vector<T>::reserve(size_t size, bool copy) {
   reserve(size, copy, true);
 }
@@ -491,5 +521,19 @@ extern template class Vector<int16_t>;   // IWYU pragma: keep
 extern template class Vector<int8_t>;    // IWYU pragma: keep
 
 /** @} */
+
+template <class T>
+void Vector<T>::swap(Vector& other) noexcept {
+  const size_t size = m_Size, count = m_Count, start = m_Start;
+  T* data = m_Data;
+  m_Size = other.m_Size;
+  m_Count = other.m_Count;
+  m_Start = other.m_Start;
+  m_Data = other.m_Data;
+  other.m_Size = size;
+  other.m_Count = count;
+  other.m_Start = start;
+  other.m_Data = data;
+}
 
 #endif

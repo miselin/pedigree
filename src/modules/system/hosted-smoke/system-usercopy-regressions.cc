@@ -44,7 +44,7 @@ int usercopyWorker(void* parameter) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const size_t length = PosixSubsystem::MaximumExecArgumentBytes + 2 * pageSize;
   uintptr_t address = 0;
-  if (!process->getSpaceAllocator().allocate(length, address)) {
+  if (!process->allocateUserRange(Process::UserRegion::Normal, length, address)) {
     return 1;
   }
   uintptr_t mappedAddress = address;
@@ -136,7 +136,7 @@ int usercopyWorker(void* parameter) {
             thread->getErrno() == Error::TooBig;
 
   mappings.remove(address, length);
-  process->getSpaceAllocator().free(address, length);
+  process->freeUserRange(Process::UserRegion::Normal, address, length);
   context->passed = passed;
   return passed ? 0 : 1;
 }

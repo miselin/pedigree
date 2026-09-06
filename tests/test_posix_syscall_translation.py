@@ -41,12 +41,13 @@ class PosixSyscallTranslationTests(unittest.TestCase):
         # rt_sigsuspend, pread64, pwrite64, preadv, pwritev, preadv2,
         # pwritev2, prlimit64, membarrier, faccessat2, dup3, getrusage,
         # the four inotify entry points, 18 IPC entry points, and nine signal,
-        # timer and clock entry points, and five signalfd/timerfd entry points.
-        # This locks both sides of all 210 mappings.
-        self.assertEqual(len(mapping), 210)
+        # timer and clock entry points, five signalfd/timerfd entry points,
+        # and three VM entry points.
+        # This locks both sides of all 213 mappings.
+        self.assertEqual(len(mapping), 213)
         self.assertEqual(
             hashlib.sha256(serialized.encode()).hexdigest(),
-            "6953eee4df90694189ba0b6d47b3438f4847ae0bece5217d6d6ee8945ef8b493",
+            "9b9cdefed3d3fe8da6015146ab4e0af19c1ef467d9f89b091511a5e8a62e50cc",
         )
         self.assertEqual(len({name for name, _, _ in mapping}), len(mapping))
         self.assertEqual(len({number for _, number, _ in mapping}), len(mapping))
@@ -72,7 +73,7 @@ class PosixSyscallTranslationTests(unittest.TestCase):
             #undef PEDIGREE_LINUX_AMD64_SYSCALL
 
               if (posix_translate_syscall(-1) != -1) return 2;
-              if (posix_translate_syscall(25) != -1) return 3;
+              if (posix_translate_syscall(1024) != -1) return 3;
               return 0;
             }
             """

@@ -415,14 +415,22 @@ class EXPORTED_PUBLIC Process {
     m_Ctty = f;
   }
 
-  /** Returns the memory space allocator for primary address space. */
-  MemoryAllocator& getSpaceAllocator() {
-    return m_SpaceAllocator;
-  }
-  /** Returns the memory space allocator for dynamic address space. */
-  MemoryAllocator& getDynamicSpaceAllocator() {
-    return m_DynamicSpaceAllocator;
-  }
+  enum class UserRegion { Normal, Dynamic };
+
+  struct UserReservationSnapshot {
+    UserReservationSnapshot() : normal(false), dynamic(false), generation(0) {}
+    MemoryAllocator normal;
+    MemoryAllocator dynamic;
+    uint64_t generation;
+  };
+
+  bool snapshotUserReservations(UserReservationSnapshot& result);
+  /** A successful swap leaves old storage in replacement for unlocked destruction. */
+  bool commitUserReservations(uint64_t expectedGeneration, UserReservationSnapshot& replacement);
+  bool allocateUserRange(UserRegion region, size_t length, uintptr_t& address);
+  bool allocateSpecificUserRange(UserRegion region, uintptr_t address, size_t length);
+  void freeUserRange(UserRegion region, uintptr_t address, size_t length);
+  void resetUserReservations();
 
   /** Gets the current user. */
   User* getUser() const {
@@ -743,6 +751,9 @@ class EXPORTED_PUBLIC Process {
    * Memory allocator for dynamic address space, if any.
    */
   MemoryAllocator m_DynamicSpaceAllocator;
+  Spinlock m_UserReservationLock;
+  uint64_t m_UserReservationGeneration;
+
   /** Current user. */
   User* m_pUser;
   /** Current group. */

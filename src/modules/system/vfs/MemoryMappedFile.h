@@ -26,6 +26,7 @@
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
@@ -39,12 +40,14 @@
 class File;
 class Process;
 class VirtualAddressSpace;
+using FileResidencyAccess = bool (*)(File*, void*);
 
 /** One logical mapping attachment, retained by every surviving fragment. */
 class MappingAttachment {
  public:
   virtual ~MappingAttachment() {}
   virtual uintptr_t baseAddress() const = 0;
+  virtual void relocate(uintptr_t newBase) = 0;
   virtual SharedPointer<MappingAttachment> clone(Process* target) = 0;
 };
 
@@ -142,7 +145,8 @@ class MemoryMappedObject {
         m_Length(length),
         m_Permissions(perms),
         m_MaximumPermissions(maximumPerms),
-        m_Attachment() {}
+        m_Attachment(),
+        m_OwnsMappings(true) {}
 
   virtual ~MemoryMappedObject();
 
@@ -164,6 +168,24 @@ class MemoryMappedObject {
    * the split.
    */
   virtual MemoryMappedObject* split(uintptr_t at) = 0;
+
+  /** Prepared slices transfer existing page ownership only after publication. */
+  virtual MemoryMappedObject* stageSlice(uintptr_t source, size_t sourceLength,
+                                         uintptr_t destination, size_t destinationLength) = 0;
+  void setMappingOwnership(bool ownsMappings) {
+    m_OwnsMappings = ownsMappings;
+  }
+  virtual void releaseDetachedPage(uintptr_t oldAddress,
+                                   const VirtualAddressSpace::DetachedPage& page) = 0;
+  virtual void discardRange(VirtualAddressSpace& space, uintptr_t base, size_t length) = 0;
+  virtual File* backingFile() const {
+    return nullptr;
+  }
+  virtual bool backingRangeValid(uintptr_t source, size_t length) const {
+    return true;
+  }
+  virtual bool resident(VirtualAddressSpace& space, uintptr_t address, FileResidencyAccess access,
+                        void* credentials);
 
   /**
    * Removes pages from the start of this MemoryMappedObject.
@@ -303,6 +325,7 @@ class MemoryMappedObject {
   Permissions m_Permissions;
   Permissions m_MaximumPermissions;
   SharedPointer<MappingAttachment> m_Attachment;
+  bool m_OwnsMappings;
 };
 
 /**
@@ -317,17 +340,22 @@ class AnonymousMemoryMap : public MemoryMappedObject {
  public:
   AnonymousMemoryMap(uintptr_t address, size_t length, Permissions perms);
 
-  virtual ~AnonymousMemoryMap() {}
+  virtual ~AnonymousMemoryMap() override {}
 
-  virtual MemoryMappedObject* clone();
-  virtual MemoryMappedObject* split(uintptr_t at);
-  virtual bool remove(size_t length);
+  virtual MemoryMappedObject* clone() override;
+  virtual MemoryMappedObject* split(uintptr_t at) override;
+  MemoryMappedObject* stageSlice(uintptr_t source, size_t sourceLength, uintptr_t destination,
+                                 size_t destinationLength) override;
+  void releaseDetachedPage(uintptr_t oldAddress,
+                           const VirtualAddressSpace::DetachedPage& page) override;
+  void discardRange(VirtualAddressSpace& space, uintptr_t base, size_t length) override;
+  virtual bool remove(size_t length) override;
 
-  virtual void setPermissions(MemoryMappedObject::Permissions perms);
+  virtual void setPermissions(MemoryMappedObject::Permissions perms) override;
 
-  virtual void unmap();
+  virtual void unmap() override;
 
-  virtual bool trap(uintptr_t address, bool bWrite);
+  virtual bool trap(uintptr_t address, bool bWrite) override;
 
  private:
   static physical_uintptr_t m_Zero;
@@ -356,25 +384,36 @@ class MemoryMappedFile : public MemoryMappedObject {
       Permissions perms, Permissions maximumPerms = Read | Write | Exec,
       const SharedPointer<MappingAttachment>& attachment = SharedPointer<MappingAttachment>());
 
-  virtual ~MemoryMappedFile();
+  virtual ~MemoryMappedFile() override;
 
-  virtual MemoryMappedObject* clone();
-  virtual MemoryMappedObject* split(uintptr_t at);
-  virtual bool remove(size_t length);
+  virtual MemoryMappedObject* clone() override;
+  virtual MemoryMappedObject* split(uintptr_t at) override;
+  MemoryMappedObject* stageSlice(uintptr_t source, size_t sourceLength, uintptr_t destination,
+                                 size_t destinationLength) override;
+  void releaseDetachedPage(uintptr_t oldAddress,
+                           const VirtualAddressSpace::DetachedPage& page) override;
+  void discardRange(VirtualAddressSpace& space, uintptr_t base, size_t length) override;
+  File* backingFile() const override {
+    return m_pBacking;
+  }
+  bool backingRangeValid(uintptr_t source, size_t length) const override;
+  bool resident(VirtualAddressSpace& space, uintptr_t address, FileResidencyAccess access,
+                void* credentials) override;
+  virtual bool remove(size_t length) override;
 
-  virtual void setPermissions(MemoryMappedObject::Permissions perms);
+  virtual void setPermissions(MemoryMappedObject::Permissions perms) override;
 
-  virtual bool sync(uintptr_t at, bool async);
-  virtual void invalidate(uintptr_t at);
-  virtual bool sharedBacking(uintptr_t at, uintptr_t& identity, size_t& offset) const;
-  virtual bool usesBacking(uintptr_t identity) const;
-  virtual bool beyondBackingEnd(uintptr_t at) const;
-  virtual void discardFilePages(VirtualAddressSpace& space, size_t end, bool borrowedOnly);
-  virtual bool preparePermissions(uintptr_t base, size_t length, Permissions perms);
+  virtual bool sync(uintptr_t at, bool async) override;
+  virtual void invalidate(uintptr_t at) override;
+  virtual bool sharedBacking(uintptr_t at, uintptr_t& identity, size_t& offset) const override;
+  virtual bool usesBacking(uintptr_t identity) const override;
+  virtual bool beyondBackingEnd(uintptr_t at) const override;
+  virtual void discardFilePages(VirtualAddressSpace& space, size_t end, bool borrowedOnly) override;
+  virtual bool preparePermissions(uintptr_t base, size_t length, Permissions perms) override;
 
-  virtual void unmap();
+  virtual void unmap() override;
 
-  virtual bool trap(uintptr_t address, bool bWrite);
+  virtual bool trap(uintptr_t address, bool bWrite) override;
 
   /**
    * Syncs back all dirty pages to their respective backing store.
@@ -391,10 +430,13 @@ class MemoryMappedFile : public MemoryMappedObject {
    *
    * \return true if at least one page was released, false otherwise.
    */
-  virtual bool compact();
+  virtual bool compact() override;
 
  private:
   void unmapUnlocked();
+
+  void releaseDetachedPageUnlocked(uintptr_t oldAddress,
+                                   const VirtualAddressSpace::DetachedPage& page);
 
   /** Track a new mapping. */
   void trackMapping(uintptr_t, physical_uintptr_t);
@@ -451,6 +493,17 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
     NoMemory,
     AddressInUse,
   };
+
+  enum class VmStatus { Success, InvalidRange, Unmapped, Unsupported, NoMemory };
+  struct RemapRequest {
+    uintptr_t source, destination;
+    size_t oldLength, newLength;
+    bool mayMove, fixed;
+  };
+  VmStatus remap(const RemapRequest& request, uintptr_t& result);
+  VmStatus residency(uintptr_t base, size_t length, unsigned char* kernelVector,
+                     FileResidencyAccess access, void* credentials);
+  VmStatus discard(uintptr_t base, size_t length);
 
   /** Singleton instance */
   static MemoryMapManager& instance() {

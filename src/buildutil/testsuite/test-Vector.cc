@@ -567,3 +567,52 @@ TEST(PedigreeVector, CreateBackDoesNotDoubleConstructStorage) {
   }
   EXPECT_EQ(VectorConstructionTracker::live, initialLive);
 }
+
+TEST(PedigreeVector, StorageSwapPreservesOffsetAndOwnership) {
+  const int initialLive = VectorConstructionTracker::live;
+  {
+    Vector<VectorConstructionTracker> first, second;
+    first.createBack(10);
+    first.createBack(20);
+    first.createBack(30);
+    first.popFront();
+    second.createBack(40);
+    auto* firstStorage = first.begin();
+    auto* secondStorage = second.begin();
+    const auto firstCapacity = first.size();
+    const auto secondCapacity = second.size();
+    const int beforeSwap = VectorConstructionTracker::live;
+    first.swap(second);
+    EXPECT_EQ(first.begin(), secondStorage);
+    EXPECT_EQ(second.begin(), firstStorage);
+    EXPECT_EQ(first.size(), secondCapacity);
+    EXPECT_EQ(second.size(), firstCapacity);
+    EXPECT_EQ(first.count(), 1U);
+    EXPECT_EQ(second.count(), 2U);
+    EXPECT_EQ(first.begin()[0].value, 40);
+    EXPECT_EQ(second.begin()[0].value, 20);
+    EXPECT_EQ(second.begin()[1].value, 30);
+    EXPECT_EQ(VectorConstructionTracker::live, beforeSwap);
+    second.swap(second);
+    EXPECT_EQ(second.begin(), firstStorage);
+    Vector<VectorConstructionTracker> empty;
+    first.swap(empty);
+    EXPECT_EQ(first.count(), 0U);
+    EXPECT_EQ(empty.begin(), secondStorage);
+  }
+  EXPECT_EQ(VectorConstructionTracker::live, initialLive);
+}
+
+TEST(PedigreeVector, FailedReservePreservesStorageAndValues) {
+  Vector<uint64_t> values;
+  values.pushBack(17);
+  values.pushBack(29);
+  auto* storage = values.begin();
+  const auto capacity = values.size();
+  EXPECT_FALSE(values.tryReserve(~size_t{0}));
+  EXPECT_EQ(values.begin(), storage);
+  EXPECT_EQ(values.size(), capacity);
+  EXPECT_EQ(values.count(), 2U);
+  EXPECT_EQ(values[0], 17U);
+  EXPECT_EQ(values[1], 29U);
+}

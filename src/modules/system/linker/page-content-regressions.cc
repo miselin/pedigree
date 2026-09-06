@@ -258,7 +258,7 @@ bool memoryMappedFileEofZeroFill() {
   }
 
   uintptr_t address = 0;
-  if (!process->getSpaceAllocator().allocate(pageSize, address)) {
+  if (!process->allocateUserRange(Process::UserRegion::Normal, pageSize, address)) {
     return fail("mmap-eof-zero-fill", "could not reserve a target page");
   }
 
@@ -291,7 +291,7 @@ bool memoryMappedFileEofZeroFill() {
     readValid = file.reads() == 1 && file.readShapeValid();
   }
 
-  process->getSpaceAllocator().free(address, pageSize);
+  process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
   if (!trapped || !readValid || !dataIntact || !tailZero) {
     return fail("mmap-eof-zero-fill", "the copied EOF page retained non-file data");
   }
@@ -314,7 +314,7 @@ bool memoryMappedFilePublishesAfterInitialise() {
   }
 
   uintptr_t address = 0;
-  if (!process->getSpaceAllocator().allocate(pageSize, address)) {
+  if (!process->allocateUserRange(Process::UserRegion::Normal, pageSize, address)) {
     return fail("mmap-publish-after-init", "could not reserve a target page");
   }
 
@@ -368,7 +368,7 @@ bool memoryMappedFilePublishesAfterInitialise() {
     readValid = file.reads() == 1 && file.readShapeValid();
   }
 
-  process->getSpaceAllocator().free(address, pageSize);
+  process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
   if (!started || !readEntered || !absentWhileInitialising || !joined || !completed || !trapped ||
       !mapped || !dataIntact || !tailZero || !readValid) {
     return fail("mmap-publish-after-init", "the user mapping was visible before page population");
@@ -398,7 +398,7 @@ bool dynamicDemandPagePublishesOnce() {
   }
 
   uintptr_t address = 0;
-  if (!process->getSpaceAllocator().allocate(pageSize, address)) {
+  if (!process->allocateUserRange(Process::UserRegion::Normal, pageSize, address)) {
     return fail("dynamic-demand-page-publish", "could not reserve a target page");
   }
 
@@ -412,7 +412,7 @@ bool dynamicDemandPagePublishesOnce() {
     if (g_DemandPageAllocations[1]) {
       memory.freePage(g_DemandPageAllocations[1]);
     }
-    process->getSpaceAllocator().free(address, pageSize);
+    process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
     return fail("dynamic-demand-page-publish", "could not allocate controlled pages");
   }
 
@@ -534,7 +534,7 @@ bool dynamicDemandPagePublishesOnce() {
       memory.freePage(g_DemandPageAllocations[i]);
     }
   }
-  process->getSpaceAllocator().free(address, pageSize);
+  process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
 
   const bool passed =
       firstStarted && firstReachedReady && absentWhileFirstReady && secondStarted && secondJoined &&
@@ -628,7 +628,7 @@ bool runHostedPageContentRegressions() {
   }
 
   uintptr_t address = 0;
-  if (!process->getSpaceAllocator().allocate(pageSize, address)) {
+  if (!process->allocateUserRange(Process::UserRegion::Normal, pageSize, address)) {
     return fail("dynamic-demand-page-zero-fill", "could not reserve a target page");
   }
 
@@ -651,14 +651,14 @@ bool runHostedPageContentRegressions() {
     if (!allocationFailureClean) {
       va.unmap(reinterpret_cast<void*>(address));
     }
-    process->getSpaceAllocator().free(address, pageSize);
+    process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
     return fail("dynamic-demand-page-zero-fill", "an allocation failure left demand-page state");
   }
 
   const physical_uintptr_t dirtyPage = memory.allocatePage();
   if (!va.map(dirtyPage, reinterpret_cast<void*>(address), VirtualAddressSpace::Write)) {
     memory.freePage(dirtyPage);
-    process->getSpaceAllocator().free(address, pageSize);
+    process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
     return fail("dynamic-demand-page-zero-fill", "could not map the sentinel page");
   }
 
@@ -698,7 +698,7 @@ bool runHostedPageContentRegressions() {
     va.unmap(reinterpret_cast<void*>(address));
     memory.freePage(loadedPage);
   }
-  process->getSpaceAllocator().free(address, pageSize);
+  process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
 
   const bool reusedSentinel = mapped && loadedPage == dirtyPage;
   const bool demandPassed = loaded && reusedSentinel && fileDataIntact && remainderZero;

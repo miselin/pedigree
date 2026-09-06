@@ -32,7 +32,7 @@ bool runHostedUsercopyRegressions(Process* process) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const size_t mappingLength = pageSize * 2;
   uintptr_t address = 0;
-  if (!process->getSpaceAllocator().allocate(mappingLength, address)) {
+  if (!process->allocateUserRange(Process::UserRegion::Normal, mappingLength, address)) {
     ERROR("HOSTED-SYSCALL-TEST: FAIL usercopy: could not reserve userspace range");
     return false;
   }
@@ -43,7 +43,7 @@ bool runHostedUsercopyRegressions(Process* process) {
       MemoryMappedObject::Read | MemoryMappedObject::Write | MemoryMappedObject::Exec);
   if (!mapping || mappedAddress != address) {
     MemoryMapManager::instance().remove(address, mappingLength);
-    process->getSpaceAllocator().free(address, mappingLength);
+    process->freeUserRange(Process::UserRegion::Normal, address, mappingLength);
     ERROR("HOSTED-SYSCALL-TEST: FAIL usercopy: could not map userspace range");
     return false;
   }
@@ -163,7 +163,7 @@ bool runHostedUsercopyRegressions(Process* process) {
   currentThread->setErrno(0);
 
   MemoryMapManager::instance().remove(address, pageSize);
-  process->getSpaceAllocator().free(address, mappingLength);
+  process->freeUserRange(Process::UserRegion::Normal, address, mappingLength);
 
   const bool passed = overflowRejected && zeroExtentAccepted && roundTrip && stringSnapshot &&
                       executableUserAccepted && kernelPointerRejected && nullPointersRejected &&

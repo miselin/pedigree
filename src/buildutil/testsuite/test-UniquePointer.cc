@@ -44,3 +44,29 @@ TEST(PedigreeUniquePointer, Move) {
   EXPECT_EQ(p1.get(), nullptr);
   EXPECT_NE(p2.get(), nullptr);
 }
+
+TEST(PedigreeUniquePointer, AdoptDerivedOwnsExactlyOneVirtualDestruction) {
+  struct Base {
+    explicit Base(int& destroyed) : destroyed(destroyed) {}
+    virtual ~Base() {
+      ++destroyed;
+    }
+    int& destroyed;
+  };
+  struct Derived : Base {
+    explicit Derived(int& destroyed) : Base(destroyed) {}
+    ~Derived() override {
+      destroyed += 10;
+    }
+  };
+  int destroyed = 0;
+  {
+    auto owner = UniquePointer<Base>::adopt(new Derived(destroyed));
+    auto moved = pedigree_std::move(owner);
+    EXPECT_EQ(owner.get(), nullptr);
+    EXPECT_EQ(destroyed, 0);
+    moved.reset();
+    EXPECT_EQ(destroyed, 11);
+  }
+  EXPECT_EQ(destroyed, 11);
+}

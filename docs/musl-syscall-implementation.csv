@@ -1,7 +1,7 @@
 linux_number,syscall,family,status,scope_and_verification
-25,mremap,Memory management,pending,
-27,mincore,Memory management,pending,
-28,madvise,Memory management,pending,
+25,mremap,Memory management,implemented,VM pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+27,mincore,Memory management,implemented,VM pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+28,madvise,Memory management,implemented,VM pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 29,shmget,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 30,shmat,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 31,shmctl,System V IPC and POSIX message queues,implemented,IPC pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document

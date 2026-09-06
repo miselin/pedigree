@@ -74,7 +74,7 @@ struct AccessContext {
 
 bool allocateUserMapping(Process* process, size_t length, uintptr_t& address) {
   address = 0;
-  if (!process->getSpaceAllocator().allocate(length, address)) {
+  if (!process->allocateUserRange(Process::UserRegion::Normal, length, address)) {
     return false;
   }
 
@@ -83,7 +83,7 @@ bool allocateUserMapping(Process* process, size_t length, uintptr_t& address) {
       mappedAddress, length, MemoryMappedObject::Read | MemoryMappedObject::Write);
   if (!mapping || mappedAddress != address) {
     MemoryMapManager::instance().remove(address, length);
-    process->getSpaceAllocator().free(address, length);
+    process->freeUserRange(Process::UserRegion::Normal, address, length);
     address = 0;
     return false;
   }
@@ -194,7 +194,7 @@ int accessWorker(void* parameter) {
       expectFailure(thread, posix_faccessat(AT_FDCWD, nullptr, F_OK, 0), Error::BadAddress);
 
   MemoryMapManager::instance().remove(address, pageSize);
-  process->getSpaceAllocator().free(address, pageSize);
+  process->freeUserRange(Process::UserRegion::Normal, address, pageSize);
   context->returned += 1;
   return 0;
 }

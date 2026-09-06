@@ -656,7 +656,7 @@ int suiteWorker(void* parameter) {
   SuiteContext* context = reinterpret_cast<SuiteContext*>(parameter);
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   uintptr_t mappingAddress = 0;
-  if (!context->process->getSpaceAllocator().allocate(pageSize, mappingAddress)) {
+  if (!context->process->allocateUserRange(Process::UserRegion::Normal, pageSize, mappingAddress)) {
     context->completed += 1;
     return 1;
   }
@@ -668,7 +668,7 @@ int suiteWorker(void* parameter) {
     if (mapping) {
       MemoryMapManager::instance().remove(mappedAddress, pageSize);
     }
-    context->process->getSpaceAllocator().free(mappingAddress, pageSize);
+    context->process->freeUserRange(Process::UserRegion::Normal, mappingAddress, pageSize);
     context->completed += 1;
     return 1;
   }
@@ -696,7 +696,7 @@ int suiteWorker(void* parameter) {
   passed = closeWakesBlockedIo(context->process, *fixture, IoOperation::Send, true) && passed;
 
   MemoryMapManager::instance().remove(mappedAddress, pageSize);
-  context->process->getSpaceAllocator().free(mappingAddress, pageSize);
+  context->process->freeUserRange(Process::UserRegion::Normal, mappingAddress, pageSize);
   context->passed = passed;
   context->completed += 1;
   return passed ? 0 : 1;

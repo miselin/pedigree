@@ -395,7 +395,8 @@ MemoryMappedFile::MemoryMappedFile(uintptr_t address, size_t length, size_t offs
 }
 
 MemoryMappedFile::~MemoryMappedFile() {
-  unmap();
+  if (m_OwnsMappings)
+    unmap();
   if (m_bVfsLease) {
     m_bVfsLease = false;
     VFS::instance().untrackFile(m_pBacking);
@@ -1343,21 +1344,21 @@ void MemoryMapManager::releaseReservation(Process* process, VirtualAddressSpace&
                                           uintptr_t base, size_t length) {
   const uintptr_t end = base + length;
 
-  auto releaseIntersection = [base, end](MemoryAllocator& allocator, uintptr_t regionStart,
-                                         uintptr_t regionEnd) {
+  auto releaseIntersection = [process, base, end](Process::UserRegion region, uintptr_t regionStart,
+                                                  uintptr_t regionEnd) {
     const uintptr_t releaseStart = base > regionStart ? base : regionStart;
     const uintptr_t releaseEnd = end < regionEnd ? end : regionEnd;
     if (releaseStart < releaseEnd) {
-      allocator.free(releaseStart, releaseEnd - releaseStart);
+      process->freeUserRange(region, releaseStart, releaseEnd - releaseStart);
     }
   };
 
   const uintptr_t dynamicStart = addressSpace.getDynamicStart();
   const uintptr_t dynamicEnd = addressSpace.getDynamicEnd();
   if (dynamicStart && dynamicStart < dynamicEnd) {
-    releaseIntersection(process->getDynamicSpaceAllocator(), dynamicStart, dynamicEnd);
+    releaseIntersection(Process::UserRegion::Dynamic, dynamicStart, dynamicEnd);
   }
-  releaseIntersection(process->getSpaceAllocator(), addressSpace.getUserStart(),
+  releaseIntersection(Process::UserRegion::Normal, addressSpace.getUserStart(),
                       addressSpace.getUserReservedStart());
 }
 
@@ -1778,11 +1779,11 @@ MemoryMapManager::MapStatus MemoryMapManager::sanitiseAddress(uintptr_t& address
   auto allocateAnywhere = [&]() -> bool {
     const size_t allocationLength = length + pageSz - 1;
     uintptr_t allocationBase = 0;
-    MemoryAllocator* allocator = &pProcess->getDynamicSpaceAllocator();
-    bool allocated = allocator->allocate(allocationLength, allocationBase);
+    Process::UserRegion region = Process::UserRegion::Dynamic;
+    bool allocated = pProcess->allocateUserRange(region, allocationLength, allocationBase);
     if (!allocated) {
-      allocator = &pProcess->getSpaceAllocator();
-      allocated = allocator->allocate(allocationLength, allocationBase);
+      region = Process::UserRegion::Normal;
+      allocated = pProcess->allocateUserRange(region, allocationLength, allocationBase);
     }
     if (!allocated) {
       return false;
@@ -1791,12 +1792,12 @@ MemoryMapManager::MapStatus MemoryMapManager::sanitiseAddress(uintptr_t& address
     address = (allocationBase + pageSz - 1) & ~(pageSz - 1);
     const size_t prefixLength = address - allocationBase;
     if (prefixLength) {
-      allocator->free(allocationBase, prefixLength);
+      pProcess->freeUserRange(region, allocationBase, prefixLength);
     }
     const uintptr_t allocationEnd = allocationBase + allocationLength;
     const uintptr_t mappingEnd = address + length;
     if (mappingEnd < allocationEnd) {
-      allocator->free(mappingEnd, allocationEnd - mappingEnd);
+      pProcess->freeUserRange(region, mappingEnd, allocationEnd - mappingEnd);
     }
     return true;
   };
@@ -1806,15 +1807,15 @@ MemoryMapManager::MapStatus MemoryMapManager::sanitiseAddress(uintptr_t& address
     const uintptr_t dynamicStart = va.getDynamicStart();
     const uintptr_t dynamicEnd = va.getDynamicEnd();
     if (dynamicStart && address >= dynamicStart && end <= dynamicEnd) {
-      return pProcess->getDynamicSpaceAllocator().allocateSpecific(address, length);
+      return pProcess->allocateSpecificUserRange(Process::UserRegion::Dynamic, address, length);
     }
     if (address >= va.getUserStart() && end <= va.getUserReservedStart()) {
-      return pProcess->getSpaceAllocator().allocateSpecific(address, length);
+      return pProcess->allocateSpecificUserRange(Process::UserRegion::Normal, address, length);
     }
     return false;
   };
 
-  auto reserveFreeSubranges = [&](MemoryAllocator& allocator) {
+  auto reserveFreeSubranges = [&](MemoryAllocator& allocator) -> bool {
     const uintptr_t requestedEnd = address + length;
     while (true) {
       bool reserved = false;
@@ -1829,14 +1830,15 @@ MemoryMapManager::MapStatus MemoryMapManager::sanitiseAddress(uintptr_t& address
                                        : range.address + range.length;
         const uintptr_t overlapStart = address > range.address ? address : range.address;
         const uintptr_t overlapEnd = requestedEnd < rangeEnd ? requestedEnd : rangeEnd;
-        if (overlapStart < overlapEnd &&
-            allocator.allocateSpecific(overlapStart, overlapEnd - overlapStart)) {
+        if (overlapStart < overlapEnd) {
+          if (!allocator.allocateSpecific(overlapStart, overlapEnd - overlapStart))
+            return false;
           reserved = true;
           break;
         }
       }
       if (!reserved) {
-        return;
+        return true;
       }
     }
   };
@@ -1859,8 +1861,14 @@ MemoryMapManager::MapStatus MemoryMapManager::sanitiseAddress(uintptr_t& address
 
   // Preserve reservations already covered by the replaced mapping while
   // claiming any previously-free parts of a larger fixed range.
-  reserveFreeSubranges(pProcess->getDynamicSpaceAllocator());
-  reserveFreeSubranges(pProcess->getSpaceAllocator());
+  while (true) {
+    Process::UserReservationSnapshot snapshot;
+    if (!pProcess->snapshotUserReservations(snapshot) || !reserveFreeSubranges(snapshot.dynamic) ||
+        !reserveFreeSubranges(snapshot.normal))
+      return MapStatus::NoMemory;
+    if (pProcess->commitUserReservations(snapshot.generation, snapshot))
+      break;
+  }
 
   // Fixed mappings may target a range which an internal caller reserved
   // before asking the memory-map manager to publish the object.

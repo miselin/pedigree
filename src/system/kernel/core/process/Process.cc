@@ -416,6 +416,8 @@ Process::Process(DeferredPublication)
       m_Ctty(0),
       m_SpaceAllocator(false),
       m_DynamicSpaceAllocator(false),
+      m_UserReservationLock(false),
+      m_UserReservationGeneration(0),
       m_pUser(0),
       m_pGroup(0),
       m_pEffectiveUser(0),
@@ -459,14 +461,7 @@ Process::Process(DeferredPublication)
   resetCounts();
   m_Metadata.startTime = Time::getTimeNanoseconds();
 
-  getSpaceAllocator().free(
-      getAddressSpace()->getUserStart(),
-      getAddressSpace()->getUserReservedStart() - getAddressSpace()->getUserStart());
-  if (getAddressSpace()->getDynamicStart()) {
-    getDynamicSpaceAllocator().free(
-        getAddressSpace()->getDynamicStart(),
-        getAddressSpace()->getDynamicEnd() - getAddressSpace()->getDynamicStart());
-  }
+  resetUserReservations();
 }
 
 Process::Process(Process* pParent, bool bCopyOnWrite)
@@ -486,8 +481,10 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
       m_Cwd(0),
       m_bCwdVfsReference(false),
       m_Ctty(pParent->m_Ctty),
-      m_SpaceAllocator(pParent->m_SpaceAllocator),
-      m_DynamicSpaceAllocator(pParent->m_DynamicSpaceAllocator),
+      m_SpaceAllocator(false),
+      m_DynamicSpaceAllocator(false),
+      m_UserReservationLock(false),
+      m_UserReservationGeneration(0),
       m_pUser(pParent->m_pUser),
       m_pGroup(pParent->m_pGroup),
       m_pEffectiveUser(pParent->m_pEffectiveUser),
@@ -528,6 +525,13 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
       m_pRootFile(0),
       m_bRootFileVfsReference(false),
       m_bSharedAddressSpace(!bCopyOnWrite) {
+  UserReservationSnapshot inheritedReservations;
+  if (!pParent->snapshotUserReservations(inheritedReservations)) {
+    FATAL("Cannot snapshot parent process reservations");
+  }
+  m_SpaceAllocator.swap(inheritedReservations.normal);
+  m_DynamicSpaceAllocator.swap(inheritedReservations.dynamic);
+
   {
     TerminationDeferral filesystemContextDeferral;
     LockGuard<Mutex> guard(pParent->m_FilesystemContextLock);
