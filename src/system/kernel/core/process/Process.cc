@@ -1937,31 +1937,23 @@ bool Process::takePendingChildTransition(bool includeStopped, bool includeContin
 }
 
 int64_t Process::getUserId() const {
-  if (!getUser()) {
-    return -1;
-  }
-  return getUser()->getId();
+  User* identity = getUser();
+  return identity ? static_cast<int64_t>(identity->getId()) : -1;
 }
 
 int64_t Process::getGroupId() const {
-  if (!getGroup()) {
-    return -1;
-  }
-  return getGroup()->getId();
+  Group* identity = getGroup();
+  return identity ? static_cast<int64_t>(identity->getId()) : -1;
 }
 
 int64_t Process::getEffectiveUserId() const {
-  if (!getEffectiveUser()) {
-    return -1;
-  }
-  return getEffectiveUser()->getId();
+  User* identity = getEffectiveUser();
+  return identity ? static_cast<int64_t>(identity->getId()) : -1;
 }
 
 int64_t Process::getEffectiveGroupId() const {
-  if (!getEffectiveGroup()) {
-    return -1;
-  }
-  return getEffectiveGroup()->getId();
+  Group* identity = getEffectiveGroup();
+  return identity ? static_cast<int64_t>(identity->getId()) : -1;
 }
 
 void Process::getSupplementalGroupIds(Vector<int64_t>& vec) const {

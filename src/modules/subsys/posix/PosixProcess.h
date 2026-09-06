@@ -27,6 +27,7 @@
 #include "pedigree/kernel/processor/types.h"
 
 #include "PosixSubsystem.h"
+#include "credential-state.h"
 
 class PosixProcess;
 class Timer;
@@ -176,6 +177,19 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   IntervalTimer& getVirtualIntervalTimer();
   IntervalTimer& getProfileIntervalTimer();
 
+  using CredentialSnapshot = PosixCredentials::Snapshot;
+  using CredentialChange = PosixCredentials::Change;
+  using CredentialStatus = PosixCredentials::Status;
+  CredentialSnapshot snapshotCredentials() const;
+  FilesystemCredentials realFilesystemCredentials() const;
+  bool snapshotFilesystemCredentials(const Thread*, FilesystemCredentials&) const override;
+  bool installUserIdentity(User*, Group*, const uint32_t*, size_t) override;
+  CredentialStatus changeCredentials(Thread&, CredentialChange, uint32_t, uint32_t, uint32_t);
+  CredentialStatus replaceGroups(Thread&, const uint32_t*, size_t);
+  uint32_t changeFilesystemId(Thread&, bool group, uint32_t requested);
+  void setDumpable(bool);
+  void commitExecCredentials(Thread&, bool allExecutableFilesReadable);
+
   virtual int64_t getUserId() const;
   virtual int64_t getGroupId() const;
   virtual int64_t getEffectiveUserId() const;
@@ -194,6 +208,8 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   void setSavedGroupId(int64_t id);
 
  private:
+  void setTrustedIdentity(uint32_t CredentialSnapshot::* field, int64_t id);
+
   // Register with other systems e.g. procfs
   void registerProcess();
   void unregisterProcess();
@@ -213,14 +229,7 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   IntervalTimer m_VirtualIntervalTimer;
   IntervalTimer m_ProfileIntervalTimer;
 
-  int64_t m_Uid;
-  int64_t m_Gid;
-  int64_t m_Euid;
-  int64_t m_Egid;
-  int64_t m_Suid;
-  int64_t m_Sgid;
-  Vector<int64_t> m_SupplementalIds;
-  mutable Spinlock m_SupplementalIdsLock;
+  CredentialSnapshot m_Credentials;
   bool m_bRegistered;
 };
 

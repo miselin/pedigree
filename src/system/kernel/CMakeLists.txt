@@ -290,6 +290,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/OperationBarrier.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/PerProcessorScheduler.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Process.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Process-credentials.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Process-reservations.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/ProcessorThreadAllocator.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Readiness.cc

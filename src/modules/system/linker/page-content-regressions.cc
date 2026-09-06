@@ -239,7 +239,8 @@ struct PublishAfterInitialiseContext {
 int publishAfterInitialiseWorker(void* parameter) {
   PublishAfterInitialiseContext* context =
       reinterpret_cast<PublishAfterInitialiseContext*>(parameter);
-  context->result = context->mapping->trap(context->address, false);
+  context->result = context->mapping->trap(Processor::information().getVirtualAddressSpace(),
+                                           context->address, false);
   context->completed = true;
   return context->result ? 0 : 1;
 }
@@ -269,7 +270,7 @@ bool memoryMappedFileEofZeroFill() {
   {
     SentinelFile file(pageSize, DataSize);
     MemoryMappedFile mapping(address, DataSize, 0, &file, true, MemoryMappedObject::Read);
-    trapped = mapping.trap(address, false);
+    trapped = mapping.trap(Processor::information().getVirtualAddressSpace(), address, false);
     if (trapped) {
       const uint8_t* bytes = reinterpret_cast<const uint8_t*>(address);
       dataIntact = true;

@@ -6,7 +6,7 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
-Current checkpoint: 65 of 113 backlog entries implemented; 48 remain.
+Current checkpoint: 69 of 113 backlog entries implemented; 44 remain.
 
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
@@ -19,6 +19,72 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Process memory and numeric credentials
+
+`process_vm_readv` and `process_vm_writev` copy scatter/gather streams through
+public musl wrappers. Each transfer imports bounded vector arrays, retains the
+selected process and checks its image generation and authorization for each
+page fragment. Reads and writes preserve completed prefixes when a later
+fragment fails. PID/TID resolution releases thread leases before waiting for VM
+operations. An exec image change stops the old transfer; a fresh call can use
+the replacement image.
+
+The shared VM layer supplies explicit-target ordinary-RAM page access without
+switching the caller address space. Managed anonymous/file mappings honor
+current permissions, CoW, lazy allocation and full-page EOF boundaries;
+registered raw stack/heap and runtime mappings have explicit admission. Page
+access marks the target leaf accessed/dirty, and shared file writes participate
+in normal writeback. Direct physical mappings are rejected. Other architectures
+and hosted execution currently return EOPNOTSUPP for this backend.
+
+The POSIX credential record now validates complete UID/GID transitions,
+preserves saved IDs across fork and publishes coherent snapshots. Numeric IDs
+through UINT32_MAX-1 do not require account-database entries.
+`setfsuid`/`setfsgid` maintain per-thread filesystem IDs, inherited at thread
+creation and reset by exec or applicable ordinary ID setters. VFS traversal,
+creation, chmod/chown and xattr access consume filesystem IDs; access() uses
+real IDs. Supplemental groups are bounded at 32. Ordinary six-ID/group state
+remains process-shared; musl's repeated thread setter protocol is supported,
+but raw ordinary ID syscalls do not implement Linux per-task credential
+separation.
+
+Foreign memory copies require matching caller real UID/GID against all target
+real/effective/saved IDs and target dumpability. There is no capability
+override. PR_GET_DUMPABLE/PR_SET_DUMPABLE supply this policy state; they do not
+implement core files. Effective/FS identity changes clear dumpability, and exec
+resets it using real/effective IDs and executable readability. The legacy login
+entry requires effective root; nonroot privilege elevation still needs a
+separately trusted authentication/set-ID design. Early boot kernel
+filesystem/configuration access is explicit and independent of the account
+database.
+
+Ext2 loads and writes high owner bits for Linux/Hurd creator layouts.
+Unsupported creator formats are rejected before metadata access or mutation.
+Combined chown publication preserves fields omitted with the sentinel. Public
+tests cover high IDs on RamFs and Ext2; native tests cover the disk encoding
+and unsupported creator admission. No new cold-boot owner-persistence claim is
+made.
+
+Verification passed 204 selected native tests (11 new), 37 routing/ABI checks,
+32 affected cross compiles, 29 hosted compile-only checks, and the Darwin
+hosted core runtime. The final fresh-image headless guests passed all 26 suites
+on one CPU (159.0 seconds) and four CPUs (135.0 seconds), including five new
+public process-memory/credential families and two kernel ownership/generation
+fixtures. Disk writes were enabled on disposable disks. Logs, failed runs,
+immutable images, source hashes and results are recorded in
+/private/tmp/pedigree-process-memory-expansion-20260906/verification.json.
+Initial boot failures exposed missing explicit bootstrap identity. The first
+new backend fixture also undercounted a raw CoW alias's physical references,
+causing premature free and subsequent corruption despite passing its immediate
+assertions. Its two live references are now explicitly enrolled. Failed image-
+generation and later init runs are preserved; they are not attributed to the
+parked VM fault. The image-generation fixture uses independently mapped remote
+pages so its replacement does not require splitting. A later public filesystem
+test caught and repaired an EACCES-to-ENOENT overwrite during faccessat and
+openat path traversal. Existing ProcFs owner metadata and separate-snapshot
+IPC/signal permission decisions remain documented follow-ups in the credential
+consumer review. The parked split/unmap fault is unchanged.
 
 ## File handles and fanotify
 

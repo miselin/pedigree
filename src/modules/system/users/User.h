@@ -54,7 +54,7 @@ class EXPORTED_PUBLIC User {
   bool isMember(Group* pGroup);
 
   /** Sets this process' identity to this user and its default group. */
-  void login();
+  bool login();
 
   /** Retrieves the user's UID. */
   size_t getId() const {

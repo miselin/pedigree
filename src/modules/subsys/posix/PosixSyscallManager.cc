@@ -51,6 +51,7 @@
 #include "poll-syscalls.h"
 #include "posix-timer-syscalls.h"
 #include "posixSyscallNumbers.h"
+#include "process-vm-syscalls.h"
 #include "pthread-syscalls.h"
 #include "queued-signal.h"
 #include "select-syscalls.h"
@@ -844,6 +845,16 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
                                      reinterpret_cast<void*>(p3), reinterpret_cast<int*>(p4), p5);
     case POSIX_OPEN_BY_HANDLE_AT:
       return posix_open_by_handle_at(p1, reinterpret_cast<const void*>(p2), p3);
+    case POSIX_SETFSUID:
+      return posix_setfsuid(p1);
+    case POSIX_SETFSGID:
+      return posix_setfsgid(p1);
+    case POSIX_PROCESS_VM_READV:
+      return posix_process_vm_readv(p1, reinterpret_cast<const iovec*>(p2), p3,
+                                    reinterpret_cast<const iovec*>(p4), p5, p6);
+    case POSIX_PROCESS_VM_WRITEV:
+      return posix_process_vm_writev(p1, reinterpret_cast<const iovec*>(p2), p3,
+                                     reinterpret_cast<const iovec*>(p4), p5, p6);
     case POSIX_FREMOVEXATTR:
       return posix_fremovexattr(p1, reinterpret_cast<const char*>(p2));
     case POSIX_MKNOD:

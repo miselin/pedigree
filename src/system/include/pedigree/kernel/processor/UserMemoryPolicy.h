@@ -127,6 +127,8 @@ class EXPORTED_PUBLIC RawUserMemory {
   uint64_t nextRegionId();
   bool completeInventory() const;
   void setCompleteInventory(bool complete);
+  /** Requires the user-memory operation gate; holes are never inferred from brk. */
+  bool covers(uintptr_t base, size_t length) const;
   bool hasLockedMemory(uintptr_t base, size_t length) const;
   MemoryLockStatus prepareChange(const UserRegion* previous, const UserRegion* replacement,
                                  UniquePointer<PreparedMemoryLock>& result);

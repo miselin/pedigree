@@ -27,6 +27,7 @@
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
@@ -130,7 +131,9 @@ int pedigree_config_query(const char* query) {
   for (size_t i = 0; i < MAX_RESULTS; i++) {
     if (g_Results[i] == 0) {
       // Check for user performing the query: only root has config access
-      if (Processor::information().getCurrentThread()->getParent()->getUser()->getId()) {
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      if (process != Scheduler::instance().getKernelProcess() &&
+          process->getEffectiveUserId() != 0) {
         char* pError = new char[StringLength(pConfigPermissionError) + 1];
         StringCopy(pError, pConfigPermissionError);
         g_Results[i] = new Config::Result(0, 0, 0, pError, -1);

@@ -255,7 +255,8 @@ class MemoryMappedObject {
    * the mapping of memory into the address space.
    * \return true if the trap was successful, false otherwise.
    */
-  virtual bool trap(uintptr_t address, bool bWrite, PopulationStatus* population = nullptr) = 0;
+  virtual bool trap(VirtualAddressSpace& space, uintptr_t address, bool bWrite,
+                    PopulationStatus* population = nullptr) = 0;
   PopulationStatus populatePage(VirtualAddressSpace& space, uintptr_t address);
   MemoryLockMode lockMode() const {
     return m_LockMode;
@@ -369,7 +370,7 @@ class AnonymousMemoryMap : public MemoryMappedObject {
 
   virtual void unmap() override;
 
-  virtual bool trap(uintptr_t address, bool bWrite,
+  virtual bool trap(VirtualAddressSpace& space, uintptr_t address, bool bWrite,
                     PopulationStatus* population = nullptr) override;
 
  private:
@@ -431,7 +432,7 @@ class MemoryMappedFile : public MemoryMappedObject {
 
   virtual void unmap() override;
 
-  virtual bool trap(uintptr_t address, bool bWrite,
+  virtual bool trap(VirtualAddressSpace& space, uintptr_t address, bool bWrite,
                     PopulationStatus* population = nullptr) override;
 
   /**
@@ -537,6 +538,10 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   VmStatus residency(uintptr_t base, size_t length, unsigned char* kernelVector,
                      FileResidencyAccess access, void* credentials);
   VmStatus discard(uintptr_t base, size_t length);
+
+  enum class UserPageCopyStatus { Success, Inaccessible, NoMemory, IoError, Unsupported };
+  UserPageCopyStatus copyUserPage(VirtualAddressSpace& space, uintptr_t userAddress,
+                                  void* kernelBuffer, size_t bytes, bool write);
 
   PopulationStatus populateMemory(VirtualAddressSpace& space, uintptr_t base, size_t length);
   void bindMemoryLockPolicy(VirtualAddressSpace& space);

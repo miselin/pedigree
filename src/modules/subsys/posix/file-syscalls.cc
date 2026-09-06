@@ -133,7 +133,8 @@ File* findFileWithAbiFallbacks(const String& name, Directory::ChildLease& result
 static File* traverseSymlink(File* file, Directory::ChildLease& currentLease) {
   /// \todo detect inability to access at each intermediate step.
   if (!file) {
-    SYSCALL_ERROR(DoesNotExist);
+    if (!Processor::information().getCurrentThread()->getErrno())
+      SYSCALL_ERROR(DoesNotExist);
     return nullptr;
   }
 
@@ -142,7 +143,8 @@ static File* traverseSymlink(File* file, Directory::ChildLease& currentLease) {
     Directory::ChildLease nextLease;
     file = Symlink::fromFile(file)->followLinkRetained(nextLease);
     if (!file) {
-      SYSCALL_ERROR(DoesNotExist);
+      if (!Processor::information().getCurrentThread()->getErrno())
+        SYSCALL_ERROR(DoesNotExist);
       return nullptr;
     }
 
@@ -286,14 +288,9 @@ static bool doStat(const char* name, File* pFile, struct stat* st, bool traverse
 }
 
 static bool doChmod(File* pFile, mode_t mode) {
-  // Are we the owner of the file?
-  User* pCurrentUser = Processor::information().getCurrentThread()->getParent()->getUser();
-
-  size_t uid = pCurrentUser->getId();
-  if (!(uid == pFile->getUid() || uid == 0)) {
-    F_NOTICE(" -> EPERM");
-    // Not allowed - EPERM.
-    // User must own the file or be superuser.
+  FilesystemCredentials credentials;
+  if (!Process::currentFilesystemCredentials(credentials) ||
+      (credentials.uid != pFile->getUid() && credentials.uid != 0)) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return false;
   }
@@ -326,47 +323,20 @@ static bool doChmod(File* pFile, mode_t mode) {
 }
 
 static bool doChown(File* pFile, uid_t owner, gid_t group) {
-  // If we're root, changing is fine.
-  size_t newOwner = pFile->getUid();
-  size_t newGroup = pFile->getGid();
-  if (owner != static_cast<uid_t>(-1)) {
-    newOwner = owner;
+  FilesystemCredentials credentials;
+  if (!Process::currentFilesystemCredentials(credentials)) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return false;
   }
-  if (group != static_cast<gid_t>(-1)) {
-    newGroup = group;
+  auto attributes = pFile->getAttributes();
+  const uint32_t newOwner = owner == UINT32_MAX ? attributes.uid : owner;
+  const uint32_t newGroup = group == UINT32_MAX ? attributes.gid : group;
+  if (credentials.uid != 0 && (credentials.uid != attributes.uid || newOwner != attributes.uid ||
+                               (newGroup != attributes.gid && !credentials.inGroup(newGroup)))) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return false;
   }
-
-  // We can only chown the user if we're root.
-  if (pFile->getUid() != newOwner) {
-    User* pCurrentUser = Processor::information().getCurrentThread()->getParent()->getUser();
-    if (pCurrentUser->getId()) {
-      SYSCALL_ERROR(NotEnoughPermissions);
-      return false;
-    }
-  }
-
-  // We can change the group to anything if we're root, but otherwise only
-  // to a group we're a member of.
-  if (pFile->getGid() != newGroup) {
-    User* pCurrentUser = Processor::information().getCurrentThread()->getParent()->getUser();
-    if (pCurrentUser->getId()) {
-      Group* pTargetGroup = UserManager::instance().getGroup(newGroup);
-      if (!pTargetGroup->isMember(pCurrentUser)) {
-        SYSCALL_ERROR(NotEnoughPermissions);
-        return false;
-      }
-    }
-  }
-
-  // Update the file's uid/gid now that we've checked we're allowed to.
-  if (pFile->getUid() != newOwner) {
-    pFile->setUid(newOwner);
-  }
-
-  if (pFile->getGid() != newGroup) {
-    pFile->setGid(newGroup);
-  }
-
+  pFile->setOwnership(newOwner, newGroup, owner != UINT32_MAX, group != UINT32_MAX);
   return true;
 }
 
@@ -4023,6 +3993,11 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
 
   bool bCreated = false;
   if (!file) {
+    const size_t lookupError = Processor::information().getCurrentThread()->getErrno();
+    if (lookupError && lookupError != Error::DoesNotExist) {
+      pSubsystem->freeFd(fd);
+      return -1;
+    }
     if ((flags & O_CREAT) && !onDevFs) {
       F_NOTICE("  {O_CREAT}");
       bool worked = VFS::instance().createFile(nameToOpen, mode, cwd);
@@ -4036,7 +4011,8 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
       file = findFileWithAbiFallbacks(nameToOpen, fileLease, cwd);
       if (!file) {
         F_NOTICE("  -> File does not exist (O_CREAT failed)");
-        SYSCALL_ERROR(DoesNotExist);
+        if (!Processor::information().getCurrentThread()->getErrno())
+          SYSCALL_ERROR(DoesNotExist);
         pSubsystem->freeFd(fd);
         return -1;
       }
@@ -4061,7 +4037,8 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
   file = traverseSymlink(file, fileLease);
 
   if (!file) {
-    SYSCALL_ERROR(DoesNotExist);
+    if (!Processor::information().getCurrentThread()->getErrno())
+      SYSCALL_ERROR(DoesNotExist);
     pSubsystem->freeFd(fd);
     return -1;
   }
@@ -4743,6 +4720,29 @@ int posix_faccessat(int dirfd, const char* pathname, int mode, int flags) {
     return -1;
   }
 
+  FilesystemCredentials accessCredentials;
+  if (flags & AT_EACCESS) {
+    if (!Process::currentFilesystemCredentials(accessCredentials)) {
+      SYSCALL_ERROR(PermissionDenied);
+      return -1;
+    }
+  } else if (process->getType() == Process::Posix) {
+    accessCredentials = static_cast<PosixProcess*>(process)->realFilesystemCredentials();
+  } else {
+    if (!Process::currentFilesystemCredentials(accessCredentials)) {
+      SYSCALL_ERROR(PermissionDenied);
+      return -1;
+    }
+    const int64_t uid = process->getUserId(), gid = process->getGroupId();
+    if (uid < 0 || gid < 0) {
+      SYSCALL_ERROR(PermissionDenied);
+      return -1;
+    }
+    accessCredentials.uid = uid;
+    accessCredentials.gid = gid;
+  }
+  Process::FilesystemAccessScope accessScope(accessCredentials);
+
   DescriptorLease dirDescriptor;
   Process::FileContextLease cwdLease;
   Directory::ChildLease fileLease;
@@ -4778,7 +4778,8 @@ int posix_faccessat(int dirfd, const char* pathname, int mode, int flags) {
 
   if (!file) {
     F_NOTICE("  -> '" << pathnameCopy << "' does not exist");
-    SYSCALL_ERROR(DoesNotExist);
+    if (!Processor::information().getCurrentThread()->getErrno())
+      SYSCALL_ERROR(DoesNotExist);
     return -1;
   }
 
@@ -4788,23 +4789,7 @@ int posix_faccessat(int dirfd, const char* pathname, int mode, int flags) {
     return 0;
   }
 
-  int64_t userId = process->getUserId();
-  int64_t groupId = process->getGroupId();
-  if (flags & AT_EACCESS) {
-    userId = process->getEffectiveUserId();
-    groupId = process->getEffectiveGroupId();
-    if (userId < 0) {
-      userId = process->getUserId();
-    }
-    if (groupId < 0) {
-      groupId = process->getGroupId();
-    }
-  }
-  Vector<int64_t> supplementalGroups;
-  process->getSupplementalGroupIds(supplementalGroups);
-
-  if (!VFS::checkAccess(file, mode & R_OK, mode & W_OK, mode & X_OK, userId, groupId,
-                        supplementalGroups)) {
+  if (!VFS::checkAccess(file, mode & R_OK, mode & W_OK, mode & X_OK, accessCredentials)) {
     // checkAccess does a SYSCALL_ERROR for us.
     F_NOTICE("  -> not ok");
     return -1;
@@ -5047,14 +5032,14 @@ int posix_mknod(const char* pathname, mode_t mode, dev_t dev) {
     if (mode & S_IXOTH)
       permissions |= FILE_OX;
     pipe->setPermissions(permissions);
-    int64_t uid = process->getEffectiveUserId();
-    int64_t gid = process->getEffectiveGroupId();
-    if (uid < 0)
-      uid = process->getUserId();
-    if (gid < 0)
-      gid = process->getGroupId();
-    pipe->setUid(uid < 0 ? 0 : static_cast<size_t>(uid));
-    pipe->setGid(gid < 0 ? 0 : static_cast<size_t>(gid));
+    FilesystemCredentials credentials;
+    if (!Process::currentFilesystemCredentials(credentials)) {
+      delete pipe;
+      SYSCALL_ERROR(PermissionDenied);
+      return -1;
+    }
+    pipe->setUid(credentials.uid);
+    pipe->setGid(credentials.gid);
 
     const Directory::AddStatus status = parentDir->addEphemeralFile(pipe);
     if (status != Directory::AddStatus::Added) {

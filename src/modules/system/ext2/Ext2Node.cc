@@ -579,8 +579,8 @@ File::Attributes Ext2Node::inodeAttributes() const {
   attributes.accessed = LITTLE_TO_HOST32(m_pInode->i_atime);
   attributes.modified = LITTLE_TO_HOST32(m_pInode->i_mtime);
   attributes.changed = LITTLE_TO_HOST32(m_pInode->i_ctime);
-  attributes.uid = LITTLE_TO_HOST16(m_pInode->i_uid);
-  attributes.gid = LITTLE_TO_HOST16(m_pInode->i_gid);
+  attributes.uid = Ext2Owner::uid(*m_pInode);
+  attributes.gid = Ext2Owner::gid(*m_pInode);
   attributes.permissions = modeToPermissions(LITTLE_TO_HOST16(m_pInode->i_mode));
   attributes.size = LITTLE_TO_HOST32(m_pInode->i_size);
   attributes.links = LITTLE_TO_HOST16(m_pInode->i_links_count);
@@ -599,10 +599,10 @@ void Ext2Node::updateInodeAttributes(const File::Attributes& attributes, uint32_
   m_pInode->i_ctime =
       HOST_TO_LITTLE32((mask & File::ChangeTime) ? attributes.changed : Time::getTime());
   if (mask & File::Owner) {
-    m_pInode->i_uid = HOST_TO_LITTLE16(attributes.uid);
+    Ext2Owner::setUid(*m_pInode, attributes.uid);
   }
   if (mask & File::Group) {
-    m_pInode->i_gid = HOST_TO_LITTLE16(attributes.gid);
+    Ext2Owner::setGid(*m_pInode, attributes.gid);
   }
   if (mask & File::Permissions) {
     const uint16_t mode = LITTLE_TO_HOST16(m_pInode->i_mode);

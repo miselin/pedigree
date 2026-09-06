@@ -26,6 +26,7 @@
 #include "pedigree/kernel/process/WaitQueue.h"
 #endif
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/FilesystemCredentials.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/processor/types.h"
@@ -206,6 +207,8 @@ class EXPORTED_PUBLIC VFS {
 
   /** Checks if the current user can access the given file. */
   static bool checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute);
+  static bool checkAccess(File* file, bool read, bool write, bool execute,
+                          const FilesystemCredentials& credentials);
 
   /** Checks access using an explicit, immutable credential snapshot. */
   static bool checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute, int64_t userId,

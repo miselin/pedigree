@@ -744,6 +744,15 @@ uint32_t File::getPermissions() const {
   return getAttributes().permissions;
 }
 
+void File::setOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid) {
+  if (!changeUid && !changeGid)
+    return;
+  Attributes attributes = getAttributes();
+  attributes.uid = uid;
+  attributes.gid = gid;
+  updateAttributes(attributes, (changeUid ? Owner : 0U) | (changeGid ? Group : 0U));
+}
+
 void File::setUid(size_t uid) {
   Attributes attributes;
   attributes.uid = uid;

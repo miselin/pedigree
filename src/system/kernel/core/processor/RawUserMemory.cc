@@ -204,6 +204,23 @@ void RawUserMemory::setCompleteInventory(bool complete) {
     m_State.get()->complete = complete;
 }
 
+bool RawUserMemory::covers(uintptr_t base, size_t length) const {
+  if (!m_State || !length || length > ~uintptr_t(0) - base)
+    return false;
+  const uintptr_t end = base + length;
+  for (const auto& entry : m_State.get()->entries) {
+    const uintptr_t regionEnd = entry.region.base + entry.region.length;
+    if (regionEnd <= base)
+      continue;
+    if (entry.region.base > base)
+      return false;
+    if (regionEnd >= end)
+      return true;
+    base = regionEnd;
+  }
+  return false;
+}
+
 bool RawUserMemory::hasLockedMemory(uintptr_t base, size_t length) const {
   if (!m_State || length > ~uintptr_t(0) - base)
     return false;

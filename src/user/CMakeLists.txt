@@ -239,6 +239,13 @@ pedigree_app(memfd-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memfd-contract-test/mappings.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memfd-contract-test/lifetime.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/memfd-contract-test/races.c)
+pedigree_app(process-memory-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/process-memory-contract-test/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/process-memory-contract-test/copies.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/process-memory-contract-test/mappings.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/process-memory-contract-test/lifetime.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/process-memory-contract-test/credentials.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/process-memory-contract-test/filesystem.c)
 pedigree_app(pipe-transfer-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/pipe-transfer-contract-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/pipe-transfer-contract-test/splice.c

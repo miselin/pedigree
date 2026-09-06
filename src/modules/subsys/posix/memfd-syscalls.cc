@@ -34,17 +34,15 @@ int posix_memfd_create(const char* name, unsigned int flags) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-  int64_t uid = process->getEffectiveUserId();
-  int64_t gid = process->getEffectiveGroupId();
-  if (uid < 0)
-    uid = process->getUserId();
-  if (gid < 0)
-    gid = process->getGroupId();
+  FilesystemCredentials credentials;
+  if (!Process::currentFilesystemCredentials(credentials)) {
+    SYSCALL_ERROR(PermissionDenied);
+    return -1;
+  }
   String filename("memfd:");
   filename += label;
   auto* file =
-      new MemFdFile(filename, flags & LinuxMemFd::AllowSealing,
-                    uid < 0 ? 0 : static_cast<size_t>(uid), gid < 0 ? 0 : static_cast<size_t>(gid));
+      new MemFdFile(filename, flags & LinuxMemFd::AllowSealing, credentials.uid, credentials.gid);
   if (!file) {
     SYSCALL_ERROR(OutOfMemory);
     return -1;

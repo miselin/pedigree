@@ -584,6 +584,14 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     }
   }
 
+  // The process is still unpublished, so this image is not remotely reachable
+  // until its remaining thread state is assembled and publish() runs below.
+  if (!pSubsystem->publishUserImage(*pProcess->getAddressSpace())) {
+    delete pProcess;
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
+
   // Create a new thread for the new process.
   Thread* pThread = new Thread(pProcess, clonedState, true);
   pThread->setName("posix clone() forked thread");
@@ -1140,57 +1148,31 @@ int posix_getgrgid(gid_t id, struct group* out) {
   return copyGroup(UserManager::instance().getGroup(id), out);
 }
 
-uid_t posix_getuid() {
-  SC_NOTICE("getuid");
-
-  return Processor::information().getCurrentThread()->getParent()->getUserId();
-}
-
-gid_t posix_getgid() {
-  SC_NOTICE("getgid");
-
-  return Processor::information().getCurrentThread()->getParent()->getGroupId();
-}
-
-uid_t posix_geteuid() {
-  SC_NOTICE("geteuid");
-
-  return Processor::information().getCurrentThread()->getParent()->getEffectiveUserId();
-}
-
-gid_t posix_getegid() {
-  SC_NOTICE("getegid");
-
-  return Processor::information().getCurrentThread()->getParent()->getEffectiveGroupId();
-}
-
-int posix_setuid(uid_t uid) {
-  SC_NOTICE("setuid(" << uid << ")");
-  return posix_setresuid(uid, uid, -1);
-}
-
-int posix_setgid(gid_t gid) {
-  SC_NOTICE("setgid(" << gid << ")");
-  return posix_setresgid(gid, gid, -1);
-}
-
-int posix_seteuid(uid_t euid) {
-  SC_NOTICE("seteuid(" << euid << ")");
-  return posix_setresuid(-1, euid, -1);
-}
-
-int posix_setegid(gid_t egid) {
-  SC_NOTICE("setegid(" << egid << ")");
-  return posix_setresgid(-1, egid, -1);
-}
-
 EXPORTED_PUBLIC int pedigree_login(int uid) {
-  // Grab the given user.
-  User* pUser = UserManager::instance().getUser(uid);
-  if (!pUser)
+  PosixProcess* process = getPosixProcess();
+  if (!process) {
+    SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
-
-  pUser->login();
+  }
+  MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+  if (process->snapshotCredentials().euid != 0) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return -1;
+  }
+  if (process->getNumThreads() != 1) {
+    SYSCALL_ERROR(NoMoreProcesses);
+    return -1;
+  }
+  User* user = uid < 0 ? nullptr : UserManager::instance().getUser(uid);
+  if (!user) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  if (!user->login()) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  Processor::information().getCurrentThread()->setErrno(0);
   return 0;
 }
 
@@ -1542,9 +1524,7 @@ int posix_syslog(const char* msg, int prio) {
 }
 
 EXPORTED_PUBLIC int pedigree_reboot() {
-  // Are we superuser?
-  User* pUser = Processor::information().getCurrentThread()->getParent()->getUser();
-  if (pUser->getId()) {
+  if (Processor::information().getCurrentThread()->getParent()->getEffectiveUserId() != 0) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }
@@ -1588,6 +1568,25 @@ int posix_prctl(int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_
                   << ")");
 
   Thread* thread = Processor::information().getCurrentThread();
+  if (option == 3 || option == 4) {
+    PosixProcess* process = getPosixProcess();
+    if (!process) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+    if (option == 3) {
+      thread->setErrno(0);
+      return process->snapshotCredentials().dumpable ? 1 : 0;
+    }
+    if (arg2 > 1) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+    process->setDumpable(arg2 != 0);
+    thread->setErrno(0);
+    return 0;
+  }
+
   if (option == LINUX_PR_SET_NAME) {
     String requested;
     const PosixSubsystem::UserStringResult result = PosixSubsystem::copyUserString(
@@ -1664,62 +1663,6 @@ int posix_pause() {
   return -1;
 }
 
-int posix_setgroups(size_t size, const gid_t* list) {
-  SC_NOTICE("setgroups(" << size << ", " << list << ")");
-  if (size > NGROUPS_MAX) {
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
-  gid_t snapshot[NGROUPS_MAX] = {};
-  if (!PosixSubsystem::copyFromUser(snapshot, list, size, sizeof(gid_t))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-  PosixProcess* pProcess = getPosixProcess();
-  if (!pProcess) {
-    return -1;
-  }
-
-  Vector<int64_t> newGroups;
-  for (size_t i = 0; i < size; ++i) {
-    newGroups.pushBack(snapshot[i]);
-  }
-  pProcess->setSupplementalGroupIds(newGroups);
-  return 0;
-}
-
-int posix_getgroups(size_t size, gid_t* list) {
-  SC_NOTICE("getgroups(" << size << ", " << list << ")");
-  if (size > INT_MAX) {
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-  PosixProcess* pProcess = getPosixProcess();
-  if (!pProcess) {
-    return -1;
-  }
-  Vector<int64_t> groups;
-  pProcess->getSupplementalGroupIds(groups);
-  if (!size) {
-    return groups.count();
-  }
-  if (size < groups.count()) {
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-  Vector<gid_t> snapshot;
-  for (size_t i = 0; i < groups.count(); ++i) {
-    snapshot.pushBack(static_cast<gid_t>(groups[i]));
-  }
-  if (!PosixSubsystem::copyToUser(list, snapshot.count() ? &snapshot[0] : nullptr, snapshot.count(),
-                                  sizeof(gid_t))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-  return groups.count();
-}
-
 int posix_membarrier(int command, unsigned int flags, int cpuId) {
   SC_NOTICE("membarrier(" << Dec << command << ", " << flags << ", " << cpuId << ")");
 
@@ -1793,90 +1736,6 @@ int posix_getpriority(int which, int who, bool linuxAbi) {
 int posix_setpriority(int which, int who, int prio) {
   /// \todo could do more with this
   SC_NOTICE("setpriority(" << which << ", " << Dec << who << ", " << prio << ")");
-  return 0;
-}
-
-int posix_setreuid(uid_t ruid, uid_t euid) {
-  SC_NOTICE("setreuid(" << ruid << ", " << euid << ")");
-  return posix_setresuid(ruid, euid, -1);
-}
-
-int posix_setregid(gid_t rgid, gid_t egid) {
-  SC_NOTICE("setregid(" << rgid << ", " << egid << ")");
-  return posix_setresgid(rgid, egid, -1);
-}
-
-int posix_setresuid(uid_t ruid, uid_t euid, uid_t suid) {
-  SC_NOTICE("setresuid(" << ruid << ", " << euid << ", " << suid << ")");
-
-  PosixProcess* pProcess = getPosixProcess();
-  if (!pProcess) {
-    /// \todo errno
-    return -1;
-  }
-
-  if (ruid != static_cast<uid_t>(-1)) {
-    pProcess->setUserId(ruid);
-  }
-  if (euid != static_cast<uid_t>(-1)) {
-    pProcess->setEffectiveUserId(euid);
-  }
-  if (suid != static_cast<uid_t>(-1)) {
-    pProcess->setSavedUserId(suid);
-  }
-
-  return 0;
-}
-
-int posix_setresgid(gid_t rgid, gid_t egid, gid_t sgid) {
-  SC_NOTICE("setresgid(" << rgid << ", " << egid << ", " << sgid << ")");
-
-  PosixProcess* pProcess = getPosixProcess();
-  if (!pProcess) {
-    /// \todo errno
-    return -1;
-  }
-
-  if (rgid != static_cast<gid_t>(-1)) {
-    pProcess->setGroupId(rgid);
-  }
-  if (egid != static_cast<gid_t>(-1)) {
-    pProcess->setEffectiveGroupId(egid);
-  }
-  if (sgid != static_cast<gid_t>(-1)) {
-    pProcess->setSavedGroupId(sgid);
-  }
-
-  return 0;
-}
-
-int posix_getresuid(uid_t* ruid, uid_t* euid, uid_t* suid) {
-  Process* process = Processor::information().getCurrentThread()->getParent();
-  const uid_t real = process->getUserId();
-  const uid_t effective = process->getEffectiveUserId();
-  PosixProcess* posix = getPosixProcess();
-  const uid_t saved = posix ? posix->getSavedUserId() : 0;
-  if ((ruid && !PosixSubsystem::copyToUser(ruid, &real, sizeof(real))) ||
-      (euid && !PosixSubsystem::copyToUser(euid, &effective, sizeof(effective))) ||
-      (suid && posix && !PosixSubsystem::copyToUser(suid, &saved, sizeof(saved)))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-  return 0;
-}
-
-int posix_getresgid(gid_t* rgid, gid_t* egid, gid_t* sgid) {
-  Process* process = Processor::information().getCurrentThread()->getParent();
-  const gid_t real = process->getGroupId();
-  const gid_t effective = process->getEffectiveGroupId();
-  PosixProcess* posix = getPosixProcess();
-  const gid_t saved = posix ? posix->getSavedGroupId() : 0;
-  if ((rgid && !PosixSubsystem::copyToUser(rgid, &real, sizeof(real))) ||
-      (egid && !PosixSubsystem::copyToUser(egid, &effective, sizeof(effective))) ||
-      (sgid && posix && !PosixSubsystem::copyToUser(sgid, &saved, sizeof(saved)))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
   return 0;
 }
 

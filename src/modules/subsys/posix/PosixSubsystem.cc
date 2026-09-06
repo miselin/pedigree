@@ -274,6 +274,39 @@ void PosixSubsystem::setProcess(Process* process) {
   }
 }
 
+bool PosixSubsystem::snapshotUserImage(UserImageToken& token) const {
+  MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+  token = {};
+  if (!m_UserImageActive)
+    return false;
+  token.space = m_UserImageSpace;
+  token.generation = m_UserImageGeneration;
+  return true;
+}
+
+bool PosixSubsystem::matchesUserImage(const UserImageToken& token) const {
+  MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+  return m_UserImageActive && token.space == m_UserImageSpace &&
+         token.generation == m_UserImageGeneration;
+}
+
+void PosixSubsystem::invalidateUserImage() {
+  MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+  m_UserImageActive = false;
+  m_UserImageSpace = nullptr;
+}
+
+bool PosixSubsystem::publishUserImage(VirtualAddressSpace& space) {
+  MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+  if (m_UserImageActive || !m_pProcess || m_pProcess->getAddressSpace() != &space ||
+      m_UserImageGeneration == ~uint64_t(0))
+    return false;
+  ++m_UserImageGeneration;
+  m_UserImageSpace = &space;
+  m_UserImageActive = true;
+  return true;
+}
+
 PosixSubsystem::~PosixSubsystem() {
   m_PendingSignals->close();
   assert(--m_FreeCount == 0);
@@ -361,6 +394,7 @@ PosixSubsystem::~PosixSubsystem() {
 
   // Take the memory map lock before we become uninterruptible.
   MemoryMapManager::instance().acquireLock();
+  invalidateUserImage();
 
   // Spinlock as a quick way of disabling interrupts.
   Spinlock spinlock;
@@ -735,6 +769,7 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
   // retire its user-memory exit state before process teardown removes it.
   m_PendingSignals->close();
   posix_timer_process_exit(pProcess);
+  invalidateUserImage();
   pThread->notifySubsystemExit();
 
   delete pProcess->getLinker();
@@ -2207,12 +2242,14 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   String candidateName(originalName);
   static constexpr size_t MaximumShebangRewrites = 4;
   size_t shebangRewrites = 0;
+  bool allExecutableFilesReadable = true;
   while (true) {
     // Execute permission checks precede all format reads for every candidate,
     // including nested shebang interpreters.
     if (!VFS::checkAccess(originalFile, false, false, true)) {
       return false;
     }
+    allExecutableFilesReadable &= posix_exec_file_readable(originalFile);
 
     const size_t bytesRead =
         originalFile->read(0, sizeof(magic), reinterpret_cast<uintptr_t>(magic));
@@ -2333,6 +2370,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     if (!VFS::checkAccess(interpreterFile, false, false, true)) {
       return false;
     }
+    allExecutableFilesReadable &= posix_exec_file_readable(interpreterFile);
 
     if (!prepareExecutable(interpreterFile, interpreterImage, true)) {
       return false;
@@ -2361,6 +2399,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     SYSCALL_ERROR(Interrupted);
     return false;
   }
+
+  invalidateUserImage();
 
   posix_timer_process_exit(pProcess);
 
@@ -2434,11 +2474,17 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   pThread->resetTlsBase();
   if (pSubsystem)
     pSubsystem->freeMultipleFds(true);
+  PosixProcess::CredentialSnapshot execCredentials;
   if (pProcess->getType() == Process::Posix) {
-    /// \todo should only do this for setuid/setgid programs
     PosixProcess* p = static_cast<PosixProcess*>(pProcess);
-    p->setSavedUserId(p->getEffectiveUserId());
-    p->setSavedGroupId(p->getEffectiveGroupId());
+    MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+    p->commitExecCredentials(*pThread, allExecutableFilesReadable);
+    execCredentials = p->snapshotCredentials();
+  } else {
+    execCredentials.ruid = pProcess->getUserId();
+    execCredentials.euid = pProcess->getEffectiveUserId();
+    execCredentials.rgid = pProcess->getGroupId();
+    execCredentials.egid = pProcess->getEffectiveGroupId();
   }
 
   // Allocate some space for the VDSO
@@ -2553,10 +2599,10 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     STACK_PUSH2(loaderStack, 0, 1);  // AT_IGNORE
   }
   STACK_PUSH2(loaderStack, 0, 23);
-  STACK_PUSH2(loaderStack, pProcess->getEffectiveGroupId(), 14);      // AT_EGID
-  STACK_PUSH2(loaderStack, pProcess->getGroupId(), 13);               // AT_GID
-  STACK_PUSH2(loaderStack, pProcess->getEffectiveUserId(), 12);       // AT_EUID
-  STACK_PUSH2(loaderStack, pProcess->getUserId(), 11);                // AT_UID
+  STACK_PUSH2(loaderStack, execCredentials.egid, 14);                 // AT_EGID
+  STACK_PUSH2(loaderStack, execCredentials.rgid, 13);                 // AT_GID
+  STACK_PUSH2(loaderStack, execCredentials.euid, 12);                 // AT_EUID
+  STACK_PUSH2(loaderStack, execCredentials.ruid, 11);                 // AT_UID
   STACK_PUSH2(loaderStack, reinterpret_cast<uintptr_t>(execfn), 31);  // AT_EXECFN
 
   // The hosted vDSO artifact is not a loadable DSO, so advertising it makes
@@ -2600,10 +2646,19 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   Processor::setInterrupts(true);
 
   if (!state) {
+    if (!publishUserImage(*pProcess->getAddressSpace())) {
+      delete stack;
+      return failAfterCommit(Error::ValueTooLarge);
+    }
     // Publish the user Thread only after its initial stack has an owner.
     Thread* pNewThread =
         new Thread(pProcess, reinterpret_cast<Thread::ThreadStartFunc>(interpreterEntryPoint), 0,
                    loaderStack, false, false, true);
+    if (!pNewThread) {
+      invalidateUserImage();
+      delete stack;
+      return failAfterCommit(Error::OutOfMemory);
+    }
     pNewThread->adoptInitialUserStackForExec(stack);
     pNewThread->setName("ld.so thread");
     if (!pNewThread->startDetached()) {
@@ -2622,6 +2677,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
       ERROR("PosixSubsystem::invoke: exec userspace jump was not dispatched");
       return failAfterCommit(Error::IoError);
     }
+    if (!publishUserImage(*pProcess->getAddressSpace()))
+      return failAfterCommit(Error::ValueTooLarge);
     return true;
   }
 

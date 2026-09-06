@@ -164,12 +164,12 @@ static bool init() {
   PosixProcess* pProcess =
       new PosixProcess(Processor::information().getCurrentThread()->getParent());
 
-  pProcess->setUserId(0);
-  pProcess->setGroupId(0);
-  pProcess->setEffectiveUserId(0);
-  pProcess->setEffectiveGroupId(0);
-  pProcess->setSavedUserId(0);
-  pProcess->setSavedGroupId(0);
+  Process* bootstrap = Processor::information().getCurrentThread()->getParent();
+  if (!pProcess->installUserIdentity(bootstrap->getUser(), bootstrap->getGroup(), nullptr, 0)) {
+    delete pProcess;
+    error("Unable to initialise the process identity");
+    return false;
+  }
 
   pProcess->description() = "init";
   pProcess->setCwd(VFS::instance().find(String("/")));

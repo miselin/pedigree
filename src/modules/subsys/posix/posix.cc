@@ -51,6 +51,10 @@ extern bool runMemoryLockRegressions();
 #if !HOSTED && PEDIGREE_REMAP_FILE_PAGES_TESTS
 extern bool runRemapFilePagesRegressions();
 #endif
+#if !HOSTED && PEDIGREE_PROCESS_MEMORY_TESTS
+extern bool processMemoryBackendRegression();
+extern bool processVmRegression();
+#endif
 
 static PosixSyscallManager g_PosixSyscallManager;
 
@@ -319,6 +323,11 @@ static bool init() {
 #if !HOSTED && PEDIGREE_REMAP_FILE_PAGES_TESTS
   if (!runRemapFilePagesRegressions()) {
     FATAL("File-offset remapping regression failed");
+  }
+#endif
+#if !HOSTED && PEDIGREE_PROCESS_MEMORY_TESTS
+  if (!processMemoryBackendRegression() || !processVmRegression()) {
+    FATAL("Process-memory copy regression failed");
   }
 #endif
   return true;

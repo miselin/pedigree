@@ -170,6 +170,33 @@ struct Inode {
   uint8_t i_osd2[12];
 } __attribute__((packed));
 
+// Linux/Hurd encode the high owner halves in these two OS-dependent fields.
+namespace Ext2Owner {
+inline uint16_t read16(const void* field) {
+  const auto* bytes = static_cast<const uint8_t*>(field);
+  return static_cast<uint16_t>(bytes[0]) | (static_cast<uint16_t>(bytes[1]) << 8);
+}
+inline void write16(void* field, uint16_t value) {
+  auto* bytes = static_cast<uint8_t*>(field);
+  bytes[0] = value;
+  bytes[1] = value >> 8;
+}
+inline uint32_t uid(const Inode& inode) {
+  return read16(&inode.i_uid) | (static_cast<uint32_t>(read16(inode.i_osd2 + 4)) << 16);
+}
+inline uint32_t gid(const Inode& inode) {
+  return read16(&inode.i_gid) | (static_cast<uint32_t>(read16(inode.i_osd2 + 6)) << 16);
+}
+inline void setUid(Inode& inode, uint32_t value) {
+  write16(&inode.i_uid, value);
+  write16(inode.i_osd2 + 4, value >> 16);
+}
+inline void setGid(Inode& inode, uint32_t value) {
+  write16(&inode.i_gid, value);
+  write16(inode.i_osd2 + 6, value >> 16);
+}
+}  // namespace Ext2Owner
+
 /** An ext2 directory entry. */
 struct Dir {
   uint32_t d_inode;

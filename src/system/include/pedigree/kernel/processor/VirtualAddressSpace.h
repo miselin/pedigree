@@ -162,6 +162,18 @@ class VirtualAddressSpace {
    */
   virtual bool handleCopyOnWriteFault(void* virtualAddress, bool userMode) = 0;
 
+  enum class ResidentCopyStatus { Success, Inaccessible, Unsupported };
+
+  /** One-page, no-fault copy with a resident nonpageable kernel buffer. */
+  virtual ResidentCopyStatus copyResidentUserPage(uintptr_t userAddress, void* kernelBuffer,
+                                                  size_t bytes, bool write) {
+    (void)userAddress;
+    (void)kernelBuffer;
+    (void)bytes;
+    (void)write;
+    return ResidentCopyStatus::Unsupported;
+  }
+
   /**
    * Stores one 32-bit value through a resident userspace mapping without
    * switching into this address space. Implementations reject mappings that

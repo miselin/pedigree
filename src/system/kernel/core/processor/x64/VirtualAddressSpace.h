@@ -107,6 +107,8 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
                        size_t flags);
   virtual void getMapping(void* virtualAddress, physical_uintptr_t& physAddress, size_t& flags);
   virtual bool handleCopyOnWriteFault(void* virtualAddress, bool userMode);
+  ResidentCopyStatus copyResidentUserPage(uintptr_t userAddress, void* kernelBuffer, size_t bytes,
+                                          bool write) override;
   virtual bool tryWriteUser32(uintptr_t address, uint32_t value);
   virtual bool tryReadUser32(uintptr_t address, uint32_t& value);
   virtual bool tryReadUserPointer(uintptr_t address, uintptr_t& value);

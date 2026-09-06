@@ -160,6 +160,13 @@ bool Ext2Filesystem::initialise(Disk* pDisk) {
     return false;
   }
 
+  // Other creator formats assign different meanings to inode owner-high fields.
+  const uint32_t creator = LITTLE_TO_HOST32(m_pSuperblock->s_creator_os);
+  if (creator != 0 && creator != 1) {
+    ERROR("Ext2: unsupported inode creator format on " << devName);
+    return false;
+  }
+
   // Clean?
   if (LITTLE_TO_HOST16(m_pSuperblock->s_state) != EXT2_STATE_CLEAN) {
     WARNING("Ext2: filesystem on device " << devName << " is not clean.");
@@ -320,6 +327,17 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
     return false;
   }
 
+#ifdef EXT2_STANDALONE
+  uint32_t uid = 0, gid = 0;
+#else
+  FilesystemCredentials credentials;
+  if (!Process::currentFilesystemCredentials(credentials)) {
+    SYSCALL_ERROR(PermissionDenied);
+    return false;
+  }
+  const uint32_t uid = credentials.uid, gid = credentials.gid;
+#endif
+
   // Find a free inode.
   uint32_t inode_num = inodeOverride;
   if (!inode_num) {
@@ -330,14 +348,6 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
     }
   }
 
-#ifdef EXT2_STANDALONE
-  size_t uid = 0;
-  size_t gid = 0;
-#else
-  size_t uid = Processor::information().getCurrentThread()->getParent()->getUser()->getId();
-  size_t gid = Processor::information().getCurrentThread()->getParent()->getGroup()->getId();
-#endif
-
   uint32_t timestamp = getUnixTimestamp();
 
   // Populate the inode.
@@ -346,9 +356,9 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
   if (!inodeOverride) {
     // Allocation has already cleared the inode and advanced its generation.
     newInode->i_mode = HOST_TO_LITTLE16(mask | type);
-    newInode->i_uid = HOST_TO_LITTLE16(uid);
+    Ext2Owner::setUid(*newInode, uid);
     newInode->i_atime = newInode->i_ctime = newInode->i_mtime = HOST_TO_LITTLE32(timestamp);
-    newInode->i_gid = HOST_TO_LITTLE16(gid);
+    Ext2Owner::setGid(*newInode, gid);
   }
 
   // If we have a value to store, and it's small enough, use the block

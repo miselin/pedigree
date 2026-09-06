@@ -94,7 +94,7 @@ PopulationStatus MemoryMappedObject::populatePage(VirtualAddressSpace& space, ui
   const size_t previousError = thread ? thread->getErrno() : 0;
   if (thread)
     thread->setErrno(0);
-  const bool populated = trap(address, write, &status);
+  const bool populated = trap(space, address, write, &status);
   if (thread)
     thread->setErrno(previousError);
   return populated ? PopulationStatus::Success : status;

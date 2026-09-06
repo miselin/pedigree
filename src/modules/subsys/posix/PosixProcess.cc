@@ -57,13 +57,7 @@ PosixProcess::PosixProcess()
       m_RealIntervalTimer(this, IntervalTimer::Hardware),
       m_VirtualIntervalTimer(this, IntervalTimer::Virtual),
       m_ProfileIntervalTimer(this, IntervalTimer::Profile),
-      m_Uid(0),
-      m_Gid(0),
-      m_Euid(0),
-      m_Egid(0),
-      m_Suid(0),
-      m_Sgid(0),
-      m_SupplementalIds(),
+      m_Credentials(),
       m_bRegistered(false) {
   enableTimeAccountingReports();
 }
@@ -78,13 +72,7 @@ PosixProcess::PosixProcess(Process* pParent, bool bCopyOnWrite)
       m_RealIntervalTimer(this, IntervalTimer::Hardware),
       m_VirtualIntervalTimer(this, IntervalTimer::Virtual),
       m_ProfileIntervalTimer(this, IntervalTimer::Profile),
-      m_Uid(0),
-      m_Gid(0),
-      m_Euid(0),
-      m_Egid(0),
-      m_Suid(0),
-      m_Sgid(0),
-      m_SupplementalIds(),
+      m_Credentials(),
       m_bRegistered(false) {
   enableTimeAccountingReports();
 
@@ -95,18 +83,17 @@ PosixProcess::PosixProcess(Process* pParent, bool bCopyOnWrite)
     // Child inherits parent's mask.
     m_Mask = pPosixParent->getMask();
 
-    m_SupplementalIds.clear();
-    pPosixParent->getSupplementalGroupIds(m_SupplementalIds);
-    m_Suid = pPosixParent->getSavedUserId();
-    m_Sgid = pPosixParent->getSavedGroupId();
+    m_Credentials = pPosixParent->snapshotCredentials();
+  } else {
+    FilesystemCredentials inherited;
+    if (pParent->snapshotFilesystemCredentials(nullptr, inherited)) {
+      m_Credentials.ruid = m_Credentials.euid = m_Credentials.suid = inherited.uid;
+      m_Credentials.rgid = m_Credentials.egid = m_Credentials.sgid = inherited.gid;
+      m_Credentials.groupCount = inherited.groupCount;
+      for (size_t i = 0; i < inherited.groupCount; ++i)
+        m_Credentials.groups[i] = inherited.groups[i];
+    }
   }
-
-  m_Uid = pParent->getUserId();
-  m_Gid = pParent->getGroupId();
-  m_Euid = pParent->getEffectiveUserId();
-  m_Egid = pParent->getEffectiveGroupId();
-  m_Suid = -1;
-  m_Sgid = -1;
 }
 
 PosixProcess::~PosixProcess() {
@@ -528,69 +515,4 @@ void IntervalTimer::signal() {
 
   // Don't yield in the middle of the timer handler
   pSubsystem->sendSignal(target.get(), signal, false, true);
-}
-
-int64_t PosixProcess::getUserId() const {
-  return m_Uid;
-}
-
-int64_t PosixProcess::getGroupId() const {
-  return m_Gid;
-}
-
-int64_t PosixProcess::getEffectiveUserId() const {
-  return m_Euid;
-}
-
-int64_t PosixProcess::getEffectiveGroupId() const {
-  return m_Egid;
-}
-
-void PosixProcess::getSupplementalGroupIds(Vector<int64_t>& vec) const {
-  LockGuard<Spinlock> guard(m_SupplementalIdsLock);
-  for (auto it : m_SupplementalIds) {
-    vec.pushBack(it);
-  }
-}
-
-void PosixProcess::setUserId(int64_t id) {
-  m_Uid = id;
-}
-
-void PosixProcess::setGroupId(int64_t id) {
-  m_Gid = id;
-}
-
-void PosixProcess::setEffectiveUserId(int64_t id) {
-  m_Euid = id;
-}
-
-void PosixProcess::setEffectiveGroupId(int64_t id) {
-  m_Egid = id;
-}
-
-void PosixProcess::setSupplementalGroupIds(const Vector<int64_t>& vec) {
-  LockGuard<Spinlock> guard(m_SupplementalIdsLock);
-  m_SupplementalIds.clear();
-  m_SupplementalIds.reserve(vec.size(), false);
-
-  for (auto it : vec) {
-    m_SupplementalIds.pushBack(it);
-  }
-}
-
-int64_t PosixProcess::getSavedUserId() const {
-  return m_Suid;
-}
-
-int64_t PosixProcess::getSavedGroupId() const {
-  return m_Sgid;
-}
-
-void PosixProcess::setSavedUserId(int64_t id) {
-  m_Suid = id;
-}
-
-void PosixProcess::setSavedGroupId(int64_t id) {
-  m_Sgid = id;
 }

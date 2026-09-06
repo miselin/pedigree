@@ -267,6 +267,8 @@ set(TESTSUITE_SRCS
     testsuite/test-Ext2Xattr.cc
     testsuite/test-Ext2XattrCodec.cc
     testsuite/test-Ext2Handles.cc
+    testsuite/test-Ext2Owners.cc
+    testsuite/test-PosixCredentials.cc
     testsuite/test-FanotifyQueue.cc
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/fanotify-queue.cc
     testsuite/test-FatWriteback.cc

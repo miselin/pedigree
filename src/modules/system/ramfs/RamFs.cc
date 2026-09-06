@@ -58,15 +58,11 @@ void initialiseCreatedNode(File& file, uint32_t mode) {
 #if THREADS
   Thread* thread = Processor::information().getCurrentThread();
   if (thread) {
-    Process* process = thread->getParent();
-    int64_t uid = process->getEffectiveUserId();
-    int64_t gid = process->getEffectiveGroupId();
-    if (uid < 0)
-      uid = process->getUserId();
-    if (gid < 0)
-      gid = process->getGroupId();
-    file.setUid(uid < 0 ? 0 : static_cast<size_t>(uid));
-    file.setGid(gid < 0 ? 0 : static_cast<size_t>(gid));
+    FilesystemCredentials credentials;
+    if (Process::currentFilesystemCredentials(credentials)) {
+      file.setUid(credentials.uid);
+      file.setGid(credentials.gid);
+    }
   }
 #endif
 }

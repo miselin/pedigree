@@ -115,10 +115,12 @@ bool permitted(File* file, const String& name, bool write) {
   }
   if (file->isDirectory() && write) {
     const auto attributes = file->getAttributes();
-    Process* process = Processor::information().getCurrentThread()->getParent();
-    int64_t uid = process->getEffectiveUserId();
-    if (uid < 0)
-      uid = process->getUserId();
+    FilesystemCredentials credentials;
+    if (!Process::currentFilesystemCredentials(credentials)) {
+      SYSCALL_ERROR(NotEnoughPermissions);
+      return false;
+    }
+    const uint32_t uid = credentials.uid;
     if ((attributes.permissions & FILE_STICKY) && uid != 0 &&
         static_cast<uint64_t>(uid) != attributes.uid) {
       SYSCALL_ERROR(NotEnoughPermissions);

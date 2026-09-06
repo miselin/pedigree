@@ -1010,39 +1010,51 @@ bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute) {
     return true;
   }
 
-  Process* pProcess = Processor::information().getCurrentThread()->getParent();
-
-  int64_t processUid = pProcess->getEffectiveUserId();
-  if (processUid < 0) {
-    processUid = pProcess->getUserId();
+  FilesystemCredentials credentials;
+  if (!Process::currentFilesystemCredentials(credentials)) {
+    SYSCALL_ERROR(PermissionDenied);
+    return false;
   }
-
-  int64_t processGid = pProcess->getEffectiveGroupId();
-  if (processGid < 0) {
-    processGid = pProcess->getGroupId();
-  }
-
-  Vector<int64_t> supplementalGroups;
-  pProcess->getSupplementalGroupIds(supplementalGroups);
-  return checkAccess(pFile, bRead, bWrite, bExecute, processUid, processGid, supplementalGroups);
+  return checkAccess(pFile, bRead, bWrite, bExecute, credentials);
 #endif
 }
 
-bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute, int64_t processUid,
-                      int64_t processGid, const Vector<int64_t>& supplementalGroups) {
+bool VFS::checkAccess(File* file, bool read, bool write, bool execute, int64_t uid, int64_t gid,
+                      const Vector<int64_t>& groups) {
+  FilesystemCredentials credentials;
+  if (uid >= 0 && static_cast<uint64_t>(uid) < UINT32_MAX && gid >= 0 &&
+      static_cast<uint64_t>(gid) < UINT32_MAX && groups.count() <= credentials.MaximumGroups) {
+    credentials.uid = uid;
+    credentials.gid = gid;
+    credentials.groupCount = groups.count();
+    credentials.valid = true;
+    for (size_t i = 0; i < groups.count(); ++i) {
+      if (groups[i] < 0 || static_cast<uint64_t>(groups[i]) >= UINT32_MAX)
+        credentials.valid = false;
+      credentials.groups[i] = groups[i];
+    }
+  }
+  return checkAccess(file, read, write, execute, credentials);
+}
+
+bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute,
+                      const FilesystemCredentials& credentials) {
 #ifdef VFS_STANDALONE
-  // We don't check permissions on standalone builds of the VFS.
   return true;
 #else
-  if (!pFile) {
-    // The error for a null file is not EPERM or EACCESS.
+  if (!pFile)
     return true;
+  if (!credentials.valid) {
+    SYSCALL_ERROR(PermissionDenied);
+    return false;
   }
-
+  const uint32_t processUid = credentials.uid;
+  const uint32_t processGid = credentials.gid;
   uint32_t check = 0;
-  const int64_t fuid = pFile->getUid();
-  const int64_t fgid = pFile->getGid();
-  uint32_t permissions = pFile->getPermissions();
+  const auto attributes = pFile->getAttributes();
+  const int64_t fuid = attributes.uid;
+  const int64_t fgid = attributes.gid;
+  uint32_t permissions = attributes.permissions;
   uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) | (bExecute ? FILE_UX : 0);
 
   if (processUid == 0) {
@@ -1055,8 +1067,8 @@ bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute, int64
     bool inFileGroup = fgid == processGid;
 
     if (!inFileGroup) {
-      for (auto it : supplementalGroups) {
-        if (it == fgid) {
+      for (size_t i = 0; i < credentials.groupCount; ++i) {
+        if (credentials.groups[i] == fgid) {
           inFileGroup = true;
           break;
         }

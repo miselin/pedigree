@@ -399,6 +399,18 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
       const SharedPointer<SignalEventState>& state = SharedPointer<SignalEventState>());
 
   void setProcess(Process* process) override;
+
+  struct UserImageToken {
+    VirtualAddressSpace* space = nullptr;
+    uint64_t generation = 0;
+  };
+  // Tokens own no memory. Retain the Process and an outer VM operation guard
+  // while using a snapshot, so an exec cannot replace its admitted image.
+  bool snapshotUserImage(UserImageToken& token) const;
+  bool matchesUserImage(const UserImageToken& token) const;
+  void invalidateUserImage();
+  bool publishUserImage(VirtualAddressSpace& space);
+
   SharedPointer<PendingSignalContext> pendingSignalContext() {
     return m_PendingSignals;
   }
@@ -712,6 +724,9 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   SharedPointer<PendingSignalContext> m_PendingSignals{new PendingSignalContext};
   AdvisoryOwner m_AdvisoryOwner;
   PosixMemoryLockAccount m_MemoryLockAccount;
+  VirtualAddressSpace* m_UserImageSpace = nullptr;
+  uint64_t m_UserImageGeneration = 0;
+  bool m_UserImageActive = false;
 
   /**
    * The file descriptor map. Maps number to pointers, the type of which is

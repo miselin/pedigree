@@ -223,8 +223,8 @@ void UserManager::initialise() {
   }
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
 
-  pProcess->setUser(pUser);
-  pProcess->setGroup(pUser->getDefaultGroup());
+  if (!pProcess->installUserIdentity(pUser, pUser->getDefaultGroup(), nullptr, 0))
+    FATAL("USERS: Unable to publish the initial identity");
 }
 
 static bool init() {

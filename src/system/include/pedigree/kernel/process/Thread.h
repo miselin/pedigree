@@ -43,6 +43,7 @@
 class ExtensibleBitmap;
 class PageFaultHandler;
 class Process;
+struct FilesystemCredentials;
 class SyscallManager;
 class TerminationDeferral;
 class IrqHandlerRegistry;
@@ -1029,6 +1030,10 @@ class EXPORTED_PUBLIC Thread {
 
   /** Our parent process. */
   Process* m_pParent = nullptr;
+  // VFS uses task-local filesystem IDs even when the POSIX identity is shared.
+  uint32_t m_FilesystemUid = 0, m_FilesystemGid = 0;
+  bool m_FilesystemIdsValid = false;
+  const FilesystemCredentials* m_FilesystemOverride = nullptr;
 
   /** Allocation-free publication storage for scheduler-side retirement. */
   DeferredThreadReapNode m_DeferredReapNode;

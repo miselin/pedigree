@@ -19,8 +19,8 @@ linux_number,syscall,family,status,scope_and_verification
 94,lchown,Core file and process interfaces,pending,
 99,sysinfo,Scheduling and resource discovery,pending,
 101,ptrace,Linux administration and isolation,pending,
-122,setfsuid,Linux administration and isolation,pending,
-123,setfsgid,Linux administration and isolation,pending,
+122,setfsuid,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+123,setfsgid,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 124,getsid,Core file and process interfaces,pending,
 127,rt_sigpending,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 128,rt_sigtimedwait,Signals and POSIX timers,implemented,Signal/timer pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
@@ -98,8 +98,8 @@ linux_number,syscall,family,status,scope_and_verification
 306,syncfs,Extended file interfaces,pending,
 308,setns,Linux administration and isolation,pending,
 309,getcpu,Scheduling and resource discovery,pending,
-310,process_vm_readv,Linux administration and isolation,pending,
-311,process_vm_writev,Linux administration and isolation,pending,
+310,process_vm_readv,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+311,process_vm_writev,Linux administration and isolation,implemented,Process-memory and numeric-credential pass; public musl and kernel ownership/generation contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 316,renameat2,Extended file interfaces,pending,
 319,memfd_create,Memory management,implemented,Anonymous memory file and all five bundled musl seals; public contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 322,execveat,Extended file interfaces,pending,

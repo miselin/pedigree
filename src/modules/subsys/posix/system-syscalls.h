@@ -28,6 +28,10 @@
 #include <sys/types.h>
 
 // Forward-declare types.
+class File;
+bool posix_exec_file_readable(File* file);
+long posix_setfsuid(uid_t uid);
+long posix_setfsgid(gid_t gid);
 struct group;
 struct LinuxKernelTimespec;
 struct LinuxRlimit64;

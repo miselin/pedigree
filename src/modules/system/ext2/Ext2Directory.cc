@@ -46,8 +46,8 @@ Ext2Directory::Ext2Directory(const String& name, uintptr_t inode_num, Inode* ino
       m_Removed(false) {
   uint32_t mode = LITTLE_TO_HOST32(inode->i_mode);
   setPermissionsOnly(modeToPermissions(mode));
-  setUidOnly(LITTLE_TO_HOST16(inode->i_uid));
-  setGidOnly(LITTLE_TO_HOST16(inode->i_gid));
+  setUidOnly(Ext2Owner::uid(*inode));
+  setGidOnly(Ext2Owner::gid(*inode));
 }
 
 Ext2Directory::~Ext2Directory() {}

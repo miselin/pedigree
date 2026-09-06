@@ -253,6 +253,8 @@ Thread::Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, v
   }
 #endif
 
+  m_pParent->inheritFilesystemIds(
+      *this, pCurrent && pCurrent->getParent() == pParent ? pCurrent : nullptr);
   m_Id = m_pParent->addThread(this);
 
   // Firstly, grab our lock so that the scheduler cannot preemptively load
@@ -281,6 +283,7 @@ Thread::Thread(Process* pParent)
   if (pParent == 0) {
     FATAL("Thread::Thread(): Parent process was NULL!");
   }
+  m_pParent->inheritFilesystemIds(*this, nullptr);
   m_Id = m_pParent->addThread(this);
 
   // Initialise our kernel stack.
@@ -326,6 +329,7 @@ Thread::Thread(Process* pParent, SyscallState& state, bool delayedStart)
 #endif
   }
 
+  m_pParent->inheritFilesystemIds(*this, pCurrent);
   m_Id = m_pParent->addThread(this);
 
   // SyscallState variant has to be called from the parent thread, so this is

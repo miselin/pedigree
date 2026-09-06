@@ -267,7 +267,8 @@ void AnonymousMemoryMap::unmap() {
   unmapUnlocked();
 }
 
-bool AnonymousMemoryMap::trap(uintptr_t address, bool bWrite, PopulationStatus* population) {
+bool AnonymousMemoryMap::trap(VirtualAddressSpace& va, uintptr_t address, bool bWrite,
+                              PopulationStatus* population) {
   if (population)
     *population = PopulationStatus::NoMemory;
   LockGuard<Spinlock> guard(m_Lock);
@@ -277,7 +278,6 @@ bool AnonymousMemoryMap::trap(uintptr_t address, bool bWrite, PopulationStatus* 
 #endif
 
   size_t pageSz = PhysicalMemoryManager::getPageSize();
-  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
 
   // Page-align the trap address
   address = address & ~(pageSz - 1);
@@ -667,7 +667,8 @@ void MemoryMappedFile::unmap() {
   unmapUnlocked();
 }
 
-bool MemoryMappedFile::trap(uintptr_t address, bool bWrite, PopulationStatus* population) {
+bool MemoryMappedFile::trap(VirtualAddressSpace& va, uintptr_t address, bool bWrite,
+                            PopulationStatus* population) {
   if (population)
     *population = PopulationStatus::NoMemory;
   TerminationDeferral terminationDeferral;
@@ -677,7 +678,6 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite, PopulationStatus* po
   NOTICE("MemoryMappedFile::trap(" << address << ", " << bWrite << ")");
 #endif
 
-  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
   size_t pageSz = PhysicalMemoryManager::getPageSize();
 
   // Page-align the trap address
@@ -720,6 +720,12 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite, PopulationStatus* po
   if (!bShouldCopy) {
     if (!m_bCopyOnWrite && (m_Permissions & Write) &&
         !m_pBacking->prepareSharedMapping(fileOffset, pageSz)) {
+      if (population) {
+        auto* thread = Processor::information().getCurrentThread();
+        *population = thread && thread->getErrno() == Error::OutOfMemory
+                          ? PopulationStatus::NoMemory
+                          : PopulationStatus::IoError;
+      }
       return false;
     }
     // No need to lock this section - only accessing m_Mappings once
@@ -1561,7 +1567,7 @@ bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPre
     }
   }
 
-  return pObject->trap(address, bIsWrite);
+  return pObject->trap(va, address, bIsWrite);
 }
 
 bool MemoryMapManager::hasSharedWriteCapability(File* backing) {

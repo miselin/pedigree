@@ -24,10 +24,12 @@
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/DeferredTimeAccounting.h"
+#include "pedigree/kernel/process/FilesystemCredentials.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
@@ -432,40 +434,44 @@ class EXPORTED_PUBLIC Process {
   void freeUserRange(UserRegion region, uintptr_t address, size_t length);
   void resetUserReservations();
 
+  virtual bool snapshotFilesystemCredentials(const Thread* task, FilesystemCredentials& out) const;
+  static bool currentFilesystemCredentials(FilesystemCredentials& out);
+  void inheritFilesystemIds(Thread& child, const Thread* creator) const;
+  virtual bool installUserIdentity(User*, Group*, const uint32_t* groups, size_t count);
+
+  class EXPORTED_PUBLIC FilesystemAccessScope {
+   public:
+    explicit FilesystemAccessScope(const FilesystemCredentials& credentials);
+    ~FilesystemAccessScope();
+
+   private:
+    FilesystemAccessScope(const FilesystemAccessScope&) = delete;
+    FilesystemAccessScope& operator=(const FilesystemAccessScope&) = delete;
+    Uninterruptible m_Events;
+    TerminationDeferral m_Termination;
+    FilesystemCredentials m_Credentials;
+    Thread* m_Thread;
+    const FilesystemCredentials* m_Previous;
+  };
+
   /** Gets the current user. */
-  User* getUser() const {
-    return m_pUser;
-  }
+  User* getUser() const;
   /** Sets the current user. */
-  void setUser(User* pUser) {
-    m_pUser = pUser;
-  }
+  void setUser(User* pUser);
 
   /** Gets the effective user. */
-  User* getEffectiveUser() const {
-    return m_pEffectiveUser;
-  }
+  User* getEffectiveUser() const;
   /** Sets the effective user. */
-  void setEffectiveUser(User* pUser) {
-    m_pEffectiveUser = pUser;
-  }
+  void setEffectiveUser(User* pUser);
 
   /** Gets the current group. */
-  Group* getGroup() const {
-    return m_pGroup;
-  }
+  Group* getGroup() const;
   /** Sets the current group. */
-  void setGroup(Group* pGroup) {
-    m_pGroup = pGroup;
-  }
+  void setGroup(Group* pGroup);
 
   /** Gets the current effective group. */
-  Group* getEffectiveGroup() const {
-    return m_pEffectiveGroup;
-  }
-  void setEffectiveGroup(Group* pGroup) {
-    m_pEffectiveGroup = pGroup;
-  }
+  Group* getEffectiveGroup() const;
+  void setEffectiveGroup(Group* pGroup);
 
   /** Direct, overrideable ways to get IDs (redirects to User/Group interface
    * by default) */
@@ -648,6 +654,11 @@ class EXPORTED_PUBLIC Process {
   static void setInit(Process* pProcess);
 
  protected:
+  mutable Spinlock m_CredentialLock;
+  static bool loadFilesystemIds(const Thread&, uint32_t& uid, uint32_t& gid);
+  static void publishFilesystemIds(Thread&, uint32_t uid, uint32_t gid);
+  void publishAccountIdentity(User*, Group*);
+
   /**
    * Selects construction without scheduler publication. Derived Process
    * classes must call publish() after all of their members are initialised.
@@ -755,6 +766,7 @@ class EXPORTED_PUBLIC Process {
   uint64_t m_UserReservationGeneration;
 
   /** Current user. */
+  FilesystemCredentials m_NativeFilesystemCredentials;
   User* m_pUser;
   /** Current group. */
   Group* m_pGroup;

@@ -56,8 +56,8 @@ Ext2File::Ext2File(const String& name, uintptr_t inode_num, Inode* inode, Ext2Fi
   }
   uint32_t mode = LITTLE_TO_HOST32(inode->i_mode);
   setPermissionsOnly(modeToPermissions(mode));
-  setUidOnly(LITTLE_TO_HOST16(inode->i_uid));
-  setGidOnly(LITTLE_TO_HOST16(inode->i_gid));
+  setUidOnly(Ext2Owner::uid(*inode));
+  setGidOnly(Ext2Owner::gid(*inode));
   m_Initialized = true;
 }
 

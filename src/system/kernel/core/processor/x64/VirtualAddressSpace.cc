@@ -418,6 +418,46 @@ bool X64VirtualAddressSpace::tryCompareExchangeUser32(uintptr_t address, uint32_
   return true;
 }
 
+VirtualAddressSpace::ResidentCopyStatus X64VirtualAddressSpace::copyResidentUserPage(
+    uintptr_t address, void* kernelBuffer, size_t bytes, bool write) {
+  const uintptr_t userEnd = 0x0000800000000000ULL;
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  if (!kernelBuffer || !bytes || bytes > pageSize || address < getUserStart() ||
+      address >= userEnd || address >= getKernelStart() || bytes > userEnd - address ||
+      bytes > getKernelStart() - address || (address & (pageSize - 1)) > pageSize - bytes)
+    return ResidentCopyStatus::Inaccessible;
+
+  LockGuard<Spinlock> guard(m_Lock);
+  uint64_t table = m_PhysicalPML4;
+  const size_t indices[] = {(address >> 39) & 0x1ff, (address >> 30) & 0x1ff,
+                            (address >> 21) & 0x1ff};
+  for (const size_t index : indices) {
+    uint64_t* entry = TABLE_ENTRY(table, index);
+    const uint64_t flags = __atomic_load_n(entry, __ATOMIC_ACQUIRE);
+    if (!(flags & PAGE_PRESENT) || !(flags & PAGE_USER) || (flags & PAGE_2MB) ||
+        (write && !(flags & PAGE_WRITE)))
+      return ResidentCopyStatus::Inaccessible;
+    table = PAGE_GET_PHYSICAL_ADDRESS(entry);
+  }
+  uint64_t* entry = TABLE_ENTRY(table, (address >> 12) & 0x1ff);
+  const uint64_t flags = __atomic_load_n(entry, __ATOMIC_ACQUIRE);
+  if (!(flags & PAGE_PRESENT) || !(flags & PAGE_USER) ||
+      (flags &
+       (PAGE_SWAPPED | PAGE_NO_ACCESS | PAGE_CACHE_DISABLE | PAGE_WRITE_COMBINE | PAGE_PAT)) ||
+      (write && (!(flags & PAGE_WRITE) || (flags & (PAGE_COPY_ON_WRITE | PAGE_WRITE_PROTECTED)))))
+    return ResidentCopyStatus::Inaccessible;
+
+  // The owner cannot detach this latest leaf while its physical alias is in use.
+  void* userBytes = reinterpret_cast<void*>(
+      physicalAddress(PAGE_GET_PHYSICAL_ADDRESS(entry) + (address & (pageSize - 1))));
+  if (write)
+    MemoryCopy(userBytes, kernelBuffer, bytes);
+  else
+    MemoryCopy(kernelBuffer, userBytes, bytes);
+  __atomic_fetch_or(entry, PAGE_ACCESSED | (write ? PAGE_DIRTY : 0), __ATOMIC_RELEASE);
+  return ResidentCopyStatus::Success;
+}
+
 bool X64VirtualAddressSpace::tryAccessUserWord(uintptr_t address, size_t width, uintptr_t& value,
                                                const uintptr_t* replacement) {
   if (!address || (address % width) || address < getUserStart() ||

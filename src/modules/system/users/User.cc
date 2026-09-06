@@ -62,16 +62,14 @@ bool User::isMember(Group* pGroup) {
   return false;
 }
 
-void User::login() {
-  Process* pProcess = Processor::information().getCurrentThread()->getParent();
-
-  pProcess->setUser(this);
-  pProcess->setGroup(m_pDefaultGroup);
-  pProcess->setUserId(m_Uid);
-  pProcess->setGroupId(m_pDefaultGroup->getId());
-
-  pProcess->setEffectiveUser(this);
-  pProcess->setEffectiveGroup(m_pDefaultGroup);
-  pProcess->setEffectiveUserId(m_Uid);
-  pProcess->setEffectiveGroupId(m_pDefaultGroup->getId());
+bool User::login() {
+  uint32_t groups[FilesystemCredentials::MaximumGroups] = {};
+  size_t count = 0;
+  for (Group* group : m_Groups) {
+    if (!group || group->getId() >= UINT32_MAX || count == FilesystemCredentials::MaximumGroups)
+      return false;
+    groups[count++] = group->getId();
+  }
+  return Processor::information().getCurrentThread()->getParent()->installUserIdentity(
+      this, m_pDefaultGroup, groups, count);
 }

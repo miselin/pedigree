@@ -336,6 +336,7 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   void setPermissions(uint32_t perms);
   uint32_t getPermissions() const;
 
+  void setOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid);
   void setUid(size_t uid);
   size_t getUid() const;
 
