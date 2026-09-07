@@ -26,6 +26,8 @@
 
 template <class T>
 class BloomFilter {
+  friend class CacheMemoryTestPeer;
+
  public:
   BloomFilter(size_t length, size_t hashcount)
       : m_Bitmap(), m_nLength(length), m_nHashCount(hashcount) {}

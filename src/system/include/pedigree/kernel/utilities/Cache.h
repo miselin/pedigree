@@ -175,6 +175,7 @@ class EXPORTED_PUBLIC CacheManager :
 /** Provides an abstraction of a data cache. */
 class EXPORTED_PUBLIC Cache {
   friend class CacheManager;
+  friend class CacheMemoryTestPeer;
 
  private:
   struct CachePage {

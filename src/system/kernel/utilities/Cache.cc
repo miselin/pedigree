@@ -431,7 +431,9 @@ void CacheManager::trimThread() {
 
 Cache::Cache(size_t pageConstraints)
     : m_Pages(),
-      m_PageFilter(0xe80000, 11),
+      // Each inode owns a Cache. Keep first-page metadata small; a saturated
+      // filter still falls back to the authoritative page tree.
+      m_PageFilter(4096, 4),
       m_pLruHead(0),
       m_pLruTail(0),
       m_Lock(false),

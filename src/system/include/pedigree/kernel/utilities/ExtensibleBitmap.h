@@ -30,6 +30,8 @@
    and another at 0x100000 will generate a bitmap with 0x100000/0x8 bytes usage.
  */
 class EXPORTED_PUBLIC ExtensibleBitmap {
+  friend class CacheMemoryTestPeer;
+
  public:
   /** Creates a new, empty bitmap. */
   ExtensibleBitmap();

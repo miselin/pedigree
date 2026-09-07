@@ -280,6 +280,7 @@ set(TESTSUITE_SRCS
     testsuite/test-Ext2FillCache.cc
     testsuite/test-CacheDiscard.cc
     testsuite/test-CacheSync.cc
+    testsuite/test-CacheMemory.cc
     testsuite/test-Ext2Writeback.cc
     testsuite/test-FileRangeSync.cc
     testsuite/test-FileAllocation.cc
