@@ -25,6 +25,7 @@
  *\date   Sun May 17 10:00:00 2009
  *\brief  An in-RAM filesystem. */
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
@@ -143,12 +144,17 @@ class EXPORTED_PUBLIC RamFs : public Filesystem {
   RamFs(const RamFs&);
   void operator=(const RamFs&);
 
+  uintptr_t allocateInode();
+
   static String m_VolumeLabel;
 
   /** Root filesystem node. */
   File* m_pRoot;
 
   bool m_bProcessOwners;
+
+  // Never recycle an identity while an unlinked node may still be open.
+  Atomic<uintptr_t> m_NextInode;
 };
 
 #endif

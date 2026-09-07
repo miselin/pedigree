@@ -35,8 +35,9 @@ String RamFs::m_VolumeLabel("ramfs");
 namespace {
 class RamSymlink final : public Symlink {
  public:
-  RamSymlink(const String& name, RamFs& filesystem, File* parent, const String& target)
-      : Symlink(name, 0, 0, 0, 0, &filesystem, target.length(), parent), m_OwnerPid(0) {
+  RamSymlink(const String& name, uintptr_t inode, RamFs& filesystem, File* parent,
+             const String& target)
+      : Symlink(name, 0, 0, 0, inode, &filesystem, target.length(), parent), m_OwnerPid(0) {
     // A stored target is immutable and already loaded; generic link following
     // must never reload and trim its trailing pathname characters.
     m_sTarget = target;
@@ -384,7 +385,7 @@ bool RamDir::removeFromParent(RamDir* parent, const String& filename) {
   return true;
 }
 
-RamFs::RamFs() : m_pRoot(0), m_bProcessOwners(false) {}
+RamFs::RamFs() : m_pRoot(0), m_bProcessOwners(false), m_NextInode(0) {}
 
 RamFs::~RamFs() {
   if (m_pRoot)
@@ -396,10 +397,25 @@ Filesystem::SyncStatus RamFs::sync() {
   return SyncStatus::Success;
 }
 
+uintptr_t RamFs::allocateInode() {
+  for (;;) {
+    uintptr_t previous = m_NextInode;
+    if (previous == ~static_cast<uintptr_t>(0)) {
+      SYSCALL_ERROR(NoSpaceLeftOnDevice);
+      return 0;
+    }
+    if (m_NextInode.compareAndSwap(previous, previous + 1))
+      return previous + 1;
+  }
+}
+
 bool RamFs::initialise(Disk* pDisk) {
+  uintptr_t inode = allocateInode();
+  if (!inode)
+    return false;
   // Root directory with ./.. entries
-  m_pRoot = new RamDir(String(""), 0, this, 0);
-  return true;
+  m_pRoot = new RamDir(String(""), inode, this, 0);
+  return m_pRoot != nullptr;
 }
 
 bool RamFs::createFile(File* parent, const String& filename, uint32_t mask) {
@@ -408,7 +424,10 @@ bool RamFs::createFile(File* parent, const String& filename, uint32_t mask) {
     return false;
   }
 
-  File* f = new RamFile(filename, 0, this, parent);
+  uintptr_t inode = allocateInode();
+  if (!inode)
+    return false;
+  File* f = new RamFile(filename, inode, this, parent);
   if (!f) {
     SYSCALL_ERROR(OutOfMemory);
     return false;
@@ -429,7 +448,10 @@ bool RamFs::createDirectory(File* parent, const String& filename, uint32_t mask)
     return false;
   }
 
-  RamDir* pDir = new RamDir(filename, 0, this, parent);
+  uintptr_t inode = allocateInode();
+  if (!inode)
+    return false;
+  RamDir* pDir = new RamDir(filename, inode, this, parent);
   if (!pDir) {
     SYSCALL_ERROR(OutOfMemory);
     return false;
@@ -453,7 +475,10 @@ bool RamFs::createSymlink(File* parent, const String& filename, const String& va
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
-  auto* link = new RamSymlink(filename, *this, parent, value);
+  uintptr_t inode = allocateInode();
+  if (!inode)
+    return false;
+  auto* link = new RamSymlink(filename, inode, *this, parent, value);
   if (!link) {
     SYSCALL_ERROR(OutOfMemory);
     return false;

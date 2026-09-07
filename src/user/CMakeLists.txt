@@ -258,6 +258,9 @@ pedigree_app(child-wait-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/errors.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/child-wait-contract-test/interruption.c)
 
+pedigree_app(ramfs-inode-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ramfs-inode-contract-test/main.c)
+
 pedigree_app(file-sync-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-sync-contract-test/main.c)
 pedigree_app(global-sync-contract-test ON OFF OFF ""
