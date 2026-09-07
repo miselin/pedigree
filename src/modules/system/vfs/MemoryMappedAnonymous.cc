@@ -152,11 +152,18 @@ void AnonymousMemoryMap::releaseDetachedPage(uintptr_t oldAddress,
 }
 void AnonymousMemoryMap::discardRange(VirtualAddressSpace& space, uintptr_t base, size_t length) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  const size_t bytes = PhysicalMemoryManager::getPageSize();
-  for (uintptr_t address = base; address < base + length; address += bytes) {
+  for (auto it = m_Mappings.begin(); it != m_Mappings.end();) {
+    const uintptr_t address = (*it).address;
+    if (address < base || address - base >= length) {
+      ++it;
+      continue;
+    }
     VirtualAddressSpace::DetachedPage page{address, 0, 0, false};
     page.mapped = space.detachMapping(reinterpret_cast<void*>(address), page.physical, page.flags);
-    releaseDetachedPage(address, page);
+    SwapStore::instance().release((*it).slot);
+    it = m_Mappings.erase(it);
+    if (page.mapped)
+      PhysicalMemoryManager::instance().freePage(page.physical);
   }
 }
 bool AnonymousMemoryMap::remove(size_t length) {
@@ -193,13 +200,8 @@ void AnonymousMemoryMap::unmap() {
 }
 void AnonymousMemoryMap::unmapUnlocked() {
   auto& space = Processor::information().getVirtualAddressSpace();
-  while (m_Mappings.count()) {
-    const Page entry = *m_Mappings.begin();
-    VirtualAddressSpace::DetachedPage page{entry.address, 0, 0, false};
-    page.mapped =
-        space.detachMapping(reinterpret_cast<void*>(entry.address), page.physical, page.flags);
-    releaseDetachedPage(entry.address, page);
-  }
+  const size_t mask = PhysicalMemoryManager::getPageSize() - 1;
+  discardRange(space, m_Address, (m_Length + mask) & ~mask);
 }
 SwapStatus AnonymousMemoryMap::restorePage(VirtualAddressSpace& space, Page& page) {
   auto* address = reinterpret_cast<void*>(page.address);

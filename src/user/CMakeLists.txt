@@ -179,6 +179,8 @@ pedigree_app(vm-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/vm-contract-test/remap-shm.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/vm-contract-test/residency.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/vm-contract-test/discard.c)
+pedigree_app(large-mapping-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/large-mapping-contract-test/main.c)
 
 pedigree_app(file-lock-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/file-lock-contract-test/main.c

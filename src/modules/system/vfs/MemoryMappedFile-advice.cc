@@ -54,8 +54,14 @@ void MemoryMappedFile::releaseDetachedPage(uintptr_t oldAddress,
 
 void MemoryMappedFile::discardRange(VirtualAddressSpace& space, uintptr_t base, size_t length) {
   LockGuard<Mutex> guard(m_Lock);
-  const size_t pageSize = PhysicalMemoryManager::getPageSize();
-  for (uintptr_t address = base; address < base + length; address += pageSize) {
+  uintptr_t cursor = base;
+  uintptr_t address = 0;
+  physical_uintptr_t tracked = 0;
+  while (m_Mappings.lowerBound(cursor, address, tracked)) {
+    if (address - base >= length)
+      break;
+    // The copied key survives rotations when retirement removes the entry.
+    cursor = address + 1;
     VirtualAddressSpace::DetachedPage page{address, 0, 0, false};
     page.mapped = space.detachMapping(reinterpret_cast<void*>(address), page.physical, page.flags);
     releaseDetachedPageUnlocked(address, page);

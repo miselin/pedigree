@@ -23,6 +23,42 @@ lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
 
+## Large mapping reservation cleanup
+
+Fixed `mmap` replacement and `munmap` no longer reject an operation because
+overlapping mapping objects exceed 65,536 virtual pages. Preparation allocates
+metadata for surviving fragments and their actual tracked pages; whole-object
+removal needs no surviving page records. Fallible staging remains ahead of
+retirement, with the existing 4,096-object limit and memory-lock admission.
+
+Anonymous and file-backed retirement now visits tracked pages instead of every
+virtual page in the discarded range. Anonymous retirement releases swap slots
+as well as resident pages. File retirement preserves the independent accounting
+of an original cache loan and a private page installed by copy-on-write.
+
+This repairs large sparse reservations used with `mprotect`, fixed replacement,
+and unmap. The separate page-table preparation limits for `mremap`, the requested
+extent limit for `remap_file_pages`, and file-shrink journal limits remain.
+Reservation free-list growth retains its existing fatal allocation-failure
+behavior; this pass does not provide a general allocation-free teardown contract.
+
+`large-mapping-contract-test` covers whole release/reuse, fixed replacement and
+holes in 1 GiB and sparse 64 GiB reservations, RW-to-RX code execution, fork/CoW
+and zero-page ownership, private file offsets, shared memfd cache loans, and
+failed replacement preserving the original pages. The original VFS reproduced
+ENOMEM independently for whole unmap and one-page fixed replacement in a 1 GiB
+reservation. The repaired VFS passed all seven new families, the existing three
+VM families, five memory-lock families, and file-page-remap admission on both
+one and four CPUs. The 33 routing/signal checks also passed.
+
+Verification used isolated module compilation and freshly repacked serial-only
+ISOs. A pristine relink matched the original ISO's VFS exactly; baseline and fixed
+variants then rebuilt the three changed VFS translation units against identical
+saved inputs. Each guest used its own disposable disk. Source hashes, commands,
+image identities, and retained logs are recorded in
+`/private/tmp/pedigree-large-mappings-20260907/verification.json`. No claim is made
+for a fully resident 64 GiB allocation or whole-application JIT compatibility.
+
 ## Mount identity, pivot and file metadata
 
 pivot_root operates on retained mount attachments. Processes own typed root/cwd

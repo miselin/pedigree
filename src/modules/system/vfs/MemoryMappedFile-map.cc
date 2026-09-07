@@ -88,6 +88,8 @@ struct MappingPlan {
   bool appendSlice(MemoryMappedObject* owner, uintptr_t first, uintptr_t end) {
     if (first >= end)
       return true;
+    // Only surviving tracked pages need staging; sparse virtual extent is
+    // not a useful bound on the metadata needed to split or retire an owner.
     auto* object = owner->stageSlice(first, end - first, first, end - first);
     if (!object)
       return false;
@@ -202,7 +204,7 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     plan.replacement = new MmObjectList;
     if (!plan.replacement)
       return nullptr;
-    size_t removedPages = 0, stagedPages = 0;
+    size_t removedPages = 0;
     for (auto* object : *objects) {
       const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
       if (destination >= end || object->address() >= destination + length) {
@@ -216,10 +218,6 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
       const uintptr_t last = end < destination + length ? end : destination + length;
       if (object->m_LockMode != MemoryLockMode::None)
         removedPages += (last - first) / pageSize;
-      const size_t pages = (end - object->address()) / pageSize;
-      if (pages > VirtualAddressSpace::MaximumRemapPages - stagedPages)
-        return nullptr;
-      stagedPages += pages;
       plan.retired.pushBack(object);
       if (!plan.appendSlice(object, object->address(), first) ||
           !plan.appendSlice(object, last, end))
@@ -318,7 +316,7 @@ size_t MemoryMapManager::removeInternal(uintptr_t base, size_t length, bool rele
   plan.replacement = new MmObjectList;
   if (!plan.replacement)
     return 0;
-  size_t removedPages = 0, stagedPages = 0;
+  size_t removedPages = 0;
   for (auto* object : *objects) {
     const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
     const uintptr_t first = object->address() > base ? object->address() : base;
@@ -328,10 +326,6 @@ size_t MemoryMapManager::removeInternal(uintptr_t base, size_t length, bool rele
         return 0;
       continue;
     }
-    const size_t pages = (end - object->address()) / pageSize;
-    if (pages > VirtualAddressSpace::MaximumRemapPages - stagedPages)
-      return 0;
-    stagedPages += pages;
     if (object->m_LockMode != MemoryLockMode::None)
       removedPages += (last - first) / pageSize;
     plan.retired.pushBack(object);
