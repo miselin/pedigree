@@ -218,6 +218,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
         m_Threads(),
         m_ThreadWaiters(),
         m_NextThreadWaiter(0),
+        m_ExecutablePath(),
         m_Abi(PosixAbi),
         m_bAcquired(false),
         m_pAcquiredThread(nullptr) {}
@@ -241,6 +242,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
         m_Threads(),
         m_ThreadWaiters(),
         m_NextThreadWaiter(0),
+        m_ExecutablePath(),
         m_Abi(PosixAbi),
         m_bAcquired(false),
         m_pAcquiredThread(nullptr) {}
@@ -248,6 +250,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   SharedPointer<PosixNamespaceContext> namespaceContext() const {
     return m_Namespaces;
   }
+
+  bool executablePath(String& result) const;
 
   PosixTraceContext& traceContext() {
     return m_TraceContext;
@@ -812,6 +816,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
    */
   Tree<void*, Semaphore*> m_ThreadWaiters;
   size_t m_NextThreadWaiter;
+  FilesystemPathRef m_ExecutablePath;
 
   /**
    * ABI for the subsystem

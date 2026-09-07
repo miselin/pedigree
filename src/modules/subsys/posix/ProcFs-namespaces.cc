@@ -187,6 +187,30 @@ class TaskDirectory final : public ProcFsDirectory {
   SharedPointer<PosixNamespaceContext> m_Context;
 };
 
+class ExecutableLink final : public Symlink {
+ public:
+  ExecutableLink(ProcFs& filesystem, File* parent)
+      : Symlink(String("exe"), 0, 0, 0, filesystem.getNextInode(), &filesystem, 0, parent) {
+    setPermissions(DirectoryPermissions | FILE_UW | FILE_GW | FILE_OW);
+  }
+
+  int followLink(char* buffer, size_t length) override {
+    auto* thread = Processor::information().getCurrentThread();
+    auto* process = thread ? thread->getParent() : nullptr;
+    auto* subsystem = process && process->getType() == Process::Posix
+                          ? static_cast<PosixSubsystem*>(process->getSubsystem())
+                          : nullptr;
+    String target;
+    if (!subsystem || !subsystem->executablePath(target)) {
+      SYSCALL_ERROR(DoesNotExist);
+      return -1;
+    }
+    const size_t copied = length < target.length() ? length : target.length();
+    MemoryCopy(buffer, target.cstr(), copied);
+    return static_cast<int>(copied);
+  }
+};
+
 class ProcessDirectory final : public ProcFsDirectory {
  public:
   ProcessDirectory(ProcFs& filesystem, const String& name,
@@ -213,6 +237,10 @@ class ProcessDirectory final : public ProcFsDirectory {
     if (!descriptors)
       return false;
     addEntry(String("fd"), descriptors);
+    auto* executable = new ExecutableLink(filesystem, this);
+    if (!executable)
+      return false;
+    addEntry(executable->getName(), executable);
     return true;
   }
 

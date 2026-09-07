@@ -236,6 +236,7 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
       m_Threads(),
       m_ThreadWaiters(),
       m_NextThreadWaiter(1),
+      m_ExecutablePath(s.m_ExecutablePath),
       m_Abi(s.m_Abi),
       m_bAcquired(false),
       m_pAcquiredThread(nullptr) {
@@ -285,6 +286,16 @@ void PosixSubsystem::setProcess(Process* process) {
     MemoryMapManager::instance().bindMemoryLockPolicy(space);
     space.setMemoryLockAccount(&m_MemoryLockAccount);
   }
+}
+
+bool PosixSubsystem::executablePath(String& result) const {
+  if (!m_ExecutablePath || !m_pProcess)
+    return false;
+  auto context = m_pProcess->acquireFilesystemContext();
+  FilesystemContextSnapshot snapshot;
+  auto* view = VFS::instance().mountView();
+  return context && context->snapshot(snapshot) && view &&
+         view->formatPath(snapshot, m_ExecutablePath, result);
 }
 
 bool PosixSubsystem::snapshotUserImage(UserImageToken& token) const {
@@ -2539,6 +2550,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 
   if (pProcess->getType() == Process::Posix)
     static_cast<PosixProcess*>(pProcess)->markExecCommitted();
+
+  m_ExecutablePath = originalTargetLease.path();
 
   invalidateUserImage();
 
