@@ -896,6 +896,22 @@ bool PosixSubsystem::resolveUserPageFault(Thread& thread, InterruptState& state,
 
 void PosixSubsystem::threadException(Thread* pThread, ExceptionType eType, InterruptState* pState,
                                      uintptr_t faultAddress, uintptr_t errorCode) {
+#if X64 && defined(POSIX_VERBOSE_SUBSYSTEM)
+  if (pState && eType == PageFault) {
+    // Keep each entry within the log payload, including its PID/TID prefix.
+    PS_NOTICE("USERFAULT cpu=" << Dec << Processor::id());
+    PS_NOTICE("USERFAULT address=" << Hex << faultAddress);
+    PS_NOTICE("USERFAULT code=" << Hex << errorCode);
+    PS_NOTICE("USERFAULT rip=" << Hex << pState->getInstructionPointer());
+    PS_NOTICE("USERFAULT rsp=" << Hex << pState->getStackPointer());
+    PS_NOTICE("USERFAULT entry-fs=" << Hex << pState->getUserEntryMetadata().fsBase);
+    PS_NOTICE("USERFAULT entry-gs=" << Hex << pState->getUserEntryMetadata().gsBase);
+    PS_NOTICE("USERFAULT tls=" << Hex << pThread->getTlsBase());
+    for (size_t i = 0; i < pState->getRegisterCount(); ++i) {
+      PS_NOTICE("USERFAULT " << pState->getRegisterName(i) << "=" << Hex << pState->getRegister(i));
+    }
+  }
+#endif
   // The native event path does not consume machine context yet.
   (void)pState;
   (void)faultAddress;
