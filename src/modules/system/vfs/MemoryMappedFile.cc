@@ -1412,23 +1412,26 @@ bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPre
   if (pObject->prepareResidentAccess(va, pageAddress) != PopulationStatus::Success)
     return false;
 
-  // The original fault bits remain authoritative after waiting for the
-  // lifecycle gate. A mapping visible here was completed by another operation
-  // on this object, so retry and let the processor re-evaluate permissions.
+  // A mapping published while this fault waited is only a completed resolution
+  // if it permits the access which originally faulted.
   if (va.isMapped(reinterpret_cast<void*>(pageAddress))) {
-    if (!bWasPresent) {
-      return true;
-    }
-
-    if (bIsWrite) {
-      physical_uintptr_t physicalAddress = 0;
-      size_t flags = 0;
-      va.getMapping(reinterpret_cast<void*>(pageAddress), physicalAddress, flags);
-      if (flags & VirtualAddressSpace::Write) {
+    physical_uintptr_t physicalAddress = 0;
+    size_t flags = 0;
+    va.getMapping(reinterpret_cast<void*>(pageAddress), physicalAddress, flags);
+    const bool userAccessible =
+        !(flags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::NoAccess |
+                   VirtualAddressSpace::Swapped));
+    if (userAccessible && (!execute || (flags & VirtualAddressSpace::Execute))) {
+      if (!bIsWrite && !bWasPresent) {
         return true;
       }
-      if (flags & VirtualAddressSpace::CopyOnWrite) {
-        return va.handleCopyOnWriteFault(reinterpret_cast<void*>(pageAddress), true);
+      if (bIsWrite && !(flags & VirtualAddressSpace::WriteProtected)) {
+        if (flags & VirtualAddressSpace::Write) {
+          return true;
+        }
+        if (flags & VirtualAddressSpace::CopyOnWrite) {
+          return va.handleCopyOnWriteFault(reinterpret_cast<void*>(pageAddress), true);
+        }
       }
     }
   }

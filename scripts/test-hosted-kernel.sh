@@ -493,7 +493,8 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-PAGE-CONTENT-TEST: PASS dynamic-demand-page-publish" \
         "HOSTED-PAGE-CONTENT-TEST: PASS mmap-eof-zero-fill" \
         "HOSTED-PAGE-CONTENT-TEST: PASS mmap-publish-after-init" \
-        "HOSTED-PAGE-CONTENT-TEST: PASS mmap-fault-replay"
+        "HOSTED-PAGE-CONTENT-TEST: PASS mmap-fault-replay" \
+        "HOSTED-PAGE-CONTENT-TEST: PASS mmap-deferred-write-replay"
     do
         assert_marker_once "$empty_log" "$checkpoint"
     done

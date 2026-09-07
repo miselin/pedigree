@@ -612,6 +612,46 @@ bool memoryMapFaultReplay() {
   NOTICE("HOSTED-PAGE-CONTENT-TEST: PASS mmap-fault-replay");
   return true;
 }
+
+bool memoryMapDeferredWriteReplay() {
+  constexpr const char* Test = "mmap-deferred-write-replay";
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  uintptr_t address = 0;
+  MemoryMapManager& manager = MemoryMapManager::instance();
+  MemoryMappedObject* mapping =
+      manager.mapAnon(address, pageSize, MemoryMappedObject::Read | MemoryMappedObject::Write);
+  if (!mapping) {
+    return fail(Test, "could not create an anonymous mapping");
+  }
+
+  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
+  const bool initialRead = manager.trapForHostedTest(address, false, false);
+  physical_uintptr_t readPage = 0;
+  size_t readFlags = 0;
+  if (initialRead && va.isMapped(reinterpret_cast<void*>(address))) {
+    va.getMapping(reinterpret_cast<void*>(address), readPage, readFlags);
+  }
+
+  const bool deferredWrite = manager.trapForHostedTest(address, true, false);
+  physical_uintptr_t writePage = 0;
+  size_t writeFlags = 0;
+  if (deferredWrite && va.isMapped(reinterpret_cast<void*>(address))) {
+    va.getMapping(reinterpret_cast<void*>(address), writePage, writeFlags);
+  }
+
+  manager.removeAndRelease(address, pageSize);
+
+  const bool passed = initialRead && (readFlags & VirtualAddressSpace::Shared) &&
+                      !(readFlags & VirtualAddressSpace::Write) && deferredWrite &&
+                      writePage != readPage && (writeFlags & VirtualAddressSpace::Write) &&
+                      !(writeFlags & VirtualAddressSpace::Shared);
+  if (!passed) {
+    return fail(Test, "a deferred write accepted the read-only shared zero page");
+  }
+
+  NOTICE("HOSTED-PAGE-CONTENT-TEST: PASS mmap-deferred-write-replay");
+  return true;
+}
 }  // namespace
 
 bool runHostedPageContentRegressions() {
@@ -709,5 +749,6 @@ bool runHostedPageContentRegressions() {
 
   NOTICE("HOSTED-PAGE-CONTENT-TEST: PASS dynamic-demand-page-zero-fill");
   return dynamicDemandPagePublishesOnce() && memoryMappedFileEofZeroFill() &&
-         memoryMappedFilePublishesAfterInitialise() && memoryMapFaultReplay();
+         memoryMappedFilePublishesAfterInitialise() && memoryMapFaultReplay() &&
+         memoryMapDeferredWriteReplay();
 }
