@@ -1538,9 +1538,8 @@ void Cache::timer(uint64_t delta) {
     ++m_WritebackEpoch;
   }
 
-  // Select and mark one page while holding the cache lock, then enqueue it
-  // after dropping the lock. Restarting the scan is intentional: the state
-  // transition prevents the same page from being selected twice.
+  // Restart after enqueueing without retaining an iterator across mutations.
+  // Mark clean pages too, so each checksum is calculated only once per epoch.
   while (true) {
     bool queueWriteback = false;
     uintptr_t key = 0;
@@ -1557,6 +1556,10 @@ void Cache::timer(uint64_t delta) {
 
       for (Tree<uintptr_t, CachePage*>::Iterator it = m_Pages.begin(); it != m_Pages.end(); ++it) {
         CachePage* page = it.value();
+        if (page->writebackEpoch == m_WritebackEpoch) {
+          continue;
+        }
+        page->writebackEpoch = m_WritebackEpoch;
         if (page->evictionState != CachePage::EvictionState::None) {
           continue;
         }
@@ -1566,9 +1569,6 @@ void Cache::timer(uint64_t delta) {
         if (page->status == CachePage::EditTransition) {
           promotePage(page);
           page->status = CachePage::ChecksumStable;
-          continue;
-        }
-        if (page->writebackEpoch == m_WritebackEpoch) {
           continue;
         }
         if (page->writebackFailed) {
@@ -1582,7 +1582,6 @@ void Cache::timer(uint64_t delta) {
           if (!verifyChecksum(page, true)) {
             page->status = CachePage::ChecksumChanging;
             page->writebackFailed = true;
-            page->writebackEpoch = m_WritebackEpoch;
           }
           continue;
         } else {
@@ -1591,7 +1590,6 @@ void Cache::timer(uint64_t delta) {
         }
 
         promotePage(page);
-        page->writebackEpoch = m_WritebackEpoch;
         page->writebackFailed = true;
         ++page->refcnt;
         ++page->writebackPins;

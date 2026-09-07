@@ -155,3 +155,109 @@ TEST(CacheSync, PartitionForwardsWholeDeviceResult) {
   EXPECT_EQ(disk.calls, 2U);
   partition.setParent(nullptr);
 }
+
+namespace {
+constexpr size_t TimerCleanPages = 4;
+constexpr size_t TimerPages = TimerCleanPages + 2;
+
+struct TimerObserver {
+  uintptr_t pages[TimerPages] = {};
+  size_t writes[TimerPages] = {};
+  unsigned char writtenBytes[TimerPages] = {};
+  bool disturbPrefix = false;
+  bool failRetries = false;
+  size_t disturbances = 0;
+
+  static bool callback(CacheConstants::CallbackCause cause, uintptr_t key, uintptr_t page,
+                       void* context) {
+    auto& observer = *static_cast<TimerObserver*>(context);
+    if (cause != CacheConstants::WriteBack) {
+      return true;
+    }
+    const size_t index = key / Page;
+    EXPECT_LT(index, TimerPages);
+    if (index >= TimerPages) {
+      return false;
+    }
+    ++observer.writes[index];
+    observer.writtenBytes[index] = *reinterpret_cast<unsigned char*>(page);
+    if (observer.disturbPrefix && index >= TimerCleanPages) {
+      // Standalone callbacks run inline between timer scan restarts. Restoring
+      // the bytes after the second admission exposes any repeated checksum of
+      // a clean prefix as an unnecessary write in the next epoch.
+      for (size_t i = 0; i < TimerCleanPages; ++i) {
+        *reinterpret_cast<unsigned char*>(observer.pages[i]) ^= 0xA5;
+      }
+      ++observer.disturbances;
+    }
+    return !(observer.failRetries && index >= TimerCleanPages);
+  }
+};
+}  // namespace
+
+TEST(CacheSync, TimerChecksCleanPrefixesOncePerEpochAndServicesLaterChanges) {
+  TimerObserver observer;
+  Cache cache;
+  cache.setCallback(TimerObserver::callback, &observer);
+  for (size_t i = 0; i < TimerPages; ++i) {
+    observer.pages[i] = cache.insert(i * Page);
+    ASSERT_NE(observer.pages[i], 0U);
+    auto* bytes = reinterpret_cast<unsigned char*>(observer.pages[i]);
+    for (size_t j = 0; j < Page; ++j) {
+      bytes[j] = 0x57;
+    }
+    cache.markNoLongerEditing(i * Page);
+  }
+  const uint64_t period = CACHE_WRITEBACK_PERIOD * 1000000ULL;
+  cache.timer(period);
+  for (size_t i = 0; i < TimerPages; ++i) {
+    EXPECT_EQ(observer.writes[i], 0U);
+  }
+
+  cache.markDirty(TimerCleanPages * Page);
+  cache.markDirty((TimerCleanPages + 1) * Page);
+  observer.failRetries = true;
+  observer.disturbPrefix = true;
+  cache.timer(period);
+  observer.disturbPrefix = false;
+  EXPECT_EQ(observer.disturbances, 2U);
+  for (size_t i = 0; i < TimerCleanPages; ++i) {
+    EXPECT_EQ(*reinterpret_cast<unsigned char*>(observer.pages[i]), 0x57);
+    EXPECT_EQ(observer.writes[i], 0U);
+  }
+  EXPECT_EQ(observer.writes[TimerCleanPages], 1U);
+  EXPECT_EQ(observer.writes[TimerCleanPages + 1], 1U);
+
+  cache.timer(period);
+  for (size_t i = 0; i < TimerCleanPages; ++i) {
+    EXPECT_EQ(observer.writes[i], 0U);
+  }
+  EXPECT_EQ(observer.writes[TimerCleanPages], 2U);
+  EXPECT_EQ(observer.writes[TimerCleanPages + 1], 2U);
+  EXPECT_TRUE(cache.exists(0, TimerPages * Page));
+
+  *reinterpret_cast<unsigned char*>(observer.pages[0]) = 0xB6;
+  cache.timer(period);
+  EXPECT_EQ(observer.writes[0], 0U);
+  EXPECT_EQ(observer.writes[TimerCleanPages], 3U);
+  EXPECT_EQ(observer.writes[TimerCleanPages + 1], 3U);
+  cache.timer(period);
+  EXPECT_EQ(observer.writes[0], 1U);
+  EXPECT_EQ(observer.writtenBytes[0], 0xB6);
+  EXPECT_EQ(observer.writes[TimerCleanPages], 4U);
+  EXPECT_EQ(observer.writes[TimerCleanPages + 1], 4U);
+
+  observer.failRetries = false;
+  cache.timer(period);
+  EXPECT_EQ(observer.writes[TimerCleanPages], 5U);
+  EXPECT_EQ(observer.writes[TimerCleanPages + 1], 5U);
+  const size_t completedPrefixWrites = observer.writes[0];
+  cache.timer(period);
+  EXPECT_EQ(observer.writes[0], completedPrefixWrites);
+  for (size_t i = 1; i < TimerCleanPages; ++i) {
+    EXPECT_EQ(observer.writes[i], 0U);
+  }
+  EXPECT_EQ(observer.writes[TimerCleanPages], 5U);
+  EXPECT_EQ(observer.writes[TimerCleanPages + 1], 5U);
+  EXPECT_TRUE(cache.empty());
+}
