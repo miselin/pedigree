@@ -117,5 +117,6 @@ static void exit() {
 #if HOSTED
 MODULE_INFO("partition", &entry, &exit, "diskimage");
 #else
-MODULE_INFO("partition", &entry, &exit, "ata");
+MODULE_INFO("partition", &entry, &exit);
+MODULE_OPTIONAL_DEPENDS("ata", "ahci");
 #endif

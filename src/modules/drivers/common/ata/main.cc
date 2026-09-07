@@ -120,12 +120,9 @@ static Device* removeIsaAta(Device* dev) {
 }
 
 static Device* probeDisk(Device* pDev) {
-  // Check to see if this is an AHCI controller.
-  // Class 1 = Mass Storage. Subclass 6 = SATA.
-  if ((!allowProbing) && (pDev->getPciClassCode() == 0x01 && pDev->getPciSubclassCode() == 0x06)) {
-    // No AHCI support yet, so just log and keep going.
-    WARNING("Found a SATA controller of some sort, hoping for ISA fallback.");
-  }
+  // Native SATA controllers belong to the AHCI driver, not legacy IDE probing.
+  if (pDev->getPciClassCode() == 0x01 && pDev->getPciSubclassCode() == 0x06)
+    return pDev;
 
   // Look for a PIIX controller
   // Class/subclasss 1:1 == Mass storage + IDE.

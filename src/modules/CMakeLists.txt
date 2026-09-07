@@ -702,6 +702,21 @@ pedigree_module(3c90x "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/3c90x/main.cc)
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    if (PEDIGREE_MACHINE_HASPCI)
+        pedigree_module(ahci "" ""
+            ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ahci/AhciController.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ahci/AhciDisk.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ahci/AhciPort.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ahci/main.cc)
+        if (PEDIGREE_AHCI_SMOKE_TESTS)
+            if (PEDIGREE_CRIPPLE_HDD OR PEDIGREE_WITH_INIT)
+                message(FATAL_ERROR
+                    "AHCI smoke tests require PEDIGREE_CRIPPLE_HDD=OFF and PEDIGREE_WITH_INIT=OFF.")
+            endif ()
+            pedigree_module(ahci-smoke "" ""
+                ${CMAKE_CURRENT_SOURCE_DIR}/system/ahci-smoke/main.cc)
+        endif ()
+    endif ()
     pedigree_module(ata "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/AtaController.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/AtaDisk.cc
