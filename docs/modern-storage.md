@@ -91,6 +91,13 @@ diagnosis rather than discarded after successful retries.
 
 ### Remaining hardware qualification
 
+With the normal init and disk-write settings restored and all driver smoke
+modules disabled, a fresh four-CPU UEFI machine with a native 4 KiB GPT NVMe root
+and xHCI keyboard/mouse/storage reached the serial login prompt. This exposed
+and fixed a UEFI image recipe omission: `libpedigree.so`, needed by `ttyterm`,
+was absent even though the traditional HDD recipe included it. The UEFI root
+image now includes subsystem libraries and rebuilds when they change.
+
 QEMU establishes the emulated I/O and persistence paths. Physical firmware
 handoff, PCI interrupt routing, power-loss durability, link errata, controller
 reset failures and real SSD throughput still need hardware qualification.

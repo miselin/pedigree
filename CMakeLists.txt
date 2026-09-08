@@ -741,10 +741,12 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             ${PEDIGREE_KERNEL_MODULES}
             ${PEDIGREE_APPS}
             ${PEDIGREE_LIBS}
+            ${PEDIGREE_SUBSYSTEM_LIBS}
             DEPENDS
                 host-ext2img
                 kernel configdb ${PEDIGREE_APPS_TARGETS}
                 ${PEDIGREE_LIBS_TARGETS}
+                ${PEDIGREE_SUBSYSTEM_LIBS}
                 ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
                 ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst)
 
