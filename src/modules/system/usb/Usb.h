@@ -60,6 +60,7 @@ struct UsbEndpoint {
         nEndpoint(0),
         speed(LowSpeed),
         nMaxPacketSize(8),
+        nInterval(1),
         nHubAddress(0),
         nHubPort(0),
         nRootPort(0xff),
@@ -70,6 +71,7 @@ struct UsbEndpoint {
         nEndpoint(endpoint),
         speed(_speed),
         nMaxPacketSize(maxPacketSize),
+        nInterval(1),
         nHubAddress(0),
         nHubPort(hubPort),
         nRootPort(0xff),
@@ -79,6 +81,7 @@ struct UsbEndpoint {
   uint8_t nEndpoint;
   UsbSpeed speed;
   size_t nMaxPacketSize;
+  uint8_t nInterval;
   uint8_t nHubAddress;
   uint8_t nHubPort;
   uint8_t nRootPort;

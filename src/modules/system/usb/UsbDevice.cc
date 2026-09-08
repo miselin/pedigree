@@ -19,6 +19,7 @@
 
 #include "modules/system/usb/UsbDevice.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/new"
@@ -35,6 +36,7 @@ Atomic<size_t> g_HostedUsbDescriptorDestructions(0);
 
 UsbDevice::UsbDevice(UsbHub* pHub, uint8_t nPort, UsbSpeed speed)
     : m_nAddress(0),
+      m_ControlPacketSize(speed == HighSpeed ? 64 : 8),
       m_nPort(nPort),
       m_nRootPort(0xff),
       m_nRootPortGeneration(0),
@@ -54,6 +56,7 @@ UsbDevice::UsbDevice(UsbHub* pHub, uint8_t nPort, UsbSpeed speed)
 
 UsbDevice::UsbDevice(UsbDevice* pDev)
     : m_nAddress(pDev->m_nAddress),
+      m_ControlPacketSize(pDev->m_ControlPacketSize),
       m_nPort(pDev->m_nPort),
       m_nRootPort(pDev->m_nRootPort),
       m_nRootPortGeneration(pDev->m_nRootPortGeneration),
@@ -111,36 +114,59 @@ void UsbDevice::DeviceDescriptor::release() {
 }
 
 UsbDevice::ConfigDescriptor::ConfigDescriptor(void* pConfigBuffer, size_t nConfigLength,
-                                              UsbSpeed speed) {
-  UsbConfigurationDescriptor* pDescriptor = static_cast<UsbConfigurationDescriptor*>(pConfigBuffer);
-  nConfig = pDescriptor->nConfig;
-  nString = pDescriptor->nString;
-
-  uint8_t* pBuffer = static_cast<uint8_t*>(pConfigBuffer);
-  size_t nOffset = pBuffer[0];
-  Interface* pCurrentInterface = 0;
-
-  while (nOffset < nConfigLength) {
-    size_t nLength = pBuffer[nOffset];
-    uint8_t nType = pBuffer[nOffset + 1];
-    if (nType == UsbDescriptor::Interface) {
-      pCurrentInterface =
-          new Interface(reinterpret_cast<UsbInterfaceDescriptor*>(&pBuffer[nOffset]));
-      interfaceList.pushBack(pCurrentInterface);
-    } else if (pCurrentInterface) {
-      if (nType == UsbDescriptor::Endpoint)
-        pCurrentInterface->endpointList.pushBack(
-            new Endpoint(reinterpret_cast<UsbEndpointDescriptor*>(&pBuffer[nOffset]), speed));
-      else
-        pCurrentInterface->otherDescriptorList.pushBack(
-            new UnknownDescriptor(&pBuffer[nOffset], nType, nLength));
-    } else
-      otherDescriptorList.pushBack(new UnknownDescriptor(&pBuffer[nOffset], nType, nLength));
-    nOffset += nLength;
+                                              UsbSpeed speed)
+    : nConfig(0), nString(0), valid(false) {
+  auto* buffer = static_cast<uint8_t*>(pConfigBuffer);
+  PointerGuard<uint8_t> guard(buffer, true);
+  if (!buffer || nConfigLength < sizeof(UsbConfigurationDescriptor) ||
+      buffer[0] < sizeof(UsbConfigurationDescriptor) || buffer[0] > nConfigLength ||
+      buffer[1] != UsbDescriptor::Configuration)
+    return;
+  auto* descriptor = reinterpret_cast<UsbConfigurationDescriptor*>(buffer);
+  nConfig = descriptor->nConfig;
+  nString = descriptor->nString;
+  Interface* current = nullptr;
+  for (size_t offset = buffer[0]; offset < nConfigLength;) {
+    if (nConfigLength - offset < 2)
+      return;
+    const size_t length = buffer[offset];
+    const uint8_t type = buffer[offset + 1];
+    if (length < 2 || length > nConfigLength - offset)
+      return;
+    if (type == UsbDescriptor::Interface) {
+      if (length < sizeof(UsbInterfaceDescriptor))
+        return;
+      current = new Interface(reinterpret_cast<UsbInterfaceDescriptor*>(buffer + offset));
+      interfaceList.pushBack(current);
+    } else if (type == UsbDescriptor::Endpoint) {
+      if (!current || length < sizeof(UsbEndpointDescriptor))
+        return;
+      auto* endpoint =
+          new Endpoint(reinterpret_cast<UsbEndpointDescriptor*>(buffer + offset), speed);
+      const bool interrupt = endpoint->nTransferType == Endpoint::Interrupt;
+      const bool bulk = endpoint->nTransferType == Endpoint::Bulk;
+      const size_t maximum = speed == LowSpeed ? 8
+                             : speed == FullSpeed
+                                 ? (endpoint->nTransferType == Endpoint::Isochronus ? 1023 : 64)
+                                 : 1024;
+      const uint16_t packetField = buffer[offset + 4] | (uint16_t{buffer[offset + 5]} << 8);
+      if (!endpoint->nEndpoint || !endpoint->nMaxPacketSize || endpoint->nMaxPacketSize > maximum ||
+          (packetField & 0xe000U) || ((packetField & 0x1800U) == 0x1800U) ||
+          (speed == LowSpeed && !interrupt) ||
+          (bulk && speed == HighSpeed && endpoint->nMaxPacketSize != 512) ||
+          (interrupt &&
+           (!endpoint->nInterval || (speed == HighSpeed && endpoint->nInterval > 16)))) {
+        delete endpoint;
+        return;
+      }
+      current->endpointList.pushBack(endpoint);
+    } else if (current)
+      current->otherDescriptorList.pushBack(new UnknownDescriptor(buffer + offset, type, length));
+    else
+      otherDescriptorList.pushBack(new UnknownDescriptor(buffer + offset, type, length));
+    offset += length;
   }
-  assert(interfaceList.count());
-
-  delete[] pBuffer;
+  valid = nConfig && interfaceList.count();
 }
 
 UsbDevice::ConfigDescriptor::~ConfigDescriptor() {
@@ -172,7 +198,10 @@ UsbDevice::Endpoint::Endpoint(UsbEndpointDescriptor* pDescriptor, UsbSpeed speed
   bIn = pDescriptor->bDirection;
   bOut = !bIn;
   nTransferType = pDescriptor->nTransferType;
-  nMaxPacketSize = pDescriptor->nMaxPacketSize;
+  nMaxPacketSize = LITTLE_TO_HOST16(pDescriptor->nMaxPacketSize) & 0x7ff;
+  nInterval = pDescriptor->nInterval;
+  const auto* raw = reinterpret_cast<const uint8_t*>(pDescriptor);
+  nTransactions = ((raw[5] >> 3) & 3U) + 1;
 }
 
 void UsbDevice::initialise(uint8_t nAddress) {
@@ -184,32 +213,30 @@ void UsbDevice::initialise(uint8_t nAddress) {
     return;
   }
 
-  // Assign the given address to this device
-  if (!controlRequest(0, UsbRequest::SetAddress, nAddress, 0)) {
-    WARNING("Device (" << nAddress << "): couldn't assign an address to the device.");
+  // USB 2.0 9.2.6.2 requires recovery after reset has actually deasserted.
+  Time::delay(10 * Time::Multiplier::Millisecond);
+  // Learn endpoint zero's packet size before asking for a full descriptor.
+  auto* prefix = static_cast<uint8_t*>(getDescriptor(UsbDescriptor::Device, 0, 8));
+  if (!prefix)
     return;
-  }
+  const uint8_t packetSize = prefix[7];
+  const bool valid =
+      prefix[0] >= sizeof(UsbDeviceDescriptor) && prefix[1] == UsbDescriptor::Device &&
+      ((m_Speed == HighSpeed && packetSize == 64) || (m_Speed == LowSpeed && packetSize == 8) ||
+       (m_Speed == FullSpeed &&
+        (packetSize == 8 || packetSize == 16 || packetSize == 32 || packetSize == 64)));
+  delete[] prefix;
+  if (!valid)
+    return;
+  m_ControlPacketSize = packetSize;
+  if (!controlRequest(0, UsbRequest::SetAddress, nAddress, 0))
+    return;
   m_nAddress = nAddress;
-  m_UsbState = Addressed;  // We now have an address
-
-  // Get the device descriptor
-  size_t nDescriptorLength = getDescriptorLength(UsbDescriptor::Device, 0);
-  if (!nDescriptorLength) {
-    m_UsbState = Connected;
-    WARNING("Device (" << nAddress
-                       << "): address assignment worked, but couldn't get the "
-                          "device descriptor length.");
+  m_UsbState = Addressed;
+  Time::delay(2 * Time::Multiplier::Millisecond);
+  void* pDeviceDescriptor = getDescriptor(UsbDescriptor::Device, 0, sizeof(UsbDeviceDescriptor));
+  if (!pDeviceDescriptor)
     return;
-  }
-
-  void* pDeviceDescriptor = getDescriptor(UsbDescriptor::Device, 0, nDescriptorLength);
-  if (!pDeviceDescriptor) {
-    m_UsbState = Connected;
-    WARNING("Device (" << nAddress
-                       << "): address assignment worked, but couldn't get a "
-                          "device descriptor.");
-    return;
-  }
   m_pDescriptor = new DeviceDescriptor(static_cast<UsbDeviceDescriptor*>(pDeviceDescriptor));
   m_UsbState = HasDescriptors;  // We now have the device descriptor
 
@@ -274,13 +301,19 @@ void UsbDevice::initialise(uint8_t nAddress) {
     uint16_t* pPartialConfig = static_cast<uint16_t*>(getDescriptor(nConfigDescriptor, i, 4));
     if (!pPartialConfig)
       return;
-    uint16_t configLength = pPartialConfig[1];
+    uint16_t configLength = LITTLE_TO_HOST16(pPartialConfig[1]);
     delete[] reinterpret_cast<uint8_t*>(pPartialConfig);
 
+    if (configLength < sizeof(UsbConfigurationDescriptor))
+      return;
     // Get our configuration descriptor
     ConfigDescriptor* pConfig = new ConfigDescriptor(
         getDescriptor(nConfigDescriptor, i, configLength), configLength, m_Speed);
 
+    if (!pConfig->valid) {
+      delete pConfig;
+      return;
+    }
     // Get the associated string
     pConfig->sString = getString(pConfig->nString);
 
@@ -306,7 +339,8 @@ void UsbDevice::initialise(uint8_t nAddress) {
   }
 
   // Make sure we ended up with at least a configuration
-  assert(m_pDescriptor->configList.count());
+  if (!m_pDescriptor->configList.count())
+    return;
 
   // Use the first configuration
   /// \todo support more configurations (how?)
@@ -315,7 +349,7 @@ void UsbDevice::initialise(uint8_t nAddress) {
 
 ssize_t UsbDevice::doSync(UsbDevice::Endpoint* pEndpoint, UsbPid pid, uintptr_t pBuffer,
                           size_t nBytes, size_t timeout) {
-  if (!pEndpoint) {
+  if (!pEndpoint || !pEndpoint->nMaxPacketSize) {
     ERROR("USB: UsbDevice::doSync called with invalid endpoint");
     return -TransactionError;
   }
@@ -346,6 +380,8 @@ ssize_t UsbDevice::doSync(UsbDevice::Endpoint* pEndpoint, UsbPid pid, uintptr_t 
     return -TransactionError;
   }
 
+  const bool initialToggle = pEndpoint->bDataToggle;
+  const size_t requested = nBytes;
   size_t byteOffset = 0;
   while (nBytes) {
     size_t nBytesThisTransaction =
@@ -359,7 +395,13 @@ ssize_t UsbDevice::doSync(UsbDevice::Endpoint* pEndpoint, UsbPid pid, uintptr_t 
     pEndpoint->bDataToggle = !pEndpoint->bDataToggle;
   }
 
-  return pParentHub->doSync(nTransaction, timeout);
+  const ssize_t result = pParentHub->doSync(nTransaction, timeout);
+  if (pid == UsbPidIn && result >= 0 && static_cast<size_t>(result) < requested) {
+    // A short IN ends with a short packet, including a ZLP after full packets.
+    const size_t packets = result / pEndpoint->nMaxPacketSize + 1;
+    pEndpoint->bDataToggle = initialToggle ^ bool(packets & 1);
+  }
+  return result;
 }
 
 ssize_t UsbDevice::syncIn(Endpoint* pEndpoint, uintptr_t pBuffer, size_t nBytes, size_t timeout) {
@@ -373,7 +415,7 @@ ssize_t UsbDevice::syncOut(Endpoint* pEndpoint, uintptr_t pBuffer, size_t nBytes
 bool UsbDevice::addInterruptInHandler(Endpoint* pEndpoint, uintptr_t pBuffer, uint16_t nBytes,
                                       void (*pCallback)(uintptr_t, ssize_t),
                                       UsbInterruptInHandle& handle, uintptr_t pParam) {
-  if (!pEndpoint) {
+  if (!pEndpoint || pEndpoint->nTransactions != 1) {
     ERROR(
         "USB: UsbDevice::addInterruptInHandler called with invalid "
         "endpoint");
@@ -396,15 +438,18 @@ bool UsbDevice::addInterruptInHandler(Endpoint* pEndpoint, uintptr_t pBuffer, ui
 
   UsbEndpoint endpointInfo(m_nAddress, m_nPort, pEndpoint->nEndpoint, m_Speed,
                            pEndpoint->nMaxPacketSize);
+  endpointInfo.nInterval = pEndpoint->nInterval;
   endpointInfo.nRootPort = m_nRootPort;
   endpointInfo.nRootPortGeneration = m_nRootPortGeneration;
   return pParentHub->addInterruptInHandler(endpointInfo, pBuffer, nBytes, pCallback, handle,
                                            pParam);
 }
 
-bool UsbDevice::controlRequest(uint8_t nRequestType, uint8_t nRequest, uint16_t nValue,
-                               uint16_t nIndex, uint16_t nLength, uintptr_t pBuffer,
-                               uint32_t timeout) {
+ssize_t UsbDevice::controlRequestResult(uint8_t nRequestType, uint8_t nRequest, uint16_t nValue,
+                                        uint16_t nIndex, uint16_t nLength, uintptr_t pBuffer,
+                                        uint32_t timeout) {
+  if (nLength && !pBuffer)
+    return -TransactionError;
   // Setup structure - holds request details
   Setup* pSetup = new Setup(nRequestType, nRequest, nValue, nIndex, nLength);
   PointerGuard<Setup> guard(pSetup);
@@ -412,10 +457,10 @@ bool UsbDevice::controlRequest(uint8_t nRequestType, uint8_t nRequest, uint16_t 
   UsbHub* pParentHub = m_pHub;
   if (!pParentHub) {
     ERROR("USB: Orphaned UsbDevice!");
-    return false;
+    return -TransactionError;
   }
 
-  UsbEndpoint endpointInfo(m_nAddress, m_nPort, 0, m_Speed, 64);
+  UsbEndpoint endpointInfo(m_nAddress, m_nPort, 0, m_Speed, m_ControlPacketSize);
   endpointInfo.nRootPort = m_nRootPort;
   endpointInfo.nRootPortGeneration = m_nRootPortGeneration;
 
@@ -424,27 +469,14 @@ bool UsbDevice::controlRequest(uint8_t nRequestType, uint8_t nRequest, uint16_t 
     ERROR(
         "UsbDevice: couldn't get a valid transaction to work with from "
         "the parent hub");
-    return false;
+    return -TransactionError;
   }
 
   // Setup Transfer - handles the SETUP phase of the transfer
   pParentHub->addTransferToTransaction(nTransaction, false, UsbPidSetup,
                                        reinterpret_cast<uintptr_t>(pSetup), sizeof(Setup));
 
-  // Handle the maximum size of control packets to this device. Needed for the
-  // cases where a read may breach this boundary.
-  size_t nMaxSize = 0;
-  if (m_pDescriptor) {
-    if (m_pDescriptor->nMaxControlPacketSize) {
-      nMaxSize = m_pDescriptor->nMaxControlPacketSize;
-    }
-  }
-  if (!nMaxSize) {
-    if ((m_Speed == LowSpeed) || (m_Speed == FullSpeed))
-      nMaxSize = 8;
-    else
-      nMaxSize = 64;
-  }
+  const size_t nMaxSize = m_ControlPacketSize;
 
   // Data Transfer - handles data transfer
   if (nLength) {
@@ -476,7 +508,19 @@ bool UsbDevice::controlRequest(uint8_t nRequestType, uint8_t nRequest, uint16_t 
   if (nResult < 0) {
     DEBUG_LOG("USB: Control request failure - status is " << nResult);
   }
-  return nResult >= 0;  // >= sizeof(Setup) + nLength;
+  if (nResult < 0)
+    return nResult;
+  if (nResult < static_cast<ssize_t>(sizeof(Setup)) ||
+      nResult > static_cast<ssize_t>(sizeof(Setup) + nLength))
+    return -TransactionError;
+  return nResult - sizeof(Setup);
+}
+
+bool UsbDevice::controlRequest(uint8_t nRequestType, uint8_t nRequest, uint16_t nValue,
+                               uint16_t nIndex, uint16_t nLength, uintptr_t pBuffer,
+                               uint32_t timeout) {
+  return controlRequestResult(nRequestType, nRequest, nValue, nIndex, nLength, pBuffer, timeout) ==
+         nLength;
 }
 
 uint16_t UsbDevice::getStatus() {
@@ -500,6 +544,8 @@ bool UsbDevice::clearEndpointHalt(Endpoint* pEndpoint) {
 }
 
 void UsbDevice::useConfiguration(uint8_t nConfig) {
+  if (!m_pDescriptor || nConfig >= m_pDescriptor->configList.count())
+    return;
   m_pConfiguration = m_pDescriptor->configList[nConfig];
   if (!controlRequest(0, UsbRequest::SetConfiguration, m_pConfiguration->nConfig, 0))
     return;
@@ -507,6 +553,9 @@ void UsbDevice::useConfiguration(uint8_t nConfig) {
 }
 
 void UsbDevice::useInterface(uint8_t nInterface) {
+  if (!m_pConfiguration || nInterface >= m_pConfiguration->interfaceList.count())
+    return;
+  Interface* previous = m_pInterface;
   // First check if the previous interface was an alternate setting
   bool bWasAlternateSetting = m_pInterface && m_pInterface->nAlternateSetting;
 
@@ -516,8 +565,10 @@ void UsbDevice::useInterface(uint8_t nInterface) {
   // If needed, change the alternate setting
   if (bWasAlternateSetting || m_pInterface->nAlternateSetting)
     if (!controlRequest(UsbRequestRecipient::Interface, UsbRequest::SetInterface,
-                        m_pInterface->nAlternateSetting, 0))
+                        m_pInterface->nAlternateSetting, m_pInterface->nInterface)) {
+      m_pInterface = previous;
       return;
+    }
 
   // Set our state to HasInterface, if it's not higher
   if (m_UsbState < HasInterface)
@@ -526,8 +577,11 @@ void UsbDevice::useInterface(uint8_t nInterface) {
 
 void* UsbDevice::getDescriptor(uint8_t nDescriptor, uint8_t nSubDescriptor, uint16_t nBytes,
                                uint8_t requestType) {
-  uint8_t* pBuffer = new uint8_t[nBytes];
-  uint16_t nIndex = requestType & UsbRequestRecipient::Interface ? m_pInterface->nInterface : 0;
+  if (!nBytes || ((requestType & 0x1f) == UsbRequestRecipient::Interface && !m_pInterface))
+    return nullptr;
+  uint8_t* pBuffer = new uint8_t[nBytes]();
+  uint16_t nIndex =
+      (requestType & 0x1f) == UsbRequestRecipient::Interface ? m_pInterface->nInterface : 0;
 
   /// \todo Proper language ID handling!
   if (nDescriptor == UsbDescriptor::String)
@@ -544,9 +598,12 @@ void* UsbDevice::getDescriptor(uint8_t nDescriptor, uint8_t nSubDescriptor, uint
 
 uint8_t UsbDevice::getDescriptorLength(uint8_t nDescriptor, uint8_t nSubDescriptor,
                                        uint8_t requestType) {
+  if ((requestType & 0x1f) == UsbRequestRecipient::Interface && !m_pInterface)
+    return 0;
   uint8_t* length = new uint8_t(0);
   PointerGuard<uint8_t> guard(length);
-  uint16_t nIndex = requestType & UsbRequestRecipient::Interface ? m_pInterface->nInterface : 0;
+  uint16_t nIndex =
+      (requestType & 0x1f) == UsbRequestRecipient::Interface ? m_pInterface->nInterface : 0;
 
   /// \todo Proper language ID handling
   if (nDescriptor == UsbDescriptor::String)
@@ -564,7 +621,7 @@ String UsbDevice::getString(uint8_t nString) {
     return String("");
 
   uint8_t descriptorLength = getDescriptorLength(UsbDescriptor::String, nString);
-  if (!descriptorLength)
+  if (descriptorLength < 2 || descriptorLength % 2)
     return String("");
 
   uint8_t* pBuffer =
@@ -586,7 +643,9 @@ String UsbDevice::getString(uint8_t nString) {
   // the string
   pString[nStrLength] = 0;
   delete[] pBuffer;
-  return String(pString);
+  String result(pString);
+  delete[] pString;
+  return result;
 }
 
 UsbDeviceContainer::UsbDeviceContainer(UsbDevice* pDev)

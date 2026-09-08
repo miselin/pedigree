@@ -88,6 +88,8 @@ class EXPORTED_PUBLIC UsbDevice {
     bool bOut;
     uint8_t nTransferType;
     uint16_t nMaxPacketSize;
+    uint8_t nInterval;
+    uint8_t nTransactions;
 
     bool bDataToggle;
   };
@@ -114,6 +116,7 @@ class EXPORTED_PUBLIC UsbDevice {
 
     uint8_t nConfig;
     uint8_t nString;
+    bool valid;
 
     Vector<Interface*> interfaceList;
     Vector<UnknownDescriptor*> otherDescriptorList;
@@ -254,6 +257,10 @@ class EXPORTED_PUBLIC UsbDevice {
   /// Performs an USB control request
   bool controlRequest(uint8_t nRequestType, uint8_t nRequest, uint16_t nValue, uint16_t nIndex,
                       uint16_t nLength = 0, uintptr_t pBuffer = 0, uint32_t timeout = 5000);
+  /// Returns data bytes transferred, or a negative UsbError.
+  ssize_t controlRequestResult(uint8_t nRequestType, uint8_t nRequest, uint16_t nValue,
+                               uint16_t nIndex, uint16_t nLength = 0, uintptr_t pBuffer = 0,
+                               uint32_t timeout = 5000);
 
   /// Gets device's current status
   uint16_t getStatus();
@@ -274,6 +281,7 @@ class EXPORTED_PUBLIC UsbDevice {
 
   /// The current address of the device
   uint8_t m_nAddress;
+  uint8_t m_ControlPacketSize;
 
   /// The number of the port on which the device is connected
   uint8_t m_nPort;
@@ -313,7 +321,7 @@ class UsbDeviceContainer : public Device {
   UsbDeviceContainer(UsbDevice* pDev);
   virtual ~UsbDeviceContainer();
 
-  UsbDevice* getUsbDevice() const;
+  EXPORTED_PUBLIC UsbDevice* getUsbDevice() const;
 
   /** Replaces and destroys the currently-owned device in this container. */
   MUST_USE_RESULT bool replaceUsbDevice(UsbDevice* pDev);

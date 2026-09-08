@@ -764,6 +764,13 @@ pedigree_module(hid "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/hid/HidUtils.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/hid/main.cc)
 
+if (PEDIGREE_USB_SMOKE_TESTS OR
+    (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+     PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS))
+    target_sources(hid PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/hid-report-regressions.cc)
+endif ()
+
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     pedigree_module(diskimage "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/hosted/diskimage/DiskImage.cc
@@ -807,8 +814,9 @@ pedigree_module(usb-hub "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hub/main.cc)
 
 set(USB_MASS_STORAGE_REGRESSION_SOURCES)
-if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
-    PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
+if (PEDIGREE_USB_SMOKE_TESTS OR
+    (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+     PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS))
     list(APPEND USB_MASS_STORAGE_REGRESSION_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/usb-bot-regressions.cc)
 endif ()
@@ -821,7 +829,16 @@ pedigree_module(usb-mass-storage "" ""
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS AND
     NOT PEDIGREE_HOSTED_DARWIN)
-    add_dependencies(hosted-smoke scsi usb-mass-storage)
+    add_dependencies(hosted-smoke hid scsi usb-mass-storage)
+endif ()
+
+if (PEDIGREE_USB_SMOKE_TESTS)
+    if (PEDIGREE_CRIPPLE_HDD OR PEDIGREE_WITH_INIT)
+        message(FATAL_ERROR
+            "USB smoke tests require PEDIGREE_CRIPPLE_HDD=OFF and PEDIGREE_WITH_INIT=OFF.")
+    endif ()
+    pedigree_module(usb-smoke "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/usb-smoke/main.cc)
 endif ()
 
 if (PEDIGREE_DRIVERDIR STREQUAL "x86")

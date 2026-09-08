@@ -32,7 +32,7 @@
 
 class Device;
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+#if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_USB_SMOKE_TESTS
 class UsbMassStorageBotTestAccess;
 #endif
 
@@ -59,7 +59,7 @@ class UsbMassStorageDevice : public ScsiController, public UsbDevice {
   }
 
  private:
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+#if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_USB_SMOKE_TESTS
   friend class UsbMassStorageBotTestAccess;
 #endif
 
@@ -67,9 +67,7 @@ class UsbMassStorageDevice : public ScsiController, public UsbDevice {
 
   bool massStorageReset();
   MUST_USE_RESULT bool performResetRecovery();
-  MUST_USE_RESULT bool sendDataOutCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
-                                          uintptr_t pRespBuffer, uint16_t nRespBytes);
-  MUST_USE_RESULT BotStatus readDataOutStatus(uint32_t tag, uint32_t expectedBytes);
+  MUST_USE_RESULT BotStatus readStatus(uint32_t tag, uint32_t expectedBytes);
 
   enum MassStorageRequests {
     MassStorageRequest = static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Class) |
@@ -104,6 +102,7 @@ class UsbMassStorageDevice : public ScsiController, public UsbDevice {
   static_assert(sizeof(Cbw) == 31, "BOT CBW wire size changed");
   static_assert(sizeof(Csw) == 13, "BOT CSW wire size changed");
 
+  Mutex m_CommandLock;
   size_t m_nUnits;
   Endpoint* m_pInEndpoint;
   Endpoint* m_pOutEndpoint;

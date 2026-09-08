@@ -122,6 +122,9 @@ class Uhci : public UsbHub, public IrqHandler, public RequestQueue, public Timer
       void (*pPeriodicCallback)(uintptr_t, ssize_t);
       uintptr_t pPeriodicParam;
       size_t periodicGeneration;
+      size_t periodicInterval;
+      size_t periodicBusTime;
+      bool periodicPending;
 
       UsbEndpoint endpointInfo;
 
@@ -197,6 +200,11 @@ class Uhci : public UsbHub, public IrqHandler, public RequestQueue, public Timer
 
   /** Runs after callback delivery and hands the QH to the reclaim worker. */
   static void enqueueCompletedTransfer(void* context);
+  static void rearmPeriodicCompletion(void* context);
+  static void destroyPeriodicCompletion(void* context);
+
+  /** Requires the IRQ and queue-list locks, with DMA halted. */
+  void rebuildPeriodicScheduleLocked();
 
   /** Requires IRQ then queue-list ownership and an established DMA halt. */
   void detachQueueHeadLocked(QH* pQH);
@@ -292,6 +300,7 @@ class Uhci : public UsbHub, public IrqHandler, public RequestQueue, public Timer
 
   /// List of QHs in the active asynchronous schedule
   List<QH*> m_AsyncSchedule;
+  List<QH*> m_PeriodicSchedule;
 
   /// List of QHs ready for dequeue
   List<QH*> m_DequeueList;

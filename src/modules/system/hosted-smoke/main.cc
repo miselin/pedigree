@@ -52,5 +52,5 @@ static bool entry() {
 
 static void exit() {}
 
-MODULE_INFO("hosted-smoke", &entry, &exit, "config", "fat", "rawfs", "scsi", "usb",
+MODULE_INFO("hosted-smoke", &entry, &exit, "config", "fat", "hid", "rawfs", "scsi", "usb",
             "usb-mass-storage", "vfs");

@@ -7,6 +7,7 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "modules/drivers/common/usb-mass-storage/UsbMassStorageDevice.h"
@@ -59,7 +60,7 @@ struct WireCsw {
 static_assert(sizeof(WireCbw) == 31, "BOT CBW wire size changed");
 static_assert(sizeof(WireCsw) == 13, "BOT CSW wire size changed");
 
-enum class StepKind { Cbw, DataOut, Csw, Reset, ClearIn, ClearOut };
+enum class StepKind { Cbw, DataOut, DataIn, Csw, Reset, ClearIn, ClearOut };
 enum class TagReply { Match, Wrong };
 
 struct Step {
@@ -77,6 +78,7 @@ struct Step {
         residue(0),
         status(0) {}
 
+  bool writing = true;
   StepKind kind;
   ssize_t result;
   int firstToggle;
@@ -125,10 +127,11 @@ class ScriptedBotHub final : public UsbHub {
         m_Valid(true) {}
 
   void expectCbw(uint8_t lun, const uint8_t* command, uint8_t commandSize, size_t dataBytes,
-                 int firstToggle, ssize_t result = 31) {
+                 int firstToggle, ssize_t result = 31, bool writing = true) {
     Step* step = append(StepKind::Cbw, result, firstToggle);
     if (!step)
       return;
+    step->writing = writing;
     step->lun = lun;
     step->commandSize = commandSize;
     step->expectedBytes = dataBytes;
@@ -139,6 +142,12 @@ class ScriptedBotHub final : public UsbHub {
     Step* step = append(StepKind::DataOut, result, firstToggle);
     if (!step)
       return;
+    step->expectedData = data;
+    step->expectedBytes = bytes;
+  }
+
+  void expectDataIn(const uint8_t* data, size_t bytes, ssize_t result) {
+    Step* step = append(StepKind::DataIn, result, AnyToggle);
     step->expectedData = data;
     step->expectedBytes = bytes;
   }
@@ -317,7 +326,8 @@ class ScriptedBotHub final : public UsbHub {
     MemoryCopy(&cbw, reinterpret_cast<void*>(transaction.transfers[0].buffer), sizeof(cbw));
     m_LastTag = cbw.tag;
     if (cbw.signature != CbwSignature || cbw.dataBytes != HOST_TO_LITTLE32(step.expectedBytes) ||
-        cbw.flags != 0 || cbw.lun != step.lun || cbw.commandSize != step.commandSize ||
+        cbw.flags != (!step.writing && step.expectedBytes ? 0x80 : 0) || cbw.lun != step.lun ||
+        cbw.commandSize != step.commandSize ||
         MemoryCompare(cbw.command, step.command, step.commandSize))
       return false;
     for (size_t i = step.commandSize; i < sizeof(cbw.command); ++i) {
@@ -328,13 +338,20 @@ class ScriptedBotHub final : public UsbHub {
   }
 
   bool validateData(const RecordedTransaction& transaction, const Step& step) const {
-    if (!bulkShape(transaction, 2, UsbPidOut, step.expectedBytes, step.firstToggle))
+    const bool input = step.kind == StepKind::DataIn;
+    if (!bulkShape(transaction, input ? 3 : 2, input ? UsbPidIn : UsbPidOut, step.expectedBytes,
+                   step.firstToggle))
       return false;
     size_t offset = 0;
     for (size_t i = 0; i < transaction.transferCount; ++i) {
       const RecordedTransfer& transfer = transaction.transfers[i];
-      if (!transfer.buffer || MemoryCompare(reinterpret_cast<void*>(transfer.buffer),
-                                            step.expectedData + offset, transfer.bytes))
+      if (!transfer.buffer)
+        return false;
+      if (input)
+        MemoryCopy(reinterpret_cast<void*>(transfer.buffer), step.expectedData + offset,
+                   transfer.bytes);
+      else if (MemoryCompare(reinterpret_cast<void*>(transfer.buffer), step.expectedData + offset,
+                             transfer.bytes))
         return false;
       offset += transfer.bytes;
     }
@@ -357,7 +374,8 @@ class ScriptedBotHub final : public UsbHub {
     UsbDevice::Setup setup(0, 0, 0, 0, 0);
     MemoryCopy(&setup, reinterpret_cast<void*>(transaction.transfers[0].buffer), sizeof(setup));
     if (step.kind == StepKind::Reset) {
-      return setup.nRequestType == (UsbRequestType::Class | UsbRequestRecipient::Interface) &&
+      return setup.nRequestType ==
+                 (uint8_t(UsbRequestType::Class) | uint8_t(UsbRequestRecipient::Interface)) &&
              setup.nRequest == 0xff && setup.nValue == 0 && setup.nIndex == 4 && setup.nLength == 0;
     }
 
@@ -372,6 +390,7 @@ class ScriptedBotHub final : public UsbHub {
       case StepKind::Cbw:
         return validateCbw(transaction, step);
       case StepKind::DataOut:
+      case StepKind::DataIn:
         return validateData(transaction, step);
       case StepKind::Csw:
         return validateCsw(transaction, step);
@@ -483,7 +502,9 @@ bool sendWrite(BotFixture& fixture) {
 }
 
 bool completeDataOut() {
-  BotFixture fixture;
+  auto* fixtureStorage = new BotFixture;
+  PointerGuard<BotFixture> fixtureGuard(fixtureStorage);
+  BotFixture& fixture = *fixtureStorage;
   expectWrite(fixture, 0, 1);
   fixture.hub.expectCsw(13, 0, 0, TagReply::Match, CswSignature, 0);
   expectWrite(fixture, 1, 0);
@@ -501,7 +522,9 @@ bool completeDataOut() {
 }
 
 bool shortDataOutResets() {
-  BotFixture fixture;
+  auto* fixtureStorage = new BotFixture;
+  PointerGuard<BotFixture> fixtureGuard(fixtureStorage);
+  BotFixture& fixture = *fixtureStorage;
   expectWrite(fixture, 0, 1, DataBytes / 2);
   fixture.hub.expectControl(StepKind::Reset);
   fixture.hub.expectControl(StepKind::ClearIn);
@@ -521,7 +544,9 @@ bool shortDataOutResets() {
 }
 
 bool invalidCbwCase(ssize_t result, bool followWithValidCommand) {
-  BotFixture fixture;
+  auto* fixtureStorage = new BotFixture;
+  PointerGuard<BotFixture> fixtureGuard(fixtureStorage);
+  BotFixture& fixture = *fixtureStorage;
   fixture.hub.expectCbw(3, WriteCdb, sizeof(WriteCdb), DataBytes, 0, result);
   fixture.hub.expectControl(StepKind::Reset);
   fixture.hub.expectControl(StepKind::ClearIn);
@@ -552,7 +577,9 @@ bool invalidCbwResets() {
 }
 
 bool stalledDataOutUsesCsw() {
-  BotFixture fixture;
+  auto* fixtureStorage = new BotFixture;
+  PointerGuard<BotFixture> fixtureGuard(fixtureStorage);
+  BotFixture& fixture = *fixtureStorage;
   expectWrite(fixture, 0, 1, -Stall);
   fixture.hub.expectControl(StepKind::ClearOut);
   fixture.hub.expectCsw(13, 0, 0, TagReply::Match, CswSignature, 0);
@@ -570,7 +597,9 @@ bool stalledDataOutUsesCsw() {
 }
 
 bool stalledDataOutCswCase(uint8_t status, uint32_t residue) {
-  BotFixture fixture;
+  auto* fixtureStorage = new BotFixture;
+  PointerGuard<BotFixture> fixtureGuard(fixtureStorage);
+  BotFixture& fixture = *fixtureStorage;
   expectWrite(fixture, 0, 1, -Stall);
   fixture.hub.expectControl(StepKind::ClearOut);
   fixture.hub.expectCsw(13, status, residue, TagReply::Match, CswSignature, 0);
@@ -592,7 +621,9 @@ bool stalledDataOutHonoursCswFailure() {
 }
 
 bool stalledCswRetriesOnce() {
-  BotFixture fixture;
+  auto* fixtureStorage = new BotFixture;
+  PointerGuard<BotFixture> fixtureGuard(fixtureStorage);
+  BotFixture& fixture = *fixtureStorage;
   expectWrite(fixture, 0, 1);
   fixture.hub.expectCsw(-Stall, 0, 0, TagReply::Match, CswSignature, 0);
   fixture.hub.expectControl(StepKind::ClearIn);
@@ -611,7 +642,9 @@ bool stalledCswRetriesOnce() {
 }
 
 bool secondCswStallResets() {
-  BotFixture fixture;
+  auto* fixtureStorage = new BotFixture;
+  PointerGuard<BotFixture> fixtureGuard(fixtureStorage);
+  BotFixture& fixture = *fixtureStorage;
   expectWrite(fixture, 0, 1);
   fixture.hub.expectCsw(-Stall, 0, 0, TagReply::Match, CswSignature, 0);
   fixture.hub.expectControl(StepKind::ClearIn);
@@ -634,7 +667,9 @@ bool secondCswStallResets() {
 
 bool cswTruthCase(ssize_t length, uint8_t status, uint32_t residue, TagReply tagReply,
                   uint32_t signature, bool recovery) {
-  BotFixture fixture;
+  auto* fixtureStorage = new BotFixture;
+  PointerGuard<BotFixture> fixtureGuard(fixtureStorage);
+  BotFixture& fixture = *fixtureStorage;
   expectWrite(fixture, 0, 1);
   fixture.hub.expectCsw(length, status, residue, tagReply, signature, 0);
   if (recovery) {
@@ -669,7 +704,9 @@ bool cswTruth() {
 }
 
 bool failedRecoveryLatches() {
-  BotFixture fixture;
+  auto* fixtureStorage = new BotFixture;
+  PointerGuard<BotFixture> fixtureGuard(fixtureStorage);
+  BotFixture& fixture = *fixtureStorage;
   expectWrite(fixture, 0, 1);
   fixture.hub.expectCsw(13, 0, 0, TagReply::Wrong, CswSignature, 0);
   fixture.hub.expectControl(StepKind::Reset);
@@ -700,7 +737,9 @@ bool commandBoundsDoNotReachUsb() {
   for (size_t i = 0; i < sizeof(command); ++i)
     command[i] = static_cast<uint8_t>(0xa0 + i);
 
-  BotFixture fixture;
+  auto* fixtureStorage = new BotFixture;
+  PointerGuard<BotFixture> fixtureGuard(fixtureStorage);
+  BotFixture& fixture = *fixtureStorage;
   UsbMassStorageBotTestAccess::setUnits(fixture.device, 17);
   const bool unencodableLun =
       fixture.device.sendCommand(16, reinterpret_cast<uintptr_t>(command), 16,
@@ -745,9 +784,57 @@ bool commandBoundsDoNotReachUsb() {
   }
   return passed;
 }
+bool dataInCase(ssize_t dataResult, ssize_t cswBytes, TagReply tag, bool recovery, bool expected,
+                int cswFirstToggle) {
+  auto* fixtureStorage = new BotFixture;
+  PointerGuard<BotFixture> fixtureGuard(fixtureStorage);
+  BotFixture& fixture = *fixtureStorage;
+  alignas(16) uint8_t reference[DataBytes];
+  for (size_t i = 0; i < DataBytes; ++i)
+    reference[i] = static_cast<uint8_t>(i * 13);
+  fixture.hub.expectCbw(3, WriteCdb, sizeof(WriteCdb), DataBytes, 0, 31, false);
+  fixture.hub.expectDataIn(reference, DataBytes, dataResult);
+  if (dataResult == -Stall)
+    fixture.hub.expectControl(StepKind::ClearIn);
+  if (dataResult >= 0 || dataResult == -Stall)
+    fixture.hub.expectCsw(cswBytes, 0, 0, tag, CswSignature, cswFirstToggle);
+  if (recovery) {
+    fixture.hub.expectControl(StepKind::Reset);
+    fixture.hub.expectControl(StepKind::ClearIn);
+    fixture.hub.expectControl(StepKind::ClearOut);
+  }
+  const bool result =
+      fixture.device.sendCommand(3, reinterpret_cast<uintptr_t>(WriteCdb), sizeof(WriteCdb),
+                                 reinterpret_cast<uintptr_t>(fixture.payload), DataBytes, false);
+  return result == expected && fixture.hub.complete() &&
+         (!expected || !MemoryCompare(reference, fixture.payload, DataBytes));
+}
+bool dataInAndNoData() {
+  bool passed = dataInCase(DataBytes, 13, TagReply::Match, false, true, 0);
+  passed &= dataInCase(DataBytes / 2, 13, TagReply::Match, false, false, 1);
+  passed &= dataInCase(-Stall, 13, TagReply::Match, false, false, 0);
+  passed &= dataInCase(-TransactionError, 13, TagReply::Match, true, false, 0);
+  passed &= dataInCase(DataBytes, 12, TagReply::Match, true, false, 0);
+  passed &= dataInCase(DataBytes, 13, TagReply::Wrong, true, false, 0);
+  auto* fixtureStorage = new BotFixture;
+  PointerGuard<BotFixture> fixtureGuard(fixtureStorage);
+  BotFixture& fixture = *fixtureStorage;
+  fixture.hub.expectCbw(3, WriteCdb, sizeof(WriteCdb), 0, 0);
+  fixture.hub.expectCsw(13, 0, 0);
+  passed &= fixture.device.sendCommand(3, reinterpret_cast<uintptr_t>(WriteCdb), sizeof(WriteCdb),
+                                       0, 0, false) &&
+            fixture.hub.complete();
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS usb-bot-data-in-and-no-data");
+  else
+    ERROR("HOSTED-WAIT-TEST: FAIL usb-bot-data-in-and-no-data");
+  return passed;
+}
+
 }  // namespace
 
 EXPORTED_PUBLIC bool runHostedUsbBotRegressions() {
+  const bool reads = dataInAndNoData();
   const bool complete = completeDataOut();
   const bool cbwExact = invalidCbwResets();
   const bool shortReset = shortDataOutResets();
@@ -758,6 +845,6 @@ EXPORTED_PUBLIC bool runHostedUsbBotRegressions() {
   const bool truth = cswTruth();
   const bool recoveryLatch = failedRecoveryLatches();
   const bool commandBounds = commandBoundsDoNotReachUsb();
-  return complete && cbwExact && shortReset && stalledData && stalledDataFailure && stalledCsw &&
-         secondCswStall && truth && recoveryLatch && commandBounds;
+  return reads && complete && cbwExact && shortReset && stalledData && stalledDataFailure &&
+         stalledCsw && secondCswStall && truth && recoveryLatch && commandBounds;
 }

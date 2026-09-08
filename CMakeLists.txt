@@ -107,6 +107,7 @@ set(PEDIGREE_EXCESSIVE_ADDITIONAL_CHECKS FALSE CACHE BOOL "Enable even more addi
 set(PEDIGREE_CRIPPLE_HDD TRUE CACHE BOOL "Disable writing to hard disks at runtime.")
 option(PEDIGREE_AHCI_SMOKE_TESTS "Build the destructive AHCI test for a marked disposable disk." OFF)
 option(PEDIGREE_NVME_SMOKE_TESTS "Build the destructive NVMe test for marked disposable disks." OFF)
+option(PEDIGREE_USB_SMOKE_TESTS "Build USB input and marked disposable storage tests." OFF)
 set(PEDIGREE_ASSERTS TRUE CACHE BOOL "Enable runtime assertions.")
 set(PEDIGREE_DEBUG_LOGGING TRUE CACHE BOOL "Whether to enable debug-level logging, which can dump massive amounts of data to the kernel log. Probable performance hit too, use at your own risk.")
 set(PEDIGREE_SUPERDEBUG FALSE CACHE BOOL "Enable superdebug. Superdebug is like enabling PEDIGREE_DEBUG_LOGGING, except even MORE verbose. Expect hundreds of thousands of lines of output to the kernel log.")

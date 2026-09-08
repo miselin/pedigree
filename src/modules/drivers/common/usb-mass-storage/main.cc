@@ -33,8 +33,7 @@ static UsbDevice* massStorageConnected(UsbDevice* pDevice) {
 }
 
 static bool entry() {
-  return UsbPnP::instance().registerCallback(8, SubclassNone, ProtocolNone, massStorageConnected,
-                                             g_Registration);
+  return UsbPnP::instance().registerCallback(8, 6, 0x50, massStorageConnected, g_Registration);
 }
 
 static void exit() {

@@ -101,6 +101,9 @@ class Ehci : public UsbHub,
 
     // Custom qTD fields
     uint16_t nBufferSize;
+    bool processed;
+    // Arena entries need a 32-byte stride, while QH overlays start at byte 16.
+    uint8_t padding[9];
 
     // Possible values for status
     enum StatusCodes {
@@ -112,7 +115,10 @@ class Ehci : public UsbHub,
         return Stall;
       return TransactionError;
     }
-  } PACKED ALIGN(32);
+  } PACKED ALIGN(4);
+
+  static_assert(sizeof(qTD) == 64);
+  static_assert(alignof(qTD) == 4);
 
   struct QH {
     uint32_t bNextInvalid : 1;
@@ -136,7 +142,7 @@ class Ehci : public UsbHub,
     uint32_t res1 : 5;
     uint32_t pQTD : 27;
 
-    qTD overlay ALIGN(32);
+    qTD overlay;
 
     struct MetaData {
       MetaData()
@@ -144,6 +150,9 @@ class Ehci : public UsbHub,
             pParam(0),
             periodicGeneration(0),
             periodicFrameIndex(static_cast<size_t>(-1)),
+            periodicInterval(0),
+            periodicPending(false),
+            periodicTemplate{},
             bPeriodic(false),
             bBuildFailed(false),
             pFirstQTD(nullptr),
@@ -160,6 +169,9 @@ class Ehci : public UsbHub,
       uintptr_t pParam;
       size_t periodicGeneration;
       size_t periodicFrameIndex;
+      size_t periodicInterval;
+      bool periodicPending;
+      qTD periodicTemplate;
 
       bool bPeriodic;
       bool bBuildFailed;
@@ -176,6 +188,7 @@ class Ehci : public UsbHub,
     }* pMetaData;
   } PACKED ALIGN(32);
 
+  static_assert(__builtin_offsetof(QH, overlay) == 0x10);
   virtual void getName(String& str) {
     str.assign("EHCI", 5);
   }
@@ -275,6 +288,9 @@ class Ehci : public UsbHub,
                                List<UsbHcd::CallbackDeliveryQueue::Record*>& completions);
 
   static void finishDeferredCompletion(void* context);
+  static void rearmPeriodicCompletion(void* context);
+  static void destroyPeriodicCompletion(void* context);
+  void rebuildPeriodicScheduleLocked();
 
   IoBase* m_pBase;
 

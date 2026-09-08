@@ -18,6 +18,7 @@
  */
 
 #include "UsbMassStorageDevice.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -32,7 +33,9 @@ UsbMassStorageDevice::UsbMassStorageDevice(UsbDevice* dev)
       m_pInEndpoint(0),
       m_pOutEndpoint(0),
       m_NextTag(1),
-      m_ResetRecoveryRequired(false) {}
+      m_ResetRecoveryRequired(false) {
+  setSpecificType(String("usb-msd-controller"));
+}
 
 UsbMassStorageDevice::~UsbMassStorageDevice() {
   shutdownDiskCaches();
@@ -40,6 +43,8 @@ UsbMassStorageDevice::~UsbMassStorageDevice() {
 }
 
 void UsbMassStorageDevice::initialiseDriver() {
+  if (!m_pInterface || m_pInterface->nSubclass != 6 || m_pInterface->nProtocol != 0x50)
+    return;
   for (size_t i = 0; i < m_pInterface->endpointList.count(); i++) {
     Endpoint* pEndpoint = m_pInterface->endpointList[i];
     if (!m_pInEndpoint && (pEndpoint->nTransferType == Endpoint::Bulk) && pEndpoint->bIn)
@@ -60,23 +65,19 @@ void UsbMassStorageDevice::initialiseDriver() {
     return;
   }
 
-  // Reset the mass storage device and associated interface
-  massStorageReset();
-
-  // Get the maximum LUN and find out the number of units
-  /// \todo Some mass storage devices don't support this command, fail to
-  ///       return logical information, or just report incorrect data.
-  ///       All that needs to be handled.
-  uint8_t* nMaxLUN = new uint8_t(0);
-  if (!controlRequest(static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestDirection::In) |
-                                           static_cast<uint8_t>(MassStorageRequest)),
-                      MassStorageGetMaxLUN, 0, m_pInterface->nInterface, 1,
-                      reinterpret_cast<uintptr_t>(nMaxLUN))) {
-    ERROR("USB: MSD: Couldn't get maximum LUN");
+  if (!massStorageReset())
+    return;
+  uint8_t maxLun = 0;
+  const ssize_t result = controlRequestResult(
+      static_cast<uint8_t>(UsbRequestDirection::In) | static_cast<uint8_t>(MassStorageRequest),
+      MassStorageGetMaxLUN, 0, m_pInterface->nInterface, 1, reinterpret_cast<uintptr_t>(&maxLun));
+  if (result == -Stall)
+    maxLun = 0;
+  else if (result != 1 || maxLun > 15) {
+    WARNING("USB: MSD: invalid GET_MAX_LUN response");
     return;
   }
-  m_nUnits = *nMaxLUN + 1;
-  delete nMaxLUN;
+  m_nUnits = maxLun + 1;
 
   searchDisks();
 
@@ -100,8 +101,8 @@ bool UsbMassStorageDevice::performResetRecovery() {
   return !m_ResetRecoveryRequired;
 }
 
-UsbMassStorageDevice::BotStatus UsbMassStorageDevice::readDataOutStatus(uint32_t tag,
-                                                                        uint32_t expectedBytes) {
+UsbMassStorageDevice::BotStatus UsbMassStorageDevice::readStatus(uint32_t tag,
+                                                                 uint32_t expectedBytes) {
   Csw* pCsw = new Csw;
   PointerGuard<Csw> guard(pCsw);
   ByteSet(pCsw, 0, sizeof(Csw));
@@ -129,205 +130,50 @@ UsbMassStorageDevice::BotStatus UsbMassStorageDevice::readDataOutStatus(uint32_t
   return BotStatus::RecoveryRequired;
 }
 
-bool UsbMassStorageDevice::sendDataOutCommand(size_t nUnit, uintptr_t pCommand,
-                                              uint8_t nCommandSize, uintptr_t pRespBuffer,
-                                              uint16_t nRespBytes) {
-  Cbw* pCbw = new Cbw;
-  PointerGuard<Cbw> guard(pCbw);
-  ByteSet(pCbw, 0, sizeof(Cbw));
-
-  const uint32_t tag = m_NextTag++;
-  pCbw->nSig = CbwSig;
-  pCbw->nTag = HOST_TO_LITTLE32(tag);
-  pCbw->nDataBytes = HOST_TO_LITTLE32(nRespBytes);
-  pCbw->nFlags = 0;
-  pCbw->nLUN = nUnit;
-  pCbw->nCommandSize = nCommandSize;
-  MemoryCopy(pCbw->pCommand, reinterpret_cast<void*>(pCommand), nCommandSize);
-
-  ssize_t result = syncOut(m_pOutEndpoint, reinterpret_cast<uintptr_t>(pCbw), sizeof(Cbw));
-  if (result != static_cast<ssize_t>(sizeof(Cbw))) {
-    const bool recovered = performResetRecovery();
-    if (!recovered)
-      DEBUG_LOG("USB: MSD: reset recovery failed after an incomplete CBW");
-    return false;
-  }
-
-  bool dataOutComplete = false;
-  bool dataOutStalled = false;
-  result = syncOut(m_pOutEndpoint, pRespBuffer, nRespBytes);
-  if (result == static_cast<ssize_t>(nRespBytes)) {
-    dataOutComplete = true;
-  } else if (result == -Stall) {
-    if (!clearEndpointHalt(m_pOutEndpoint)) {
-      const bool recovered = performResetRecovery();
-      if (!recovered)
-        DEBUG_LOG("USB: MSD: reset recovery failed after a DATA-OUT STALL");
-      return false;
-    }
-    dataOutStalled = true;
-  } else {
-    const bool recovered = performResetRecovery();
-    if (!recovered)
-      DEBUG_LOG("USB: MSD: reset recovery failed after an incomplete DATA-OUT transfer");
-    return false;
-  }
-
-  const BotStatus status = readDataOutStatus(tag, nRespBytes);
-  if (status == BotStatus::RecoveryRequired) {
-    const bool recovered = performResetRecovery();
-    if (!recovered)
-      DEBUG_LOG("USB: MSD: reset recovery failed after an invalid CSW");
-    return false;
-  }
-  if (status != BotStatus::Passed)
-    return false;
-
-  if (dataOutStalled)
-    dataOutComplete = true;
-  return dataOutComplete;
-}
-
 bool UsbMassStorageDevice::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
                                        uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite) {
   if (!pCommand || !nCommandSize || nCommandSize > 16 || nUnit >= m_nUnits || nUnit > 0xf ||
       (nRespBytes && !pRespBuffer) || !m_pInterface || !m_pInEndpoint || !m_pOutEndpoint)
     return false;
-
+  LockGuard<Mutex> commandLock(m_CommandLock);
   if (m_ResetRecoveryRequired && !performResetRecovery())
     return false;
-
-  if (bWrite && nRespBytes)
-    return sendDataOutCommand(nUnit, pCommand, nCommandSize, pRespBuffer, nRespBytes);
 
   Cbw* pCbw = new Cbw;
   PointerGuard<Cbw> guard(pCbw);
   ByteSet(pCbw, 0, sizeof(Cbw));
+  const uint32_t tag = m_NextTag++;
   pCbw->nSig = CbwSig;
+  pCbw->nTag = HOST_TO_LITTLE32(tag);
   pCbw->nDataBytes = HOST_TO_LITTLE32(nRespBytes);
-  pCbw->nFlags = bWrite ? 0 : 0x80;
+  pCbw->nFlags = !bWrite && nRespBytes ? 0x80 : 0;
   pCbw->nLUN = nUnit;
   pCbw->nCommandSize = nCommandSize;
   MemoryCopy(pCbw->pCommand, reinterpret_cast<void*>(pCommand), nCommandSize);
 
-  ssize_t nResult = syncOut(m_pOutEndpoint, reinterpret_cast<uintptr_t>(pCbw), 31);
-
-  // Handle stall
-  if (nResult == -Stall) {
-    // Clear out pipe
-    if (!clearEndpointHalt(m_pOutEndpoint)) {
-      // Reset and fail this command
-      massStorageReset();
-      clearEndpointHalt(m_pInEndpoint);
-      clearEndpointHalt(m_pOutEndpoint);
-      return false;
-    } else
-      nResult = 0;  // Attempt data transfer
-  }
-
-  if (nResult < 0)
+  auto recover = [this]() {
+    if (!performResetRecovery())
+      WARNING("USB: MSD: reset recovery incomplete; new commands remain blocked");
     return false;
+  };
+  if (syncOut(m_pOutEndpoint, reinterpret_cast<uintptr_t>(pCbw), sizeof(Cbw)) != sizeof(Cbw))
+    return recover();
 
-  // Handle data or CSW transfer if needed
+  ssize_t transferred = 0;
   if (nRespBytes) {
-    DEBUG_LOG("USB: MSD: Performing " << Dec << nRespBytes << Hex << " byte "
-                                      << (bWrite ? "write" : "read"));
-    if (bWrite)
-      nResult = syncOut(m_pOutEndpoint, pRespBuffer, nRespBytes);
-    else
-      nResult = syncIn(m_pInEndpoint, pRespBuffer, nRespBytes);
-
-    /// \todo Should probably just be transaction errors and stalls
-    if ((nResult < 0) || ((nResult < nRespBytes) && (!bWrite)))  // == -Stall)
-    {
-      // STALL, clear the endpoint and attempt CSW read
-      bool bClearResult = false;
-      if (bWrite)
-        bClearResult = !clearEndpointHalt(m_pOutEndpoint);
-      else
-        bClearResult = !clearEndpointHalt(m_pInEndpoint);
-
-      if (!bClearResult) {
-        DEBUG_LOG(
-            "USB: MSD: Endpoint stalled, but clearing failed. "
-            "Performing reset.");
-
-        // Reset and fail this command
-        massStorageReset();
-        clearEndpointHalt(m_pInEndpoint);
-        clearEndpointHalt(m_pOutEndpoint);
-        return false;
-      }
-
-      // Attempt to read the CSW now that the stall condition is cleared
-      Csw* pCsw = new Csw;
-      PointerGuard<Csw> cswGuard(pCsw);
-      nResult = syncIn(m_pInEndpoint, reinterpret_cast<uintptr_t>(pCsw), 13);
-
-      // Stalled?
-      if (nResult == -Stall) {
-        // Perform full reset and reset both pipes
-        massStorageReset();
-        clearEndpointHalt(m_pInEndpoint);
-        clearEndpointHalt(m_pOutEndpoint);
-
-        // Failure condition
-        DEBUG_LOG(
-            "USB: MSD: Couldn't recover cleanly from endpoint "
-            "stall, mass storage reset completed");
-        return false;
-      } else if (nResult < 0) {
-        DEBUG_LOG(
-            "USB: MSD: Reading CSW after clearing stall ended up "
-            "failing with status "
-            << nResult);
-        return false;
-      } else {
-        DEBUG_LOG("USB: MSD: Recovered from endpoint stall");
-        return !pCsw->nStatus;
-      }
-    }
-
-    if (nResult == 13) {
-      Csw* pCsw = reinterpret_cast<Csw*>(pRespBuffer);
-      if (pCsw->nSig == CswSig) {
-        DEBUG_LOG("USB: MSD: Early CSW with status " << pCsw->nStatus
-                                                     << ", residue: " << pCsw->nResidue);
-        return !pCsw->nStatus;
-      }
-    }
-
-    if (nResult < 0)
-      return false;
+    transferred = bWrite ? syncOut(m_pOutEndpoint, pRespBuffer, nRespBytes)
+                         : syncIn(m_pInEndpoint, pRespBuffer, nRespBytes);
+    if (transferred == -Stall) {
+      if (!clearEndpointHalt(bWrite ? m_pOutEndpoint : m_pInEndpoint))
+        return recover();
+    } else if (transferred < 0 || transferred > nRespBytes || (bWrite && transferred != nRespBytes))
+      return recover();
   }
-
-  Csw* pCsw = new Csw;
-  PointerGuard<Csw> guard2(pCsw);
-  nResult = syncIn(m_pInEndpoint, reinterpret_cast<uintptr_t>(pCsw), 13);
-
-  /// \todo Should probably just be transaction errors and stalls
-  if (nResult < 0) {
-    if (!clearEndpointHalt(m_pInEndpoint)) {
-      massStorageReset();
-      if (!clearEndpointHalt(m_pInEndpoint)) {
-        DEBUG_LOG(
-            "USB: MSD: Reading CSW ended up failing after endpoint "
-            "halt cleared, and a mass storage reset, with status "
-            << nResult);
-        return false;
-      }
-    } else {
-      nResult = syncIn(m_pInEndpoint, reinterpret_cast<uintptr_t>(pCsw), 13);
-      if (nResult < 0) {
-        DEBUG_LOG(
-            "USB: MSD: Reading CSW ended up failing after endpoint "
-            "halt cleared, with status "
-            << nResult);
-        massStorageReset();
-        return false;
-      }
-    }
-  }
-
-  return !pCsw->nStatus;
+  const BotStatus status = readStatus(tag, nRespBytes);
+  if (status == BotStatus::RecoveryRequired)
+    return recover();
+  // A valid CSW may complete an OUT STALL, but an IN failure never supplies
+  // bytes the controller did not receive. Short IN data must not become a
+  // successful SCSI cache fill even when the device reports zero residue.
+  return status == BotStatus::Passed && (bWrite || transferred == nRespBytes);
 }

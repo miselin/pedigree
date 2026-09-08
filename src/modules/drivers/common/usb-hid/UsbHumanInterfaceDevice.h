@@ -62,7 +62,7 @@ class UsbHumanInterfaceDevice : public UsbDevice {
   };
 
   static void callback(uintptr_t pParam, ssize_t ret);
-  void inputHandler();
+  void inputHandler(size_t bytes);
 
   /// The endpoint used to receive input reports from the device
   Endpoint* m_pInEndpoint;

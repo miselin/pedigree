@@ -24,15 +24,12 @@
 #include "modules/drivers/common/hid/HidUsages.h"
 
 uint64_t HidUtils::getBufferField(uint8_t* pBuffer, size_t nStart, size_t nLength) {
-  uint64_t nValue = 0;
-  size_t i = 0;
-  while (i < nLength) {
-    uint8_t nBits = ((nStart % 8) + nLength - i) < 8 ? nLength % 8 : 8 - (nStart % 8);
-    nValue |= ((pBuffer[nStart / 8] >> (nStart % 8)) & ((1 << nBits) - 1)) << i;
-    i += nBits;
-    nStart += nBits;
-  }
-  return nValue;
+  if (nLength > 64)
+    return 0;
+  uint64_t value = 0;
+  for (size_t i = 0; i < nLength; ++i)
+    value |= uint64_t{(pBuffer[(nStart + i) / 8] >> ((nStart + i) % 8)) & 1U} << i;
+  return value;
 }
 
 void HidUtils::fixNegativeMinimum(int64_t& nMin, int64_t nMax) {

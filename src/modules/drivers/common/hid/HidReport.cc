@@ -40,13 +40,37 @@
 #define ITEM_LOG(tabs, type, value) TABBED_LOG(tabs, type << " (" << value << ")" << Hex)
 #define ITEM_LOG_DEC(tabs, type, value) TABBED_LOG(tabs, Dec << type << " (" << value << ")" << Hex)
 
-HidReport::HidReport() {}
+HidReport::HidReport()
+    : m_pRootCollection(nullptr),
+      m_ReportBits{},
+      m_OldReports{},
+      m_HasReportIds(false),
+      m_Valid(false) {}
 
-HidReport::~HidReport() {}
+HidReport::~HidReport() {
+  delete m_pRootCollection;
+  for (auto* report : m_OldReports)
+    delete[] report;
+}
+HidReport::Collection::~Collection() {
+  for (auto* child : childs) {
+    if (child->type == CollectionChild)
+      delete child->pCollection;
+    else
+      delete child->pInputBlock;
+    delete child;
+  }
+}
 
 void HidReport::parseDescriptor(uint8_t* pDescriptor, size_t nDescriptorLength) {
+  if (!pDescriptor || !nDescriptorLength || m_pRootCollection)
+    return;
+  m_pRootCollection = new Collection();
+  m_pRootCollection->pParent = nullptr;
   // This will store all the values that change during the parsing
   LocalState currentState;
+  LocalState globalStack[16];
+  size_t globalDepth = 0;
 
   // Whether PhysMin and PhysMax form a pair
   bool bPhysPair = false;
@@ -54,7 +78,7 @@ void HidReport::parseDescriptor(uint8_t* pDescriptor, size_t nDescriptorLength) 
   bool bLogPair = false;
 
   // Pointer to the collection under which we are parsing
-  Collection* pCurrentCollection = 0;
+  Collection* pCurrentCollection = m_pRootCollection;
 
   // The depth of the Collection tree
   size_t nDepth = 0;
@@ -72,7 +96,15 @@ void HidReport::parseDescriptor(uint8_t* pDescriptor, size_t nDescriptorLength) 
     } item;
 
     item.raw = pDescriptor[i];
+    if (item.raw == 0xfe) {
+      if (nDescriptorLength - i < 3 || pDescriptor[i + 1] > nDescriptorLength - i - 3)
+        return;
+      i += 2 + pDescriptor[i + 1];
+      continue;
+    }
     uint8_t size = item.size == 3 ? 4 : item.size;
+    if (size > nDescriptorLength - i - 1)
+      return;
 
     // Get the value
     uint32_t value = 0;
@@ -97,8 +129,14 @@ void HidReport::parseDescriptor(uint8_t* pDescriptor, size_t nDescriptorLength) 
     switch (MIX_TYPE_N_TAG(item.type, item.tag)) {
       // Main items
       case MIX_TYPE_N_TAG(MainItem, InputItem): {
-        if (!pCurrentCollection)
-          continue;
+        if (currentState.nReportSize <= 0 || currentState.nReportSize > 64 ||
+            currentState.nReportCount <= 0 || currentState.nReportCount > 1024)
+          return;
+        const uint8_t reportId = currentState.nReportID == -1 ? 0 : currentState.nReportID;
+        const size_t bits = currentState.nReportSize * currentState.nReportCount;
+        if (bits > 8192 - m_ReportBits[reportId])
+          return;
+        m_ReportBits[reportId] += bits;
 
         // Create a new InputBlock and set the state and type
         InputBlock* pBlock = new InputBlock();
@@ -126,6 +164,8 @@ void HidReport::parseDescriptor(uint8_t* pDescriptor, size_t nDescriptorLength) 
         break;
       }
       case MIX_TYPE_N_TAG(MainItem, CollectionItem): {
+        if (nDepth == 16)
+          return;
         // Create a new Collection and set the state
         Collection* pCollection = new Collection();
         pCollection->pParent = pCurrentCollection;
@@ -143,13 +183,9 @@ void HidReport::parseDescriptor(uint8_t* pDescriptor, size_t nDescriptorLength) 
       }
       case MIX_TYPE_N_TAG(MainItem, EndCollectionItem):
         // Move up to the parent
-        if (pCurrentCollection) {
-          // This must be the root collection
-          if (!pCurrentCollection->pParent)
-            m_pRootCollection = pCurrentCollection;
-          pCurrentCollection = pCurrentCollection->pParent;
-        }
-
+        if (pCurrentCollection == m_pRootCollection || !nDepth)
+          return;
+        pCurrentCollection = pCurrentCollection->pParent;
         nDepth--;
         TABBED_LOG(nDepth, "End Collection");
         break;
@@ -208,12 +244,26 @@ void HidReport::parseDescriptor(uint8_t* pDescriptor, size_t nDescriptorLength) 
         ITEM_LOG_DEC(nDepth, "Report Size", value);
         break;
       case MIX_TYPE_N_TAG(GlobalItem, ReportIDItem):
+        if (!value || value > 255)
+          return;
         currentState.nReportID = value;
+        m_HasReportIds = true;
         ITEM_LOG_DEC(nDepth, "Report ID", value);
         break;
       case MIX_TYPE_N_TAG(GlobalItem, ReportCountItem):
         currentState.nReportCount = value;
         ITEM_LOG_DEC(nDepth, "Report Count", value);
+        break;
+
+      case MIX_TYPE_N_TAG(GlobalItem, PushItem):
+        if (globalDepth == 16)
+          return;
+        globalStack[globalDepth++].copyGlobals(currentState);
+        break;
+      case MIX_TYPE_N_TAG(GlobalItem, PopItem):
+        if (!globalDepth)
+          return;
+        currentState.copyGlobals(globalStack[--globalDepth]);
         break;
 
       // Local items (set various local variables, mostly usage-related)
@@ -240,35 +290,45 @@ void HidReport::parseDescriptor(uint8_t* pDescriptor, size_t nDescriptorLength) 
     if (item.type == MainItem)
       currentState.resetLocalValues();
   }
+  if (nDepth || globalDepth || pCurrentCollection != m_pRootCollection ||
+      (m_HasReportIds && m_ReportBits[0]))
+    return;
+  for (size_t id = 0; id < 256; ++id) {
+    if (m_ReportBits[id]) {
+      m_OldReports[id] = new uint8_t[(m_ReportBits[id] + 7) / 8]();
+      m_Valid = true;
+    }
+  }
 }
 
-void HidReport::feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, size_t nBufferSize) {
-  // Do we have the root collection?
-  if (!m_pRootCollection)
+void HidReport::feedInput(uint8_t* pBuffer, uint8_t*, size_t nBufferSize) {
+  if (!m_Valid || !pBuffer || !nBufferSize)
     return;
-
-  // Send the input to the root collection
-  size_t nBitOffset = 0;
-  m_pRootCollection->feedInput(pBuffer, pOldBuffer, nBufferSize, nBitOffset);
-
-  // Move the input to the old buffer, now that it's been parsed
-  MemoryCopy(pOldBuffer, pBuffer, nBufferSize);
+  const uint8_t reportId = m_HasReportIds ? *pBuffer++ : 0;
+  if (m_HasReportIds)
+    --nBufferSize;
+  const size_t reportBytes = (m_ReportBits[reportId] + 7) / 8;
+  if (!reportBytes || nBufferSize < reportBytes)
+    return;
+  size_t bitOffset = 0;
+  m_pRootCollection->feedInput(pBuffer, m_OldReports[reportId], reportBytes, bitOffset, reportId);
+  MemoryCopy(m_OldReports[reportId], pBuffer, reportBytes);
 }
 
 void HidReport::Collection::feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, size_t nBufferSize,
-                                      size_t& nBitOffset) {
+                                      size_t& nBitOffset, uint8_t reportId) {
   // Send input to each child
   for (size_t i = 0; i < childs.count(); i++) {
     Child* pChild = childs[i];
 
     // If it's a collection, just forward the arguments
     if (pChild->type == CollectionChild)
-      pChild->pCollection->feedInput(pBuffer, pOldBuffer, nBufferSize, nBitOffset);
+      pChild->pCollection->feedInput(pBuffer, pOldBuffer, nBufferSize, nBitOffset, reportId);
 
     // If it's an input block, we need to send also a guessed device type
     if (pChild->type == InputBlockChild)
       pChild->pInputBlock->feedInput(pBuffer, pOldBuffer, nBufferSize, nBitOffset,
-                                     guessInputDevice());
+                                     guessInputDevice(), reportId);
   }
 }
 
@@ -297,17 +357,11 @@ HidDeviceType HidReport::Collection::guessInputDevice() {
 }
 
 void HidReport::InputBlock::feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, size_t nBufferSize,
-                                      size_t& nBitOffset, HidDeviceType deviceType) {
-  // Check for report IDs
-  if (state.nReportID != ~0) {
-    /// \todo Do implement support
-    /// \note This is harder that just checking the first byte
-    /// \note Proper support for old buffer data is needed, too
-    WARNING(
-        "HidReport::InputBlock::feedInput: TODO: Implement support for "
-        "report IDs");
+                                      size_t& nBitOffset, HidDeviceType deviceType,
+                                      uint8_t reportId) {
+  const uint8_t id = state.nReportID == -1 ? 0 : state.nReportID;
+  if (id != reportId)
     return;
-  }
 
   // Compute the size of this block
   int64_t nBlockSize = state.nReportCount * state.nReportSize;
@@ -339,7 +393,9 @@ void HidReport::InputBlock::feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, siz
       case Relative:
         // The actual value is relative
         nRelativeValue = nValue;
-        HidUtils::fixNegativeValue(state.nLogMin, state.nLogMax, nRelativeValue);
+        if (state.nLogMin < 0 && state.nReportSize < 64 &&
+            (nValue & (uint64_t{1} << (state.nReportSize - 1))))
+          nRelativeValue = static_cast<int64_t>(nValue | (~uint64_t{0} << state.nReportSize));
 
         if (nRelativeValue)
           HidUtils::sendInputToManager(deviceType, state.nUsagePage, state.getUsageByIndex(i),
@@ -443,7 +499,14 @@ uint16_t HidReport::LocalState::getUsageByIndex(uint16_t nUsageIndex) {
 /// Copy constructor
 // This assignment transfers the usage vector from the source state.
 HidReport::LocalState& HidReport::LocalState::operator=(LocalState& s) {
-  // Copy all the data we need
+  copyGlobals(s);
+  pUsages = s.pUsages;
+  nUsageMin = s.nUsageMin;
+  nUsageMax = s.nUsageMax;
+  s.pUsages = nullptr;
+  return *this;
+}
+void HidReport::LocalState::copyGlobals(const LocalState& s) {
   nUsagePage = s.nUsagePage;
   nLogMin = s.nLogMin;
   nLogMax = s.nLogMax;
@@ -452,13 +515,4 @@ HidReport::LocalState& HidReport::LocalState::operator=(LocalState& s) {
   nReportSize = s.nReportSize;
   nReportID = s.nReportID;
   nReportCount = s.nReportCount;
-  pUsages = s.pUsages;
-  nUsageMin = s.nUsageMin;
-  nUsageMax = s.nUsageMax;
-
-  // Make sure the usage vector won't get deleted. This is an ownership
-  // transfer, not an ordinary const copy assignment.
-  s.pUsages = 0;  // NOLINT(bugprone-copy-constructor-mutates-argument)
-
-  return *this;
 }

@@ -34,6 +34,9 @@ class EXPORTED_PUBLIC HidReport {
 
   /// Parses a HID report descriptor and stores the resulted data
   void parseDescriptor(uint8_t* pDescriptor, size_t nDescriptorLength);
+  bool valid() const {
+    return m_Valid;
+  }
 
   /// Feeds the input interpreter with a new input buffer
   void feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, size_t nBufferSize);
@@ -103,13 +106,14 @@ class EXPORTED_PUBLIC HidReport {
 
     /// Copy constructor
     LocalState& operator=(LocalState& s);
+    void copyGlobals(const LocalState& s);
   };
 
   /// Structure representing an Input block whitin a Collection
   struct InputBlock {
     /// Feeds input to this block
     void feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, size_t nBufferSize, size_t& nBitOffset,
-                   HidDeviceType deviceType);
+                   HidDeviceType deviceType, uint8_t reportId);
 
     /// The type of the input block
     enum { Constant, Absolute, Relative, Array } type;
@@ -120,6 +124,7 @@ class EXPORTED_PUBLIC HidReport {
 
   /// Structure representing a Collection whitin a report
   struct Collection {
+    ~Collection();
     // Trickery to allow putting different type childs in the same vector
     enum ChildType { CollectionChild, InputBlockChild };
     struct Child {
@@ -135,7 +140,8 @@ class EXPORTED_PUBLIC HidReport {
 
     /// Feeds input to this collection (will get forwarded to the lowest
     /// collection)
-    void feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, size_t nBufferSize, size_t& nBitOffset);
+    void feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, size_t nBufferSize, size_t& nBitOffset,
+                   uint8_t reportId);
 
     /// Guesses from which type of device the input associated with this
     /// collection comes from
@@ -153,6 +159,10 @@ class EXPORTED_PUBLIC HidReport {
 
   /// The root collection, under which everything is
   Collection* m_pRootCollection;
+  size_t m_ReportBits[256];
+  uint8_t* m_OldReports[256];
+  bool m_HasReportIds;
+  bool m_Valid;
 };
 
 #endif

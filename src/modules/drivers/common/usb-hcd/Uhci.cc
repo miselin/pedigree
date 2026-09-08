@@ -56,6 +56,11 @@ constexpr size_t UhciDmaRegionBytes =
     UhciHardwareFrameListBytes + UhciQhRegionBytes + UhciTdRegionBytes;
 constexpr size_t UhciMaximumTransferBytes = 0x800;
 constexpr physical_uintptr_t UhciHighestDmaAddress = 0xffffffff;
+struct PeriodicCompletion {
+  Uhci* controller;
+  uintptr_t transaction;
+  size_t generation;
+};
 }  // namespace
 
 static int threadStub(void* p) {
@@ -95,6 +100,7 @@ Uhci::Uhci(Device* pDev)
       m_pCurrentAsyncQueueTail(0),
       m_pCurrentAsyncQueueHead(0),
       m_AsyncSchedule(),
+      m_PeriodicSchedule(),
       m_DequeueList(),
       m_DequeueCount(0),
       m_DequeueOperations(),
@@ -154,6 +160,9 @@ Uhci::Uhci(Device* pDev)
   pDummyQH->pMetaData->pPeriodicCallback = nullptr;
   pDummyQH->pMetaData->pPeriodicParam = 0;
   pDummyQH->pMetaData->periodicGeneration = 0;
+  pDummyQH->pMetaData->periodicInterval = 0;
+  pDummyQH->pMetaData->periodicBusTime = 0;
+  pDummyQH->pMetaData->periodicPending = false;
   pDummyQH->pMetaData->bPeriodic = false;
   pDummyQH->pMetaData->bBuildFailed = false;
   pDummyQH->pMetaData->pFirstTD = nullptr;
@@ -333,7 +342,16 @@ void Uhci::detachQueueHeadLocked(QH* pQH) {
 
   QH* pPrev = pQH->pMetaData->pPrev;
   QH* pNext = pQH->pMetaData->pNext;
-  if (pPrev && pNext) {
+  if (pQH->pMetaData->bPeriodic) {
+    for (auto it = m_PeriodicSchedule.begin(); it != m_PeriodicSchedule.end(); ++it) {
+      if (*it == pQH) {
+        m_PeriodicSchedule.erase(it);
+        break;
+      }
+    }
+    pQH->pMetaData->pPeriodicCallback = nullptr;
+    rebuildPeriodicScheduleLocked();
+  } else if (pPrev && pNext) {
     pPrev->pMetaData->pNext = pNext;
     pNext->pMetaData->pPrev = pPrev;
     pPrev->pNext = pQH->pNext;
@@ -346,6 +364,72 @@ void Uhci::detachQueueHeadLocked(QH* pQH) {
   pQH->pMetaData->pPrev = nullptr;
   pQH->pMetaData->pNext = nullptr;
   pQH->pMetaData->bIgnore = true;
+}
+
+void Uhci::rebuildPeriodicScheduleLocked() {
+  DoubleWordSet(m_pFrameList, m_pQHListPhys | 2U, 1024);
+  // Every branch shares phase zero. Inserting faster intervals first makes
+  // each slower queue's successor identical in every frame containing it.
+  for (size_t interval = 1; interval <= 128; interval *= 2) {
+    for (auto it = m_PeriodicSchedule.begin(); it != m_PeriodicSchedule.end(); ++it) {
+      QH* qh = *it;
+      if (qh->pMetaData->periodicInterval != interval)
+        continue;
+      qh->pNext = m_pFrameList[0] >> 4;
+      qh->bNextQH = 1;
+      qh->bNextInvalid = 0;
+      const uint32_t address = m_pQHListPhys + qh->pMetaData->id * sizeof(QH);
+      for (size_t frame = 0; frame < 1024; frame += interval)
+        m_pFrameList[frame] = address | 2U;
+    }
+  }
+  FENCE();
+}
+
+void Uhci::rearmPeriodicCompletion(void* context) {
+  auto* rearm = static_cast<PeriodicCompletion*>(context);
+  Uhci* controller = rearm->controller;
+  LockGuard<Mutex> transactionGuard(controller->m_Mutex);
+  LockGuard<Mutex> irqGuard(controller->m_IrqProcessingLock);
+  if (controller->m_InterruptsClosing || !controller->m_QHBitmap.test(rearm->transaction))
+    return;
+  QH* qh = &controller->m_pQHList[rearm->transaction];
+  auto* metadata = qh->pMetaData;
+  if (!metadata || !metadata->pPeriodicCallback ||
+      metadata->periodicGeneration != rearm->generation)
+    return;
+  const UsbEndpoint& endpoint = metadata->endpointInfo;
+  const size_t port = endpoint.nRootPort;
+  const uint16_t status =
+      port < controller->m_nPorts ? controller->m_pBase->read16(UHCI_PORTSC + port * 2) : 0;
+  if (port >= controller->m_nPorts || !(status & UHCI_PORTSC_CONN) || (status & UHCI_PORTSC_CSCH) ||
+      endpoint.nRootPortGeneration != controller->currentRootPortGeneration(port))
+    return;
+  if (!(controller->m_pBase->read16(UHCI_CMD) & UHCI_CMD_RUN) ||
+      (controller->m_pBase->read16(UHCI_STS) & UHCI_STS_HALT))
+    return;
+  // The host caches QH element pointers. Halt before replacing that pointer
+  // so a late writeback cannot undo the rearm after the client releases DMA.
+  controller->stop();
+  TD* td = metadata->pFirstTD;
+  td->nStatus = 0;
+  td->nActLen = 0x7ff;
+  td->nErr = 3;
+  td->bIoc = 1;
+  td->bDataToggle = !td->bDataToggle;
+  metadata->periodicPending = false;
+  metadata->nTotalBytes = 0;
+  FENCE();
+  td->nStatus = 0x80;
+  qh->pElem = (controller->m_pTDListPhys + td->id * sizeof(TD)) >> 4;
+  qh->bElemQH = 0;
+  qh->bElemInvalid = 0;
+  FENCE();
+  controller->start();
+}
+
+void Uhci::destroyPeriodicCompletion(void* context) {
+  delete static_cast<PeriodicCompletion*>(context);
 }
 
 void Uhci::reclaimQueueHeadLocked(QH* pQH) {
@@ -660,6 +744,10 @@ IrqDisposition Uhci::irq(irq_id_t number) {
 
         {
           bool bPeriodic = pQH->pMetaData->bPeriodic;
+          if (bPeriodic && pQH->pMetaData->periodicPending) {
+            persistList.pushBack(pQH);
+            continue;
+          }
 
           // Iterate the TD list
           TD* pTD = 0;
@@ -674,10 +762,11 @@ IrqDisposition Uhci::irq(irq_id_t number) {
               break;
 
             bool bEndOfTransfer = false;
-            if (pTD->nStatus == 0x80) {
+            if (pTD->nStatus & 0x80) {
               pQH->pMetaData->tdList.pushFront(pTD);
               break;
             }
+            FENCE();
 
             if (bPeriodic) {
               const UsbEndpoint& endpoint = pQH->pMetaData->endpointInfo;
@@ -698,9 +787,9 @@ IrqDisposition Uhci::irq(irq_id_t number) {
             }
 
             ssize_t nResult;
-            if (((pTD->nErr == 0) && (pTD->nStatus & 0x7e)) || (nStatus & UHCI_STS_ERR)) {
+            if (pTD->nStatus & 0x7e) {
               // #ifdef USB_VERBOSE_DEBUG
-              ERROR_NOLOCK(((nStatus & UHCI_STS_ERR) ? "USB" : "TD") << " ERROR!");
+              ERROR_NOLOCK("UHCI TD ERROR!");
               ERROR_NOLOCK("TD Status: " << pTD->nStatus << " [" << pTD->nErr
                                          << "], USB status: " << nStatus);
               // #endif
@@ -722,8 +811,7 @@ IrqDisposition Uhci::irq(irq_id_t number) {
 #endif
 
             // Handle the "end of transfer" cases
-            bEndOfTransfer = (!bPeriodic && ((nResult < 0) || (pTD == pQH->pMetaData->pLastTD))) ||
-                             (bPeriodic && (nResult >= 0));
+            bEndOfTransfer = bPeriodic || (nResult < 0) || (pTD == pQH->pMetaData->pLastTD);
 
             // Some extra cases we need to handle
             if ((pTD != pQH->pMetaData->pLastTD) && !bEndOfTransfer) {
@@ -780,30 +868,29 @@ IrqDisposition Uhci::irq(irq_id_t number) {
                   start();
                 }
               } else {
-                pTD->bDataToggle = !pTD->bDataToggle;
-                pQH->pMetaData->nTotalBytes = 0;
+                pQH->pMetaData->periodicPending = true;
+                // UHCI also raises IOC when revisiting an inactive TD.
+                pTD->bIoc = 0;
+                FENCE();
 
                 if (pQH->pMetaData->pPeriodicCallback) {
+                  PeriodicCompletion* rearm =
+                      nResult >= 0 ? new PeriodicCompletion{this, pQH->pMetaData->id,
+                                                            pQH->pMetaData->periodicGeneration}
+                                   : nullptr;
                   completions.pushBack(m_CompletionDeliveries.create(
                       {pQH->pMetaData->id, m_CompletionDeliveries.nextGeneration(),
                        pQH->pMetaData->periodicGeneration},
                       pQH->pMetaData->pPeriodicCallback, pQH->pMetaData->pPeriodicParam,
-                      completionResult));
+                      completionResult, rearm ? rearmPeriodicCompletion : nullptr, rearm,
+                      rearm ? destroyPeriodicCompletion : nullptr, rearm));
                 }
               }
             }
 
-            // Interrupt TDs need to be always active
+            // The callback owns the inactive report until it returns. Errors
+            // remain inactive until cancellation or endpoint recovery.
             if (bPeriodic) {
-              pQH->pMetaData->bIgnore = false;
-              pTD->nStatus = 0x80;
-              pTD->nActLen = 0;
-
-              // Modified by the host controller
-              pQH->pElem = PHYS_TD(pTD->id) >> 4;
-              pQH->bElemInvalid = 0;
-              pQH->bElemQH = 0;
-
               pQH->pMetaData->tdList.pushBack(pTD);
               break;  // Periodic QHs should only have one TD
             }
@@ -899,8 +986,8 @@ void Uhci::addTransferToTransaction(uintptr_t pTransaction, bool bToggle, UsbPid
   // Speed information
   pTD->bLoSpeed = pQH->pMetaData->endpointInfo.speed == LowSpeed;
 
-  // Don't care about short packet detection
-  pTD->bSpd = 0;
+  // Stop before remaining bulk IN packets can consume the next BOT phase.
+  pTD->bSpd = pid == UsbPidIn && pQH->pMetaData->endpointInfo.nEndpoint;
 
   // Endpoint information
   pTD->nAddress = pQH->pMetaData->endpointInfo.nAddress;
@@ -968,6 +1055,9 @@ uintptr_t Uhci::createTransaction(UsbEndpoint endpointInfo) {
   pQH->pMetaData->pPeriodicCallback = nullptr;
   pQH->pMetaData->pPeriodicParam = 0;
   pQH->pMetaData->periodicGeneration = 0;
+  pQH->pMetaData->periodicInterval = 0;
+  pQH->pMetaData->periodicBusTime = 0;
+  pQH->pMetaData->periodicPending = false;
   pQH->pMetaData->endpointInfo = endpointInfo;
   pQH->pMetaData->bPeriodic = false;
   pQH->pMetaData->bBuildFailed = false;
@@ -1031,30 +1121,46 @@ bool Uhci::doAsyncOwned(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssi
     m_TransferOperations.leave();
     return false;
   }
+  if (pQH->pMetaData->bPeriodic) {
+    size_t busTime = pQH->pMetaData->periodicBusTime;
+    LockGuard<Mutex> queueGuard(m_AsyncQueueListChangeLock);
+    for (auto it = m_PeriodicSchedule.begin(); it != m_PeriodicSchedule.end(); ++it)
+      busTime += (*it)->pMetaData->periodicBusTime;
+    if (busTime > 900) {
+      ERROR("UHCI: periodic frame budget exhausted");
+      reclaimQueueHeadLocked(pQH);
+      m_TransferOperations.leave();
+      return false;
+    }
+  }
 
   // m_IrqProcessingLock is the controller-wide DMA publication lock.
   stop();
   {
     LockGuard<Mutex> queueGuard(m_AsyncQueueListChangeLock);
 
-    const size_t queueHeadIndex = (reinterpret_cast<uintptr_t>(m_pCurrentAsyncQueueHead) -
-                                   reinterpret_cast<uintptr_t>(m_pQHList)) /
-                                  sizeof(QH);
-    pQH->pNext = (m_pQHListPhys + (queueHeadIndex * sizeof(QH))) >> 4;
-    pQH->bNextInvalid = 0;
-    pQH->bNextQH = 1;
     pQH->pMetaData->bIgnore = true;
-
-    QH* pOldTail = m_pCurrentAsyncQueueTail;
-    m_pCurrentAsyncQueueTail = pQH;
-    pOldTail->pNext = (m_pQHListPhys + (pTransaction * sizeof(QH))) >> 4;
-    pOldTail->bNextInvalid = 0;
-    pOldTail->bNextQH = 1;
-    pOldTail->pMetaData->pNext = pQH;
-
-    pQH->pMetaData->pNext = m_pCurrentAsyncQueueHead;
-    pQH->pMetaData->pPrev = pOldTail;
-    m_pCurrentAsyncQueueHead->pMetaData->pPrev = pQH;
+    if (pQH->pMetaData->bPeriodic) {
+      pQH->pMetaData->pPrev = pQH->pMetaData->pNext = pQH;
+      m_PeriodicSchedule.pushBack(pQH);
+      rebuildPeriodicScheduleLocked();
+    } else {
+      const size_t queueHeadIndex = (reinterpret_cast<uintptr_t>(m_pCurrentAsyncQueueHead) -
+                                     reinterpret_cast<uintptr_t>(m_pQHList)) /
+                                    sizeof(QH);
+      pQH->pNext = (m_pQHListPhys + (queueHeadIndex * sizeof(QH))) >> 4;
+      pQH->bNextInvalid = 0;
+      pQH->bNextQH = 1;
+      QH* pOldTail = m_pCurrentAsyncQueueTail;
+      m_pCurrentAsyncQueueTail = pQH;
+      pOldTail->pNext = (m_pQHListPhys + (pTransaction * sizeof(QH))) >> 4;
+      pOldTail->bNextInvalid = 0;
+      pOldTail->bNextQH = 1;
+      pOldTail->pMetaData->pNext = pQH;
+      pQH->pMetaData->pNext = m_pCurrentAsyncQueueHead;
+      pQH->pMetaData->pPrev = pOldTail;
+      m_pCurrentAsyncQueueHead->pMetaData->pPrev = pQH;
+    }
     m_AsyncSchedule.pushBack(pQH);
 
     pQH->pMetaData->pLastTD->bIoc = 1;
@@ -1201,6 +1307,11 @@ bool Uhci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, ui
   OperationBarrier::Lease submission;
   if (!m_SubmissionOperations.tryAcquire(submission) || handle || !pCallback)
     return false;
+  if (!pBuffer || !nBytes || !endpointInfo.nEndpoint || !endpointInfo.nInterval ||
+      nBytes > endpointInfo.nMaxPacketSize ||
+      (endpointInfo.speed != LowSpeed && endpointInfo.speed != FullSpeed) ||
+      endpointInfo.nMaxPacketSize > (endpointInfo.speed == LowSpeed ? 8U : 64U))
+    return false;
 
   // Create a new transaction
   uintptr_t nTransaction = createTransaction(endpointInfo);
@@ -1216,6 +1327,14 @@ bool Uhci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, ui
     LockGuard<Mutex> transactionGuard(m_Mutex);
     pQH->pMetaData->bPeriodic = true;
     pQH->pMetaData->periodicGeneration = generation;
+    size_t interval = 1;
+    while (interval * 2 <= endpointInfo.nInterval)
+      interval *= 2;
+    pQH->pMetaData->periodicInterval = interval;
+    // Reserve a conservative worst-case packet time, including low-speed
+    // preambles and bit stuffing. All branches share a phase, so sum directly.
+    pQH->pMetaData->periodicBusTime =
+        (nBytes + 32U) * (endpointInfo.speed == LowSpeed ? 7U : 1U) + 20U;
   }
 
   // Add a single transfer to the transaction
@@ -1227,10 +1346,6 @@ bool Uhci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, ui
       reclaimQueueHeadLocked(pQH);
     return false;
   }
-
-  // Get the TD and set the error counter to "unlimited retries"
-  TD* pTD = pQH->pMetaData->pLastTD;
-  pTD->nErr = 0;
 
   // Let doAsync do the rest
   if (!doAsyncOwned(nTransaction, pCallback, pParam, &handle, generation)) {

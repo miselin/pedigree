@@ -160,17 +160,18 @@ bool Ehci::initialiseController() {
   uint32_t hccapbase = m_pBase->read32(EHCI_CAPLENGTH);
   uint16_t version = hccapbase >> 16;
 
-  m_nOpRegsOffset = hccapbase & 0xF;
+  m_nOpRegsOffset = hccapbase & 0xFF;
 #ifdef USB_VERBOSE_DEBUG
   NOTICE("EHCI operation registers are at offset " << m_nOpRegsOffset);
 #endif
-  if (m_nOpRegsOffset == 0) {
+  if (m_nOpRegsOffset < 0x10 || m_nOpRegsOffset > m_pBase->size() ||
+      m_pBase->size() - m_nOpRegsOffset < EHCI_PORTSC + sizeof(uint32_t)) {
     // No offset for operational base: this is almost certainly not really
     // a controller.
     return false;
   }
 
-  NOTICE("EHCI controller version " << ((version & 0xFF) >> 8) << "." << (version & 0xFF));
+  NOTICE("EHCI controller version " << (version >> 8) << "." << (version & 0xFF));
 
   // Get structural capabilities to determine the number of physical ports
   // we have available to us.
@@ -789,6 +790,60 @@ void Ehci::finishDeferredCompletion(void* context) {
   delete cleanup;
 }
 
+void Ehci::rebuildPeriodicScheduleLocked() {
+  constexpr size_t Count = EhciQhRegionBytes / sizeof(QH);
+  for (size_t frame = 0; frame < 1024; ++frame) {
+    m_pFrameList[frame] = 1;
+    QH* previous = nullptr;
+    // Power-of-two intervals make each slower QH's successor identical in
+    // every frame containing it: faster queues can be shared by all branches.
+    for (size_t interval = 1024; interval; interval /= 2) {
+      if (frame % interval)
+        continue;
+      for (size_t i = 1; i < Count; ++i) {
+        QH* qh = &m_pQHList[i];
+        if (!m_QHBitmap.test(i) || !qh->pMetaData || !qh->pMetaData->pCallback ||
+            !qh->pMetaData->bPeriodic || qh->pMetaData->periodicInterval != interval)
+          continue;
+        const uint32_t address = m_pQHListPhys + i * sizeof(QH);
+        if (previous) {
+          previous->pNext = address >> 5;
+          previous->nNextType = 1;
+          previous->bNextInvalid = 0;
+        } else
+          m_pFrameList[frame] = address | 2U;
+        qh->bNextInvalid = 1;
+        previous = qh;
+      }
+    }
+  }
+  FENCE();
+}
+void Ehci::rearmPeriodicCompletion(void* context) {
+  auto* rearm = static_cast<EhciCompletionCleanup*>(context);
+  Ehci* controller = rearm->controller;
+  LockGuard<Mutex> lock(controller->m_Mutex);
+  LockGuard<IrqProcessingLock> irqLock(controller->m_IrqProcessingLock);
+  if (!controller->m_QHBitmap.test(rearm->transaction) || controller->m_InterruptClosure >= 2)
+    return;
+  QH* qh = &controller->m_pQHList[rearm->transaction];
+  auto* metadata = qh->pMetaData;
+  if (!metadata || !metadata->pCallback || metadata->periodicGeneration != rearm->generation)
+    return;
+  qTD next = metadata->periodicTemplate;
+  next.nStatus = 0;
+  *metadata->pFirstQTD = next;
+  MemoryCopy(&qh->overlay, metadata->pFirstQTD, sizeof(qTD));
+  metadata->periodicPending = false;
+  FENCE();
+  metadata->pFirstQTD->nStatus = 0x80;
+  FENCE();
+  qh->overlay.nStatus = 0x80;
+}
+void Ehci::destroyPeriodicCompletion(void* context) {
+  delete static_cast<EhciCompletionCleanup*>(context);
+}
+
 void Ehci::doDequeue() {
   TerminationDeferral workerLifetime;
   while (true) {
@@ -984,7 +1039,7 @@ void Ehci::interrupt(size_t number, InterruptState& state)
     // that occur before the last transfer. These will create an error
     // status only.
     if (nStatus & (EHCI_STS_INT | EHCI_STS_ERR)) {
-      for (size_t i = 1; i < 128; i++) {
+      for (size_t i = 1; i < EhciQhRegionBytes / sizeof(QH); i++) {
         if (!m_QHBitmap.test(i))
           continue;
 
@@ -994,7 +1049,7 @@ void Ehci::interrupt(size_t number, InterruptState& state)
           continue;
         if (!pQH->pMetaData->bPeriodic && !(pQH->pMetaData->pPrev && pQH->pMetaData->pNext))
           continue;
-        if (pQH->pMetaData->bIgnore)
+        if (pQH->pMetaData->bIgnore || pQH->pMetaData->periodicPending)
           continue;
         if (!(pQH->pMetaData->pFirstQTD && pQH->pMetaData->pLastQTD))
           continue;
@@ -1013,9 +1068,10 @@ void Ehci::interrupt(size_t number, InterruptState& state)
 
           qTD* pqTD = &m_pqTDList[nQTDIndex];
 
-          if (pqTD->nStatus != 0x80) {
+          if (!(pqTD->nStatus & 0x80) && !pqTD->processed) {
+            pqTD->processed = true;
             ssize_t nResult;
-            if ((pqTD->nStatus & 0x7c) || (nStatus & EHCI_STS_ERR)) {
+            if (pqTD->nStatus & 0x7c) {
 #ifdef USB_VERBOSE_DEBUG
               ERROR_NOLOCK(((nStatus & EHCI_STS_ERR) ? "USB" : "qTD") << " ERROR!");
               ERROR_NOLOCK("qTD Status: " << pqTD->nStatus
@@ -1042,7 +1098,9 @@ void Ehci::interrupt(size_t number, InterruptState& state)
 #endif
 
             // Last qTD or error condition?
-            if ((nResult < 0) || (pqTD == pQH->pMetaData->pLastQTD)) {
+            const bool shortIn =
+                pQH->nEndpoint && pqTD->nPid == 1 && nResult >= 0 && nResult < pqTD->nBufferSize;
+            if ((nResult < 0) || shortIn || (pqTD == pQH->pMetaData->pLastQTD)) {
               const ssize_t completionResult = nResult < 0 ? nResult : pQH->pMetaData->nTotalBytes;
               const bool ownsCompletion =
                   bPeriodic || pQH->pMetaData->completion.captureNatural(completionResult);
@@ -1087,22 +1145,20 @@ void Ehci::interrupt(size_t number, InterruptState& state)
 
               if (bPeriodic && pQH->pMetaData->pCallback) {
 #if X86_COMMON
+                pQH->pMetaData->periodicPending = true;
+                pQH->pMetaData->periodicTemplate.bDataToggle = pQH->overlay.bDataToggle;
+                pQH->pMetaData->nTotalBytes = 0;
+                auto* rearm =
+                    new EhciCompletionCleanup{this, i, pQH->pMetaData->periodicGeneration};
                 completions.pushBack(m_CompletionDeliveries.create(
                     {i, m_CompletionDeliveries.nextGeneration(),
                      pQH->pMetaData->periodicGeneration},
-                    pQH->pMetaData->pCallback, pQH->pMetaData->pParam, completionResult));
+                    pQH->pMetaData->pCallback, pQH->pMetaData->pParam, completionResult,
+                    rearmPeriodicCompletion, rearm, destroyPeriodicCompletion, rearm));
 #else
               pQH->pMetaData->pCallback(pQH->pMetaData->pParam, completionResult);
 #endif
               }
-            }
-            // Interrupt qTDs need constant refresh
-            if (bPeriodic) {
-              pqTD->nStatus = 0x80;
-              pqTD->nBytes = pqTD->nBufferSize;
-              pqTD->nPage = 0;
-              pqTD->nErr = 0;
-              MemoryCopy(&pQH->overlay, pqTD, sizeof(qTD));
             }
           }
 
@@ -1173,6 +1229,22 @@ void Ehci::addTransferToTransactionAdmitted(uintptr_t nTransaction, bool bToggle
     return;
   }
 
+  qTD* last = pQH->pMetaData->pLastQTD;
+  if (last && pid != UsbPidSetup && nBytes && last->nPid == (pid == UsbPidIn ? 1U : 0U) &&
+      last->nBufferSize && !(last->nBufferSize % pQH->nMaxPacketSize) &&
+      last->nOffset + last->nBufferSize + nBytes <= EhciHardwarePageBytes) {
+    physical_uintptr_t physical = 0;
+    auto& addressSpace = Processor::information().getVirtualAddressSpace();
+    if (DriverDma::virtualToPhysical(addressSpace, pBuffer, physical) &&
+        physical ==
+            (static_cast<uintptr_t>(last->pPage0) << 12) + last->nOffset + last->nBufferSize) {
+      last->nBytes += nBytes;
+      last->nBufferSize += nBytes;
+      if (last == pQH->pMetaData->pFirstQTD)
+        MemoryCopy(&pQH->overlay, last, sizeof(qTD));
+      return;
+    }
+  }
   const size_t nIndex = m_qTDBitmap.getFirstClear();
   if (nIndex >= (EhciHardwarePageBytes / sizeof(qTD))) {
     ERROR("USB: EHCI: qTD space full");
@@ -1206,7 +1278,7 @@ void Ehci::addTransferToTransactionAdmitted(uintptr_t nTransaction, bool bToggle
 
   // Active, we want an interrupt on completion, and reset the error counter
   pqTD->nStatus = 0x80;
-  pqTD->bIoc = 0;  // Interrupt only on last TD
+  pqTD->bIoc = pQH->nEndpoint && pid == UsbPidIn;
   pqTD->nErr = 3;  // Up to 3 retries of this transaction
 
   // Set up the transfer
@@ -1271,6 +1343,18 @@ void Ehci::addTransferToTransactionAdmitted(uintptr_t nTransaction, bool bToggle
     pqTD->pPage4 = bufferPages[4];
   }
 
+  if (!pQH->nEndpoint && !nBytes && pQH->pMetaData->pFirstQTD) {
+    qTD* previous = pQH->pMetaData->pFirstQTD;
+    for (;;) {
+      if (previous->nPid == 1) {
+        previous->pAltNext = PHYS_QTD(nIndex) >> 5;
+        previous->bAltNextInvalid = 0;
+      }
+      if (previous->bNextInvalid)
+        break;
+      previous = &m_pqTDList[((previous->pNext << 5) - m_pqTDListPhys) / sizeof(qTD)];
+    }
+  }
   // Add our qTD to the transaction.
   if (pQH->pMetaData->pLastQTD) {
     pQH->pMetaData->pLastQTD->pNext = PHYS_QTD(nIndex) >> 5;
@@ -1326,7 +1410,7 @@ uintptr_t Ehci::createTransactionAdmitted(UsbEndpoint endpointInfo) {
 
   // Device address and speed
   pQH->nAddress = endpointInfo.nAddress;
-  pQH->nSpeed = endpointInfo.speed;
+  pQH->nSpeed = endpointInfo.speed == LowSpeed ? 1 : endpointInfo.speed == FullSpeed ? 0 : 2;
 
   // Endpoint number and maximum packet size
   pQH->nEndpoint = endpointInfo.nEndpoint;
@@ -1552,12 +1636,8 @@ bool Ehci::cancelInterruptInAndDrain(const UsbInterruptInToken& token,
             metadata->bIgnore = true;
             metadata->pCallback = nullptr;
             metadata->pParam = 0;
-            const size_t frame = metadata->periodicFrameIndex;
-            if (frame >= 1024 || !m_FrameBitmap.test(frame))
-              panic("EHCI interrupt-IN subscription lost its frame slot");
-            m_pFrameList[frame] = 1;
-            m_FrameBitmap.clear(frame);
             reclaimQhLocked(token.transaction);
+            rebuildPeriodicScheduleLocked();
             matched = true;
           }
         }
@@ -1607,23 +1687,19 @@ bool Ehci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, ui
   if (!m_SubmissionOperations.tryAcquire(submission) || handle || !pCallback)
     return false;
 
-  // Find an empty frame entry
-  size_t nFrameIndex = 0;
-  {
-    LockGuard<Mutex> guard(m_Mutex);
-    nFrameIndex = m_FrameBitmap.getFirstClear();
-    if (nFrameIndex >= 1024) {
-      ERROR("USB: EHCI: Frame list full");
-      return false;
-    }
-    m_FrameBitmap.set(nFrameIndex);
-  }
-
+  if (!endpointInfo.nInterval || !nBytes || nBytes > endpointInfo.nMaxPacketSize ||
+      (endpointInfo.speed == HighSpeed && endpointInfo.nInterval > 14) ||
+      (endpointInfo.speed != HighSpeed && (!endpointInfo.nHubAddress || !endpointInfo.nHubPort)))
+    return false;
+  size_t microframes = endpointInfo.speed == HighSpeed ? size_t{1} << (endpointInfo.nInterval - 1)
+                                                       : size_t{8} * endpointInfo.nInterval;
+  size_t interval = 1;
+  while (interval < 1024 && interval * 16 <= microframes)
+    interval *= 2;
   // Create a new transaction
   uintptr_t nTransaction = createTransactionAdmitted(endpointInfo);
   if (nTransaction == static_cast<uintptr_t>(-1)) {
     LockGuard<Mutex> guard(m_Mutex);
-    m_FrameBitmap.clear(nFrameIndex);
     return false;
   }
 
@@ -1644,21 +1720,78 @@ bool Ehci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, ui
         m_InterruptClosure >= 2) {
       ERROR("USB: EHCI: Couldn't add interrupt transfer!");
       reclaimQhLocked(nTransaction);
-      m_FrameBitmap.clear(nFrameIndex);
       return false;
     }
 
+    uint8_t startMask = 1, completeMask = 0;
+    if (endpointInfo.speed == HighSpeed) {
+      const size_t step = microframes < 8 ? microframes : 8;
+      startMask = 0;
+      for (size_t microframe = nTransaction % step; microframe < 8; microframe += step)
+        startMask |= 1U << microframe;
+    } else {
+      uint8_t occupied = 0;
+      for (size_t i = 1; i < EhciQhRegionBytes / sizeof(QH); ++i) {
+        auto* other = &m_pQHList[i];
+        if (i != nTransaction && m_QHBitmap.test(i) && other->pMetaData &&
+            other->pMetaData->bPeriodic && other->pMetaData->pCallback &&
+            other->nHubAddress == endpointInfo.nHubAddress)
+          occupied |= other->ism;
+      }
+      size_t microframe = 0;
+      while (microframe < 4 && (occupied & (1U << microframe)))
+        ++microframe;
+      if (microframe == 4) {
+        reclaimQhLocked(nTransaction);
+        return false;
+      }
+      startMask = 1U << microframe;
+      completeMask = 0x1cU << microframe;
+    }
+    // All frame branches meet at frame zero. Bound the busiest microframe
+    // conservatively, reserving 20 us for each split start/completion attempt.
+    for (size_t microframe = 0; microframe < 8; ++microframe) {
+      size_t nanoseconds = 0;
+      for (size_t i = 1; i < EhciQhRegionBytes / sizeof(QH); ++i) {
+        auto* other = &m_pQHList[i];
+        if (!m_QHBitmap.test(i) || !other->pMetaData || !other->pMetaData->bPeriodic ||
+            (i != nTransaction && !other->pMetaData->pCallback))
+          continue;
+        const uint8_t starts = i == nTransaction ? startMask : other->ism;
+        const uint8_t completes = i == nTransaction ? completeMask : other->scm;
+        if ((starts | completes) & (1U << microframe))
+          nanoseconds += other->nSpeed == 2 ? other->nMaxPacketSize * 20U + 3000U : 20000U;
+      }
+      if (nanoseconds > 80000) {
+        reclaimQhLocked(nTransaction);
+        return false;
+      }
+    }
+    const uint32_t savedCommand = m_pBase->read32(m_nOpRegsOffset + EHCI_CMD);
+    m_pBase->write32(savedCommand & ~EHCI_CMD_PERIODICLE, m_nOpRegsOffset + EHCI_CMD);
+    if (!waitForMmioState(m_pBase, m_nOpRegsOffset + EHCI_STS, 1U << 14, 0))
+      panic("EHCI periodic insertion could not stop the periodic schedule");
     LockGuard<IrqProcessingLock> transactionGuard(m_IrqProcessingLock);
-    pQH->pMetaData->pLastQTD->nErr = 0;
+    pQH->hrcl = false;
+    pQH->nNakReload = 0;
+    pQH->ism = startMask;
+    pQH->scm = completeMask;
+    pQH->pMetaData->pLastQTD->nErr = 3;
+    pQH->pMetaData->pLastQTD->bIoc = 1;
+    pQH->pMetaData->periodicTemplate = *pQH->pMetaData->pLastQTD;
+    MemoryCopy(&pQH->overlay, pQH->pMetaData->pLastQTD, sizeof(qTD));
     pQH->pMetaData->pCallback = pCallback;
     pQH->pMetaData->pParam = pParam;
     pQH->pMetaData->periodicGeneration = m_CompletionDeliveries.nextGeneration();
-    pQH->pMetaData->periodicFrameIndex = nFrameIndex;
+    pQH->pMetaData->periodicFrameIndex = 0;
+    pQH->pMetaData->periodicInterval = interval;
     const bool published = publishInterruptInHandle(
         handle, {nTransaction, pQH->pMetaData->periodicGeneration}, pCallback, pParam);
     if (!published)
       panic("EHCI submitted interrupt-IN without publishing its owner handle");
-    m_pFrameList[nFrameIndex] = (m_pQHListPhys + nTransaction * sizeof(QH)) | 2;
+    rebuildPeriodicScheduleLocked();
+    m_pBase->write32(savedCommand | EHCI_CMD_PERIODICLE, m_nOpRegsOffset + EHCI_CMD);
+    (void)m_pBase->read32(m_nOpRegsOffset + EHCI_CMD);
   }
   return true;
 #endif

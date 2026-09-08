@@ -132,10 +132,6 @@ bool UsbHubDevice::portReset(uint8_t nPort, bool bErrorResponse) {
   if (!Time::delay(50 * Time::Multiplier::Millisecond))
     return false;
 
-  // Done with reset
-  if (!clearPortFeature(nPort, PortReset))
-    return false;
-
   // Wait for completion
   uint32_t portStatus = 0;
   size_t poll = 0;
@@ -151,6 +147,8 @@ bool UsbHubDevice::portReset(uint8_t nPort, bool bErrorResponse) {
     ERROR("USB: HUB: reset on port " << Dec << static_cast<size_t>(nPort) << Hex << " timed out");
     return false;
   }
+  if (!clearPortFeature(nPort, CPortReset))
+    return false;
 
   // Port has been powered on and now reset, check to see if it's enabled and
   // a device is connected
@@ -179,8 +177,13 @@ void UsbHubDevice::addTransferToTransaction(uintptr_t pTransaction, bool bToggle
 }
 
 uintptr_t UsbHubDevice::createTransaction(UsbEndpoint endpointInfo) {
-  if ((m_Speed == HighSpeed) && (endpointInfo.speed != HighSpeed) && !endpointInfo.nHubAddress)
-    endpointInfo.nHubAddress = m_nAddress;
+  if (endpointInfo.speed != HighSpeed && !endpointInfo.nHubAddress) {
+    if (m_Speed == HighSpeed) {
+      endpointInfo.nHubAddress = m_nAddress;
+      ++endpointInfo.nHubPort;
+    } else
+      endpointInfo.nHubPort = m_nPort;
+  }
   return m_pHub->createTransaction(endpointInfo);
 }
 
@@ -197,8 +200,13 @@ void UsbHubDevice::cancelAsyncAndDrain(uintptr_t pTransaction,
 bool UsbHubDevice::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer,
                                          uint16_t nBytes, void (*pCallback)(uintptr_t, ssize_t),
                                          UsbInterruptInHandle& handle, uintptr_t pParam) {
-  if ((m_Speed == HighSpeed) && (endpointInfo.speed != HighSpeed) && (!endpointInfo.nHubAddress))
-    endpointInfo.nHubAddress = m_nAddress;
+  if (endpointInfo.speed != HighSpeed && !endpointInfo.nHubAddress) {
+    if (m_Speed == HighSpeed) {
+      endpointInfo.nHubAddress = m_nAddress;
+      ++endpointInfo.nHubPort;
+    } else
+      endpointInfo.nHubPort = m_nPort;
+  }
   // The upstream call publishes the handle directly against the root HCD.
   return m_pHub->addInterruptInHandler(endpointInfo, pBuffer, nBytes, pCallback, handle, pParam);
 }
