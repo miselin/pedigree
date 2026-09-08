@@ -22,6 +22,7 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/new"
 
 #include "system/kernel/machine/mach_pc/Ps2Controller.h"
@@ -44,20 +45,39 @@ Ps2Mouse::~Ps2Mouse() {
 }
 
 bool Ps2Mouse::initialise(Ps2Controller* pController) {
+  if (!pController || !pController->hasSecondPort())
+    return false;
   m_pController = pController;
-
-  /// \todo handle errors, resend requests, etc
 
   // Command responses use the controller's split-IRQ buffer once its worker
   // is active, so IRQ12 must be enabled before waiting for either ACK.
   m_pController->setIrqEnable(true, true);
 
-  // Set up the mouse.
-  uint8_t result = 0;
-  m_pController->writeSecondPort(SetDefaults);
-  m_pController->readSecondPort(result);
-  m_pController->writeSecondPort(MouseStream);
-  m_pController->readSecondPort(result);
+  // Missing devices and lost command replies must not block module loading.
+  const uint8_t commands[] = {SetDefaults, MouseStream};
+  for (uint8_t command : commands) {
+    bool acknowledged = false;
+    for (size_t retry = 0; retry < 3 && !acknowledged; ++retry) {
+      m_pController->writeSecondPort(command);
+      uint8_t response = 0;
+      bool received = false;
+      for (size_t poll = 0; poll < 250 && !m_pController->readsStopping(); ++poll) {
+        if (m_pController->readSecondPort(response, false)) {
+          received = true;
+          break;
+        }
+        Time::delay(Time::Multiplier::Millisecond);
+      }
+      acknowledged = received && response == MouseAck;
+      if (!received || (response != MouseAck && response != 0xfe))
+        break;
+    }
+    if (!acknowledged) {
+      m_pController->setIrqEnable(true, false);
+      WARNING("PS/2 mouse did not acknowledge command " << Hex << command);
+      return false;
+    }
+  }
 
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
   Thread* pThread = new Thread(pProcess, readerThreadTrampoline, this);

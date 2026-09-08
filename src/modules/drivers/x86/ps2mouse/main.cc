@@ -60,10 +60,10 @@ static bool entry() {
   // Cannot replace the child, as we need to have it present for keyboards.
   if (g_Ps2Mouse) {
     Device::addToRoot(g_Ps2Mouse);
-    return true;
   }
-
-  return false;
+  // POSIX mouse files also use the callback-registration types when no
+  // physical mouse was found, so their exported code must remain available.
+  return true;
 }
 
 static void unload() {

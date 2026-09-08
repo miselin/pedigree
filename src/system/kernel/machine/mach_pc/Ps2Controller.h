@@ -68,7 +68,7 @@ class Ps2Controller : public Controller, private SplitIrqHandler {
   EXPORTED_PUBLIC void writeSecondPort(uint8_t byte);
 
   /// Reports whether this PS/2 controller has two ports.
-  bool hasSecondPort() const;
+  EXPORTED_PUBLIC bool hasSecondPort() const;
 
   /// Enables/disables IRQs for the first or second ports.
   EXPORTED_PUBLIC void setIrqEnable(bool firstEnabled, bool secondEnabled);
