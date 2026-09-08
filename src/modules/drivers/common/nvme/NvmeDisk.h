@@ -31,6 +31,7 @@ class EXPORTED_PUBLIC NvmeDisk final : public ScsiDisk {
   }
 
  private:
+  friend class NvmeController;
   size_t validPageLength(uint64_t location) const;
   NvmeController* m_Controller;
   const uint32_t m_Nsid;

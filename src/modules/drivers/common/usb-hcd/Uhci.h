@@ -55,6 +55,9 @@ class Uhci : public UsbHub, public IrqHandler, public RequestQueue, public Timer
  public:
   Uhci(Device* pDev);
   virtual ~Uhci();
+  bool initialised() const {
+    return m_Initialised;
+  }
 
   struct TD {
     uint32_t bNextInvalid : 1;
@@ -220,7 +223,7 @@ class Uhci : public UsbHub, public IrqHandler, public RequestQueue, public Timer
 
   /// Updates the lower USBLEGSUP control word without clobbering its upper
   /// word.
-  void setLegacySupportControl(uint16_t control);
+  bool setLegacySupportControl(uint16_t control);
 
   /// Serialises control RMWs with scanning without echoing W1C status bits.
   void modifyPortControl(size_t portRegister, uint16_t clearMask, uint16_t setMask);
@@ -250,6 +253,8 @@ class Uhci : public UsbHub, public IrqHandler, public RequestQueue, public Timer
   };
 
   IoBase* m_pBase;
+  bool m_HardwareOwned = false;
+  bool m_Initialised = false;
   /** Rejects submissions which race transfer teardown. */
   OperationBarrier m_SubmissionOperations;
   /** Drains cancellation callers before their callback state is reclaimed. */

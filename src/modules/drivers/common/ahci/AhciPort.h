@@ -29,7 +29,7 @@ class AhciPort {
   void enableInterrupts();
   bool interrupt(bool pending);
   bool command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buffer, size_t bytes,
-               bool write, bool interrupts);
+               bool write, bool interrupts, bool interruptProbe = false);
   size_t interruptCompletions() const;
   size_t maximumOutstanding() const;
   void configureDisk(size_t sectorBytes, size_t queueDepth);

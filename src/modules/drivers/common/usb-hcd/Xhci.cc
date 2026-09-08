@@ -5,6 +5,7 @@
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/machine/PciFunctionState.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/IoBase.h"
@@ -53,10 +54,11 @@ bool Xhci::parseCapabilities(uint32_t hcc) {
     const uint32_t cap = read(offset);
     if ((cap & 255U) == 1) {
       write(offset, cap | (1U << 24));
-      if (!wait(offset, 1U << 16, 0, 5000))
+      if (!wait(offset, (1U << 16) | (1U << 24), 1U << 24, 5000))
         return false;
       write(offset + 4, (read(offset + 4) & 0x000e1feeU) | 0xe0000000U);
-      (void)read(offset + 4);
+      if (read(offset + 4) & 0x0000e011U)
+        return false;
     } else if ((cap & 255U) == 2) {
       const uint32_t ports = read(offset + 8);
       const size_t first = ports & 255U, count = (ports >> 8) & 255U;
@@ -123,38 +125,25 @@ bool Xhci::initialiseController() {
     return false;
 #endif
   auto& pci = PciBus::instance();
-  m_OriginalCommand = pci.readConfigSpace(m_Pci, 1);
-  const uint32_t bar = pci.readConfigSpace(m_Pci, 4);
+  PciFunctionState::State pciState{};
+  if (!pci.inspectFunction(m_Pci, pciState)) {
+    ERROR("xHCI: unsupported inherited PCI function state");
+    return false;
+  }
+  const uint32_t bar = pciState.bars[0];
   if ((bar & 1U) || ((bar & 6U) != 0 && (bar & 6U) != 4))
     return false;
   uint64_t base = bar & ~15U;
   if (bar & 4U)
-    base |= uint64_t{pci.readConfigSpace(m_Pci, 5)} << 32;
+    base |= uint64_t{pciState.bars[1]} << 32;
   Device::Address* mapping = nullptr;
   for (auto* address : m_Pci->addresses())
-    if (base && !address->m_IsIoSpace && address->m_Address == base)
+    if (address->m_Name == "bar0" && base && !address->m_IsIoSpace && address->m_Address == base)
       mapping = address;
   if (!mapping || mapping->m_Size < 0x500)
     return false;
-  pci.writeConfigSpace(m_Pci, 1, (m_OriginalCommand | 2U | 0x400U) & ~4U);
-  m_PciChanged = true;
-  size_t capability = pci.readConfigSpace(m_Pci, 0x34 / 4) & 0xfcU;
-  for (size_t budget = 0; capability && budget < 48; ++budget) {
-    if (capability < 0x40 || capability > 0xfc)
-      return false;
-    const uint32_t cap = pci.readConfigSpace(m_Pci, capability / 4);
-    if ((cap & 255U) == 5)
-      pci.writeConfigSpace(m_Pci, capability / 4, cap & ~(1U << 16));
-    if ((cap & 255U) == 17)
-      pci.writeConfigSpace(m_Pci, capability / 4, (cap & ~(1U << 31)) | (1U << 30));
-    if ((cap & 255U) == 1) {
-      const uint32_t power = pci.readConfigSpace(m_Pci, (capability + 4) / 4);
-      pci.writeConfigSpace(m_Pci, (capability + 4) / 4, power & ~3U);
-      Time::delay(10 * Time::Multiplier::Millisecond);
-    }
-    capability = (cap >> 8) & 0xfcU;
-  }
-  if (capability)
+  // Keep firmware DMA live until its ownership semaphore has been released.
+  if (!pci.updateCommand(m_Pci, 0, 2))
     return false;
   mapping->map();
   m_Registers = mapping->m_Io;
@@ -188,6 +177,10 @@ bool Xhci::initialiseController() {
   write(m_Op, read(m_Op) | 2U);
   if (!wait(m_Op, 2, 0, 1000) || !wait(m_Op + 4, 1U << 11, 0, 1000) || !(read(m_Op + 8) & 1U))
     return false;
+  if (!pci.updateCommand(m_Pci, 4, 2 | 0x400) || !pci.disableMessageInterrupts(m_Pci, pciState)) {
+    ERROR("xHCI: could not establish masked PCI interrupt state");
+    return false;
+  }
   if (!m_Commands.initialise() || !allocate(m_Events, 1) || !allocate(m_Erst, 1) ||
       !allocate(m_Dcbaa, 1) || !allocate(m_Input, 1))
     return false;
@@ -212,8 +205,10 @@ bool Xhci::initialiseController() {
   erst[1] = RingEntries;
   // Controllers may fetch the segment table as soon as ERSTBA is programmed.
   FENCE();
-  pci.writeConfigSpace(m_Pci, 1, m_OriginalCommand | 6U | 0x400U);
-  (void)pci.readConfigSpace(m_Pci, 1);
+  if (!pci.resourcesUnchanged(m_Pci, pciState) || !pci.updateCommand(m_Pci, 0, 6 | 0x400)) {
+    ERROR("xHCI: PCI resources or DMA command changed during handoff");
+    return false;
+  }
   write64(m_Op + 0x30, m_Dcbaa.physicalAddress());
   write64(m_Op + 0x18, m_Commands.address() | 1U);
   write(m_Op + 0x38, m_SlotCount);
@@ -238,7 +233,8 @@ bool Xhci::initialiseController() {
     return false;
   {
     LockGuard<Mutex> lock(m_Lock);
-    pci.writeConfigSpace(m_Pci, 1, (m_OriginalCommand | 6U) & ~0x400U);
+    if (!pci.updateCommand(m_Pci, 0x400, 6))
+      return false;
     m_Online = true;
     write(m_Runtime + 0x20, 3);
     write(m_Op, 13);

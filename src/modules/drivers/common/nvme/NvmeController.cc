@@ -12,6 +12,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "NvmeDisk.h"
+#include "modules/drivers/common/InterruptProbe.h"
 using namespace Nvme;
 
 NvmeController::NvmeController(Device* pci)
@@ -74,19 +75,20 @@ void NvmeController::failController() {
   m_Failed = true;
 }
 bool NvmeController::command(NvmeQueue& queue, Command request, void* buffer, size_t bytes,
-                             bool writing, uint32_t* result) {
+                             bool writing, uint32_t* result, bool interruptProbe) {
   bool interrupts;
   {
     LockGuard<Mutex> irqLock(m_IrqLock);
     interrupts = m_Interrupts;
   }
   const size_t timeout = (&queue == &m_Io && (request.opcode & 255U) == 0) ? 120 : 30;
-  const auto status = queue.execute(request, buffer, bytes, writing, interrupts, timeout, result);
+  const auto status =
+      queue.execute(request, buffer, bytes, writing, interrupts, timeout, result, interruptProbe);
   if (status == NvmeQueue::Result::TransportError)
     failController();
   return status == NvmeQueue::Result::Success;
 }
-bool NvmeController::identify(uint32_t nsid, uint8_t kind, void* buffer) {
+bool NvmeController::identify(uint32_t nsid, uint8_t kind, void* buffer, bool interruptProbe) {
   OperationBarrier::Lease lease;
   if (!m_Commands.tryAcquire(lease))
     return false;
@@ -94,7 +96,7 @@ bool NvmeController::identify(uint32_t nsid, uint8_t kind, void* buffer) {
   request.opcode = 6;
   request.nsid = nsid;
   request.cdw10 = kind;
-  return command(m_Admin, request, buffer, PageSize);
+  return command(m_Admin, request, buffer, PageSize, false, nullptr, interruptProbe);
 }
 
 bool NvmeController::initialiseController() {
@@ -102,25 +104,12 @@ bool NvmeController::initialiseController() {
       m_Pci->getPciProgInterface() != 2)
     return false;
   auto& pci = PciBus::instance();
-  const uint32_t pciStatus = pci.readConfigSpace(m_Pci, 1);
-  m_OriginalCommand = pciStatus;
-  if (pciStatus & (1U << 20)) {
-    uint8_t capability = pci.readConfigSpace(m_Pci, 13) & 0xfc;
-    uint64_t visited = 0;
-    while (capability) {
-      if (capability < 0x40 || (visited & (1ULL << (capability / 4))))
-        return false;
-      visited |= 1ULL << (capability / 4);
-      const uint32_t entry = pci.readConfigSpace(m_Pci, capability / 4);
-      const uint8_t type = entry & 255U;
-      if ((type == 1 && (pci.readConfigSpace(m_Pci, capability / 4 + 1) & 3U)) ||
-          (type == 5 && (entry & (1U << 16))) || (type == 0x11 && (entry & (1U << 31)))) {
-        WARNING("NVMe: controller requires D0 and disabled MSI/MSI-X");
-        return false;
-      }
-      capability = (entry >> 8) & 0xfc;
-    }
+  PciFunctionState::State inherited;
+  if (!pci.inspectFunction(m_Pci, inherited)) {
+    ERROR("NVMe: unsupported PCI state (D0, valid capabilities and PIC INTx required)");
+    return false;
   }
+  m_OriginalCommand = inherited.command;
   const uint32_t bar = pci.readConfigSpace(m_Pci, 4);
   if ((bar & 1U) || ((bar & 6U) != 0 && (bar & 6U) != 4))
     return false;
@@ -129,13 +118,14 @@ bool NvmeController::initialiseController() {
     base |= static_cast<uint64_t>(pci.readConfigSpace(m_Pci, 5)) << 32;
   Device::Address* mapping = nullptr;
   for (auto* address : m_Pci->addresses()) {
-    if (base && !address->m_IsIoSpace && address->m_Address == base)
+    if (address->m_Name == "bar0" && base && !address->m_IsIoSpace && address->m_Address == base)
       mapping = address;
   }
   if (!mapping || mapping->m_Size < Doorbells + 16)
     return false;
-  pci.writeConfigSpace(m_Pci, 1, (m_OriginalCommand | 2U | 0x400U) & ~4U);
   m_PciChanged = true;
+  if (!pci.updateCommand(m_Pci, 0, 2U | 0x400U))
+    return false;
   mapping->map();
   m_Registers = mapping->m_Io;
   if (!m_Registers || m_Registers->size() < mapping->m_Size)
@@ -157,6 +147,9 @@ bool NvmeController::initialiseController() {
   // queue addresses, and never restore firmware's old DMA enable on unload.
   if (!disable())
     return false;
+  if (!pci.updateCommand(m_Pci, 4U, 2U | 0x400U) ||
+      !pci.disableMessageInterrupts(m_Pci, inherited) || !pci.resourcesUnchanged(m_Pci, inherited))
+    return false;
   const uint16_t depth = (cap & 0xffffU) >= QueueDepth - 1 ? QueueDepth : (cap & 0xffffU) + 1;
   if (!m_Admin.initialise(m_Registers, 0, depth, stride, PageSize) ||
       !m_Io.initialise(m_Registers, 1, depth, stride, MaxTransfer))
@@ -168,7 +161,8 @@ bool NvmeController::initialiseController() {
   m_Registers->write32(m_Admin.completionAddress() >> 32, AdminCompletion + 4);
   FENCE();
   m_DmaInstalled = true;
-  pci.writeConfigSpace(m_Pci, 1, m_OriginalCommand | 6U | 0x400U);
+  if (!pci.updateCommand(m_Pci, 0, 6U | 0x400U))
+    return false;
   m_Registers->write32(1U | (6U << 16) | (4U << 20), Configuration);
   if (!waitReady(true))
     return false;
@@ -204,10 +198,18 @@ bool NvmeController::initialiseController() {
   {
     LockGuard<Mutex> irqLock(m_IrqLock);
     m_Interrupts = true;
-    pci.writeConfigSpace(m_Pci, 1, (m_OriginalCommand | 6U) & ~0x400U);
+    if (!pci.updateCommand(m_Pci, 0x400U, 6U))
+      return false;
     m_Registers->write32(1, InterruptMaskClear);
     (void)m_Registers->read32(Status);
   }
+  if (!InterruptProbe::run([&] { return identify(0, 1, controller, true); },
+                           [&] { return m_Admin.interruptCompletions(); })) {
+    ERROR("NVMe: interrupt delivery probe failed");
+    return false;
+  }
+  for (size_t i = 0; i < getNumChildren(); ++i)
+    static_cast<NvmeDisk*>(getChild(i))->publishEndpoint();
   NOTICE("NVMe: '" << m_Model << "' ready, " << Dec << getNumChildren() << " namespaces, "
                    << depth - 1U << " command slots, shared INTx" << Hex);
   return true;
@@ -343,9 +345,12 @@ void NvmeController::shutdown() {
   if (m_DmaInstalled && !disable())
     panic("NVMe: cannot stop DMA during shutdown");
   m_DmaInstalled = false;
-  if (m_PciChanged)
-    PciBus::instance().writeConfigSpace(
-        m_Pci, 1, m_HardwareOwned ? m_OriginalCommand & ~4U : m_OriginalCommand);
+  if (m_PciChanged) {
+    const uint16_t command =
+        m_HardwareOwned ? (m_OriginalCommand & ~4U) | 0x400U : m_OriginalCommand;
+    if (!PciBus::instance().updateCommand(m_Pci, 0x407U, command & 0x407U))
+      panic("NVMe: failed to verify PCI state during shutdown");
+  }
   m_Shutdown = true;
 }
 

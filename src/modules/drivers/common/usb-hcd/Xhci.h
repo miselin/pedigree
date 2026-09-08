@@ -145,9 +145,8 @@ class Xhci : public UsbHub, public IrqHandler, public RequestQueue {
   IoBase* m_Registers = nullptr;
   size_t m_Op = 0, m_Runtime = 0, m_Doorbells = 0, m_ContextSize = 32;
   size_t m_PortCount = 0, m_SlotCount = 0;
-  uint16_t m_OriginalCommand = 0;
   irq_id_t m_Irq = 0;
-  bool m_PciChanged = false, m_HardwareOwned = false;
+  bool m_HardwareOwned = false;
   Atomic<bool> m_Online{false}, m_Stopping{false}, m_Failed{false}, m_PortsClosing{false};
   bool m_Shutdown = false, m_DeliveryStopping = false, m_PolledInterrupt = false;
   bool m_ObservedInterruptCompletion = false;

@@ -30,7 +30,7 @@ class AhciController : public ScsiController, public IrqHandler {
     return true;
   }
   void shutdown();
-  bool identify(size_t port, uint16_t* words);
+  bool identify(size_t port, uint16_t* words, bool interruptProbe = false);
   EXPORTED_PUBLIC bool readWrite(size_t port, uint64_t lba, uint16_t sectors, void* buffer,
                                  size_t bytes, bool write);
   bool flush(size_t port, bool extended);

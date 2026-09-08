@@ -95,6 +95,10 @@ static void probeUhci(Device* pDev) {
 
   // Create a new Uhci node
   Uhci* pUhci = new Uhci(pDev);
+  if (!pUhci->initialised()) {
+    delete pUhci;
+    return;
+  }
 
   // Replace pDev with pUhci, then delete pDev
   pDev->getParent()->replaceChild(pDev, pUhci);

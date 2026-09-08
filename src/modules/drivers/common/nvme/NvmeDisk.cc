@@ -42,7 +42,6 @@ bool NvmeDisk::initialise() {
   m_Blocks = blocks;
   m_BlockBytes = blockBytes;
   m_Bytes = m_Blocks * m_BlockBytes;
-  publishEndpoint();
   NOTICE("NVMe: namespace " << Dec << m_Nsid << ", " << m_Blocks << " blocks of " << m_BlockBytes
                             << " bytes, " << m_Bytes << " bytes" << Hex);
   return true;

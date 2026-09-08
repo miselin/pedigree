@@ -293,6 +293,7 @@ class Ehci : public UsbHub,
   void rebuildPeriodicScheduleLocked();
 
   IoBase* m_pBase;
+  bool m_HardwareOwned = false;
 
   uint8_t m_nOpRegsOffset;
   uint8_t m_nPorts;

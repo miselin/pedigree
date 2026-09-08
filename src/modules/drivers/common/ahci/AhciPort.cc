@@ -222,7 +222,7 @@ bool AhciPort::interrupt(bool pending) {
   return true;
 }
 bool AhciPort::command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buffer, size_t bytes,
-                       bool writing, bool interrupts) {
+                       bool writing, bool interrupts, bool interruptProbe) {
   if (bytes > MaxTransfer || (bytes && (!buffer || (bytes & 1U))) || (lba >> 48))
     return false;
   TerminationDeferral lifetime;
@@ -321,8 +321,14 @@ bool AhciPort::command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buf
   const size_t timeoutSeconds = (opcode == 0xe7 || opcode == 0xea) ? 120 : 30;
   const auto deadline = Time::getTicks() + timeoutSeconds * Time::Multiplier::Second;
   bool success = false;
+  bool interruptGrace = interruptProbe;
   for (;;) {
-    const bool waitExpired = interrupts && !slot.completion.acquireForCompletion(1, 0, 10000);
+    // Only the readiness probe gives the IRQ worker a full second before
+    // polling can consume and acknowledge this command's completion.
+    const bool waitExpired =
+        interrupts && !slot.completion.acquireForCompletion(1, interruptGrace ? 1 : 0,
+                                                            interruptGrace ? 0 : 10000);
+    interruptGrace = false;
     {
       LockGuard<Mutex> state(m_StateLock);
       if (!slot.done && (!interrupts || waitExpired)) {

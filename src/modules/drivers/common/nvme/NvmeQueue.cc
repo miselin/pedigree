@@ -155,7 +155,7 @@ bool NvmeQueue::complete(bool fromInterrupt) {
 
 NvmeQueue::Result NvmeQueue::execute(Nvme::Command command, void* buffer, size_t bytes,
                                      bool writing, bool interrupts, size_t timeoutSeconds,
-                                     uint32_t* result) {
+                                     uint32_t* result, bool interruptProbe) {
   TerminationDeferral lifetime;
   if (bytes > m_TransferBytes || (bytes && !buffer))
     return Result::CommandError;
@@ -202,10 +202,15 @@ NvmeQueue::Result NvmeQueue::execute(Nvme::Command command, void* buffer, size_t
     (void)m_Registers->read32(Nvme::Status);
   }
   const auto deadline = Time::getTicks() + timeoutSeconds * Time::Multiplier::Second;
+  bool interruptGrace = interruptProbe;
   for (;;) {
     bool poll = !interrupts;
+    // Ordinary commands retain their existing poll-recovery latency. The
+    // readiness probe first leaves the CQ entry available to the IRQ worker.
     if (interrupts)
-      poll = !m_Slots[cid].completion.acquireForCompletion(1, 0, 10000);
+      poll = !m_Slots[cid].completion.acquireForCompletion(1, interruptGrace ? 1 : 0,
+                                                           interruptGrace ? 0 : 10000);
+    interruptGrace = false;
     {
       LockGuard<Mutex> guard(m_Lock);
       if (poll)

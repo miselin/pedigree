@@ -21,6 +21,7 @@
 #define PCI_COMMON_H
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/PciFunctionState.h"
 #include "pedigree/kernel/processor/types.h"
 
 class Device;
@@ -43,7 +44,7 @@ class EXPORTED_PUBLIC PciBus {
   /**
    * Reads from the configuration space
    * \param pDev the device to read configuration space for
-   * \param offset the offset into the configuration space to read
+   * \param offset the dword index into the configuration space to read
    */
   uint32_t readConfigSpace(Device* pDev, uint8_t offset);
 
@@ -52,14 +53,14 @@ class EXPORTED_PUBLIC PciBus {
    * \param bus bus number for the read address
    * \param device device number for the read address
    * \param function function number for the read address
-   * \param offset the offset into the configuration space to read
+   * \param offset the dword index into the configuration space to read
    */
   uint32_t readConfigSpace(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset);
 
   /**
    * Writes to the configuration space
    * \param pDev the device to write configuration space for
-   * \param offset the offset into the configuration space to write
+   * \param offset the dword index into the configuration space to write
    * \param data the data to write
    */
   void writeConfigSpace(Device* pDev, uint8_t offset, uint32_t data);
@@ -69,11 +70,23 @@ class EXPORTED_PUBLIC PciBus {
    * \param bus bus number for the write address
    * \param device device number for the write address
    * \param function function number for the write address
-   * \param offset the offset into the configuration space to write
+   * \param offset the dword index into the configuration space to write
    * \param data the data to write
    */
   void writeConfigSpace(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset,
                         uint32_t data);
+
+  // Byte offsets, checked before I/O; subword writes never touch adjacent W1C fields.
+  bool readConfig8(Device* device, uint16_t offset, uint8_t& value);
+  bool readConfig16(Device* device, uint16_t offset, uint16_t& value);
+  bool readConfig32(Device* device, uint16_t offset, uint32_t& value);
+  bool writeConfig8(Device* device, uint16_t offset, uint8_t value);
+  bool writeConfig16(Device* device, uint16_t offset, uint16_t value);
+  bool writeConfig32(Device* device, uint16_t offset, uint32_t value);
+  bool updateCommand(Device* device, uint16_t clearBits, uint16_t setBits);
+  bool inspectFunction(Device* device, PciFunctionState::State& state);
+  bool disableMessageInterrupts(Device* device, const PciFunctionState::State& state);
+  bool resourcesUnchanged(Device* device, const PciFunctionState::State& state);
 
   struct ConfigSpace {
     uint16_t vendor;

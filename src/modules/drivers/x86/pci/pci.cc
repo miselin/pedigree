@@ -121,25 +121,39 @@ static bool entry() {
         const uint8_t headerType = cs.header_type & 0x7f;
         const size_t barCount = headerType == 0 ? 6 : headerType == 1 ? 2 : headerType == 2 ? 1 : 0;
         auto& pci = PciBus::instance();
-        // BAR sizing temporarily changes the decoded address. Disable both
-        // decoders and bus mastering, and never write the W1C PCI status bits.
-        pci.writeConfigSpace(pDevice, 1, cs.command & ~7U);
+        // Only disable address decoding while sizing BARs. Firmware DMA may
+        // still be active until the owning driver performs its handoff.
+        if (!pci.updateCommand(pDevice, 3, 0)) {
+          ERROR("PCI: cannot disable decoding for BAR sizing");
+          delete pDevice;
+          continue;
+        }
+        uint32_t masks[6] = {};
+        bool barsRestored = true;
+        for (size_t l = 0; l < barCount; ++l) {
+          const uint8_t offset = 4 + l;
+          pci.writeConfigSpace(pDevice, offset, 0xffffffffU);
+          masks[l] = pci.readConfigSpace(pDevice, offset);
+          pci.writeConfigSpace(pDevice, offset, cs.bar[l]);
+          if (pci.readConfigSpace(pDevice, offset) != cs.bar[l]) {
+            barsRestored = false;
+            break;
+          }
+        }
+        if (!barsRestored || !pci.updateCommand(pDevice, 3, cs.command & 3)) {
+          (void)pci.updateCommand(pDevice, 7, 0);
+          ERROR("PCI: BAR/command restoration failed; function left disabled");
+          delete pDevice;
+          continue;
+        }
         for (size_t l = 0; l < barCount; ++l) {
           const bool wide = !(cs.bar[l] & 1U) && (cs.bar[l] & 6U) == 4;
           if (wide && l + 1 == barCount)
             break;
-          const uint8_t offset = 4 + l;
           const uint32_t high = wide ? cs.bar[l + 1] : 0;
-          pci.writeConfigSpace(pDevice, offset, 0xffffffffU);
-          if (wide)
-            pci.writeConfigSpace(pDevice, offset + 1, 0xffffffffU);
-          const uint32_t mask = pci.readConfigSpace(pDevice, offset);
-          const uint32_t maskHigh = wide ? pci.readConfigSpace(pDevice, offset + 1) : 0;
-          if (wide)
-            pci.writeConfigSpace(pDevice, offset + 1, high);
-          pci.writeConfigSpace(pDevice, offset, cs.bar[l]);
+          const uint32_t maskHigh = wide ? masks[l + 1] : 0;
           PciBar::Mapping mapping;
-          if (PciBar::decode(cs.bar[l], high, mask, maskHigh, mapping) &&
+          if (PciBar::decode(cs.bar[l], high, masks[l], maskHigh, mapping) &&
               mapping.base <= ~uintptr_t{0} && mapping.bytes <= ~size_t{0}) {
             StringFormat(c, "bar%u", static_cast<unsigned>(l));
             NOTICE("PCI:     BAR" << Dec << l << Hex << ": " << mapping.base << ".."
@@ -151,7 +165,6 @@ static bool entry() {
           if (wide)
             ++l;
         }
-        pci.writeConfigSpace(pDevice, 1, cs.command);
 
         NOTICE("PCI:     IRQ: L" << cs.interrupt_line << " P" << cs.interrupt_pin);
         pDevice->setInterruptNumber(cs.interrupt_line);

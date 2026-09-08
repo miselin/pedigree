@@ -47,6 +47,7 @@ class EXPORTED_PUBLIC AhciDisk final : public ScsiDisk {
   }
 
  private:
+  friend class AhciController;
   size_t validPageLength(uint64_t location) const;
 
   AhciController* m_Controller;

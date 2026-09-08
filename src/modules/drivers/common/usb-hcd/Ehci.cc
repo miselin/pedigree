@@ -25,6 +25,7 @@
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/machine/PciFunctionState.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Mutex.h"
@@ -47,6 +48,7 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "EhciLegacy.h"
 #include "modules/drivers/common/DmaBuffer.h"
 #include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbHub.h"
@@ -144,18 +146,32 @@ bool Ehci::initialiseController() {
   DoubleWordSet(m_pFrameList, 1, 0x400);
 
 #if X86_COMMON
-  uint32_t nPciCmdSts = PciBus::instance().readConfigSpace(this, 1);
-#ifdef USB_VERBOSE_DEBUG
-  DEBUG_LOG("USB: EHCI: PCI command register: " << (nPciCmdSts & 0xffff));
-  DEBUG_LOG("USB: EHCI: PCI status register: " << ((nPciCmdSts & 0xffff0000) >> 16));
+  auto& pci = PciBus::instance();
+  PciFunctionState::State pciState{};
+  if (!pci.inspectFunction(this, pciState)) {
+    ERROR("EHCI: unsupported inherited PCI function state");
+    return false;
+  }
+  const uint32_t bar = pciState.bars[0];
+  if ((bar & 1U) || ((bar & 6U) != 0 && (bar & 6U) != 4))
+    return false;
+  uint64_t base = bar & ~15U;
+  if (bar & 4U)
+    base |= uint64_t{pciState.bars[1]} << 32;
+  Device::Address* mapping = nullptr;
+  for (auto* address : addresses())
+    if (address->m_Name == "bar0" && base && !address->m_IsIoSpace && address->m_Address == base)
+      mapping = address;
+  if (!mapping || mapping->m_Size < 0x20 || !pci.updateCommand(this, 0, 2))
+    return false;
+  // Firmware may still need DMA and ownership-change SMIs to complete handoff.
+  mapping->map();
+  m_pBase = mapping->m_Io;
+#else
+  return false;
 #endif
-  PciBus::instance().writeConfigSpace(this, 1, nPciCmdSts | 0x4);
-#endif
-
-  // Grab the ports
-  m_pBase = m_Addresses[0]->m_Io;
-  NOTICE("EHCI: Working off: " << (m_Addresses[0]->m_IsIoSpace ? "P" : "MM") << "IO");
-  m_Addresses[0]->map();
+  if (!m_pBase)
+    return false;
 
   uint32_t hccapbase = m_pBase->read32(EHCI_CAPLENGTH);
   uint16_t version = hccapbase >> 16;
@@ -230,10 +246,15 @@ bool Ehci::initialiseController() {
 #ifdef USB_VERBOSE_DEBUG
     DEBUG_LOG("EHCI: Reading LEGSUP register and checking for BIOS ownership.");
 #endif
-    const uint32_t dwordOffset = eecp / sizeof(uint32_t);
-    uint32_t legsup = PciBus::instance().readConfigSpace(this, dwordOffset);
+    uint32_t legsup = 0;
+    if (!pci.readConfig32(this, eecp, legsup))
+      return false;
 
     if ((legsup & 0xff) == 1) {
+      if (eecp > 0xf8) {
+        ERROR("EHCI: truncated USB legacy capability");
+        return false;
+      }
       // Perform handoff if necessary
       constexpr uint32_t BiosOwned = 1U << 16;
       constexpr uint32_t OsOwned = 1U << 24;
@@ -243,8 +264,8 @@ bool Ehci::initialiseController() {
 #endif
 
         // Take ownership of the controller
-        legsup |= OsOwned;
-        PciBus::instance().writeConfigSpace(this, dwordOffset, legsup);
+        if (!pci.writeConfig8(this, eecp + 3, 1))
+          return false;
 
         // Wait for the BIOS to relinquish control
         constexpr size_t OwnershipPollLimit = 1000;
@@ -252,7 +273,8 @@ bool Ehci::initialiseController() {
         while (ownershipPolls && (legsup & BiosOwned)) {
           --ownershipPolls;
           Time::delay(1 * Time::Multiplier::Millisecond);
-          legsup = PciBus::instance().readConfigSpace(this, dwordOffset);
+          if (!pci.readConfig32(this, eecp, legsup))
+            return false;
         }
         if ((legsup & BiosOwned) || !(legsup & OsOwned)) {
           ERROR(
@@ -260,6 +282,17 @@ bool Ehci::initialiseController() {
               "1 second");
           return false;
         }
+      }
+      if (!EhciLegacy::disableSmis(
+              eecp,
+              [&](uint16_t offset, uint32_t& value) {
+                return pci.readConfig32(this, offset, value);
+              },
+              [&](uint16_t offset, uint32_t value) {
+                return pci.writeConfig32(this, offset, value);
+              })) {
+        ERROR("EHCI: legacy SMI sources did not disable");
+        return false;
       }
     }
 
@@ -270,6 +303,10 @@ bool Ehci::initialiseController() {
     }
   }
 #endif
+
+  m_HardwareOwned = true;
+  m_pBase->write32(0, m_nOpRegsOffset + EHCI_INTR);
+  (void)m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
 
 #ifdef USB_VERBOSE_DEBUG
   DEBUG_LOG("USB: EHCI: disabling running schedules");
@@ -309,6 +346,13 @@ bool Ehci::initialiseController() {
 #ifdef USB_VERBOSE_DEBUG
   DEBUG_LOG("USB: EHCI: Reset complete, status: " << m_pBase->read32(m_nOpRegsOffset + EHCI_STS)
                                                   << ".");
+#endif
+
+#if X86_COMMON
+  if (!pci.updateCommand(this, 4, 2 | 0x400) || !pci.disableMessageInterrupts(this, pciState)) {
+    ERROR("EHCI: could not establish masked PCI interrupt state");
+    return false;
+  }
 #endif
 
   // The queue and every port token must be live before the interrupt source
@@ -359,6 +403,13 @@ bool Ehci::initialiseController() {
       getInterruptNumber(), IrqManager::MitigationThreshold,
       7500000 / 64);  // 58 MB/s (480Mbps) in bytes/s, divided by 64 bytes
                       // maximum per control transfer/IRQ
+
+#if X86_COMMON
+  if (!pci.resourcesUnchanged(this, pciState)) {
+    ERROR("EHCI: PCI resources changed during handoff");
+    return false;
+  }
+#endif
 
   // Zero the top 64 bits for addresses of EHCI data structures
   m_pBase->write32(0, m_nOpRegsOffset + EHCI_CTRLDSEG);
@@ -412,6 +463,12 @@ bool Ehci::initialiseController() {
   m_pBase->write32((m_pBase->read32(m_nOpRegsOffset + EHCI_CMD) & ~0xFF0000) | 0x80000,
                    m_nOpRegsOffset + EHCI_CMD);
 
+  FENCE();
+#if X86_COMMON
+  if (!pci.updateCommand(this, 0, 6 | 0x400))
+    return false;
+#endif
+
   // Turn on the controller
   m_pBase->write32(m_pBase->read32(m_nOpRegsOffset + EHCI_CMD) | EHCI_CMD_RUN,
                    m_nOpRegsOffset + EHCI_CMD);
@@ -422,6 +479,11 @@ bool Ehci::initialiseController() {
   m_DequeueThread.adopt(new Thread(Processor::information().getCurrentThread()->getParent(),
                                    threadStub, reinterpret_cast<void*>(this)));
   m_DequeueThread->setName("EHCI dequeue");
+
+#if X86_COMMON
+  if (!pci.updateCommand(this, 0x400, 6))
+    return false;
+#endif
 
   // The schedules, queue metadata, and completion worker are now live.
   // PORTCH remains masked until the initial root-port scan below.
@@ -515,7 +577,7 @@ Ehci::~Ehci() {
   {
     LockGuard<IrqProcessingLock> transactionGuard(m_IrqProcessingLock);
     m_InterruptClosure = 1;
-    if (m_pBase && m_nOpRegsOffset) {
+    if (m_HardwareOwned) {
       const uint32_t interrupts = m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
       m_pBase->write32(interrupts & ~EHCI_STS_PORTCH, m_nOpRegsOffset + EHCI_INTR);
       (void)m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
@@ -541,7 +603,7 @@ Ehci::~Ehci() {
     {
       LockGuard<IrqProcessingLock> transactionGuard(m_IrqProcessingLock);
       m_InterruptClosure = 2;
-      if (m_pBase && m_nOpRegsOffset) {
+      if (m_HardwareOwned) {
         m_pBase->write32(0, m_nOpRegsOffset + EHCI_INTR);
         (void)m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
         const uint32_t pending = m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & 0x3f;
@@ -553,7 +615,7 @@ Ehci::~Ehci() {
       m_CallbackOperations.close();
     }
 
-    if (m_pBase && m_nOpRegsOffset) {
+    if (m_HardwareOwned) {
       const uint32_t command = m_pBase->read32(m_nOpRegsOffset + EHCI_CMD);
       m_pBase->write32(command & ~EHCI_CMD_RUN, m_nOpRegsOffset + EHCI_CMD);
       (void)m_pBase->read32(m_nOpRegsOffset + EHCI_CMD);
@@ -574,6 +636,8 @@ Ehci::~Ehci() {
     }
   }
 #if X86_COMMON
+  if (m_HardwareOwned && !PciBus::instance().updateCommand(this, 4, 0x400))
+    panic("EHCI teardown could not disable PCI DMA and INTx");
   if (m_InterruptHandlerRegistered) {
     if (!Machine::instance().getIrqManager()->unregisterHandler(m_IrqId,
                                                                 static_cast<IrqHandler*>(this))) {

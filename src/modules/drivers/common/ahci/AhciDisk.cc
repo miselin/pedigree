@@ -123,7 +123,6 @@ bool AhciDisk::initialise() {
   m_Sectors = static_cast<size_t>(sectors);
   m_Bytes = m_Sectors * sectorBytes;
   m_Initialised = true;
-  publishEndpoint();
   NOTICE("AHCI: disk port " << m_Port << " model '" << m_Model << "', " << Dec << m_Sectors
                             << " sectors of " << m_SectorBytes << " bytes, " << m_Bytes
                             << " bytes; write cache " << cacheState << ", flush "

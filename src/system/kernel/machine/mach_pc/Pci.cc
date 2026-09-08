@@ -17,37 +17,50 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/machine/PciConfigAccess.h"
 #include "pedigree/kernel/processor/IoPort.h"
-#include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/utility.h"
 
-#define CONFIG_ADDRESS 0
-#define CONFIG_DATA 4
+namespace {
+IoPort configSpace("PCI config space");
+Spinlock configLock(false);
+bool configAvailable = false;
+PciConfigAccess<IoPort, Spinlock> config(configSpace, configLock);
 
-#define MAX_BUS 4
-
-static IoPort configSpace("PCI config space");
-
-union ConfigAddress {
-  struct {
-    uint32_t always0 : 2;
-    uint32_t offset : 6;
-    uint32_t function : 3;
-    uint32_t device : 5;
-    uint32_t bus : 8;
-    uint32_t reserved : 7;
-    uint32_t enable : 1;
-  } __attribute__((packed));
-  uint32_t raw;
+struct FunctionConfig {
+  Device* device;
+  bool read8(uint16_t offset, uint8_t& value) {
+    return PciBus::instance().readConfig8(device, offset, value);
+  }
+  bool read16(uint16_t offset, uint16_t& value) {
+    return PciBus::instance().readConfig16(device, offset, value);
+  }
+  bool read32(uint16_t offset, uint32_t& value) {
+    return PciBus::instance().readConfig32(device, offset, value);
+  }
+  bool write16(uint16_t offset, uint16_t value) {
+    return PciBus::instance().writeConfig16(device, offset, value);
+  }
 };
 
+bool readFunction(Device* device, uint16_t offset, uint8_t width, uint32_t& value) {
+  return configAvailable && device &&
+         config.read(device->getPciBusPosition(), device->getPciDevicePosition(),
+                     device->getPciFunctionNumber(), offset, width, value);
+}
+bool writeFunction(Device* device, uint16_t offset, uint8_t width, uint32_t value) {
+  return configAvailable && device &&
+         config.write(device->getPciBusPosition(), device->getPciDevicePosition(),
+                      device->getPciFunctionNumber(), offset, width, value);
+}
+}  // namespace
+
 PciBus PciBus::m_Instance;
-
 PciBus::PciBus() {}
-
 PciBus::~PciBus() {}
 
 void PciBus::initialise() {
@@ -55,63 +68,75 @@ void PciBus::initialise() {
     ERROR("PCI: Config space - unable to allocate IO port!");
     return;
   }
-
-  configSpace.write32(0x80000000, CONFIG_ADDRESS);
-  if (configSpace.read32(CONFIG_ADDRESS) != 0x80000000) {
-    ERROR("PCI: Controller not detected.");
-    return;
+  {
+    LockGuard<Spinlock> guard(configLock);
+    configSpace.write32(0x80000000, 0);
+    configAvailable = configSpace.read32(0) == 0x80000000;
   }
+  if (!configAvailable)
+    ERROR("PCI: Controller not detected.");
 }
 
-uint32_t PciBus::readConfigSpace(Device* pDev, uint8_t offset) {
-  ConfigAddress addr;
-  ByteSet(&addr, 0, sizeof(addr));
-  addr.offset = offset;
-  addr.function = pDev->getPciFunctionNumber();
-  addr.device = pDev->getPciDevicePosition();
-  addr.bus = pDev->getPciBusPosition();
-  addr.enable = 1;
-
-  configSpace.write32(addr.raw, CONFIG_ADDRESS);
-  return configSpace.read32(CONFIG_DATA);
+uint32_t PciBus::readConfigSpace(Device* device, uint8_t offset) {
+  uint32_t value = 0xffffffffU;
+  readConfig32(device, uint16_t{offset} * 4, value);
+  return value;
 }
-
 uint32_t PciBus::readConfigSpace(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset) {
-  ConfigAddress addr;
-  ByteSet(&addr, 0, sizeof(addr));
-  addr.offset = offset;
-  addr.function = function;
-  addr.device = device;
-  addr.bus = bus;
-  addr.enable = 1;
-
-  configSpace.write32(addr.raw, CONFIG_ADDRESS);
-  return configSpace.read32(CONFIG_DATA);
+  uint32_t value = 0xffffffffU;
+  if (configAvailable)
+    config.read(bus, device, function, uint16_t{offset} * 4, 4, value);
+  return value;
 }
-
-void PciBus::writeConfigSpace(Device* pDev, uint8_t offset, uint32_t data) {
-  ConfigAddress addr;
-  ByteSet(&addr, 0, sizeof(addr));
-  addr.offset = offset;
-  addr.function = pDev->getPciFunctionNumber();
-  addr.device = pDev->getPciDevicePosition();
-  addr.bus = pDev->getPciBusPosition();
-  addr.enable = 1;
-
-  configSpace.write32(addr.raw, CONFIG_ADDRESS);
-  configSpace.write32(data, CONFIG_DATA);
+void PciBus::writeConfigSpace(Device* device, uint8_t offset, uint32_t value) {
+  writeConfig32(device, uint16_t{offset} * 4, value);
 }
-
 void PciBus::writeConfigSpace(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset,
-                              uint32_t data) {
-  ConfigAddress addr;
-  ByteSet(&addr, 0, sizeof(addr));
-  addr.offset = offset;
-  addr.function = function;
-  addr.device = device;
-  addr.bus = bus;
-  addr.enable = 1;
-
-  configSpace.write32(addr.raw, CONFIG_ADDRESS);
-  configSpace.write32(data, CONFIG_DATA);
+                              uint32_t value) {
+  if (configAvailable)
+    config.write(bus, device, function, uint16_t{offset} * 4, 4, value);
+}
+bool PciBus::readConfig8(Device* device, uint16_t offset, uint8_t& value) {
+  uint32_t data = 0;
+  if (!readFunction(device, offset, 1, data))
+    return false;
+  value = data;
+  return true;
+}
+bool PciBus::readConfig16(Device* device, uint16_t offset, uint16_t& value) {
+  uint32_t data = 0;
+  if (!readFunction(device, offset, 2, data))
+    return false;
+  value = data;
+  return true;
+}
+bool PciBus::readConfig32(Device* device, uint16_t offset, uint32_t& value) {
+  return readFunction(device, offset, 4, value);
+}
+bool PciBus::writeConfig8(Device* device, uint16_t offset, uint8_t value) {
+  return writeFunction(device, offset, 1, value);
+}
+bool PciBus::writeConfig16(Device* device, uint16_t offset, uint16_t value) {
+  return writeFunction(device, offset, 2, value);
+}
+bool PciBus::writeConfig32(Device* device, uint16_t offset, uint32_t value) {
+  return writeFunction(device, offset, 4, value);
+}
+bool PciBus::updateCommand(Device* device, uint16_t clearBits, uint16_t setBits) {
+  return configAvailable && device &&
+         config.updateCommand(device->getPciBusPosition(), device->getPciDevicePosition(),
+                              device->getPciFunctionNumber(), clearBits, setBits);
+}
+bool PciBus::inspectFunction(Device* device, PciFunctionState::State& state) {
+  FunctionConfig function{device};
+  return PciFunctionState::inspect(function, state) &&
+         state.interruptLine == device->getInterruptNumber();
+}
+bool PciBus::disableMessageInterrupts(Device* device, const PciFunctionState::State& state) {
+  FunctionConfig function{device};
+  return PciFunctionState::disableMessageInterrupts(function, state);
+}
+bool PciBus::resourcesUnchanged(Device* device, const PciFunctionState::State& state) {
+  FunctionConfig function{device};
+  return PciFunctionState::resourcesUnchanged(function, state);
 }

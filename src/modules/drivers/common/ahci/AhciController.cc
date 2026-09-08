@@ -27,6 +27,7 @@
 #include "AhciDisk.h"
 #include "AhciPort.h"
 #include "Registers.h"
+#include "modules/drivers/common/InterruptProbe.h"
 
 using namespace Ahci;
 
@@ -94,32 +95,18 @@ bool AhciController::initialiseController() {
       m_Pci->getPciProgInterface() != 1)
     return false;
   auto& pci = PciBus::instance();
-  const uint32_t pciStatus = pci.readConfigSpace(m_Pci, 1);
-  m_OriginalCommand = static_cast<uint16_t>(pciStatus);
-  // The initial profile uses D0 and legacy INTx; do not inherit another mode.
-  if (pciStatus & (1U << 20)) {
-    uint8_t capability = pci.readConfigSpace(m_Pci, 13) & 0xfc;
-    uint64_t visited = 0;
-    while (capability) {
-      if (capability < 0x40 || (visited & (1ULL << (capability / 4))))
-        return false;
-      visited |= 1ULL << (capability / 4);
-      const uint32_t entry = pci.readConfigSpace(m_Pci, capability / 4);
-      const uint8_t type = entry & 0xff;
-      if ((type == 1 && (pci.readConfigSpace(m_Pci, capability / 4 + 1) & 3U)) ||
-          (type == 5 && (entry & (1U << 16))) || (type == 0x11 && (entry & (1U << 31)))) {
-        WARNING("AHCI: controller must be in D0 with MSI/MSI-X disabled");
-        return false;
-      }
-      capability = (entry >> 8) & 0xfc;
-    }
+  PciFunctionState::State inherited;
+  if (!pci.inspectFunction(m_Pci, inherited)) {
+    ERROR("AHCI: unsupported PCI state (D0, valid capabilities and PIC INTx required)");
+    return false;
   }
+  m_OriginalCommand = inherited.command;
   const uint32_t bar = pci.readConfigSpace(m_Pci, 9);
-  if ((bar & 1U) || !((bar & ~15U)))
+  if ((bar & 7U) || !((bar & ~15U)))
     return false;
   Device::Address* mapping = nullptr;
   for (auto* address : m_Pci->addresses()) {
-    if (!address->m_IsIoSpace && address->m_Address == (bar & ~15U)) {
+    if (address->m_Name == "bar5" && !address->m_IsIoSpace && address->m_Address == (bar & ~15U)) {
       mapping = address;
       break;
     }
@@ -127,8 +114,9 @@ bool AhciController::initialiseController() {
   if (!mapping || mapping->m_Size < PortBase + PortStride)
     return false;
   // Keep the original PCI node responsible for its BAR mapping.
-  pci.writeConfigSpace(m_Pci, 1, (m_OriginalCommand | 2U | 0x400U));
   m_PciChanged = true;
+  if (!pci.updateCommand(m_Pci, 0, 2U | 0x400U))
+    return false;
   mapping->map();
   m_Registers = mapping->m_Io;
   if (!m_Registers || m_Registers->size() < mapping->m_Size)
@@ -157,7 +145,9 @@ bool AhciController::initialiseController() {
   if (capabilities & (1U << 7))
     m_Registers->write32(0, CccCtl);
   // DMA addresses are below 4 GiB even on controllers advertising S64A.
-  pci.writeConfigSpace(m_Pci, 1, m_OriginalCommand | 6U | 0x400U);
+  if (!pci.disableMessageInterrupts(m_Pci, inherited) ||
+      !pci.resourcesUnchanged(m_Pci, inherited) || !pci.updateCommand(m_Pci, 0, 6U | 0x400U))
+    return false;
   for (size_t i = 0; i < 32; ++i) {
     if (!(m_Implemented & (1U << i)))
       continue;
@@ -172,7 +162,6 @@ bool AhciController::initialiseController() {
     auto* disk = new AhciDisk(this, i);
     if (disk->initialise()) {
       addChild(disk);
-      NOTICE("AHCI: SATA disk ready on port " << i);
     } else {
       delete disk;
       delete port;
@@ -195,9 +184,25 @@ bool AhciController::initialiseController() {
         port->enableInterrupts();
     m_Registers->write32(m_Implemented, Is);
     m_Interrupts = true;
-    pci.writeConfigSpace(m_Pci, 1, (m_OriginalCommand | 6U) & ~0x400U);
+    if (!pci.updateCommand(m_Pci, 0x400U, 6U))
+      return false;
     m_Registers->write32(Enable | InterruptEnable, Ghc);
     (void)m_Registers->read32(Ghc);
+  }
+  uint16_t identifyData[256]{};
+  for (size_t i = 0; i < 32; ++i) {
+    if (!m_Ports[i])
+      continue;
+    if (!InterruptProbe::run([&] { return identify(i, identifyData, true); },
+                             [&] { return m_Ports[i]->interruptCompletions(); })) {
+      ERROR("AHCI: interrupt delivery probe failed on port " << i);
+      return false;
+    }
+  }
+  for (size_t i = 0; i < getNumChildren(); ++i) {
+    auto* disk = static_cast<AhciDisk*>(getChild(i));
+    disk->publishEndpoint();
+    NOTICE("AHCI: SATA disk ready on port " << disk->port());
   }
   NOTICE("AHCI: controller ready with " << getNumChildren() << " SATA disks, shared INTx");
   return true;
@@ -224,9 +229,9 @@ IrqDisposition AhciController::irq(irq_id_t) {
   (void)m_Registers->read32(Is);
   return handled ? IrqDisposition::Handled : IrqDisposition::NotHandled;
 }
-bool AhciController::identify(size_t port, uint16_t* words) {
+bool AhciController::identify(size_t port, uint16_t* words, bool interruptProbe) {
   return port < 32 && m_Ports[port] &&
-         m_Ports[port]->command(0xec, 0, 0, words, 512, false, m_Interrupts);
+         m_Ports[port]->command(0xec, 0, 0, words, 512, false, m_Interrupts, interruptProbe);
 }
 bool AhciController::readWrite(size_t port, uint64_t lba, uint16_t sectors, void* buffer,
                                size_t bytes, bool writing) {
@@ -284,8 +289,10 @@ void AhciController::shutdown() {
       port->shutdown();
   if (m_PciChanged) {
     // Reset replaced firmware's command state. Never resume its old bus mastering.
-    const uint16_t command = m_HardwareOwned ? m_OriginalCommand & ~4U : m_OriginalCommand;
-    PciBus::instance().writeConfigSpace(m_Pci, 1, command);
+    const uint16_t command =
+        m_HardwareOwned ? (m_OriginalCommand & ~4U) | 0x400U : m_OriginalCommand;
+    if (!PciBus::instance().updateCommand(m_Pci, 0x407U, command & 0x407U))
+      panic("AHCI: failed to verify PCI state during shutdown");
   }
   m_Shutdown = true;
 }

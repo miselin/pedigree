@@ -142,7 +142,7 @@ void Xhci::shutdown() {
     write64(m_Runtime + 0x30, 0);
     write64(m_Runtime + 0x38, 0);
   }
-  if (m_PciChanged)
-    PciBus::instance().writeConfigSpace(m_Pci, 1, m_OriginalCommand & ~4U);
+  if (m_HardwareOwned && !PciBus::instance().updateCommand(m_Pci, 4, 0x400))
+    panic("xHCI: teardown could not disable PCI DMA and INTx");
   m_Shutdown = true;
 }

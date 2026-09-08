@@ -13,7 +13,7 @@ class EXPORTED_PUBLIC NvmeController final : public ScsiController, public IrqHa
   ~NvmeController() override;
   bool initialiseController();
   void shutdown();
-  bool identify(uint32_t nsid, uint8_t kind, void* buffer);
+  bool identify(uint32_t nsid, uint8_t kind, void* buffer, bool interruptProbe = false);
   bool readWrite(uint32_t nsid, uint64_t lba, uint32_t blocks, void* buffer, size_t bytes,
                  bool writing);
   bool flush(uint32_t nsid);
@@ -43,7 +43,7 @@ class EXPORTED_PUBLIC NvmeController final : public ScsiController, public IrqHa
   bool disable();
   void failController();
   bool command(NvmeQueue& queue, Nvme::Command command, void* buffer = nullptr, size_t bytes = 0,
-               bool writing = false, uint32_t* result = nullptr);
+               bool writing = false, uint32_t* result = nullptr, bool interruptProbe = false);
   bool createIoQueue();
   bool discoverNamespaces(uint32_t maximumId);
   NvmeDisk* findNamespace(uint32_t nsid);

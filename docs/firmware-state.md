@@ -33,3 +33,39 @@ Validation uses native firmware-service stubs and RTC/APIC state fixtures, then
 fresh UEFI boots with one and four CPUs, a 4 KiB-sector NVMe root and xHCI devices.
 Native fixtures exercise states normal OVMF boots do not produce. QEMU does not
 establish physical hardware compatibility or timing.
+
+PCI mechanism-1 accesses validate the complete byte range and serialize each
+CF8/CFC transaction with an IRQ-saving lock. Legacy dword-index callers cannot
+wrap past the 256-byte configuration space. Command updates use the 16-bit
+register, preserve unrelated bits, and require readback; they never rewrite PCI
+Status. BAR sizing temporarily masks only address decoding, preserving firmware
+bus mastering until driver takeover. It restores and verifies BARs and decoding
+before creating mappings or logging. This follows the separation of decoding and
+bus mastering in [Linux PCI enumeration](https://raw.githubusercontent.com/torvalds/linux/master/drivers/pci/probe.c).
+
+AHCI, NVMe, EHCI, UHCI and xHCI inspect the live function before acquisition. The
+supported profile requires D0, a valid bounded capability chain, a usable PIC
+INTx pin/line, and a matching retained BAR mapping. MSI/MSI-X controls are disabled
+with width-correct writes and readback. Drivers establish their required decoder,
+bus-master and INTx settings at the appropriate ownership/DMA boundaries and
+verify that BARs and interrupt metadata survived takeover. Non-D0 controllers are
+rejected; a D3-to-D0 transition can reset configuration and needs a separate power
+and resource-restoration policy. See [PCI power management](https://docs.kernel.org/power/pci.html).
+
+EHCI disables and verifies legacy SMI sources after ownership handoff, including
+when BIOS ownership was already clear. The existing BIOS-unowned shortcut is
+retained because requesting that already-released semaphore can hang some
+firmware; it is a compatibility exception to the unconditional request in EHCI's
+handoff flow. UHCI verifies legacy emulation/SMI controls and explicitly enables
+its I/O decoder. Partially initialized controllers are not published, and cleanup
+does not halt firmware-owned hardware or resume its old DMA configuration.
+See [EHCI](https://www.intel.com/content/dam/www/public/us/en/documents/technical-specifications/ehci-specification-for-usb.pdf)
+and [Linux's handoff compatibility policy](https://raw.githubusercontent.com/torvalds/linux/master/drivers/usb/host/pci-quirks.c).
+
+These checks do not construct ACPI `_PRT` routing, reallocate resources, implement
+IOAPIC/x2APIC, or take ownership of platform power management. PCI Interrupt Line
+remains firmware-provided metadata. Storage readiness requires an actual command
+completion through the registered IRQ handler before publishing disk endpoints;
+a polled completion alone fails that check. Shared-line delivery is operational
+evidence, not proof of which device electrically asserted the line. The global
+PCI lock serializes kernel callers; it cannot serialize firmware SMM execution.

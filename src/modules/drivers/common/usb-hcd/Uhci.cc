@@ -26,6 +26,7 @@
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/machine/PciFunctionState.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
@@ -112,9 +113,25 @@ Uhci::Uhci(Device* pDev)
   if (!Processor::getInterrupts())
     Processor::setInterrupts(true);
 
-  // Grab the ports
-  m_pBase = m_Addresses[0]->m_Io;
-  m_Addresses[0]->map();
+  auto& pci = PciBus::instance();
+  PciFunctionState::State pciState{};
+  if (!pci.inspectFunction(this, pciState)) {
+    ERROR("UHCI: unsupported inherited PCI function state");
+    return;
+  }
+  const uint32_t bar = pciState.bars[4];
+  const uint32_t base = bar & ~3U;
+  Device::Address* mapping = nullptr;
+  for (auto* address : addresses())
+    if (address->m_Name == "bar4" && (bar & 1U) && base && address->m_IsIoSpace &&
+        address->m_Address == base)
+      mapping = address;
+  if (!mapping || mapping->m_Size < 0x20 || !pci.updateCommand(this, 0, 1))
+    return;
+  mapping->map();
+  m_pBase = mapping->m_Io;
+  if (!m_pBase)
+    return;
 
   if (TargetInfo::getPageSize() < UhciHardwareFrameListBytes ||
       (TargetInfo::getPageSize() % UhciHardwareFrameListBytes)) {
@@ -178,14 +195,14 @@ Uhci::Uhci(Device* pDev)
   m_pDequeueThread = new Thread(Processor::information().getCurrentThread()->getParent(),
                                 threadStub, reinterpret_cast<void*>(this));
 
-  uint32_t nCommand = PciBus::instance().readConfigSpace(this, 1);
-#ifdef USB_VERBOSE_DEBUG
-  DEBUG_LOG("USB: UHCI: Pci command+status: " << nCommand);
-#endif
-  PciBus::instance().writeConfigSpace(this, 1, nCommand | 0x6);
-
-  // Disable legacy emulation and SMI generation
-  setLegacySupportControl(0x8F00);
+  // Disable legacy emulation and SMI generation before taking the controller.
+  if (!setLegacySupportControl(0x8f00)) {
+    ERROR("UHCI: legacy SMI sources did not disable");
+    return;
+  }
+  m_HardwareOwned = true;
+  m_pBase->write16(0, UHCI_INTR);
+  (void)m_pBase->read16(UHCI_INTR);
 
   // Stop a running controller (BIOS may have started it up). Unset the
   // configured flag, as we are no longer configured properly.
@@ -201,6 +218,15 @@ Uhci::Uhci(Device* pDev)
     Time::delay(1 * Time::Multiplier::Millisecond);
   if (m_pBase->read16(UHCI_CMD) & UHCI_CMD_HCRES)
     panic("UHCI controller reset did not complete within 100 ms");
+
+  if (!pci.updateCommand(this, 4, 1 | 0x400) || !pci.disableMessageInterrupts(this, pciState) ||
+      !pci.resourcesUnchanged(this, pciState)) {
+    ERROR("UHCI: PCI interrupt state or resources changed during handoff");
+    return;
+  }
+  FENCE();
+  if (!pci.updateCommand(this, 0, 5 | 0x400))
+    return;
 
   // Write frame list pointer
   m_pBase->write32(m_pFrameListPhys, UHCI_FRLP);
@@ -270,9 +296,12 @@ Uhci::Uhci(Device* pDev)
   // Every fallible publication setup is complete. The controller ran with
   // its source masked up to this point, so registration failures cannot leak
   // an unserviceable level interrupt onto the shared PCI line.
+  if (!setLegacySupportControl(0x2000) || !pci.updateCommand(this, 0x400, 5)) {
+    ERROR("UHCI: could not enable its PCI interrupt route");
+    return;
+  }
   m_pBase->write16(0xf, UHCI_INTR);
   (void)m_pBase->read16(UHCI_INTR);
-  setLegacySupportControl(0x2000);
 
   for (size_t i = 0; i < m_nPorts; ++i) {
     if (!portReset(i)) {
@@ -314,8 +343,10 @@ Uhci::Uhci(Device* pDev)
   }
   if (!m_TimerRegistered) {
     ERROR("UHCI could not register its root-port polling callback");
+    return;
   }
 #endif
+  m_Initialised = true;
 }
 
 void Uhci::enqueueCompletedTransfer(void* context) {
@@ -495,16 +526,17 @@ Uhci::~Uhci() {
     LockGuard<Mutex> transactionGuard(m_Mutex);
     LockGuard<Mutex> irqGuard(m_IrqProcessingLock);
     m_InterruptsClosing = true;
-    if (m_pBase) {
+    if (m_HardwareOwned) {
       m_pBase->write16(0, UHCI_INTR);
       (void)m_pBase->read16(UHCI_INTR);
     }
-    setLegacySupportControl(0x8F00);
+    if (m_HardwareOwned && !setLegacySupportControl(0x8f00))
+      panic("UHCI teardown could not disable legacy interrupts");
     // Close admission while the IRQ serialization lock keeps a level
     // interrupt from repeatedly entering the just-closed callback path.
     m_CallbackOperations.close();
 
-    if (m_pBase) {
+    if (m_HardwareOwned) {
       // Fatal controller errors bypass USBINTR. USBPIRQDEN above keeps
       // them off the shared line while the callback admission is
       // closed and the synchronous DMA halt completes.
@@ -550,7 +582,7 @@ Uhci::~Uhci() {
     if (teardownCompletions.count())
       m_CompletionDeliveries.publish(teardownCompletions);
 
-    if (m_pBase) {
+    if (m_HardwareOwned) {
       m_pBase->write32(0, UHCI_FRLP);
       (void)m_pBase->read32(UHCI_FRLP);
     }
@@ -565,6 +597,9 @@ Uhci::~Uhci() {
     auto* completion = teardownCompletions.popFront();
     m_CompletionDeliveries.deliver(completion);
   }
+
+  if (m_HardwareOwned && !PciBus::instance().updateCommand(this, 4, 0x400))
+    panic("UHCI teardown could not disable PCI DMA and INTx");
 
   if (m_IrqId) {
     if (!Machine::instance().getIrqManager()->unregisterHandler(m_IrqId,
@@ -1590,12 +1625,14 @@ void Uhci::start() {
     panic("UHCI controller did not start within 100 ms");
 }
 
-void Uhci::setLegacySupportControl(uint16_t control) {
-  constexpr size_t LegacySupportDword = 0xC0 / 4;
-  const uint32_t legacy = PciBus::instance().readConfigSpace(this, LegacySupportDword);
-  PciBus::instance().writeConfigSpace(this, LegacySupportDword,
-                                      (legacy & static_cast<uint32_t>(0xFFFF0000)) | control);
-  (void)PciBus::instance().readConfigSpace(this, LegacySupportDword);
+bool Uhci::setLegacySupportControl(uint16_t control) {
+  // LEGSUP has separate RO shadows and W1C status; readback verifies only
+  // the writable interrupt/emulation enables, including the PIRQ gate.
+  constexpr uint16_t Enables = 0x20bf;
+  uint16_t actual = 0;
+  auto& pci = PciBus::instance();
+  return pci.writeConfig16(this, 0xc0, control) && pci.readConfig16(this, 0xc0, actual) &&
+         (actual & Enables) == (control & Enables);
 }
 
 #endif
