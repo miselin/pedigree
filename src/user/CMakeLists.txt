@@ -304,6 +304,8 @@ pedigree_app(clock-adjust-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/clock-adjust-contract-test/main.c)
 pedigree_app(futex-clock-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/futex-clock-contract-test/main.c)
+pedigree_app(descriptor-cloexec-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/descriptor-cloexec-contract-test/main.c)
 pedigree_app(module-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/module-contract-test/main.c)
 

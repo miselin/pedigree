@@ -23,6 +23,36 @@ lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
 
+## Descriptor close-on-exec ioctls
+
+`FIOCLEX` and `FIONCLEX` set and clear `FD_CLOEXEC` on any valid descriptor
+except `O_PATH`, before terminal or device dispatch. They ignore the ioctl
+argument and leave shared file status flags unchanged. Duplicated descriptors
+retain independent close-on-exec flags. Invalid and `O_PATH` descriptors still
+return `EBADF`; `fcntl(F_SETFD)` remains available for `O_PATH` descriptors.
+
+Previously these ioctls worked only for timerfd, signalfd and fanotify objects.
+Ordinary files returned `EINVAL`, which caused CPython's successful `fopen`
+to fail during its subsequent close-on-exec setup. The descriptor operation
+now uses the same existing flag update for all supported descriptor types.
+
+The five `descriptor-cloexec-contract-test` families passed fresh one- and
+four-CPU QEMU runs, together with all nine Code Mode host checks, in 70.19
+and 75.65 seconds respectively. Coverage includes regular files, both ends
+of pipes and sockets, duplicate independence, ignored arguments, unchanged
+status flags, invalid/O_PATH descriptors and actual descriptor inheritance
+across exec. The fixture invokes its ordinary absolute executable path;
+following the dynamic `/proc/self/exe` link remains a separate VFS contract.
+
+Evidence is retained in sibling `pedigree-apps` under
+`.build/codex-code-mode-host/cloexec-{1cpu,4cpu}/`, with frozen source, images,
+symbols and configuration in
+`.build/codex-code-mode/kernel-cloexec-provenance/source.json`. Both runs
+ended with clean guest shutdown. `CRIPPLE_HDD=TRUE` limits this evidence to
+runtime behavior, without a storage-persistence claim. The same test passed
+its Linux reference. CPython then opened the integration script successfully;
+subsequent Python prerequisite and full CLI behavior are separate checks.
+
 ## Raw monotonic reads and absolute futex waits
 
 The bounded clock extension accepts `CLOCK_MONOTONIC_RAW` (Linux clock ID 4)

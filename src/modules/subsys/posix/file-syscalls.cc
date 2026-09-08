@@ -2391,6 +2391,11 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     return -1;
   }
 
+  if (command == FIOCLEX || command == FIONCLEX) {
+    f->fdflags = command == FIOCLEX ? f->fdflags | FD_CLOEXEC : f->fdflags & ~FD_CLOEXEC;
+    return 0;
+  }
+
   FileDescriptor::TerminalOperation terminalOperation;
   const bool terminalPolicyCommand =
       command == TIOCSCTTY || command == TIOCGPGRP || command == TIOCSPGRP;
@@ -2415,10 +2420,6 @@ int posix_ioctl(int fd, size_t command, void* buf) {
   if (fanotify && command == FIONREAD)
     return copyIoctlResult(buf, fanotify->queuedMetadataBytes());
   if (f->getTimerFdImpl() || f->getSignalFdImpl() || fanotify) {
-    if (command == FIOCLEX || command == FIONCLEX) {
-      f->fdflags = command == FIOCLEX ? f->fdflags | FD_CLOEXEC : f->fdflags & ~FD_CLOEXEC;
-      return 0;
-    }
     SYSCALL_ERROR(NotAConsole);
     return -1;
   }
