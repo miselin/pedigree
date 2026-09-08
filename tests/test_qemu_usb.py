@@ -24,7 +24,7 @@ SPEC.loader.exec_module(smoke)
 def arguments(folder, controller="ehci", sector=512):
     return argparse.Namespace(
         image=folder / "root.img", run_dir=folder / "run", qemu="qemu-system-x86_64",
-        ovmf=folder / "ovmf.fd", cpus=4, controller=controller, sector_size=sector, timeout=2,
+        ovmf=folder / "ovmf.fd", cpus=4, controller=controller, root="ahci", sector_size=sector, timeout=2,
     )
 
 
@@ -99,7 +99,8 @@ class EvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "lacks required"):
                 smoke.serial_progress(complete_serial().replace(old, new))
         self.assertNotIn("complete", smoke.serial_progress("USB-SMOKE: PASS complete-fake")["steps"])
-        for failure in ("USB-SMOKE: FAIL short read", "panic: bad", "(FF) fatal"):
+        for failure in ("USB-SMOKE: FAIL short read", "panic: bad", "(FF) fatal",
+                        "xHCI: controller halted after transport failure"):
             with self.assertRaisesRegex(RuntimeError, "guest failure"):
                 smoke.serial_progress(complete_serial() + failure)
 
@@ -130,7 +131,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_commands_isolate_root_and_select_valid_controller_ports(self):
         folder = Path("/tmp/usb,fixture")
-        for controller, version in (("ehci", 2), ("uhci", 1)):
+        for controller, version in (("ehci", 2), ("uhci", 1), ("xhci", 2)):
             argv = smoke.command(arguments(folder, controller, 4096), folder)
             self.assertIn("q35,usb=off,i8042=off", argv)
             self.assertEqual(argv[argv.index("-qmp") + 1], "stdio")
@@ -144,10 +145,38 @@ class EvidenceTests(unittest.TestCase):
             storage = next(value for value in argv if value.startswith("usb-storage,"))
             self.assertIn("commandlog=on", storage)
             self.assertIn("logical_block_size=4096,physical_block_size=4096", storage)
-            self.assertIn("bus=usb.0,port=3" if controller == "ehci"
+            self.assertIn("bus=usb.0,port=3" if controller != "uhci"
                           else "bus=storageusb.0,port=1", storage)
             if controller == "uhci":
                 self.assertIn("piix3-usb-uhci,id=storageusb", argv)
+            if controller == "xhci":
+                self.assertIn("qemu-xhci,p2=4,p3=4,msi=off,msix=off,streams=off,id=usb", argv)
+                self.assertIn("usb-mouse,id=mouse,bus=usb.0,port=2,usb_version=1", argv)
+
+        args = arguments(folder, "xhci", 4096)
+        args.root = "nvme"
+        argv = smoke.command(args, folder)
+        self.assertIn("ide-hd,drive=boot,bus=ide.0", argv)
+        self.assertNotIn("ide-hd,drive=root,bus=ide.0", argv)
+        self.assertIn("nvme-ns,drive=root,bus=nvme,nsid=1,shared=off,"
+                      "logical_block_size=4096,physical_block_size=4096", argv)
+        for name in ("root", "boot"):
+            self.assertIn("snapshot=on", next(v for v in argv if f"if=none,id={name}," in v))
+
+    def test_xhci_requires_actual_link_wraps_and_interrupts(self):
+        markers = ("XHCI-SMOKE: completion-contracts", "USB-SMOKE: storage-link=SuperSpeed", "USB-SMOKE: PASS sustained-reads",
+                   "XHCI-SMOKE: event-ring-wrap", "XHCI-SMOKE: transfer-ring-wrap",
+                   "XHCI-SMOKE: interrupt-completion",
+                   "XHCI-SMOKE: slot-retired logical=1",
+                   "XHCI-SMOKE: slot-retired logical=0x2",
+                   "XHCI-SMOKE: slot-retired logical=3")
+        self.assertTrue(smoke.verify_xhci_evidence("\n".join(markers))["superspeed_storage"])
+        for omitted in markers:
+            with self.assertRaisesRegex(RuntimeError, "missing xHCI evidence"):
+                smoke.verify_xhci_evidence("\n".join(m for m in markers if m != omitted))
+        duplicate = "\n".join(markers).replace("logical=3", "logical=1")
+        with self.assertRaisesRegex(RuntimeError, "three distinct"):
+            smoke.verify_xhci_evidence(duplicate)
 
     def test_failed_spawn_preserves_report_and_fixture(self):
         with tempfile.TemporaryDirectory() as directory:

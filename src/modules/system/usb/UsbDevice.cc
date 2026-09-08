@@ -36,7 +36,9 @@ Atomic<size_t> g_HostedUsbDescriptorDestructions(0);
 
 UsbDevice::UsbDevice(UsbHub* pHub, uint8_t nPort, UsbSpeed speed)
     : m_nAddress(0),
-      m_ControlPacketSize(speed == HighSpeed ? 64 : 8),
+      m_ControlPacketSize(speed == SuperSpeed  ? 512
+                          : speed == HighSpeed ? 64
+                                               : 8),
       m_nPort(nPort),
       m_nRootPort(0xff),
       m_nRootPortGeneration(0),
@@ -126,12 +128,16 @@ UsbDevice::ConfigDescriptor::ConfigDescriptor(void* pConfigBuffer, size_t nConfi
   nConfig = descriptor->nConfig;
   nString = descriptor->nString;
   Interface* current = nullptr;
+  Endpoint* precedingEndpoint = nullptr;
   for (size_t offset = buffer[0]; offset < nConfigLength;) {
     if (nConfigLength - offset < 2)
       return;
     const size_t length = buffer[offset];
     const uint8_t type = buffer[offset + 1];
     if (length < 2 || length > nConfigLength - offset)
+      return;
+    if (speed == SuperSpeed && precedingEndpoint && !precedingEndpoint->hasCompanion &&
+        type != 0x30)
       return;
     if (type == UsbDescriptor::Interface) {
       if (length < sizeof(UsbInterfaceDescriptor))
@@ -154,18 +160,42 @@ UsbDevice::ConfigDescriptor::ConfigDescriptor(void* pConfigBuffer, size_t nConfi
           (packetField & 0xe000U) || ((packetField & 0x1800U) == 0x1800U) ||
           (speed == LowSpeed && !interrupt) ||
           (bulk && speed == HighSpeed && endpoint->nMaxPacketSize != 512) ||
-          (interrupt &&
-           (!endpoint->nInterval || (speed == HighSpeed && endpoint->nInterval > 16)))) {
+          (bulk && speed == SuperSpeed && endpoint->nMaxPacketSize != 1024) ||
+          (speed == SuperSpeed && (packetField & 0x1800U)) ||
+          (interrupt && (!endpoint->nInterval || ((speed == HighSpeed || speed == SuperSpeed) &&
+                                                  endpoint->nInterval > 16)))) {
         delete endpoint;
         return;
       }
       current->endpointList.pushBack(endpoint);
+      precedingEndpoint = endpoint;
+    } else if (type == 0x30 && speed == SuperSpeed) {
+      if (!precedingEndpoint || precedingEndpoint->hasCompanion || length < 6 ||
+          buffer[offset + 2] > 15)
+        return;
+      const uint8_t attributes = buffer[offset + 3];
+      const uint16_t intervalBytes = buffer[offset + 4] | (uint16_t{buffer[offset + 5]} << 8);
+      const bool bulk = precedingEndpoint->nTransferType == Endpoint::Bulk;
+      const bool interrupt = precedingEndpoint->nTransferType == Endpoint::Interrupt;
+      if ((bulk && ((attributes & 0xe0U) || (attributes & 31U) > 16 || intervalBytes)) ||
+          (interrupt &&
+           (attributes || !intervalBytes ||
+            intervalBytes > (buffer[offset + 2] + 1U) * precedingEndpoint->nMaxPacketSize)))
+        return;
+      precedingEndpoint->nMaxBurst = buffer[offset + 2];
+      precedingEndpoint->nStreams =
+          precedingEndpoint->nTransferType == Endpoint::Bulk ? buffer[offset + 3] & 31U : 0;
+      precedingEndpoint->nBytesPerInterval =
+          buffer[offset + 4] | (uint16_t{buffer[offset + 5]} << 8);
+      precedingEndpoint->hasCompanion = true;
     } else if (current)
       current->otherDescriptorList.pushBack(new UnknownDescriptor(buffer + offset, type, length));
     else
       otherDescriptorList.pushBack(new UnknownDescriptor(buffer + offset, type, length));
     offset += length;
   }
+  if (speed == SuperSpeed && precedingEndpoint && !precedingEndpoint->hasCompanion)
+    return;
   valid = nConfig && interfaceList.count();
 }
 
@@ -215,6 +245,11 @@ void UsbDevice::initialise(uint8_t nAddress) {
 
   // USB 2.0 9.2.6.2 requires recovery after reset has actually deasserted.
   Time::delay(10 * Time::Multiplier::Millisecond);
+  UsbEndpoint control(0, m_nPort, 0, m_Speed, m_ControlPacketSize);
+  control.nRootPort = m_nRootPort;
+  control.nRootPortGeneration = m_nRootPortGeneration;
+  if (!m_pHub || !m_pHub->prepareDevice(nAddress, control))
+    return;
   // Learn endpoint zero's packet size before asking for a full descriptor.
   auto* prefix = static_cast<uint8_t*>(getDescriptor(UsbDescriptor::Device, 0, 8));
   if (!prefix)
@@ -223,13 +258,17 @@ void UsbDevice::initialise(uint8_t nAddress) {
   const bool valid =
       prefix[0] >= sizeof(UsbDeviceDescriptor) && prefix[1] == UsbDescriptor::Device &&
       ((m_Speed == HighSpeed && packetSize == 64) || (m_Speed == LowSpeed && packetSize == 8) ||
+       (m_Speed == SuperSpeed && packetSize == 9) ||
        (m_Speed == FullSpeed &&
         (packetSize == 8 || packetSize == 16 || packetSize == 32 || packetSize == 64)));
   delete[] prefix;
   if (!valid)
     return;
-  m_ControlPacketSize = packetSize;
-  if (!controlRequest(0, UsbRequest::SetAddress, nAddress, 0))
+  m_ControlPacketSize = m_Speed == SuperSpeed ? 512 : packetSize;
+  control.nMaxPacketSize = m_ControlPacketSize;
+  if (m_pHub->controllerAssignsAddresses()
+          ? !m_pHub->addressDevice(nAddress, control)
+          : !controlRequest(0, UsbRequest::SetAddress, nAddress, 0))
     return;
   m_nAddress = nAddress;
   m_UsbState = Addressed;
@@ -238,6 +277,10 @@ void UsbDevice::initialise(uint8_t nAddress) {
   if (!pDeviceDescriptor)
     return;
   m_pDescriptor = new DeviceDescriptor(static_cast<UsbDeviceDescriptor*>(pDeviceDescriptor));
+  if (m_pDescriptor->nClass == 9 && !m_pHub->supportsHubDevices()) {
+    WARNING("USB: external hubs are unsupported by this controller");
+    return;
+  }
   m_UsbState = HasDescriptors;  // We now have the device descriptor
 
 // Debug dump of the device descriptor
@@ -321,6 +364,11 @@ void UsbDevice::initialise(uint8_t nAddress) {
     for (size_t j = 0; j < pConfig->interfaceList.count(); j++) {
       // Get this interface, for minor adjustments
       Interface* pInterface = pConfig->interfaceList[j];
+      if (pInterface->nClass == 9 && !m_pHub->supportsHubDevices()) {
+        WARNING("USB: external hubs are unsupported by this controller");
+        delete pConfig;
+        return;
+      }
 
       // Just in case the class numbers are in the device descriptor
       if (pConfig->interfaceList.count() == 1 && m_pDescriptor->nClass && !pInterface->nClass) {
@@ -370,6 +418,12 @@ ssize_t UsbDevice::doSync(UsbDevice::Endpoint* pEndpoint, UsbPid pid, uintptr_t 
 
   UsbEndpoint endpointInfo(m_nAddress, m_nPort, pEndpoint->nEndpoint, m_Speed,
                            pEndpoint->nMaxPacketSize);
+  endpointInfo.nTransferType = pEndpoint->nTransferType;
+  endpointInfo.nIn = pEndpoint->bIn;
+  endpointInfo.nInterval = pEndpoint->nInterval;
+  endpointInfo.nMaxBurst = pEndpoint->nMaxBurst;
+  endpointInfo.nStreams = pEndpoint->nStreams;
+  endpointInfo.nBytesPerInterval = pEndpoint->nBytesPerInterval;
   endpointInfo.nRootPort = m_nRootPort;
   endpointInfo.nRootPortGeneration = m_nRootPortGeneration;
   uintptr_t nTransaction = pParentHub->createTransaction(endpointInfo);
@@ -439,6 +493,11 @@ bool UsbDevice::addInterruptInHandler(Endpoint* pEndpoint, uintptr_t pBuffer, ui
   UsbEndpoint endpointInfo(m_nAddress, m_nPort, pEndpoint->nEndpoint, m_Speed,
                            pEndpoint->nMaxPacketSize);
   endpointInfo.nInterval = pEndpoint->nInterval;
+  endpointInfo.nTransferType = pEndpoint->nTransferType;
+  endpointInfo.nIn = pEndpoint->bIn;
+  endpointInfo.nMaxBurst = pEndpoint->nMaxBurst;
+  endpointInfo.nStreams = pEndpoint->nStreams;
+  endpointInfo.nBytesPerInterval = pEndpoint->nBytesPerInterval;
   endpointInfo.nRootPort = m_nRootPort;
   endpointInfo.nRootPortGeneration = m_nRootPortGeneration;
   return pParentHub->addInterruptInHandler(endpointInfo, pBuffer, nBytes, pCallback, handle,
@@ -540,7 +599,12 @@ bool UsbDevice::clearEndpointHalt(Endpoint* pEndpoint) {
   }
 
   pEndpoint->bDataToggle = false;
-  return true;
+  UsbEndpoint endpoint(m_nAddress, m_nPort, pEndpoint->nEndpoint, m_Speed,
+                       pEndpoint->nMaxPacketSize);
+  endpoint.nIn = pEndpoint->bIn;
+  endpoint.nRootPort = m_nRootPort;
+  endpoint.nRootPortGeneration = m_nRootPortGeneration;
+  return m_pHub && m_pHub->resetEndpoint(endpoint);
 }
 
 void UsbDevice::useConfiguration(uint8_t nConfig) {

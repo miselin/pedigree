@@ -803,6 +803,12 @@ pedigree_module(usb-hcd "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/Ehci.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/Ohci.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/Uhci.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/Xhci.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/XhciDevice.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/XhciEvent.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/XhciLifecycle.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/XhciRing.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/XhciTransfer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/main.cc)
 
 pedigree_module(usb-hid "" ""

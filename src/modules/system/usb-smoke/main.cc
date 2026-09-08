@@ -8,6 +8,7 @@
 
 #include "modules/Module.h"
 #include "modules/drivers/common/scsi/ScsiDisk.h"
+#include "modules/drivers/common/usb-mass-storage/UsbMassStorageDevice.h"
 #include "modules/system/usb/UsbDevice.h"
 #include "modules/system/vfs/Filesystem.h"
 #include "modules/system/vfs/VFS.h"
@@ -20,6 +21,7 @@ constexpr uint64_t DiskBytes = 32 * 1024 * 1024;
 constexpr char Magic[] = "PEDIGREE-USB-SMOKE-v1";
 constexpr uint64_t WriteOffsets[] = {8 * 1024 * 1024, 8 * 1024 * 1024 + 4096, DiskBytes - 4096};
 ScsiDisk* scratch = nullptr;
+UsbSpeed storageSpeed = LowSpeed;
 bool duplicate = false;
 Mutex eventLock;
 Semaphore events(0, false);
@@ -45,6 +47,7 @@ Device* findScratch(Device* device) {
       if (disk->getSize() == DiskBytes) {
         duplicate |= scratch != nullptr;
         scratch = disk;
+        storageSpeed = static_cast<UsbMassStorageDevice*>(device)->getSpeed();
       }
     }
   }
@@ -63,6 +66,10 @@ bool storage() {
   } while (Time::getTicks() < deadline);
   auto* filesystem = VFS::instance().getRootFilesystem();
   Disk* root = filesystem ? filesystem->getDisk() : nullptr;
+  Disk* physicalRoot = root ? root->physicalDisk() : nullptr;
+  if (physicalRoot && physicalRoot->getSpecificType() == String("nvme-disk") &&
+      physicalRoot->getNativeBlockSize() == 4096)
+    NOTICE("USB-SMOKE: root=NVMe-4Kn");
   if (!scratch || duplicate || hidDevices < 2 || (root && scratch == root->physicalDisk()) ||
       (scratch->getNativeBlockSize() != 512 && scratch->getNativeBlockSize() != 4096))
     return fail("unique disposable USB namespace");
@@ -88,6 +95,22 @@ bool storage() {
   if (!valid)
     return fail("exact disposable fixture header");
   NOTICE("USB-SMOKE: PASS fixture-identification");
+  NOTICE("USB-SMOKE: storage-link=" << (storageSpeed >= SuperSpeed ? "SuperSpeed" : "USB1/2"));
+  if (storageSpeed >= SuperSpeed) {
+    // Exercise persistent endpoint and event rings beyond their first cycle.
+    for (size_t page = 0; page < 320; ++page) {
+      const uint64_t offset = 1024 * 1024 + page * 4096;
+      const BufferView view = scratch->read(offset);
+      valid = bool(view) && view.size() == 4096;
+      for (size_t i = 0; valid && i < view.size(); ++i)
+        valid = view[i] == pattern(offset + i);
+      if (view)
+        scratch->unpin(offset);
+      if (!valid || !scratch->retireCachePage(offset))
+        return fail("uncached transfer-ring reads");
+    }
+    NOTICE("USB-SMOKE: PASS sustained-reads");
+  }
   for (uint64_t offset : WriteOffsets) {
     const BufferView view = scratch->read(offset);
     valid = bool(view) && view.size() == 4096;

@@ -90,6 +90,10 @@ class EXPORTED_PUBLIC UsbDevice {
     uint16_t nMaxPacketSize;
     uint8_t nInterval;
     uint8_t nTransactions;
+    uint8_t nMaxBurst = 0;
+    uint8_t nStreams = 0;
+    uint16_t nBytesPerInterval = 0;
+    bool hasCompanion = false;
 
     bool bDataToggle;
   };
@@ -281,7 +285,7 @@ class EXPORTED_PUBLIC UsbDevice {
 
   /// The current address of the device
   uint8_t m_nAddress;
-  uint8_t m_ControlPacketSize;
+  uint16_t m_ControlPacketSize;
 
   /// The number of the port on which the device is connected
   uint8_t m_nPort;

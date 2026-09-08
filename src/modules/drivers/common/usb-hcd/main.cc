@@ -25,6 +25,7 @@
 #include "Ehci.h"
 #include "Ohci.h"
 #include "Uhci.h"
+#include "Xhci.h"
 #include "modules/Module.h"
 
 enum HcdConstants {
@@ -39,15 +40,16 @@ enum HcdConstants {
 static bool bFound = false;
 
 static void probeXhci(Device* pDev) {
-  WARNING("USB: xHCI found, not implemented yet!");
-  /*
-  // Create a new Xhci node
-  Xhci *pXhci = new Xhci(pDev);
-
-  // Replace pDev with pXhci, then delete pDev
+  NOTICE("USB: xHCI found");
+  Xhci* pXhci = new Xhci(pDev);
+  if (!pXhci->initialiseController()) {
+    ERROR("USB: xHCI failed to initialise");
+    delete pXhci;
+    return;
+  }
   pDev->getParent()->replaceChild(pDev, pXhci);
   delete pDev;
-  */
+  bFound = true;
 }
 
 static void probeEhci(Device* pDev) {

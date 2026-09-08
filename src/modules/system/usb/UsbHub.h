@@ -126,6 +126,21 @@ class EXPORTED_PUBLIC UsbHub : public Device {
 
   /** Resolves a child port to its root-controller connection generation. */
   RootConnection rootConnectionForChild(uint8_t childPort) const;
+  virtual bool controllerAssignsAddresses() const {
+    return false;
+  }
+  virtual bool supportsHubDevices() const {
+    return true;
+  }
+  virtual bool prepareDevice(uint8_t, const UsbEndpoint&) {
+    return true;
+  }
+  virtual bool addressDevice(uint8_t, const UsbEndpoint&) {
+    return false;
+  }
+  virtual bool resetEndpoint(const UsbEndpoint&) {
+    return true;
+  }
 
   virtual Type getType();
 
@@ -256,7 +271,7 @@ class EXPORTED_PUBLIC UsbHub : public Device {
   /** Serializes connection generations published by this hub. */
   Mutex m_TopologyLock;
 
-  static constexpr size_t ConnectionChangePortCount = 16;
+  static constexpr size_t ConnectionChangePortCount = 32;
   static constexpr size_t ConnectionChangePending =
       static_cast<size_t>(1) << ((sizeof(size_t) * 8) - static_cast<size_t>(1));
   static constexpr size_t ConnectionChangeCountMask = ~ConnectionChangePending;
@@ -281,6 +296,8 @@ class EXPORTED_PUBLIC UsbHub : public Device {
 
  protected:
   friend class UsbInterruptInHandle;
+  /** The last interface and subtree pin released this logical address. */
+  virtual void releaseDeviceAddress(uint8_t) {}
 
   /** Publishes a controller token into an empty caller-owned handle. */
   MUST_USE_RESULT bool publishInterruptInHandle(UsbInterruptInHandle& handle,

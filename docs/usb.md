@@ -38,9 +38,9 @@ descriptor, so a 4 KiB full-speed storage request does not exhaust the descripto
 pool. Short IN transfers complete without waiting for unsent packets. Completion
 bytes are counted once even when an earlier descriptor generates an interrupt.
 
-OHCI recurring interrupt-IN and xHCI remain unavailable. This prevents a claim
-of full USB 1/2/3 coverage. Physical hub, transaction translator, disconnect,
-timeout and controller-specific behavior need hardware qualification.
+OHCI recurring interrupt-IN remains unavailable. Physical hubs, transaction
+translators, timeout recovery and controller-specific behavior need hardware
+qualification.
 
 UHCI recurring transfers use separate periodic frame roots and honor the
 largest power-of-two interval no greater than the endpoint interval. Reports
@@ -49,6 +49,32 @@ subscription generation and packet toggle. Inactive IOC bits are cleared while
 reports await delivery. Bulk short reads stop at the completed packet, and
 errors are attributed to individual transfer descriptors. Early short control-IN
 transfers still need additional status-stage handling.
+
+## xHCI
+
+xHCI supports directly attached USB 1.x, USB 2.0 and SuperSpeed devices using
+control, bulk and recurring interrupt transfers. Supported Protocol capabilities
+provide the root-port speed mapping; USB 2 and USB 3 ports can have different
+hardware numbers for the same connector. SuperSpeed enumeration accepts the
+512-byte endpoint-zero encoding, companion descriptors and 1024-byte bulk
+endpoints with bursts. External hubs, isochronous transfers and streams are
+declined.
+
+The driver uses one command ring, one event ring and one transfer ring per
+endpoint, with one active transfer per endpoint. Rings contain 256 entries;
+transfers use private DMA buffers and are limited to 64 KiB. A shared threaded
+INTx handler processes completions and a separate worker delivers callbacks.
+Recurring input buffers remain stable until callbacks return. Cancellation stops
+the endpoint and advances its dequeue pointer before releasing transfer memory;
+device retirement disables its slot before releasing contexts. A controller that
+cannot halt DMA is a terminal failure.
+
+The initial limits are 16 active device slots, 32 root ports and 32 scratchpad
+pages. Context sizes of 32 and 64 bytes are supported with a 4 KiB page size and
+DMA below 4 GiB. BIOS ownership is requested before controller reset. MSI-X,
+multiple interrupters, zero-copy transfers, power management and reconnect
+qualification remain follow-up work. SuperSpeed link support does not establish
+physical SSD throughput.
 
 ## Disposable guest checks
 
@@ -61,7 +87,9 @@ uv run scripts/test_qemu_usb.py --image build/pedigree-uefi.img \
   --controller ehci --sector-size 4096 --cpus 4 --run-dir /tmp/usb-ehci-smp
 ```
 
-Use `--controller uhci` for UHCI. Repeat with one CPU and 512-byte blocks at the
+Use `--controller uhci` for UHCI or `--controller xhci` for xHCI. Add `--root nvme`
+to move the root filesystem onto a native 4 KiB GPT NVMe namespace while keeping
+the ESP on a separate disk. Repeat with one CPU and 512-byte blocks at the
 milestone. The harness uses a root snapshot and creates its own marked scratch
 disk. UHCI uses two controllers because each has only two root ports. Restore
 the original CMake options and rebuild the normal image after testing.
@@ -91,6 +119,12 @@ individual bit markers (1/2 keyboard, 4/8 axes, 16/32 button). The final marker 
 and mouse evidence comes from USB. High-speed QEMU keyboard and mouse devices
 can attach directly to EHCI; UHCI uses their USB 1.x profiles.
 
+The xHCI profile mixes USB 1.x mouse, USB 2 keyboard and SuperSpeed storage.
+It also requires 320 uncached storage-page reads, actual event and transfer ring
+wraps and an interrupt-delivered transfer completion. After all input and storage
+checks pass, QMP removes each device in turn; three distinct successful slot
+retirements prove idle disconnect drained the recurring input subscriptions.
+
 The BOT contracts cover complete/short/failed IN, OUT and no-data commands plus
 CSW validation and recovery. HID contracts check report IDs, packed signed
 axes, short-report suppression and descriptor bounds. These contracts execute
@@ -113,7 +147,28 @@ descriptor capacity fixes were included in these guest runs. This checkpoint
 does not establish physical-device timing, disconnect or transaction-translator
 coverage.
 
+The xHCI milestone passed a 512-byte SuperSpeed fixture on one CPU and a 4 KiB
+SuperSpeed fixture on four CPUs. The four-CPU machine also mounted its root
+filesystem from a native 4 KiB GPT NVMe namespace. Both runs passed all storage
+and HID contracts, 320 uncached page reads, event/transfer ring wrap evidence,
+interrupt-delivered completion, 15 guest storage flushes, the complete 32 MiB
+backing-file comparison and successful retirement of all three devices after
+sequential QMP disconnects. The 12 host fixture/QMP/evidence tests passed.
+EHCI with 512-byte blocks on one CPU and UHCI with 4 KiB blocks on four CPUs
+passed again after the shared xHCI enumeration changes. The normal UEFI image
+also rebuilt with smoke tests disabled and the original init/write settings.
+
+The first xHCI boot failed because the event segment table was programmed while
+PCI bus mastering was disabled. QEMU traces showed the resulting controller
+error before the first command. Bus mastering now starts after DMA metadata is
+initialized and before its register addresses are published; both host-system
+and controller errors stop further I/O. Idle disconnect is covered; disconnect
+during active storage I/O, reconnect, external hubs and physical controllers are
+not established by this checkpoint.
+
 Behavior follows the USB-IF's
 [Bulk-Only Transport specification](https://www.usb.org/sites/default/files/usbmassbulk_10.pdf),
 [HID 1.11 specification](https://www.usb.org/sites/default/files/hid1_11.pdf), and
 Intel's [EHCI specification](https://www.intel.com/content/dam/www/public/us/en/documents/technical-specifications/ehci-specification-for-usb.pdf).
+The xHCI driver follows Intel's
+[xHCI 1.2b specification](https://cdrdv2-public.intel.com/625472/625472_xHCI_Rev1_2b.pdf).

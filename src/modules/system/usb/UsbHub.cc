@@ -655,8 +655,10 @@ void UsbHub::releaseAddressLocked(size_t address) {
   assert(address && address < 128);
   assert(m_UsedAddresses.test(address));
   assert(m_AddressReferences[address]);
-  if (!--m_AddressReferences[address])
+  if (!--m_AddressReferences[address]) {
+    releaseDeviceAddress(address);
     m_UsedAddresses.clear(address);
+  }
 }
 
 void UsbHub::retainAddressesLocked(const bool* addresses) {

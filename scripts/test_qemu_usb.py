@@ -21,6 +21,11 @@ SPEC = importlib.util.spec_from_file_location(
 )
 ahci = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ahci)
+STORAGE_SPEC = importlib.util.spec_from_file_location(
+    "storage_smoke", Path(__file__).with_name("test_qemu_storage.py")
+)
+storage = importlib.util.module_from_spec(STORAGE_SPEC)
+STORAGE_SPEC.loader.exec_module(storage)
 
 DISK_SIZE = 32 * 1024 * 1024
 HEADER_SIZE = 4096
@@ -72,7 +77,8 @@ def verify_fixture(path, sector):
 
 
 def serial_progress(text):
-    if re.search(r"USB-SMOKE: FAIL|panic:|fatal:|page fault exception|\(FF\)", text, re.I):
+    if re.search(r"USB-SMOKE: FAIL|xHCI: controller halted after transport failure|"
+                 r"panic:|fatal:|page fault exception|\(FF\)", text, re.I):
         raise RuntimeError("guest failure; inspect serial.log")
     observed = 0
     for value in re.findall(
@@ -85,7 +91,11 @@ def serial_progress(text):
     ready = "USB-SMOKE: READY input" in text
     if "complete" in steps and (len(steps) != len(STEPS) or not ready or observed != 0x3F):
         raise RuntimeError("guest completion lacks required USB storage or input evidence")
-    return {"steps": steps, "observed": observed, "ready": ready}
+    retired = sorted({int(value, 16) for value in re.findall(
+        r"XHCI-SMOKE: slot-retired logical=((?:0x)?[0-9a-f]+)\b", text, re.I,
+    )})
+    return {"steps": steps, "observed": observed, "ready": ready,
+            "retired_slots": retired}
 
 
 def verify_flushes(text):
@@ -113,6 +123,20 @@ def verify_flushes(text):
     if not flushes:
         raise RuntimeError("no guest SCSI flush after a USB scratch write in qemu.log")
     return {"scratch_flush_commands": len(flushes), "scratch_flush_opcodes": sorted(set(flushes))}
+
+
+def verify_xhci_evidence(text):
+    required = ("XHCI-SMOKE: completion-contracts", "USB-SMOKE: storage-link=SuperSpeed", "USB-SMOKE: PASS sustained-reads",
+                "XHCI-SMOKE: event-ring-wrap", "XHCI-SMOKE: transfer-ring-wrap",
+                "XHCI-SMOKE: interrupt-completion")
+    for marker in required:
+        if marker not in text:
+            raise RuntimeError(f"missing xHCI evidence: {marker}")
+    if len(serial_progress(text)["retired_slots"]) != 3:
+        raise RuntimeError("missing xHCI evidence: three distinct retired slots")
+    return {"superspeed_storage": True, "event_ring_wrapped": True,
+            "transfer_ring_wrapped": True, "interrupt_completion": True,
+            "idle_disconnect_drained": True}
 
 
 def input_sequence():
@@ -199,19 +223,30 @@ def command(args, folder):
         value = f"file={str(path).replace(',', ',,')},format=raw,if=none,id={name},cache=writeback"
         return value + (",snapshot=on" if snapshot else "")
 
-    controller = "usb-ehci" if args.controller == "ehci" else "piix3-usb-uhci"
-    version = 2 if args.controller == "ehci" else 1
+    controller = {"ehci": "usb-ehci", "uhci": "piix3-usb-uhci",
+                  "xhci": "qemu-xhci,p2=4,p3=4,msi=off,msix=off,streams=off"}[args.controller]
+    version = 1 if args.controller == "uhci" else 2
+    mouse_version = 1 if args.controller == "xhci" else version
     firmware = str(args.ovmf).replace(",", ",,")
     result = [
         args.qemu, "-machine", "q35,usb=off,i8042=off", "-m", "768", "-smp", str(args.cpus),
         "-display", "none", "-monitor", "none", "-qmp", "stdio", "-nic", "none", "-no-reboot",
         "-serial", f"file:{folder / 'serial.log'}",
         "-drive", f"if=pflash,format=raw,readonly=on,file={firmware}",
-        "-drive", drive(args.image, "root", True), "-device", "ide-hd,drive=root,bus=ide.0",
         "-device", f"{controller},id=usb",
         "-device", f"usb-kbd,id=kbd,bus=usb.0,port=1,usb_version={version}",
-        "-device", f"usb-mouse,id=mouse,bus=usb.0,port=2,usb_version={version}",
+        "-device", f"usb-mouse,id=mouse,bus=usb.0,port=2,usb_version={mouse_version}",
     ]
+    if args.root == "nvme":
+        result += ["-drive", drive(folder / "boot.img", "boot", True),
+                   "-device", "ide-hd,drive=boot,bus=ide.0",
+                   "-device", "nvme,id=nvme,serial=PEDIGREE-USB-ROOT,mdts=7",
+                   "-drive", drive(folder / "root-gpt.img", "root", True),
+                   "-device", "nvme-ns,drive=root,bus=nvme,nsid=1,shared=off,"
+                   "logical_block_size=4096,physical_block_size=4096"]
+    else:
+        result += ["-drive", drive(args.image, "root", True),
+                   "-device", "ide-hd,drive=root,bus=ide.0"]
     storage_bus, storage_port = "usb.0", 3
     if args.controller == "uhci":
         # UHCI has two root ports; a second controller keeps this fixture independent of hubs.
@@ -229,11 +264,13 @@ def command(args, folder):
 def run(args):
     folder = args.run_dir.resolve()
     folder.mkdir(parents=True, exist_ok=False)
-    report = {"success": False, "controller": args.controller,
+    report = {"success": False, "controller": args.controller, "root": args.root,
               "cpus": args.cpus, "sector_size": args.sector_size}
     child = None
     try:
         create_fixture(folder / "usb.img", args.sector_size)
+        if args.root == "nvme":
+            storage.gpt_root(args.image, folder / "root-gpt.img", folder / "boot.img")
         argv = command(args, folder)
         (folder / "command.json").write_text(json.dumps(argv, indent=2) + "\n")
         with (folder / "qemu.log").open("wb") as output, (folder / "qmp.log").open("wb") as transcript:
@@ -276,8 +313,25 @@ def run(args):
                 wait_for(lambda progress: progress["observed"] & expected == expected,
                          label, min(deadline, time.monotonic() + 20))
             wait_for(lambda progress: "complete" in progress["steps"], "completion", deadline)
+            if args.controller == "xhci":
+                if check()["retired_slots"]:
+                    raise RuntimeError("xHCI retired a device before requested disconnect")
+                for count, device in enumerate(("kbd", "mouse", "msd"), 1):
+                    qmp.execute("device_del", {"id": device},
+                                min(deadline, time.monotonic() + 10))
+                    wait_for(lambda progress: len(progress["retired_slots"]) == count,
+                             f"{device} slot retirement",
+                             min(deadline, time.monotonic() + 30))
             ahci.stop_child(child)
-        report.update(serial_progress((folder / "serial.log").read_text(errors="replace")))
+        serial = (folder / "serial.log").read_text(errors="replace")
+        report.update(serial_progress(serial))
+        if args.root == "nvme":
+            if ("USB-SMOKE: root=NVMe-4Kn" not in serial or
+                    "GPT: validated primary table, logical sector 4096" not in serial):
+                raise RuntimeError("missing NVMe 4Kn GPT root evidence")
+            report["nvme_4kn_root"] = True
+        if args.controller == "xhci":
+            report.update(verify_xhci_evidence(serial))
         report.update(verify_flushes((folder / "qemu.log").read_text(errors="replace")))
         report.update(verify_fixture(folder / "usb.img", args.sector_size))
         report["success"] = True
@@ -295,7 +349,8 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", type=Path, required=True)
-    parser.add_argument("--controller", choices=("ehci", "uhci"), default="ehci")
+    parser.add_argument("--controller", choices=("ehci", "uhci", "xhci"), default="ehci")
+    parser.add_argument("--root", choices=("ahci", "nvme"), default="ahci")
     parser.add_argument("--sector-size", choices=(512, 4096), type=int, default=512)
     parser.add_argument("--cpus", choices=(1, 4), type=int, default=4)
     parser.add_argument("--run-dir", type=Path, required=True)
