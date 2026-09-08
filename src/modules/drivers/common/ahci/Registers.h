@@ -17,7 +17,7 @@
 #define AHCI_REGISTERS_H
 #include "pedigree/kernel/processor/types.h"
 
-// Intel AHCI 1.3.1, sections 3 and 4. Only slot zero and direct SATA are used.
+// Intel AHCI 1.3.1, sections 3 and 4. Direct SATA command lists.
 namespace Ahci {
 constexpr size_t Cap = 0x00, Ghc = 0x04, Is = 0x08, Pi = 0x0c, Vs = 0x10;
 constexpr size_t CccCtl = 0x14, Cap2 = 0x24, Bohc = 0x28;
@@ -37,10 +37,11 @@ constexpr uint32_t Busy = 1U << 7, DataRequest = 1U << 3;
 constexpr uint32_t TaskError = 1U, DeviceFault = 1U << 5;
 constexpr uint32_t TaskFileError = 1U << 30;
 constexpr uint32_t PortErrors = (0x1fU << 26) | (1U << 24) | (1U << 23) | (1U << 4);
-constexpr uint32_t PortInterrupts = PortErrors | (1U << 22) | (1U << 6) | (1U << 1) | 1U;
+constexpr uint32_t PortInterrupts =
+    PortErrors | (1U << 22) | (1U << 6) | (1U << 3) | (1U << 1) | 1U;
 constexpr uint32_t SataDisk = 0x00000101;
 constexpr size_t MaxTransfer = 64 * 1024;
-constexpr size_t FisOffset = 1024, TableOffset = 1280;
+constexpr size_t FisOffset = 1024, TableOffset = 1280, TableStride = 384;
 
 struct CommandHeader {
   uint32_t flags;
@@ -59,11 +60,11 @@ struct CommandTable {
   uint8_t fis[64];
   uint8_t atapi[16];
   uint8_t reserved[48];
-  Prd data;
+  Prd data[16];
 };
 static_assert(sizeof(CommandHeader) == 32, "AHCI command header size");
 static_assert(sizeof(Prd) == 16, "AHCI physical region descriptor size");
-static_assert(sizeof(CommandTable) == 144, "AHCI command table with one PRD");
+static_assert(sizeof(CommandTable) == 384, "AHCI command table with sixteen PRDs");
 static_assert((FisOffset % 256) == 0 && (TableOffset % 128) == 0, "AHCI DMA alignment");
 }  // namespace Ahci
 #endif

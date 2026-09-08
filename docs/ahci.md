@@ -5,38 +5,45 @@ interface `01:06:01`. It is built for x86-64 PCI targets, including the Intel
 controller family in the ThinkPad T420. The controller must be configured for
 AHCI in firmware; IDE and RAID modes are not supported by this module.
 
-This initial implementation supports directly attached SATA disks with DMA,
-48-bit LBA addressing, 512-byte logical sectors, and cache-flush support. It uses
-Pedigree's existing disk cache, request queue and partition/filesystem layers.
-Partition discovery waits for both ATA and AHCI probing, allowing the root disk
-to be attached through either transport.
+The driver supports directly attached SATA disks with DMA, 48-bit LBA addressing,
+logical sectors of 512, 1024, 2048 or 4096 bytes, and checked cache flushes. MBR
+partition offsets now use the disk's logical sector size; GPT discovery supports
+both 512-byte and 4 KiB logical sectors.
 
 ## Implemented behavior
 
 - BIOS/OS ownership handoff, HBA reset, port initialization and IDENTIFY.
-- READ DMA EXT and WRITE DMA EXT through persistent DMA buffers below 4 GiB.
-- Threaded shared INTx completion, with a timed polling fallback.
-- Checked byte counts, device errors and command deadlines; a failed command
-  takes its port offline. The driver stops DMA before releasing its buffers.
-  An engine that cannot be stopped causes a kernel panic rather than unsafe
-  reuse of memory still owned by hardware.
-- FLUSH CACHE EXT or FLUSH CACHE for checked disk synchronization, including a
-  final device flush during controller shutdown. Ordinary commands have a
-  30-second deadline; flush commands have a 120-second deadline.
-- Cache publication, pin ownership and unload admission follow `ScsiDisk` and
-  `ScsiController`. `PEDIGREE_CRIPPLE_HDD` still disables writes and flushes.
+- READ/WRITE FPDMA QUEUED when both controller and disk advertise NCQ. Queue
+  depth is the smaller of the controller's command slots and the disk's limit,
+  up to 32. Other disks retain READ/WRITE DMA EXT.
+- Independent persistent DMA buffers and command tables for each slot, below
+  4 GiB. NCQ tags match hardware slots; completion follows PxSACT. PRDBC byte
+  counts are checked only for non-NCQ commands, as required by AHCI 5.4.1.
+- Distinct filesystem cache fills run concurrently. Overlapping fills are
+  serialized until data is published, preventing readers seeing an incomplete
+  cache page. Writes retain the SCSI worker's ordering.
+- Threaded shared INTx completion with a timed polling fallback. A transport
+  error or timeout takes the entire affected port offline and fails its active
+  commands. DMA must stop before memory can be released.
+- FLUSH CACHE EXT or FLUSH CACHE drains queued commands and blocks later
+  submissions until completion. Ordinary commands allow 30 seconds; flushes
+  allow 120 seconds. Shutdown includes a final checked device flush.
+- Cache ownership and unload admission follow `ScsiDisk` and `ScsiController`.
+  `PEDIGREE_CRIPPLE_HDD` disables filesystem writes and flushes.
 
-The first slice issues one command at a time. The inherited controller worker
-also serializes requests across its ports. It does not yet implement NCQ, TRIM,
-scatter/gather into caller pages, ATAPI, port multipliers, 4Kn, hotplug, paging I/O,
-suspend/resume, MSI/MSI-X, or recovery/retry of an offline port. It requires the
-PCI function to start in D0 with MSI/MSI-X disabled. DMA assumes coherent x86
-memory; there is no IOMMU or noncoherent architecture support.
+ATAPI, port multipliers, hotplug, paging I/O, suspend/resume, MSI/MSI-X, and
+recovery of an offline port remain unsupported. PCI must start in D0 with
+MSI/MSI-X disabled. DMA assumes coherent x86 memory. Reads still copy through
+persistent buffers; writes remain serialized, so queue support alone is not a
+claim of SSD-class throughput.
 
-AHCI provides the interface needed for NCQ and ATA Data Set Management/TRIM, but
-those features and any performance improvement need separate implementation and
-measurement. Queue depth and command-slot ownership should precede NCQ; a disk
-discard API and filesystem allocation integration should precede TRIM.
+Discard/TRIM is deferred until filesystem allocation changes and cache
+retirement can be ordered together. Issuing it directly from block release can
+race delayed writes or reallocation.
+
+See [modern storage validation](modern-storage.md) for the current UEFI harness.
+The older ISO commands below document the historical checkpoint and require a
+checkout that still supports legacy ISO packaging.
 
 ## QEMU smoke test
 

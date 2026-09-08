@@ -26,9 +26,9 @@ READ_RANGES = ((4096, 4096), (65536 - 512, 8192),
 WRITE_RANGES = ((8 * 1024 * 1024 + 512, 8192),
                 (16 * 1024 * 1024 - 512, 128 * 1024), (DISK_SIZE - 512, 512))
 STEPS = ("fixture-identification", "range-rejection", "patterned-reads", "writes-and-sync",
-         "uncached-rereads", "ahci-root-mount", "interrupt-completions", "complete")
+         "concurrent-reads", "uncached-rereads", "ahci-root-mount", "interrupt-completions", "complete")
 ERROR_STEPS = ("transport-error", "offline-rejection", "root-after-error")
-TRACE_EVENTS = ("handle_cmd_fis_dump", "ide_bus_exec_cmd", "ahci_cmd_done")
+TRACE_EVENTS = ("handle_cmd_fis_dump", "ide_bus_exec_cmd", "ahci_cmd_done", "process_ncq_command", "ncq_finish")
 
 
 def pattern(offset, length, seed):
@@ -151,7 +151,7 @@ def qemu_command(args, run_dir):
     if args.inject_read_error:
         scratch = (f"file.driver=blkdebug,file.config={disk_path(run_dir / 'blkdebug.conf')},"
                    f"file.image.driver=file,file.image.filename={disk_path(run_dir / 'scratch.img')}")
-    scratch += ",format=raw,if=none,id=scratch,cache=writeback"
+    scratch += ",format=raw,if=none,id=scratch,cache=writeback,iops_rd=100"
     if args.inject_read_error:
         scratch += ",rerror=report"
     return [args.qemu, "-machine", "pc", "-m", "512", "-smp", str(args.cpus),

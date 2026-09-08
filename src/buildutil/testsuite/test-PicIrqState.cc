@@ -10,6 +10,7 @@
 #include <atomic>
 #include <thread>
 
+#include "system/kernel/machine/mach_pc/PicElcr.h"
 #include "system/kernel/machine/mach_pc/PicIrqState.h"
 #include <gtest/gtest.h>
 
@@ -48,6 +49,36 @@ void expectWrite(const PicWriteRecorder& recorder, size_t index, PicControllerWr
   EXPECT_EQ(recorder.writes[index].value, value);
 }
 }  // namespace
+
+TEST(PicElcr, PreservesOtherLinesAndRestoresSelectedLine) {
+  uint8_t ports[2] = {0x20, 0x08};
+  auto read = [&](size_t bank) { return ports[bank]; };
+  auto write = [&](size_t bank, uint8_t value) { ports[bank] = value; };
+  uint8_t previous = 0;
+  ASSERT_TRUE(updatePicElcr(10, true, read, write, previous));
+  EXPECT_EQ(previous, 0x08);
+  EXPECT_EQ(ports[0], 0x20);
+  EXPECT_EQ(ports[1], 0x0c);
+  ASSERT_TRUE(updatePicElcr(10, false, read, write, previous));
+  EXPECT_EQ(ports[1], 0x08);
+}
+
+TEST(PicElcr, RejectsFixedEdgeLinesAndFailedReadback) {
+  size_t reads = 0, writes = 0;
+  auto read = [&](size_t) {
+    ++reads;
+    return uint8_t{0};
+  };
+  auto write = [&](size_t, uint8_t) { ++writes; };
+  uint8_t previous = 0;
+  for (uint8_t irq : {0, 1, 2, 8, 13, 16, 255})
+    EXPECT_FALSE(updatePicElcr(irq, true, read, write, previous));
+  EXPECT_EQ(reads, 0U);
+  EXPECT_EQ(writes, 0U);
+  EXPECT_FALSE(updatePicElcr(10, true, read, write, previous));
+  EXPECT_EQ(writes, 2U);
+  EXPECT_FALSE(updatePicElcr(10, true, [](size_t) { return uint8_t{0xff}; }, write, previous));
+}
 
 TEST(PicIrqState, SchedulerRouteExcludesGenericRegistration) {
   PicIrqState state;

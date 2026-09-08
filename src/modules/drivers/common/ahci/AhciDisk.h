@@ -52,6 +52,7 @@ class EXPORTED_PUBLIC AhciDisk final : public ScsiDisk {
   AhciController* m_Controller;
   const size_t m_Port;
   size_t m_Sectors;
+  size_t m_SectorBytes;
   size_t m_Bytes;
   bool m_ExtendedFlush;
   bool m_Initialised;

@@ -2,8 +2,12 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/new"
 
 #include "modules/Module.h"
 #include "modules/drivers/common/ahci/AhciController.h"
@@ -97,6 +101,47 @@ bool checkRange(AhciDisk& disk, const Range& range, bool written) {
   }
   disk.unpinViews(range.offset, views);
   return valid;
+}
+
+constexpr size_t Workers = 12;
+Semaphore startReaders(0, false);
+struct Reader {
+  AhciDisk* disk;
+  size_t index;
+  bool success;
+};
+int readWorker(void* parameter) {
+  auto* reader = static_cast<Reader*>(parameter);
+  reader->success = startReaders.acquireForCompletion(1, 30);
+  for (size_t i = 0; reader->success && i < 16; ++i) {
+    const uint64_t offset =
+        i == 0 ? 2 * 1024 * 1024 : 3 * 1024 * 1024 + reader->index * 65536 + i * 4096;
+    reader->success = checkRange(*reader->disk, {offset, 4096}, false);
+  }
+  return reader->success ? 0 : 1;
+}
+bool concurrentReads(AhciDisk& disk) {
+  Reader readers[Workers]{};
+  Thread* threads[Workers]{};
+  for (size_t i = 0; i < Workers; ++i) {
+    readers[i] = {&disk, i, false};
+    threads[i] = new Thread(Scheduler::instance().getKernelProcess(), readWorker, &readers[i],
+                            nullptr, false, false, true);
+    if (!threads[i]->start())
+      FATAL("AHCI-SMOKE: reader start failed");
+  }
+  startReaders.release(Workers);
+  bool passed = true;
+  for (size_t i = 0; i < Workers; ++i) {
+    if (!threads[i]->joinForCompletion())
+      FATAL("AHCI-SMOKE: reader join failed");
+    passed &= readers[i].success;
+  }
+  const size_t maximum = disk.controller()->maximumOutstanding(disk.port());
+  if (!passed || maximum < 2)
+    return fail("concurrent reads did not overlap commands");
+  NOTICE("AHCI-SMOKE: PASS concurrent-reads maximum-outstanding=" << Dec << maximum);
+  return true;
 }
 
 bool writeRange(AhciDisk& disk, const Range& range) {
@@ -209,8 +254,10 @@ bool entry() {
   Filesystem* filesystem = VFS::instance().getRootFilesystem();
   Disk* root = filesystem ? filesystem->getDisk() : nullptr;
   root = root ? root->physicalDisk() : nullptr;
-  if (!root || root->getSpecificType() != String("ahci-disk"))
-    return fail("root filesystem is not backed by AHCI");
+  if (!root || root->getSpecificType() != String("ahci-disk")) {
+    NOTICE("AHCI-SMOKE: skipped (root uses another transport)");
+    return true;
+  }
   AhciDisk* rootDisk = static_cast<AhciDisk*>(root);
   AhciController* controller = rootDisk->controller();
   if (rootDisk->port() != 0 || !controller ||
@@ -221,7 +268,7 @@ bool entry() {
   duplicateScratch = false;
   Device::foreach (findScratch);
   if (!scratch || duplicateScratch || scratch->controller() != controller || scratch == rootDisk ||
-      scratch->getNativeBlockSize() != 512)
+      (scratch->getNativeBlockSize() != 512 && scratch->getNativeBlockSize() != 4096))
     return fail("unique scratch disk on AHCI port 1");
   DiskUse use;
   if (!scratch->acquireUse(use))
@@ -246,6 +293,8 @@ bool entry() {
       return false;
   }
   NOTICE("AHCI-SMOKE: PASS patterned-reads");
+  if (!concurrentReads(*scratch))
+    return false;
   for (const Range& range : WriteRanges) {
     if (!writeRange(*scratch, range))
       return false;

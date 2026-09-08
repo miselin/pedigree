@@ -20,6 +20,7 @@
 #include "Pic.h"
 
 #include "LocalApicLint0Policy.h"
+#include "PicElcr.h"
 #if APIC
 #include "LocalApic.h"
 #include "Pc.h"
@@ -29,6 +30,7 @@
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/SchedulerIrqHandler.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -221,6 +223,36 @@ irq_id_t Pic::registerHardIsaIrqHandler(uint8_t irq, HardIrqHandler* handler,
 
   return irq + BASE_INTERRUPT_VECTOR;
 }
+bool Pic::claimPciTriggerLocked(uint8_t irq) {
+  if (!m_ElcrPort)
+    return false;
+  uint8_t previous = 0;
+  if (!updatePicElcr(
+          irq, true, [this](size_t bank) { return m_ElcrPort.read8(bank); },
+          [this](size_t bank, uint8_t value) { m_ElcrPort.write8(value, bank); }, previous)) {
+    ERROR("PIC: cannot configure PCI IRQ " << Dec << irq << " as level triggered");
+    return false;
+  }
+  const uint16_t bit = uint16_t{1} << irq;
+  if (!(m_OwnedElcr & bit)) {
+    m_OriginalElcr = (m_OriginalElcr & ~bit) | ((uint16_t(previous) << ((irq / 8) * 8)) & bit);
+    m_OwnedElcr |= bit;
+  }
+  return true;
+}
+
+void Pic::restorePciTriggerLocked(uint8_t irq) {
+  const uint16_t bit = uint16_t{1} << irq;
+  if (!(m_OwnedElcr & bit))
+    return;
+  uint8_t previous = 0;
+  if (!updatePicElcr(
+          irq, m_OriginalElcr & bit, [this](size_t bank) { return m_ElcrPort.read8(bank); },
+          [this](size_t bank, uint8_t value) { m_ElcrPort.write8(value, bank); }, previous))
+    panic("PIC: cannot restore retired PCI trigger mode");
+  m_OwnedElcr &= ~bit;
+}
+
 irq_id_t Pic::registerPciIrqHandler(IrqHandler* handler, Device* pDevice, const IrqPolicy& policy) {
   if (UNLIKELY(!pDevice))
     return 0;
@@ -238,8 +270,15 @@ irq_id_t Pic::registerPciIrqHandler(IrqHandler* handler, Device* pDevice, const 
     return 0;
   }
   beginLineTransitionLocked(irq);
+  const bool triggerOwned = m_OwnedElcr & (uint16_t{1} << irq);
+  if (!claimPciTriggerLocked(irq)) {
+    finishLineTransitionLocked(irq);
+    return 0;
+  }
   const bool firstHandler = !m_IrqState.handlerCount(irq);
   if (!m_Handlers.registerThreadedHandler(irq, handler, policy)) {
+    if (!triggerOwned)
+      restorePciTriggerLocked(irq);
     finishLineTransitionLocked(irq);
     return 0;
   }
@@ -274,8 +313,15 @@ irq_id_t Pic::registerHardPciIrqHandler(HardIrqHandler* handler, Device* pDevice
     return 0;
   }
   beginLineTransitionLocked(irq);
+  const bool triggerOwned = m_OwnedElcr & (uint16_t{1} << irq);
+  if (!claimPciTriggerLocked(irq)) {
+    finishLineTransitionLocked(irq);
+    return 0;
+  }
   const bool firstHandler = !m_IrqState.handlerCount(irq);
   if (!m_Handlers.registerHardHandler(irq, handler, policy)) {
+    if (!triggerOwned)
+      restorePciTriggerLocked(irq);
     finishLineTransitionLocked(irq);
     return 0;
   }
@@ -384,6 +430,7 @@ void Pic::finishHandlerUnregisterLocked(uint8_t irq, IrqHandlerRegistry::Unregis
       m_ThreadedHardVetoRecoveryGenerations[irq] = 0;
     }
     if (currentDelivery == IrqDelivery::None) {
+      restorePciTriggerLocked(irq);
       m_FailClosedReasons[irq] = 0;
     }
   }
@@ -445,6 +492,9 @@ bool Pic::initialise() {
     return false;
   if (m_MasterPort.allocate(0x20, 4) == false)
     return false;
+
+  if (!m_ElcrPort.allocate(0x4d0, 2))
+    WARNING("PIC: PCI level-trigger routing is unavailable");
 
   // Initialise the slave and master PIC
   m_MasterPort.write8(0x11, 0);
@@ -546,6 +596,9 @@ bool Pic::shutdownThreaded() {
 Pic::Pic()
     : m_SlavePort("PIC #2"),
       m_MasterPort("PIC #1"),
+      m_ElcrPort("PIC trigger modes"),
+      m_OwnedElcr(0),
+      m_OriginalElcr(0),
       m_Handlers(),
       m_SchedulerIrqHandler(nullptr),
       m_IrqState(),

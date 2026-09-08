@@ -44,6 +44,11 @@ class EXPORTED_PUBLIC ScsiController : public Controller, public RequestQueue {
   bool prepareDiskRemoval();
   void cancelDiskRemoval();
 
+  /** Concurrent cache fills require independent transport command storage. */
+  virtual bool supportsConcurrentReads() const {
+    return false;
+  }
+
   virtual bool sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
                            uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite) = 0;
 

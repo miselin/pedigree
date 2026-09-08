@@ -125,6 +125,8 @@ class Pic : public IrqManager, private InterruptHandler {
   void finishLineTransitionLocked(uint8_t irq);
   void finishHandlerUnregisterLocked(uint8_t irq, IrqHandlerRegistry::UnregisterResult result,
                                      IrqHandlerRegistry::LineMode removedDelivery);
+  bool claimPciTriggerLocked(uint8_t irq);
+  void restorePciTriggerLocked(uint8_t irq);
   void admitThreadedOccurrenceLocked(uint8_t irq);
   void finishHardDispatchLocked(const PicHardTailRecord& record);
   void finishHardDispatchFromInterrupt(const PicHardTailRecord& record);
@@ -152,6 +154,9 @@ class Pic : public IrqManager, private InterruptHandler {
   IoPort m_SlavePort;
   /** The master PIC I/O Port range */
   IoPort m_MasterPort;
+  IoPort m_ElcrPort;
+  uint16_t m_OwnedElcr;
+  uint16_t m_OriginalElcr;
 
   /** IRQ handlers and their callback lifetime state. */
   IrqHandlerRegistry m_Handlers;

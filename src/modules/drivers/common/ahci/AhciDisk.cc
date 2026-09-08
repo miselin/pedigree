@@ -26,6 +26,7 @@ AhciDisk::AhciDisk(AhciController* controller, size_t port)
       m_Controller(controller),
       m_Port(port),
       m_Sectors(0),
+      m_SectorBytes(0),
       m_Bytes(0),
       m_ExtendedFlush(false),
       m_Initialised(false),
@@ -76,8 +77,7 @@ bool AhciDisk::initialise() {
     }
     sectorBytes = static_cast<uint64_t>(sectorWords) * 2;
   }
-  // Partition offsets in this stack are expressed using 512-byte sectors.
-  if (sectorBytes != 512) {
+  if (sectorBytes < 512 || (sectorBytes & (sectorBytes - 1))) {
     WARNING("AHCI: port " << m_Port << " has unsupported logical sector size " << sectorBytes);
     return false;
   }
@@ -116,13 +116,18 @@ bool AhciDisk::initialise() {
                            : cacheEnabled  ? "enabled"
                                            : "disabled";
 
+  m_SectorBytes = static_cast<size_t>(sectorBytes);
+  m_Controller->configureDisk(
+      m_Port, m_SectorBytes,
+      words[76] != 0xffff && (words[76] & (1U << 8)) ? (words[75] & 31U) + 1 : 0);
   m_Sectors = static_cast<size_t>(sectors);
   m_Bytes = m_Sectors * sectorBytes;
   m_Initialised = true;
   publishEndpoint();
   NOTICE("AHCI: disk port " << m_Port << " model '" << m_Model << "', " << Dec << m_Sectors
-                            << " sectors, " << m_Bytes << " bytes; write cache " << cacheState
-                            << ", flush " << (m_ExtendedFlush ? "EXT" : "legacy") << Hex);
+                            << " sectors of " << m_SectorBytes << " bytes, " << m_Bytes
+                            << " bytes; write cache " << cacheState << ", flush "
+                            << (m_ExtendedFlush ? "EXT" : "legacy") << Hex);
   return true;
 }
 
@@ -143,11 +148,11 @@ size_t AhciDisk::getBlockSize() const {
 }
 
 size_t AhciDisk::getNativeBlockSize() const {
-  return m_Initialised ? 512 : 0;
+  return m_SectorBytes;
 }
 
 size_t AhciDisk::validPageLength(uint64_t location) const {
-  if (!m_Initialised || location >= m_Bytes || (location % 512))
+  if (!m_Initialised || location >= m_Bytes || (location % m_SectorBytes))
     return 0;
   const uint64_t remaining = m_Bytes - location;
   const size_t pageBytes = TargetInfo::getPageSize();
@@ -173,7 +178,8 @@ uint64_t AhciDisk::doRead(uint64_t location) {
 
   // Terminal sectors may occupy only part of a cache page.
   ByteSet(reinterpret_cast<void*>(page), 0, TargetInfo::getPageSize());
-  if (!m_Controller->readWrite(m_Port, location / 512, static_cast<uint16_t>(bytes / 512),
+  if (!m_Controller->readWrite(m_Port, location / m_SectorBytes,
+                               static_cast<uint16_t>(bytes / m_SectorBytes),
                                reinterpret_cast<void*>(page), bytes, false)) {
     if (!getCache().discardEditing(location))
       FATAL("AHCI: failed to discard an incomplete cache fill");
@@ -205,7 +211,8 @@ uint64_t AhciDisk::doWriteDirect(uint64_t location, uintptr_t page) {
   const size_t bytes = validPageLength(location);
   if (!page || !bytes)
     return 0;
-  return m_Controller->readWrite(m_Port, location / 512, static_cast<uint16_t>(bytes / 512),
+  return m_Controller->readWrite(m_Port, location / m_SectorBytes,
+                                 static_cast<uint16_t>(bytes / m_SectorBytes),
                                  reinterpret_cast<void*>(page), bytes, true)
              ? bytes
              : 0;

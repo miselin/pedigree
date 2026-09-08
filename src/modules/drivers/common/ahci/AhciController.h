@@ -26,12 +26,17 @@ class AhciController : public ScsiController, public IrqHandler {
   explicit AhciController(Device* pci);
   ~AhciController() override;
   bool initialiseController();
+  bool supportsConcurrentReads() const override {
+    return true;
+  }
   void shutdown();
   bool identify(size_t port, uint16_t* words);
   EXPORTED_PUBLIC bool readWrite(size_t port, uint64_t lba, uint16_t sectors, void* buffer,
                                  size_t bytes, bool write);
   bool flush(size_t port, bool extended);
+  void configureDisk(size_t port, size_t sectorBytes, size_t queueDepth);
   EXPORTED_PUBLIC size_t interruptCompletions() const;
+  EXPORTED_PUBLIC size_t maximumOutstanding(size_t port) const;
   IrqDisposition irq(irq_id_t number) override;
   bool sendCommand(size_t, uintptr_t, uint8_t, uintptr_t, uint16_t, bool) override {
     return false;

@@ -27,10 +27,15 @@ class AhciPort {
   bool initialise(uint32_t capabilities, uint32_t version, uint32_t extendedCapabilities);
   void shutdown();
   void enableInterrupts();
-  bool interrupt();
+  bool interrupt(bool pending);
   bool command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buffer, size_t bytes,
                bool write, bool interrupts);
   size_t interruptCompletions() const;
+  size_t maximumOutstanding() const;
+  void configureDisk(size_t sectorBytes, size_t queueDepth);
+  size_t sectorBytes() const {
+    return m_SectorBytes;
+  }
 
  private:
   uint32_t read(size_t reg) const;
@@ -39,19 +44,33 @@ class AhciPort {
   bool stopEngines();
   void acknowledge(uint32_t status);
   void observe(uint32_t status, bool fromInterrupt);
+  void pollCompletions(bool interrupts);
 
   IoBase* m_Registers;
   size_t m_Port;
   MemoryRegion m_Control;
-  MemoryRegion m_Data;
+  struct Slot {
+    Slot() : data("AHCI transfer buffer"), completion(0, false), done(false), errors(0) {}
+    MemoryRegion data;
+    physical_uintptr_t pages[16];
+    Semaphore completion;
+    bool done;
+    uint32_t errors;
+  };
+  Slot m_Slots[32];
   Mutex m_CommandLock;
   mutable Mutex m_StateLock;
-  Semaphore m_Completion;
   bool m_Online;
-  bool m_Active;
-  bool m_Done;
+  uint32_t m_Active;
+  uint32_t m_Queued;
+  size_t m_SlotCount;
+  size_t m_QueueDepth;
+  size_t m_SectorBytes;
+  bool m_SupportsNcq;
   bool m_AddressesInstalled;
-  uint32_t m_Errors;
+  bool m_PolledInterrupt;
   size_t m_InterruptCompletions;
+  size_t m_MaximumOutstanding;
+  size_t m_Outstanding;
 };
 #endif

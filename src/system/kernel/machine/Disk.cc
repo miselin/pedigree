@@ -159,3 +159,7 @@ bool Disk::syncAll() {
 bool Disk::retireCachePage(uint64_t location) {
   return false;
 }
+
+size_t Disk::getNativeBlockSize() const {
+  return 512;
+}

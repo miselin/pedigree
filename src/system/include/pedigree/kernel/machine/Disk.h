@@ -137,6 +137,9 @@ class EXPORTED_PUBLIC Disk : public Device {
    */
   virtual size_t getBlockSize() const;
 
+  /** Size of a logical sector used by on-disk LBA addressing. */
+  virtual size_t getNativeBlockSize() const;
+
   /**
    * \brief Pins a cache page.
    *

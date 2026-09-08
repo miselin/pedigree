@@ -128,6 +128,11 @@ class Partition : public Disk {
     return pParent->getBlockSize();
   }
 
+  size_t getNativeBlockSize() const override {
+    const Disk* parent = static_cast<const Disk*>(getParent());
+    return parent ? parent->getNativeBlockSize() : 0;
+  }
+
   virtual bool pin(uint64_t location) override {
     if (!containsCachePage(location))
       return false;

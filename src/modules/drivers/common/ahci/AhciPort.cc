@@ -18,6 +18,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
@@ -32,14 +33,18 @@ AhciPort::AhciPort(IoBase* registers, size_t port)
     : m_Registers(registers),
       m_Port(port),
       m_Control("AHCI command storage"),
-      m_Data("AHCI transfer buffer"),
-      m_Completion(0, false),
       m_Online(false),
-      m_Active(false),
-      m_Done(false),
+      m_Active(0),
+      m_Queued(0),
+      m_SlotCount(1),
+      m_QueueDepth(0),
+      m_SectorBytes(512),
+      m_SupportsNcq(false),
       m_AddressesInstalled(false),
-      m_Errors(0),
-      m_InterruptCompletions(0) {}
+      m_PolledInterrupt(false),
+      m_InterruptCompletions(0),
+      m_MaximumOutstanding(0),
+      m_Outstanding(0) {}
 AhciPort::~AhciPort() {
   shutdown();
 }
@@ -81,19 +86,34 @@ bool AhciPort::initialise(uint32_t capabilities, uint32_t version, uint32_t exte
     return false;
   }
   const size_t pageSize = TargetInfo::getPageSize();
-  if (pageSize < TableOffset + sizeof(CommandTable) || pageSize > MaxTransfer ||
-      (MaxTransfer % pageSize))
+  m_SlotCount = ((capabilities >> 8) & 31U) + 1;
+  m_SupportsNcq = capabilities & (1U << 30);
+  const size_t controlBytes = TableOffset + m_SlotCount * TableStride;
+  if (pageSize < 4096 || pageSize > MaxTransfer || (MaxTransfer % pageSize))
     return false;
   auto& memory = PhysicalMemoryManager::instance();
   const size_t constraints = PhysicalMemoryManager::continuous | PhysicalMemoryManager::below4GB;
   const size_t flags = VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write;
-  if (!memory.allocateRegion(m_Control, 1, constraints, flags) ||
-      !memory.allocateRegion(m_Data, MaxTransfer / pageSize, constraints, flags))
-    return false;
-  if (m_Control.size() < TableOffset + sizeof(CommandTable) || m_Data.size() < MaxTransfer)
+  if (!memory.allocateRegion(m_Control, (controlBytes + pageSize - 1) / pageSize, constraints,
+                             flags))
     return false;
   ByteSet(m_Control.virtualAddress(), 0, m_Control.size());
-  ByteSet(m_Data.virtualAddress(), 0, m_Data.size());
+  for (size_t i = 0; i < m_SlotCount; ++i) {
+    // Contiguous allocations currently consume the scarce ISA DMA pool.
+    // PRDs allow each bounce page to come from ordinary memory below 4 GiB.
+    if (!memory.allocateRegion(m_Slots[i].data, MaxTransfer / pageSize,
+                               PhysicalMemoryManager::below4GB, flags))
+      return false;
+    ByteSet(m_Slots[i].data.virtualAddress(), 0, m_Slots[i].data.size());
+    for (size_t page = 0; page < MaxTransfer / pageSize; ++page) {
+      size_t mappingFlags = 0;
+      VirtualAddressSpace::getKernelAddressSpace().getMapping(
+          static_cast<uint8_t*>(m_Slots[i].data.virtualAddress()) + page * pageSize,
+          m_Slots[i].pages[page], mappingFlags);
+      if (m_Slots[i].pages[page] >= (uint64_t{1} << 32))
+        return false;
+    }
+  }
   FENCE();
   write(Clb, static_cast<uint32_t>(m_Control.physicalAddress()));
   write(Clbu, 0);
@@ -147,26 +167,56 @@ void AhciPort::enableInterrupts() {
   if (m_Online)
     write(PortIe, PortInterrupts);
 }
+void AhciPort::configureDisk(size_t sectorBytes, size_t queueDepth) {
+  m_SectorBytes = sectorBytes;
+  m_QueueDepth = m_SupportsNcq ? (queueDepth < m_SlotCount ? queueDepth : m_SlotCount) : 0;
+  NOTICE("AHCI: port " << m_Port << " NCQ depth " << Dec << m_QueueDepth << Hex);
+}
 void AhciPort::observe(uint32_t status, bool fromInterrupt) {
   if (!m_Active)
     return;
-  m_Errors |= status & PortErrors;
+  uint32_t errors = status & PortErrors;
   if (read(Tfd) & (TaskError | DeviceFault))
-    m_Errors |= TaskFileError;
+    errors |= TaskFileError;
   if ((read(Ssts) & 15U) != 3U)
-    m_Errors |= 1U << 22;
-  if (!m_Done && (m_Errors || !(read(Ci) & 1U))) {
-    m_Done = true;
-    if (fromInterrupt)
-      ++m_InterruptCompletions;
-    m_Completion.release();
+    errors |= 1U << 22;
+  // Without READ LOG EXT attribution, no outstanding tag can be trusted after
+  // an NCQ error. Stop admission before any slot is retired or reused.
+  if (errors) {
+    m_Online = false;
+    write(PortIe, 0);
+  }
+  const uint32_t pending = (read(Sact) & m_Queued) | (read(Ci) & ~m_Queued);
+  for (size_t i = 0; i < m_SlotCount; ++i) {
+    if (!(m_Active & (1U << i)))
+      continue;
+    Slot& slot = m_Slots[i];
+    slot.errors |= errors;
+    if (!slot.done && (slot.errors || !(pending & (1U << i)))) {
+      slot.done = true;
+      --m_Outstanding;
+      if (fromInterrupt)
+        ++m_InterruptCompletions;
+      slot.completion.release();
+    }
   }
 }
-bool AhciPort::interrupt() {
-  LockGuard<Mutex> state(m_StateLock);
+void AhciPort::pollCompletions(bool interrupts) {
   const uint32_t status = read(PortIs);
+  // Polling can withdraw INTx before its already-dispatched IRQ worker runs.
+  // Capture enabled causes before observe() can disable a failed port's IRQs.
+  if (interrupts && (status & read(PortIe)))
+    m_PolledInterrupt = true;
+  observe(status, false);
+  acknowledge(status);
+}
+bool AhciPort::interrupt(bool pending) {
+  LockGuard<Mutex> state(m_StateLock);
+  const bool credited = m_PolledInterrupt;
+  m_PolledInterrupt = false;
+  const uint32_t status = pending ? read(PortIs) : 0;
   if (!status)
-    return false;
+    return credited;
   observe(status, true);
   acknowledge(status);
   return true;
@@ -175,88 +225,143 @@ bool AhciPort::command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buf
                        bool writing, bool interrupts) {
   if (bytes > MaxTransfer || (bytes && (!buffer || (bytes & 1U))) || (lba >> 48))
     return false;
+  TerminationDeferral lifetime;
   LockGuard<Mutex> command(m_CommandLock);
-  auto* header = static_cast<CommandHeader*>(m_Control.virtualAddress());
-  auto* table = reinterpret_cast<CommandTable*>(reinterpret_cast<uintptr_t>(header) + TableOffset);
+  const bool queued = m_QueueDepth && (opcode == 0x25 || opcode == 0x35);
+  if (queued)
+    opcode = writing ? 0x61 : 0x60;
+  // The admission lock prevents new queued reads from overtaking a flush.
+  const auto admissionDeadline = Time::getTicks() + 120 * Time::Multiplier::Second;
+  size_t index = 32;
+  for (;;) {
+    {
+      LockGuard<Mutex> state(m_StateLock);
+      if (!m_Online)
+        return false;
+      if (queued || !m_Active) {
+        const size_t count = queued ? m_QueueDepth : 1;
+        for (size_t i = 0; i < count; ++i) {
+          if (!(m_Active & (1U << i))) {
+            index = i;
+            break;
+          }
+        }
+      }
+    }
+    if (index != 32)
+      break;
+    if (Time::getTicks() >= admissionDeadline)
+      return false;
+    Time::delay(Time::Multiplier::Millisecond);
+  }
+  Slot& slot = m_Slots[index];
+  const uint32_t mask = 1U << index;
+  auto* header = static_cast<CommandHeader*>(m_Control.virtualAddress()) + index;
+  const size_t tableOffset = TableOffset + index * TableStride;
+  auto* table = reinterpret_cast<CommandTable*>(
+      reinterpret_cast<uintptr_t>(m_Control.virtualAddress()) + tableOffset);
   {
     LockGuard<Mutex> state(m_StateLock);
-    if (!m_Online || m_Active || read(Ci) || read(Sact) || (read(Tfd) & (Busy | DataRequest)))
+    if (!m_Online || (!queued && (read(Ci) || read(Sact) || (read(Tfd) & (Busy | DataRequest)))))
       return false;
     ByteSet(header, 0, sizeof(*header));
     ByteSet(table, 0, sizeof(*table));
     if (writing && bytes)
-      MemoryCopy(m_Data.virtualAddress(), buffer, bytes);
-    header->flags = 5U | (writing ? 1U << 6 : 0U) | (bytes ? 1U << 16 : 0U);
-    header->table = static_cast<uint32_t>(m_Control.physicalAddress() + TableOffset);
-    // SATA 2.5 section 10.3.4: Register H2D FIS, command update, direct device.
+      MemoryCopy(slot.data.virtualAddress(), buffer, bytes);
+    const size_t pageSize = TargetInfo::getPageSize();
+    const size_t prds = (bytes + pageSize - 1) / pageSize;
+    header->flags = 5U | (writing ? 1U << 6 : 0U) | (prds << 16);
+    header->table = static_cast<uint32_t>(m_Control.physicalAddress() + tableOffset);
     table->fis[0] = 0x27;
     table->fis[1] = 0x80;
     table->fis[2] = opcode;
-    if (opcode == 0x25 || opcode == 0x35)
-      table->fis[7] = 0x40;  // ATA LBA addressing.
+    if (queued || opcode == 0x25 || opcode == 0x35)
+      table->fis[7] = 0x40;
     for (size_t i = 0; i < 3; ++i) {
       table->fis[4 + i] = static_cast<uint8_t>(lba >> (i * 8));
       table->fis[8 + i] = static_cast<uint8_t>(lba >> ((i + 3) * 8));
     }
-    table->fis[12] = static_cast<uint8_t>(sectors);
-    table->fis[13] = static_cast<uint8_t>(sectors >> 8);
-    if (bytes) {
-      table->data.address = static_cast<uint32_t>(m_Data.physicalAddress());
-      table->data.byteCount = static_cast<uint32_t>(bytes - 1);
+    if (queued) {
+      table->fis[3] = static_cast<uint8_t>(sectors);
+      table->fis[11] = static_cast<uint8_t>(sectors >> 8);
+      table->fis[12] = static_cast<uint8_t>(index << 3);
+    } else {
+      table->fis[12] = static_cast<uint8_t>(sectors);
+      table->fis[13] = static_cast<uint8_t>(sectors >> 8);
     }
-    acknowledge(read(PortIs));
-    [[maybe_unused]] const size_t drained = m_Completion.drainAvailable();
-    m_Errors = 0;
-    m_Done = false;
-    m_Active = true;
+    for (size_t page = 0; page < prds; ++page) {
+      const size_t remaining = bytes - page * pageSize;
+      const size_t count = remaining < pageSize ? remaining : pageSize;
+      table->data[page].address = static_cast<uint32_t>(slot.pages[page]);
+      table->data[page].byteCount = static_cast<uint32_t>(count - 1);
+    }
+    // Observe previous commands before acknowledging shared port status.
+    pollCompletions(interrupts);
+    if (!m_Online)
+      return false;
+    [[maybe_unused]] const size_t drained = slot.completion.drainAvailable();
+    slot.errors = 0;
+    slot.done = false;
+    m_Active |= mask;
+    ++m_Outstanding;
+    if (m_Outstanding > m_MaximumOutstanding)
+      m_MaximumOutstanding = m_Outstanding;
+    if (queued)
+      m_Queued |= mask;
     FENCE();
-    write(Ci, 1U);  // PxCI is write-one-to-set; zero cannot cancel a command.
+    if (queued)
+      write(Sact, mask);
+    write(Ci, mask);
     (void)read(Ci);
   }
-  // A drive may spend longer flushing persistent media than transferring data.
+  if (queued) {
+    m_CommandLock.release();
+    command.disown();
+  }
   const size_t timeoutSeconds = (opcode == 0xe7 || opcode == 0xea) ? 120 : 30;
   const auto deadline = Time::getTicks() + timeoutSeconds * Time::Multiplier::Second;
   bool success = false;
-  uint32_t failedStatus = 0, failedCi = 0, failedTfd = 0;
   for (;;) {
-    bool waitExpired = false;
-    if (interrupts) {
-      // Let the threaded INTx handler claim completion before the lost-IRQ fallback.
-      waitExpired = !m_Completion.acquireForCompletion(1, 0, 10000);
-    }
+    const bool waitExpired = interrupts && !slot.completion.acquireForCompletion(1, 0, 10000);
     {
       LockGuard<Mutex> state(m_StateLock);
-      if (!m_Done && (!interrupts || waitExpired)) {
-        const uint32_t status = read(PortIs);
-        observe(status, false);
-        acknowledge(status);
+      if (!slot.done && (!interrupts || waitExpired)) {
+        pollCompletions(interrupts);
       }
-      if (m_Done || Time::getTicks() >= deadline) {
+      if (slot.done || Time::getTicks() >= deadline) {
         FENCE();
-        success = m_Done && !m_Errors && !(read(Ci) & 1U) && header->transferred == bytes;
-        if (success && !writing && bytes)
-          MemoryCopy(buffer, m_Data.virtualAddress(), bytes);
-        failedStatus = m_Errors;
-        failedCi = read(Ci);
-        failedTfd = read(Tfd);
-        m_Active = false;
+        // AHCI 5.4.1: PRDBC is not defined for native queued commands.
+        success = slot.done && !slot.errors && m_Online && !(read(queued ? Sact : Ci) & mask) &&
+                  (queued || header->transferred == bytes);
         if (!success) {
+          ERROR("AHCI: port " << m_Port << " command " << Hex << opcode << " tag " << index
+                              << " failed, CI=" << read(Ci) << " SACT=" << read(Sact)
+                              << " TFD=" << read(Tfd) << " errors=" << slot.errors);
           m_Online = false;
           write(PortIe, 0);
+          // Mark all owners failed before stopping engines clears hardware bits.
+          for (size_t i = 0; i < m_SlotCount; ++i) {
+            if (m_Active & (1U << i)) {
+              m_Slots[i].errors |= TaskFileError;
+              if (!m_Slots[i].done) {
+                m_Slots[i].done = true;
+                --m_Outstanding;
+                m_Slots[i].completion.release();
+              }
+            }
+          }
+          if (!stopEngines())
+            panic("AHCI: cannot stop failed port DMA; refusing to release memory");
+        } else if (!writing && bytes) {
+          MemoryCopy(buffer, slot.data.virtualAddress(), bytes);
         }
+        m_Active &= ~mask;
+        m_Queued &= ~mask;
         break;
       }
     }
     if (!interrupts)
       Time::delay(Time::Multiplier::Millisecond);
-  }
-  if (!success) {
-    ERROR("AHCI: port " << m_Port << " command " << Hex << opcode << " failed, CI=" << failedCi
-                        << " TFD=" << failedTfd << " errors=" << failedStatus);
-    // CI also clears on stopping/reset: that must never be mistaken for success.
-    // Only persistent bounce storage is exposed to DMA, never the caller buffer.
-    if (!stopEngines())
-      panic("AHCI: cannot stop failed port DMA; refusing to release memory");
   }
   return success;
 }
@@ -264,6 +369,17 @@ void AhciPort::shutdown() {
   LockGuard<Mutex> command(m_CommandLock);
   if (!m_AddressesInstalled)
     return;
+  const auto deadline = Time::getTicks() + 120 * Time::Multiplier::Second;
+  for (;;) {
+    {
+      LockGuard<Mutex> state(m_StateLock);
+      if (!m_Active)
+        break;
+    }
+    if (Time::getTicks() >= deadline)
+      panic("AHCI: command owners did not drain during shutdown");
+    Time::delay(Time::Multiplier::Millisecond);
+  }
   {
     LockGuard<Mutex> state(m_StateLock);
     m_Online = false;
@@ -282,4 +398,9 @@ void AhciPort::shutdown() {
 size_t AhciPort::interruptCompletions() const {
   LockGuard<Mutex> state(m_StateLock);
   return m_InterruptCompletions;
+}
+
+size_t AhciPort::maximumOutstanding() const {
+  LockGuard<Mutex> state(m_StateLock);
+  return m_MaximumOutstanding;
 }

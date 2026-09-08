@@ -32,11 +32,6 @@ class Device;
 
 static Spinlock g_Lock;
 
-// Partition number for a DOS extended partition (another partition table)
-const uint8_t g_ExtendedPartitionNumber = 5;
-// Partition number for an empty partition.
-const uint8_t g_EmptyPartitionNumber = 0;
-
 static const char* g_pPartitionTypes[256] = {"Empty",
                                              "FAT12",
                                              "XENIX root",
@@ -297,168 +292,105 @@ static const char* g_pPartitionTypes[256] = {"Empty",
 /// Holds the next partition number to mount
 static int gNextPartition = 0;
 
-static void msdosRegPartition(MsdosPartitionInfo* pPartitions, int i, Disk* pDisk) {
-  int partitionNumber = 0;
-#if THREADS
+static bool extended(uint8_t type) {
+  return type == 5 || type == 0x0f || type == 0x85;
+}
+
+static bool sectorRange(Disk* disk, uint64_t start, uint64_t count) {
+  const size_t sectorBytes = disk->getNativeBlockSize();
+  const uint64_t sectors = sectorBytes ? disk->getSize() / sectorBytes : 0;
+  return count && start < sectors && count <= sectors - start;
+}
+
+static void registerPartition(const MsdosPartitionInfo& entry, Disk* disk, uint64_t start) {
+  const uint64_t count = LITTLE_TO_HOST32(entry.size);
+  if (!sectorRange(disk, start, count) || !start) {
+    WARNING("MS-DOS: partition outside disk");
+    return;
+  }
+  int number;
   {
     LockGuard<Spinlock> guard(g_Lock);
-    partitionNumber = gNextPartition++;
+    number = gNextPartition++;
   }
-#else
-  partitionNumber = gNextPartition++;
-#endif
-
-  // Look up the partition string.
-  const char* pStr = g_pPartitionTypes[pPartitions[i].type];
-  NormalStaticString sstr("(");
-  sstr += partitionNumber;
-  sstr += ") ";
-  sstr += pStr;
-  String str(sstr);
-
-  // Create a partition object.
-  Partition* pObj =
-      new Partition(str,
-                    static_cast<uint64_t>(LITTLE_TO_HOST32(pPartitions[i].start_lba)) *
-                        512ULL, /* start_lba is in /sectors/. */
-                    static_cast<uint64_t>(LITTLE_TO_HOST32(pPartitions[i].size)) * 512ULL);
-  pObj->setParent(static_cast<Device*>(pDisk));
-  pDisk->addChild(static_cast<Device*>(pObj));
+  NormalStaticString label("(");
+  label += number;
+  label += ") ";
+  label += g_pPartitionTypes[entry.type];
+  const size_t bytes = disk->getNativeBlockSize();
+  auto* partition = new Partition(String(label), start * bytes, count * bytes);
+  partition->setParent(disk);
+  disk->addChild(partition);
 }
 
-static bool msdosReadExtTable(MsdosPartitionInfo* pPartitions, Disk* pDisk, int n,
-                              uint64_t partitionBase, uint64_t currentBase) {
-  for (int i = 0; i < MSDOS_EXT_PARTTAB_NUM; i++) {
-    // Legit?
-    if ((pPartitions[i].active != 0) && (pPartitions[i].active != 0x80)) {
-      WARNING("Invalid partition record found");
-      continue;
-    }
+static bool readEntries(Disk* disk, uint64_t lba, MsdosPartitionInfo* entries) {
+  if (!sectorRange(disk, lba, 1))
+    return false;
+  const uint64_t offset = lba * disk->getNativeBlockSize();
+  const BufferView view = disk->read(offset);
+  if (!view)
+    return false;
+  const bool valid = view.size() >= 512 && view[510] == MSDOS_IDENT_1 && view[511] == MSDOS_IDENT_2;
+  if (valid)
+    MemoryCopy(entries, view.as<uint8_t>(MSDOS_PARTTAB_START), sizeof(MsdosPartitionInfo) * 4);
+  disk->unpin(offset);
+  return valid;
+}
 
-    // Check the type of the partition.
-    if (pPartitions[i].type == g_ExtendedPartitionNumber) {
-      // In a linked extended partition record, the LBA start is the
-      // difference between the start of the actual extended partition and
-      // the next extended partition record's MBR sector.
-      uint64_t startLba = LITTLE_TO_HOST32(pPartitions[i].start_lba) + partitionBase;
+static void readExtended(Disk* disk, uint64_t base, uint64_t count) {
+  if (!sectorRange(disk, base, count) || !base)
+    return;
+  uint64_t visited[128];
+  size_t depth = 0;
+  uint64_t current = base;
+  while (depth < 128) {
+    for (size_t i = 0; i < depth; ++i)
+      if (visited[i] == current)
+        return;
+    visited[depth++] = current;
+    MsdosPartitionInfo entries[4];
+    if (!readEntries(disk, current, entries))
+      return;
+    const auto& data = entries[0];
+    const uint64_t start = current + LITTLE_TO_HOST32(data.start_lba);
+    const uint64_t length = LITTLE_TO_HOST32(data.size);
+    if ((data.active == 0 || data.active == 0x80) && data.type && !extended(data.type) &&
+        data.type != 0xee && start > current && start >= base && start < base + count &&
+        length <= base + count - start)
+      registerPartition(data, disk, start);
+    const auto& link = entries[1];
+    if (!extended(link.type) || (link.active != 0 && link.active != 0x80))
+      return;
+    const uint64_t relative = LITTLE_TO_HOST32(link.start_lba);
+    if (!relative || relative >= count)
+      return;
+    current = base + relative;
+  }
+  WARNING("MS-DOS: extended partition chain exceeds 128 records");
+}
 
-      // Update the partition information. Forget about turning it back
-      // into whatever endianness it was in before.
-      pPartitions[i].start_lba = static_cast<uint32_t>(startLba & 0xFFFFFFFF);
-
-      // Extended partition - read in 512 bytes and recurse.
-      const uint64_t diskLocation = pPartitions[i].start_lba * 512ULL;
-      const BufferView buffer = pDisk->read(diskLocation);
-      if (!buffer || buffer.size() < 512) {
-        if (buffer) {
-          pDisk->unpin(diskLocation);
-        }
-        WARNING("Couldn't read next sector for the extended partition.");
-        continue;
-      }
-
-      // Is it a "valid" MBR?
-      if (buffer[510] != MSDOS_IDENT_1 || buffer[511] != MSDOS_IDENT_2) {
-        WARNING("Extended partition record read failed.");
-        pDisk->unpin(diskLocation);
-        continue;
-      }
-
-      // Call the extended partition reader. We pass in the current
-      // extended partition record's base, along with the base of the
-      // extended partition record we're about to parse.
-      MsdosPartitionInfo nextPartitions[MSDOS_PARTTAB_NUM];
-      MemoryCopy(nextPartitions, buffer.as<uint8_t>(MSDOS_PARTTAB_START), sizeof(nextPartitions));
-      pDisk->unpin(diskLocation);
-      if (!msdosReadExtTable(nextPartitions, pDisk, MSDOS_PARTTAB_NUM, partitionBase, startLba))
-        WARNING("Reading the extended partition table failed");
-    } else if (pPartitions[i].type == g_EmptyPartitionNumber) {
-      // Empty partition - end of chain
+bool msdosReadTable(MsdosPartitionInfo* entries, Disk* disk) {
+  // A corrupt GPT must not expose its protective container as a filesystem.
+  for (size_t i = 0; i < 4; ++i)
+    if (entries[i].type == 0xee)
       return true;
-    } else {
-      // The start LBA of a logical partition is relative to the extended
-      // partition record which describes it
-      uint64_t startLba = LITTLE_TO_HOST32(pPartitions[i].start_lba) + currentBase;
-
-      pPartitions[i].start_lba = HOST_TO_LITTLE32(static_cast<uint32_t>(startLba & 0xFFFFFFFF));
-      msdosRegPartition(pPartitions, i, pDisk);
-    }
-  }
-  return true;
-}
-
-bool msdosReadTable(MsdosPartitionInfo* pPartitions, Disk* pDisk) {
-  for (int i = 0; i < MSDOS_PARTTAB_NUM; i++) {
-    // Legit?
-    if ((pPartitions[i].active != 0) && (pPartitions[i].active != 0x80)) {
-      WARNING("Invalid partition record found");
+  for (size_t i = 0; i < 4; ++i) {
+    const auto& entry = entries[i];
+    if (entry.active != 0 && entry.active != 0x80)
       continue;
-    }
-
-    // Check the type of the partition.
-    if (pPartitions[i].type == g_ExtendedPartitionNumber) {
-      uint64_t startLba = LITTLE_TO_HOST32(pPartitions[i].start_lba);
-
-      // Extended partition - read in 512 bytes and recurse. The first
-      // sector will always be relative to this sector (zero).
-      const uint64_t diskLocation = startLba * 512ULL;
-      const BufferView buffer = pDisk->read(diskLocation);
-      if (!buffer || buffer.size() < 512) {
-        if (buffer) {
-          pDisk->unpin(diskLocation);
-        }
-        WARNING("Couldn't read next sector for the extended partition.");
-        continue;
-      }
-
-      // Is it valid?
-      if (buffer[510] != MSDOS_IDENT_1 || buffer[511] != MSDOS_IDENT_2) {
-        WARNING("Extended partition record read failed.");
-        pDisk->unpin(diskLocation);
-        continue;
-      }
-
-      // Call the extended partition reader, give it the base of this
-      // partition entry for its calculations.
-      MsdosPartitionInfo readPartitions[MSDOS_PARTTAB_NUM];
-      MemoryCopy(readPartitions, buffer.as<uint8_t>(MSDOS_PARTTAB_START), sizeof(readPartitions));
-      pDisk->unpin(diskLocation);
-      if (!msdosReadExtTable(readPartitions, pDisk, MSDOS_PARTTAB_NUM, startLba, startLba))
-        WARNING("Reading the extended partition table failed");
-    } else if (pPartitions[i].type == g_EmptyPartitionNumber) {
-      // Empty partition - do nothing.
-    } else {
-      msdosRegPartition(pPartitions, i, pDisk);
-    }
+    const uint64_t start = LITTLE_TO_HOST32(entry.start_lba);
+    if (extended(entry.type))
+      readExtended(disk, start, LITTLE_TO_HOST32(entry.size));
+    else if (entry.type)
+      registerPartition(entry, disk, start);
   }
   return true;
 }
 
-bool msdosProbeDisk(Disk* pDisk) {
-  // Read the first sector (512 bytes) of the disk into a buffer.
-  const BufferView buffer = pDisk->read(0ULL);
-  if (!buffer || buffer.size() < 512) {
-    if (buffer) {
-      pDisk->unpin(0ULL);
-    }
-    WARNING("Disk read failure during MS-DOS partition table search.");
+bool msdosProbeDisk(Disk* disk) {
+  const size_t bytes = disk->getNativeBlockSize();
+  if (bytes < 512 || bytes > 4096 || (bytes & (bytes - 1)))
     return false;
-  }
-
-  String diskName;
-  pDisk->getName(diskName);
-
-  // Check for the magic bytes.
-  if (buffer[510] != MSDOS_IDENT_1 || buffer[511] != MSDOS_IDENT_2) {
-    NOTICE("MS-DOS partition not found on disk " << diskName);
-    pDisk->unpin(0ULL);
-    return false;
-  }
-
-  NOTICE("MS-DOS partition table found on disk " << diskName);
-
-  MsdosPartitionInfo partitions[MSDOS_PARTTAB_NUM];
-  MemoryCopy(partitions, buffer.as<uint8_t>(MSDOS_PARTTAB_START), sizeof(partitions));
-  pDisk->unpin(0ULL);
-  return msdosReadTable(partitions, pDisk);
+  MsdosPartitionInfo entries[4];
+  return readEntries(disk, 0, entries) && msdosReadTable(entries, disk);
 }

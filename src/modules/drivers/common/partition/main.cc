@@ -26,6 +26,7 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "Gpt.h"
 #include "PartitionService.h"
 #include "apple.h"
 #include "modules/Module.h"
@@ -35,12 +36,20 @@ static Service* pService = 0;
 static ServiceFeatures* pFeatures = 0;
 
 static bool probeDevice(Disk* pDev) {
+  if (pDev->getSpecificType() == String("partition"))
+    return true;
+  for (size_t i = 0; i < pDev->getNumChildren(); ++i)
+    if (pDev->getChild(i)->getSpecificType() == String("partition"))
+      return true;
+  if (gptProbeDisk(pDev))
+    return true;
+
   // Does the disk have an MS-DOS partition table?
   if (msdosProbeDisk(pDev))
     return true;
 
   // No? how about an Apple_Map?
-  if (appleProbeDisk(pDev))
+  if (pDev->getNativeBlockSize() == 512 && appleProbeDisk(pDev))
     return true;
 
   // Oh well, better luck next time.
@@ -52,14 +61,13 @@ static Device* checkNode(Device* pDev) {
   pDev->getName(s);
   NOTICE("checkNode(" << pDev << " / " << s << ")");
   bool hasPartitions = false;
-  if (pDev->getType() == Device::Disk) {
+  if (pDev->getType() == Device::Disk && pDev->getSpecificType() != String("partition")) {
     // Check that none of its children are Partitions
     // (in which case we've probed this before!)
     for (unsigned int i = 0; i < pDev->getNumChildren(); i++) {
       String name;
       pDev->getChild(i)->getName(name);
-      if (!StringCompare(name.cstr(), "msdos-partition") ||
-          !StringCompare(name.cstr(), "apple-partition")) {
+      if (pDev->getChild(i)->getSpecificType() == String("partition")) {
         hasPartitions = true;
         break;
       }
@@ -118,5 +126,5 @@ static void exit() {
 MODULE_INFO("partition", &entry, &exit, "diskimage");
 #else
 MODULE_INFO("partition", &entry, &exit);
-MODULE_OPTIONAL_DEPENDS("ata", "ahci");
+MODULE_OPTIONAL_DEPENDS("ata", "ahci", "nvme");
 #endif

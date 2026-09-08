@@ -27,6 +27,7 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "Bar.h"
 #include "modules/Module.h"
 #include "pci_list.h"
 
@@ -117,42 +118,40 @@ static bool entry() {
         NOTICE("PCI:     Class: " << cs.class_code << " Subclass: " << cs.subclass
                                   << " ProgIF: " << cs.progif);
 
-        for (int l = 0; l < 6; l++) {
-          // PCI-PCI bridges have a different layout for the last 4
-          // BARs: they hold extra data.
-          if ((cs.header_type & 0x7F) == 0x1 && l >= 2) {
+        const uint8_t headerType = cs.header_type & 0x7f;
+        const size_t barCount = headerType == 0 ? 6 : headerType == 1 ? 2 : headerType == 2 ? 1 : 0;
+        auto& pci = PciBus::instance();
+        // BAR sizing temporarily changes the decoded address. Disable both
+        // decoders and bus mastering, and never write the W1C PCI status bits.
+        pci.writeConfigSpace(pDevice, 1, cs.command & ~7U);
+        for (size_t l = 0; l < barCount; ++l) {
+          const bool wide = !(cs.bar[l] & 1U) && (cs.bar[l] & 6U) == 4;
+          if (wide && l + 1 == barCount)
             break;
+          const uint8_t offset = 4 + l;
+          const uint32_t high = wide ? cs.bar[l + 1] : 0;
+          pci.writeConfigSpace(pDevice, offset, 0xffffffffU);
+          if (wide)
+            pci.writeConfigSpace(pDevice, offset + 1, 0xffffffffU);
+          const uint32_t mask = pci.readConfigSpace(pDevice, offset);
+          const uint32_t maskHigh = wide ? pci.readConfigSpace(pDevice, offset + 1) : 0;
+          if (wide)
+            pci.writeConfigSpace(pDevice, offset + 1, high);
+          pci.writeConfigSpace(pDevice, offset, cs.bar[l]);
+          PciBar::Mapping mapping;
+          if (PciBar::decode(cs.bar[l], high, mask, maskHigh, mapping) &&
+              mapping.base <= ~uintptr_t{0} && mapping.bytes <= ~size_t{0}) {
+            StringFormat(c, "bar%u", static_cast<unsigned>(l));
+            NOTICE("PCI:     BAR" << Dec << l << Hex << ": " << mapping.base << ".."
+                                  << (mapping.base + mapping.bytes) << " (" << mapping.io << ")");
+            pDevice->addresses().pushBack(
+                new Device::Address(String(c), static_cast<uintptr_t>(mapping.base),
+                                    static_cast<size_t>(mapping.bytes), mapping.io));
           }
-
-          if (cs.bar[l] == 0)
-            continue;
-
-          // Write the BAR with FFFFFFFF to discover the size of
-          // mapping that the device requires.
-          uint8_t offset = (0x10 + l * 4) >> 2;
-          PciBus::instance().writeConfigSpace(pDevice, offset, 0xFFFFFFFF);
-          uint32_t mask = PciBus::instance().readConfigSpace(pDevice, offset);
-          PciBus::instance().writeConfigSpace(pDevice, offset, cs.bar[l]);
-
-          // Now work out how much space is required to fill that
-          // mask. Assume it doesn't need 4GB of space...
-          uint32_t size = ~(mask & 0xFFFFFFF0) + 1;  // AND with ~0xF to get rid of the flags
-                                                     // field in the bottom 4 bits.
-
-          bool io = (cs.bar[l] & 0x1);
-          if (io)
-            // IO space is only 64K in size.
-            size &= 0xFFFF;
-
-          StringFormat(c, "bar%d", l);
-          uintptr_t s = (cs.bar[l] & 0xFFFFFFF0);
-
-          NOTICE("PCI:     BAR" << Dec << l << Hex << ": " << s << ".." << (s + size) << " (" << io
-                                << ")");
-          Device::Address* pAddress = new Device::Address(String(c), cs.bar[l] & 0xFFFFFFF0, size,
-                                                          (cs.bar[l] & 0x1) == 0x1);
-          pDevice->addresses().pushBack(pAddress);
+          if (wide)
+            ++l;
         }
+        pci.writeConfigSpace(pDevice, 1, cs.command);
 
         NOTICE("PCI:     IRQ: L" << cs.interrupt_line << " P" << cs.interrupt_pin);
         pDevice->setInterruptNumber(cs.interrupt_line);

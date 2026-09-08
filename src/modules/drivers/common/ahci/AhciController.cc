@@ -209,22 +209,20 @@ IrqDisposition AhciController::irq(irq_id_t) {
   if (!m_Interrupts)
     return IrqDisposition::NotHandled;
   const uint32_t pending = m_Registers->read32(Is) & m_Implemented;
-  if (!pending)
-    return IrqDisposition::NotHandled;
+  bool handled = pending != 0;
   for (size_t i = 0; i < 32; ++i) {
-    if (!(pending & (1U << i)))
-      continue;
     if (m_Ports[i])
-      m_Ports[i]->interrupt();
-    else {
+      handled |= m_Ports[i]->interrupt(pending & (1U << i));
+    else if (pending & (1U << i)) {
       const size_t base = PortBase + i * PortStride;
       m_Registers->write32(m_Registers->read32(base + Serr), base + Serr);
       m_Registers->write32(m_Registers->read32(base + PortIs), base + PortIs);
     }
   }
-  m_Registers->write32(pending, Is);
+  if (pending)
+    m_Registers->write32(pending, Is);
   (void)m_Registers->read32(Is);
-  return IrqDisposition::Handled;
+  return handled ? IrqDisposition::Handled : IrqDisposition::NotHandled;
 }
 bool AhciController::identify(size_t port, uint16_t* words) {
   return port < 32 && m_Ports[port] &&
@@ -232,12 +230,17 @@ bool AhciController::identify(size_t port, uint16_t* words) {
 }
 bool AhciController::readWrite(size_t port, uint64_t lba, uint16_t sectors, void* buffer,
                                size_t bytes, bool writing) {
-  if (!sectors || bytes != static_cast<size_t>(sectors) * 512 || lba >= (1ULL << 48) ||
+  if (port >= 32 || !m_Ports[port] || !sectors ||
+      bytes != static_cast<size_t>(sectors) * m_Ports[port]->sectorBytes() || lba >= (1ULL << 48) ||
       sectors > (1ULL << 48) - lba)
     return false;
   return port < 32 && m_Ports[port] &&
          m_Ports[port]->command(writing ? 0x35 : 0x25, lba, sectors, buffer, bytes, writing,
                                 m_Interrupts);
+}
+void AhciController::configureDisk(size_t port, size_t sectorBytes, size_t queueDepth) {
+  if (port < 32 && m_Ports[port])
+    m_Ports[port]->configureDisk(sectorBytes, queueDepth);
 }
 bool AhciController::flush(size_t port, bool extended) {
   return port < 32 && m_Ports[port] &&
@@ -285,4 +288,8 @@ void AhciController::shutdown() {
     PciBus::instance().writeConfigSpace(m_Pci, 1, command);
   }
   m_Shutdown = true;
+}
+
+size_t AhciController::maximumOutstanding(size_t port) const {
+  return port < 32 && m_Ports[port] ? m_Ports[port]->maximumOutstanding() : 0;
 }

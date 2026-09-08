@@ -703,6 +703,19 @@ pedigree_module(3c90x "" ""
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     if (PEDIGREE_MACHINE_HASPCI)
+        pedigree_module(nvme "" ""
+            ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/NvmeController.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/NvmeDisk.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/NvmeQueue.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/main.cc)
+        if (PEDIGREE_NVME_SMOKE_TESTS)
+            if (PEDIGREE_CRIPPLE_HDD OR PEDIGREE_WITH_INIT)
+                message(FATAL_ERROR
+                    "NVMe smoke tests require PEDIGREE_CRIPPLE_HDD=OFF and PEDIGREE_WITH_INIT=OFF.")
+            endif ()
+            pedigree_module(nvme-smoke "" ""
+                ${CMAKE_CURRENT_SOURCE_DIR}/system/nvme-smoke/main.cc)
+        endif ()
         pedigree_module(ahci "" ""
             ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ahci/AhciController.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ahci/AhciDisk.cc
@@ -760,6 +773,7 @@ endif ()
 pedigree_module(partition "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/partition/Partition.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/partition/apple.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/partition/gpt.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/partition/main.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/partition/msdos.cc)
 

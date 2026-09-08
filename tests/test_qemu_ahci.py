@@ -136,7 +136,7 @@ class EvidenceTests(unittest.TestCase):
                                   root_image=Path("/test/root.img"), inject_read_error=False)
         command = smoke.qemu_command(args, Path("/test/new"))
         self.assertIn("file=/test/root.img,format=raw,if=none,id=rootdisk,snapshot=on", command)
-        self.assertIn("file=/test/new/scratch.img,format=raw,if=none,id=scratch,cache=writeback", command)
+        self.assertIn("file=/test/new/scratch.img,format=raw,if=none,id=scratch,cache=writeback,iops_rd=100", command)
         self.assertIn("file=/test/a,,b.iso,format=raw,media=cdrom,if=ide,index=2,readonly=on", command)
         self.assertIn("ide-hd,drive=rootdisk,bus=ahci.0", command)
         self.assertIn("ide-hd,drive=scratch,bus=ahci.1", command)

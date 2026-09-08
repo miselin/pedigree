@@ -34,8 +34,8 @@ class SchedulerIrqHandler;
 
 /**
  * Source-declared trigger semantics used for safe controller behaviour.
- * Registration does not itself program platform electrical routing such as
- * the PC ELCR.
+ * The PC PCI registration path configures its selected ELCR line as level
+ * triggered while masked. Interrupt routing to that line remains platform-owned.
  */
 enum class IrqTrigger : uint8_t {
   Edge,

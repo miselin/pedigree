@@ -31,6 +31,7 @@
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/CacheConstants.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 #include <config.h>
 
@@ -255,8 +256,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
 #endif
 
   mutable Mutex m_AlignmentLock;
-  uint64_t m_AlignPoints[8];
-  size_t m_nAlignPoints;
+  Vector<uint64_t> m_AlignPoints;
 
   size_t m_NumBlocks;
   size_t m_BlockSize;

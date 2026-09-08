@@ -249,7 +249,6 @@ ScsiDisk::ScsiDisk()
       m_FirstCacheRangeAdmission(nullptr),
       m_LastCacheRangeAdmission(nullptr),
       m_AlignmentLock(),
-      m_nAlignPoints(0),
       m_NumBlocks(0),
       m_BlockSize(ScsiCachePageBytes),
       m_NativeBlockSize(0),
@@ -489,7 +488,9 @@ BufferView ScsiDisk::read(uint64_t location) {
     return BufferView();
   }
 
-  CacheRangeAdmission admission(*this, loc, cacheLength, false);
+  // A lookup can return an Editing page. Keep overlapping readers out until
+  // the transport has finished filling and publishing the entire extent.
+  CacheRangeAdmission admission(*this, loc, cacheLength, true);
 
   uintptr_t buffer;
   if ((buffer = m_Cache.lookup(pageLocation))) {
@@ -497,7 +498,9 @@ BufferView ScsiDisk::read(uint64_t location) {
   }
 
   uint64_t numRead =
-      pParent->addRequest(0, SCSI_REQUEST_READ, reinterpret_cast<uint64_t>(this), loc);
+      pParent->supportsConcurrentReads()
+          ? doRead(loc)
+          : pParent->addRequest(0, SCSI_REQUEST_READ, reinterpret_cast<uint64_t>(this), loc);
   if (numRead < fillLength) {
     // Failed to read for some reason, expose the failure to our caller.
     WARNING("ScsiDisk::read - short read!");
@@ -758,13 +761,12 @@ void ScsiDisk::align(uint64_t location) {
   }
 
   LockGuard<Mutex> guard(m_AlignmentLock);
-  for (size_t i = 0; i < m_nAlignPoints; ++i) {
+  for (size_t i = 0; i < m_AlignPoints.count(); ++i) {
     if (m_AlignPoints[i] == location) {
       return;
     }
   }
-  assert(m_nAlignPoints < 8);
-  m_AlignPoints[m_nAlignPoints++] = location;
+  m_AlignPoints.pushBack(location);
 }
 
 uint64_t ScsiDisk::doRead(uint64_t location) {
@@ -1106,7 +1108,7 @@ size_t ScsiDisk::getCachePageValidLength(uint64_t location) const {
 uint64_t ScsiDisk::getAlignmentPoint(uint64_t location) const {
   LockGuard<Mutex> guard(m_AlignmentLock);
   uint64_t alignPoint = 0;
-  for (size_t i = 0; i < m_nAlignPoints; ++i) {
+  for (size_t i = 0; i < m_AlignPoints.count(); ++i) {
     if (m_AlignPoints[i] <= location && m_AlignPoints[i] > alignPoint) {
       alignPoint = m_AlignPoints[i];
     }
