@@ -32,6 +32,7 @@
 #include "LocalApic.h"
 #include "LocalApicIcrTransaction.h"
 #include "LocalApicLint0Policy.h"
+#include "LocalApicMode.h"
 
 #define LAPIC_REG_ID 0x0020
 #define LAPIC_REG_VERSION 0x0030
@@ -878,14 +879,27 @@ uint8_t LocalApic::getId() {
 }
 
 bool LocalApic::check(uint64_t physicalAddress) {
-  // Check whether the Local APIC is enabled or not
-  if ((Processor::readMachineSpecificRegister(0x1B) & 0x800) == 0) {
+  const uint64_t apicBase = Processor::readMachineSpecificRegister(LocalApicMode::BaseMsr);
+  const LocalApicMode::Mode mode = LocalApicMode::decode(apicBase);
+  // x2APIC disables this backend's MMIO interface. Its inherited interrupt
+  // routing cannot safely be treated as an ordinary PIC/PIT fallback.
+  if (mode == LocalApicMode::Mode::X2Apic || mode == LocalApicMode::Mode::Invalid) {
+    __asm__ volatile("cli" ::: "memory");
+    if (mode == LocalApicMode::Mode::X2Apic)
+      ERROR_NOLOCK("Local APIC: inherited x2APIC mode is unsupported");
+    else
+      ERROR_NOLOCK("Local APIC: invalid inherited APIC mode");
+    // panic() sends stop IPIs when APs exist, which would use the forbidden MMIO.
+    for (;;)
+      __asm__ volatile("hlt");
+  }
+  if (mode == LocalApicMode::Mode::Disabled) {
     ERROR("Local APIC: Disabled");
     return false;
   }
 
   // Check Local APIC base address
-  if ((Processor::readMachineSpecificRegister(0x1B) & 0xFFFFFF000ULL) != physicalAddress) {
+  if ((apicBase & 0xFFFFFF000ULL) != physicalAddress) {
     ERROR("Local APIC: Wrong physical address");
     return false;
   }

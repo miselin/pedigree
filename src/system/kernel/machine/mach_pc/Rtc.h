@@ -70,7 +70,7 @@ class Rtc : public Timer, private IrqHandler {
 
   /** Initialises the class
    *\return true, if successful, false otherwise */
-  bool initialise1() INITIALISATION_ONLY;
+  bool initialise1(uint8_t centuryIndex) INITIALISATION_ONLY;
   /** Calibrates the TSC while the RTC line remains masked. */
   bool initialise2() INITIALISATION_ONLY;
 
@@ -122,10 +122,6 @@ class Rtc : public Timer, private IrqHandler {
    *\param[in] index the index we want to access afterwards
    *\return true if the update completed before the hardware deadline */
   bool waitForUpdateCompletion(uint8_t index);
-  /** Dis/Enable the RTC updates
-   *\param[in] index the index we want to access / have accessed
-   *\param[in] enable Do we want to enable or disable? */
-  void enableRtcUpdates(bool enable);
   bool read(uint8_t index, uint8_t& value);
   uint8_t readLocked(uint8_t index);
   void writeLocked(uint8_t index, uint8_t value);
@@ -142,6 +138,7 @@ class Rtc : public Timer, private IrqHandler {
   /** Transfer a complete clock snapshot without partially publishing it. */
   bool readHardwareClock();
   bool writeHardwareClock();
+  bool inhibitClockUpdatesLocked(uint8_t& status);
 
   /** Drains a sendEvent handoff owned by another processor. */
   void drainRemoteAlarmDispatch(class Event* pEvent, void* owner);
@@ -176,8 +173,7 @@ class Rtc : public Timer, private IrqHandler {
   /** Index into the periodicIrqInfo table */
   size_t m_PeriodicIrqInfoIndex;
 
-  /** BCD mode? (otherwise in binary mode) */
-  bool m_bBCD;
+  uint8_t m_CenturyIndex;
 
   /** The current year */
   size_t m_Year;

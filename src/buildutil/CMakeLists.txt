@@ -327,6 +327,7 @@ set(TESTSUITE_SRCS
     testsuite/test-Readiness.cc
     testsuite/test-RtcAlarmQueue.cc
     testsuite/test-RtcTimeAccounting.cc
+    testsuite/test-RtcCalendar.cc
     testsuite/test-IrqDiagnosticRenderer.cc
     testsuite/test-LocksCommand.cc
     testsuite/test-ThreadWaitDiagnostic.cc
@@ -351,6 +352,7 @@ set(TESTSUITE_SRCS
     testsuite/test-LocalApicIcrTransaction.cc
     testsuite/test-LocalApicTlbShootdown.cc
     testsuite/test-LocalApicLint0Policy.cc
+    testsuite/test-LocalApicMode.cc
     testsuite/test-MemoryRegion.cc
     testsuite/test-PcSchedulerTimerSelection.cc
     testsuite/test-PicIrqState.cc

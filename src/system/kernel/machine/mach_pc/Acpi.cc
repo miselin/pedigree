@@ -165,8 +165,13 @@ void Acpi::initialise() {
     }
 
     // Is Fixed ACPI Description Table?
-    if (pSystemDescTable->signature == 0x50434146)
+    if (pSystemDescTable->signature == 0x50434146) {
+      if (pSystemDescTable->length < sizeof(FixedACPIDescriptionTable)) {
+        ERROR("Acpi: truncated Fixed ACPI Description Table");
+        continue;
+      }
       m_pFacp = reinterpret_cast<FixedACPIDescriptionTable*>(pSystemDescTable);
+    }
 // Is Multiple APIC Description Table?
 #if APIC
     else if (pSystemDescTable->signature == 0x43495041)

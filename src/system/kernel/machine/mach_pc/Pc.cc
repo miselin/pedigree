@@ -87,16 +87,16 @@ void Pc::initialise() {
   if (m_Vga->initialise() == false)
     panic("Pc: Vga initialisation failed");
 
-  // Initialise the Real-time Clock / CMOS (without IRQs).
-  Rtc& rtc = Rtc::instance();
-  if (rtc.initialise1() == false)
-    panic("Pc: Rtc initialisation phase 1 failed");
-
-// Initialise ACPI
+  uint8_t rtcCenturyIndex = 0;
 #if ACPI
   Acpi& acpi = Acpi::instance();
   acpi.initialise();
+  rtcCenturyIndex = acpi.getRtcCenturyIndex();
 #endif
+
+  Rtc& rtc = Rtc::instance();
+  if (rtc.initialise1(rtcCenturyIndex) == false)
+    panic("Pc: Rtc initialisation phase 1 failed");
 
 // Initialise SMP
 #if SMP

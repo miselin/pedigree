@@ -40,6 +40,7 @@
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "RtcCalendar.h"
 #include "RtcTimeAccounting.h"
 
 class Event;
@@ -52,8 +53,6 @@ class Event;
 #else
 #define INITIAL_RTC_HZ 512
 #endif
-#define BCD_TO_BIN8(x) (((((x) & 0xF0) >> 4) * 10) + ((x) & 0x0F))
-#define BIN_TO_BCD8(x) ((((x) / 10) * 16) + ((x) % 10))
 
 namespace {
 constexpr uint8_t RtcPeriodicInterruptEnable = 1U << 6;
@@ -290,7 +289,7 @@ uint64_t Rtc::getTickCountNano() {
 
   return m_MonotonicTicks.publish(candidate);
 }
-bool Rtc::initialise1() {
+bool Rtc::initialise1(uint8_t centuryIndex) {
   NOTICE("Rtc::initialise1");
 
   // Allocate the I/O port range"CMOS"
@@ -303,15 +302,20 @@ bool Rtc::initialise1() {
   // Initialise handlers.
   m_HandlerRegistry.reset();
 
-  // Are the RTC values in the CMOS encoded in BCD (or binary)?
-  uint8_t statusB = 0;
-  if (!read(0x0B, statusB)) {
+  if (!RtcCalendar::validCenturyIndex(centuryIndex)) {
+    ERROR("RTC: unsupported FADT century index " << Hex << centuryIndex);
     return false;
   }
-  m_bBCD = (statusB & 0x04) != 0x04;
+  m_CenturyIndex = centuryIndex;
+  if (centuryIndex) {
+    NOTICE("RTC: FADT century index " << Hex << centuryIndex);
+  } else {
+    NOTICE("RTC: no century register; interpreting years as 1970-2069");
+  }
 
-  if (!readHardwareClock()) {
-    ERROR("RTC: timed out reading the initial hardware clock");
+  uint8_t statusB = 0;
+  if (!read(0x0B, statusB) ||
+      !write(0x0B, statusB & ~(RtcUpdateInhibit | RtcInterruptEnableMask | 1U))) {
     return false;
   }
 
@@ -325,9 +329,20 @@ bool Rtc::initialise1() {
     }
 
   // Set the Rate for the periodic IRQ
-  uint8_t tmp = read(0x0A);
-  write(0x0A, (tmp & 0xF0) | rateBits);
-
+  // Select the standard 32.768 kHz divider and a running clock, regardless
+  // of the divider/reset and interrupt state left by firmware.
+  uint8_t statusA = 0;
+  uint8_t verifiedB = 0;
+  if (!write(0x0A, 0x20 | rateBits) || !read(0x0A, statusA) || !read(0x0B, verifiedB) ||
+      (statusA & 0x7f) != (0x20 | rateBits) ||
+      verifiedB != (statusB & ~(RtcUpdateInhibit | RtcInterruptEnableMask | 1U))) {
+    ERROR("RTC: control register configuration did not stick");
+    return false;
+  }
+  if (!readHardwareClock()) {
+    ERROR("RTC: initial hardware clock is invalid or unresponsive");
+    return false;
+  }
   return true;
 }
 
@@ -417,15 +432,13 @@ bool Rtc::initialise3() {
 }
 
 void Rtc::synchronise(bool tohw) {
-  enableRtcUpdates(false);
   const bool success = tohw ? writeHardwareClock() : readHardwareClock();
-  enableRtcUpdates(true);
 
   if (!success) {
     if (tohw) {
-      ERROR("RTC: timed out writing the hardware clock");
+      ERROR("RTC: hardware clock write failed (invalid date or timeout)");
     } else {
-      ERROR("RTC: timed out reading the hardware clock");
+      ERROR("RTC: hardware clock read failed (invalid date or timeout)");
     }
   }
 }
@@ -466,10 +479,10 @@ Rtc::Rtc()
     : m_IoPort("CMOS"),
       m_IrqId(0),
       m_PeriodicIrqInfoIndex(0),
-      m_bBCD(true),
+      m_CenturyIndex(0),
       m_Year(1970),
-      m_Month(0),
-      m_DayOfMonth(0),
+      m_Month(1),
+      m_DayOfMonth(1),
       m_Hour(0),
       m_Minute(0),
       m_Second(0),
@@ -610,7 +623,7 @@ void Rtc::setIndexLocked(uint8_t index) {
 }
 
 bool Rtc::waitForUpdateCompletion(uint8_t index) {
-  if (index > 9 && index != 0x32) {
+  if (index > 9 && index != m_CenturyIndex) {
     return true;
   }
 
@@ -636,19 +649,6 @@ bool Rtc::waitForUpdateCompletion(uint8_t index) {
     Processor::pause();
   }
 }
-void Rtc::enableRtcUpdates(bool enable) {
-  CmosTransactionGuard guard(m_CmosLock);
-
-  // Write the index
-  setIndexLocked(0x0B);
-
-  // Update the status register
-  uint8_t statusB = m_IoPort.read8(1);
-  statusB = enable ? static_cast<uint8_t>(statusB & ~RtcUpdateInhibit)
-                   : static_cast<uint8_t>(statusB | RtcUpdateInhibit);
-  m_IoPort.write8(statusB, 1);
-}
-
 uint8_t Rtc::readCmos(uint8_t index) {
   return m_Instance.read(index);
 }
@@ -687,49 +687,64 @@ void Rtc::writeCmos(uint8_t index, uint8_t value) {
   (void)m_Instance.write(index, value);
 }
 
-bool Rtc::readHardwareClock() {
-  uint8_t second = 0;
-  uint8_t minute = 0;
-  uint8_t hour = 0;
-  uint8_t dayOfMonth = 0;
-  uint8_t month = 0;
-  uint8_t year = 0;
-  uint8_t century = 0;
-  if (!read(0x00, second) || !read(0x02, minute) || !read(0x04, hour) || !read(0x07, dayOfMonth) ||
-      !read(0x08, month) || !read(0x09, year) || !read(0x32, century)) {
+bool Rtc::inhibitClockUpdatesLocked(uint8_t& status) {
+  // UIP's quiet window is only guaranteed for 244 us. Do not allow a
+  // scheduler preemption between the final check and freezing the clock.
+  const bool interrupts = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  if (readLocked(0x0A) & 0x80) {
+    Processor::setInterrupts(interrupts);
     return false;
   }
+  status = readLocked(0x0B);
+  writeLocked(0x0B, status | RtcUpdateInhibit);
+  const bool inhibited = (readLocked(0x0B) & RtcUpdateInhibit) != 0;
+  Processor::setInterrupts(interrupts);
+  return inhibited;
+}
 
-  if (m_bBCD) {
-    second = BCD_TO_BIN8(second);
-    minute = BCD_TO_BIN8(minute);
-    hour = BCD_TO_BIN8(hour);
-    dayOfMonth = BCD_TO_BIN8(dayOfMonth);
-    month = BCD_TO_BIN8(month);
-    year = BCD_TO_BIN8(year);
-    century = BCD_TO_BIN8(century);
+bool Rtc::readHardwareClock() {
+  if (!waitForUpdateCompletion(0)) {
+    return false;
   }
-
-  m_Second = second;
-  m_Minute = minute;
-  m_Hour = hour;
-  m_DayOfMonth = dayOfMonth;
-  m_Month = month;
-  m_Year = (century * 100) + year;
+  CmosTransactionGuard guard(m_CmosLock);
+  uint8_t status = 0;
+  if (!inhibitClockUpdatesLocked(status)) {
+    return false;
+  }
+  RtcTimeAccounting::CivilTime time = {};
+  const bool success =
+      RtcCalendar::read([this](uint8_t index) { return readLocked(index); }, m_CenturyIndex, time);
+  writeLocked(0x0B, status);
+  if (!success) {
+    return false;
+  }
+  m_Second = time.second;
+  m_Minute = time.minute;
+  m_Hour = time.hour;
+  m_DayOfMonth = time.day;
+  m_Month = time.month;
+  m_Year = time.year;
   return true;
 }
 
 bool Rtc::writeHardwareClock() {
-  const uint8_t second = m_bBCD ? BIN_TO_BCD8(m_Second) : m_Second;
-  const uint8_t minute = m_bBCD ? BIN_TO_BCD8(m_Minute) : m_Minute;
-  const uint8_t hour = m_bBCD ? BIN_TO_BCD8(m_Hour) : m_Hour;
-  const uint8_t dayOfMonth = m_bBCD ? BIN_TO_BCD8(m_DayOfMonth) : m_DayOfMonth;
-  const uint8_t month = m_bBCD ? BIN_TO_BCD8(m_Month) : m_Month;
-  const uint8_t year = m_bBCD ? BIN_TO_BCD8(m_Year % 100) : m_Year % 100;
-  const uint8_t century = m_bBCD ? BIN_TO_BCD8(m_Year / 100) : m_Year / 100;
-
-  return write(0x00, second) && write(0x02, minute) && write(0x04, hour) &&
-         write(0x07, dayOfMonth) && write(0x08, month) && write(0x09, year) && write(0x32, century);
+  const RtcTimeAccounting::CivilTime time = {m_Year,   m_Month, m_DayOfMonth, m_Hour, m_Minute,
+                                             m_Second, 0};
+  if (!RtcCalendar::valid(time) || (!m_CenturyIndex && time.year > 2069) ||
+      !waitForUpdateCompletion(0)) {
+    return false;
+  }
+  CmosTransactionGuard guard(m_CmosLock);
+  uint8_t status = 0;
+  if (!inhibitClockUpdatesLocked(status)) {
+    return false;
+  }
+  const bool success = RtcCalendar::write(
+      [this](uint8_t index) { return readLocked(index); },
+      [this](uint8_t index, uint8_t value) { writeLocked(index, value); }, m_CenturyIndex, time);
+  writeLocked(0x0B, status);
+  return success;
 }
 
 void Rtc::writeLocked(uint8_t index, uint8_t value) {

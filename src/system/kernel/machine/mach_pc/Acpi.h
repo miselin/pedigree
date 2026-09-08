@@ -46,6 +46,10 @@ class Acpi {
    *\note the first MB of RAM must be identity mapped */
   void initialise() INITIALISATION_ONLY;
 
+  uint8_t getRtcCenturyIndex() const {
+    return m_bValid ? m_pFacp->cmosCenturyIndex : 0;
+  }
+
 #if APIC
   inline bool validApicInfo() const {
     return m_bValidApicInfo;

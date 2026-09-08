@@ -8,8 +8,8 @@
 
 #include <stdint.h>
 
-typedef uint64_t efi_status_t;
-typedef void *efi_handle_t;
+#include "exit_boot_services.h"
+
 typedef uint16_t efi_char16_t;
 typedef struct efi_guid {
   uint32_t a;
@@ -24,8 +24,6 @@ typedef struct efi_file efi_file_t;
 
 typedef efi_status_t (*efi_handle_protocol_t)(efi_handle_t, efi_guid_t *, void **);
 typedef efi_status_t (*efi_allocate_pages_t)(uint32_t, uint32_t, uint64_t, uint64_t *);
-typedef efi_status_t (*efi_get_memory_map_t)(uint64_t *, void *, uint64_t *, uint64_t *, uint32_t *);
-typedef efi_status_t (*efi_exit_boot_services_t)(efi_handle_t, uint64_t);
 typedef efi_status_t (*efi_locate_device_path_t)(efi_guid_t *, void **, efi_handle_t *);
 typedef efi_status_t (*efi_locate_handle_buffer_t)(uint32_t, efi_guid_t *, void *, uint64_t *,
                                                    efi_handle_t **);
@@ -128,31 +126,12 @@ typedef struct efi_configuration_table {
   void *vendor_table;
 } efi_configuration_table_t;
 
-typedef struct efi_memory_descriptor {
-  uint32_t type;
-  uint32_t pad;
-  uint64_t physical_start;
-  uint64_t virtual_start;
-  uint64_t number_of_pages;
-  uint64_t attribute;
-} efi_memory_descriptor_t;
-
 typedef struct bootstrap_module {
   uint64_t base;
   uint64_t end;
   uint64_t name;
   uint64_t pad;
 } bootstrap_module_t;
-
-typedef struct bootstrap_memory_map_entry {
-  uint32_t size;
-  uint64_t address;
-  uint64_t length;
-  uint32_t type;
-} bootstrap_memory_map_entry_t;
-
-_Static_assert(sizeof(bootstrap_memory_map_entry_t) == 32,
-               "bootstrap memory-map entries must match the kernel ABI");
 
 typedef struct bootstrap_info {
   uint32_t flags;
@@ -217,8 +196,6 @@ typedef struct elf64_section_header {
   uint64_t entry_size;
 } __attribute__((packed)) elf64_section_header_t;
 
-#define EFI_SUCCESS 0
-#define EFI_BUFFER_TOO_SMALL 0x8000000000000005ULL
 #define EFI_ALLOCATE_MAX_ADDRESS 1
 #define EFI_ALLOCATE_ADDRESS 2
 #define EFI_LOADER_DATA 4
@@ -489,16 +466,6 @@ static int open_boot_filesystem(efi_loaded_image_t *loaded_image, efi_char16_t *
   return 0;
 }
 
-static uint32_t normalized_type(uint32_t type) {
-  if (type == EFI_CONVENTIONAL_MEMORY)
-    return 1;
-  if (type == EFI_ACPI_RECLAIM_MEMORY)
-    return 3;
-  if (type == EFI_ACPI_MEMORY_NVS)
-    return 4;
-  return 2;
-}
-
 static void enter_kernel(uint64_t entry, uint64_t info) __attribute__((noreturn));
 static void enter_kernel(uint64_t entry, uint64_t info) {
   __asm__ volatile("cli\n\tmov %0, %%rbx\n\tjmp *%1" : : "r"(info), "r"(entry) : "memory");
@@ -622,36 +589,29 @@ efi_status_t efi_main(efi_handle_t image, efi_system_table_t *system_table) {
     }
   }
 
-  uint64_t descriptor_size = 0;
-  uint64_t map_size = 128 * EFI_PAGE_SIZE;
-  uint64_t map_key = 0;
-  uint32_t descriptor_version = 0;
-  if (((efi_get_memory_map_t)system_table->boot_services->get_memory_map)(
-          &map_size, memory_map, &map_key, &descriptor_size, &descriptor_version) != EFI_SUCCESS) {
-    print((efi_char16_t *)L"UEFI: memory map retry failed\r\n");
-    return 1;
-  }
-  uint64_t descriptor_count = map_size / descriptor_size;
-  uint64_t memory_map_length = descriptor_count * sizeof(bootstrap_memory_map_entry_t);
-  for (uint64_t i = descriptor_count; i-- > 0;) {
-    efi_memory_descriptor_t *source =
-        (efi_memory_descriptor_t *)((uint8_t *)memory_map + i * descriptor_size);
-    bootstrap_memory_map_entry_t *destination =
-        (bootstrap_memory_map_entry_t *)((uint8_t *)normalized_memory_map +
-                                         i * sizeof(*destination));
-    destination->size = sizeof(*destination) - sizeof(destination->size);
-    destination->address = source->physical_start;
-    destination->length = source->number_of_pages << 12;
-    destination->type = normalized_type(source->type);
+  uint32_t normalized_bytes = 0;
+  int exit_attempted = 0;
+  const efi_get_memory_map_t get_map =
+      (efi_get_memory_map_t)system_table->boot_services->get_memory_map;
+  const efi_exit_boot_services_t exit_services = system_table->boot_services->exit_boot_services;
+  const efi_status_t exit_status =
+      exit_boot_services_with_map(get_map, exit_services, image, memory_map, 128 * EFI_PAGE_SIZE,
+                                  (bootstrap_memory_map_entry_t*)normalized_memory_map,
+                                  128 * EFI_PAGE_SIZE, &normalized_bytes, &exit_attempted);
+  if (exit_status != EFI_SUCCESS) {
+    if (!exit_attempted) {
+      print((efi_char16_t*)L"UEFI: invalid or unavailable memory map\r\n");
+      return exit_status;
+    }
+    // Returning or using console protocols is unsafe after a partial firmware exit.
+    __asm__ volatile("cli" ::: "memory");
+    for (;;)
+      __asm__ volatile("hlt");
   }
   info->flags |= BOOTSTRAP_FLAG_MEMORY_MAP;
   info->memory_map = PHYS_ALIAS + (uint64_t)normalized_memory_map;
-  info->memory_map_length = (uint32_t)memory_map_length;
+  info->memory_map_length = normalized_bytes;
   info->memory_map_entry_size = sizeof(bootstrap_memory_map_entry_t);
 
-  if (system_table->boot_services->exit_boot_services(image, map_key) != EFI_SUCCESS) {
-    print((efi_char16_t *)L"UEFI: ExitBootServices failed\r\n");
-    return 1;
-  }
   enter_kernel(header->entry - KERNEL_BASE, PHYS_ALIAS + (uint64_t)info);
 }
