@@ -41,6 +41,7 @@ void posix_pedigree_destroy_waiter(void* waiter);
 
 int posix_futex(int* uaddr, int futex_op, int val, uintptr_t argument4, int* uaddr2, int val3);
 int posix_futex_wake(Process* process, int* uaddr, int count, bool privateFutex = true);
+void posix_futex_clock_changed();
 
 void posix_robust_list_exit(Thread* thread);
 bool posix_clear_child_tid(Process* process, uintptr_t address);

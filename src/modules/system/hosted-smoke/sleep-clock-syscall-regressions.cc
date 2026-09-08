@@ -127,15 +127,20 @@ int exerciseSleepClockValidation(void* parameter) {
             canonicalTimespec(observed);
 
   struct timespec monotonicBefore = {};
+  struct timespec raw = {};
   struct timespec monotonicAfter = {};
   passed &= posix_clock_gettime(CLOCK_MONOTONIC, output) == 0 &&
             PosixSubsystem::copyFromUser(&monotonicBefore, output, sizeof(monotonicBefore)) &&
+            posix_clock_gettime(CLOCK_MONOTONIC_RAW, output) == 0 &&
+            PosixSubsystem::copyFromUser(&raw, output, sizeof(raw)) &&
             posix_clock_gettime(CLOCK_MONOTONIC, pageEdge) == 0 &&
             PosixSubsystem::copyFromUser(&monotonicAfter, pageEdge, sizeof(monotonicAfter)) &&
-            canonicalTimespec(monotonicBefore) && canonicalTimespec(monotonicAfter) &&
-            (monotonicAfter.tv_sec > monotonicBefore.tv_sec ||
-             (monotonicAfter.tv_sec == monotonicBefore.tv_sec &&
-              monotonicAfter.tv_nsec >= monotonicBefore.tv_nsec));
+            canonicalTimespec(monotonicBefore) && canonicalTimespec(raw) &&
+            canonicalTimespec(monotonicAfter) &&
+            (raw.tv_sec > monotonicBefore.tv_sec ||
+             (raw.tv_sec == monotonicBefore.tv_sec && raw.tv_nsec >= monotonicBefore.tv_nsec)) &&
+            (monotonicAfter.tv_sec > raw.tv_sec ||
+             (monotonicAfter.tv_sec == raw.tv_sec && monotonicAfter.tv_nsec >= raw.tv_nsec));
 
   thread->setErrno(0);
   passed &= posix_clock_gettime(-1, bad) == -1 && thread->getErrno() == Error::InvalidArgument;
@@ -145,6 +150,9 @@ int exerciseSleepClockValidation(void* parameter) {
   thread->setErrno(0);
   passed &=
       posix_clock_gettime(CLOCK_MONOTONIC, bad) == -1 && thread->getErrno() == Error::BadAddress;
+  thread->setErrno(0);
+  passed &= posix_clock_gettime(CLOCK_MONOTONIC_RAW, bad) == -1 &&
+            thread->getErrno() == Error::BadAddress;
 
   LinuxKernelTimespec linuxObserved = {};
   thread->setErrno(PreservedErrno);
@@ -160,6 +168,14 @@ int exerciseSleepClockValidation(void* parameter) {
   thread->setErrno(PreservedErrno);
   passed &=
       posix_clock_getres(CLOCK_MONOTONIC, nullptr) == 0 && thread->getErrno() == PreservedErrno;
+  passed &=
+      posix_clock_getres_native(CLOCK_MONOTONIC_RAW, output) == 0 &&
+      PosixSubsystem::copyFromUser(&observed, output, sizeof(observed)) && observed.tv_sec == 0 &&
+      observed.tv_nsec == 1 && posix_clock_getres(CLOCK_MONOTONIC_RAW, linuxPageEdge) == 0 &&
+      PosixSubsystem::copyFromUser(&linuxObserved, linuxPageEdge, sizeof(linuxObserved)) &&
+      linuxObserved.tv_sec == 0 && linuxObserved.tv_nsec == 1 &&
+      posix_clock_getres_native(CLOCK_MONOTONIC_RAW, nullptr) == 0 &&
+      posix_clock_getres(CLOCK_MONOTONIC_RAW, nullptr) == 0 && thread->getErrno() == PreservedErrno;
   thread->setErrno(0);
   passed &= posix_clock_getres(UnsupportedCoarseClock, linuxBad) == -1 &&
             thread->getErrno() == Error::InvalidArgument;
@@ -188,6 +204,12 @@ int exerciseSleepClockValidation(void* parameter) {
   }
   thread->setErrno(0);
   passed &= posix_clock_nanosleep(UnsupportedCoarseClock, 0, linuxBad, linuxBad) == -1 &&
+            thread->getErrno() == Error::InvalidArgument;
+  thread->setErrno(0);
+  passed &= posix_clock_nanosleep(CLOCK_MONOTONIC_RAW, 0, linuxBad, linuxBad) == -1 &&
+            thread->getErrno() == Error::InvalidArgument;
+  thread->setErrno(0);
+  passed &= posix_clock_settime(CLOCK_MONOTONIC_RAW, linuxBad) == -1 &&
             thread->getErrno() == Error::InvalidArgument;
   thread->setErrno(0);
   passed &= posix_clock_nanosleep(CLOCK_MONOTONIC, 0, linuxBad, nullptr) == -1 &&
@@ -278,6 +300,12 @@ int exerciseSleepClockValidation(void* parameter) {
             thread->getErrno() == Error::BadAddress;
   thread->setErrno(0);
   passed &= posix_clock_getres(CLOCK_REALTIME, linuxReadOnly) == -1 &&
+            thread->getErrno() == Error::BadAddress;
+  thread->setErrno(0);
+  passed &= posix_clock_gettime(CLOCK_MONOTONIC_RAW, readOnly) == -1 &&
+            thread->getErrno() == Error::BadAddress;
+  thread->setErrno(0);
+  passed &= posix_clock_getres(CLOCK_MONOTONIC_RAW, linuxReadOnly) == -1 &&
             thread->getErrno() == Error::BadAddress;
 
   const bool middleRemoved =

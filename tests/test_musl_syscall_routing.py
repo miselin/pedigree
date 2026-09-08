@@ -723,7 +723,7 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             "int posix_clock_nanosleep", 1
         )[0]
         self.assertLess(
-            getres.index("supportedSleepClock"),
+            getres.index("supportedReadClock"),
             getres.index("if (!resolution)"),
         )
         self.assertIn("const LinuxKernelTimespec result = {0, 1}", getres)

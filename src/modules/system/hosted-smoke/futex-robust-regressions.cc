@@ -30,6 +30,7 @@ namespace {
 constexpr int PrivateWait = 128;
 constexpr int PrivateWake = 129;
 constexpr int PrivateRequeue = 131;
+constexpr int RealtimeBitsetWait = 393;
 constexpr int PreservedErrno = 173;
 constexpr uint32_t OwnerDied = 0x40000000;
 constexpr uint32_t Waiters = 0x80000000;
@@ -134,6 +135,32 @@ struct FutexContext {
   uintptr_t address;
   bool passed = false;
 };
+
+struct AbsoluteWaitContext {
+  Thread* thread;
+  UserFixture* fixture;
+  bool entered = false;
+  bool passed = false;
+};
+AbsoluteWaitContext* g_AbsoluteWait = nullptr;
+
+void wakeRequeuedAbsoluteWait(WaitQueue*, Thread* thread, const WaitQueue::Channel&, size_t state) {
+  auto* context = g_AbsoluteWait;
+  if (!context || context->thread != thread || state != Thread::FutexWait)
+    return;
+  WaitQueue::setBeforeBlockHook(nullptr);
+  context->entered = true;
+  auto* fixture = context->fixture;
+  context->passed =
+      posix_futex(&fixture->source, PrivateRequeue, 0, 1, &fixture->destination, 0) == 1;
+  const int changed = 1;
+  context->passed &= PosixSubsystem::copyToUser(&fixture->source, &changed, sizeof(changed));
+  // Retire the queue wait through a clock notification before the actual wake.
+  // The registered futex must retain the second wake and its new identity.
+  posix_futex_clock_changed();
+  context->passed &= posix_futex(&fixture->source, PrivateWake, 1, 0, nullptr, 0) == 0;
+  context->passed &= posix_futex(&fixture->destination, PrivateWake, 1, 0, nullptr, 0) == 1;
+}
 
 int futexWaiter(void* parameter) {
   FutexContext* context = reinterpret_cast<FutexContext*>(parameter);
@@ -240,6 +267,26 @@ int contractWorker(void* parameter) {
     delete waiter;
   }
   passed &= waiterJoined && futex.passed;
+
+  const Time::Timestamp future = Time::getTimeNanoseconds() + 10 * Time::Multiplier::Second;
+  const struct timespec absolute = {static_cast<time_t>(future / Time::Multiplier::Second),
+                                    static_cast<long>(future % Time::Multiplier::Second)};
+  passed &= PosixSubsystem::copyToUser(&fixture->timeout, &absolute, sizeof(absolute));
+  AbsoluteWaitContext absoluteContext{thread, fixture};
+  g_AbsoluteWait = &absoluteContext;
+  const size_t alarmCreates = Time::getHostedAlarmCreateCount();
+  const size_t alarmDestroys = Time::getHostedAlarmDestroyCount();
+  WaitQueue::setBeforeBlockHook(&wakeRequeuedAbsoluteWait);
+  const int absoluteResult = posix_futex(&fixture->source, RealtimeBitsetWait, 0,
+                                         reinterpret_cast<uintptr_t>(&fixture->timeout), nullptr,
+                                         static_cast<int>(UINT32_MAX));
+  WaitQueue::setBeforeBlockHook(nullptr);
+  g_AbsoluteWait = nullptr;
+  passed &= absoluteResult == 0 && absoluteContext.entered && absoluteContext.passed &&
+            Time::getHostedAlarmCreateCount() == alarmCreates + 1 &&
+            Time::getHostedAlarmDestroyCount() == alarmDestroys + 1;
+  passed &= posix_futex(&fixture->destination, PrivateWake, 1, 0, nullptr, 0) == 0;
+  posix_futex_clock_changed();
 
   auto** outputHead = reinterpret_cast<robust_list_head**>(&fixture->returnedHead);
   thread->setErrno(PreservedErrno);

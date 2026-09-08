@@ -18,6 +18,7 @@
 #include "clock-syscalls.h"
 #include "linux-wait-abi.h"
 #include "mqueue-syscalls.h"
+#include "pthread-syscalls.h"
 #include "system-syscalls.h"
 #include "timerfd-syscalls.h"
 
@@ -31,6 +32,10 @@ uint64_t clockChangeGeneration = 0;
 
 bool supportedSleepClock(clockid_t clockId) {
   return clockId == CLOCK_REALTIME || clockId == CLOCK_MONOTONIC;
+}
+
+bool supportedReadClock(clockid_t clockId) {
+  return supportedSleepClock(clockId) || clockId == CLOCK_MONOTONIC_RAW;
 }
 
 Time::Timestamp sleepClockNanoseconds(clockid_t clockId) {
@@ -164,6 +169,7 @@ bool posix_clock_step(int64_t nanoseconds) {
     generation = ++clockChangeGeneration;
     clockChanged.broadcast();
   }
+  posix_futex_clock_changed();
   posix_mqueue_clock_changed();
   posix_timerfd_clock_changed(generation);
   return true;
@@ -217,6 +223,8 @@ int posix_clock_gettime(clockid_t clock_id, struct timespec* tp) {
       nanoseconds = Time::getTimeNanoseconds();
       break;
     case CLOCK_MONOTONIC:
+    case CLOCK_MONOTONIC_RAW:
+      // getTicks has no oscillator discipline; RAW shares this unadjusted clock.
       nanoseconds = Time::getTicks();
       break;
     default:
@@ -267,13 +275,14 @@ int posix_clock_settime(clockid_t clockId, const LinuxKernelTimespec* value) {
     generation = ++clockChangeGeneration;
     clockChanged.broadcast();
   }
+  posix_futex_clock_changed();
   posix_mqueue_clock_changed();
   posix_timerfd_clock_changed(generation);
   return 0;
 }
 
 int posix_clock_getres_native(clockid_t clock_id, struct timespec* resolution) {
-  if (!supportedSleepClock(clock_id)) {
+  if (!supportedReadClock(clock_id)) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -292,7 +301,7 @@ int posix_clock_getres_native(clockid_t clock_id, struct timespec* resolution) {
 }
 
 int posix_clock_getres(clockid_t clock_id, LinuxKernelTimespec* resolution) {
-  if (!supportedSleepClock(clock_id)) {
+  if (!supportedReadClock(clock_id)) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }

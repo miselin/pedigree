@@ -25,6 +25,7 @@ int st_reap(pid_t child, int milliseconds);
 int signal_timer_test_signals(void);
 int signal_timer_test_timers(void);
 int signal_timer_test_clock(void);
+int signal_timer_test_raw_clock(void);
 int signal_timer_exec(int argc, char** argv);
 
 #endif

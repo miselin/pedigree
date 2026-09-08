@@ -23,6 +23,55 @@ lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
 
+## Raw monotonic reads and absolute futex waits
+
+The bounded clock extension accepts `CLOCK_MONOTONIC_RAW` (Linux clock ID 4)
+for `clock_gettime` through both the syscall and vDSO, and for `clock_getres`.
+It reads the same `Time::getTicks()` source as `CLOCK_MONOTONIC`, with the same
+reported resolution. These ticks currently have no frequency discipline, so
+this is an alias of the existing unadjusted source. Realtime setting and signed
+`ADJ_SETOFFSET` leave it unchanged. RAW remains invalid for `clock_nanosleep`,
+`clock_settime`, POSIX timer creation and timerfd creation; this does not add
+coarse, CPU-time, alarm or boottime clocks.
+
+`FUTEX_WAIT_BITSET` accepts `FUTEX_BITSET_MATCH_ANY` (`0xffffffff`). A supplied
+timeout is an absolute monotonic deadline, or an absolute realtime deadline
+when `FUTEX_CLOCK_REALTIME` is present; a null timeout waits indefinitely.
+Private and existing shared-file futex identities are supported. `FUTEX_WAKE`
+and `FUTEX_REQUEUE` also select these waiters. Realtime setting and stepping
+notify registered absolute realtime waits after releasing the clock-change
+lock, so they recompute the original deadline. A clock change alone does not
+report a successful futex wake.
+
+A zero bitset returns `EINVAL`; selective nonzero bitsets and `FUTEX_WAKE_BITSET`
+remain unsupported (`ENOSYS`). Realtime flags on operations other than
+`WAIT_BITSET`, PI operations and other unimplemented futex commands also remain
+unsupported. Existing relative `FUTEX_WAIT` behavior is unchanged. This extends
+already mapped syscalls and does not change the 113-entry backlog count.
+
+The bounded contracts passed fresh one- and four-CPU QEMU runs in 96.45 and
+119.70 seconds respectively. All seven kernel cases exited zero: the eight
+`futex-clock-contract-test` families, existing signals/timers/clock families,
+`signal-timer-contract-test raw-clock`, all three clock-adjust families, and
+legacy futex/robust-memory contracts. RAW checks explicitly exercise libc,
+the vDSO symbol and direct syscalls, resolution, usercopy failures, read-only
+restrictions and independence from realtime steps. Absolute futex coverage
+includes indefinite waits, deadline expiry, clock steps, requeue, interruption,
+timeout/wake races and termination. The same guests passed all nine Code Mode
+host checks, including V8 evaluation, Promise/tool callbacks and recovery after
+exceptions and termination. These results qualify this bounded contract;
+they do not establish full Linux futex parity or an authenticated coding session.
+
+Evidence is retained in the sibling `pedigree-apps` repository under
+`.build/codex-code-mode-host/qemu-fixed-{1cpu,4cpu}/`, with per-run
+`receipt.json`, `result.json` and `serial.log` files. Frozen source, image and
+symbol identities are in `.build/codex-code-mode/kernel-provenance/source.json`.
+All 26 routing checks passed (`.build/codex-code-mode/kernel/routing-tests-musl.log`).
+The hosted sleep/clock and futex/robust fixtures both compiled against the
+retained Darwin hosted module configuration with the current 4096-byte page
+size (`.build/codex-code-mode/kernel/hosted-compile/receipt-final.json`).
+Hosted linking and execution were not performed.
+
 ## Large mapping reservation cleanup
 
 Fixed `mmap` replacement and `munmap` no longer reject an operation because
@@ -1336,7 +1385,7 @@ Current bounds and deliberate restrictions:
   metadata is constructed internally. Existing process-directed rejection of
   musl-private signals 32–34 remains; private thread-directed protocols work.
 - Timers have 256 global slots and 64 per-process slots, further constrained by
-  signal reservations. CPU-time and alarm/boottime clock variants are unsupported.
+  signal reservations. RAW, CPU-time and alarm/boottime timer clocks are unsupported.
 - Only privileged realtime clock setting is supported; hardware RTC persistence
   is not implied.
 

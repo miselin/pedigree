@@ -50,7 +50,7 @@ int st_reap(pid_t child, int milliseconds) {
 static int run(const char* name, int (*test)(void)) {
   printf("SIGNAL-TIMER-CONTRACT: BEGIN %s\n", name);
   fflush(stdout);
-  const int clock_suite = !strcmp(name, "clock");
+  const int clock_suite = !strcmp(name, "clock") || !strcmp(name, "raw-clock");
   int64_t realtime = st_now(CLOCK_REALTIME), monotonic = st_now(CLOCK_MONOTONIC);
   pid_t child = fork();
   if (child < 0)
@@ -81,7 +81,8 @@ int main(int argc, char** argv) {
     int (*test)(void);
   } suites[] = {{"signals", signal_timer_test_signals},
                 {"timers", signal_timer_test_timers},
-                {"clock", signal_timer_test_clock}};
+                {"clock", signal_timer_test_clock},
+                {"raw-clock", signal_timer_test_raw_clock}};
   int selected = 0;
   for (unsigned n = 0; n < sizeof(suites) / sizeof(suites[0]); ++n) {
     if (argc > 1 && strcmp(argv[1], suites[n].name))

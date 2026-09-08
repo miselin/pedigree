@@ -52,7 +52,8 @@ int __vdso_clock_gettime(clockid_t clock_id, struct timespec* tp) {
   uint64_t now;
   if (clock_id == CLOCK_REALTIME) {
     now = infoBlock->now;
-  } else if (clock_id == CLOCK_MONOTONIC) {
+  } else if (clock_id == CLOCK_MONOTONIC || clock_id == CLOCK_MONOTONIC_RAW) {
+    // InfoBlock publishes getTicks(), which is not frequency-adjusted.
     now = infoBlock->monotonic;
   } else {
     return -EINVAL;

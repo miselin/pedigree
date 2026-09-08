@@ -73,6 +73,171 @@ struct FutexKey {
 static WaitQueue g_FutexWaiters;
 
 namespace {
+void discardAbsoluteFutexWait(void* context);
+
+struct AbsoluteFutexWait {
+  ~AbsoluteFutexWait();
+  FutexKey key;
+  AbsoluteFutexWait* next = nullptr;
+  void* alarm = nullptr;
+  bool linked = false;
+  bool woken = false;
+  bool realtime = false;
+  Thread::StackDiscardScope discardScope{&discardAbsoluteFutexWait, this};
+};
+
+AbsoluteFutexWait* absoluteFutexHead = nullptr;
+
+bool sameFutex(const FutexKey& a, const FutexKey& b) {
+  return a.owner == b.owner && a.address == b.address;
+}
+
+int wakeAbsoluteFutexes(WaitQueue::Guard& guard, const FutexKey& key, int count) {
+  int woken = 0;
+  for (auto* wait = absoluteFutexHead; wait && woken < count; wait = wait->next) {
+    if (!wait->woken && sameFutex(wait->key, key)) {
+      // Retain a wake while the owner cancels or re-arms its clock alarm.
+      wait->woken = true;
+      guard.wakeOne(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(wait));
+      ++woken;
+    }
+  }
+  return woken;
+}
+
+int requeueAbsoluteFutexes(const FutexKey& source, const FutexKey& destination, int count) {
+  int moved = 0;
+  for (auto* wait = absoluteFutexHead; wait && moved < count; wait = wait->next) {
+    if (!wait->woken && sameFutex(wait->key, source)) {
+      wait->key = destination;
+      ++moved;
+    }
+  }
+  return moved;
+}
+
+void retireAbsoluteFutexWait(AbsoluteFutexWait* wait) {
+  if (wait->linked) {
+    auto** link = &absoluteFutexHead;
+    while (*link != wait)
+      link = &(*link)->next;
+    *link = wait->next;
+    wait->linked = false;
+  }
+}
+
+void discardAbsoluteFutexWait(void* context) {
+  auto* wait = static_cast<AbsoluteFutexWait*>(context);
+  {
+    auto guard = g_FutexWaiters.acquire();
+    retireAbsoluteFutexWait(wait);
+  }
+  // Alarm cancellation drains admitted event deliveries and can block.
+  void* alarm = wait->alarm;
+  wait->alarm = nullptr;
+  if (alarm)
+    Time::removeAlarm(alarm);
+}
+
+AbsoluteFutexWait::~AbsoluteFutexWait() {
+  discardAbsoluteFutexWait(this);
+}
+
+int waitAbsoluteFutex(Process* process, int* address, int expected, uintptr_t timeoutAddress,
+                      bool privateFutex, bool realtime) {
+  const bool timed = timeoutAddress != 0;
+  Time::Timestamp deadline = 0;
+  if (timed) {
+    struct timespec timeout = {};
+    if (!PosixSubsystem::copyFromUser(&timeout, reinterpret_cast<void*>(timeoutAddress),
+                                      sizeof(timeout))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    if (timeout.tv_sec < 0 || timeout.tv_nsec < 0 || timeout.tv_nsec >= 1000000000) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+    constexpr Time::Timestamp maximumDeadline = 0x7FFFFFFFFFFFFFFFULL;
+    const Time::Timestamp seconds = timeout.tv_sec;
+    deadline = seconds > (maximumDeadline - timeout.tv_nsec) / Time::Multiplier::Second
+                   ? maximumDeadline
+                   : seconds * Time::Multiplier::Second + timeout.tv_nsec;
+  }
+
+  Thread* thread = Processor::information().getCurrentThread();
+  thread->retainTemporarySignalWaitInterruptionOrClear();
+  AbsoluteFutexWait wait;
+  wait.realtime = realtime && timed;
+  {
+    MemoryMapManager& mappings = MemoryMapManager::instance();
+    MemoryMapManager::OperationGuard mappingGuard(mappings);
+    bool accessible = PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address),
+                                                   sizeof(*address), PosixSubsystem::SafeRead) &&
+                      mappings.faultIn(reinterpret_cast<uintptr_t>(address), false);
+    if (accessible)
+      wait.key = FutexKey(process, address, privateFutex);
+    auto guard = g_FutexWaiters.acquire();
+    uint32_t observed = 0;
+    accessible = accessible && process->getAddressSpace()->tryReadUser32(
+                                   reinterpret_cast<uintptr_t>(address), observed);
+    if (!accessible) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    if (observed != static_cast<uint32_t>(expected)) {
+      SYSCALL_ERROR(NoMoreProcesses);  // EAGAIN precedes deadline expiry.
+      return -1;
+    }
+    wait.next = absoluteFutexHead;
+    absoluteFutexHead = &wait;
+    wait.linked = true;
+  }
+
+  bool interrupted = false;
+  for (;;) {
+    WaitQueue::WakeReason reason;
+    {
+      auto guard = g_FutexWaiters.acquire();
+      if (wait.woken) {
+        retireAbsoluteFutexWait(&wait);
+        return 0;
+      }
+      if (interrupted || thread->getInterruptionReason() == Thread::InterruptedBySignal ||
+          thread->getUnwindState() != Thread::Continue) {
+        retireAbsoluteFutexWait(&wait);
+        SYSCALL_ERROR(Interrupted);
+        return -1;
+      }
+      if (timed) {
+        const Time::Timestamp now = realtime ? Time::getTimeNanoseconds() : Time::getTicks();
+        if (now >= deadline) {
+          retireAbsoluteFutexWait(&wait);
+          SYSCALL_ERROR(TimedOut);
+          return -1;
+        }
+        Time::Timestamp duration = deadline - now;
+        const auto remainder = duration % Time::Multiplier::Microsecond;
+        if (remainder)
+          duration += Time::Multiplier::Microsecond - remainder;
+        wait.alarm = Time::addAlarm(duration);
+      }
+      // A private channel survives requeue changes to the futex identity.
+      reason = guard.wait(WaitQueue::Channel(&wait), Thread::FutexWait,
+                          reinterpret_cast<uintptr_t>(address));
+    }
+    interrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal ||
+                  reason == WaitQueue::WakeReason::Unwinding ||
+                  reason == WaitQueue::WakeReason::Terminating;
+    void* alarm = wait.alarm;
+    wait.alarm = nullptr;
+    if (alarm)
+      Time::removeAlarm(alarm);
+    interrupted |= thread->getInterruptionReason() == Thread::InterruptedBySignal;
+    thread->retainTemporarySignalWaitInterruptionOrClear();
+  }
+}
+
 struct FutexDiscard {
   void* alarm;
 };
@@ -105,7 +270,16 @@ int posix_futex_wake(Process* process, int* uaddr, int count, bool privateFutex)
     }
     ++woken;
   }
+  woken += wakeAbsoluteFutexes(guard, key, count - woken);
   return woken;
+}
+
+void posix_futex_clock_changed() {
+  auto guard = g_FutexWaiters.acquire();
+  for (auto* wait = absoluteFutexHead; wait; wait = wait->next) {
+    if (wait->realtime && !wait->woken)
+      guard.wakeOne(WaitQueue::WakeReason::Spurious, WaitQueue::Channel(wait));
+  }
 }
 
 namespace {
@@ -234,14 +408,13 @@ int posix_futex(int* uaddr, int futex_op, int val, uintptr_t argument4, int* uad
   PT_NOTICE("futex(" << Hex << uaddr << ", " << futex_op << ", " << val << ", " << argument4 << ", "
                      << uaddr2 << ", " << val3 << ")");
 
-  if (futex_op & FUTEX_CLOCK_REALTIME) {
-    PT_NOTICE(" -> realtime futex waits are not yet supported");
+  const bool realtime = (futex_op & FUTEX_CLOCK_REALTIME) != 0;
+  const bool privateFutex = (futex_op & FUTEX_PRIVATE) != 0;
+  futex_op &= ~(FUTEX_PRIVATE | FUTEX_CLOCK_REALTIME);
+  if (realtime && futex_op != FUTEX_WAIT_BITSET) {
     SYSCALL_ERROR(Unimplemented);
     return -1;
   }
-
-  const bool privateFutex = (futex_op & FUTEX_PRIVATE) != 0;
-  futex_op &= ~FUTEX_PRIVATE;
 
   if (reinterpret_cast<uintptr_t>(uaddr) % alignof(int)) {
     SYSCALL_ERROR(InvalidArgument);
@@ -250,6 +423,18 @@ int posix_futex(int* uaddr, int futex_op, int val, uintptr_t argument4, int* uad
   int r = 0;
 
   switch (futex_op) {
+    case FUTEX_WAIT_BITSET:
+      if (!val3) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      if (static_cast<uint32_t>(val3) != UINT32_MAX) {
+        // Selective bitset wake remains outside the implemented contract.
+        SYSCALL_ERROR(Unimplemented);
+        return -1;
+      }
+      return waitAbsoluteFutex(pProcess, uaddr, val, argument4, privateFutex, realtime);
+
     case FUTEX_WAIT: {
       PT_NOTICE(" -> FUTEX_WAIT");
 
@@ -389,9 +574,13 @@ int posix_futex(int* uaddr, int futex_op, int val, uintptr_t argument4, int* uad
       const FutexKey key(pProcess, uaddr, privateFutex);
       const FutexKey destinationKey(pProcess, uaddr2, privateFutex);
       auto guard = g_FutexWaiters.acquire();
-      r = static_cast<int>(guard.wakeAndRequeue(futexChannel(key), static_cast<size_t>(val),
-                                                futexChannel(destinationKey),
-                                                static_cast<size_t>(requeueCount)));
+      int woken = 0;
+      while (woken < val && guard.wakeOne(WaitQueue::WakeReason::Signalled, futexChannel(key)))
+        ++woken;
+      woken += wakeAbsoluteFutexes(guard, key, val - woken);
+      const int moved = static_cast<int>(guard.wakeAndRequeue(
+          futexChannel(key), 0, futexChannel(destinationKey), static_cast<size_t>(requeueCount)));
+      r = woken + moved + requeueAbsoluteFutexes(key, destinationKey, requeueCount - moved);
       PT_NOTICE(" -> affected " << Dec << r << " threads.");
       break;
     }

@@ -165,7 +165,9 @@ pedigree_app(signal-timer-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-timer-contract-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-timer-contract-test/signals.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-timer-contract-test/timers.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-timer-contract-test/clock.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-timer-contract-test/clock.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-timer-contract-test/raw-clock.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../buildutil/vdsotest/parse_vdso.c)
 pedigree_app(reboot ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/reboot/main.c)
 pedigree_app(event-descriptor-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/event-descriptor-contract-test/main.c
@@ -300,6 +302,8 @@ pedigree_app(filesystem-allocation-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/filesystem-allocation-contract-test/main.c)
 pedigree_app(clock-adjust-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/clock-adjust-contract-test/main.c)
+pedigree_app(futex-clock-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/futex-clock-contract-test/main.c)
 pedigree_app(module-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/module-contract-test/main.c)
 
