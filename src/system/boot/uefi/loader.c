@@ -26,6 +26,9 @@ typedef efi_status_t (*efi_handle_protocol_t)(efi_handle_t, efi_guid_t *, void *
 typedef efi_status_t (*efi_allocate_pages_t)(uint32_t, uint32_t, uint64_t, uint64_t *);
 typedef efi_status_t (*efi_get_memory_map_t)(uint64_t *, void *, uint64_t *, uint64_t *, uint32_t *);
 typedef efi_status_t (*efi_exit_boot_services_t)(efi_handle_t, uint64_t);
+typedef efi_status_t (*efi_locate_device_path_t)(efi_guid_t *, void **, efi_handle_t *);
+typedef efi_status_t (*efi_locate_handle_buffer_t)(uint32_t, efi_guid_t *, void *, uint64_t *,
+                                                   efi_handle_t **);
 
 struct efi_boot_services {
   uint8_t header[24];
@@ -39,12 +42,21 @@ struct efi_boot_services {
   uint8_t before_handle_protocol[9 * 8];
   efi_handle_protocol_t handle_protocol;
   void *reserved_after_handle_protocol;
-  uint8_t before_exit_boot_services[8 * 8];
+  void *register_protocol_notify;
+  void *locate_handle;
+  efi_locate_device_path_t locate_device_path;
+  void *install_configuration_table;
+  void *load_image;
+  void *start_image;
+  void *exit;
+  void *unload_image;
   efi_exit_boot_services_t exit_boot_services;
   uint8_t between_exit_and_open[5 * 8];
   void *open_protocol;
-  uint8_t after_open_protocol[4 * 8];
-  void *locate_handle_buffer;
+  void *close_protocol;
+  void *open_protocol_information;
+  void *protocols_per_handle;
+  efi_locate_handle_buffer_t locate_handle_buffer;
   void *locate_protocol;
 };
 
@@ -101,7 +113,15 @@ typedef struct efi_loaded_image {
   efi_handle_t device_handle;
   void *file_path;
   void *reserved2;
+  uint32_t load_options_size;
+  void *load_options;
 } efi_loaded_image_t;
+
+typedef struct efi_device_path {
+  uint8_t type;
+  uint8_t subtype;
+  uint16_t length;
+} __attribute__((packed)) efi_device_path_t;
 
 typedef struct efi_configuration_table {
   efi_guid_t vendor_guid;
@@ -206,6 +226,10 @@ typedef struct elf64_section_header {
 #define EFI_CONVENTIONAL_MEMORY 7
 #define EFI_ACPI_RECLAIM_MEMORY 9
 #define EFI_ACPI_MEMORY_NVS 10
+#define EFI_LOCATE_BY_PROTOCOL 2
+#define EFI_DEVICE_PATH_TYPE_END 0x7f
+#define EFI_DEVICE_PATH_TYPE_MEDIA 4
+#define EFI_DEVICE_PATH_SUBTYPE_FILE_PATH 4
 #define BOOTSTRAP_FLAG_CMDLINE 0x001
 #define BOOTSTRAP_FLAG_UEFI 0x080
 #define EFI_PAGE_SIZE 4096
@@ -229,6 +253,9 @@ static const efi_guid_t acpi20_guid =
     {0x8868e871, 0xe4f1, 0x11d3, {0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81}};
 static const efi_guid_t smbios_guid =
     {0xeb9d2d31, 0x2d88, 0x11d3, {0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d}};
+static const efi_char16_t current_prefix[] = L"\\EFI\\PEDIGREE\\current\\";
+static const efi_char16_t known_good_prefix[] = L"\\EFI\\PEDIGREE\\known-good\\";
+static const efi_char16_t removable_prefix[] = L"\\EFI\\BOOT\\";
 
 static efi_system_table_t *g_system_table;
 
@@ -243,6 +270,109 @@ static void copy(void *destination, const void *source, uint64_t size) {
   const uint8_t *s = (const uint8_t *)source;
   while (size--)
     *d++ = *s++;
+}
+
+static int load_option_matches(efi_loaded_image_t *loaded_image, const char *option) {
+  if (!loaded_image || !loaded_image->load_options || !loaded_image->load_options_size)
+    return 0;
+
+  const uint8_t *value = (const uint8_t *)loaded_image->load_options;
+  uint64_t option_length = 0;
+  while (option[option_length])
+    ++option_length;
+  if (loaded_image->load_options_size >= option_length * 2 &&
+      loaded_image->load_options_size % 2 == 0) {
+    int utf16 = 1;
+    for (uint64_t i = 1; i < loaded_image->load_options_size; i += 2) {
+      if (value[i])
+        utf16 = 0;
+    }
+    if (utf16) {
+      const efi_char16_t *wide_value = (const efi_char16_t *)value;
+      for (uint64_t i = 0; i < option_length; ++i) {
+        if (wide_value[i] != (efi_char16_t)option[i])
+          return 0;
+      }
+      return 1;
+    }
+  }
+
+  if (loaded_image->load_options_size < option_length)
+    return 0;
+  for (uint64_t i = 0; i < option_length; ++i) {
+    if (value[i] != (uint8_t)option[i])
+      return 0;
+  }
+  return 1;
+}
+
+static int build_artifact_path(efi_loaded_image_t *loaded_image, const efi_char16_t *name,
+                               efi_char16_t *path, uint64_t path_capacity) {
+  const efi_char16_t *prefix = current_prefix;
+  uint64_t prefix_length = sizeof(current_prefix) / sizeof(current_prefix[0]) - 1;
+  efi_char16_t *file_path = 0;
+  uint64_t file_path_length = 0;
+  efi_device_path_t *node = loaded_image ? (efi_device_path_t *)loaded_image->file_path : 0;
+
+  while (node && node->length >= sizeof(*node) && node->type != EFI_DEVICE_PATH_TYPE_END) {
+    if (node->type == EFI_DEVICE_PATH_TYPE_MEDIA &&
+        node->subtype == EFI_DEVICE_PATH_SUBTYPE_FILE_PATH) {
+      file_path = (efi_char16_t *)(node + 1);
+      file_path_length = (node->length - sizeof(*node)) / sizeof(efi_char16_t);
+    }
+    node = (efi_device_path_t *)((uint8_t *)node + node->length);
+  }
+
+  uint64_t length = 0;
+  uint64_t separator = 0;
+  int has_separator = 0;
+  if (file_path) {
+    while (length < file_path_length && file_path[length]) {
+      if (file_path[length] == '\\') {
+        separator = length;
+        has_separator = 1;
+      }
+      ++length;
+    }
+  }
+
+  if (file_path && has_separator) {
+    prefix = file_path;
+    prefix_length = separator + 1;
+    uint64_t removable_media_length = sizeof(removable_prefix) / sizeof(removable_prefix[0]) - 1;
+    if (prefix_length == removable_media_length) {
+      int is_removable_media_path = 1;
+      for (uint64_t i = 0; i < removable_media_length; ++i) {
+        if (prefix[i] != removable_prefix[i])
+          is_removable_media_path = 0;
+      }
+      if (is_removable_media_path) {
+        prefix = current_prefix;
+        prefix_length = sizeof(current_prefix) / sizeof(current_prefix[0]) - 1;
+      }
+    }
+  }
+
+  if (load_option_matches(loaded_image, "known-good")) {
+    prefix = known_good_prefix;
+    prefix_length = sizeof(known_good_prefix) / sizeof(known_good_prefix[0]) - 1;
+  } else if (load_option_matches(loaded_image, "current")) {
+    prefix = current_prefix;
+    prefix_length = sizeof(current_prefix) / sizeof(current_prefix[0]) - 1;
+  }
+
+  uint64_t name_length = 0;
+  while (name[name_length])
+    ++name_length;
+  if (prefix_length + name_length + 1 > path_capacity)
+    return 0;
+
+  for (uint64_t i = 0; i < prefix_length; ++i)
+    path[i] = prefix[i];
+  for (uint64_t i = 0; i < name_length; ++i)
+    path[prefix_length + i] = name[i];
+  path[prefix_length + name_length] = 0;
+  return 1;
 }
 
 static void print(const efi_char16_t *message) {
@@ -292,6 +422,73 @@ static void *read_file(efi_file_t *root, efi_char16_t *path, uint64_t *length) {
   return buffer;
 }
 
+static int open_boot_filesystem(efi_loaded_image_t *loaded_image, efi_char16_t *probe_path,
+                                efi_simple_file_system_t **filesystem_out,
+                                efi_file_t **root_out) {
+  efi_handle_t filesystem_handle = loaded_image->device_handle;
+  efi_simple_file_system_t *filesystem = 0;
+  efi_file_t *root = 0;
+  efi_file_t *probe = 0;
+
+  if (g_system_table->boot_services->handle_protocol(
+          filesystem_handle, (efi_guid_t *)&simple_file_system_guid, (void **)&filesystem) ==
+          EFI_SUCCESS &&
+      filesystem->open_volume(filesystem, &root) == EFI_SUCCESS &&
+      root->open(root, &probe, probe_path, EFI_FILE_MODE_READ, 0) == EFI_SUCCESS) {
+    probe->close(probe);
+    *filesystem_out = filesystem;
+    *root_out = root;
+    return 1;
+  }
+  if (root)
+    root->close(root);
+
+  void *device_path = loaded_image->file_path;
+  if (g_system_table->boot_services->locate_device_path &&
+      g_system_table->boot_services->locate_device_path(
+          (efi_guid_t *)&simple_file_system_guid, &device_path, &filesystem_handle) ==
+          EFI_SUCCESS &&
+      g_system_table->boot_services->handle_protocol(
+          filesystem_handle, (efi_guid_t *)&simple_file_system_guid, (void **)&filesystem) ==
+          EFI_SUCCESS &&
+      filesystem->open_volume(filesystem, &root) == EFI_SUCCESS &&
+      root->open(root, &probe, probe_path, EFI_FILE_MODE_READ, 0) == EFI_SUCCESS) {
+    probe->close(probe);
+    *filesystem_out = filesystem;
+    *root_out = root;
+    return 1;
+  }
+  if (root)
+    root->close(root);
+
+  // GRUB can chainload an EFI image without giving it the ESP's filesystem handle.
+  if (!g_system_table->boot_services->locate_handle_buffer)
+    return 0;
+  efi_handle_t *handles = 0;
+  uint64_t handle_count = 0;
+  if (g_system_table->boot_services->locate_handle_buffer(
+          EFI_LOCATE_BY_PROTOCOL, (efi_guid_t *)&simple_file_system_guid, 0, &handle_count,
+          &handles) != EFI_SUCCESS)
+    return 0;
+  for (uint64_t i = 0; i < handle_count; ++i) {
+    filesystem = 0;
+    root = 0;
+    if (g_system_table->boot_services->handle_protocol(
+            handles[i], (efi_guid_t *)&simple_file_system_guid, (void **)&filesystem) !=
+            EFI_SUCCESS ||
+        filesystem->open_volume(filesystem, &root) != EFI_SUCCESS)
+      continue;
+    if (root->open(root, &probe, probe_path, EFI_FILE_MODE_READ, 0) == EFI_SUCCESS) {
+      probe->close(probe);
+      *filesystem_out = filesystem;
+      *root_out = root;
+      return 1;
+    }
+    root->close(root);
+  }
+  return 0;
+}
+
 static uint32_t normalized_type(uint32_t type) {
   if (type == EFI_CONVENTIONAL_MEMORY)
     return 1;
@@ -316,21 +513,32 @@ efi_status_t efi_main(efi_handle_t image, efi_system_table_t *system_table) {
   efi_loaded_image_t *loaded_image = 0;
   if (system_table->boot_services->handle_protocol(image, (efi_guid_t *)&loaded_image_guid,
                                                    (void **)&loaded_image) != EFI_SUCCESS)
+  {
+    print((efi_char16_t *)L"UEFI: loaded-image protocol failed\r\n");
     return 1;
+  }
 
+  static const efi_char16_t kernel_name[] = L"kernel";
+  static const efi_char16_t initrd_name[] = L"initrd.tar";
+  static const efi_char16_t config_name[] = L"config.db";
+  static const efi_char16_t cmdline_name[] = L"cmdline";
+  efi_char16_t kernel_path[256];
+  efi_char16_t initrd_path[256];
+  efi_char16_t config_path[256];
+  efi_char16_t cmdline_path[256];
+  if (!build_artifact_path(loaded_image, kernel_name, kernel_path, 256) ||
+      !build_artifact_path(loaded_image, initrd_name, initrd_path, 256) ||
+      !build_artifact_path(loaded_image, config_name, config_path, 256) ||
+      !build_artifact_path(loaded_image, cmdline_name, cmdline_path, 256)) {
+    print((efi_char16_t *)L"UEFI: loader path is too long\r\n");
+    return 1;
+  }
   efi_simple_file_system_t *filesystem = 0;
-  if (system_table->boot_services->handle_protocol(
-          loaded_image->device_handle, (efi_guid_t *)&simple_file_system_guid,
-          (void **)&filesystem) != EFI_SUCCESS)
-    return 1;
   efi_file_t *root = 0;
-  if (filesystem->open_volume(filesystem, &root) != EFI_SUCCESS)
+  if (!open_boot_filesystem(loaded_image, kernel_path, &filesystem, &root)) {
+    print((efi_char16_t *)L"UEFI: filesystem protocol failed\r\n");
     return 1;
-
-  static efi_char16_t kernel_path[] = L"\\EFI\\PEDIGREE\\kernel";
-  static efi_char16_t initrd_path[] = L"\\EFI\\PEDIGREE\\initrd.tar";
-  static efi_char16_t config_path[] = L"\\EFI\\PEDIGREE\\config.db";
-  static efi_char16_t cmdline_path[] = L"\\EFI\\PEDIGREE\\cmdline";
+  }
   uint64_t kernel_length = 0;
   uint64_t initrd_length = 0;
   uint64_t config_length = 0;

@@ -222,6 +222,11 @@ option(PEDIGREE_BUILD_ISO
 option(PEDIGREE_BUILD_UEFI
     "Build a FAT32 UEFI boot image and native UEFI loader."
     ON)
+set(PEDIGREE_UEFI_GRUB_MKSTANDALONE "" CACHE FILEPATH
+    "Path to grub-mkstandalone used to build the UEFI recovery menu.")
+option(PEDIGREE_BUILD_UEFI_GRUB
+    "Build a standalone UEFI GRUB recovery menu for the UEFI image."
+    OFF)
 
 if (PEDIGREE_BUILD_HDD_IMAGE OR PEDIGREE_BUILD_ISO)
     message(FATAL_ERROR
@@ -674,7 +679,7 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
     if (PEDIGREE_BUILD_UEFI AND PEDIGREE_ARCH_TARGET STREQUAL "X64")
         find_program(UEFI_CLANG NAMES clang REQUIRED)
         set(UEFI_LOADER_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/uefi-loader.obj)
-        set(UEFI_LOADER ${CMAKE_CURRENT_BINARY_DIR}/BOOTX64.EFI)
+        set(UEFI_LOADER ${CMAKE_CURRENT_BINARY_DIR}/PEDIGREE-BOOTX64.EFI)
         add_custom_command(OUTPUT ${UEFI_LOADER_OBJECT}
             COMMAND ${UEFI_CLANG} -target x86_64-pc-windows-msvc
             -ffreestanding -fno-builtin -fno-stack-protector
@@ -687,6 +692,33 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             ${UEFI_LOADER_OBJECT} ${UEFI_LOADER}
             DEPENDS ${UEFI_LOADER_OBJECT} ${CMAKE_SOURCE_DIR}/scripts/uefi_pe.py)
         add_custom_target(uefi-loader DEPENDS ${UEFI_LOADER})
+
+        set(UEFI_GRUB_ARGUMENT)
+        set(UEFI_BOOT_DEPENDENCIES uefi-loader ${UEFI_LOADER})
+        if (PEDIGREE_BUILD_UEFI_GRUB)
+            if (NOT PEDIGREE_UEFI_GRUB_MKSTANDALONE)
+                find_program(PEDIGREE_UEFI_GRUB_MKSTANDALONE
+                    NAMES grub-mkstandalone x86_64-elf-grub-mkstandalone)
+            endif ()
+            if (NOT PEDIGREE_UEFI_GRUB_MKSTANDALONE)
+                message(FATAL_ERROR
+                    "PEDIGREE_BUILD_UEFI_GRUB requires grub-mkstandalone. "
+                    "Install GRUB's UEFI tools or set "
+                    "PEDIGREE_UEFI_GRUB_MKSTANDALONE to its path.")
+            endif ()
+
+            set(UEFI_GRUB ${CMAKE_CURRENT_BINARY_DIR}/GRUBX64.EFI)
+            add_custom_command(OUTPUT ${UEFI_GRUB}
+                COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_grub_uefi.py
+                --grub-mkstandalone ${PEDIGREE_UEFI_GRUB_MKSTANDALONE}
+                --config ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi.cfg
+                --output ${UEFI_GRUB}
+                DEPENDS ${CMAKE_SOURCE_DIR}/scripts/create_grub_uefi.py
+                    ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi.cfg)
+            add_custom_target(uefi-grub DEPENDS ${UEFI_GRUB})
+            list(APPEND UEFI_GRUB_ARGUMENT --grub ${UEFI_GRUB})
+            list(APPEND UEFI_BOOT_DEPENDENCIES uefi-grub ${UEFI_GRUB})
+        endif ()
 
         set(UEFI_ROOT_IMAGE ${CMAKE_CURRENT_BINARY_DIR}/pedigree-uefi-root.img)
         add_custom_command(OUTPUT ${UEFI_ROOT_IMAGE}
@@ -719,15 +751,18 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py
             --image ${UEFI_IMAGE}
             --efi ${UEFI_LOADER}
+            ${UEFI_GRUB_ARGUMENT}
             --kernel ${CMAKE_BINARY_DIR}/src/system/kernel/kernel
             --initrd ${CMAKE_BINARY_DIR}/src/modules/initrd.tar.uncomp
             --config ${CMAKE_CURRENT_BINARY_DIR}/config.db
             --root ${UEFI_ROOT_IMAGE}
-            DEPENDS uefi-loader ${UEFI_LOADER} ${UEFI_ROOT_IMAGE} kernel initrd configdb
+            DEPENDS ${UEFI_BOOT_DEPENDENCIES} ${UEFI_ROOT_IMAGE}
+                kernel initrd configdb
             ${CMAKE_BINARY_DIR}/src/system/kernel/kernel
             ${CMAKE_BINARY_DIR}/src/modules/initrd.tar.uncomp
             ${CMAKE_CURRENT_BINARY_DIR}/config.db
-            ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py)
+            ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py
+            ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi.cfg)
         add_custom_target(uefi-image ALL DEPENDS ${UEFI_IMAGE})
     endif ()
 

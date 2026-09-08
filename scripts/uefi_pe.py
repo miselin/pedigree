@@ -89,11 +89,15 @@ def read_object(path: Path) -> tuple[bytearray, int]:
             offset, symbol_index, kind = struct.unpack_from(
                 "<IIH", data, section["reloc_offset"] + i * 10
             )
-            symbol = symbols[symbol_index]["name"]
-            if symbol not in symbol_addresses:
+            symbol_record = symbols[symbol_index]
+            symbol = symbol_record["name"]
+            if symbol_record["section"] in section_bases:
+                target = section_bases[symbol_record["section"]] + symbol_record["value"]
+            elif symbol in symbol_addresses:
+                target = symbol_addresses[symbol]
+            else:
                 raise ValueError(f"unresolved UEFI loader symbol: {symbol}")
             place = base + offset
-            target = symbol_addresses[symbol]
             addend = struct.unpack_from("<q", output, place)[0] if kind == 1 else 0
             if kind == 1:  # IMAGE_REL_AMD64_ADDR64
                 struct.pack_into("<Q", output, place, IMAGE_BASE + target + addend)

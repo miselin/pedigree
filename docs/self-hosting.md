@@ -199,6 +199,13 @@ With the default build directory, the primary products are:
 - `build-selfhost/pedigree-c-sdk/usr/` — Pedigree-specific userspace library
   and public headers.
 
+The default UEFI image places the native loader at the removable-media
+fallback path and keeps its artifacts in `EFI/PEDIGREE/current` and
+`EFI/PEDIGREE/known-good`. To build a GRUB-backed image with those same
+variants as chainloadable menu entries, enable `PEDIGREE_BUILD_UEFI_GRUB` and
+provide `grub-mkstandalone` (or the target-prefixed equivalent) with
+`PEDIGREE_UEFI_GRUB_MKSTANDALONE`.
+
 `boot-artifacts` is an aggregate build target, not an installer or staging
 directory. Copying a tested kernel, initrd, and configuration database into a
 boot environment is intentionally a separate, manual step for now.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the FAT32 ESP used by the bounded UEFI QEMU checkpoint."""
+"""Create the UEFI ESP and partitioned disk image used by QEMU."""
 
 from __future__ import annotations
 
@@ -36,6 +36,21 @@ def find_tool(*names: str) -> str | None:
     return next((candidate for candidate in candidates if candidate and Path(candidate).is_file()), None)
 
 
+def install_variant(
+    args: argparse.Namespace,
+    mtools: list[str],
+    variant: str,
+    cmdline: Path,
+) -> None:
+    directory = f"::EFI/PEDIGREE/{variant}"
+    run([args.mmd, *mtools, directory])
+    run([args.mcopy, *mtools, str(args.efi), f"{directory}/BOOTX64.EFI"])
+    run([args.mcopy, *mtools, str(args.kernel), f"{directory}/kernel"])
+    run([args.mcopy, *mtools, str(args.initrd), f"{directory}/initrd.tar"])
+    run([args.mcopy, *mtools, str(args.config), f"{directory}/config.db"])
+    run([args.mcopy, *mtools, str(cmdline), f"{directory}/cmdline"])
+
+
 def create_esp(path: Path, args: argparse.Namespace, root_uuid: str, temp_dir: Path) -> None:
     with path.open("wb") as image:
         image.truncate(64 * 1024 * 1024)
@@ -44,13 +59,12 @@ def create_esp(path: Path, args: argparse.Namespace, root_uuid: str, temp_dir: P
     run([args.mmd, *mtools, "::EFI"])
     run([args.mmd, *mtools, "::EFI/BOOT"])
     run([args.mmd, *mtools, "::EFI/PEDIGREE"])
-    run([args.mcopy, *mtools, str(args.efi), "::EFI/BOOT/BOOTX64.EFI"])
-    run([args.mcopy, *mtools, str(args.kernel), "::EFI/PEDIGREE/kernel"])
-    run([args.mcopy, *mtools, str(args.initrd), "::EFI/PEDIGREE/initrd.tar"])
-    run([args.mcopy, *mtools, str(args.config), "::EFI/PEDIGREE/config.db"])
+    bootloader = args.grub if args.grub else args.efi
+    run([args.mcopy, *mtools, str(bootloader), "::EFI/BOOT/BOOTX64.EFI"])
     cmdline = temp_dir / "cmdline"
     cmdline.write_text(f"root=UUID={root_uuid}")
-    run([args.mcopy, *mtools, str(cmdline), "::EFI/PEDIGREE/cmdline"])
+    install_variant(args, mtools, "current", cmdline)
+    install_variant(args, mtools, "known-good", cmdline)
 
 
 def partition_entry(bootable: bool, partition_type: int, start: int, length: int) -> bytes:
@@ -96,6 +110,7 @@ def create_partitioned_image(path: Path, esp: Path, root: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", type=Path, required=True)
+    parser.add_argument("--grub", type=Path)
     parser.add_argument("--efi", type=Path, required=True)
     parser.add_argument("--kernel", type=Path, required=True)
     parser.add_argument("--initrd", type=Path, required=True)
