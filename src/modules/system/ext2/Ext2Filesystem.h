@@ -68,6 +68,7 @@ class Ext2Filesystem : public Filesystem {
   static Filesystem* probe(Disk* pDisk);
   virtual File* getRoot() const;
   virtual const String& getVolumeLabel() const;
+  virtual bool getUuid(String& uuid) const;
   virtual FileHandleStatus encodeFileHandle(File&, FileHandle&);
   virtual FileHandleStatus decodeFileHandle(const FileHandle&, RetainedFile&);
   virtual FileHandleStatus fileHandleFsid(FileSystemId&);

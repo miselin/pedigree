@@ -34,11 +34,7 @@
 
 #include "modules/Module.h"
 
-#if MULTIBOOT
 class BootstrapStruct_t;
-#else
-struct BootstrapStruct_t;
-#endif
 class String;
 struct RuntimeModuleSlot;
 
@@ -396,7 +392,7 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
    * x86 builds stuff a 64-bit binary into a 32-bit container so we need to
    * use a different type.
    */
-#if X86_COMMON
+#if X86_COMMON && BITS_32
   Elf32SectionHeader_t* m_pSectionHeaders;
   Elf32Symbol_t* m_pSymbolTable;
 

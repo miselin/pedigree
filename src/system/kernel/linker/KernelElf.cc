@@ -112,7 +112,7 @@ bool KernelElf::initialise(const BootstrapStruct_t& pBootstrap) {
     return (STATIC_DRIVERS == 1) || (HOSTED == 1);
   }
 
-  EMIT_IF(X86_COMMON) {
+  EMIT_IF(X86_COMMON && BITS_32) {
     PhysicalMemoryManager& physicalMemoryManager = PhysicalMemoryManager::instance();
     size_t pageSz = PhysicalMemoryManager::getPageSize();
 
@@ -139,12 +139,11 @@ bool KernelElf::initialise(const BootstrapStruct_t& pBootstrap) {
     physical_uintptr_t start = ~0;
     physical_uintptr_t end = 0;
     for (size_t i = 1; i < pBootstrap.getSectionHeaderCount(); i++) {
-      // Force 32-bit section header type as we are a 32-bit ELF object
-      // even on 64-bit targets.
       uintptr_t shdr_addr =
           pBootstrap.getSectionHeaders() + i * pBootstrap.getSectionHeaderEntrySize();
-      Elf32SectionHeader_t* pSh =
-          m_AdditionalSectionHeaders->convertPhysicalPointer<Elf32SectionHeader_t>(shdr_addr);
+      KernelElfSectionHeader_t* pSh = m_AdditionalSectionHeaders
+                                         ->convertPhysicalPointer<KernelElfSectionHeader_t>(
+                                             shdr_addr);
 
       if ((pSh->flags & SHF_ALLOC) != SHF_ALLOC) {
         if (pSh->addr <= start) {
@@ -191,7 +190,7 @@ bool KernelElf::initialise(const BootstrapStruct_t& pBootstrap) {
 
   const char* tmpStringTable;
 
-  EMIT_IF(X86_COMMON) {
+  EMIT_IF(X86_COMMON && BITS_32) {
     tmpStringTable =
         m_AdditionalSectionContents.convertPhysicalPointer<const char>(stringTableShdr->addr);
   }
@@ -208,7 +207,7 @@ bool KernelElf::initialise(const BootstrapStruct_t& pBootstrap) {
     ElfSectionHeader_t sh;
     ElfSectionHeader_t* pSh = 0;
 
-    EMIT_IF(X86_COMMON) {
+    EMIT_IF(X86_COMMON && BITS_32) {
       KernelElfSectionHeader_t* pTruncatedSh =
           m_AdditionalSectionHeaders->convertPhysicalPointer<KernelElfSectionHeader_t>(shdr_addr);
 

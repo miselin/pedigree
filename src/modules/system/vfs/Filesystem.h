@@ -90,6 +90,12 @@ class EXPORTED_PUBLIC Filesystem {
   /** Returns a string identifying the volume label. */
   virtual const String& getVolumeLabel() const = 0;
 
+  /** Returns the canonical filesystem UUID when this filesystem has one. */
+  virtual bool getUuid(String& uuid) const {
+    uuid.clear();
+    return false;
+  }
+
   /** Caller holds a VFS mount operation through handle access and publication. */
   virtual FileHandleStatus encodeFileHandle(File& file, FileHandle& handle);
   virtual FileHandleStatus decodeFileHandle(const FileHandle& handle, RetainedFile& file);

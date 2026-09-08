@@ -32,11 +32,7 @@ template <class T>
 class Vector;
 
 class VirtualAddressSpace;
-#if MULTIBOOT
 class BootstrapStruct_t;
-#else
-struct BootstrapStruct_t;
-#endif
 
 /** @addtogroup kernelprocessor
  * @{ */

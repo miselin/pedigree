@@ -365,6 +365,13 @@ void Acpi::parseMultipleApicDescriptionTable() {
 #endif
 
 bool Acpi::find() {
+  if (g_pBootstrapInfo && g_pBootstrapInfo->getAcpiRsdp()) {
+    m_pRsdtPointer = reinterpret_cast<RsdtPointer*>(g_pBootstrapInfo->getAcpiRsdp());
+    if (m_pRsdtPointer->signature == 0x2052545020445352ULL && checksum(m_pRsdtPointer))
+      return true;
+    m_pRsdtPointer = 0;
+  }
+
   // Search in the first kilobyte of the EBDA
   // The BIOS Data Area stores the EBDA segment at physical address 0x40E.
   uint16_t* ebdaSegment = reinterpret_cast<uint16_t*>(0x40E);

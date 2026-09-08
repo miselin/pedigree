@@ -5,6 +5,6 @@ timeout 0
 
 title  Pedigree
 root   (hd0,0)
-kernel /boot/kernel
+kernel /boot/kernel root=UUID=@PEDIGREE_ROOT_UUID@
 module /boot/initrd.tar
-module /.pedigree-root
+module /boot/config.db

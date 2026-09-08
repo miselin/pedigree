@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/core/BootIO.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Disk.h"
@@ -25,7 +26,9 @@
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "modules/Module.h"
@@ -37,6 +40,10 @@
 class File;
 
 static bool bRootMounted = false;
+
+enum class RootSelectorKind { None, Uuid, Label };
+static RootSelectorKind g_RootSelectorKind = RootSelectorKind::None;
+static String g_RootSelectorValue;
 
 static List<Filesystem*> g_MountedFilesystems;
 static FileDisk* g_pLiveDisk = nullptr;
@@ -50,8 +57,61 @@ static void error(const char* s) {
   str.clear();
 }
 
+static bool parseRootSelector() {
+  char* commandLine = g_pBootstrapInfo->getCommandLine();
+  if (!commandLine) {
+    return false;
+  }
+
+  RootSelectorKind kind = RootSelectorKind::None;
+  String value;
+  Vector<String> arguments = String(commandLine).tokenise(' ');
+  for (auto argument : arguments) {
+    StringView view = argument.view();
+    if (view.length() > 10 && view.substring(0, 10) == "root=UUID=") {
+      kind = RootSelectorKind::Uuid;
+      value = view.substring(10, view.length()).toString();
+    } else if (view.length() > 11 && view.substring(0, 11) == "root=LABEL=") {
+      if (kind != RootSelectorKind::Uuid) {
+        kind = RootSelectorKind::Label;
+        value = view.substring(11, view.length()).toString();
+      }
+    }
+  }
+
+  if (kind == RootSelectorKind::None || !value.length()) {
+    return false;
+  }
+
+  value.strip();
+  if (!value.length()) {
+    return false;
+  }
+
+  g_RootSelectorKind = kind;
+  g_RootSelectorValue = value;
+  return true;
+}
+
+static bool isRootFilesystem(Filesystem* filesystem) {
+  if (g_RootSelectorKind == RootSelectorKind::Uuid) {
+    String uuid;
+    return filesystem->getUuid(uuid) && uuid == g_RootSelectorValue;
+  }
+  if (g_RootSelectorKind == RootSelectorKind::Label) {
+    return filesystem->getVolumeLabel() == g_RootSelectorValue;
+  }
+  return false;
+}
+
 static Device* probeDisk(Device* diskDevice) {
   if (diskDevice->getType() != Device::Disk) {
+    return diskDevice;
+  }
+
+  // Once the selected root volume has been found, leave the remaining
+  // partitions alone. In particular, the ESP is not a second root candidate.
+  if (bRootMounted) {
     return diskDevice;
   }
 
@@ -62,14 +122,10 @@ static Device* probeDisk(Device* diskDevice) {
     // For mount message
     bool didMountAsRoot = false;
 
-    // Search for the root specifier, if we haven't already mounted root
-    if (!bRootMounted) {
-      File* f = pFs->find(String("/.pedigree-root"));
-      if (f && !bRootMounted) {
-        NOTICE("Mounted " << stableName << " successfully as root.");
-        VFS::instance().setRootFilesystem(pFs);
-        bRootMounted = didMountAsRoot = true;
-      }
+    if (isRootFilesystem(pFs)) {
+      NOTICE("Mounted " << stableName << " successfully as root.");
+      VFS::instance().setRootFilesystem(pFs);
+      bRootMounted = didMountAsRoot = true;
     }
 
     if (!didMountAsRoot) {
@@ -83,6 +139,13 @@ static Device* probeDisk(Device* diskDevice) {
 }
 
 static bool init() {
+  if (!parseRootSelector()) {
+    error("No valid root=UUID= or root=LABEL= selector was supplied.");
+    if (!HOSTED) {
+      return false;
+    }
+  }
+
   // Mount scratch filesystem (ie, pure ram filesystem, for POSIX /tmp etc)
   RamFs* pRamFs = new RamFs;
   pRamFs->initialise(0);
@@ -99,7 +162,8 @@ static bool init() {
   VFS::instance().registerFilesystem(pRuntimeFs, String("runtime"));
   g_MountedFilesystems.pushBack(pRuntimeFs);
 
-  // Mount all available filesystems.
+  // Probe filesystems until the selected root is found. The UEFI ESP is
+  // intentionally left unmounted once root has been established.
   Device::foreach (probeDisk);
 
   if (VFS::instance().getFilesystemAt(String("/media/raw")) == 0) {
@@ -129,8 +193,8 @@ static bool init() {
   }
 
   // Is there a root disk mounted?
-  if (VFS::instance().find(String("/.pedigree-root")) == 0) {
-    error("No root disk on this system (no /.pedigree-root found).");
+  if (!bRootMounted) {
+    error("No root disk matched the supplied root filesystem selector.");
     if (!HOSTED)  // hosted builds don't mount disks
     {
       return false;

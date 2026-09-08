@@ -70,10 +70,9 @@ static File* resolveBootPath(const String& name, ResolvedPath& result) {
 
 static int init_stage2(void* param) {
   EMIT_IF(HOSTED) {
-    ResolvedPath marker;
-    if (!HOSTED_SMOKE_TESTS || !resolveBootPath(String("/.pedigree-root"), marker)) {
+    if (!HOSTED_SMOKE_TESTS) {
       extern void system_reset();
-      NOTICE("Hosted build has no smoke-test root; shutting down.");
+      NOTICE("Hosted build has no smoke-test command; shutting down.");
       system_reset();
       return 0;
     }
@@ -160,10 +159,9 @@ static int init_stage2(void* param) {
 static bool init() {
 #if THREADS
   EMIT_IF(HOSTED) {
-    ResolvedPath marker;
-    if (!HOSTED_SMOKE_TESTS || !resolveBootPath(String("/.pedigree-root"), marker)) {
+    if (!HOSTED_SMOKE_TESTS) {
       extern void system_reset();
-      NOTICE("Hosted build has no smoke-test root; shutting down.");
+      NOTICE("Hosted build has no smoke-test command; shutting down.");
       system_reset();
       return true;
     }

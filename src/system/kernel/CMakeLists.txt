@@ -578,18 +578,8 @@ if (NOT PEDIGREE_HOSTED_DARWIN AND NOT PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS)
 endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
-    # Embed 64-bit kernel in a 32-bit ELF container to allow unpatched GRUBs to
-    # load it with ease.
-    add_custom_command(
-        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64
-        COMMAND ${CMAKE_OBJCOPY} -I elf64-x86-64 -O elf32-i386 $<TARGET_FILE:kernel> ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64
-        DEPENDS kernel)
-    add_custom_target(kernelfinal DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64)
-
-    set(KERNEL_FILENAME ${CMAKE_CURRENT_BINARY_DIR}/kernel-mini64)
+    set(KERNEL_FILENAME ${CMAKE_CURRENT_BINARY_DIR}/kernel)
 else ()
-    add_custom_target(kernelfinal DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/kernel)
-
     set(KERNEL_FILENAME ${CMAKE_CURRENT_BINARY_DIR}/kernel)
 endif ()
 

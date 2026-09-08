@@ -248,9 +248,9 @@ extern "C" int main(int argc, char* argv[]) {
   fprintf(stderr, " initrd: %p -> %p\n", initrd_mapping, add_ptr(initrd_mapping, initrd_length));
 
   // Kernel uses flags to know what it can and can't use.
-  bs.flags |= MULTIBOOT_FLAG_MODS;
+  bs.flags |= BOOTSTRAP_FLAG_MODULES;
 #ifndef PEDIGREE_HOSTED_DARWIN
-  bs.flags |= MULTIBOOT_FLAG_ELF;
+  bs.flags |= BOOTSTRAP_FLAG_ELF;
 #endif
   _main(bs);
 

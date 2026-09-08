@@ -211,19 +211,23 @@ option(PEDIGREE_BUILD_TRANSLATIONS
     "Compile message catalogs for distribution images."
     ${_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT})
 
-set(_PEDIGREE_HDD_IMAGE_DEFAULT
-    ${_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT})
+set(_PEDIGREE_HDD_IMAGE_DEFAULT OFF)
 set(_PEDIGREE_ISO_DEFAULT OFF)
-if (_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT AND
-    PEDIGREE_TARGET_LIVECD)
-    set(_PEDIGREE_ISO_DEFAULT ON)
-endif ()
 option(PEDIGREE_BUILD_HDD_IMAGE
     "Build a bootable hard disk image."
     ${_PEDIGREE_HDD_IMAGE_DEFAULT})
 option(PEDIGREE_BUILD_ISO
     "Build a bootable ISO image."
     ${_PEDIGREE_ISO_DEFAULT})
+option(PEDIGREE_BUILD_UEFI
+    "Build a FAT32 UEFI boot image and native UEFI loader."
+    ON)
+
+if (PEDIGREE_BUILD_HDD_IMAGE OR PEDIGREE_BUILD_ISO)
+    message(FATAL_ERROR
+        "Legacy HDD and ISO packaging is not supported by the UEFI-only "
+        "target. Build the uefi-image target instead.")
+endif ()
 
 if (PEDIGREE_SELF_HOSTED AND
     (PEDIGREE_BUILD_HDD_IMAGE OR PEDIGREE_BUILD_ISO))
@@ -501,7 +505,7 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
     if (PEDIGREE_STATIC_DRIVERS)
         list(APPEND _PEDIGREE_REQUIRED_HOST_UTILITIES host-headerify)
     endif ()
-    if (PEDIGREE_BUILD_HDD_IMAGE)
+    if (PEDIGREE_BUILD_HDD_IMAGE OR PEDIGREE_BUILD_UEFI)
         list(APPEND _PEDIGREE_REQUIRED_HOST_UTILITIES host-ext2img)
     endif ()
     list(REMOVE_DUPLICATES _PEDIGREE_REQUIRED_HOST_UTILITIES)
@@ -652,7 +656,7 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
     # This is the portable self-hosting product boundary. Packaging it into a
     # disk image, ISO, or an installed /boot tree is a separate operation.
     set(_PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES
-        kernel kernelfinal configdb ${PEDIGREE_APPS_TARGETS}
+        kernel configdb ${PEDIGREE_APPS_TARGETS}
         ${PEDIGREE_LIBS_TARGETS})
     if (NOT PEDIGREE_STATIC_DRIVERS)
         list(APPEND _PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES initrd)
@@ -666,6 +670,66 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
     list(REMOVE_DUPLICATES _PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES)
     add_custom_target(boot-artifacts DEPENDS
         ${_PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES})
+
+    if (PEDIGREE_BUILD_UEFI AND PEDIGREE_ARCH_TARGET STREQUAL "X64")
+        find_program(UEFI_CLANG NAMES clang REQUIRED)
+        set(UEFI_LOADER_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/uefi-loader.obj)
+        set(UEFI_LOADER ${CMAKE_CURRENT_BINARY_DIR}/BOOTX64.EFI)
+        add_custom_command(OUTPUT ${UEFI_LOADER_OBJECT}
+            COMMAND ${UEFI_CLANG} -target x86_64-pc-windows-msvc
+            -ffreestanding -fno-builtin -fno-stack-protector
+            -fno-asynchronous-unwind-tables -fno-unwind-tables -O2 -c
+            ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/loader.c
+            -o ${UEFI_LOADER_OBJECT}
+            DEPENDS ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/loader.c)
+        add_custom_command(OUTPUT ${UEFI_LOADER}
+            COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/uefi_pe.py
+            ${UEFI_LOADER_OBJECT} ${UEFI_LOADER}
+            DEPENDS ${UEFI_LOADER_OBJECT} ${CMAKE_SOURCE_DIR}/scripts/uefi_pe.py)
+        add_custom_target(uefi-loader DEPENDS ${UEFI_LOADER})
+
+        set(UEFI_ROOT_IMAGE ${CMAKE_CURRENT_BINARY_DIR}/pedigree-uefi-root.img)
+        add_custom_command(OUTPUT ${UEFI_ROOT_IMAGE}
+            COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
+            ${UEFI_ROOT_IMAGE}
+            $<TARGET_FILE:host-ext2img>
+            ${PEDIGREE_IMAGESDIR}
+            ${CMAKE_SOURCE_DIR}
+            ${CMAKE_SOURCE_DIR}/images/base
+            ${KERNEL_FILENAME}
+            $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:${CMAKE_BINARY_DIR}/src/modules/initrd.tar>
+            $<$<BOOL:${PEDIGREE_STATIC_DRIVERS}>:__noinitrd__>
+            ${CMAKE_CURRENT_BINARY_DIR}/config.db
+            ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
+            ${PEDIGREE_MUSL_SDK_ROOT}
+            ${PEDIGREE_C_SDK_ROOT}
+            ${CMAKE_BINARY_DIR}
+            ${PEDIGREE_KERNEL_MODULES}
+            ${PEDIGREE_APPS}
+            ${PEDIGREE_LIBS}
+            DEPENDS
+                host-ext2img
+                kernel configdb ${PEDIGREE_APPS_TARGETS}
+                ${PEDIGREE_LIBS_TARGETS}
+                ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
+                ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst)
+
+        set(UEFI_IMAGE ${CMAKE_CURRENT_BINARY_DIR}/pedigree-uefi.img)
+        add_custom_command(OUTPUT ${UEFI_IMAGE}
+            COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py
+            --image ${UEFI_IMAGE}
+            --efi ${UEFI_LOADER}
+            --kernel ${CMAKE_BINARY_DIR}/src/system/kernel/kernel
+            --initrd ${CMAKE_BINARY_DIR}/src/modules/initrd.tar.uncomp
+            --config ${CMAKE_CURRENT_BINARY_DIR}/config.db
+            --root ${UEFI_ROOT_IMAGE}
+            DEPENDS uefi-loader ${UEFI_LOADER} ${UEFI_ROOT_IMAGE} kernel initrd configdb
+            ${CMAKE_BINARY_DIR}/src/system/kernel/kernel
+            ${CMAKE_BINARY_DIR}/src/modules/initrd.tar.uncomp
+            ${CMAKE_CURRENT_BINARY_DIR}/config.db
+            ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py)
+        add_custom_target(uefi-image ALL DEPENDS ${UEFI_IMAGE})
+    endif ()
 
     if (PEDIGREE_BUILD_HDD_IMAGE)
         # Build hard disk image ready for a live CD or imaging.
@@ -689,7 +753,7 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             ${PEDIGREE_LIBS}
             ${PEDIGREE_SUBSYSTEM_LIBS}
             DEPENDS
-            kernel kernelfinal
+            kernel
             $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:initrd>
             ${KERNEL_FILENAME}
             $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:${CMAKE_BINARY_DIR}/src/modules/initrd.tar>
@@ -749,12 +813,12 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             -o ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso -V PEDIGREE
             boot/grub/stage2_eltorito=${CMAKE_BINARY_DIR}/${STAGE2_FILENAME}
             boot/grub/menu.lst=${CMAKE_SOURCE_DIR}/images/grub/menu.lst
-            boot/kernel=${CMAKE_BINARY_DIR}/src/system/kernel/kernel-mini64
+            boot/kernel=${CMAKE_BINARY_DIR}/src/system/kernel/kernel
             boot/initrd.tar=${CMAKE_BINARY_DIR}/src/modules/initrd.tar
-            .pedigree-root=${CMAKE_CURRENT_BINARY_DIR}/config.db
+            boot/config.db=${CMAKE_CURRENT_BINARY_DIR}/config.db
             ${ISO_EXTRAFILES}
-            DEPENDS kernel kernelfinal initrd configdb ${PEDIGREE_KERNEL_MODULE_TARGETS}
-            ${CMAKE_BINARY_DIR}/src/system/kernel/kernel-mini64
+            DEPENDS kernel initrd configdb ${PEDIGREE_KERNEL_MODULE_TARGETS}
+            ${CMAKE_BINARY_DIR}/src/system/kernel/kernel
             ${CMAKE_BINARY_DIR}/src/modules/initrd.tar
             ${CMAKE_CURRENT_BINARY_DIR}/config.db
             ${ISO_EXTRADEPENDS})

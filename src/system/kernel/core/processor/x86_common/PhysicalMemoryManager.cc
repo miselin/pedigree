@@ -581,11 +581,12 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t& Info) {
   EMIT_IF(!HOSTED) {
     extern void* kernel_start;
     extern void* kernel_end;
-    if (m_RangeBelow16MB.allocateSpecific(reinterpret_cast<uintptr_t>(&kernel_start) -
-                                              reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_ADDRESS),
-                                          reinterpret_cast<uintptr_t>(&kernel_end) -
-                                              reinterpret_cast<uintptr_t>(&kernel_start)) ==
-        false) {
+    if (!m_RangeBelow16MB.allocateSpecific(
+            reinterpret_cast<uintptr_t>(&kernel_start) -
+                reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_ADDRESS),
+            reinterpret_cast<uintptr_t>(&kernel_end) -
+                reinterpret_cast<uintptr_t>(&kernel_start)) &&
+        !Info.isUefi()) {
       panic(
           "PhysicalMemoryManager: could not remove the kernel image from "
           "the range-list");

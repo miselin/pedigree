@@ -5,12 +5,12 @@ timeout 10
 
 title  Pedigree
 root   (cd)
-kernel /boot/kernel
+kernel /boot/kernel root=LABEL=PEDIGREE
 module /boot/initrd.tar
-module /.pedigree-root
+module /boot/config.db
 
 title  Pedigree (HDD)
 root   (hd0,0)
-kernel /boot/kernel
+kernel /boot/kernel root=LABEL=pedigree
 module /boot/initrd.tar
-module /.pedigree-root
+module /boot/config.db

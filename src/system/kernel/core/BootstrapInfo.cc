@@ -21,19 +21,16 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
-struct MemoryMapEntry_t {
-  uint32_t size;
-  uint64_t address;
-  uint64_t length;
-  uint32_t type;
-} PACKED;
+static_assert(sizeof(BootstrapStruct_t::MemoryMapEntry) == 32,
+              "bootstrap memory-map entries must match the UEFI wire format");
 
 BootstrapStruct_t::BootstrapStruct_t() {
   flags = 0;
+  reserved = 0;
 }
 
 bool BootstrapStruct_t::isInitrdLoaded() const {
-  if (flags & MULTIBOOT_FLAG_MODS)
+  if (flags & BOOTSTRAP_FLAG_MODULES)
     return (mods_count != 0) && mods_addr;
   else
     return false;
@@ -56,7 +53,7 @@ size_t BootstrapStruct_t::getInitrdSize() const {
 }
 
 bool BootstrapStruct_t::isDatabaseLoaded() const {
-  if (flags & MULTIBOOT_FLAG_MODS)
+  if (flags & BOOTSTRAP_FLAG_MODULES)
     return (mods_count > 1) && mods_addr;
   else
     return 0;
@@ -79,42 +76,42 @@ size_t BootstrapStruct_t::getDatabaseSize() const {
 }
 
 char* BootstrapStruct_t::getCommandLine() const {
-  if (flags & MULTIBOOT_FLAG_CMDLINE)
+  if (flags & BOOTSTRAP_FLAG_CMDLINE)
     return reinterpret_cast<char*>(cmdline);
   else
     return 0;
 }
 
 size_t BootstrapStruct_t::getSectionHeaderCount() const {
-  if (flags & MULTIBOOT_FLAG_ELF)
+  if (flags & BOOTSTRAP_FLAG_ELF)
     return num;
   else
     return 0;
 }
 
 size_t BootstrapStruct_t::getSectionHeaderEntrySize() const {
-  if (flags & MULTIBOOT_FLAG_ELF)
+  if (flags & BOOTSTRAP_FLAG_ELF)
     return size;
   else
     return 0;
 }
 
 size_t BootstrapStruct_t::getSectionHeaderStringTableIndex() const {
-  if (flags & MULTIBOOT_FLAG_ELF)
+  if (flags & BOOTSTRAP_FLAG_ELF)
     return shndx;
   else
     return 0;
 }
 
 uintptr_t BootstrapStruct_t::getSectionHeaders() const {
-  if (flags & MULTIBOOT_FLAG_ELF)
+  if (flags & BOOTSTRAP_FLAG_ELF)
     return addr;
   else
     return 0;
 }
 
 void* BootstrapStruct_t::getMemoryMap() const {
-  if (flags & MULTIBOOT_FLAG_MMAP)
+  if (flags & BOOTSTRAP_FLAG_MEMORY_MAP)
     return reinterpret_cast<void*>(mmap_addr);
   else
     return 0;
@@ -124,7 +121,7 @@ uint64_t BootstrapStruct_t::getMemoryMapEntryAddress(void* opaque) const {
   if (!opaque)
     return 0;
 
-  MemoryMapEntry_t* entry = reinterpret_cast<MemoryMapEntry_t*>(opaque);
+  MemoryMapEntry* entry = reinterpret_cast<MemoryMapEntry*>(opaque);
   return entry->address;
 }
 
@@ -132,7 +129,7 @@ uint64_t BootstrapStruct_t::getMemoryMapEntryLength(void* opaque) const {
   if (!opaque)
     return 0;
 
-  MemoryMapEntry_t* entry = reinterpret_cast<MemoryMapEntry_t*>(opaque);
+  MemoryMapEntry* entry = reinterpret_cast<MemoryMapEntry*>(opaque);
   return entry->length;
 }
 
@@ -140,7 +137,7 @@ uint32_t BootstrapStruct_t::getMemoryMapEntryType(void* opaque) const {
   if (!opaque)
     return 0;
 
-  MemoryMapEntry_t* entry = reinterpret_cast<MemoryMapEntry_t*>(opaque);
+  MemoryMapEntry* entry = reinterpret_cast<MemoryMapEntry*>(opaque);
   return entry->type;
 }
 
@@ -148,9 +145,10 @@ void* BootstrapStruct_t::nextMemoryMapEntry(void* opaque) const {
   if (!opaque)
     return 0;
 
-  MemoryMapEntry_t* entry = reinterpret_cast<MemoryMapEntry_t*>(opaque);
+  MemoryMapEntry* entry = reinterpret_cast<MemoryMapEntry*>(opaque);
   uintptr_t entry_addr = reinterpret_cast<uintptr_t>(opaque);
-  void* new_opaque = reinterpret_cast<void*>(entry_addr + entry->size + 4);
+  const uintptr_t entry_size = mmap_entry_size ? mmap_entry_size : sizeof(MemoryMapEntry);
+  void* new_opaque = reinterpret_cast<void*>(entry_addr + entry_size);
 
   if (reinterpret_cast<uintptr_t>(new_opaque) >= (mmap_addr + mmap_length))
     return 0;
@@ -159,15 +157,27 @@ void* BootstrapStruct_t::nextMemoryMapEntry(void* opaque) const {
 }
 
 size_t BootstrapStruct_t::getModuleCount() const {
-  if (flags & MULTIBOOT_FLAG_MODS)
+  if (flags & BOOTSTRAP_FLAG_MODULES)
     return mods_count;
   else
     return 0;
 }
 
 void* BootstrapStruct_t::getModuleBase() const {
-  if (flags & MULTIBOOT_FLAG_MODS)
+  if (flags & BOOTSTRAP_FLAG_MODULES)
     return reinterpret_cast<void*>(mods_addr);
   else
     return 0;
+}
+
+uintptr_t BootstrapStruct_t::getAcpiRsdp() const {
+  return (flags & BOOTSTRAP_FLAG_ACPI) ? acpi_rsdp : 0;
+}
+
+uintptr_t BootstrapStruct_t::getSmbios() const {
+  return (flags & BOOTSTRAP_FLAG_SMBIOS) ? smbios : 0;
+}
+
+bool BootstrapStruct_t::isUefi() const {
+  return (flags & BOOTSTRAP_FLAG_UEFI) != 0;
 }

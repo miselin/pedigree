@@ -311,6 +311,15 @@ const String& Ext2Filesystem::getVolumeLabel() const {
   return m_VolumeLabel;
 }
 
+bool Ext2Filesystem::getUuid(String& uuid) const {
+  const uint8_t* value = reinterpret_cast<const uint8_t*>(m_pSuperblock->s_uuid);
+  uuid.Format("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+              value[0], value[1], value[2], value[3], value[4], value[5], value[6], value[7],
+              value[8], value[9], value[10], value[11], value[12], value[13], value[14],
+              value[15]);
+  return true;
+}
+
 bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t mask,
                                 const String& value, size_t type, uint32_t inodeOverride) {
   LockGuard<Mutex> quotaNamespace(m_QuotaNamespaceLock);

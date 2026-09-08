@@ -29,7 +29,7 @@ in the historical `images/local` snapshot are not a usable self-host seed.
 
 Once those tools are available, this slice can rebuild:
 
-- the Pedigree kernel and its GRUB-compatible `kernel-mini64` wrapper;
+- the UEFI-bootable Pedigree kernel;
 - kernel modules and the deterministic initrd containing them;
 - the configuration database;
 - musl libc from a supplied source archive; and
@@ -186,8 +186,10 @@ cached by CMake.
 
 With the default build directory, the primary products are:
 
-- `build-selfhost/src/system/kernel/kernel-mini64` — boot kernel;
+- `build-selfhost/src/system/kernel/kernel` — UEFI boot kernel;
 - `build-selfhost/src/modules/initrd.tar` — compressed module initrd;
+- `build-selfhost/src/modules/initrd.tar.uncomp` — raw module initrd for the
+  UEFI image;
 - `build-selfhost/src/modules/initrd.manifest` — deterministic initrd contents;
 - `build-selfhost/config.db` — boot configuration database; and
 - `build-selfhost/src/user/` — built user applications and libraries;

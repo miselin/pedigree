@@ -18,20 +18,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; boot-standalone.s - Used when we are not relying on the bootloader.
 
-MBOOT_PAGE_ALIGN   equ 1<<0
-MBOOT_MEM_INFO     equ 1<<1
-MBOOT_HEADER_MAGIC equ 0x1BADB002
-MBOOT_HEADER_FLAGS equ MBOOT_PAGE_ALIGN | MBOOT_MEM_INFO
-MBOOT_CHECKSUM     equ -(MBOOT_HEADER_MAGIC + MBOOT_HEADER_FLAGS)
-
-section .init.multiboot
-align 4
-mboot:
-  dd MBOOT_HEADER_MAGIC
-  dd MBOOT_HEADER_FLAGS
-  dd MBOOT_CHECKSUM
-
-global start:function hidden
+global start64:function hidden
 global pml4:data hidden
 
 [EXTERN _main]
@@ -44,137 +31,11 @@ KERNEL_BASE        equ 0xFFFFFFFF7FF00000
 KERNEL_BASE32      equ 0x100000
 
 section .init.text
-[BITS 32]
-start:
-  cli
-
-  ; Avoid clobbering ebx via cpuid in check_longmode.
-  mov ebp, ebx
-  jmp check_longmode
-longmode_ok:
-  mov ebx, ebp
-
-  ; Disable paging if it was otherwise configured.
-  mov eax, cr0
-  and eax, 0x7fffffff
-  mov cr0, eax
-
-  ; Create temporary paging structures so we can get into long mode
-  mov edi, startup_32bit_region - KERNEL_BASE
-  mov cr3, edi
-  mov ecx, 0x1000
-  xor eax, eax
-  rep stosd
-
-  mov edi, cr3
-  mov dword [edi], (startup_32bit_region + 0x1003) - KERNEL_BASE
-  add edi, 0x1000
-  mov dword [edi], (startup_32bit_region + 0x2003) - KERNEL_BASE
-  add edi, 0x1000
-  mov dword [edi], (startup_32bit_region + 0x3003) - KERNEL_BASE
-  add edi, 0x1000
-
-  mov esi, ebx
-
-  ; Identity map first 2 MB
-  mov ebx, 0x3
-  mov ecx, 512
-  .set:
-    mov dword [edi], ebx
-    add ebx, 0x1000
-    add edi, 8
-    dec ecx
-    jnz short .set
-
-  ; Bring back EBX - it holds the address of the multiboot info structure.
-  mov ebx, esi
-
-  ; Enable PAE
-  mov eax, cr4
-  or eax, 0x20
-  mov cr4, eax
-
-  ; Enable LM-bit and paging
-  mov ecx, 0xC0000080
-  rdmsr
-  or eax, 0x100
-  wrmsr
-
-  mov eax, cr0
-  or eax, 0x80000000
-  mov cr0, eax
-
-  ; Now in IA32e mode. Enter 64-bit with a temporary GDT.
-  lgdt [CODE32GDTR - KERNEL_BASE]
-  jmp 0x08:start64 - KERNEL_BASE
-
-check_longmode:
-  ; Check for CPUID support. If no CPUID, definitely no long mode.
-  pushfd
-  pop eax
-  mov ecx, eax  ; Preserve old flags for comparison.
-  xor eax, 1 << 21  ; Flip ID bit.
-  push eax
-  popfd
-
-  pushfd
-  pop eax
-  push ecx  ; Restore old flags.
-  popfd
-
-  ; Verify the bit flip worked.
-  xor eax, ecx
-  jz .no_longmode
-
-  ; Check for cpuid extended functions.
-  mov eax, 0x80000000
-  cpuid
-  cmp eax, 0x80000001
-  jb .no_longmode
-
-  ; Check for long mode itself.
-  mov eax, 0x80000001
-  cpuid
-  test edx, 1 << 29
-  jz .no_longmode
-
-  ; All good.
-  jmp longmode_ok
-
-.no_longmode:
-  ; Need to write to the screen. Clear it first.
-  mov ecx, 80 * 25
-  mov edi, 0xb8000
-  mov ax, 0
-  rep stosw
-
-  ; Write our string.
-  mov esi, CANNOTBOOT - KERNEL_BASE
-  mov edi, 0xb8000
-  mov ecx, CANNOTBOOT_END - CANNOTBOOT
-  .l:
-    mov al, [esi]
-
-    mov byte [edi], al
-    mov byte [edi + 1], 0x7  ; Gray on Black
-
-    dec ecx
-    jz .ld
-
-    add edi, 2
-    inc esi
-    jmp .l
-  .ld:
-
-  .a:
-    cli
-    hlt
-  jmp .a
-
 [BITS 64]
+; UEFI enters the kernel already in long mode.
 start64:
   cli
-  push rbx
+  mov r12, rbx
 
   ; Map a page directory pointer table for 0-512GB and the upmost 512GB and
   ; for the pyhsical memory mapping
@@ -281,7 +142,7 @@ start64:
   mov rax, pml4 - KERNEL_BASE
   mov cr3, rax
 
-  pop rdi
+  mov rdi, r12
   mov rsp, stack
   add rsp, 0x10000
 
@@ -433,9 +294,6 @@ ___startup_init_fpu_sse:
   ret
 
 section .init.data
-  CODE32GDTR:
-    dw 23
-    dq GDT - KERNEL_BASE
   GDTR:
     dw 23
     dq GDT
@@ -451,19 +309,9 @@ section .init.data
     db 0x92
     dw 0
 
-  CANNOTBOOT:
-    db "Sorry, this system lacks Long Mode (64-bit x86), which Pedigree requires.", 0
-  CANNOTBOOT_END:
-
 section .asm.bss nobits
 
 align 4096
-startup_32bit_region:
-  resb 4096
-  resb 4096
-  resb 4096
-  resb 4096
-
 pml4:
   resb 4096
 

@@ -187,7 +187,7 @@ def build_file_list(all_sources):
     # Host path -> Pedigree path mapping.
     copies = {}
 
-    add_copy(copies, configdb, "/.pedigree-root")
+    add_copy(copies, configdb, "/boot/config.db")
     add_copy(copies, grublst, "/boot/grub/menu.lst")
     add_copy(copies, kernel, "/boot/kernel")
     if initrd != "__noinitrd__":
@@ -428,33 +428,52 @@ def create_base_image(target):
     subprocess.check_call(args)
 
 
+def read_ext2_uuid(target):
+    with open(target, "rb") as image:
+        image.seek(1024 + 104)
+        value = image.read(16)
+    if len(value) != 16:
+        raise RuntimeError("could not read the ext2 filesystem UUID")
+    return "{}{}{}{}-{}{}-{}{}-{}{}-{}{}{}{}{}{}".format(
+        *("%02x" % byte for byte in value)
+    )
+
+
 def main():
     targetfile = sys.argv[1]
     ext2img = sys.argv[2]
-    sources = sys.argv[3:]
-    cmdlist = build_file_list(sources)
-
     create_base_image(targetfile)
+    sources = sys.argv[3:]
+    root_uuid = read_ext2_uuid(targetfile)
 
-    with open("/tmp/cmdlist", "w") as f:
-        f.write("\n".join(cmdlist))
+    with tempfile.TemporaryDirectory(prefix="pedigree-diskimage-") as temp_dir:
+        rendered_grub = os.path.join(temp_dir, "menu.lst")
+        with open(sources[6], "r") as source:
+            menu = source.read().replace("@PEDIGREE_ROOT_UUID@", root_uuid)
+        with open(rendered_grub, "w") as destination:
+            destination.write(menu)
+        sources[6] = rendered_grub
+        cmdlist = build_file_list(sources)
 
-    # Dump our files into the image using ext2img (built as part of the normal
-    # Pedigree build, to run on the build system - not on Pedigree).
-    with tempfile.NamedTemporaryFile() as f:
-        f.write("\n".join(cmdlist).encode("utf-8"))
-        f.flush()
+        with open("/tmp/cmdlist", "w") as f:
+            f.write("\n".join(cmdlist))
 
-        args = [
-            ext2img,
-            "-q",
-            "-c",
-            f.name,
-            "-f",
-            targetfile,
-        ]
+        # Dump our files into the image using ext2img (built as part of the normal
+        # Pedigree build, to run on the build system - not on Pedigree).
+        with tempfile.NamedTemporaryFile() as f:
+            f.write("\n".join(cmdlist).encode("utf-8"))
+            f.flush()
 
-        subprocess.check_call(args)
+            args = [
+                ext2img,
+                "-q",
+                "-c",
+                f.name,
+                "-f",
+                targetfile,
+            ]
+
+            subprocess.check_call(args)
 
 
 if __name__ == "__main__":

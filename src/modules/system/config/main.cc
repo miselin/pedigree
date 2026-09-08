@@ -175,7 +175,7 @@ static struct sqlite3_io_methods theio_fail = {1,
 
 static int xOpen(sqlite3_vfs* vfs, const char* zName, sqlite3_file* file, int flags,
                  int* pOutFlags) {
-  if (StringCompare(zName, "/.pedigree-root")) {
+  if (StringCompare(zName, "/.pedigree-config")) {
     // Assume journal file, return failure functions.
     file->pMethods = &theio_fail;
     return 0;
@@ -379,7 +379,7 @@ static bool init() {
   }
 
   sqlite3_initialize();
-  int ret = sqlite3_open("/.pedigree-root", &g_pSqlite);
+  int ret = sqlite3_open("/.pedigree-config", &g_pSqlite);
   if (ret) {
     FATAL("sqlite3 error: " << sqlite3_errmsg(g_pSqlite));
   }
