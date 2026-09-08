@@ -48,6 +48,9 @@ template <class T>
 void BootIO::write(T& str, Colour foreColour, Colour backColour) {
   for (size_t i = 0; i < str.length(); i++)
     putCharVga(str[i], foreColour, backColour);
+  Vga* pVga = Machine::instance().getVga(0);
+  if (pVga)
+    pVga->flush();
   if (Log::instance().echoToSerial()) {
 #if !SERIAL_IS_FILE
     startColour(Machine::instance().getSerial(0), foreColour, backColour);

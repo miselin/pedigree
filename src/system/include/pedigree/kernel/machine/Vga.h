@@ -121,6 +121,9 @@ class Vga {
    */
   virtual void moveCursor(size_t nX, size_t nY) = 0;
 
+  // Memory-backed consoles need an explicit presentation after direct cell writes.
+  virtual void flush() {}
+
   virtual operator uint16_t*() const = 0;
 };
 

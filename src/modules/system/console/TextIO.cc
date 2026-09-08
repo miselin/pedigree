@@ -1480,6 +1480,7 @@ void TextIO::flip(bool timer, bool hideState) {
       m_pFramebuffer[(y * numCols) + x] = front;
     }
   }
+  m_pVga->flush();
 }
 
 uint64_t TextIO::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {

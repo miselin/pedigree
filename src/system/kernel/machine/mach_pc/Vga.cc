@@ -18,6 +18,8 @@
  */
 
 #include "Vga.h"
+#include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/machine/x86_common/Bios.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
@@ -56,12 +58,16 @@ void X86Vga::setControls(uint8_t newControls) {
 }
 
 void X86Vga::setControl(Vga::VgaControl which) {
+  if (m_Uefi)
+    return;
   uint8_t current = getControls();
   current |= 1 << static_cast<uint8_t>(which);
   setControls(current);
 }
 
 void X86Vga::clearControl(Vga::VgaControl which) {
+  if (m_Uefi)
+    return;
   uint8_t current = getControls();
   current &= ~(1 << static_cast<uint8_t>(which));
   setControls(current);
@@ -85,6 +91,8 @@ bool X86Vga::isLargestTextMode() {
 }
 
 void X86Vga::rememberMode() {
+  if (m_Uefi)
+    return;
   m_ModeStack++;
 
   if (m_ModeStack == 1) {
@@ -100,6 +108,8 @@ void X86Vga::rememberMode() {
 }
 
 void X86Vga::restoreMode() {
+  if (m_Uefi)
+    return;
   if (m_ModeStack == 0)
     return;
   m_ModeStack--;
@@ -119,6 +129,15 @@ void X86Vga::restoreMode() {
 void X86Vga::pokeBuffer(uint8_t* pBuffer, size_t nBufLen) {
   if (!pBuffer)
     return;
+  if (m_Uefi) {
+    if (m_Console.cells()) {
+      size_t length =
+          nBufLen < FramebufferConsole::CellCount * 2 ? nBufLen : FramebufferConsole::CellCount * 2;
+      MemoryCopy(m_Console.cells(), pBuffer, length);
+      flush();
+    }
+    return;
+  }
   if (m_Framebuffer == true)
     MemoryCopy(m_Framebuffer.virtualAddress(), pBuffer, nBufLen);
   else
@@ -126,6 +145,16 @@ void X86Vga::pokeBuffer(uint8_t* pBuffer, size_t nBufLen) {
 }
 
 void X86Vga::peekBuffer(uint8_t* pBuffer, size_t nBufLen) {
+  if (!pBuffer)
+    return;
+  if (m_Uefi) {
+    if (m_Console.cells()) {
+      size_t length =
+          nBufLen < FramebufferConsole::CellCount * 2 ? nBufLen : FramebufferConsole::CellCount * 2;
+      MemoryCopy(pBuffer, m_Console.cells(), length);
+    }
+    return;
+  }
   if (m_Framebuffer == true)
     MemoryCopy(pBuffer, m_Framebuffer.virtualAddress(), nBufLen);
   else
@@ -133,6 +162,12 @@ void X86Vga::peekBuffer(uint8_t* pBuffer, size_t nBufLen) {
 }
 
 void X86Vga::moveCursor(size_t nX, size_t nY) {
+  if (m_Uefi) {
+    LockGuard<Spinlock> guard(m_ConsoleLock);
+    m_Console.moveCursor(nX, nY);
+    m_Console.flush();
+    return;
+  }
   if (!m_RegisterPort)
     return;
 
@@ -144,7 +179,38 @@ void X86Vga::moveCursor(size_t nX, size_t nY) {
   m_RegisterPort.write8(tmp, VGA_CRTC_DATA);
 }
 
+void X86Vga::flush() {
+  if (m_Uefi) {
+    LockGuard<Spinlock> guard(m_ConsoleLock);
+    m_Console.flush();
+  }
+}
+
 bool X86Vga::initialise() {
+  m_Uefi = g_pBootstrapInfo && g_pBootstrapInfo->isUefi();
+  if (m_Uefi) {
+    BootstrapStruct_t::FramebufferInfo info;
+    // Keep serial boot available on firmware without a usable linear framebuffer.
+    if (!g_pBootstrapInfo->getFramebuffer(info) || info.width < 640 || info.height < 400)
+      return true;
+    const uint64_t bytes = static_cast<uint64_t>(info.pitch) * info.height;
+    if (bytes > 256 * 1024 * 1024)
+      return true;
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    const size_t offset = info.address & (pageSize - 1);
+    const size_t pages = (bytes + offset + pageSize - 1) / pageSize;
+    if (!PhysicalMemoryManager::instance().allocateRegion(
+            m_Framebuffer, pages,
+            PhysicalMemoryManager::continuous | PhysicalMemoryManager::nonRamMemory |
+                PhysicalMemoryManager::force,
+            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write |
+                VirtualAddressSpace::CacheDisable,
+            info.address - offset))
+      return true;
+    m_Console.initialise(reinterpret_cast<uint8_t*>(m_Framebuffer.virtualAddress()) + offset, bytes,
+                         info.width, info.height, info.pitch, info.format);
+    return true;
+  }
   // TODO: We should allocate the value passed to the constructor
   if (m_RegisterPort.allocate(VGA_BASE, 0x1B) == false)
     return false;

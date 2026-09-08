@@ -23,6 +23,7 @@
 
 static_assert(sizeof(BootstrapStruct_t::MemoryMapEntry) == 32,
               "bootstrap memory-map entries must match the UEFI wire format");
+static_assert(sizeof(BootstrapStruct_t) == 108, "bootstrap wire layout must match the UEFI loader");
 
 BootstrapStruct_t::BootstrapStruct_t() {
   flags = 0;
@@ -180,4 +181,16 @@ uintptr_t BootstrapStruct_t::getSmbios() const {
 
 bool BootstrapStruct_t::isUefi() const {
   return (flags & BOOTSTRAP_FLAG_UEFI) != 0;
+}
+
+bool BootstrapStruct_t::getFramebuffer(FramebufferInfo& info) const {
+  if (!(flags & BOOTSTRAP_FLAG_FRAMEBUFFER) || !framebuffer || !framebuffer_width ||
+      !framebuffer_height || framebuffer_bpp != 32 || framebuffer_format > 1 ||
+      framebuffer_width > ~uint32_t(0) / 4 || framebuffer_pitch < framebuffer_width * 4 ||
+      (framebuffer_pitch & 3) ||
+      static_cast<uint64_t>(framebuffer_pitch) * framebuffer_height > ~uint64_t(0) - framebuffer)
+    return false;
+  info = {framebuffer,       framebuffer_width, framebuffer_height,
+          framebuffer_pitch, framebuffer_bpp,   framebuffer_format};
+  return true;
 }

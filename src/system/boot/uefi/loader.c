@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include "exit_boot_services.h"
+#include "framebuffer.h"
 
 typedef uint16_t efi_char16_t;
 typedef struct efi_guid {
@@ -27,6 +28,7 @@ typedef efi_status_t (*efi_allocate_pages_t)(uint32_t, uint32_t, uint64_t, uint6
 typedef efi_status_t (*efi_locate_device_path_t)(efi_guid_t *, void **, efi_handle_t *);
 typedef efi_status_t (*efi_locate_handle_buffer_t)(uint32_t, efi_guid_t *, void *, uint64_t *,
                                                    efi_handle_t **);
+typedef efi_status_t (*efi_locate_protocol_t)(efi_guid_t*, void*, void**);
 
 struct efi_boot_services {
   uint8_t header[24];
@@ -55,7 +57,7 @@ struct efi_boot_services {
   void *open_protocol_information;
   void *protocols_per_handle;
   efi_locate_handle_buffer_t locate_handle_buffer;
-  void *locate_protocol;
+  efi_locate_protocol_t locate_protocol;
 };
 
 typedef efi_status_t (*efi_output_string_t)(void *, efi_char16_t *);
@@ -153,7 +155,10 @@ typedef struct bootstrap_info {
   uint32_t framebuffer_height;
   uint32_t framebuffer_pitch;
   uint32_t framebuffer_bpp;
+  uint32_t framebuffer_format;
 } __attribute__((packed)) bootstrap_info_t;
+
+_Static_assert(sizeof(bootstrap_info_t) == 108, "bootstrap wire layout must match the kernel");
 
 typedef struct elf64_header {
   uint8_t ident[16];
@@ -215,6 +220,7 @@ typedef struct elf64_section_header {
 #define BOOTSTRAP_FLAG_MEMORY_MAP 0x008
 #define BOOTSTRAP_FLAG_ACPI 0x010
 #define BOOTSTRAP_FLAG_SMBIOS 0x020
+#define BOOTSTRAP_FLAG_FRAMEBUFFER 0x040
 #define PHYS_ALIAS 0xffff800000000000ULL
 #define KERNEL_BASE 0xffffffff7ff00000ULL
 #define PT_LOAD 1
@@ -230,11 +236,35 @@ static const efi_guid_t acpi20_guid =
     {0x8868e871, 0xe4f1, 0x11d3, {0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81}};
 static const efi_guid_t smbios_guid =
     {0xeb9d2d31, 0x2d88, 0x11d3, {0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d}};
+static const efi_guid_t graphics_output_guid = {
+    0x9042a9de, 0x23dc, 0x4a38, {0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a}};
 static const efi_char16_t current_prefix[] = L"\\EFI\\PEDIGREE\\current\\";
 static const efi_char16_t known_good_prefix[] = L"\\EFI\\PEDIGREE\\known-good\\";
 static const efi_char16_t removable_prefix[] = L"\\EFI\\BOOT\\";
 
 static efi_system_table_t *g_system_table;
+
+static void prepare_framebuffer(bootstrap_info_t* info) {
+  efi_boot_services_t* services = g_system_table->boot_services;
+  efi_graphics_output_t* graphics = 0;
+  boot_framebuffer_t framebuffer;
+  efi_status_t status = services->handle_protocol(
+      g_system_table->console_out_handle, (efi_guid_t*)&graphics_output_guid, (void**)&graphics);
+  if (status != EFI_SUCCESS || !decode_framebuffer(graphics, &framebuffer)) {
+    graphics = 0;
+    status = services->locate_protocol((efi_guid_t*)&graphics_output_guid, 0, (void**)&graphics);
+    if (status != EFI_SUCCESS || !decode_framebuffer(graphics, &framebuffer))
+      return;
+  }
+  // Keep the firmware's current mode; no graphics protocol remains callable after exit.
+  info->framebuffer = framebuffer.address;
+  info->framebuffer_width = framebuffer.width;
+  info->framebuffer_height = framebuffer.height;
+  info->framebuffer_pitch = framebuffer.pitch;
+  info->framebuffer_bpp = framebuffer.bpp;
+  info->framebuffer_format = framebuffer.format;
+  info->flags |= BOOTSTRAP_FLAG_FRAMEBUFFER;
+}
 
 static void zero(void *p, uint64_t size) {
   uint8_t *bytes = (uint8_t *)p;
@@ -588,6 +618,8 @@ efi_status_t efi_main(efi_handle_t image, efi_system_table_t *system_table) {
       info->smbios = PHYS_ALIAS + (uint64_t)table->vendor_table;
     }
   }
+
+  prepare_framebuffer(info);
 
   uint32_t normalized_bytes = 0;
   int exit_attempted = 0;

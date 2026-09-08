@@ -19,12 +19,15 @@
 
 #ifndef MACHINE_X86_VGA_H
 #define MACHINE_X86_VGA_H
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
 #include "pedigree/kernel/processor/types.h"
 
 #include <config.h>
+
+#include "FramebufferConsole.h"
 
 #define VGA_BASE 0x3C0
 #define VGA_AC_INDEX 0x0
@@ -144,10 +147,13 @@ class X86Vga : public Vga {
    * \param nY The row to move to.
    */
   virtual void moveCursor(size_t nX, size_t nY);
+  virtual void flush();
 
   bool initialise();
 
   operator uint16_t*() const {
+    if (m_Uefi)
+      return const_cast<uint16_t*>(m_Console.cells());
     if (m_Framebuffer == true)
       return reinterpret_cast<uint16_t*>(m_Framebuffer.virtualAddress());
     else
@@ -200,6 +206,10 @@ class X86Vga : public Vga {
    * Most recent VGA controls (as these get reset on mode change).
    */
   uint8_t m_nControls;
+
+  bool m_Uefi = false;
+  Spinlock m_ConsoleLock{false, true};
+  FramebufferConsole m_Console;
 };
 
 #endif

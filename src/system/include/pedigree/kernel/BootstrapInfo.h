@@ -108,6 +108,13 @@ class EXPORTED_PUBLIC BootstrapStruct_t {
   uintptr_t getSmbios() const;
   bool isUefi() const;
 
+  struct FramebufferInfo {
+    uint64_t address;
+    // Format 0 has red in the low byte; format 1 has blue in the low byte.
+    uint32_t width, height, pitch, bpp, format;
+  };
+  bool getFramebuffer(FramebufferInfo& info) const;
+
  private:
   uint32_t flags;
   uint32_t reserved;
@@ -128,6 +135,7 @@ class EXPORTED_PUBLIC BootstrapStruct_t {
   uint32_t framebuffer_height;
   uint32_t framebuffer_pitch;
   uint32_t framebuffer_bpp;
+  uint32_t framebuffer_format;
 } PACKED;
 
 /** @} */

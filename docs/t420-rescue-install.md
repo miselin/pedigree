@@ -4,12 +4,11 @@ The install bundle contains a compressed, raw 2 GiB ext2 root filesystem and
 an `esp/` directory to copy onto a FAT32 EFI System Partition. It boots through
 GRUB2 into Pedigree's EFI loader. The install kernel has disk writes enabled.
 
-**Current UEFI display limitation:** this loader does not hand a framebuffer
-to the kernel. QEMU reaches a working serial login while its screen remains
-at `UEFI: loading kernel`. Treat this bundle as install media for bring-up,
-not a verified standalone laptop console. A UEFI framebuffer console repair
-is needed before relying on the T420 screen for login; the Ethernet driver
-does not provide a remote login service by itself.
+The UEFI text console uses the firmware's GOP framebuffer for login and shell
+output. It supports linear 32-bit RGB/BGR modes at least 640×400, including
+equivalent RGB bitmask modes. It retains the firmware's resolution and scales
+an 80×25 console to fit. Firmware without a supported framebuffer can still
+boot to serial login; the Ethernet driver alone does not provide remote login.
 
 `EFI/PEDIGREE/current` includes the external Intel 82579LM driver for the T420.
 `EFI/PEDIGREE/known-good` uses the same kernel with the original initrd, giving
