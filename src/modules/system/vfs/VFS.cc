@@ -1551,6 +1551,12 @@ bool VFS::attachFilesystem(Filesystem* pRootFs, Filesystem* pFs, const String& p
     return pFs == pRootFs;
   }
 
+  File* filesystemRoot = pFs->getRoot();
+  if (!filesystemRoot || !filesystemRoot->isDirectory()) {
+    ERROR("VFS: filesystem at " << path << " has no valid root directory");
+    return false;
+  }
+
   Directory::ChildLease mediaLease;
   if (!findRetained(String("/media"), mediaLease)) {
     createDirectory(String("/media"), 0755);
@@ -1568,7 +1574,7 @@ bool VFS::attachFilesystem(Filesystem* pRootFs, Filesystem* pFs, const String& p
     return false;
   }
 
-  Directory::fromFile(point)->setReparsePoint(Directory::fromFile(pFs->getRoot()));
+  Directory::fromFile(point)->setReparsePoint(Directory::fromFile(filesystemRoot));
   NOTICE("VFS: attached filesystem at " << path);
   return true;
 }

@@ -50,9 +50,8 @@ lsblk -o NAME,PATH,SIZE,MODEL,SERIAL,FSTYPE,MOUNTPOINTS
 The commands below **erase the selected SSD**. They assume a dedicated target
 with no data to preserve and 512-byte logical sectors. Match its model, serial
 and capacity in `lsblk` before setting these three paths. Existing multi-boot
-disks need separate layout planning: preserve their data and ESP, and ensure
-the root entry precedes the ESP in the GPT. This erase recipe does not apply
-to them.
+disks need separate layout planning: preserve their data and ESP. This erase
+recipe does not apply to them.
 
 ```sh
 DISK=/dev/sda
@@ -64,9 +63,9 @@ test "$(blockdev --getss "$DISK")" = 512
 
 Unmount all target partitions and disable any swap on that SSD before
 continuing. The root partition will be **partition 1**, and the ESP will be
-**partition 2**, although the ESP sits first physically. Keep this entry order
-so Pedigree finds its root before probing FAT. Do not sort/renumber the GPT
-entries afterward. The SSD must have more than 4.5 GiB available.
+**partition 2**, although the ESP sits first physically. These numbers match
+the commands below; other layouts can use either entry order. The SSD must
+have more than 4.5 GiB available.
 
 ## Partition, copy and expand
 

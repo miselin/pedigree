@@ -166,6 +166,56 @@ struct FatFixture {
 };
 }  // namespace
 
+TEST(FatWriteback, InitialisationPublishesUsableRootAndVolumeLabel) {
+  FatDisk disk;
+  Superblock* superblock = reinterpret_cast<Superblock*>(disk.bytes.data());
+  superblock->BS_jmpBoot[0] = 0xEB;
+  superblock->BS_jmpBoot[1] = 0x3C;
+  superblock->BS_jmpBoot[2] = 0x90;
+  superblock->BPB_BytsPerSec = HOST_TO_LITTLE16(SectorSize);
+  superblock->BPB_SecPerClus = 1;
+  superblock->BPB_RsvdSecCnt = HOST_TO_LITTLE16(1);
+  superblock->BPB_NumFATs = 1;
+  superblock->BPB_RootEntCnt = HOST_TO_LITTLE16(SectorSize / sizeof(Dir));
+  superblock->BPB_TotSec16 = HOST_TO_LITTLE16(FatDisk::DiskSize / SectorSize);
+  superblock->BPB_Media = 0xF8;
+  superblock->BPB_FATSz16 = HOST_TO_LITTLE16(1);
+  disk.bytes[510] = 0x55;
+  disk.bytes[511] = 0xAA;
+
+  // This small volume uses FAT12: reserved entries followed by cluster 2 at EOF.
+  const uint8_t fat[] = {0xF8, 0xFF, 0xFF, 0xFF, 0x0F};
+  std::copy_n(fat, sizeof(fat), disk.bytes.data() + SectorSize);
+  Dir* entries = reinterpret_cast<Dir*>(disk.bytes.data() + 2 * SectorSize);
+  std::copy_n("TESTVOL    ", sizeof(entries[0].DIR_Name), entries[0].DIR_Name);
+  entries[0].DIR_Attr = ATTR_VOLUME_ID;
+  std::copy_n("CHECKED TXT", sizeof(entries[1].DIR_Name), entries[1].DIR_Name);
+  entries[1].DIR_Attr = ATTR_ARCHIVE;
+  entries[1].DIR_FstClusLO = HOST_TO_LITTLE16(2);
+  entries[1].DIR_FileSize = HOST_TO_LITTLE32(1);
+  disk.bytes[3 * SectorSize] = 0x6B;
+
+  FatFilesystem filesystem;
+  ASSERT_TRUE(filesystem.initialise(&disk));
+  File* rootFile = filesystem.getRoot();
+  ASSERT_NE(rootFile, nullptr);
+  ASSERT_TRUE(rootFile->isDirectory());
+  EXPECT_EQ(filesystem.getRoot(), rootFile);
+  EXPECT_STREQ(filesystem.getVolumeLabel().cstr(), "testvol");
+
+  Directory* root = Directory::fromFile(rootFile);
+  Directory::ChildLease child;
+  ASSERT_EQ(root->lookupChild(HashedStringView(StringView("checked.txt")), child),
+            Directory::LookupStatus::Found);
+  ASSERT_NE(child.get(), nullptr);
+  EXPECT_FALSE(child.get()->isDirectory());
+  EXPECT_EQ(child.get()->getSize(), 1U);
+  uint8_t value = 0;
+  ASSERT_EQ(child.get()->read(0, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  EXPECT_EQ(value, 0x6B);
+  EXPECT_EQ(disk.references, 0);
+}
+
 TEST(FatWriteback, FailedCacheWritebackRetainsPageAndRetries) {
   FatFixture fixture(512);
   const uint8_t source = 0x6B;

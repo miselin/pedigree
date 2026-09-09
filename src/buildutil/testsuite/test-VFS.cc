@@ -641,6 +641,23 @@ TEST(VFS, NonRootFilesystemsMountUnderMedia) {
   vfs.unregisterFilesystem(&root, false);
 }
 
+TEST(VFS, FilesystemWithoutRootDoesNotCrashRootAttachment) {
+  VFS vfs;
+  RamFs root;
+  RamFs uninitialised;
+  ASSERT_TRUE(root.initialise(nullptr));
+  ASSERT_EQ(uninitialised.getRoot(), nullptr);
+
+  vfs.registerFilesystem(&uninitialised, String("incomplete"));
+  vfs.registerFilesystem(&root, String("root"));
+  EXPECT_TRUE(vfs.setRootFilesystem(&root));
+  EXPECT_EQ(vfs.find(String("/media/incomplete")), nullptr);
+  EXPECT_TRUE(vfs.createFile(String("/root-still-works"), 0644));
+
+  vfs.unregisterFilesystem(&uninitialised, false);
+  vfs.unregisterFilesystem(&root, false);
+}
+
 TEST(VFS, ConcurrentSameNameRegistrationPublishesUniqueNames) {
   VFS vfs;
   MountTestFilesystem first(String("first"));

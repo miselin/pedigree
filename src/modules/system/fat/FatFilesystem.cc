@@ -212,8 +212,12 @@ bool FatFilesystem::initialise(Disk* pDisk) {
   // Setup the free cluster hint for non-FAT32 volumes
   m_FreeClusterHint = 2;
 
-  // Define the root directory early
-  getRoot();
+  // VFS needs a complete root and stable name before publishing this filesystem.
+  loadRootDir();
+  if (!m_pRoot) {
+    return false;
+  }
+  cacheVolumeLabel();
 
   return true;
 }
