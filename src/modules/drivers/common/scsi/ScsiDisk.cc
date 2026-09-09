@@ -583,9 +583,10 @@ void ScsiDisk::write(uint64_t location) {
     return;
   }
 
-  // Implicit pin caused by lookup() must be released by the write request
-  // handler, to ensure the refcount is correct.
-  pParent->addAsyncRequest(0, SCSI_REQUEST_WRITE, reinterpret_cast<uint64_t>(this), pageLocation);
+  // The cache owns deferred writeback and retry, so repeated changes share one
+  // pending write instead of competing with a second controller queue.
+  m_Cache.markDirty(pageLocation);
+  m_Cache.release(pageLocation);
 #endif
 }
 

@@ -490,6 +490,19 @@ class HostedScsiDisk final : public ScsiDisk {
     getCache().triggerChecksum(location);
   }
 
+  void pauseBackgroundWriteback() {
+    getCache().startAtomic();
+  }
+
+  void resumeBackgroundWriteback() {
+    getCache().endAtomic();
+  }
+
+  bool runBackgroundWriteback() {
+    getCache().timer(CACHE_WRITEBACK_PERIOD * 1000000ULL);
+    return CacheManager::instance().drain();
+  }
+
   bool evictRange(uint64_t location, size_t length) {
     bool evicted = true;
     for (size_t offset = 0; offset < length; offset += PageBytes) {
@@ -1410,6 +1423,96 @@ bool scsiRetireReadRecheck(Fixture& fixture) {
   return passed;
 }
 
+bool scsiDeferredWrites() {
+  Fixture fixture;
+  if (!fixture.ready || !fixture.disk.preparePage(CheckedSyncLocation))
+    return false;
+  fixture.disk.checksumPage(CheckedSyncLocation);
+  if (!fixture.disk.runBackgroundWriteback())
+    return false;
+  fixture.disk.pauseBackgroundWriteback();
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::Pass10);
+  const bool pinned = fixture.disk.pin(CheckedSyncLocation);
+  for (size_t i = 0; i < 128; ++i)
+    fixture.disk.write(CheckedSyncLocation);
+  const bool deferred = fixture.controller.drain() && fixture.controller.hasNoDirectActivity();
+  fixture.disk.resumeBackgroundWriteback();
+  const bool written =
+      fixture.disk.runBackgroundWriteback() && fixture.controller.directRequestCount() == 1;
+  constexpr uint8_t Flush[] = {0x35};
+  const bool durable = fixture.controller.syncTraceMatches(Flush, sizeof(Flush));
+  const bool settled =
+      fixture.disk.runBackgroundWriteback() && fixture.controller.directRequestCount() == 1;
+  const bool callerPinRetained = pinned && !fixture.disk.evictPage(CheckedSyncLocation);
+  if (pinned)
+    fixture.disk.unpin(CheckedSyncLocation);
+  const bool balanced = fixture.disk.evictPage(CheckedSyncLocation);
+  const bool passed = deferred && written && durable && settled && callerPinRetained && balanced;
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-deferred-writes");
+  else
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-deferred-writes: coalescing, settling, durability or pins");
+  return passed;
+}
+
+bool scsiDeferredWriteRetry() {
+  Fixture fixture;
+  if (!fixture.ready || !fixture.disk.preparePage(CheckedSyncLocation))
+    return false;
+  fixture.disk.checksumPage(CheckedSyncLocation);
+  if (!fixture.disk.runBackgroundWriteback())
+    return false;
+  fixture.disk.pauseBackgroundWriteback();
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::FailAll);
+  fixture.disk.write(CheckedSyncLocation);
+  const bool deferred = fixture.controller.drain() && fixture.controller.hasNoDirectActivity();
+  fixture.disk.resumeBackgroundWriteback();
+  constexpr uint8_t FailedFlushes[] = {0x35, 0x35, 0x35, 0x91, 0x91, 0x91};
+  const bool failedFlush =
+      fixture.disk.runBackgroundWriteback() && fixture.controller.directRequestCount() == 1 &&
+      fixture.controller.syncTraceMatches(FailedFlushes, sizeof(FailedFlushes));
+  // The failed device flush must remain retryable even though page bytes are unchanged.
+  fixture.disk.pauseBackgroundWriteback();
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::Pass10);
+  fixture.disk.resumeBackgroundWriteback();
+  const bool retried =
+      fixture.disk.runBackgroundWriteback() && fixture.controller.directRequestCount() == 1;
+  constexpr uint8_t Flush[] = {0x35};
+  const bool durable = fixture.controller.syncTraceMatches(Flush, sizeof(Flush));
+  const bool cleaned = fixture.disk.evictPage(CheckedSyncLocation);
+  const bool passed = deferred && failedFlush && retried && durable && cleaned;
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-deferred-write-retry");
+  else
+    ERROR(
+        "HOSTED-WAIT-TEST: FAIL scsi-deferred-write-retry: failed flush lost retry or leaked pins");
+  return passed;
+}
+
+bool scsiDeferredWriteShutdown() {
+  Fixture fixture;
+  if (!fixture.ready || !fixture.disk.preparePage(CheckedSyncLocation))
+    return false;
+  fixture.disk.checksumPage(CheckedSyncLocation);
+  fixture.disk.pauseBackgroundWriteback();
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::Pass10);
+  fixture.disk.write(CheckedSyncLocation);
+  const bool deferred = fixture.controller.drain() && fixture.controller.hasNoDirectActivity();
+  fixture.disk.shutdownCache();
+  constexpr uint8_t Flush[] = {0x35};
+  const bool passed = deferred && fixture.controller.directRequestCount() == 1 &&
+                      fixture.controller.syncTraceMatches(Flush, sizeof(Flush));
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-deferred-write-shutdown");
+  else
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-deferred-write-shutdown: deferred page was not flushed");
+  return passed;
+}
+
 bool scsiCheckedSync() {
   constexpr uint8_t SuccessfulWrites[] = {0x2a, 0x2a, 0x2a, 0xaa};
   constexpr uint8_t FailedSyncs[] = {0x35, 0x35, 0x35, 0x91, 0x91, 0x91};
@@ -1650,7 +1753,11 @@ bool scsiRejectsNativeBlocksLargerThanCachePages() {
 }  // namespace
 
 EXPORTED_PUBLIC bool runHostedScsiSyncRegressions() {
-  return scsiSyncAll();
+  const bool deferredWrites = scsiDeferredWrites();
+  const bool deferredRetry = scsiDeferredWriteRetry();
+  const bool deferredShutdown = scsiDeferredWriteShutdown();
+  const bool syncAll = scsiSyncAll();
+  return deferredWrites && deferredRetry && deferredShutdown && syncAll;
 }
 
 EXPORTED_PUBLIC bool runHostedScsiWriteRegressions() {
