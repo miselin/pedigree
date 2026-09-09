@@ -1,8 +1,13 @@
 # Install Pedigree from rescue Linux
 
-The install bundle contains a compressed, raw 2 GiB ext2 root filesystem and
+The install bundle contains a compressed, raw 4 GiB ext2 root filesystem and
 an `esp/` directory to copy onto a FAT32 EFI System Partition. It boots through
 GRUB2 into Pedigree's EFI loader. The install kernel has disk writes enabled.
+
+The T420 needs a unique random seed generated from rescue Linux using the
+step below. Its Sandy Bridge CPU lacks RDRAND/RDSEED; the kernel's software
+random generator uses this seed for Python, TLS, SSH and other consumers.
+No seed or private key is included in the shared image.
 
 The UEFI text console uses the firmware's GOP framebuffer for login and shell
 output. It supports linear 32-bit RGB/BGR modes at least 640×400, including
@@ -61,7 +66,7 @@ Unmount all target partitions and disable any swap on that SSD before
 continuing. The root partition will be **partition 1**, and the ESP will be
 **partition 2**, although the ESP sits first physically. Keep this entry order
 so Pedigree finds its root before probing FAT. Do not sort/renumber the GPT
-entries afterward. The SSD must have more than 2.5 GiB available.
+entries afterward. The SSD must have more than 4.5 GiB available.
 
 ## Partition, copy and expand
 
@@ -74,13 +79,24 @@ partprobe "$DISK"
 udevadm settle
 sgdisk --verify "$DISK"
 lsblk -o NAME,START,SIZE,FSTYPE,MOUNTPOINTS "$DISK"
-test "$(blockdev --getsize64 "$ROOT")" -ge 2147483648
+test "$(blockdev --getsize64 "$ROOT")" -ge 4294967296
 
 gzip -dc rootfs.ext2.gz | dd of="$ROOT" bs=4M status=progress conv=fsync
 e2fsck -f "$ROOT"
 resize2fs "$ROOT"
 e2fsck -f "$ROOT"
 dumpe2fs -h "$ROOT"
+
+mkdir -p /mnt/pedigree-root
+mount "$ROOT" /mnt/pedigree-root
+install -d -o 0 -g 0 -m 700 /mnt/pedigree-root/var/lib/pedigree
+umask 077
+dd if=/dev/random of=/mnt/pedigree-root/var/lib/pedigree/random-seed \
+  bs=32 count=1 iflag=fullblock status=none
+chmod 600 /mnt/pedigree-root/var/lib/pedigree/random-seed
+chown 0:0 /mnt/pedigree-root/var/lib/pedigree/random-seed
+sync
+umount /mnt/pedigree-root
 
 mkfs.fat -F 32 -n PEDIGREEESP "$ESP"
 mkdir -p /mnt/pedigree-esp
@@ -159,6 +175,89 @@ Use the equivalent `known-good` paths and argument for the clean-initrd entry.
 The `current`/`known-good` argument selects the matching artifact directory;
 the kernel root option belongs in that directory's `cmdline` file. Keep the
 loader, kernel, initrd, configuration database and command line together.
+
+## Included tools and source
+
+The filesystem includes curl, Git, Dropbear (`ssh`, `scp` and server tools),
+PUP, nano, Vim, less, ripgrep (`rg`), Make, CMake, GCC, binutils, NASM,
+diffutils, gawk, grep, sed, gzip and bsdtar, together with their package
+dependencies. HTTPS clients use the CA bundle at `/etc/ssl/cert.pem`.
+`/etc/resolv.conf` points to `/proc/resolv.conf`, which reflects DHCP's DNS
+servers. Wait for Ethernet link and DHCP before using network tools.
+PUP's configuration is `/etc/pup/pup.conf`; its catalog and cache live under
+`/var/lib/pup`. Once networking works, refresh the catalog with `pup sync`
+before installing more packages with `pup install PACKAGE`.
+
+Source checkouts are seeded under `/root/src`:
+
+| Checkout | Branch |
+| --- | --- |
+| `/root/src/pedigree` | `develop` |
+| `/root/src/pedigree-encumbered` | `main` |
+
+The Pedigree checkout includes the local changes used to build this bundle
+beyond the fetched `origin/develop`. Exact revisions are recorded in
+`BUILD.txt` and can be read with `git -C /root/src/pedigree rev-parse HEAD`.
+These are shallow, self-contained checkouts with their normal origin URLs;
+they do not depend on another machine's Git object storage. Access to the
+private encumbered repository still requires your own credentials. The
+`external/googletest` submodule is included for the seeded Pedigree revision.
+Check `BUILD.txt` for the exact source and package inventory in your bundle.
+
+The installed compilers and source provide a starting point for experiments.
+Their presence does not qualify a complete native Pedigree build, compiler
+bootstrap or full test suite. `VALIDATION.txt` records the version checks and
+small runtime tests actually completed for the bundle.
+
+## Enable SSH access
+
+SSH startup is gated on a nonempty `/root/.ssh/authorized_keys`. No host keys
+or user private keys are supplied. The startup script generates this laptop's
+host key when first enabled and allows public-key authentication only. The
+console's initial `root` / `root` login is not an SSH password credential.
+This setup requires the rescue-generated seed above. Startup advances the
+saved seed durably before enabling secure randomness. `random-seed --check`
+reports readiness. If startup finds an interrupted `.next` transaction,
+recover from rescue Linux using the included `RANDOMNESS.md` instructions.
+
+To authorize your existing public key from rescue Linux, mount the installed
+root filesystem after its filesystem checks have completed:
+
+```sh
+mkdir -p /mnt/pedigree-root
+mount "$ROOT" /mnt/pedigree-root
+install -d -m 700 /mnt/pedigree-root/root/.ssh
+install -m 600 /path/to/your/id_ed25519.pub \
+  /mnt/pedigree-root/root/.ssh/authorized_keys
+chown -R 0:0 /mnt/pedigree-root/root/.ssh
+sync
+umount /mnt/pedigree-root
+```
+
+Copy only the public `.pub` file. SSH will start on the next Pedigree boot.
+Alternatively, enable it from the Pedigree console by pasting your public key
+as one complete line in the file:
+
+```sh
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+nano /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+/etc/init.d/40_dropbear.sh
+```
+
+Connect from your usual computer with `ssh root@LAPTOP_IP`. For file transfers
+from an OpenSSH client, use `scp -O FILE root@LAPTOP_IP:/root/`; the installed
+Dropbear package supports the SCP protocol but does not include an SFTP
+server. Keep the generated files in `/etc/dropbear` across later updates.
+
+On Pedigree, `/usr/bin/ssh` points to `dbclient`. Git is configured with
+`core.sshCommand=/usr/bin/dbclient` and `ssh.variant=simple` so it does not send
+OpenSSH-specific options. Ordinary `git@host:path` remote URLs use this setup.
+Git's simple variant does not accept explicit ports in SSH URLs or Git's
+`-4`/`-6` switches; a custom port can instead be placed in `core.sshCommand`.
+Outgoing SSH authentication needs your own credentials; the bundle supplies
+none.
 
 ## First boot and later updates
 
