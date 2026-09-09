@@ -349,6 +349,111 @@ static void working_directory_buffer(void* inaccessible) {
   puts("USERCOPY-CONTRACT: PASS working-directory-buffer");
 }
 
+void test_regular_read_contracts(const char* base) {
+  const size_t page = (size_t)sysconf(_SC_PAGESIZE);
+  const size_t capacity = 64 * 1024;
+  const size_t legacy_capacity = 4097;
+  const size_t file_size = 2 * capacity + 257;
+  const size_t read_lengths[] = {16384, capacity + 37};
+  unsigned char* source = malloc(file_size);
+  unsigned char* output = malloc(capacity + 39);
+  require(page && source && output, "allocate regular read buffers");
+  for (size_t i = 0; i < file_size; ++i)
+    source[i] = (unsigned char)(i * 37 + i / 251);
+
+  char path[512];
+  const int path_length = snprintf(path, sizeof(path), "%s/regular-read-%ld", base, (long)getpid());
+  require(path_length > 0 && (size_t)path_length < sizeof(path), "regular read fixture path");
+  int file = open(path, O_CREAT | O_EXCL | O_RDWR, 0600);
+  require(file >= 0 && write(file, source, file_size) == (ssize_t)file_size,
+          "prepare regular read fixture");
+  int alias = dup(file);
+  require(alias >= 0, "duplicate regular read descriptor");
+
+  for (size_t i = 0; i < sizeof(read_lengths) / sizeof(read_lengths[0]); ++i) {
+    const size_t length = read_lengths[i];
+    memset(output, 0xA7, capacity + 39);
+    require(lseek(file, 13, SEEK_SET) == 13 && read(alias, output + 1, length) == (ssize_t)length &&
+                !memcmp(output + 1, source + 13, length) && output[0] == 0xA7 &&
+                output[length + 1] == 0xA7 && lseek(file, 0, SEEK_CUR) == (off_t)(13 + length),
+            "unaligned chunked read advances shared offset");
+    memset(output, 0xA7, capacity + 39);
+    require(pread(file, output + 1, length, 29) == (ssize_t)length &&
+                !memcmp(output + 1, source + 29, length) && output[0] == 0xA7 &&
+                output[length + 1] == 0xA7 && lseek(alias, 0, SEEK_CUR) == (off_t)(13 + length),
+            "unaligned chunked pread preserves shared offset");
+  }
+
+  memset(output, 0xA7, capacity + 39);
+  require(lseek(file, (off_t)file_size - 31, SEEK_SET) == (off_t)file_size - 31 &&
+              read(alias, output + 1, capacity + 37) == 31 &&
+              !memcmp(output + 1, source + file_size - 31, 31) && output[0] == 0xA7 &&
+              output[32] == 0xA7 && lseek(file, 0, SEEK_CUR) == (off_t)file_size,
+          "short read stops at EOF without overwriting suffix");
+  memset(output, 0xA7, capacity + 39);
+  require(pread(file, output + 1, capacity + 37, (off_t)file_size - 31) == 31 &&
+              !memcmp(output + 1, source + file_size - 31, 31) && output[0] == 0xA7 &&
+              output[32] == 0xA7 && pread(file, output + 1, capacity, file_size) == 0 &&
+              lseek(alias, 0, SEEK_CUR) == (off_t)file_size,
+          "short pread preserves suffix and shared offset");
+
+  const size_t valid_prefix = 2 * (legacy_capacity - 1);
+  const size_t writable_length = (valid_prefix + page - 1) / page * page;
+  unsigned char* guarded =
+      mmap(NULL, writable_length + page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  require(guarded != MAP_FAILED && lseek(file, 23, SEEK_SET) == 23,
+          "prepare protected read destination");
+  errno = 0;
+  require(read(alias, guarded, 1) == -1 && errno == EFAULT && lseek(file, 0, SEEK_CUR) == 23,
+          "first read fault preserves shared offset");
+  errno = 0;
+  require(pread(file, guarded, 1, 47) == -1 && errno == EFAULT && lseek(alias, 0, SEEK_CUR) == 23,
+          "first pread fault preserves shared offset");
+  require(mprotect(guarded, writable_length, PROT_READ | PROT_WRITE) == 0,
+          "allow prefix of read destination");
+  unsigned char* destination = guarded + writable_length - valid_prefix;
+  memset(destination, 0xA7, valid_prefix);
+  require(read(alias, destination, valid_prefix + 1) == (ssize_t)legacy_capacity &&
+              !memcmp(destination, source + 23, legacy_capacity) &&
+              lseek(file, 0, SEEK_CUR) == (off_t)(23 + legacy_capacity),
+          "later read fault returns valid prefix and advances only copied bytes");
+  for (size_t i = legacy_capacity; i < valid_prefix; ++i)
+    require(destination[i] == 0xA7, "read fault preserves uncopied suffix");
+  memset(destination, 0xA7, valid_prefix);
+  require(pread(file, destination, valid_prefix + 1, 47) == (ssize_t)legacy_capacity &&
+              !memcmp(destination, source + 47, legacy_capacity) &&
+              lseek(alias, 0, SEEK_CUR) == (off_t)(23 + legacy_capacity),
+          "later pread fault returns valid prefix without changing shared offset");
+  for (size_t i = legacy_capacity; i < valid_prefix; ++i)
+    require(destination[i] == 0xA7, "pread fault preserves uncopied suffix");
+  require(munmap(guarded, writable_length + page) == 0, "release protected read destination");
+
+  const size_t mapped_length = (file_size + page - 1) / page * page;
+  for (int positional = 0; positional < 2; ++positional) {
+    unsigned char* mapped = mmap(NULL, mapped_length, PROT_READ | PROT_WRITE, MAP_PRIVATE, file, 0);
+    require(mapped != MAP_FAILED && lseek(file, 13, SEEK_SET) == 13,
+            "map cold file-backed read destination");
+    const ssize_t received = positional ? pread(file, mapped + 1, capacity + 37, 29)
+                                        : read(alias, mapped + 1, capacity + 37);
+    const size_t source_offset = positional ? 29 : 13;
+    const off_t expected_offset = positional ? 13 : (off_t)(13 + capacity + 37);
+    require(received == (ssize_t)(capacity + 37) &&
+                !memcmp(mapped + 1, source + source_offset, capacity + 37) &&
+                mapped[0] == source[0] && lseek(alias, 0, SEEK_CUR) == expected_offset,
+            "read materializes same-file destination after releasing the backing lock");
+    require(munmap(mapped, mapped_length) == 0, "release file-backed read destination");
+  }
+  require(
+      pread(file, output, capacity, 0) == (ssize_t)capacity && !memcmp(output, source, capacity),
+      "private destination leaves source file unchanged");
+
+  require(close(alias) == 0 && close(file) == 0 && unlink(path) == 0,
+          "remove regular read fixture");
+  free(output);
+  free(source);
+  puts("USERCOPY-CONTRACT: PASS regular-read-buffers");
+}
+
 void test_usercopy_contracts(void) {
   const size_t page = (size_t)sysconf(_SC_PAGESIZE);
   void* inaccessible = mmap(NULL, page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);

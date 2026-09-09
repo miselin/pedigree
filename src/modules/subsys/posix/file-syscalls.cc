@@ -360,6 +360,35 @@ int posix_open(const char* name, int flags, int mode) {
 
 namespace {
 constexpr size_t ScalarIoBounceCapacity = PIPE_BUF_MAX + 1;
+constexpr size_t RegularReadBounceCapacity = 64 * 1024;
+
+UniqueArray<uint8_t> allocateScalarReadBounce(File* file, size_t length, size_t& capacity) {
+  const bool diskBackedRegular = file->supportsRegularFileOperations() && !file->isBlockDevice() &&
+                                 file->getFilesystem() && file->getFilesystem()->getDisk();
+  const size_t limit = diskBackedRegular ? RegularReadBounceCapacity : ScalarIoBounceCapacity;
+  capacity = length < limit ? length : limit;
+  UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(capacity);
+  if (!bounce && capacity > ScalarIoBounceCapacity) {
+    capacity = ScalarIoBounceCapacity;
+    bounce = UniqueArray<uint8_t>::allocate(capacity);
+  }
+  return bounce;
+}
+
+bool checkScalarReadDestination(char* destination, size_t& requested) {
+  if (PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(destination), requested, 1,
+                                      PosixSubsystem::SafeWrite)) {
+    return true;
+  }
+  if (requested <= ScalarIoBounceCapacity) {
+    return false;
+  }
+
+  // A larger precheck must not reject the valid prefix that smaller reads delivered.
+  requested = ScalarIoBounceCapacity;
+  return PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(destination), requested, 1,
+                                         PosixSubsystem::SafeWrite);
+}
 
 bool scalarIoRangeDoesNotWrap(const void* buffer, size_t length) {
   if (!length) {
@@ -488,8 +517,12 @@ int posix_read(int fd, char* ptr, int len) {
     SYSCALL_ERROR(BadAddress);
     return -1;
   }
-  const size_t bounceCapacity = length < ScalarIoBounceCapacity ? length : ScalarIoBounceCapacity;
-  UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
+  size_t bounceCapacity = 0;
+  UniqueArray<uint8_t> bounce = allocateScalarReadBounce(pFd->getFile(), length, bounceCapacity);
+  if (!bounce) {
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
 
   auto readFile = [&](FileDescriptor::PositionGuard* position, int statusFlags) -> int {
     const bool canBlock = !(statusFlags & O_NONBLOCK);
@@ -501,13 +534,12 @@ int posix_read(int fd, char* ptr, int len) {
       }
 
       const size_t remaining = length - totalRead;
-      const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+      size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
       char* userDestination = reinterpret_cast<char*>(reinterpret_cast<uintptr_t>(ptr) + totalRead);
 
       // Avoid consuming data for an address which is already known to be
       // unusable. copyToUser repeats this check after a blocking operation.
-      if (!PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(userDestination), requested,
-                                           1, PosixSubsystem::SafeWrite)) {
+      if (!checkScalarReadDestination(userDestination, requested)) {
         if (totalRead) {
           pThread->clearInterruption();
           return static_cast<int>(totalRead);
@@ -864,8 +896,13 @@ ssize_t posix_pread64(int fd, char* ptr, size_t len, off_t offset) {
     return -1;
   }
 
-  const size_t bounceCapacity = len < ScalarIoBounceCapacity ? len : ScalarIoBounceCapacity;
-  UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
+  size_t bounceCapacity = 0;
+  UniqueArray<uint8_t> bounce =
+      allocateScalarReadBounce(descriptor->getFile(), len, bounceCapacity);
+  if (!bounce) {
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
   const bool canBlock = !(statusFlags & O_NONBLOCK);
   const uint64_t startingOffset = static_cast<uint64_t>(offset);
   size_t totalRead = 0;
@@ -877,10 +914,9 @@ ssize_t posix_pread64(int fd, char* ptr, size_t len, off_t offset) {
     }
 
     const size_t remaining = len - totalRead;
-    const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+    size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
     char* userDestination = reinterpret_cast<char*>(reinterpret_cast<uintptr_t>(ptr) + totalRead);
-    if (!PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(userDestination), requested, 1,
-                                         PosixSubsystem::SafeWrite)) {
+    if (!checkScalarReadDestination(userDestination, requested)) {
       if (totalRead) {
         thread->clearInterruption();
         return static_cast<ssize_t>(totalRead);

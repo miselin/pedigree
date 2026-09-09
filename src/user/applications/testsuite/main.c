@@ -29,6 +29,7 @@ extern void test_resource_accounting(void);
 extern void test_syscall_contracts(void);
 extern void test_vm_contracts(void);
 extern void test_usercopy_contracts(void);
+extern void test_regular_read_contracts(const char* base);
 extern void test_futex_contracts(const char* program);
 extern void test_fs_mutation_contracts(void);
 extern void test_fs_persistence_contracts(const char* base, int write_phase);
@@ -78,6 +79,10 @@ int main(int argc, char* argv[]) {
   }
   if (argc == 2 && !strcmp(argv[1], "--usercopy-contracts")) {
     test_usercopy_contracts();
+    return 0;
+  }
+  if (argc == 3 && !strcmp(argv[1], "--regular-read-contracts")) {
+    test_regular_read_contracts(argv[2]);
     return 0;
   }
   if (argc == 2 && !strcmp(argv[1], "--futex-contracts")) {
