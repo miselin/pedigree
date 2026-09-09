@@ -43,64 +43,66 @@ class Ext2File : public File, public Ext2Node {
   Ext2File(const String& name, uintptr_t inode_num, Inode* inode, class Ext2Filesystem* pFs,
            File* pParent = 0);
   /** Destructor */
-  virtual ~Ext2File();
+  virtual ~Ext2File() override;
   bool valid() const {
     return m_Initialized;
   }
   virtual FileHandleStatus subscribeInodeEvents(FileEventMask,
                                                 const SharedPointer<FileEventObserver>&,
-                                                FileEventSubscription&);
-  virtual void finishInodeRetirement();
+                                                FileEventSubscription&) override;
+  virtual void finishInodeRetirement() override;
 
-  virtual void preallocate(size_t expectedSize, bool zero = true);
+  virtual void preallocate(size_t expectedSize, bool zero = true) override;
 
-  virtual void extend(size_t newSize);
-  virtual void extend(size_t newSize, uint64_t location, uint64_t size);
+  virtual void extend(size_t newSize) override;
+  virtual void extend(size_t newSize, uint64_t location, uint64_t size) override;
 
-  virtual void truncate();
-  virtual size_t getSize();
-  virtual uint64_t maximumFileSize() const;
-  virtual uintptr_t futexIdentity();
-  virtual bool tryBeginMappingRelease();
-  virtual Attributes getAttributes() const;
-  virtual bool prepareSharedMapping(size_t offset, size_t length);
+  virtual void truncate() override;
+  virtual size_t getSize() override;
+  virtual uint64_t maximumFileSize() const override;
+  virtual uintptr_t futexIdentity() override;
+  virtual bool tryBeginMappingRelease() override;
+  virtual Attributes getAttributes() const override;
+  virtual bool prepareSharedMapping(size_t offset, size_t length) override;
 
   /** Updates inode attributes. */
-  void fileAttributeChanged();
+  void fileAttributeChanged() override;
 
-  virtual uintptr_t readBlock(uint64_t location);
-  virtual void writeBlock(uint64_t location, uintptr_t addr);
+  virtual uintptr_t readBlock(uint64_t location) override;
+  virtual void writeBlock(uint64_t location, uintptr_t addr) override;
 
-  virtual bool pinBlock(uint64_t location);
-  virtual void unpinBlock(uint64_t location);
+  virtual bool pinBlock(uint64_t location) override;
+  virtual void unpinBlock(uint64_t location) override;
 
-  virtual bool sync();
-  virtual bool sync(size_t offset, bool async);
+  virtual bool sync() override;
+  virtual bool sync(size_t offset, bool async) override;
   bool syncPages(const uint64_t* offsets, size_t count) override;
 
-  virtual size_t getBlockSize() const;
+  virtual size_t getBlockSize() const override;
 
-  virtual XattrStatus getExtendedAttribute(const StringView&, void*, size_t, size_t&);
-  virtual XattrStatus listExtendedAttributes(void*, size_t, size_t&);
-  virtual XattrStatus setExtendedAttribute(const StringView&, const void*, size_t, unsigned);
-  virtual XattrStatus removeExtendedAttribute(const StringView&);
+  virtual XattrStatus getExtendedAttribute(const StringView&, void*, size_t, size_t&) override;
+  virtual XattrStatus listExtendedAttributes(void*, size_t, size_t&) override;
+  virtual XattrStatus setExtendedAttribute(const StringView&, const void*, size_t,
+                                           unsigned) override;
+  virtual XattrStatus removeExtendedAttribute(const StringView&) override;
 
  protected:
-  virtual void publishInodeEvent(const FileEvent&);
-  virtual CacheState& cacheState();
-  virtual bool useFillCache() const;
-  virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
-  virtual bool changeOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid);
-  virtual bool allowResize(size_t oldSize, size_t newSize);
-  virtual bool allowPhysicalPage() const;
-  virtual bool prepareWrite(uint64_t location, uint64_t size);
-  virtual bool resizeFile(size_t size);
-  virtual bool allocateFileRange(size_t offset, size_t length);
-  virtual bool prepareShrink(const ShrinkContext& context, UniquePointer<PreparedShrink>& prepared);
-  virtual Mutex& writeSerializationLock();
-  virtual Mutex& dataMutationLock();
-  virtual size_t& physicalPageLoans();
-  virtual void writeBlocks(uint64_t location, uintptr_t addr, size_t length);
+  virtual void publishInodeEvent(const FileEvent&) override;
+  virtual CacheState& cacheState() override;
+  virtual bool useFillCache() const override;
+  virtual void updateAttributes(const Attributes& attributes, uint32_t mask) override;
+  virtual bool changeOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid) override;
+  virtual bool allowResize(size_t oldSize, size_t newSize) override;
+  virtual bool allowPhysicalPage() const override;
+  virtual bool prepareWrite(uint64_t location, uint64_t size) override;
+  virtual bool resizeFile(size_t size) override;
+  virtual bool allocateFileRange(size_t offset, size_t length) override;
+  virtual bool prepareShrink(const ShrinkContext& context,
+                             UniquePointer<PreparedShrink>& prepared) override;
+  virtual Mutex& writeSerializationLock() override;
+  virtual Mutex& dataMutationLock() override;
+  virtual size_t& physicalPageLoans() override;
+  virtual void writeBlocks(uint64_t location, uintptr_t addr, size_t length) override;
 
  private:
   QuotaStatus beginQuota(QuotaTable& loaded);
