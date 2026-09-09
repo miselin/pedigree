@@ -252,7 +252,7 @@ int console_tcsetattr(const DescriptorLease& pFd, int optional_actions, struct t
     flags |= ConsoleManager::LCookedMode;
   if (pc->c_lflag & ISIG)
     flags |= ConsoleManager::LGenerateEvent;
-  NOTICE("TCSETATTR: " << Hex << flags);
+  F_NOTICE("TCSETATTR: " << Hex << flags);
   /// \todo Sanity checks.
   ConsoleManager::instance().setAttributes(pFd->getFile(), flags);
 

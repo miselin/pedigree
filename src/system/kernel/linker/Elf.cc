@@ -31,7 +31,9 @@
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-#define VERBOSE_ELF 1
+#ifndef VERBOSE_ELF
+#define VERBOSE_ELF 0
+#endif
 
 #if VERBOSE_ELF
 #define VERBOSE_NOTICE(x) NOTICE(x)
@@ -198,8 +200,8 @@ Elf::Elf(const Elf& elf)
 
 bool Elf::createNeededOnly(uint8_t* pBuffer, size_t length) {
   EMIT_IF(VERBOSE_KERNEL) {
-    NOTICE("Elf::createNeededOnly: buffer at " << Hex << reinterpret_cast<uintptr_t>(pBuffer)
-                                               << ", len " << length);
+    VERBOSE_NOTICE("Elf::createNeededOnly: buffer at "
+                   << Hex << reinterpret_cast<uintptr_t>(pBuffer) << ", len " << length);
   }
   if (!pBuffer || !length)
     return false;
@@ -256,7 +258,7 @@ bool Elf::createNeededOnly(uint8_t* pBuffer, size_t length) {
         m_sInterpreter = String(reinterpret_cast<char*>(&pBuffer[pInterp->offset]));
 
         EMIT_IF(VERBOSE_KERNEL) {
-          NOTICE("ELF::createNeededOnly interpreter is " << m_sInterpreter);
+          VERBOSE_NOTICE("ELF::createNeededOnly interpreter is " << m_sInterpreter);
         }
       }
     }
@@ -298,8 +300,8 @@ bool Elf::validate(uint8_t* pBuffer, size_t length) {
 }
 
 bool Elf::create(uint8_t* pBuffer, size_t length) {
-  NOTICE("Elf::create: buffer at " << Hex << reinterpret_cast<uintptr_t>(pBuffer) << ", len "
-                                   << length);
+  VERBOSE_NOTICE("Elf::create: buffer at " << Hex << reinterpret_cast<uintptr_t>(pBuffer)
+                                           << ", len " << length);
   // The main header will be at pBuffer[0].
   ElfHeader_t* pHeader = reinterpret_cast<ElfHeader_t*>(pBuffer);
 
@@ -448,8 +450,18 @@ bool Elf::create(uint8_t* pBuffer, size_t length) {
               VERBOSE_NOTICE("DT_FINI");
               m_FiniFunc = pDyn->un.val;
               break;
+            // These metadata tags are not consumed by this table walk.
+            case DT_HASH:
+            case DT_RELAENT:
+            case DT_INIT_ARRAY:
+            case DT_FINI_ARRAY:
+            case DT_INIT_ARRAYSZ:
+            case DT_FINI_ARRAYSZ:
+            case 0x6ffffff9:  // DT_RELACOUNT: optional relocation-count shortcut.
+              VERBOSE_NOTICE("ELF: skipped dynamic metadata tag " << Hex << pDyn->tag);
+              break;
             default:
-              ERROR("Unhandled ELF DT_: " << pDyn->tag);
+              ERROR("ELF: unhandled dynamic tag " << Hex << pDyn->tag);
           }
 
           pDyn++;
@@ -458,7 +470,7 @@ bool Elf::create(uint8_t* pBuffer, size_t length) {
         ElfProgramHeader_t* pInterp = &m_pProgramHeaders[i];
         m_sInterpreter = String(reinterpret_cast<char*>(&pBuffer[pInterp->offset]));
 
-        NOTICE("ELF::create interpreter is " << m_sInterpreter);
+        VERBOSE_NOTICE("ELF::create interpreter is " << m_sInterpreter);
       }
     }
 
@@ -531,7 +543,7 @@ bool Elf::loadModule(uint8_t* pBuffer, size_t length, uintptr_t& loadBase, size_
     loadSize = (loadSize & ~pageSzMask) + pageSz;
   }
 
-  NOTICE("ELF: need " << loadSize << " bytes!");
+  VERBOSE_NOTICE("ELF: need " << loadSize << " bytes!");
 
   if (!KernelElf::instance().getModuleAllocator().allocate(loadSize, loadBase)) {
     ERROR("ELF: could not allocate space for this module [loadSize=" << loadSize << "]");
@@ -762,8 +774,8 @@ bool Elf::finaliseModule(uint8_t* pBuffer, size_t length) {
 
 bool Elf::allocate(uint8_t* pBuffer, size_t length, uintptr_t& loadBase, SymbolTable* pSymtab,
                    bool bAllocate, size_t* pSize) {
-  NOTICE("Elf::allocate: buffer at " << Hex << reinterpret_cast<uintptr_t>(pBuffer) << ", len "
-                                     << length);
+  VERBOSE_NOTICE("Elf::allocate: buffer at " << Hex << reinterpret_cast<uintptr_t>(pBuffer)
+                                             << ", len " << length);
 
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
 
@@ -910,11 +922,11 @@ bool Elf::allocate(uint8_t* pBuffer, size_t length, uintptr_t& loadBase, SymbolT
 
 bool Elf::load(uint8_t* pBuffer, size_t length, uintptr_t loadBase, SymbolTable* pSymtab,
                uintptr_t nStart, uintptr_t nEnd, bool relocate, uintptr_t destinationBase) {
-  NOTICE("LOAD @" << Hex << loadBase);
+  VERBOSE_NOTICE("LOAD @" << Hex << loadBase);
   for (size_t i = 0; i < m_nProgramHeaders; i++) {
     if (m_pProgramHeaders[i].type == PT_LOAD) {
       uintptr_t loadAddr = m_pProgramHeaders[i].vaddr + loadBase;
-      NOTICE("LOAD[" << i << "]: @" << Hex << loadAddr << ".");
+      VERBOSE_NOTICE("LOAD[" << i << "]: @" << Hex << loadAddr << ".");
 
       if (nStart > (loadAddr + m_pProgramHeaders[i].memsz))
         continue;
@@ -1315,7 +1327,7 @@ void Elf::preallocateSymbols(SymbolTable* pSymtabOverride, SymbolTable* pAdditio
   }
 
   if (pSymtabOverride->hasPreallocated()) {
-    NOTICE("no need to preallocate, already done");
+    VERBOSE_NOTICE("no need to preallocate, already done");
     return;
   }
 
@@ -1362,13 +1374,14 @@ void Elf::preallocateSymbols(SymbolTable* pSymtabOverride, SymbolTable* pAdditio
   }
 
   if (numLocal || numWeak || numGlobal) {
-    NOTICE("ELF: preallocating symbol table with "
-           << numGlobal << " global " << numWeak << " weak and " << numLocal << " local symbols.");
+    VERBOSE_NOTICE("ELF: preallocating symbol table with " << numGlobal << " global " << numWeak
+                                                           << " weak and " << numLocal
+                                                           << " local symbols.");
     pSymtabOverride->preallocate(numGlobal, numWeak, this, numLocal);
     if (pAdditionalSymtab) {
       pAdditionalSymtab->preallocateAdditional(numGlobal, numWeak, this, numLocal);
     }
-    NOTICE("ELF: preallocation has completed");
+    VERBOSE_NOTICE("ELF: preallocation has completed");
   }
 }
 

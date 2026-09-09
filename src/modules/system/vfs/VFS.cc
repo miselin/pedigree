@@ -1418,7 +1418,6 @@ bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute,
   }
 
   if ((check & needed) != needed) {
-    NOTICE("VFS::checkAccess: needed " << Oct << needed << ", check was " << check);
     SYSCALL_ERROR(PermissionDenied);
     return false;
   }

@@ -57,9 +57,6 @@ static bool probeDevice(Disk* pDev) {
 }
 
 static Device* checkNode(Device* pDev) {
-  String s;
-  pDev->getName(s);
-  NOTICE("checkNode(" << pDev << " / " << s << ")");
   bool hasPartitions = false;
   if (pDev->getType() == Device::Disk && pDev->getSpecificType() != String("partition")) {
     // Check that none of its children are Partitions
@@ -74,13 +71,10 @@ static Device* checkNode(Device* pDev) {
     }
 
     if (!hasPartitions) {
-      NOTICE("probe...");
       probeDevice(static_cast<Disk*>(pDev));
-      NOTICE("probe done...");
     }
   }
 
-  NOTICE("checkNode(" << pDev << ") - complete!");
   return pDev;
 }
 

@@ -225,7 +225,9 @@ void InputManager::putNotification(InputNotification* note) {
     return;
   }
   if (!accepted) {
-    WARNING("InputManager dropping input - no callbacks to send to!");
+    if (note->type == Key) {
+      WARNING("InputManager: dropping key event with no consumer");
+    }
     delete note;
     return;
   }
@@ -457,7 +459,9 @@ void InputManager::mainThread() {
     }
 
     if (!callbacks.count()) {
-      WARNING("InputManager dropping input - no callbacks to send to!");
+      if (note->type == Key) {
+        WARNING("InputManager: dropping key event with no consumer");
+      }
       delete note;
       continue;
     }
@@ -493,7 +497,6 @@ void InputManager::mainThread() {
           func(*note);
         } else {
           InputEvent* event = new InputEvent(note, param, reinterpret_cast<uintptr_t>(func));
-          NOTICE("InputManager: sending event " << event << "!");
           if (!target->sendEvent(event)) {
             WARNING(
                 "InputManager - Thread::sendEvent failed, "

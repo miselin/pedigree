@@ -1617,7 +1617,10 @@ void Cache::timer(uint64_t delta) {
       return;
     }
 
-    NOTICE("** writeback @" << Hex << key);
+#if defined(CACHE_TRACE_WRITEBACK) && CACHE_TRACE_WRITEBACK
+    NOTICE("Cache " << Hex << reinterpret_cast<uintptr_t>(this) << ": queue writeback key=" << key
+                    << ", page=" << location);
+#endif
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     if (admissionHook) {
       admissionHook(this, key, admissionHookMeta);

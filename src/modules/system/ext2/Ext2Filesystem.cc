@@ -327,8 +327,6 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
     SYSCALL_ERROR(NotEnoughPermissions);
     return false;
   }
-  NOTICE("CREATE: " << filename);
-
   // Quick sanity check;
   if (!parent->isDirectory()) {
     SYSCALL_ERROR(NotADirectory);
@@ -586,8 +584,6 @@ bool Ext2Filesystem::removeNode(File* parent, const String& filename, File* file
     Ext2File* pFile = static_cast<Ext2File*>(file);
     pNode = pFile;
   }
-
-  NOTICE("REMOVE: " << filename);
 
   Ext2Directory* pE2Parent = reinterpret_cast<Ext2Directory*>(parent);
   const bool ordinaryDirectory =
