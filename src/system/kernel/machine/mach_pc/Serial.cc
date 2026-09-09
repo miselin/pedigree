@@ -23,12 +23,25 @@
 
 static constexpr size_t SerialStatusPollLimit = 100000;
 
-X86Serial::X86Serial() : m_Port("COM") {}
+X86Serial::X86Serial() : m_Port("COM"), m_Present(false) {}
 
 X86Serial::~X86Serial() {}
 
 void X86Serial::setBase(uintptr_t nBaseAddr) {
-  m_Port.allocate(nBaseAddr, 8);
+  m_Present = false;
+  if (!m_Port.allocate(nBaseAddr, 8))
+    return;
+
+  // Unimplemented ports can read as 0xff, including a false data-ready bit.
+  // Probe the UART itself without requiring an attached modem or serial cable.
+  const uint8_t scratch = m_Port.read8(serial::scratch);
+  m_Port.write8(0x5a, serial::scratch);
+  const bool first = m_Port.read8(serial::scratch) == 0x5a;
+  m_Port.write8(0xa5, serial::scratch);
+  m_Present = first && m_Port.read8(serial::scratch) == 0xa5;
+  m_Port.write8(scratch, serial::scratch);
+  if (!m_Present)
+    return;
 
   m_Port.write8(0x00, serial::inten);  // Disable all interrupts
   m_Port.write8(0x80, serial::lctrl);  // Enable DLAB (set baud rate divisor)
@@ -86,14 +99,5 @@ bool X86Serial::waitForStatus(uint8_t mask) {
 }
 
 bool X86Serial::isConnected() {
-  return true;
-  /*
-  uint8_t nStatus = m_Port.read8(serial::mstat);
-  // Bits 0x30 = Clear to send & Data set ready.
-  // Mstat seems to be 0xFF when the device isn't present.
-  if ((nStatus & 0x30) && nStatus != 0xFF)
-      return true;
-  else
-      return false;
-  */
+  return m_Present;
 }

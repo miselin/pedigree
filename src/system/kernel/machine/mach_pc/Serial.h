@@ -54,6 +54,7 @@ class X86Serial : public Serial {
   bool waitForStatus(uint8_t mask);
   bool isConnected();
   IoPort m_Port;
+  bool m_Present;
 };
 
 #endif
