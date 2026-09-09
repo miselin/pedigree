@@ -85,7 +85,10 @@ static const char* find_binary(const char* a, const char* b) {
     return b;
   return NULL;
 }
-static void read_file(const char* phase, const char* path) {
+struct Interval {
+  uint64_t begin, end;
+};
+static struct Interval read_file(const char* phase, const char* path) {
   unsigned char buf[16384];
   size_t total = 0;
   uint64_t sum = 0, start = now_ns();
@@ -106,12 +109,14 @@ static void read_file(const char* phase, const char* path) {
   }
   if (close(fd))
     die("read-close");
+  struct Interval interval = {start, now_ns()};
   metric(phase, start, total);
   printf("IOBENCH checksum phase=%s value=%llu\n", phase, (unsigned long long)sum);
   if (!total) {
     errno = EIO;
     die("empty-read");
   }
+  return interval;
 }
 static void verify_scratch(size_t length, int mapped) {
   unsigned char buf[16384];
@@ -150,6 +155,91 @@ static void verify_scratch(size_t length, int mapped) {
     die("verify-close");
   metric(mapped ? "mmap_read_verify" : "write_read_verify", start, length);
 }
+static void read_pipe(int fd, void* buffer, size_t length) {
+  unsigned char* p = buffer;
+  while (length) {
+    ssize_t n = read(fd, p, length);
+    if (n < 0 && errno == EINTR)
+      continue;
+    if (n <= 0) {
+      if (!n)
+        errno = EPIPE;
+      die("sync-pipe-read");
+    }
+    p += n;
+    length -= (size_t)n;
+  }
+}
+static void read_under_sync(int fd, size_t length, const char* bash) {
+  int release[2], result[2];
+  if (pipe(release) || pipe(result))
+    die("sync-pipe");
+  printf("IOBENCH phase_start phase=read_under_sync\n");
+  uint64_t total_start = now_ns();
+  pid_t child = fork();
+  if (child < 0)
+    die("sync-fork");
+  if (!child) {
+    /* Only the parent owns scratch cleanup, including child error paths. */
+    scratch_created = 0;
+    close(release[1]);
+    close(result[0]);
+    for (int i = 0; i < 3; ++i) {
+      unsigned char token;
+      read_pipe(release[0], &token, 1);
+      struct Interval sync;
+      full_write(result[1], &token, 1);
+      sync.begin = now_ns();
+      if (fsync(fd))
+        die("concurrent-fsync");
+      sync.end = now_ns();
+      full_write(result[1], (const unsigned char*)&sync, sizeof(sync));
+    }
+    close(release[0]);
+    close(result[1]);
+    _exit(0);
+  }
+  close(release[0]);
+  close(result[1]);
+  uint64_t read_total = 0, sync_total = 0, overlap_total = 0;
+  for (int i = 0; i < 3; ++i) {
+    unsigned char token = 1;
+    full_write(release[1], &token, 1);
+    read_pipe(result[0], &token, 1);
+    char phase[40];
+    snprintf(phase, sizeof(phase), "bash_read_under_sync_%d", i);
+    struct Interval reader = read_file(phase, bash), sync;
+    read_pipe(result[0], &sync, sizeof(sync));
+    uint64_t begin = reader.begin > sync.begin ? reader.begin : sync.begin;
+    uint64_t end = reader.end < sync.end ? reader.end : sync.end;
+    uint64_t overlap = end > begin ? end - begin : 0;
+    read_total += reader.end - reader.begin;
+    sync_total += sync.end - sync.begin;
+    overlap_total += overlap;
+    printf("IOBENCH metric phase=concurrent_fsync_%d elapsed_us=%llu bytes=%zu\n", i,
+           (unsigned long long)((sync.end - sync.begin) / 1000), length);
+    printf("IOBENCH overlap iteration=%d elapsed_us=%llu\n", i,
+           (unsigned long long)(overlap / 1000));
+  }
+  close(release[1]);
+  close(result[0]);
+  int status;
+  pid_t waited;
+  do {
+    waited = waitpid(child, &status, 0);
+  } while (waited < 0 && errno == EINTR);
+  if (waited < 0)
+    die("sync-waitpid");
+  printf("IOBENCH child phase=read_under_sync status=%d\n", status);
+  if (!WIFEXITED(status) || WEXITSTATUS(status)) {
+    fprintf(stderr, "IOBENCH FAIL phase=read_under_sync child_status=%d\n", status);
+    exit(1);
+  }
+  printf("IOBENCH concurrent_totals read_us=%llu sync_us=%llu overlap_us=%llu\n",
+         (unsigned long long)(read_total / 1000), (unsigned long long)(sync_total / 1000),
+         (unsigned long long)(overlap_total / 1000));
+  metric("read_under_sync_total", total_start, length * 3);
+}
 int main(int argc, char** argv) {
   setvbuf(stdout, NULL, _IONBF, 0);
   setvbuf(stderr, NULL, _IONBF, 0);
@@ -157,20 +247,25 @@ int main(int argc, char** argv) {
   const char* scratch_override = getenv("IOBENCH_SCRATCH");
   if (scratch_override && *scratch_override)
     scratch = scratch_override;
-  int read_only = 0, verify_existing = 0, size_set = 0;
+  int read_only = 0, verify_existing = 0, size_set = 0, concurrent_sync = 0;
   size_t mib = 1;
   for (int i = 1; i < argc; ++i) {
     if (!strcmp(argv[i], "read-only"))
       read_only = 1;
     else if (!strcmp(argv[i], "verify-existing"))
       verify_existing = 1;
+    else if (!strcmp(argv[i], "--read-under-sync"))
+      concurrent_sync = 1;
     else if (!strcmp(argv[i], "--keep-scratch"))
       keep_scratch = 1;
     else {
       char* end;
       unsigned long parsed = strtoul(argv[i], &end, 10);
       if (!*argv[i] || *end || parsed < 1 || parsed > 8 || size_set) {
-        fprintf(stderr, "usage: %s [read-only|verify-existing] [1..8] [--keep-scratch]\n", argv[0]);
+        fprintf(stderr,
+                "usage: %s [read-only|verify-existing] [1..8] [--keep-scratch] "
+                "[--read-under-sync]\n",
+                argv[0]);
         return 2;
       }
       mib = (size_t)parsed;
@@ -179,6 +274,10 @@ int main(int argc, char** argv) {
   }
   if (read_only && verify_existing) {
     fprintf(stderr, "read-only and verify-existing are exclusive\n");
+    return 2;
+  }
+  if (concurrent_sync && (read_only || verify_existing)) {
+    fprintf(stderr, "--read-under-sync requires the full workload\n");
     return 2;
   }
   printf("IOBENCH BEGIN mode=%s size_mib=%zu keep_scratch=%d\n",
@@ -234,6 +333,8 @@ int main(int argc, char** argv) {
       die("scratch-fsync");
     metric("scratch_fsync", t, length);
     verify_scratch(length, 0);
+    if (concurrent_sync)
+      read_under_sync(fd, length, bash);
     t = now_ns();
     unsigned char* p = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (p == MAP_FAILED)

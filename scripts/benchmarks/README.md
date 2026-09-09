@@ -37,6 +37,16 @@ changes the file size; `--mode read-only` omits scratch operations. The first Ba
 read is not guaranteed cold because the login shell may already have loaded it.
 Wall-clock timings from QEMU TCG are comparison data, not physical SSD throughput.
 
+Add `--read-under-sync` to the full workload to measure three Bash reads while a
+child performs three full-file `fsync` calls on the scratch file, after its initial
+write and sync and before mapped mutation. A pipe handshake coordinates each pair
+without sleeps. The report includes individual read and sync timings, child exit
+status, combined elapsed time, and the measured overlap between operation intervals.
+Compare these reads with `bash_read_warm`. A zero overlap means scheduling did not
+actually overlap the operations; the handshake alone is not proof of contention.
+No pages are redirtied, so this specifically measures repeated sync of an already clean
+file. Default workloads and persistence checks are unchanged without the flag.
+
 The scratch file is `/pedigree-io-bench.bin`, outside the RAM-backed `/tmp`.
 Creation uses `O_EXCL`, so an existing file is never overwritten. By default it is
 removed after verification. `--keep-scratch` retains it, including after a failure,

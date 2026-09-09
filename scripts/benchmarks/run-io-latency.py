@@ -29,11 +29,15 @@ def arguments():
                         default="full")
     parser.add_argument("--size-mib", type=int, choices=range(1, 9), default=1)
     parser.add_argument("--keep-scratch", action="store_true")
+    parser.add_argument("--read-under-sync", action="store_true",
+                        help="Read Bash while a child repeatedly syncs the scratch file")
     parser.add_argument("--boot-timeout", type=float, default=240)
     parser.add_argument("--benchmark-timeout", type=float, default=240)
     args = parser.parse_args()
     if not re.fullmatch(r"/[a-z0-9/._-]+", args.guest_binary):
         parser.error("--guest-binary must be an absolute path using lowercase ASCII, digits, /._-")
+    if args.read_under_sync and args.mode != "full":
+        parser.error("--read-under-sync requires --mode full")
     if min(args.boot_timeout, args.benchmark_timeout) <= 0:
         parser.error("timeouts must be positive")
     return args
@@ -117,7 +121,8 @@ def main():
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     report = {"result": "FAIL", "cpus": args.cpus, "mode": args.mode,
-              "size_mib": args.size_mib, "image": str(image),
+              "size_mib": args.size_mib, "read_under_sync": args.read_under_sync,
+              "image": str(image),
               "overlay": str(output / "disk.qcow2")}
     process = guest = None
     try:
@@ -161,6 +166,8 @@ def main():
             invocation += " " + args.mode
         if args.keep_scratch:
             invocation += " --keep-scratch"
+        if args.read_under_sync:
+            invocation += " --read-under-sync"
         report["guest_command"] = invocation
         report["blocks_before"] = guest.qmp("query-blockstats")
         mark = len(guest.serial())
