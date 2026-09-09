@@ -31,6 +31,8 @@ def arguments():
     parser.add_argument("--keep-scratch", action="store_true")
     parser.add_argument("--read-under-sync", action="store_true",
                         help="Read Bash while a child repeatedly syncs the scratch file")
+    parser.add_argument("--read-diagnostics", action="store_true",
+                        help="Include fork, minimal exec, stat and copy-only read controls")
     parser.add_argument("--boot-timeout", type=float, default=240)
     parser.add_argument("--benchmark-timeout", type=float, default=240)
     args = parser.parse_args()
@@ -38,6 +40,8 @@ def arguments():
         parser.error("--guest-binary must be an absolute path using lowercase ASCII, digits, /._-")
     if args.read_under_sync and args.mode != "full":
         parser.error("--read-under-sync requires --mode full")
+    if args.read_diagnostics and args.mode == "verify-existing":
+        parser.error("--read-diagnostics is incompatible with --mode verify-existing")
     if min(args.boot_timeout, args.benchmark_timeout) <= 0:
         parser.error("timeouts must be positive")
     return args
@@ -49,6 +53,8 @@ class Guest:
         self.output = output
         self.wire = bytearray()
         self.ident = 0
+        self.init_observed = None
+        self.init_blocks = None
 
     def receive(self):
         end = time.monotonic() + 15
@@ -86,7 +92,12 @@ class Guest:
     def wait(self, marker, seconds, start=0):
         end = time.monotonic() + seconds
         while True:
-            content = self.serial()[start:]
+            serial = self.serial()
+            if self.init_observed is None and re.search(
+                    rb"Invoking userspace program at /(?:usr/bin|sbin)/init", serial):
+                self.init_observed = time.monotonic()
+                self.init_blocks = self.qmp("query-blockstats")
+            content = serial[start:]
             if b"IOBENCH FAIL" in content:
                 raise RuntimeError("Benchmark reported failure")
             if marker in content:
@@ -122,6 +133,7 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     report = {"result": "FAIL", "cpus": args.cpus, "mode": args.mode,
               "size_mib": args.size_mib, "read_under_sync": args.read_under_sync,
+              "read_diagnostics": args.read_diagnostics,
               "image": str(image),
               "overlay": str(output / "disk.qcow2")}
     process = guest = None
@@ -160,6 +172,9 @@ def main():
         guest.type("root\n")
         guest.wait(b"#\x1b[0m ", 90)
         report["shell_wall_s"] = time.monotonic() - boot
+        if guest.init_observed is not None:
+            elapsed = report["shell_wall_s"] - (guest.init_observed - boot)
+            print(f"INIT-TO-SHELL wall_s={elapsed:.3f}", flush=True)
         print(f"LOGIN wall_s={report['shell_wall_s']:.3f}", flush=True)
         invocation = f"{args.guest_binary} {args.size_mib}"
         if args.mode != "full":
@@ -168,6 +183,8 @@ def main():
             invocation += " --keep-scratch"
         if args.read_under_sync:
             invocation += " --read-under-sync"
+        if args.read_diagnostics:
+            invocation += " --read-diagnostics"
         report["guest_command"] = invocation
         report["blocks_before"] = guest.qmp("query-blockstats")
         mark = len(guest.serial())
@@ -191,6 +208,14 @@ def main():
                 report["capture_error"] = repr(capture_error)
     finally:
         if guest:
+            report["init_marker_observed"] = guest.init_observed is not None
+            if guest.init_observed is not None:
+                report["init_invocation_wall_s"] = guest.init_observed - boot
+                report["blocks_at_init"] = guest.init_blocks
+                for endpoint in ("username", "shell"):
+                    if endpoint + "_wall_s" in report:
+                        report["init_to_" + endpoint + "_s"] = (
+                            report[endpoint + "_wall_s"] - report["init_invocation_wall_s"])
             report["metrics"] = [line for line in guest.serial().decode(errors="replace").splitlines()
                                  if "IOBENCH " in line]
         if process:

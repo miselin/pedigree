@@ -56,6 +56,8 @@ static void run_child(const char* phase, const char* path, char* const argv[]) {
   if (child < 0)
     die("fork");
   if (!child) {
+    if (!path)
+      _exit(0);
     int fd = open("/dev/null", O_WRONLY);
     if (fd < 0 || dup2(fd, STDOUT_FILENO) < 0)
       _exit(125);
@@ -88,7 +90,7 @@ static const char* find_binary(const char* a, const char* b) {
 struct Interval {
   uint64_t begin, end;
 };
-static struct Interval read_file(const char* phase, const char* path) {
+static struct Interval read_file(const char* phase, const char* path, int with_checksum) {
   unsigned char buf[16384];
   size_t total = 0;
   uint64_t sum = 0, start = now_ns();
@@ -104,14 +106,17 @@ static struct Interval read_file(const char* phase, const char* path) {
     if (!n)
       break;
     total += (size_t)n;
-    for (ssize_t i = 0; i < n; ++i)
-      sum += buf[i];
+    if (with_checksum) {
+      for (ssize_t i = 0; i < n; ++i)
+        sum += buf[i];
+    }
   }
   if (close(fd))
     die("read-close");
   struct Interval interval = {start, now_ns()};
   metric(phase, start, total);
-  printf("IOBENCH checksum phase=%s value=%llu\n", phase, (unsigned long long)sum);
+  if (with_checksum)
+    printf("IOBENCH checksum phase=%s value=%llu\n", phase, (unsigned long long)sum);
   if (!total) {
     errno = EIO;
     die("empty-read");
@@ -208,7 +213,7 @@ static void read_under_sync(int fd, size_t length, const char* bash) {
     read_pipe(result[0], &token, 1);
     char phase[40];
     snprintf(phase, sizeof(phase), "bash_read_under_sync_%d", i);
-    struct Interval reader = read_file(phase, bash), sync;
+    struct Interval reader = read_file(phase, bash, 1), sync;
     read_pipe(result[0], &sync, sizeof(sync));
     uint64_t begin = reader.begin > sync.begin ? reader.begin : sync.begin;
     uint64_t end = reader.end < sync.end ? reader.end : sync.end;
@@ -241,13 +246,15 @@ static void read_under_sync(int fd, size_t length, const char* bash) {
   metric("read_under_sync_total", total_start, length * 3);
 }
 int main(int argc, char** argv) {
+  if (argc == 2 && !strcmp(argv[1], "--exec-probe"))
+    return 0;
   setvbuf(stdout, NULL, _IONBF, 0);
   setvbuf(stderr, NULL, _IONBF, 0);
   atexit(cleanup);
   const char* scratch_override = getenv("IOBENCH_SCRATCH");
   if (scratch_override && *scratch_override)
     scratch = scratch_override;
-  int read_only = 0, verify_existing = 0, size_set = 0, concurrent_sync = 0;
+  int read_only = 0, verify_existing = 0, size_set = 0, concurrent_sync = 0, read_diagnostics = 0;
   size_t mib = 1;
   for (int i = 1; i < argc; ++i) {
     if (!strcmp(argv[i], "read-only"))
@@ -256,6 +263,8 @@ int main(int argc, char** argv) {
       verify_existing = 1;
     else if (!strcmp(argv[i], "--read-under-sync"))
       concurrent_sync = 1;
+    else if (!strcmp(argv[i], "--read-diagnostics"))
+      read_diagnostics = 1;
     else if (!strcmp(argv[i], "--keep-scratch"))
       keep_scratch = 1;
     else {
@@ -264,7 +273,7 @@ int main(int argc, char** argv) {
       if (!*argv[i] || *end || parsed < 1 || parsed > 8 || size_set) {
         fprintf(stderr,
                 "usage: %s [read-only|verify-existing] [1..8] [--keep-scratch] "
-                "[--read-under-sync]\n",
+                "[--read-under-sync] [--read-diagnostics]\n",
                 argv[0]);
         return 2;
       }
@@ -278,6 +287,10 @@ int main(int argc, char** argv) {
   }
   if (concurrent_sync && (read_only || verify_existing)) {
     fprintf(stderr, "--read-under-sync requires the full workload\n");
+    return 2;
+  }
+  if (read_diagnostics && verify_existing) {
+    fprintf(stderr, "--read-diagnostics is incompatible with verify-existing\n");
     return 2;
   }
   printf("IOBENCH BEGIN mode=%s size_mib=%zu keep_scratch=%d\n",
@@ -312,8 +325,26 @@ int main(int argc, char** argv) {
   } else
     printf("IOBENCH SKIP phase=nano_version reason=not-installed\n");
   /* First pass is only cold if the caller starts from a fresh guest/cache. */
-  read_file("bash_read_first", bash);
-  read_file("bash_read_warm", bash);
+  read_file("bash_read_first", bash, 1);
+  read_file("bash_read_warm", bash, 1);
+  if (read_diagnostics) {
+    read_file("bash_read_without_checksum", bash, 0);
+    for (int i = 0; i < 3; ++i) {
+      char phase[32];
+      snprintf(phase, sizeof(phase), "fork_exit_%d", i);
+      run_child(phase, NULL, NULL);
+      snprintf(phase, sizeof(phase), "exec_self_%d", i);
+      char* args[] = {argv[0], "--exec-probe", NULL};
+      run_child(phase, argv[0], args);
+    }
+    uint64_t t = now_ns();
+    for (int i = 0; i < 100; ++i) {
+      struct stat st;
+      if (stat("/", &st))
+        die("stat-root");
+    }
+    metric("stat_root_100", t, 0);
+  }
   if (!read_only) {
     size_t length = mib * 1024 * 1024;
     unsigned char buf[16384];

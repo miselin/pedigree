@@ -29,6 +29,14 @@ The report includes QEMU block statistics before and after the workload. Compare
 read, write, and flush operation deltas alongside timings to distinguish reduced
 work from delays shifted between phases.
 
+Boot timing includes both QEMU-start-to-prompt and init-to-prompt intervals. The
+runner observes the kernel's `Invoking userspace program at .../init` log line
+and records `init_to_username_s`, `init_to_shell_s`, and `blocks_at_init` when it
+appears. These observations use 100 ms polling and include QMP response latency. The
+shell interval includes the runner's paced login keystrokes; the username interval
+does not. A missing init marker sets `init_marker_observed` to false and omits
+those intervals. Firmware and GRUB time are excluded from init-to-prompt timing.
+
 The default workload measures three `ls -l /` launches, three `nano --version`
 launches when available, first and repeated Bash reads, and a 1 MiB scratch file.
 Write, `fsync`, mapped mutation, `msync(MS_SYNC)`, and `munmap` have separate
@@ -36,6 +44,13 @@ monotonic microsecond timings. Reads check every scratch byte. `--size-mib 1..8`
 changes the file size; `--mode read-only` omits scratch operations. The first Bash
 read is not guaranteed cold because the login shell may already have loaded it.
 Wall-clock timings from QEMU TCG are comparison data, not physical SSD throughput.
+
+Add `--read-diagnostics` to measure a warm Bash read without byte checksumming,
+three fork-and-exit children, three minimal executions of the benchmark itself,
+and 100 root-directory `stat` calls. These controls help separate reading from
+process creation, executable startup, and metadata lookup. They run after the
+ordinary read/launch phases and work with `--mode read-only`; they cannot be used
+with `verify-existing`.
 
 Add `--read-under-sync` to the full workload to measure three Bash reads while a
 child performs three full-file `fsync` calls on the scratch file, after its initial
