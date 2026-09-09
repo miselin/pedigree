@@ -145,6 +145,11 @@ target_link_libraries(app-keymap PRIVATE libkeymap)
 pedigree_app(live ON OFF ON "intl;dialog;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/live/live.cc)
 pedigree_app(login ON OFF ON "intl" ${CMAKE_CURRENT_SOURCE_DIR}/applications/login/login.c)
 pedigree_app(modlist ON OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/modlist/main.c)
+pedigree_app(random-seed ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/random-seed/main.cc)
+target_include_directories(app-random-seed PRIVATE ${CMAKE_SOURCE_DIR}/src/system/include)
+pedigree_app(random-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/random-contract-test/main.c)
 pedigree_app(modload ON OFF ON ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/modload/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/modload/elf.c)

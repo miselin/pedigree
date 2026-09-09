@@ -37,6 +37,7 @@
 #include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/SecureRandom.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/lib.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -76,15 +77,70 @@ static void terminalSwitchHandler(InputManager::InputNotification& in) {
 
 uint64_t RandomFile::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                   bool bCanBlock) {
-  const size_t produced = hardware_random_bytes(reinterpret_cast<void*>(buffer), size);
-  if (size && !produced) {
-    SYSCALL_ERROR(NoMoreProcesses);
+  uint8_t snapshot[256];
+  size_t done = 0;
+  while (done < size) {
+    const size_t count = size - done < sizeof(snapshot) ? size - done : sizeof(snapshot);
+    const size_t produced = secure_random_bytes(snapshot, count);
+    if (!produced) {
+      if (!done)
+        SYSCALL_ERROR(NoMoreProcesses);
+      break;
+    }
+    // Device I/O may target a faultable caller buffer. Keep faults outside the
+    // generator's IRQ-disabled critical section.
+    MemoryCopy(reinterpret_cast<void*>(buffer + done), snapshot, produced);
+    done += produced;
   }
-  return produced;
+  pedigree_random::erase(snapshot, sizeof(snapshot));
+  return done;
 }
 
 uint64_t RandomFile::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                    bool bCanBlock) {
+  // Entropy feed-back writes must make progress for buffered stdio callers.
+  // Discard untrusted input without crediting it as entropy or seeding the RNG.
+  return size;
+}
+
+bool RandomFile::supports(size_t command) const {
+  return command == 0x40085203UL;  // Linux RNDADDENTROPY.
+}
+
+int RandomFile::command(size_t command, void* buffer) {
+  if (!supports(command)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  auto* process = Processor::information().getCurrentThread()->getParent();
+  if (process->getEffectiveUserId() != 0) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return -1;
+  }
+
+  struct SeedRequest {
+    int32_t entropyBits;
+    int32_t bytes;
+    uint8_t seed[32];
+  } request = {};
+  // Only the privileged initializer can claim entropy. Ordinary device
+  // writes cannot turn predictable bytes into a trusted seed.
+  if (!PosixSubsystem::copyFromUser(&request, buffer, sizeof(request))) {
+    pedigree_random::erase(&request, sizeof(request));
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  if (request.entropyBits != 256 || request.bytes != 32) {
+    pedigree_random::erase(&request, sizeof(request));
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  const int accepted = secure_random_seed(request.seed, sizeof(request.seed));
+  pedigree_random::erase(&request, sizeof(request));
+  if (!accepted) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
   return 0;
 }
 

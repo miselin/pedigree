@@ -55,6 +55,8 @@ class RandomFile : public File {
                                 bool bCanBlock = true);
   virtual uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                  bool bCanBlock = true);
+  bool supports(size_t command) const override;
+  int command(size_t command, void* buffer) override;
 
  private:
   virtual bool isBytewise() const {

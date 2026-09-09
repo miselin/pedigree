@@ -2346,9 +2346,9 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   ByteSet(execRandom, 0, sizeof(execRandom));
 #if X64 && !HOSTED
   const bool hasExecRandom =
-      hardware_random_bytes(execRandom, sizeof(execRandom)) == sizeof(execRandom);
+      secure_random_bytes(execRandom, sizeof(execRandom)) == sizeof(execRandom);
   if (!hasExecRandom) {
-    PS_NOTICE("PosixSubsystem::invoke: AT_RANDOM unavailable on this CPU");
+    PS_NOTICE("PosixSubsystem::invoke: AT_RANDOM unavailable until secure randomness is seeded");
   }
 #else
   const bool hasExecRandom = false;

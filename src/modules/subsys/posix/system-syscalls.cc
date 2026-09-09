@@ -36,6 +36,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/SecureRandom.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/ZombieQueue.h"
 #include "pedigree/kernel/utilities/lib.h"
@@ -228,12 +229,14 @@ ssize_t posix_getrandom(void* buffer, size_t length, unsigned int flags) {
 
   uint8_t snapshot[256];
   const size_t requested = length < sizeof(snapshot) ? length : sizeof(snapshot);
-  const size_t produced = hardware_random_bytes(snapshot, requested);
+  const size_t produced = secure_random_bytes(snapshot, requested);
   if (requested && !produced) {
     SYSCALL_ERROR(NoMoreProcesses);
     return -1;
   }
-  if (!PosixSubsystem::copyToUser(buffer, snapshot, produced)) {
+  const bool copied = PosixSubsystem::copyToUser(buffer, snapshot, produced);
+  pedigree_random::erase(snapshot, sizeof(snapshot));
+  if (!copied) {
     SYSCALL_ERROR(BadAddress);
     return -1;
   }

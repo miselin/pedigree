@@ -338,6 +338,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/instrument.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/memory.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/random.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/SecureRandom.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/string.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/vsprintf.c
     # /debugger/

@@ -136,6 +136,10 @@ EXPORTED_PUBLIC uint64_t random_next(void);
 // returns zero when the active architecture has no usable hardware source.
 EXPORTED_PUBLIC size_t hardware_random_bytes(void* buffer, size_t length);
 
+// Fails closed until hardware or exactly 32 caller-validated entropy bytes seed it.
+EXPORTED_PUBLIC size_t secure_random_bytes(void* buffer, size_t length);
+EXPORTED_PUBLIC int secure_random_seed(const void* buffer, size_t length);
+
 EXPORTED_PUBLIC char toUpper(char c) PURE;
 EXPORTED_PUBLIC char toLower(char c) PURE;
 EXPORTED_PUBLIC int max(size_t a, size_t b) PURE;
