@@ -1542,9 +1542,11 @@ void Cache::timer(uint64_t delta) {
     ++m_WritebackEpoch;
   }
 
-  // Restart after enqueueing without retaining an iterator across mutations.
-  // Mark clean pages too, so each checksum is calculated only once per epoch.
-  while (true) {
+  // Bound interrupt-disabled work to one page, including clean prefixes. A
+  // copied key also lets callbacks mutate the tree without invalidating a scan.
+  uintptr_t nextKey = 0;
+  bool finished = false;
+  while (!finished) {
     bool queueWriteback = false;
     uintptr_t key = 0;
     uintptr_t location = 0;
@@ -1558,63 +1560,66 @@ void Cache::timer(uint64_t delta) {
         return;
       }
 
-      for (Tree<uintptr_t, CachePage*>::Iterator it = m_Pages.begin(); it != m_Pages.end(); ++it) {
-        CachePage* page = it.value();
-        if (page->writebackEpoch == m_WritebackEpoch) {
-          continue;
-        }
-        page->writebackEpoch = m_WritebackEpoch;
-        if (page->evictionState != CachePage::EvictionState::None) {
-          continue;
-        }
-        // A queued write owns the retry until it completes. Rescanning it can
-        // otherwise enqueue another write on every timer tick.
-        if (page->writebackPins) {
-          continue;
-        }
-        if (page->status == CachePage::Editing) {
-          continue;
-        }
-        if (page->status == CachePage::EditTransition) {
-          promotePage(page);
-          page->status = CachePage::ChecksumStable;
-          continue;
-        }
-        if (page->writebackFailed) {
-          // A stable checksum cannot make an unsuccessful backend write clean.
-        } else if (page->status == CachePage::ChecksumChanging) {
-          if (!verifyChecksum(page, true)) {
-            continue;
-          }
-          page->status = CachePage::ChecksumStable;
-        } else if (page->status == CachePage::ChecksumStable) {
-          if (!verifyChecksum(page, true)) {
-            page->status = CachePage::ChecksumChanging;
-            page->writebackFailed = true;
-          }
-          continue;
-        } else {
-          ERROR("Unknown page status!");
-          continue;
-        }
-
-        promotePage(page);
-        page->writebackFailed = true;
-        ++page->refcnt;
-        ++page->writebackPins;
-        key = it.key();
-        location = page->location;
-        queueWriteback = true;
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-        admissionHook = m_WritebackAdmissionHook;
-        admissionHookMeta = m_WritebackAdmissionHookMeta;
-#endif
-        break;
+      CachePage* page = nullptr;
+      if (!m_Pages.lowerBound(nextKey, key, page)) {
+        return;
       }
+      finished = key == ~uintptr_t{0};
+      if (!finished) {
+        nextKey = key + 1;
+      }
+      if (page->writebackEpoch == m_WritebackEpoch) {
+        continue;
+      }
+      page->writebackEpoch = m_WritebackEpoch;
+      if (page->evictionState != CachePage::EvictionState::None) {
+        continue;
+      }
+      // A queued write owns the retry until it completes. Rescanning it can
+      // otherwise enqueue another write on every timer tick.
+      if (page->writebackPins) {
+        continue;
+      }
+      if (page->status == CachePage::Editing) {
+        continue;
+      }
+      if (page->status == CachePage::EditTransition) {
+        promotePage(page);
+        page->status = CachePage::ChecksumStable;
+        continue;
+      }
+      if (page->writebackFailed) {
+        // A stable checksum cannot make an unsuccessful backend write clean.
+      } else if (page->status == CachePage::ChecksumChanging) {
+        if (!verifyChecksum(page, true)) {
+          continue;
+        }
+        page->status = CachePage::ChecksumStable;
+      } else if (page->status == CachePage::ChecksumStable) {
+        if (!verifyChecksum(page, true)) {
+          page->status = CachePage::ChecksumChanging;
+          page->writebackFailed = true;
+        }
+        continue;
+      } else {
+        ERROR("Unknown page status!");
+        continue;
+      }
+
+      promotePage(page);
+      page->writebackFailed = true;
+      ++page->refcnt;
+      ++page->writebackPins;
+      location = page->location;
+      queueWriteback = true;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+      admissionHook = m_WritebackAdmissionHook;
+      admissionHookMeta = m_WritebackAdmissionHookMeta;
+#endif
     }
 
     if (!queueWriteback) {
-      return;
+      continue;
     }
 
 #if defined(CACHE_TRACE_WRITEBACK) && CACHE_TRACE_WRITEBACK

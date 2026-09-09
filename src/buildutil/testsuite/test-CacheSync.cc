@@ -303,3 +303,109 @@ TEST(CacheSync, TimerWritesEachMutationOnceAndRetainsFailedCompletionForRetry) {
   EXPECT_TRUE(cache.empty());
   EXPECT_EQ(observer.writes, 4U);
 }
+
+namespace {
+struct TimerCursorObserver {
+  Cache* cache = nullptr;
+  size_t writes[5] = {};
+  bool mutate = true;
+  bool removed = false;
+  uintptr_t lowerPage = 0;
+  uintptr_t higherPage = 0;
+
+  static bool callback(CacheConstants::CallbackCause cause, uintptr_t key, uintptr_t,
+                       void* context) {
+    auto& observer = *static_cast<TimerCursorObserver*>(context);
+    if (cause != CacheConstants::WriteBack) {
+      return true;
+    }
+    const size_t index = key / Page;
+    if (index >= 5) {
+      ADD_FAILURE() << "Unexpected cache key " << key;
+      return false;
+    }
+    ++observer.writes[index];
+    if (key == 2 * Page && observer.mutate) {
+      observer.mutate = false;
+      observer.removed = observer.cache->evict(3 * Page);
+      observer.lowerPage = publish(*observer.cache, 0);
+      // Cache keys need not be page-aligned; resuming by page size skips this.
+      observer.higherPage = publish(*observer.cache, 2 * Page + 1);
+    }
+    return true;
+  }
+};
+
+struct TimerLastKeyObserver {
+  size_t writes = 0;
+
+  static bool callback(CacheConstants::CallbackCause cause, uintptr_t key, uintptr_t,
+                       void* context) {
+    if (cause == CacheConstants::WriteBack) {
+      EXPECT_EQ(key, ~uintptr_t{0});
+      ++static_cast<TimerLastKeyObserver*>(context)->writes;
+    }
+    return true;
+  }
+};
+}  // namespace
+
+TEST(CacheSync, TimerResumesAfterCallbackMutationsWithoutSkippingAdjacentKeys) {
+  TimerCursorObserver observer;
+  Cache cache;
+  observer.cache = &cache;
+  cache.setCallback(TimerCursorObserver::callback, &observer);
+  for (uintptr_t key : {2 * Page, 3 * Page, 4 * Page}) {
+    const uintptr_t page = cache.insert(key);
+    ASSERT_NE(page, 0U);
+    *reinterpret_cast<unsigned char*>(page) = 0x57;
+    cache.markNoLongerEditing(key);
+  }
+  const uint64_t period = CACHE_WRITEBACK_PERIOD * 1000000ULL;
+  cache.timer(period);
+  cache.markDirty(2 * Page);
+  cache.markDirty(4 * Page);
+
+  cache.timer(period);
+  EXPECT_TRUE(observer.removed);
+  ASSERT_NE(observer.lowerPage, 0U);
+  ASSERT_NE(observer.higherPage, 0U);
+  EXPECT_EQ(observer.writes[0], 0U);
+  EXPECT_EQ(observer.writes[2], 1U);
+  EXPECT_EQ(observer.writes[3], 0U);
+  EXPECT_EQ(observer.writes[4], 1U);
+
+  // The newly inserted higher key was visited, while the lower key waits for
+  // the next pass to leave EditTransition before its dirty data can be queued.
+  cache.timer(period);
+  EXPECT_EQ(observer.writes[0], 0U);
+  EXPECT_EQ(observer.writes[2], 2U);
+  EXPECT_EQ(observer.writes[4], 1U);
+  cache.timer(period);
+  EXPECT_EQ(observer.writes[0], 1U);
+  EXPECT_EQ(observer.writes[2], 2U);
+  EXPECT_EQ(observer.writes[3], 0U);
+  EXPECT_EQ(observer.writes[4], 1U);
+  EXPECT_TRUE(cache.empty());
+}
+
+TEST(CacheSync, TimerProcessesMaximumKeyWithoutWrappingItsCursor) {
+  TimerLastKeyObserver observer;
+  Cache cache;
+  cache.setCallback(TimerLastKeyObserver::callback, &observer);
+  constexpr uintptr_t LastKey = ~uintptr_t{0};
+  const uintptr_t page = cache.insert(LastKey);
+  ASSERT_NE(page, 0U);
+  *reinterpret_cast<unsigned char*>(page) = 0x57;
+  cache.markNoLongerEditing(LastKey);
+  const uint64_t period = CACHE_WRITEBACK_PERIOD * 1000000ULL;
+  cache.timer(period);
+  EXPECT_EQ(observer.writes, 0U);
+  cache.markDirty(LastKey);
+  cache.timer(period);
+  EXPECT_EQ(observer.writes, 1U);
+  cache.timer(period);
+  EXPECT_EQ(observer.writes, 1U);
+  EXPECT_TRUE(cache.evict(LastKey));
+  EXPECT_EQ(observer.writes, 1U);
+}
