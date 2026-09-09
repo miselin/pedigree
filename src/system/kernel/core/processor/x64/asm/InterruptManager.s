@@ -36,6 +36,10 @@ global interrupt_handler_array:function hidden
 ;### assembler stub for interrupt handler #####################################
 ;##############################################################################
 interrupt_handler:
+  ; A backward copy may be interrupted with DF set. C/C++ requires DF clear;
+  ; IRET restores the interrupted flags already saved by the processor.
+  cld
+
   ; Save the registers
   push rax
   push rbx

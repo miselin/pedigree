@@ -36,6 +36,9 @@ global syscall_handler:function hidden
 ; TODO: we might want to use the highest (or 8byte lower, to allow rsp saving) 8byte
 ;       of gs.base to save the gs.base value, interrupts would just ignore this value
 syscall_handler:
+  ; Preserve the user's saved RFLAGS in R11 while establishing the kernel ABI.
+  cld
+
   ; Load kernel stack into gs base
   swapgs
 
