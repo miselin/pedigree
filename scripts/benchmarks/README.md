@@ -45,10 +45,13 @@ changes the file size; `--mode read-only` omits scratch operations. The first Ba
 read is not guaranteed cold because the login shell may already have loaded it.
 Wall-clock timings from QEMU TCG are comparison data, not physical SSD throughput.
 
-Add `--read-diagnostics` to measure a warm Bash read without byte checksumming,
-three fork-and-exit children, three minimal executions of the benchmark itself,
-and 100 root-directory `stat` calls. These controls help separate reading from
-process creation, executable startup, and metadata lookup. They run after the
+Add `--read-diagnostics` to measure three `ls -1 /` and `ls -n /` launches, a warm
+Bash read without byte checksumming, three fork-and-exit children, three minimal
+executions of the benchmark itself, and 100 root-directory `stat` calls. Compare
+`ls_single` and `ls_numeric` with the existing `ls_long` phases to distinguish
+directory enumeration, metadata lookup, and user/group name lookup. Every measured
+program has stdout redirected to `/dev/null`; kernel logging is still included.
+These controls help separate reading from process creation and executable startup. They run after the
 ordinary read/launch phases and work with `--mode read-only`; they cannot be used
 with `verify-existing`.
 
@@ -89,3 +92,20 @@ Use `--boot-timeout` and `--benchmark-timeout` to adjust bounded waits. Defaults
 240 seconds for the username prompt and the benchmark; login and QMP exchanges
 have separate shorter bounds. The runner returns nonzero on failure and retains
 all evidence. It requires a POSIX host and QEMU with QMP keyboard events.
+
+`directory-sync.c` is a separate small-file contract. Compile and install it as
+`/directory-sync`, then run `/directory-sync 1`. It creates `/pedigree-dir-sync`
+exclusively, syncs its parent, writes and syncs a small file, renames it, syncs the
+directory, and repeats directory `fsync` three times without another mutation.
+Each sync and rename reports its return status and elapsed time. Verification
+checks the renamed file's exact contents and size and absence of the old name.
+The directory and files remain after success or failure. `IOBENCH_DIRECTORY` can
+select another absolute path on a disk-backed filesystem; its parent must exist.
+
+Run `/directory-sync 1 verify-existing` in a fresh guest, or verify the retained
+overlay offline, to establish persistence. The verification mode only reads;
+same-boot verification does not prove durability. The optional number selects
+1–8 files. The existing runner accepts this binary with `--guest-binary
+/directory-sync`; use its default `--size-mib 1` argument for one file and
+`--mode verify-existing` for the fresh-guest check. Omit its workload flags and
+`--keep-scratch`, since this contract always retains its files.

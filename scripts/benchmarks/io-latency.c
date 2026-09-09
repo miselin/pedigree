@@ -328,6 +328,15 @@ int main(int argc, char** argv) {
   read_file("bash_read_first", bash, 1);
   read_file("bash_read_warm", bash, 1);
   if (read_diagnostics) {
+    for (int i = 0; i < 3; ++i) {
+      char phase[32];
+      snprintf(phase, sizeof(phase), "ls_single_%d", i);
+      char* single[] = {(char*)ls, "-1", "/", NULL};
+      run_child(phase, ls, single);
+      snprintf(phase, sizeof(phase), "ls_numeric_%d", i);
+      char* numeric[] = {(char*)ls, "-n", "/", NULL};
+      run_child(phase, ls, numeric);
+    }
     read_file("bash_read_without_checksum", bash, 0);
     for (int i = 0; i < 3; ++i) {
       char phase[32];
