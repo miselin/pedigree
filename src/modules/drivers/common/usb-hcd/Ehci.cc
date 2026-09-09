@@ -65,6 +65,36 @@ constexpr size_t EhciQtdBufferPageCount = 5;
 constexpr size_t EhciQtdBufferWindowBytes = EhciQtdBufferPageCount * EhciHardwarePageBytes;
 constexpr physical_uintptr_t EhciHighestDmaAddress = 0xffffffff;
 static_assert((size_t{1} << EhciHardwarePageShift) == EhciHardwarePageBytes);
+
+struct EhciDmaTransfer {
+  MemoryRegion* region;
+  uintptr_t client;
+  size_t bytes;
+  bool input;
+};
+
+EhciDmaTransfer* dmaTransfer(const Ehci::qTD* qtd) {
+  return reinterpret_cast<EhciDmaTransfer*>(static_cast<uintptr_t>(qtd->pDma));
+}
+
+void releaseDmaTransfer(Ehci::qTD* qtd) {
+  auto* transfer = dmaTransfer(qtd);
+  if (!transfer)
+    return;
+  delete transfer->region;
+  delete transfer;
+  qtd->pDma = 0;
+}
+
+void copyDmaInput(const Ehci::qTD* qtd, ssize_t bytes) {
+  auto* transfer = dmaTransfer(qtd);
+  if (!transfer || !transfer->input || bytes <= 0)
+    return;
+  size_t count = static_cast<size_t>(bytes);
+  if (count > transfer->bytes)
+    count = transfer->bytes;
+  MemoryCopy(reinterpret_cast<void*>(transfer->client), transfer->region->virtualAddress(), count);
+}
 }  // namespace
 
 #define INDEX_FROM_QTD(ptr) \
@@ -792,6 +822,7 @@ void Ehci::releaseQtdChainLocked(QH* qh) {
 
     if (m_qTDBitmap.test(qtdIndex))
       m_qTDBitmap.clear(qtdIndex);
+    releaseDmaTransfer(qtd);
     ByteSet(qtd, 0, sizeof(qTD));
 
     if (last) {
@@ -1017,7 +1048,9 @@ void Ehci::interrupt(size_t number, InterruptState& state)
         m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
 
     if (!nStatus) {
-      WARNING_NOLOCK("EHCI: unwanted IRQ?");
+#ifdef USB_VERBOSE_DEBUG
+      DEBUG_LOG_NOLOCK("EHCI: shared IRQ with no pending controller cause");
+#endif
       return
 #if X86_COMMON
           IrqDisposition::NotHandled  // Shared IRQ: another device
@@ -1042,7 +1075,7 @@ void Ehci::interrupt(size_t number, InterruptState& state)
       (void)m_pBase->read32(m_nOpRegsOffset + EHCI_STS);
     }
 
-    if (nStatus & 0x16) {
+    if (nStatus & (EHCI_STS_SYSERR | EHCI_STS_ERR)) {
       NOTICE_NOLOCK("EHCI: Unusual IRQ, status is " << nStatus);
     }
 
@@ -1149,6 +1182,7 @@ void Ehci::interrupt(size_t number, InterruptState& state)
               nResult = -pqTD->getError();
             } else {
               nResult = pqTD->nBufferSize - pqTD->nBytes;
+              copyDmaInput(pqTD, nResult);
               pQH->pMetaData->nTotalBytes += nResult;
             }
 #ifdef USB_VERBOSE_DEBUG
@@ -1294,8 +1328,9 @@ void Ehci::addTransferToTransactionAdmitted(uintptr_t nTransaction, bool bToggle
   }
 
   qTD* last = pQH->pMetaData->pLastQTD;
-  if (last && pid != UsbPidSetup && nBytes && last->nPid == (pid == UsbPidIn ? 1U : 0U) &&
-      last->nBufferSize && !(last->nBufferSize % pQH->nMaxPacketSize) &&
+  if (last && !last->pDma && pid != UsbPidSetup && nBytes &&
+      last->nPid == (pid == UsbPidIn ? 1U : 0U) && last->nBufferSize &&
+      !(last->nBufferSize % pQH->nMaxPacketSize) &&
       last->nOffset + last->nBufferSize + nBytes <= EhciHardwarePageBytes) {
     physical_uintptr_t physical = 0;
     auto& addressSpace = Processor::information().getVirtualAddressSpace();
@@ -1379,25 +1414,77 @@ void Ehci::addTransferToTransactionAdmitted(uintptr_t nTransaction, bool bToggle
     VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
     uint32_t bufferPages[EhciQtdBufferPageCount] = {};
     const size_t bufferSpan = nBufferPageOffset + nBytes;
+    bool mapped = true;
+    bool dmaAddressable = true;
     for (size_t page = 0; page < EhciQtdBufferPageCount; ++page) {
       if (bufferSpan <= page * EhciHardwarePageBytes)
         break;
 
       physical_uintptr_t physicalPage = 0;
       const uintptr_t virtualPage = pBufferPageStart + page * EhciHardwarePageBytes;
-      if (!DriverDma::virtualToPhysical(va, virtualPage, physicalPage) ||
-          (physicalPage & EhciDescriptorOffsetMask) ||
+      if (!DriverDma::virtualToPhysical(va, virtualPage, physicalPage)) {
+        mapped = false;
+        continue;
+      }
+      if ((physicalPage & EhciDescriptorOffsetMask) ||
           !DriverDma::physicalRangeFits(physicalPage, EhciHardwarePageBytes,
                                         EhciHighestDmaAddress)) {
-        ERROR("EHCI: addTransferToTransaction: buffer hardware page " << Dec << page << Hex
-                                                                      << " is not DMA-addressable");
+        dmaAddressable = false;
+      } else {
+        bufferPages[page] = physicalPage >> EhciHardwarePageShift;
+      }
+    }
+
+    if (!mapped) {
+      ERROR("EHCI: addTransferToTransaction: buffer is not mapped");
+      pQH->pMetaData->bBuildFailed = true;
+      m_qTDBitmap.clear(nIndex);
+      ByteSet(pqTD, 0, sizeof(qTD));
+      return;
+    }
+
+    if (!dmaAddressable) {
+      auto* region = new MemoryRegion("EHCI transfer bounce");
+      const size_t pages = DriverDma::pageCountForBytes(nBytes, EhciHardwarePageBytes);
+      if (!region ||
+          !PhysicalMemoryManager::instance().allocateRegion(
+              *region, pages, PhysicalMemoryManager::continuous | PhysicalMemoryManager::below4GB,
+              VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write)) {
+        delete region;
+        ERROR("EHCI: addTransferToTransaction: couldn't allocate a below-4GiB bounce buffer");
         pQH->pMetaData->bBuildFailed = true;
         m_qTDBitmap.clear(nIndex);
         ByteSet(pqTD, 0, sizeof(qTD));
         return;
       }
 
-      bufferPages[page] = physicalPage >> EhciHardwarePageShift;
+      auto* transfer = new EhciDmaTransfer{region, pBuffer, nBytes, pid == UsbPidIn};
+      if (!transfer ||
+          !DriverDma::physicalRangeFits(region->physicalAddress(), pages * EhciHardwarePageBytes,
+                                        EhciHighestDmaAddress)) {
+        delete transfer;
+        delete region;
+        ERROR("EHCI: addTransferToTransaction: bounce buffer is not DMA-addressable");
+        pQH->pMetaData->bBuildFailed = true;
+        m_qTDBitmap.clear(nIndex);
+        ByteSet(pqTD, 0, sizeof(qTD));
+        return;
+      }
+
+      pqTD->pDma = reinterpret_cast<uintptr_t>(transfer);
+      pqTD->nOffset = 0;
+      if (pid != UsbPidIn)
+        MemoryCopy(region->virtualAddress(), reinterpret_cast<void*>(pBuffer), nBytes);
+      for (size_t page = 0; page < EhciQtdBufferPageCount; ++page) {
+        if (nBytes <= page * EhciHardwarePageBytes)
+          break;
+        const physical_uintptr_t physicalPage =
+            region->physicalAddress() + page * EhciHardwarePageBytes;
+        bufferPages[page] = physicalPage >> EhciHardwarePageShift;
+      }
+#ifdef USB_VERBOSE_DEBUG
+      DEBUG_LOG("EHCI: using a below-4GiB bounce buffer for " << Dec << nBytes << " bytes");
+#endif
     }
 
     pqTD->pPage0 = bufferPages[0];

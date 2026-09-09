@@ -13,8 +13,9 @@ For native functions on bus 0, the router checks the function's Interrupt Pin
 against DxxIP and reads its DxxIR selector. It leaves those firmware selectors
 unchanged. Existing valid PIRQ-to-PIC routes are preserved if the PIC can reserve
 their level-triggered lines. Disabled routes use IRQ10 or IRQ11 after checking
-SCI, TCO and HPET conflicts and obtaining PIC ownership. Every PIRQ write is
-read back; failure restores the old value. A restoration failure stops boot.
+SCI, TCO, HPET and the fixed PS/2 mouse IRQ12 source and obtaining PIC
+ownership. Every PIRQ write is read back; failure restores the old value. A
+restoration failure stops boot.
 Reservations remain masked until a handler registers and survive driver removal.
 
 The configuration-space Interrupt Line byte and both software copies are only
@@ -32,9 +33,10 @@ PCI: 0:25:0 8086:1502 INTA -> PIRQA -> IRQ 10
 ```
 
 `excluded` is a bitmap of legacy IRQs reserved for chipset sources. If HPET
-registers are inaccessible, IRQ11 is conservatively unavailable. An enabled
-firmware route is never silently moved when it conflicts. Failure messages retain
-the original PIRQ byte and identify the failing routing check.
+registers are inaccessible, IRQ11 is conservatively unavailable. Valid enabled
+firmware routes remain in place; a route is moved only when it conflicts with an
+explicitly excluded chipset or fixed legacy source. Failure messages retain the
+original PIRQ byte and identify the failing routing check.
 
 ## Scope and validation
 

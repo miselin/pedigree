@@ -100,6 +100,9 @@ void routeChipsetInterrupts(const Vector<Device*>& devices) {
     return;
   }
   excluded |= hpetExclusions(read32(0x3404));
+  // IRQ12 is the fixed PS/2 mouse line. If firmware put a PIRQ there, move the
+  // shared PCI route to a reserved level line before registering PCI handlers.
+  excluded |= uint16_t{1} << 12;
   NOTICE("PCI: QM67 native INTx routing: RCBA=" << Hex << rcba << " OIC=" << read16(0x31fe)
                                                 << " SCI=" << Dec << sci << " excluded=" << Hex
                                                 << excluded);
@@ -147,7 +150,7 @@ void routeChipsetInterrupts(const Vector<Device*>& devices) {
       config.read8(IntelPirq::configOffset(pirq), before);
       const auto result = IntelPirq::establish(
           config, [&pci](uint8_t irq) { return pci.reserveLegacyInterrupt(irq); }, pirq, excluded,
-          routes[pirq]);
+          routes[pirq], true);
       if (result == IntelPirq::Result::RestoreFailed)
         panic("PCI: cannot restore QM67 PIRQ route after failed write");
       ready[pirq] = result == IntelPirq::Result::Ready;

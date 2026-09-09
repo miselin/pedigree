@@ -34,7 +34,8 @@ struct RouteConfig {
     // A failed posted write can still have reached the routing register.
     return !(writes == 1 && failFirstWrite);
   }
-  IntelPirq::Result establish(uint8_t pirq, uint16_t excluded, uint8_t& irq) {
+  IntelPirq::Result establish(uint8_t pirq, uint16_t excluded, uint8_t& irq,
+                              bool rerouteExcludedEnabled = false) {
     return IntelPirq::establish(
         *this,
         [this](uint8_t selected) {
@@ -44,7 +45,7 @@ struct RouteConfig {
           reserved |= 1U << selected;
           return true;
         },
-        pirq, excluded, irq);
+        pirq, excluded, irq, rerouteExcludedEnabled);
   }
 
   std::array<uint8_t, 128> bytes;
@@ -128,6 +129,17 @@ TEST(IntelPirq, EnabledRouteIsNeverMovedAroundAnExclusionOrConflict) {
     EXPECT_EQ(config.bytes[0x60], 10);
     EXPECT_EQ(irq, 0xee);
   }
+}
+
+TEST(IntelPirq, ExplicitlyExcludedEnabledRouteCanMoveToAnotherPicLine) {
+  RouteConfig config;
+  config.bytes[0x60] = 12;
+  uint8_t irq = 0xee;
+  EXPECT_EQ(config.establish(0, 1U << 12, irq, true), IntelPirq::Result::Ready);
+  EXPECT_EQ(irq, 10);
+  EXPECT_EQ(config.bytes[0x60], 10);
+  EXPECT_EQ(config.reserved, Irq10);
+  EXPECT_EQ(config.events, (std::vector<char>{'r', 's', 'w', 'r'}));
 }
 
 TEST(IntelPirq, FailedProgrammingRollsBackAndKeepsReservationAndOutput) {

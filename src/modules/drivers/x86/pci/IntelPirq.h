@@ -86,9 +86,11 @@ inline bool validIrq(uint8_t irq) {
 enum class Result { Ready, ReadFailed, Unsupported, Conflict, WriteFailed, RestoreFailed };
 
 // Reserve PIC ownership before connecting a previously disabled PIRQ. An enabled
-// firmware route is never moved: other devices may already depend on it.
+// firmware route is preserved unless the caller explicitly identifies its line
+// as unavailable to PCI (for example, the fixed PS/2 mouse line).
 template <class Config, class Reserve>
-Result establish(Config& config, Reserve reserve, uint8_t pirq, uint16_t excluded, uint8_t& irq) {
+Result establish(Config& config, Reserve reserve, uint8_t pirq, uint16_t excluded, uint8_t& irq,
+                 bool rerouteExcludedEnabled = false) {
   if (pirq >= 8)
     return Result::Unsupported;
   const uint16_t offset = configOffset(pirq);
@@ -97,12 +99,14 @@ Result establish(Config& config, Reserve reserve, uint8_t pirq, uint16_t exclude
     return Result::ReadFailed;
   if (!(original & 0x80)) {
     const uint8_t selected = original & 0xf;
-    if (!validIrq(selected) || (excluded & (1U << selected)))
+    if (validIrq(selected) && !(excluded & (1U << selected))) {
+      if (!reserve(selected))
+        return Result::Conflict;
+      irq = selected;
+      return Result::Ready;
+    }
+    if (!rerouteExcludedEnabled)
       return Result::Unsupported;
-    if (!reserve(selected))
-      return Result::Conflict;
-    irq = selected;
-    return Result::Ready;
   }
   // Keep legacy timer/keyboard/serial/storage lines and the SCI out of new
   // assignments. Sharing a reserved PCI level line is supported by the PIC.

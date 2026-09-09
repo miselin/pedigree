@@ -102,8 +102,10 @@ class Ehci : public UsbHub,
     // Custom qTD fields
     uint16_t nBufferSize;
     bool processed;
+    // Host-only pointer to an optional below-4 GiB bounce transfer.
+    uint64_t pDma;
     // Arena entries need a 32-byte stride, while QH overlays start at byte 16.
-    uint8_t padding[9];
+    uint8_t padding[1];
 
     // Possible values for status
     enum StatusCodes {
@@ -257,6 +259,7 @@ class Ehci : public UsbHub,
     EHCI_CMD_RUN = 0x01,         // Run bit
 
     EHCI_STS_HALTED = 0x1000,      // Host Controller Halted bit
+    EHCI_STS_SYSERR = 0x10,        // Host System Error
     EHCI_STS_ASYNCADVANCE = 0x20,  // Async Advance
     EHCI_STS_PORTCH = 0x4,         // Port Change Detect bit
     EHCI_STS_ERR = 0x2,            // Error bit
