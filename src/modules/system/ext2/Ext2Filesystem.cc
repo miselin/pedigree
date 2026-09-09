@@ -764,26 +764,41 @@ bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNames
 #if THREADS || defined(STANDALONE_MUTEXES)
     LockGuard<Mutex> tableGuard(m_InodeTableLoadLock);
 #endif
+    // These tables and bitmaps stay pinned for the filesystem lifetime. Let
+    // the disk share one durability barrier across a bounded set of pages.
+    uint64_t locations[Disk::MaxSyncPages];
+    size_t locationCount = 0;
+    auto submitMetadata = [&](uint32_t block) {
+      if (!block)
+        return;
+      locations[locationCount++] = static_cast<uint64_t>(m_BlockSize) * block;
+      if (locationCount == Disk::MaxSyncPages) {
+        succeeded = m_pDisk->syncPages(locations, locationCount) && succeeded;
+        locationCount = 0;
+      }
+    };
     for (size_t group = 0; group < m_nGroupDescriptors; ++group) {
       GroupDesc* descriptor = m_pGroupDescriptors[group];
       const uint32_t inodeTable = LITTLE_TO_HOST32(descriptor->bg_inode_table);
       for (size_t i = 0; i < m_pInodeTables[group].count(); ++i) {
-        succeeded = syncBlock(inodeTable + i, false) && succeeded;
+        submitMetadata(inodeTable + i);
       }
       const uint32_t blockBitmap = LITTLE_TO_HOST32(descriptor->bg_block_bitmap);
       for (size_t i = 0; i < m_pBlockBitmaps[group].count(); ++i) {
-        succeeded = syncBlock(blockBitmap + i, false) && succeeded;
+        submitMetadata(blockBitmap + i);
       }
       const uint32_t inodeBitmap = LITTLE_TO_HOST32(descriptor->bg_inode_bitmap);
       for (size_t i = 0; i < m_pInodeBitmaps[group].count(); ++i) {
-        succeeded = syncBlock(inodeBitmap + i, false) && succeeded;
+        submitMetadata(inodeBitmap + i);
       }
       if (m_pInodeTables[group].count() || m_pBlockBitmaps[group].count() ||
           m_pInodeBitmaps[group].count()) {
         const uint32_t descriptorBlock = firstBlock + 1 + (group * sizeof(GroupDesc)) / m_BlockSize;
-        succeeded = syncBlock(descriptorBlock, false) && succeeded;
+        submitMetadata(descriptorBlock);
       }
     }
+    if (locationCount)
+      succeeded = m_pDisk->syncPages(locations, locationCount) && succeeded;
   }
   succeeded = m_pDisk->sync(1024ULL, false) && succeeded;
   const uint32_t inodeBlock = LITTLE_TO_HOST32(m_pGroupDescriptors[inodeGroup]->bg_inode_table) +

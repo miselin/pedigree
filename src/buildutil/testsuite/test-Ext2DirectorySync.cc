@@ -27,8 +27,11 @@ constexpr size_t kChildTable = 132;
 
 class DirectorySyncDisk final : public Disk {
  public:
-  explicit DirectorySyncDisk(bool indirectDirectory = false)
+  explicit DirectorySyncDisk(bool indirectDirectory = false,
+                             size_t inodesPerGroup = kInodesPerGroup)
       : cache(2 * kBlocksPerGroup * kBlockSize), durable(cache.size()), pins(2 * kBlocksPerGroup) {
+    const size_t tableBlocks = (inodesPerGroup * sizeof(Inode) + kBlockSize - 1) / kBlockSize;
+    const size_t rootBlock = std::max(kRootBlock, 4 + tableBlocks);
     Superblock* superblock = reinterpret_cast<Superblock*>(cache.data() + 1024);
     superblock->s_magic = HOST_TO_LITTLE16(0xef53);
     superblock->s_state = HOST_TO_LITTLE16(EXT2_STATE_CLEAN);
@@ -38,19 +41,20 @@ class DirectorySyncDisk final : public Disk {
     superblock->s_log_block_size = HOST_TO_LITTLE32(2);
     superblock->s_blocks_count = HOST_TO_LITTLE32(2 * kBlocksPerGroup);
     superblock->s_blocks_per_group = HOST_TO_LITTLE32(kBlocksPerGroup);
-    superblock->s_inodes_count = HOST_TO_LITTLE32(2 * kInodesPerGroup);
-    superblock->s_inodes_per_group = HOST_TO_LITTLE32(kInodesPerGroup);
-    superblock->s_free_inodes_count = HOST_TO_LITTLE32(kInodesPerGroup);
+    superblock->s_inodes_count = HOST_TO_LITTLE32(2 * inodesPerGroup);
+    superblock->s_inodes_per_group = HOST_TO_LITTLE32(inodesPerGroup);
+    superblock->s_free_inodes_count = HOST_TO_LITTLE32(inodesPerGroup);
 
     GroupDesc* groups = reinterpret_cast<GroupDesc*>(cache.data() + kBlockSize);
     for (size_t group = 0; group < 2; ++group) {
       const size_t base = group * kBlocksPerGroup;
-      const size_t reserved = !group ? (indirectDirectory ? 30 : 17) : 16;
+      const size_t reserved =
+          !group ? rootBlock + (indirectDirectory ? 14 : 1) : std::max(size_t{16}, 4 + tableBlocks);
       groups[group].bg_block_bitmap = HOST_TO_LITTLE32(base + 2);
       groups[group].bg_inode_bitmap = HOST_TO_LITTLE32(base + 3);
       groups[group].bg_inode_table = HOST_TO_LITTLE32(base + 4);
       groups[group].bg_free_blocks_count = HOST_TO_LITTLE16(kBlocksPerGroup - reserved);
-      groups[group].bg_free_inodes_count = HOST_TO_LITTLE16(group ? kInodesPerGroup : 0);
+      groups[group].bg_free_inodes_count = HOST_TO_LITTLE16(group ? inodesPerGroup : 0);
       superblock->s_free_blocks_count = HOST_TO_LITTLE32(
           LITTLE_TO_HOST32(superblock->s_free_blocks_count) + kBlocksPerGroup - reserved);
       for (size_t block = 0; block < reserved; ++block) {
@@ -58,7 +62,7 @@ class DirectorySyncDisk final : public Disk {
       }
     }
     // Force newly created children into a different group and inode-table page.
-    std::fill_n(cache.data() + 3 * kBlockSize, kInodesPerGroup / 8, 0xff);
+    std::fill_n(cache.data() + 3 * kBlockSize, inodesPerGroup / 8, 0xff);
 
     Inode& root = inode(cache, 2);
     root.i_mode = HOST_TO_LITTLE16(EXT2_S_IFDIR | 0755);
@@ -68,18 +72,19 @@ class DirectorySyncDisk final : public Disk {
     root.i_blocks =
         HOST_TO_LITTLE32((dataBlocks + (indirectDirectory ? 1 : 0)) * (kBlockSize / 512));
     for (size_t block = 0; block < dataBlocks; ++block) {
-      const size_t physical = kRootBlock + block + (block >= 12 ? 1 : 0);
+      const size_t physical = rootBlock + block + (block >= 12 ? 1 : 0);
       if (block < 12) {
         root.i_block[block] = HOST_TO_LITTLE32(physical);
       } else {
-        root.i_block[12] = HOST_TO_LITTLE32(28);
-        *reinterpret_cast<uint32_t*>(cache.data() + 28 * kBlockSize) = HOST_TO_LITTLE32(physical);
+        root.i_block[12] = HOST_TO_LITTLE32(rootBlock + 12);
+        *reinterpret_cast<uint32_t*>(cache.data() + (rootBlock + 12) * kBlockSize) =
+            HOST_TO_LITTLE32(physical);
       }
       Dir* empty = reinterpret_cast<Dir*>(cache.data() + physical * kBlockSize);
       empty->d_reclen = HOST_TO_LITTLE16(kBlockSize);
     }
-    makeEntry(cache.data() + kRootBlock * kBlockSize, 2, ".", 12);
-    makeEntry(cache.data() + kRootBlock * kBlockSize + 12, 2, "..", kBlockSize - 12);
+    makeEntry(cache.data() + rootBlock * kBlockSize, 2, ".", 12);
+    makeEntry(cache.data() + rootBlock * kBlockSize + 12, 2, "..", kBlockSize - 12);
     durable = cache;
   }
 
@@ -102,6 +107,17 @@ class DirectorySyncDisk final : public Disk {
     const size_t start = (location / kBlockSize) * kBlockSize;
     std::copy_n(cache.data() + start, kBlockSize, durable.data() + start);
     return true;
+  }
+
+  bool syncPages(const uint64_t* locations, size_t count) override {
+    if (!locations || !count || count > MaxSyncPages)
+      return false;
+    batches.emplace_back(locations, locations + count);
+    const bool succeeded = Disk::syncPages(locations, count);
+    // A failed shared barrier leaves the whole batch unconfirmed, even if
+    // individual writes reached the backing store before the failure.
+    return succeeded &&
+           std::find(locations, locations + count, failedBatchLocation) == locations + count;
   }
 
   bool pin(uint64_t location) override {
@@ -131,8 +147,10 @@ class DirectorySyncDisk final : public Disk {
   }
 
   static Inode& inode(std::vector<uint8_t>& bytes, uint32_t number) {
-    const size_t group = (number - 1) / kInodesPerGroup;
-    const size_t index = (number - 1) % kInodesPerGroup;
+    const Superblock* superblock = reinterpret_cast<const Superblock*>(bytes.data() + 1024);
+    const size_t inodesPerGroup = LITTLE_TO_HOST32(superblock->s_inodes_per_group);
+    const size_t group = (number - 1) / inodesPerGroup;
+    const size_t index = (number - 1) % inodesPerGroup;
     return *reinterpret_cast<Inode*>(bytes.data() + (group * kBlocksPerGroup + 4) * kBlockSize +
                                      index * sizeof(Inode));
   }
@@ -163,8 +181,10 @@ class DirectorySyncDisk final : public Disk {
   }
 
   bool durableInodeAllocated(uint32_t number) {
-    const size_t group = (number - 1) / kInodesPerGroup;
-    const size_t index = (number - 1) % kInodesPerGroup;
+    const Superblock* superblock = reinterpret_cast<const Superblock*>(durable.data() + 1024);
+    const size_t inodesPerGroup = LITTLE_TO_HOST32(superblock->s_inodes_per_group);
+    const size_t group = (number - 1) / inodesPerGroup;
+    const size_t index = (number - 1) % inodesPerGroup;
     return durable[(group * kBlocksPerGroup + 3) * kBlockSize + index / 8] & (1U << (index % 8));
   }
 
@@ -172,7 +192,9 @@ class DirectorySyncDisk final : public Disk {
   std::vector<uint8_t> durable;
   std::vector<size_t> pins;
   std::vector<uint64_t> syncs;
+  std::vector<std::vector<uint64_t>> batches;
   uint64_t failedSync = UINT64_MAX;
+  uint64_t failedBatchLocation = UINT64_MAX;
   uint64_t failedRead = UINT64_MAX;
 
  private:
@@ -308,4 +330,81 @@ TEST(Ext2DirectorySync, ParentSyncPersistsNewDirectoryAndMovedParentThroughAlias
   EXPECT_EQ(disk.durableEntry(movedInode, ".."), toInode);
   EXPECT_EQ(disk.pins[movedBlock], 0U);
 }
+
+TEST(Ext2DirectorySync, LoadedMetadataUsesBoundedBatchesWithoutDroppingDependencies) {
+  constexpr size_t inodesPerGroup = 2048;
+  constexpr size_t tableBlocks = inodesPerGroup * sizeof(Inode) / kBlockSize;
+  DirectorySyncDisk disk(false, inodesPerGroup);
+  Ext2Filesystem filesystem;
+  ASSERT_TRUE(filesystem.initialise(&disk));
+  File* parent = filesystem.getRoot();
+  ASSERT_TRUE(parent->sync());
+  ASSERT_TRUE(filesystem.Filesystem::createFile(String("created").view(), 0644, parent));
+  const auto pins = disk.pins;
+  disk.syncs.clear();
+  disk.batches.clear();
+
+  ASSERT_TRUE(parent->sync());
+  ASSERT_EQ(disk.batches.size(), 3U);
+  std::vector<uint64_t> submitted;
+  for (const auto& batch : disk.batches) {
+    EXPECT_FALSE(batch.empty());
+    EXPECT_LE(batch.size(), Disk::MaxSyncPages);
+    submitted.insert(submitted.end(), batch.begin(), batch.end());
+  }
+  for (size_t group = 0; group < 2; ++group) {
+    const size_t base = group * kBlocksPerGroup;
+    for (size_t block = 0; block < tableBlocks; ++block)
+      EXPECT_EQ(std::count(submitted.begin(), submitted.end(), (base + 4 + block) * kBlockSize), 1);
+    for (size_t block : {base + 2, base + 3, size_t{1}}) {
+      const bool submittedBlock =
+          std::find(submitted.begin(), submitted.end(), block * kBlockSize) != submitted.end();
+      EXPECT_EQ(submittedBlock, pins[block] != 0);
+    }
+  }
+  // Directory data and the inode's existing ordered metadata path remain
+  // separate; loaded table size must not add individual durability barriers.
+  EXPECT_EQ(disk.syncs.size() - submitted.size(), 6U);
+  EXPECT_EQ(disk.durableEntry(2, "created"), inodesPerGroup + 1);
+  EXPECT_TRUE(disk.durableInodeAllocated(inodesPerGroup + 1));
+  EXPECT_EQ(disk.pins, pins);
+}
+
+class Ext2DirectoryBatchFailure : public testing::TestWithParam<uint64_t> {};
+
+TEST_P(Ext2DirectoryBatchFailure, SharedBarrierFailureRetriesCompleteMetadataAndNewChanges) {
+  constexpr size_t inodesPerGroup = 2048;
+  DirectorySyncDisk disk(false, inodesPerGroup);
+  Ext2Filesystem filesystem;
+  ASSERT_TRUE(filesystem.initialise(&disk));
+  File* parent = filesystem.getRoot();
+  ASSERT_TRUE(parent->sync());
+  ASSERT_TRUE(filesystem.Filesystem::createFile(String("created").view(), 0644, parent));
+  const auto pins = disk.pins;
+  disk.batches.clear();
+  disk.failedBatchLocation = GetParam();
+
+  EXPECT_FALSE(parent->sync());
+  const auto firstBatches = disk.batches;
+  ASSERT_EQ(firstBatches.size(), 3U);
+  disk.batches.clear();
+  EXPECT_FALSE(parent->sync());
+  EXPECT_EQ(disk.batches, firstBatches);
+
+  ASSERT_TRUE(filesystem.Filesystem::createFile(String("later").view(), 0600, parent));
+  disk.failedBatchLocation = UINT64_MAX;
+  disk.batches.clear();
+  ASSERT_TRUE(parent->sync());
+  EXPECT_EQ(disk.batches, firstBatches);
+  EXPECT_EQ(disk.durableEntry(2, "created"), inodesPerGroup + 1);
+  EXPECT_EQ(disk.durableEntry(2, "later"), inodesPerGroup + 2);
+  EXPECT_TRUE(disk.durableInodeAllocated(inodesPerGroup + 1));
+  EXPECT_TRUE(disk.durableInodeAllocated(inodesPerGroup + 2));
+  EXPECT_EQ(LITTLE_TO_HOST16(DirectorySyncDisk::inode(disk.durable, inodesPerGroup + 2).i_mode),
+            EXT2_S_IFREG | 0600);
+  EXPECT_EQ(disk.pins, pins);
+}
+
+INSTANTIATE_TEST_CASE_P(FirstMiddleAndLastBatch, Ext2DirectoryBatchFailure,
+                        testing::Values(4 * kBlockSize, 132 * kBlockSize, 195 * kBlockSize));
 }  // namespace
