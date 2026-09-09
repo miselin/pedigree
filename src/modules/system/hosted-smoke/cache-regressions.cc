@@ -145,9 +145,9 @@ bool callbackLifetime() {
       check(callbackPinnedObject, "Cache destruction returned while its callback was active") &&
       check(joined, "the Cache deleter did not become reapable") &&
       check(context.deleteReturned == 1, "Cache destruction did not complete exactly once") &&
-      check(context.callbackCalls == 3,
+      check(context.callbackCalls == 2,
             "writeback and eviction callbacks did not execute exactly once") &&
-      check(context.reentrantPins == 2, "dirty writeback could not safely re-enter the Cache") &&
+      check(context.reentrantPins == 1, "dirty writeback could not safely re-enter the Cache") &&
       check(context.evictionCalls == 1, "Cache destruction did not reclaim the inserted page");
 
   if (passed) {

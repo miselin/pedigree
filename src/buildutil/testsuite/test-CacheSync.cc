@@ -4,6 +4,11 @@
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/utilities/Cache.h"
 
+#include <functional>
+#include <memory>
+#include <utility>
+#include <vector>
+
 #include "modules/drivers/common/partition/Partition.h"
 #include <gtest/gtest.h>
 
@@ -61,6 +66,104 @@ struct Observer {
   }
 };
 }  // namespace
+
+#if !THREADS
+namespace {
+constexpr uint64_t ManagerPeriod = CACHE_WRITEBACK_PERIOD * 1000000ULL;
+
+class ManagerTimerProbe : public Cache {
+ public:
+  void timer(uint64_t delta) override {
+    deltas.push_back(delta);
+    auto action = std::move(onTick);
+    onTick = nullptr;
+    if (action)
+      action();
+  }
+
+  std::vector<uint64_t> deltas;
+  std::function<void()> onTick;
+};
+}  // namespace
+
+TEST(CacheManagerScan, CoalescesSubperiodTicksAndPreservesTheirElapsedTime) {
+  CacheManager& manager = CacheManager::instance();
+  manager.timer(ManagerPeriod);
+  ManagerTimerProbe probe;
+  for (size_t i = 0; i < 499; ++i)
+    manager.timer(1000000);
+  EXPECT_TRUE(probe.deltas.empty());
+  manager.timer(1000000);
+  ASSERT_EQ(probe.deltas, std::vector<uint64_t>{ManagerPeriod});
+  manager.timer(0);
+  manager.timer(ManagerPeriod - 1);
+  EXPECT_EQ(probe.deltas.size(), 1U);
+  manager.timer(1);
+  EXPECT_EQ(probe.deltas, (std::vector<uint64_t>{ManagerPeriod, ManagerPeriod}));
+}
+
+TEST(CacheManagerScan, NewCachesReceiveOnlyTimeAfterTheirRegistration) {
+  CacheManager& manager = CacheManager::instance();
+  manager.timer(ManagerPeriod);
+  ManagerTimerProbe older;
+  manager.timer(ManagerPeriod / 2);
+  ManagerTimerProbe newer;
+  manager.timer(ManagerPeriod / 2);
+  EXPECT_EQ(older.deltas, std::vector<uint64_t>{ManagerPeriod});
+  EXPECT_EQ(newer.deltas, std::vector<uint64_t>{ManagerPeriod / 2});
+  manager.timer(ManagerPeriod);
+  EXPECT_EQ(newer.deltas, (std::vector<uint64_t>{ManagerPeriod / 2, ManagerPeriod}));
+}
+
+TEST(CacheManagerScan, StableIdsSkipRemovalAndDeferAdmissionUntilNextScan) {
+  CacheManager& manager = CacheManager::instance();
+  manager.timer(ManagerPeriod);
+  ManagerTimerProbe first;
+  auto removed = std::make_unique<ManagerTimerProbe>();
+  ManagerTimerProbe last;
+  std::unique_ptr<ManagerTimerProbe> added;
+  first.onTick = [&] {
+    removed.reset();
+    added = std::make_unique<ManagerTimerProbe>();
+  };
+  manager.timer(ManagerPeriod);
+  EXPECT_EQ(first.deltas.size(), 1U);
+  EXPECT_EQ(last.deltas.size(), 1U);
+  ASSERT_NE(added, nullptr);
+  EXPECT_TRUE(added->deltas.empty());
+  manager.timer(ManagerPeriod);
+  EXPECT_EQ(first.deltas.size(), 2U);
+  EXPECT_EQ(last.deltas.size(), 2U);
+  EXPECT_EQ(added->deltas, std::vector<uint64_t>{ManagerPeriod});
+}
+
+TEST(CacheManagerScan, ClockWrapAndLongIntervalsRemainUsable) {
+  CacheManager& manager = CacheManager::instance();
+  manager.timer(ManagerPeriod);
+  ManagerTimerProbe probe;
+  manager.timer(~uint64_t{0});
+  manager.timer(~uint64_t{0});
+  EXPECT_EQ(probe.deltas, (std::vector<uint64_t>{~uint64_t{0}, ~uint64_t{0}}));
+  manager.timer(ManagerPeriod - 1);
+  EXPECT_EQ(probe.deltas.size(), 2U);
+  manager.timer(1);
+  EXPECT_EQ(probe.deltas.back(), ManagerPeriod);
+  EXPECT_EQ(probe.deltas.size(), 3U);
+}
+
+TEST(CacheManagerScan, DelayedCacheSaturatesElapsedAndRejectsAnOlderScanStamp) {
+  CacheManager& manager = CacheManager::instance();
+  manager.timer(ManagerPeriod);
+  ManagerTimerProbe first;
+  ManagerTimerProbe delayed;
+  first.onTick = [&] { manager.timer(~uint64_t{0}); };
+  manager.timer(ManagerPeriod);
+  EXPECT_EQ(first.deltas, (std::vector<uint64_t>{ManagerPeriod, ~uint64_t{0}}));
+  EXPECT_EQ(delayed.deltas, std::vector<uint64_t>{~uint64_t{0}});
+  manager.timer(ManagerPeriod);
+  EXPECT_EQ(delayed.deltas, (std::vector<uint64_t>{~uint64_t{0}, ManagerPeriod}));
+}
+#endif
 
 TEST(CacheSync, DrainsEveryPageAndRetainsFailureForRetry) {
   Observer observer;

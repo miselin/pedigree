@@ -65,13 +65,14 @@ static int trimTrampoline(void* p) {
 CacheManager::CacheManager()
     : RequestQueue(MakeConstantString("CacheManager")),
       m_Caches(),
+      m_NextCacheId(1),
+      m_TimerClock(),
+      m_TrimDelta(0),
 #if THREADS
       m_CachesLock(),
-      m_NextCacheId(1),
       m_pTrimThread(0),
       m_TrimWaiters(),
       m_bTrimRequested(false),
-      m_TrimDelta(0),
 #endif
       m_bActive(false),
       m_pTimer(nullptr) {
@@ -146,34 +147,33 @@ void CacheManager::initialise() {
 void CacheManager::registerCache(Cache* pCache) {
 #if THREADS
   LockGuard<Mutex> guard(m_CachesLock);
+#endif
   if (!m_NextCacheId) {
     FATAL("CacheManager exhausted its stable cache identity space");
   }
   pCache->m_ManagerId = m_NextCacheId++;
+#if THREADS
+  {
+    auto timerGuard = m_TrimWaiters.acquire();
+    pCache->m_ManagerTimerStamp = m_TimerClock;
+  }
+#else
+  pCache->m_ManagerTimerStamp = m_TimerClock;
 #endif
-  m_Caches.pushBack(pCache);
+  m_Caches.insert(pCache->m_ManagerId, pCache);
 }
 
 void CacheManager::unregisterCache(Cache* pCache) {
 #if THREADS
-  bool removed = false;
   {
     LockGuard<Mutex> guard(m_CachesLock);
 #endif
-    for (List<Cache*>::Iterator it = m_Caches.begin(); it != m_Caches.end(); ++it) {
-      if ((*it) == pCache) {
-        m_Caches.erase(it);
-#if THREADS
-        pCache->m_ManagerId = 0;
-        removed = true;
-#endif
-        break;
-      }
+    if (!pCache->m_ManagerId || m_Caches.lookup(pCache->m_ManagerId) != pCache) {
+      FATAL("CacheManager could not unregister an unknown Cache");
     }
+    m_Caches.remove(pCache->m_ManagerId);
+    pCache->m_ManagerId = 0;
 #if THREADS
-  }
-  if (!removed) {
-    FATAL("CacheManager could not unregister an unknown Cache");
   }
   pCache->m_ManagerOperations.closeAndWait();
 #endif
@@ -198,8 +198,13 @@ bool CacheManager::trimAll(size_t count) {
     count -= evicted;
   }
 #else
-  for (List<Cache*>::Iterator it = m_Caches.begin(); (it != m_Caches.end()) && count; ++it) {
-    size_t evicted = (*it)->trim(count);
+  uint64_t afterId = 0;
+  const uint64_t maximumId = m_NextCacheId - 1;
+  Cache* cache = nullptr;
+  uint64_t cacheId = 0;
+  while (count && findNextCache(afterId, maximumId, cache, cacheId)) {
+    afterId = cacheId;
+    size_t evicted = cache->trim(count);
     totalEvicted += evicted;
     count -= evicted;
   }
@@ -210,26 +215,80 @@ bool CacheManager::trimAll(size_t count) {
 
 void CacheManager::timer(uint64_t delta) {
 #if THREADS
-  {
-    auto guard = m_TrimWaiters.acquire();
-    m_bTrimRequested = true;
-    const uint64_t maximum = ~static_cast<uint64_t>(0);
-    m_TrimDelta = delta > (maximum - m_TrimDelta) ? maximum : m_TrimDelta + delta;
-    guard.wakeOne(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
-  }
+  auto guard = m_TrimWaiters.acquire();
+#endif
+  m_TimerClock.advance(delta);
+  const uint64_t maximum = ~static_cast<uint64_t>(0);
+  m_TrimDelta = delta > (maximum - m_TrimDelta) ? maximum : m_TrimDelta + delta;
+#if THREADS
+  // Pressure checks retain their tick cadence. Only writeback enumeration is
+  // coalesced; the pending predicate survives a wake with no sleeping worker.
+  m_bTrimRequested = true;
+  guard.wakeOne(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
 #else
-  for (List<Cache*>::Iterator it = m_Caches.begin(); it != m_Caches.end(); ++it) {
-    (*it)->timer(delta);
+  TimerStamp stamp;
+  if (!takeTimerStamp(stamp))
+    return;
+  uint64_t afterId = 0;
+  const uint64_t maximumId = m_NextCacheId - 1;
+  Cache* cache = nullptr;
+  uint64_t cacheId = 0;
+  while (findNextCache(afterId, maximumId, cache, cacheId)) {
+    afterId = cacheId;
+    dispatchTimer(cache, stamp);
   }
 #endif
+}
+
+void CacheManager::TimerStamp::advance(uint64_t delta) {
+  const uint64_t previous = elapsed;
+  elapsed += delta;
+  if (elapsed < previous)
+    ++wraps;
+}
+
+uint64_t CacheManager::TimerStamp::since(const TimerStamp& previous) const {
+  if (wraps < previous.wraps || (wraps == previous.wraps && elapsed < previous.elapsed))
+    return 0;
+  if (wraps == previous.wraps || (wraps - previous.wraps == 1 && elapsed < previous.elapsed))
+    return elapsed - previous.elapsed;
+  return ~uint64_t{0};
+}
+
+bool CacheManager::takeTimerStamp(TimerStamp& stamp) {
+  if (m_TrimDelta < CACHE_WRITEBACK_PERIOD * 1000000ULL)
+    return false;
+  // Keep subperiod deltas until a scan is due, then deliver the whole elapsed
+  // interval once, including time accumulated while the worker was running.
+  m_TrimDelta = 0;
+  stamp = m_TimerClock;
+  return true;
+}
+
+void CacheManager::dispatchTimer(Cache* cache, const TimerStamp& stamp) {
+  const uint64_t delta = stamp.since(cache->m_ManagerTimerStamp);
+  if (!delta)
+    return;
+  cache->m_ManagerTimerStamp = stamp;
+  cache->timer(delta);
+}
+
+bool CacheManager::findNextCache(uint64_t afterId, uint64_t maximumId, Cache*& cache,
+                                 uint64_t& cacheId) {
+  if (afterId < maximumId && m_Caches.lowerBound(afterId + 1, cacheId, cache) &&
+      cacheId <= maximumId)
+    return true;
+  cache = nullptr;
+  cacheId = 0;
+  return false;
 }
 
 #if THREADS
 bool CacheManager::acquireCache(Cache* cache, uint64_t& generation,
                                 OperationBarrier::Lease& lease) {
   LockGuard<Mutex> guard(m_CachesLock);
-  for (List<Cache*>::Iterator it = m_Caches.begin(); it != m_Caches.end(); ++it) {
-    if (*it == cache) {
+  for (auto it = m_Caches.begin(); it != m_Caches.end(); ++it) {
+    if (it.value() == cache) {
       if (cache->m_ManagerOperations.tryAcquire(lease)) {
         generation = cache->m_ManagerId;
         return true;
@@ -246,29 +305,14 @@ bool CacheManager::acquireCache(Cache* cache, uint64_t& generation,
 bool CacheManager::acquireNextCache(uint64_t afterId, uint64_t maximumId, Cache*& cache,
                                     uint64_t& cacheId, OperationBarrier::Lease& lease) {
   LockGuard<Mutex> guard(m_CachesLock);
-  Cache* selected = nullptr;
-  uint64_t selectedId = ~static_cast<uint64_t>(0);
-  for (List<Cache*>::Iterator it = m_Caches.begin(); it != m_Caches.end(); ++it) {
-    Cache* candidate = *it;
-    if (candidate->m_ManagerId > afterId && candidate->m_ManagerId <= maximumId &&
-        candidate->m_ManagerId < selectedId) {
-      selected = candidate;
-      selectedId = candidate->m_ManagerId;
-    }
-  }
-
-  if (!selected) {
-    cache = nullptr;
-    cacheId = 0;
+  if (!findNextCache(afterId, maximumId, cache, cacheId)) {
     lease = OperationBarrier::Lease();
     return false;
   }
 
-  if (!selected->m_ManagerOperations.tryAcquire(lease)) {
+  if (!cache->m_ManagerOperations.tryAcquire(lease)) {
     FATAL("CacheManager found a closing Cache still registered");
   }
-  cache = selected;
-  cacheId = selectedId;
   return true;
 }
 
@@ -336,8 +380,8 @@ uint64_t CacheManager::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uin
     return 0;
 
   bool cacheFound = false;
-  for (List<Cache*>::Iterator it = m_Caches.begin(); it != m_Caches.end(); ++it) {
-    if ((*it) == pCache) {
+  for (auto it = m_Caches.begin(); it != m_Caches.end(); ++it) {
+    if (it.value() == pCache) {
       cacheFound = true;
       break;
     }
@@ -376,7 +420,8 @@ void CacheManager::cancelRequest(const Request& request) {
 #if THREADS
 void CacheManager::trimThread() {
   while (true) {
-    uint64_t timerDelta = 0;
+    TimerStamp stamp;
+    bool timerDue = false;
     {
       auto guard = m_TrimWaiters.acquire();
       if (!m_bActive) {
@@ -392,8 +437,7 @@ void CacheManager::trimThread() {
         continue;
       }
       m_bTrimRequested = false;
-      timerDelta = m_TrimDelta;
-      m_TrimDelta = 0;
+      timerDue = takeTimerStamp(stamp);
     }
 
     // Ask caches to trim if we're heading towards memory usage problems.
@@ -411,7 +455,7 @@ void CacheManager::trimThread() {
       trimAll(trimCount);
     }
 
-    if (timerDelta) {
+    if (timerDue) {
       uint64_t afterId = 0;
       const uint64_t maximumId = cacheGenerationWatermark();
       while (true) {
@@ -423,7 +467,7 @@ void CacheManager::trimThread() {
         }
 
         afterId = cacheId;
-        cache->timer(timerDelta);
+        dispatchTimer(cache, stamp);
       }
     }
   }
@@ -441,8 +485,9 @@ Cache::Cache(size_t pageConstraints)
 #if THREADS
       m_EvictionWaiters(),
       m_ManagerOperations(),
-      m_ManagerId(0),
 #endif
+      m_ManagerId(0),
+      m_ManagerTimerStamp(),
       m_Callback(0),
       m_Nanoseconds(0),
       m_WritebackEpoch(0),

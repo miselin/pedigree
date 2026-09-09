@@ -103,6 +103,20 @@ class EXPORTED_PUBLIC CacheManager :
 #endif
 
  private:
+  struct TimerStamp {
+    uint64_t elapsed = 0;
+    uint64_t wraps = 0;
+
+    void advance(uint64_t delta);
+    uint64_t since(const TimerStamp& previous) const;
+  };
+
+  /** Registry lock must be held in threaded builds. */
+  bool findNextCache(uint64_t afterId, uint64_t maximumId, Cache*& cache, uint64_t& cacheId);
+  /** Timer waiter lock must be held in threaded builds. */
+  bool takeTimerStamp(TimerStamp& stamp);
+  void dispatchTimer(Cache* cache, const TimerStamp& stamp);
+
 #if THREADS
   struct CacheRequest {
     CacheRequest(Cache* requestCache, OperationBarrier::Lease&& requestLease)
@@ -152,19 +166,20 @@ class EXPORTED_PUBLIC CacheManager :
 
   static CacheManager* m_Instance;
 
-  List<Cache*> m_Caches;
+  Tree<uint64_t, Cache*> m_Caches;
+
+  /** Monotonic identity used to walk caches without retaining iterators. */
+  uint64_t m_NextCacheId;
+  TimerStamp m_TimerClock;
+  uint64_t m_TrimDelta;
 
 #if THREADS
   /** Serialises cache registration with callback admission. */
   Mutex m_CachesLock;
 
-  /** Monotonic identity used to walk caches without holding m_CachesLock. */
-  uint64_t m_NextCacheId;
-
   Thread* m_pTrimThread;
   WaitQueue m_TrimWaiters;
   bool m_bTrimRequested;
-  uint64_t m_TrimDelta;
 #endif
 
   /** Protected by m_TrimWaiters when threading is enabled. */
@@ -636,10 +651,11 @@ class EXPORTED_PUBLIC Cache {
 
   /** Drains manager callbacks before Cache storage is destroyed. */
   OperationBarrier m_ManagerOperations;
+#endif
 
   /** Stable identity assigned while registered with CacheManager. */
   uint64_t m_ManagerId;
-#endif
+  CacheManager::TimerStamp m_ManagerTimerStamp;
 
   /** Callback to be called in the write-back timer handler. */
   writeback_t m_Callback;
