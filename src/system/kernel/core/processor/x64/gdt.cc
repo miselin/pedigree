@@ -26,9 +26,13 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-// These will all be safe for use when entering a double fault handler
-#define SAFE_STACK_SIZE 8192
-static char g_SafeStack[SAFE_STACK_SIZE] = {0};
+namespace {
+struct alignas(16) DoubleFaultStack {
+  uint8_t bytes[8192];
+};
+static_assert(offsetof(X64TaskStateSegment, ist) == 0x24, "IST1 must be at TSS offset 0x24");
+static_assert(sizeof(DoubleFaultStack) % 16 == 0, "IST stack top must be aligned");
+}  // namespace
 
 X64GdtManager X64GdtManager::m_Instance;
 
@@ -49,8 +53,6 @@ void X64GdtManager::initialise(size_t processorCount) {
   setSegmentDescriptor(6, 0, 0, 0xF2, 0x22);  // User data64 - 0x30
 
 #if MULTIPROCESSOR
-
-  /// \todo Multiprocessor #DF handler
 
   size_t i = 0;
   for (Vector<ProcessorInformation*>::Iterator it = Processor::m_ProcessorInformation.begin();
@@ -115,7 +117,11 @@ void X64GdtManager::setTssDescriptor(size_t index, uint64_t base) {
 void X64GdtManager::initialiseTss(X64TaskStateSegment* pTss) {
   ByteSet(reinterpret_cast<void*>(pTss), 0, sizeof(X64TaskStateSegment));
 
-  pTss->ist[1] = reinterpret_cast<uint64_t>(g_SafeStack) + SAFE_STACK_SIZE;
+  // Each permanent TSS needs its own resident stack: simultaneous faults must
+  // not overwrite another CPU's frame. Touch every page before emergency use.
+  auto* stack = new DoubleFaultStack{};
+  // The IDT's IST selector is one-based, while the TSS array is zero-based.
+  pTss->ist[0] = reinterpret_cast<uint64_t>(stack + 1);
 
   // All entries will be zero by default (all ports accessible to all IOPLs)
   /// \todo this should change
