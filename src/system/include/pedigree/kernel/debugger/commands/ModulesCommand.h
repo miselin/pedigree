@@ -11,44 +11,26 @@
  * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ * ANY DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef CPUINFO_COMMAND_H
-#define CPUINFO_COMMAND_H
+#ifndef MODULES_COMMAND_H
+#define MODULES_COMMAND_H
 
 #include "pedigree/kernel/debugger/DebuggerCommand.h"
 #include "pedigree/kernel/debugger/Scrollable.h"
-#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
-/** @addtogroup kerneldebuggercommands
- * @{ */
-
-class DebuggerIO;
-
-class CpuInfoCommand : public DebuggerCommand, public Scrollable {
+class ModulesCommand : public DebuggerCommand, public Scrollable {
  public:
-  CpuInfoCommand();
-  ~CpuInfoCommand();
+  ModulesCommand();
+  ~ModulesCommand();
 
-  /**
-   * Return an autocomplete string, given an input string.
-   */
   void autocomplete(const HugeStaticString& input, HugeStaticString& output);
-
-  /**
-   * Execute the command with the given screen.
-   */
   bool execute(const HugeStaticString& input, HugeStaticString& output, InterruptState& state,
                DebuggerIO* screen);
-
-  /**
-   * Returns the string representation of this command.
-   */
   const NormalStaticString getString();
 
   const char* getLine1(size_t index, DebuggerIO::Colour& colour,
@@ -58,10 +40,7 @@ class CpuInfoCommand : public DebuggerCommand, public Scrollable {
   size_t getLineCount();
 
  private:
-  LargeStaticString m_Lines[12];
-  size_t m_LineCount;
+  LargeStaticString m_Line;
 };
-
-/** @} */
 
 #endif

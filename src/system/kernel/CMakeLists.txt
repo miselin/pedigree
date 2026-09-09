@@ -371,6 +371,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/LookupCommand.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/MappingCommand.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/MemoryInspector.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/ModulesCommand.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/PanicCommand.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/QuitCommand.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/SlamCommand.cc

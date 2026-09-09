@@ -76,31 +76,6 @@ static uintptr_t extend(T p) {
   return p;
 }
 
-template <class T>
-static T* retract(T* p) {
-  EMIT_IF(X86_COMMON && !BITS_32) {
-    uintptr_t u = reinterpret_cast<uintptr_t>(p);
-    if (u >= EXTENSION_ADDEND)
-      u -= EXTENSION_ADDEND;
-    return reinterpret_cast<T*>(u);
-  }
-
-  return p;
-}
-
-template <class T>
-static uintptr_t retract(T p) {
-  EMIT_IF(X86_COMMON && !BITS_32) {
-    // Must assign to a possibly-larger type before arithmetic.
-    uintptr_t u = p;
-    if (u >= EXTENSION_ADDEND)
-      u -= EXTENSION_ADDEND;
-    return u;
-  }
-
-  return p;
-}
-
 bool KernelElf::initialise(const BootstrapStruct_t& pBootstrap) {
   // Do we even have section headers to peek at?
   if (pBootstrap.getSectionHeaderCount() == 0) {
@@ -1698,18 +1673,22 @@ const char* KernelElf::globalLookupSymbol(uintptr_t addr, uintptr_t* startAddr) 
 
   // Try a lookup in the kernel.
   const char* ret;
-  if ((ret = lookupSymbol(retract(addr), startAddr, m_pSymbolTable))) {
+  if ((ret = lookupSymbol(addr, startAddr, m_pSymbolTable))) {
     return ret;
   }
 
   // OK, that didn't work. Try every module.
   lockModules();
   for (auto it : m_Modules) {
-    if (!(it->isActive() || it->isExecuting()) || !it->elf) {
+    if (!(it->isActive() || it->isExecuting())) {
       continue;
     }
 
-    if ((ret = it->elf->lookupSymbol(addr, startAddr))) {
+    if (it->elf && (ret = it->elf->lookupSymbol(addr, startAddr))) {
+      unlockModules();
+      return ret;
+    }
+    if (it->runtime && (ret = runtimeLookupSymbolLocked(addr, startAddr))) {
       unlockModules();
       return ret;
     }
@@ -1717,6 +1696,20 @@ const char* KernelElf::globalLookupSymbol(uintptr_t addr, uintptr_t* startAddr) 
   unlockModules();
   WARNING_NOLOCK("KERNELELF: GlobalLookupSymbol(" << Hex << addr << ") failed.");
   return 0;
+}
+
+size_t KernelElf::getModuleCount() {
+  lockModules();
+  const size_t count = m_Modules.count();
+  unlockModules();
+  return count;
+}
+
+const Module* KernelElf::getModule(size_t index) {
+  lockModules();
+  const Module* module = index < m_Modules.count() ? m_Modules[index] : nullptr;
+  unlockModules();
+  return module;
 }
 
 bool KernelElf::hasPendingModules() const {

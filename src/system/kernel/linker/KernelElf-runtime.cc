@@ -237,6 +237,35 @@ uintptr_t KernelElf::runtimeExportLocked(const char* name, Module* owner) const 
   return weak;
 }
 
+const char* KernelElf::runtimeLookupSymbolLocked(uintptr_t addr, uintptr_t* startAddr) const {
+  for (const auto* prepared : slots) {
+    if (!prepared || !(prepared->module.isActive() || prepared->module.isExecuting())) {
+      continue;
+    }
+
+    const auto& slot = *prepared;
+    for (size_t i = 1; i < slot.plan.symbolCount; ++i) {
+      ModuleImage::Symbol symbol;
+      if (!slot.plan.exportedSymbol(i, symbol)) {
+        continue;
+      }
+
+      const uintptr_t symbolAddress = slot.base + symbol.value;
+      const size_t symbolSize = symbol.size ? symbol.size : 1;
+      if (addr >= symbolAddress && addr - symbolAddress < symbolSize) {
+        if (startAddr) {
+          *startAddr = symbolAddress;
+        }
+        const char* name = slot.plan.symbolName(symbol);
+        if (name) {
+          return name;
+        }
+      }
+    }
+  }
+  return nullptr;
+}
+
 uintptr_t KernelElf::resolveRuntimeImport(const char* name, Module* consumer) {
   const HashedStringView symbol(name);
   uintptr_t result = m_SymbolTable.lookupOwned(symbol, this);

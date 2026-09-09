@@ -19,6 +19,18 @@
 
 #include "pedigree/kernel/debugger/Scrollable.h"
 
+namespace {
+void drawClippedString(DebuggerIO* screen, const char* text, size_t row, size_t column,
+                       size_t width, DebuggerIO::Colour colour, DebuggerIO::Colour bgColour) {
+  if (!text || column >= width) {
+    return;
+  }
+
+  HugeStaticString clipped(text, width - column);
+  screen->drawString(clipped, row, column, colour, bgColour);
+}
+}  // namespace
+
 Scrollable::Scrollable()
     : m_x(0), m_y(0), m_width(0), m_height(0), m_line(0), m_ScrollUp('j'), m_ScrollDown('k') {}
 Scrollable::~Scrollable() = default;
@@ -73,14 +85,12 @@ void Scrollable::refresh(DebuggerIO* pScreen) {
       DebuggerIO::Colour bgColour = DebuggerIO::Black;
       size_t colOffset;
       const char* Line = getLine1(line, colour, bgColour);
-      if (Line)
-        pScreen->drawString(Line, m_y + i, m_x, colour, bgColour);
+      drawClippedString(pScreen, Line, m_y + i, m_x, m_x + m_width, colour, bgColour);
 
       colour = DebuggerIO::White;
       bgColour = DebuggerIO::Black;
       Line = getLine2(line, colOffset, colour, bgColour);
-      if (Line)
-        pScreen->drawString(Line, m_y + i, m_x + colOffset, colour, bgColour);
+      drawClippedString(pScreen, Line, m_y + i, m_x + colOffset, m_x + m_width, colour, bgColour);
     }
     line++;
   }

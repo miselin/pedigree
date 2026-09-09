@@ -51,18 +51,11 @@ bool LogViewer::execute(const HugeStaticString& input, HugeStaticString& output,
   pScreen->drawHorizontalLine(' ', pScreen->getHeight() - 1, 0, pScreen->getWidth() - 1,
                               DebuggerIO::White, DebuggerIO::Green);
 
-  // Write some helper text in the lower status line.
-  // TODO FIXME: Drawing this might screw the top status bar
-  pScreen->drawString(
-      "j: Up one line. k: Down one line. backspace: Page up. space: Page "
-      "down. q: Quit",
-      pScreen->getHeight() - 1, 0, DebuggerIO::White, DebuggerIO::Green);
-  pScreen->drawString("j", pScreen->getHeight() - 1, 0, DebuggerIO::Yellow, DebuggerIO::Green);
-  pScreen->drawString("k", pScreen->getHeight() - 1, 16, DebuggerIO::Yellow, DebuggerIO::Green);
-  pScreen->drawString("backspace", pScreen->getHeight() - 1, 34, DebuggerIO::Yellow,
+  NormalStaticString footer(
+      "j: up  k: down  backspace: page up  space: page down  q: quit");
+  footer.truncate(pScreen->getWidth());
+  pScreen->drawString(footer, pScreen->getHeight() - 1, 0, DebuggerIO::White,
                       DebuggerIO::Green);
-  pScreen->drawString("space", pScreen->getHeight() - 1, 54, DebuggerIO::Yellow, DebuggerIO::Green);
-  pScreen->drawString("q", pScreen->getHeight() - 1, 72, DebuggerIO::Yellow, DebuggerIO::Green);
 
   // Main loop.
   bool bStop = false;

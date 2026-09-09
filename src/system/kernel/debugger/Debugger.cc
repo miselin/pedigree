@@ -41,6 +41,7 @@
 #include "pedigree/kernel/debugger/commands/LookupCommand.h"
 #include "pedigree/kernel/debugger/commands/MappingCommand.h"
 #include "pedigree/kernel/debugger/commands/MemoryInspector.h"
+#include "pedigree/kernel/debugger/commands/ModulesCommand.h"
 #include "pedigree/kernel/debugger/commands/PanicCommand.h"
 #include "pedigree/kernel/debugger/commands/QuitCommand.h"
 #include "pedigree/kernel/debugger/commands/SlamCommand.h"
@@ -220,6 +221,7 @@ void Debugger::start(InterruptState& state, LargeStaticString& description) {
   static LookupCommand lookup;
   static HelpCommand help;
   static MappingCommand mapping;
+  static ModulesCommand modules;
   static TraceCommand trace;
 
 #if THREADS
@@ -253,6 +255,7 @@ void Debugger::start(InterruptState& state, LargeStaticString& description) {
       &help,
       &g_LocksCommand,
       &mapping,
+      &modules,
   };
   const size_t nCommands = sizeof(pCommands) / sizeof(pCommands[0]);
 

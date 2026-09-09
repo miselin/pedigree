@@ -104,7 +104,8 @@ Elf::Elf()
       m_NeededLibraries(),
       m_SymbolTable(this),
       m_InitFunc(0),
-      m_FiniFunc(0) {}
+      m_FiniFunc(0),
+      m_LoadBase(0) {}
 
 Elf::~Elf() {
   delete[] m_pSymbolTable;
@@ -152,7 +153,8 @@ Elf::Elf(const Elf& elf)
       m_NeededLibraries(elf.m_NeededLibraries),
       m_SymbolTable(this),
       m_InitFunc(elf.m_InitFunc),
-      m_FiniFunc(elf.m_FiniFunc) {
+      m_FiniFunc(elf.m_FiniFunc),
+      m_LoadBase(elf.m_LoadBase) {
   // Copy the symbol table
   m_pSymbolTable = copy(elf.m_pSymbolTable, m_nSymbolTableSize);
 
@@ -1102,10 +1104,11 @@ const char* Elf::lookupSymbol(uintptr_t addr, uintptr_t* startAddr, T* symbolTab
     Elf_Xword size = pSymbol->size;
     if (size == 0)
       size = 0x100;
-    if ((addr >= pSymbol->value) && (addr < (pSymbol->value + size))) {
+    const uintptr_t symbolAddress = pSymbol->value + m_LoadBase;
+    if ((addr >= symbolAddress) && (addr < (symbolAddress + size))) {
       const char* pStr = pStrtab + pSymbol->name;
       if (startAddr)
-        *startAddr = pSymbol->value;
+        *startAddr = symbolAddress;
       return pStr;
     }
     pSymbol++;

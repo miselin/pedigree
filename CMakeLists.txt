@@ -163,6 +163,9 @@ set(PEDIGREE_OPTIMIZE TRUE CACHE BOOL "Build an optimized kernel and modules.")
 set(PEDIGREE_OPTIMIZE_SIZE TRUE CACHE BOOL "If building an optimized kernel, optimize for size.")
 set(PEDIGREE_WARNINGS FALSE CACHE BOOL "Allow compiler warnings.")
 
+set(PEDIGREE_FLAGS
+    "target=${PEDIGREE_ARCHDIR}-${PEDIGREE_MACHDIR}, build=${CMAKE_BUILD_TYPE}, debugger=${PEDIGREE_DEBUGGER}, optimize=${PEDIGREE_OPTIMIZE}, lto=${PEDIGREE_LTO}, static-drivers=${PEDIGREE_STATIC_DRIVERS}")
+
 set(PEDIGREE_TARGET_PAGE_SIZE 4096 CACHE STRING
     "Pedigree base virtual-memory page size in bytes.")
 if (NOT PEDIGREE_TARGET_PAGE_SIZE MATCHES "^[1-9][0-9]*$")
@@ -280,6 +283,31 @@ set(CMAKE_ASM_NASM_COMPILE_OBJECT
     "<CMAKE_ASM_NASM_COMPILER> <DEFINES> <INCLUDES> -f${PEDIGREE_NASM_FORMAT} ${PEDIGREE_NASM_FLAGS} -o <OBJECT> <SOURCE>")
 
 cmake_host_system_information(RESULT PEDIGREE_BUILD_HOSTNAME QUERY FQDN)
+
+if (NOT DEFINED PEDIGREE_REVISION OR NOT PEDIGREE_REVISION)
+    execute_process(
+        COMMAND git -C ${CMAKE_SOURCE_DIR} rev-parse --short=12 HEAD
+        RESULT_VARIABLE PEDIGREE_GIT_RESULT
+        OUTPUT_VARIABLE PEDIGREE_REVISION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    if (PEDIGREE_GIT_RESULT OR NOT PEDIGREE_REVISION)
+        set(PEDIGREE_REVISION "unknown")
+    endif ()
+endif ()
+if (NOT DEFINED PEDIGREE_BUILDTIME OR NOT PEDIGREE_BUILDTIME)
+    string(TIMESTAMP PEDIGREE_BUILDTIME "%Y-%m-%d %H:%M:%S UTC" UTC)
+endif ()
+if (NOT DEFINED PEDIGREE_USER OR NOT PEDIGREE_USER)
+    if (DEFINED ENV{USER} AND NOT "$ENV{USER}" STREQUAL "")
+        set(PEDIGREE_USER "$ENV{USER}")
+    else ()
+        set(PEDIGREE_USER "unknown")
+    endif ()
+endif ()
+if (NOT PEDIGREE_BUILD_HOSTNAME)
+    set(PEDIGREE_BUILD_HOSTNAME "${CMAKE_HOST_SYSTEM_NAME}")
+endif ()
 
 # Set up some general default flags for the entire project.
 # NOTE: don't include optimization flags - they need to be added elsewhere based on input flags.

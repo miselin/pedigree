@@ -260,6 +260,12 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
   uintptr_t globalLookupSymbol(const char* pName);
   const char* globalLookupSymbol(uintptr_t addr, uintptr_t* startAddr = 0);
 
+  /** Returns the number of module records currently retained by the loader. */
+  size_t getModuleCount();
+
+  /** Returns a module record by index, or nullptr when the index is invalid. */
+  const Module* getModule(size_t index);
+
   /** Returns the address space allocator for modules. */
   MemoryAllocator& getModuleAllocator() {
     return m_ModuleAllocator;
@@ -330,6 +336,8 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
   void abandonRuntimeModuleLoad(RuntimeLoad& load);
   bool retireRuntimeModule(Module* module, bool runLifecycle);
   uintptr_t runtimeExportLocked(const char* name, Module* owner = nullptr) const;
+  /** Requires the module lock. */
+  const char* runtimeLookupSymbolLocked(uintptr_t addr, uintptr_t* startAddr) const;
   /** Requires the exclusive runtime load claim; providers cannot retire. */
   uintptr_t resolveRuntimeImport(const char* name, Module* consumer);
   bool beginModuleLoad();
