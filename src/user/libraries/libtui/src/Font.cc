@@ -26,42 +26,47 @@
 #include <iconv.h>
 #include <setjmp.h>
 #include <string.h>
+#include <vector>
 
 #include <pedigree/log.h>
 #include FT_FREETYPE_H
 
 #include <cairo/cairo-ft.h>
 #include <cairo/cairo.h>
-#include <pango/pangocairo.h>
 
 struct FontLibraries {
   iconv_t m_Iconv;
-  PangoFontDescription* m_FontDesc;
   cairo_t* m_Cairo;
+  FT_Library m_FreeType;
+  FT_Face m_Face;
 };
 
 Font::Font(cairo_t* pCairo, size_t requestedSize, const char* pFilename, bool bCache, size_t nWidth)
     : m_CellWidth(0), m_CellHeight(0), m_Baseline(requestedSize), m_ConversionCache() {
   m_FontLibraries = new FontLibraries();
-  m_FontLibraries->m_FontDesc = pango_font_description_from_string(pFilename);
   m_FontLibraries->m_Cairo = pCairo;
 
-  PangoFontMetrics* metrics = 0;
-  PangoFontMap* fontmap = pango_cairo_font_map_get_default();
-  PangoContext* context = pango_font_map_create_context(fontmap);
-  pango_context_set_font_description(context, m_FontLibraries->m_FontDesc);
-  metrics = pango_context_get_metrics(context, m_FontLibraries->m_FontDesc, NULL);
-  g_object_unref(context);
-
-  m_CellWidth = pango_font_metrics_get_approximate_char_width(metrics) / PANGO_SCALE;
-  m_CellHeight =
-      (pango_font_metrics_get_ascent(metrics) + pango_font_metrics_get_descent(metrics)) /
-      PANGO_SCALE;
-  m_Baseline = pango_font_metrics_get_ascent(metrics) / PANGO_SCALE;
+  // Fontconfig/Pango initialisation from a forked userspace process can inherit
+  // a locked library mutex. Load the bundled face directly instead.
+  const char* fontPath = (pFilename && strstr(pFilename, "Bold"))
+                             ? "/usr/share/fonts/DejaVuSansMono-Bold.ttf"
+                             : "/usr/share/fonts/DejaVuSansMono.ttf";
+  m_FontLibraries->m_FreeType = nullptr;
+  m_FontLibraries->m_Face = nullptr;
+  if (FT_Init_FreeType(&m_FontLibraries->m_FreeType) != 0 ||
+      FT_New_Face(m_FontLibraries->m_FreeType, fontPath, 0, &m_FontLibraries->m_Face) != 0 ||
+      FT_Set_Pixel_Sizes(m_FontLibraries->m_Face, 0, requestedSize) != 0) {
+    pedigree_log(LOG_ALERT, "TUI: could not load DejaVu Sans Mono");
+    m_CellWidth = 8;
+    m_CellHeight = requestedSize;
+    m_Baseline = requestedSize;
+  } else {
+    m_CellWidth = (m_FontLibraries->m_Face->size->metrics.max_advance + 32) >> 6;
+    m_CellHeight = (m_FontLibraries->m_Face->size->metrics.height + 32) >> 6;
+    m_Baseline = (m_FontLibraries->m_Face->size->metrics.ascender + 32) >> 6;
+  }
 
   pedigree_log(LOG_INFO, "metrics: %zux%zu", m_CellWidth, m_CellHeight);
-
-  pango_font_metrics_unref(metrics);
 
   /// \todo UTF-32 endianness
   m_FontLibraries->m_Iconv = iconv_open("UTF-8", "UTF-32LE");
@@ -83,13 +88,16 @@ Font::~Font() {
     delete[] it->second;
   }
 
-  pango_font_description_free(m_FontLibraries->m_FontDesc);
-
+  if (m_FontLibraries->m_Face)
+    FT_Done_Face(m_FontLibraries->m_Face);
+  if (m_FontLibraries->m_FreeType)
+    FT_Done_FreeType(m_FontLibraries->m_FreeType);
   delete m_FontLibraries;
 }
 
 size_t Font::render(PedigreeGraphics::Framebuffer* pFb, uint32_t c, size_t x, size_t y, uint32_t f,
                     uint32_t b, bool bBack, bool bBold, bool bItalic, bool bUnderline) {
+  (void) pFb;
   // Cache the character, if not already.
   const char* convertOut = precache(c);
   if (!convertOut) {
@@ -103,45 +111,62 @@ size_t Font::render(PedigreeGraphics::Framebuffer* pFb, uint32_t c, size_t x, si
 
 size_t Font::render(const char* s, size_t x, size_t y, uint32_t f, uint32_t b, bool bBack,
                     bool bBold, bool bItalic, bool bUnderline) {
-  PangoAttrList* attrs = pango_attr_list_new();
-  if (bBold) {
-    PangoAttribute* attr = pango_attr_weight_new(PANGO_WEIGHT_BOLD);
-    pango_attr_list_insert(attrs, attr);
+  if (!m_FontLibraries->m_Face || !s || !*s)
+    return 0;
+
+  uint32_t codepoint = static_cast<unsigned char>(s[0]);
+  size_t sequenceLength = 1;
+  if ((codepoint & 0xE0) == 0xC0) {
+    sequenceLength = 2;
+    codepoint = ((codepoint & 0x1F) << 6) | (static_cast<unsigned char>(s[1]) & 0x3F);
+  } else if ((codepoint & 0xF0) == 0xE0) {
+    sequenceLength = 3;
+    codepoint = ((codepoint & 0x0F) << 12) | ((static_cast<unsigned char>(s[1]) & 0x3F) << 6) |
+                (static_cast<unsigned char>(s[2]) & 0x3F);
+  } else if ((codepoint & 0xF8) == 0xF0) {
+    sequenceLength = 4;
+    codepoint = ((codepoint & 0x07) << 18) | ((static_cast<unsigned char>(s[1]) & 0x3F) << 12) |
+                ((static_cast<unsigned char>(s[2]) & 0x3F) << 6) |
+                (static_cast<unsigned char>(s[3]) & 0x3F);
   }
-  if (bItalic) {
-    PangoAttribute* attr = pango_attr_style_new(PANGO_STYLE_OBLIQUE);
-    pango_attr_list_insert(attrs, attr);
+
+  if (s[sequenceLength]) {
+    size_t rendered = 0;
+    const char* p = s;
+    while (*p) {
+      uint32_t first = static_cast<unsigned char>(*p);
+      size_t length = 1;
+      if ((first & 0xE0) == 0xC0)
+        length = 2;
+      else if ((first & 0xF0) == 0xE0)
+        length = 3;
+      else if ((first & 0xF8) == 0xF0)
+        length = 4;
+
+      char glyph[5] = {0, 0, 0, 0, 0};
+      for (size_t i = 0; i < length; ++i)
+        glyph[i] = p[i];
+      rendered += render(glyph, x + rendered, y, f, b, bBack, bBold, bItalic, bUnderline);
+      p += length;
+    }
+    return rendered;
   }
-  if (bUnderline) {
-    PangoAttribute* attr = pango_attr_underline_new(PANGO_UNDERLINE_SINGLE);
-    pango_attr_list_insert(attrs, attr);
-  }
+
+  if (FT_Load_Char(m_FontLibraries->m_Face, codepoint, FT_LOAD_RENDER) != 0)
+    return 0;
+
+  FT_GlyphSlot glyph = m_FontLibraries->m_Face->glyph;
+  size_t width = (glyph->advance.x + 32) >> 6;
 
   cairo_save(m_FontLibraries->m_Cairo);
-  PangoLayout* layout = pango_cairo_create_layout(m_FontLibraries->m_Cairo);
-  pango_layout_set_attributes(layout, attrs);
-  pango_layout_set_font_description(layout, m_FontLibraries->m_FontDesc);
-  pango_layout_set_text(layout, s, -1);  // Not using markup here - intentional.
-  pango_attr_list_unref(attrs);
-
-  int width = 0, height = 0;
-  pango_layout_get_size(layout, &width, &height);
-  if ((width < 0) || (height < 0)) {
-    // Bad layout size.
-    /// \todo cleanup
-    return 0;
-  }
-  width /= PANGO_SCALE;
-  height /= PANGO_SCALE;
 
   if (bBack) {
     cairo_set_operator(m_FontLibraries->m_Cairo, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(m_FontLibraries->m_Cairo, ((b >> 16) & 0xFF) / 256.0,
                           ((b >> 8) & 0xFF) / 256.0, ((b) & 0xFF) / 256.0, 0.8);
 
-    // Precondition above allows this cast to be safe.
-    size_t fillW = m_CellWidth > static_cast<size_t>(width) ? m_CellWidth : width;
-    size_t fillH = m_CellHeight > static_cast<size_t>(height) ? m_CellHeight : height;
+    size_t fillW = m_CellWidth > width ? m_CellWidth : width;
+    size_t fillH = m_CellHeight;
     cairo_rectangle(m_FontLibraries->m_Cairo, x, y, fillW, fillH);
     cairo_fill(m_FontLibraries->m_Cairo);
   }
@@ -150,10 +175,32 @@ size_t Font::render(const char* s, size_t x, size_t y, uint32_t f, uint32_t b, b
   cairo_set_source_rgba(m_FontLibraries->m_Cairo, ((f >> 16) & 0xFF) / 256.0,
                         ((f >> 8) & 0xFF) / 256.0, ((f) & 0xFF) / 256.0, 1.0);
 
-  cairo_move_to(m_FontLibraries->m_Cairo, x, y);
-  pango_cairo_show_layout(m_FontLibraries->m_Cairo, layout);
+  int bitmapPitch = glyph->bitmap.pitch;
+  size_t bitmapStride = static_cast<size_t>(bitmapPitch < 0 ? -bitmapPitch : bitmapPitch);
+  if (glyph->bitmap.width && glyph->bitmap.rows) {
+    size_t cairoStride = cairo_format_stride_for_width(CAIRO_FORMAT_A8, glyph->bitmap.width);
+    std::vector<unsigned char> bitmap(cairoStride * glyph->bitmap.rows, 0);
+    for (unsigned int row = 0; row < glyph->bitmap.rows; ++row) {
+      size_t sourceRow = bitmapPitch < 0 ? glyph->bitmap.rows - row - 1 : row;
+      memcpy(&bitmap[row * cairoStride], glyph->bitmap.buffer + sourceRow * bitmapStride,
+             glyph->bitmap.width);
+    }
 
-  g_object_unref(layout);
+    cairo_surface_t* mask = cairo_image_surface_create_for_data(
+        bitmap.data(), CAIRO_FORMAT_A8, glyph->bitmap.width, glyph->bitmap.rows, cairoStride);
+    cairo_set_source_rgba(m_FontLibraries->m_Cairo, ((f >> 16) & 0xFF) / 256.0,
+                          ((f >> 8) & 0xFF) / 256.0, (f & 0xFF) / 256.0, 1.0);
+    cairo_mask_surface(m_FontLibraries->m_Cairo, mask,
+                       x + glyph->bitmap_left, y + m_Baseline - glyph->bitmap_top);
+    cairo_surface_destroy(mask);
+  }
+
+  if (bUnderline) {
+    cairo_move_to(m_FontLibraries->m_Cairo, x, y + m_Baseline + 1);
+    cairo_line_to(m_FontLibraries->m_Cairo, x + width, y + m_Baseline + 1);
+    cairo_stroke(m_FontLibraries->m_Cairo);
+  }
+
   cairo_restore(m_FontLibraries->m_Cairo);
 
   return width;

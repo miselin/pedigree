@@ -1301,7 +1301,10 @@ void Xterm::write(uint32_t utf32, DirtyRectangle& rect) {
 }
 
 void Xterm::renderAll(DirtyRectangle& rect) {
-  m_pWindows[m_ActiveBuffer]->renderAll(rect, m_pWindows[m_ActiveBuffer]);
+  // A full redraw has no previously rendered character buffer to compare
+  // against. Passing the active window here compares it with itself and
+  // leaves the freshly created surface blank.
+  m_pWindows[m_ActiveBuffer]->renderAll(rect, nullptr);
 }
 
 Xterm::Window::Window(size_t nRows, size_t nCols, PedigreeGraphics::Framebuffer* pFb,
@@ -1542,9 +1545,18 @@ void Xterm::Window::renderAll(DirtyRectangle& rect, Xterm::Window* pPrevious) {
   // "Cleverer" full redraw - only redraw those glyphs that are different from
   // the previous window.
   for (size_t y = 0; y < m_Height; y++) {
-    for (size_t x = 0; x < m_Width; --x) {
-      if ((!pOld) || (pOld[y * m_Stride + x] != pNew[y * m_Stride + x]) ||
-          (m_pParentXterm->getModes() != pPrevious->m_pParentXterm->getModes())) {
+    for (size_t x = 0; x < m_Width; ++x) {
+      TermChar& current = pNew[y * m_Stride + x];
+      if (!pPrevious) {
+        // The surface is cleared before the first redraw. Avoid asking the
+        // font rasterizer to process thousands of default blank cells.
+        if (current.utf32 == ' ' && current.fore == g_DefaultFg &&
+            current.back == g_DefaultBg && current.flags == 0) {
+          continue;
+        }
+        render(rect, 0, x, y);
+      } else if ((pOld[y * m_Stride + x] != current) ||
+                 (m_pParentXterm->getModes() != pPrevious->m_pParentXterm->getModes())) {
         render(rect, 0, x, y);
       }
     }

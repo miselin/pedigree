@@ -320,6 +320,11 @@ bool FramebufferFile::initialise() {
         // Set the file size to reflect the size of the framebuffer.
         setSize(m_pGraphicsParameters->providerResult.pFramebuffer->getHeight() *
                 m_pGraphicsParameters->providerResult.pFramebuffer->getBytesPerLine());
+
+        Display::ScreenMode currentMode;
+        if (m_pGraphicsParameters->providerResult.pDisplay->getCurrentScreenMode(currentMode)) {
+          m_nDepth = currentMode.pf.nBpp;
+        }
       }
     }
   }
@@ -340,6 +345,19 @@ uintptr_t FramebufferFile::readBlock(uint64_t location) {
   return reinterpret_cast<uintptr_t>(
              m_pGraphicsParameters->providerResult.pFramebuffer->getRawBuffer()) +
          location;
+}
+
+physical_uintptr_t FramebufferFile::getPhysicalPage(size_t offset) {
+  if (!m_pGraphicsParameters || offset >= getSize()) {
+    return ~physical_uintptr_t(0);
+  }
+
+  offset &= ~(PhysicalMemoryManager::getPageSize() - 1);
+  return m_pGraphicsParameters->providerResult.pFramebuffer->getPhysicalPage(offset);
+}
+
+void FramebufferFile::returnPhysicalPage(size_t) {
+  // Framebuffer pages are direct mappings, not pages borrowed from the file cache.
 }
 
 bool FramebufferFile::supports(const size_t command) const {

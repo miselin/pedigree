@@ -1626,6 +1626,7 @@ void KernelElf::invokeInitModule() {
   if (!prepareRuntimeModules()) {
     WARNING("KernelElf: runtime module arena unavailable");
   }
+  bool updateProgress = false;
   lockModules();
   Module* mod = m_InitModule;
   if (mod == nullptr) {
@@ -1652,7 +1653,16 @@ void KernelElf::invokeInitModule() {
   m_Modules.pushBack(mod);
   mod->status = Module::Executing;
   ++m_ModuleExecutions;
+  // The init module is held aside while the other modules are loaded, so its
+  // load and execution credits must be accounted for when it joins the pass.
+  if (g_BootProgressTotal) {
+    g_BootProgressCurrent += 2;
+    updateProgress = g_BootProgressUpdate != nullptr;
+  }
   unlockModules();
+
+  if (updateProgress && g_BootProgressUpdate)
+    g_BootProgressUpdate("moduleexec");
 
   executeModuleThread(reinterpret_cast<void*>(mod));
 }

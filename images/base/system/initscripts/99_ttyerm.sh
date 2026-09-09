@@ -1,3 +1,7 @@
 #!/bin/bash
 
-/usr/bin/ttyterm
+if [ -e /dev/fb ]; then
+    /usr/bin/gfxcon || /usr/bin/ttyterm
+else
+    /usr/bin/ttyterm
+fi

@@ -87,42 +87,22 @@ int main(int argc, char* argv[]) {
   // Save current mode so we can restore it on quit.
   pFramebuffer->storeMode();
 
-  // Kick off a process group, fork to run the modeset shim.
+  // Keep the mode owner in its own process group so it can restore the
+  // framebuffer when the terminal process exits.
   setpgid(0, 0);
-  pid_t child = fork();
-  if (child == -1) {
-    fprintf(stderr, "gfxcon: could not fork: %s\n", strerror(errno));
-    return 1;
-  } else if (child != 0) {
-    // Wait for the child (ie, real window manager process) to terminate.
-    int status = 0;
-    waitpid(child, &status, 0);
 
-    // Restore old graphics mode.
+  // UEFI has already selected the only available GOP mode. Other providers
+  // still receive the historical requested mode.
+  int result = pFramebuffer->useCurrentMode();
+  if (result != 0) {
+    /// \todo Read from a config file!
+    result = pFramebuffer->enterMode(1024, 768, 32);
+  }
+  if (result != 0) {
     pFramebuffer->restoreMode();
     delete pFramebuffer;
-
-    // Termination information
-    if (WIFEXITED(status)) {
-      fprintf(stderr, "gfxcon: terminated with status %d\n", WEXITSTATUS(status));
-    } else if (WIFSIGNALED(status)) {
-      fprintf(stderr, "gfxcon: terminated by signal %d\n", WTERMSIG(status));
-    } else {
-      fprintf(stderr, "gfxcon: terminated by unknown means\n");
-    }
-
-    // Terminate our process group.
-    kill(0, SIGTERM);
-    return 0;
-  }
-
-  // Can we set the graphics mode we want?
-  /// \todo Read from a config file!
-  int result = pFramebuffer->enterMode(1024, 768, 32);
-  if (result != 0) {
     return result;
   }
-
   size_t nWidth = pFramebuffer->getWidth();
   size_t nHeight = pFramebuffer->getHeight();
 
@@ -134,7 +114,39 @@ int main(int argc, char* argv[]) {
   g_Tui->resize(nWidth, nHeight);
   g_Tui->recreateSurfaces(pFramebuffer->getFramebuffer());
   if (!g_Tui->initialise(nWidth, nHeight)) {
+    delete g_Tui;
+    g_Tui = nullptr;
+    pFramebuffer->restoreMode();
+    delete pFramebuffer;
     return 1;
+  }
+  // Initialise the graphics stack before this fork. Forking first can inherit
+  // a library lock held by another kernel thread and deadlock in the child.
+  pid_t child = fork();
+  if (child == -1) {
+    fprintf(stderr, "gfxcon: could not fork: %s\n", strerror(errno));
+    delete g_Tui;
+    g_Tui = nullptr;
+    pFramebuffer->restoreMode();
+    delete pFramebuffer;
+    return 1;
+  } else if (child != 0) {
+    int status = 0;
+    waitpid(child, &status, 0);
+
+    pFramebuffer->restoreMode();
+    delete pFramebuffer;
+
+    if (WIFEXITED(status)) {
+      fprintf(stderr, "gfxcon: terminated with status %d\n", WEXITSTATUS(status));
+    } else if (WIFSIGNALED(status)) {
+      fprintf(stderr, "gfxcon: terminated by signal %d\n", WTERMSIG(status));
+    } else {
+      fprintf(stderr, "gfxcon: terminated by unknown means\n");
+    }
+
+    kill(0, SIGTERM);
+    return 0;
   }
 
   g_Tui->run();

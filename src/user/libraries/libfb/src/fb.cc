@@ -90,34 +90,13 @@ void Framebuffer::restoreMode() {
   m_bStoredMode = false;
 }
 
-int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp) {
+int Framebuffer::mapMode(const pedigree_fb_mode& set_mode) {
   // All good, framebuffer already exists.
   if (m_pFramebuffer)
     return 0;
 
-  // Can we set the graphics mode we want?
-  pedigree_fb_modeset mode = {desiredW, desiredH, desiredBpp};
-  int result = ioctl(m_Fb, PEDIGREE_FB_SETMODE, &mode);
-  if (result < 0) {
-    // No! Bad!
-    /// \note Mode set logic will try and find a mode in a lower colour
-    /// depth
-    ///       if the desired one cannot be set.
-    pedigree_log(LOG_INFO, "libfb: can't set the desired mode");
-    fprintf(stderr, "libfb: could not set desired mode (%zux%zu) in any colour depth.\n",
-            mode.width, mode.height);
-    return EXIT_FAILURE;
-  }
-
-  pedigree_fb_mode set_mode;
-  result = ioctl(m_Fb, PEDIGREE_FB_GETMODE, &set_mode);
-  if (result < 0) {
-    pedigree_log(LOG_INFO, "libfb: can't get mode info");
-    fprintf(stderr, "libfb: could not get mode information after setting mode.\n");
-
-    // Back to text.
-    memset(&mode, 0, sizeof(mode));
-    ioctl(m_Fb, PEDIGREE_FB_SETMODE, &mode);
+  if (!set_mode.width || !set_mode.height || !set_mode.depth) {
+    pedigree_log(LOG_INFO, "libfb: current mode is not a graphics mode");
     return EXIT_FAILURE;
   }
 
@@ -149,6 +128,7 @@ int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp) 
   pedigree_log(LOG_INFO, "Got %p...", m_pFramebuffer);
 
   if (m_pFramebuffer == MAP_FAILED) {
+    m_pFramebuffer = 0;
     pedigree_log(LOG_CRIT, "libfb: couldn't map framebuffer into address space");
     return EXIT_FAILURE;
   } else {
@@ -158,6 +138,53 @@ int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp) 
   m_FramebufferSize = stride * set_mode.height;
 
   return 0;
+}
+
+int Framebuffer::useCurrentMode() {
+  if (m_pFramebuffer)
+    return 0;
+
+  pedigree_fb_mode current_mode;
+  if (ioctl(m_Fb, PEDIGREE_FB_GETMODE, &current_mode) < 0) {
+    pedigree_log(LOG_INFO, "libfb: can't get current mode info");
+    return EXIT_FAILURE;
+  }
+
+  return mapMode(current_mode);
+}
+
+int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp) {
+  // All good, framebuffer already exists.
+  if (m_pFramebuffer)
+    return 0;
+
+  // Can we set the graphics mode we want?
+  pedigree_fb_modeset mode = {desiredW, desiredH, desiredBpp};
+  int result = ioctl(m_Fb, PEDIGREE_FB_SETMODE, &mode);
+  if (result < 0) {
+    // No! Bad!
+    /// \note Mode set logic will try and find a mode in a lower colour
+    /// depth
+    ///       if the desired one cannot be set.
+    pedigree_log(LOG_INFO, "libfb: can't set the desired mode");
+    fprintf(stderr, "libfb: could not set desired mode (%zux%zu) in any colour depth.\n",
+            mode.width, mode.height);
+    return EXIT_FAILURE;
+  }
+
+  pedigree_fb_mode set_mode;
+  result = ioctl(m_Fb, PEDIGREE_FB_GETMODE, &set_mode);
+  if (result < 0) {
+    pedigree_log(LOG_INFO, "libfb: can't get mode info");
+    fprintf(stderr, "libfb: could not get mode information after setting mode.\n");
+
+    // Back to text.
+    memset(&mode, 0, sizeof(mode));
+    ioctl(m_Fb, PEDIGREE_FB_SETMODE, &mode);
+    return EXIT_FAILURE;
+  }
+
+  return mapMode(set_mode);
 }
 
 void Framebuffer::flush(size_t x, size_t y, size_t w, size_t h) {

@@ -76,6 +76,10 @@ void* Framebuffer::getRawBuffer() const {
   return reinterpret_cast<void*>(m_FramebufferBase);
 }
 
+physical_uintptr_t Framebuffer::getPhysicalPage(size_t) const {
+  return ~physical_uintptr_t(0);
+}
+
 Graphics::Buffer* Framebuffer::createBuffer(const void* srcData, Graphics::PixelFormat srcFormat,
                                             size_t width, size_t height, uint32_t* pPalette) {
   if (m_pParent)

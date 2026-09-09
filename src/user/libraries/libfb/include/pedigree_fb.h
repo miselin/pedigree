@@ -51,6 +51,9 @@ class Framebuffer {
   /** Create framebuffer, enter desired mode. */
   int enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp);
 
+  /** Create framebuffer using the display mode selected by the bootloader. */
+  int useCurrentMode();
+
   /** Retrieve base address of the framebuffer. */
   void* getFramebuffer() const {
     return m_pFramebuffer;
@@ -73,6 +76,8 @@ class Framebuffer {
   }
 
  private:
+  int mapMode(const pedigree_fb_mode& mode);
+
   void* m_pFramebuffer;
   size_t m_FramebufferSize;
 

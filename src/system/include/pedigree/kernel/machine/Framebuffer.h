@@ -54,6 +54,11 @@ class EXPORTED_PUBLIC Framebuffer {
    *  cannot be guaranteed to be safe. */
   virtual void* getRawBuffer() const;
 
+  /** Gets the physical page backing an offset in the framebuffer.
+   *  This is used by direct framebuffer mappings such as /dev/fb. Providers
+   *  backed only by a virtual buffer should retain the default failure. */
+  virtual physical_uintptr_t getPhysicalPage(size_t offset) const;
+
   /** Creates a new buffer to be used for blits from the given raw pixel
    *  data. Performs automatic conversion of the pixel format to the
    *  pixel format of the current display mode.

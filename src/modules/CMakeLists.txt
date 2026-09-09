@@ -929,6 +929,9 @@ if (PEDIGREE_DRIVERDIR STREQUAL "x86")
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/vbe/VbeDisplay.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/vbe/vbe.cc)
 
+    pedigree_module(uefi-gfx "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/uefi-gfx/main.cc)
+
     pedigree_module(vmware-gfx "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/vmware-gfx/main.cc)
 endif ()

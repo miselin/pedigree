@@ -181,6 +181,11 @@ class FramebufferFile : public File {
   bool initialise();
 
   virtual uintptr_t readBlock(uint64_t location);
+  virtual physical_uintptr_t getPhysicalPage(size_t offset);
+  bool isDirectPhysicalMapping() const override {
+    return true;
+  }
+  void returnPhysicalPage(size_t offset) override;
 
   virtual bool supports(const size_t command) const;
   virtual int command(const size_t command, void* buffer);

@@ -62,7 +62,7 @@ def create_esp(path: Path, args: argparse.Namespace, root_uuid: str, temp_dir: P
     bootloader = args.grub if args.grub else args.efi
     run([args.mcopy, *mtools, str(bootloader), "::EFI/BOOT/BOOTX64.EFI"])
     cmdline = temp_dir / "cmdline"
-    cmdline.write_text(f"root=UUID={root_uuid}")
+    cmdline.write_text(f"root=UUID={root_uuid} splash=logs")
     install_variant(args, mtools, "current", cmdline)
     install_variant(args, mtools, "known-good", cmdline)
 

@@ -73,8 +73,6 @@ static bool g_NoGraphics = false;
 static Mutex g_PrintLock;
 
 static void printChar(char c, size_t x, size_t y) {
-  assert(!g_PrintLock.getValue());
-
   if (!g_pFramebuffer)
     return;
 
@@ -82,8 +80,6 @@ static void printChar(char c, size_t x, size_t y) {
 }
 
 static void printChar(char c) {
-  assert(!g_PrintLock.getValue());
-
   if (!g_pFramebuffer)
     return;
 
@@ -194,16 +190,10 @@ class StreamingScreenLogger : public Log::LogCallback {
 
   /// printString is used directly as well as in this callback object,
   /// therefore we simply redirect to it.
-  void callback(const LogCord& cord, bool locked = true) {
+  void callback(const LogCord& cord, bool = true) {
     EMIT_IF(DEBUGGER) {
       if (g_LogMode) {
-        if (locked) {
-          g_PrintLock.acquire();
-        }
         printString(cord);
-        if (locked) {
-          g_PrintLock.release();
-        }
       }
     }
   }
@@ -278,6 +268,20 @@ static void progress(const char* text) {
     }
     s += "]\r";
     bootIO.write(s, BootIO::White, BootIO::Black);
+  } else if (g_LogMode && g_LogH == g_Height) {
+    if (bFinished) {
+      NOTICE("splash: destroying font pixel buffer");
+      g_pFramebuffer->destroyBuffer(g_pFont);
+      NOTICE("splash: destroying font heap buffer");
+      delete[] g_pBuffer;
+
+      NOTICE("splash: destroying framebuffer");
+      Graphics::destroyFramebuffer(g_pFramebuffer);
+      NOTICE("splash: destroyed framebuffer");
+      g_pFramebuffer = 0;
+
+      g_BootProgressUpdate = 0;
+    }
   } else if (g_pFramebuffer) {
     size_t w = (g_ProgressW * g_BootProgressCurrent) / g_BootProgressTotal;
     if (g_Previous <= g_BootProgressCurrent)
@@ -435,37 +439,47 @@ static bool handleSplash() {
   // Set up the mode we want
   if (!(nDesiredWidth && nDesiredHeight && nDesiredBpp) ||
       !pDisplay->setScreenMode(nDesiredWidth, nDesiredHeight, nDesiredBpp)) {
-    bool bModeFound = true;
+    // A firmware framebuffer has already selected its fixed mode. Keep using
+    // it when the configured mode is not available.
+    Display::ScreenMode currentMode;
+    if (pDisplay->getCurrentScreenMode(currentMode) && !currentMode.textMode &&
+        pDisplay->setScreenMode(currentMode)) {
+      nDesiredWidth = currentMode.width;
+      nDesiredHeight = currentMode.height;
+      nDesiredBpp = currentMode.pf.nBpp;
+    } else {
+      bool bModeFound = true;
 
-    // 24-bit mode fallbacks
-    NOTICE("splash: Falling back to 1024x768x24");
-    if (!pDisplay->setScreenMode(1024, 768, 24)) {
-      // Attempt to fall back to 800x600
-      NOTICE("splash: Falling back to 800x600x24");
-      if (!pDisplay->setScreenMode(800, 600, 24)) {
-        // Finally try and fall back to 640x480
-        NOTICE("splash: Falling back to 640x480x24");
-        if (!pDisplay->setScreenMode(640, 480, 24)) {
-          bModeFound = false;
+      // 24-bit mode fallbacks
+      NOTICE("splash: Falling back to 1024x768x24");
+      if (!pDisplay->setScreenMode(1024, 768, 24)) {
+        // Attempt to fall back to 800x600
+        NOTICE("splash: Falling back to 800x600x24");
+        if (!pDisplay->setScreenMode(800, 600, 24)) {
+          // Finally try and fall back to 640x480
+          NOTICE("splash: Falling back to 640x480x24");
+          if (!pDisplay->setScreenMode(640, 480, 24)) {
+            bModeFound = false;
+          }
         }
       }
-    }
 
-    if (!bModeFound) {
-      // 16-bit mode fallbacks
-      NOTICE("splash: Falling back to 1024x768x16");
-      if (!pDisplay->setScreenMode(1024, 768, 16)) {
-        // Attempt to fall back to 800x600
-        NOTICE("splash: Falling back to 800x600x16");
-        if (!pDisplay->setScreenMode(800, 600, 16)) {
-          // Finally try and fall back to 640x480
-          NOTICE("splash: Falling back to 640x480x16");
-          if (!pDisplay->setScreenMode(640, 480, 16)) {
-            ERROR(
-                "splash: Couldn't find a suitable display mode "
-                "for this system (tried: 1024x768, 800x600, "
-                "640x480).");
-            g_NoGraphics = true;
+      if (!bModeFound) {
+        // 16-bit mode fallbacks
+        NOTICE("splash: Falling back to 1024x768x16");
+        if (!pDisplay->setScreenMode(1024, 768, 16)) {
+          // Attempt to fall back to 800x600
+          NOTICE("splash: Falling back to 800x600x16");
+          if (!pDisplay->setScreenMode(800, 600, 16)) {
+            // Finally try and fall back to 640x480
+            NOTICE("splash: Falling back to 640x480x16");
+            if (!pDisplay->setScreenMode(640, 480, 16)) {
+              ERROR(
+                  "splash: Couldn't find a suitable display mode "
+                  "for this system (tried: 1024x768, 800x600, "
+                  "640x480).");
+              g_NoGraphics = true;
+            }
           }
         }
       }
@@ -489,18 +503,20 @@ static bool handleSplash() {
 
   g_pFramebuffer->rect(0, 0, g_Width, g_Height, g_BackgroundColour, g_ColorFormat);
 
-  // Create the logo buffer
-  uint8_t* data = header_data;
-  g_pBuffer = new uint8_t[width * height * 3];  // 24-bit, hardcoded...
-  for (size_t i = 0; i < (width * height); i++)
-    HEADER_PIXEL(data, &g_pBuffer[i * 3]);  // 24-bit, hardcoded
+  if (!g_LogMode) {
+    // Create the logo buffer
+    uint8_t* data = header_data;
+    g_pBuffer = new uint8_t[width * height * 3];  // 24-bit, hardcoded...
+    for (size_t i = 0; i < (width * height); i++)
+      HEADER_PIXEL(data, &g_pBuffer[i * 3]);  // 24-bit, hardcoded
 
-  size_t origx = (g_Width - width) / 2;
-  size_t origy = (g_Height - height) / 3;
+    size_t origx = (g_Width - width) / 2;
+    size_t origy = (g_Height - height) / 3;
 
-  g_pFramebuffer->draw(g_pBuffer, 0, 0, origx, origy, width, height, Graphics::Bits24_Bgr);
+    g_pFramebuffer->draw(g_pBuffer, 0, 0, origx, origy, width, height, Graphics::Bits24_Bgr);
 
-  delete[] g_pBuffer;
+    delete[] g_pBuffer;
+  }
 
   // Create the font buffer
   g_pBuffer = new uint8_t[(FONT_WIDTH * FONT_HEIGHT * 3) * 256];  // 24-bit
@@ -533,39 +549,53 @@ static bool handleSplash() {
   g_pFont =
       g_pFramebuffer->createBuffer(g_pBuffer, Graphics::Bits24_Rgb, FONT_WIDTH, FONT_HEIGHT * 256);
 
-  g_ProgressX = (g_Width / 2) - 200;
-  g_ProgressW = 400;
-  g_ProgressY = (g_Height / 3) * 2;
-  g_ProgressH = 15;
+  if (!g_LogMode) {
+    g_ProgressX = (g_Width / 2) - 200;
+    g_ProgressW = 400;
+    g_ProgressY = (g_Height / 3) * 2;
+    g_ProgressH = 15;
 
-  g_LogBoxX = 0;
-  g_LogBoxY = (g_Height / 4) * 3;
-  g_LogW = g_Width;
-  g_LogH = g_Height - g_LogBoxY;
+    g_LogBoxX = 0;
+    g_LogBoxY = (g_Height / 4) * 3;
+    g_LogW = g_Width;
+    g_LogH = g_Height - g_LogBoxY;
+  } else {
+    g_LogBoxX = 0;
+    g_LogBoxY = 0;
+    g_LogW = g_Width;
+    g_LogH = g_Height;
+  }
   g_LogX = g_LogY = 0;
 
-  // Yay text!
-  centerStringAt("Please wait, Pedigree is loading...", g_Width / 2,
-                 g_ProgressY - (FONT_HEIGHT * 3));
+  if (!g_LogMode) {
+    {
+      LockGuard<Mutex> guard(g_PrintLock);
+      centerStringAt("Please wait, Pedigree is loading...", g_Width / 2,
+                     g_ProgressY - (FONT_HEIGHT * 3));
 
-  EMIT_IF(DEBUGGER) {
-    // Draw a border around the log area
-    centerStringAt("< Kernel Log >", g_LogW / 2, g_LogBoxY - 2 - (FONT_HEIGHT / 2) - FONT_HEIGHT);
-    centerStringAt(
-        "(you can push ESCAPE to view the kernel log, and again to make the "
-        "log fill the screen)",
-        g_LogW / 2, g_LogBoxY - 2 - (FONT_HEIGHT / 2));
+      EMIT_IF(DEBUGGER) {
+        // Draw a border around the log area
+        centerStringAt("< Kernel Log >", g_LogW / 2, g_LogBoxY - 2 - (FONT_HEIGHT / 2) - FONT_HEIGHT);
+        centerStringAt(
+            "(you can push ESCAPE to view the kernel log, and again to make the "
+            "log fill the screen)",
+            g_LogW / 2, g_LogBoxY - 2 - (FONT_HEIGHT / 2));
+      }
+    }
+
+    // Draw empty progress bar. Easiest way to draw a nonfilled rect? Draw two
+    // filled rects.
+    g_pFramebuffer->rect(g_ProgressX - 2, g_ProgressY - 2, g_ProgressW + 4, g_ProgressH + 4,
+                         g_ProgressBorderColour, g_ColorFormat);
+    g_pFramebuffer->rect(g_ProgressX - 1, g_ProgressY - 1, g_ProgressW + 2, g_ProgressH + 2,
+                         g_BackgroundColour, g_ColorFormat);
   }
-
-  // Draw empty progress bar. Easiest way to draw a nonfilled rect? Draw two
-  // filled rects.
-  g_pFramebuffer->rect(g_ProgressX - 2, g_ProgressY - 2, g_ProgressW + 4, g_ProgressH + 4,
-                       g_ProgressBorderColour, g_ColorFormat);
-  g_pFramebuffer->rect(g_ProgressX - 1, g_ProgressY - 1, g_ProgressW + 2, g_ProgressH + 2,
-                       g_BackgroundColour, g_ColorFormat);
 
   g_pFramebuffer->redraw(0, 0, g_Width, g_Height, true);
 
+  // Replaying the complete kernel backlog through the software renderer can
+  // delay the handoff indefinitely on slow machines. Log mode shows the
+  // messages emitted after the display is ready instead.
   Log::instance().installCallback(&g_StreamLogger, true);
 
   g_BootProgressUpdate = &progress;
@@ -578,9 +608,8 @@ static bool handleSplash() {
 }
 
 static bool init() {
-  LockGuard<Mutex> guard(g_PrintLock);
-
   g_NoGraphics = false;
+  g_LogMode = false;
   char* cmdline = g_pBootstrapInfo->getCommandLine();
   if (cmdline) {
     Vector<String> cmds = String(cmdline).tokenise(' ');
@@ -589,6 +618,8 @@ static bool init() {
       if (cmd == String("nosplash")) {
         g_NoGraphics = true;
         break;
+      } else if (cmd == String("splash=logs")) {
+        g_LogMode = true;
       }
     }
   }

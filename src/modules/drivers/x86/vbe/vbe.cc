@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceFeatures.h"
 #include "pedigree/kernel/ServiceManager.h"
@@ -90,6 +91,7 @@ class VbeFramebuffer : public Framebuffer {
 
   virtual void hwRedraw(size_t x = ~0UL, size_t y = ~0UL, size_t w = ~0UL, size_t h = ~0UL);
   virtual void setFramebuffer(uintptr_t p);
+  physical_uintptr_t getPhysicalPage(size_t offset) const override;
 
  private:
   Display* m_pDisplay;
@@ -116,6 +118,12 @@ extern "C" void vbeModeChangedCallback(char* pId, char* pModeId) {
 static bool entry() {
   EMIT_IF(NOGFX) {
     NOTICE("Not starting VBE module, NOGFX is defined.");
+    return false;
+  }
+
+  // VBE is an INT 10h BIOS interface. UEFI supplies GOP instead and does not
+  // leave a usable legacy video BIOS behind for the kernel to call.
+  if (g_pBootstrapInfo && g_pBootstrapInfo->isUefi()) {
     return false;
   }
 
@@ -442,4 +450,13 @@ void VbeFramebuffer::setFramebuffer(uintptr_t p) {
 
     Framebuffer::setFramebuffer(reinterpret_cast<uintptr_t>(m_pBackbuffer));
   }
+}
+
+physical_uintptr_t VbeFramebuffer::getPhysicalPage(size_t offset) const {
+  if (!m_pFramebufferRegion || offset >= m_nBackbufferBytes) {
+    return ~physical_uintptr_t(0);
+  }
+
+  offset &= ~(PhysicalMemoryManager::getPageSize() - 1);
+  return m_pFramebufferRegion->physicalAddress() + offset;
 }
