@@ -1,8 +1,20 @@
 # QM67 PCI interrupt routing
 
-Pedigree's PCI module repairs native Intel QM67 INTx routes before dependent
-modules load. This covers the ThinkPad T420's 82579LM, SATA/AHCI and both EHCI
-controllers when firmware leaves their PCI Interrupt Line bytes at `0xff`.
+Pedigree's `chipset` module repairs native Intel QM67 INTx routes before PCI
+device drivers load. Its QM67 backend covers the ThinkPad T420's 82579LM,
+SATA/AHCI and both EHCI controllers when firmware leaves their PCI Interrupt
+Line bytes at `0xff`.
+
+The required module order is `pci-enumeration` → `chipset` → `pci` → device
+drivers. `pci-enumeration` discovers PCI functions and their BARs; `chipset`
+applies platform configuration; `pci` indicates that both stages have completed.
+Existing in-tree and external drivers continue to depend on `pci`. The chipset
+module succeeds without changes on machines without a matching backend.
+
+All three modules remain loaded for the kernel lifetime: enumerated device nodes,
+PIRQ programming and PIC reservations have no removal or rollback procedure.
+They are included in both normal initrds and static driver builds. When building
+a custom module set, keep both prerequisites enabled with `pci`.
 
 The QM67 LPC bridge (`8086:1c4f`) remains in the device tree without ordinary BAR
 sizing. Its command-register decoding bits are read-only ones, and it has no
@@ -40,7 +52,8 @@ original PIRQ byte and identify the failing routing check.
 
 ## Scope and validation
 
-This is a QM67 native-function PIC route implementation, not general ACPI PCI
+The QM67 backend matches only the `8086:1c4f` ISA bridge at `00:1f.0`. It is a
+native-function PIC route implementation, not general ACPI PCI
 resource allocation or I/O APIC support. Root ports and downstream endpoints are
 excluded: their mapping requires bridge topology and physical-port/function
 remapping, and cannot be inferred from a root port's own Interrupt Pin. Firmware

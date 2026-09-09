@@ -298,6 +298,8 @@ set(TESTSUITE_SRCS
     testsuite/test-IntelPirq.cc
     testsuite/test-PciFunctionState.cc
     testsuite/test-EhciLegacy.cc
+    testsuite/test-EhciHandoff.cc
+    testsuite/test-UsbStartup.cc
     testsuite/test-InterruptProbe.cc
     testsuite/test-QuotaAccounting.cc
     testsuite/test-Ext2Quota.cc

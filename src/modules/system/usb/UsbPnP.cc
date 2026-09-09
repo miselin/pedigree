@@ -29,6 +29,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "modules/system/usb/UsbDevice.h"
+#include "modules/system/usb/UsbHub.h"
 #if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
 #include "modules/system/usb/UsbConstants.h"
 #include "modules/system/usb/UsbDescriptors.h"
@@ -227,6 +228,12 @@ Device* UsbPnP::doProbe(Device* pDeviceBase) {
     return pDeviceBase;
   }
 
+  UsbHub::StartupActivity startup(pDevice->getHub());
+  if (!startup)
+    return pDeviceBase;
+
+  const bool isHub = pDevice->getInterface()->nClass == 9;
+
   size_t afterSequence = 0;
   while (true) {
     CallbackItem* item = nullptr;
@@ -245,11 +252,13 @@ Device* UsbPnP::doProbe(Device* pDeviceBase) {
     // Was this device rejected by the driver?
     if (!pNewDevice) {
       finishCallback(item, invocation);
+      startup.failed();
       continue;
     }
     if (pNewDevice == pDevice) {
       ERROR("USB: PnP factories must return a distinct driver instance");
       finishCallback(item, invocation);
+      startup.failed();
       continue;
     }
 
@@ -263,6 +272,7 @@ Device* UsbPnP::doProbe(Device* pDeviceBase) {
         delete pNewDevice;
         finishCallback(item, invocation);
         ERROR("USB: PnP registration closed before its binding was published");
+        startup.failed();
         return pDeviceBase;
       }
 
@@ -271,15 +281,21 @@ Device* UsbPnP::doProbe(Device* pDeviceBase) {
       const bool replaced = pContainer->replaceUsbDevice(pNewDevice);
       if (replaced)
         publishBinding(item, pContainer, binding);
+      // A hub is infrastructure: its children still have to become usable.
+      // Once a leaf driver is published, later failures cannot revoke it.
+      if (replaced && !isHub)
+        startup.deviceReady();
       finishCallback(item, invocation);
       if (!replaced) {
         delete pNewDevice;
         ERROR("USB: PnP could not publish a matched driver into its container");
+        startup.failed();
       }
       return pDeviceBase;
     } else {
       delete pNewDevice;
       finishCallback(item, invocation);
+      startup.failed();
     }
   }
   return pDeviceBase;

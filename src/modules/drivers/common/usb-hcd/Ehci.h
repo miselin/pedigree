@@ -38,6 +38,7 @@
 #include <config.h>
 
 #include "CallbackDelivery.h"
+#include "EhciHandoff.h"
 #include "PortChangeRequest.h"
 #include "TransferCompletion.h"
 #include "modules/system/usb/Usb.h"
@@ -66,6 +67,7 @@ class Ehci : public UsbHub,
   virtual ~Ehci();
 
   bool initialiseController();
+  void startFirmwareRecovery();
 
   struct qTD {
     uint32_t bNextInvalid : 1;
@@ -294,6 +296,25 @@ class Ehci : public UsbHub,
   static void rearmPeriodicCompletion(void* context);
   static void destroyPeriodicCompletion(void* context);
   void rebuildPeriodicScheduleLocked();
+
+  bool beginStartupActivity() override;
+  void endStartupActivity(UsbStartup::Outcome outcome) override;
+  void completeInitialPort(size_t port);
+  void shutdownController();
+  bool acquireFirmware(uint16_t capability);
+  void returnToFirmware();
+  static int recoverFirmware(void* parameter);
+
+  EhciHandoff::State m_Handoff;
+  uint16_t m_FirmwarePciCommand = 0;
+  bool m_ControllerStopped = false;
+  bool m_HardwareTouched = false;
+  Spinlock m_StartupLock;
+  UsbStartup::State m_Startup;
+  uint16_t m_InitialPortMask = 0;
+  Semaphore m_RecoveryWake{0};
+  Atomic<bool> m_RecoveryStopping{false};
+  OwnedThread m_RecoveryThread;
 
   IoBase* m_pBase;
   bool m_HardwareOwned = false;

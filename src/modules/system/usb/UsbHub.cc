@@ -188,6 +188,15 @@ UsbHub::UsbHub(Device* p)
 
 UsbHub::~UsbHub() {}
 
+UsbHub::StartupActivity::StartupActivity(UsbHub* hub)
+    : m_Root(hub ? hub->m_RootHub : nullptr),
+      m_Admitted(!m_Root || m_Root->beginStartupActivity()) {}
+
+UsbHub::StartupActivity::~StartupActivity() {
+  if (m_Root && m_Admitted)
+    m_Root->endStartupActivity(m_Outcome);
+}
+
 UsbHub::RootConnection UsbHub::rootConnectionForChild(uint8_t childPort) const {
   if (m_IsRootHub)
     return {childPort, currentRootPortGeneration(childPort)};
@@ -376,6 +385,16 @@ void UsbHub::setConnectionChangeReplayWaitHookForTest(ConnectionChangeReplayWait
 #endif
 
 bool UsbHub::deviceConnected(uint8_t nPort, UsbSpeed speed) {
+  StartupActivity activity(this);
+  if (!activity)
+    return false;
+  const bool connected = deviceConnectedAdmitted(nPort, speed);
+  if (!connected)
+    activity.failed();
+  return connected;
+}
+
+bool UsbHub::deviceConnectedAdmitted(uint8_t nPort, UsbSpeed speed) {
   NOTICE("USB: Adding device on port " << Dec << nPort << Hex);
 
   UsbHub* pRootHub = m_RootHub;

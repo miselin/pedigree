@@ -56,9 +56,33 @@ EHCI disables and verifies legacy SMI sources after ownership handoff, including
 when BIOS ownership was already clear. The existing BIOS-unowned shortcut is
 retained because requesting that already-released semaphore can hang some
 firmware; it is a compatibility exception to the unconditional request in EHCI's
-handoff flow. UHCI verifies legacy emulation/SMI controls and explicitly enables
+handoff flow. A failed ownership request is withdrawn before any controller
+register takeover. If a previously BIOS-owned controller fails during startup,
+EHCI drains enumeration and driver probes, halts DMA, detaches its schedules,
+unregisters its IRQ, and releases its transfer buffers before restoring the
+saved legacy SMI enables and clearing OS Owned. Firmware receives its original
+PCI decoder/DMA permissions, but no old schedule pointers are replayed.
+
+Startup recovery covers controller initialization, initial port enumeration,
+nested hubs, and matched driver initialization failures. A successfully bound
+non-hub driver commits the controller to native operation; later device failures
+cannot return the whole controller to firmware and disrupt that device. An
+unmatched interface is not a failed probe. Recovery stays armed until that first
+binding, including probes from drivers loaded after enumeration and hotplug
+before any device has become usable. A controller that started BIOS-unowned
+keeps the existing native/hotplug behavior and has no firmware handback path.
+
+Firmware reclaim is polled for at most one second. The log distinguishes a
+confirmed BIOS-owned semaphore from a release that firmware did not acknowledge.
+Even confirmation does not prove that firmware resumed keyboard emulation; this
+requires testing on the machine. Native PS/2 IRQ1/IRQ12 input remains independent.
+There is necessarily a USB input gap while controller ownership changes.
+If DMA cannot be stopped, the kernel retains its fatal teardown policy rather
+than giving firmware a controller that could still access freed OS buffers.
+
+UHCI verifies legacy emulation/SMI controls and explicitly enables
 its I/O decoder. Partially initialized controllers are not published, and cleanup
-does not halt firmware-owned hardware or resume its old DMA configuration.
+does not halt hardware still owned by firmware or resume its old DMA configuration.
 See [EHCI](https://www.intel.com/content/dam/www/public/us/en/documents/technical-specifications/ehci-specification-for-usb.pdf)
 and [Linux's handoff compatibility policy](https://raw.githubusercontent.com/torvalds/linux/master/drivers/usb/host/pci-quirks.c).
 

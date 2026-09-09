@@ -42,6 +42,9 @@ void UsbHubDevice::prepareForDriverRetirement() {
 }
 
 void UsbHubDevice::initialiseDriver() {
+  StartupActivity startup(this);
+  if (!startup)
+    return;
   uint8_t len = getDescriptorLength(0, 0, UsbRequestType::Class);
   void* pDesc = 0;
   if (len) {
@@ -61,6 +64,7 @@ void UsbHubDevice::initialiseDriver() {
     uint32_t portStatus = 0;
     if (!getPortStatus(i, portStatus)) {
       WARNING("USB: HUB: couldn't read port " << Dec << i << Hex);
+      startup.failed();
       continue;
     }
 
@@ -72,20 +76,26 @@ void UsbHubDevice::initialiseDriver() {
       // Power it on
       if (!setPortFeature(i, PortPower)) {
         WARNING("USB: HUB: couldn't power port " << Dec << i << Hex);
+        startup.failed();
         continue;
       }
 
       // Delay while the power goes on
-      if (!Time::delay(50 * Time::Multiplier::Millisecond))
+      if (!Time::delay(50 * Time::Multiplier::Millisecond)) {
+        startup.failed();
         continue;
+      }
 
       // Done.
-      if (!getPortStatus(i, portStatus))
+      if (!getPortStatus(i, portStatus)) {
+        startup.failed();
         continue;
+      }
 
       // If port power never went on, skip this port
       if (!(portStatus & (1 << 8))) {
         DEBUG_LOG("USB: HUB: Port " << Dec << i << Hex << " couldn't be powered up.");
+        startup.failed();
         continue;
       }
 
@@ -95,8 +105,10 @@ void UsbHubDevice::initialiseDriver() {
 
     if (portReset(i)) {
       // Got a device - what type?
-      if (!getPortStatus(i, portStatus))
+      if (!getPortStatus(i, portStatus)) {
+        startup.failed();
         continue;
+      }
       if (portStatus & (1 << 10)) {
         // High-speed
         DEBUG_LOG("USB: HUB: Hub port " << Dec << i << Hex
@@ -113,6 +125,8 @@ void UsbHubDevice::initialiseDriver() {
                                         << " has a full-speed device attached to it.");
         deviceConnected(i, FullSpeed);
       }
+    } else if (portStatus & 1) {
+      startup.failed();
     }
   }
 

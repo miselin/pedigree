@@ -801,6 +801,7 @@ pedigree_module(scsi "" ""
 
 pedigree_module(usb-hcd "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/Ehci.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/EhciFirmware.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/Ohci.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/Uhci.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/Xhci.cc
@@ -893,9 +894,31 @@ if (PEDIGREE_DRIVERDIR STREQUAL "x86")
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ne2k/Ne2k.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ne2k/main.cc)
 
+    set(PEDIGREE_MODULE_pci TRUE CACHE BOOL "Build the pci kernel module.")
+    set(PEDIGREE_MODULE_pci-enumeration ${PEDIGREE_MODULE_pci} CACHE BOOL
+        "Build the pci-enumeration kernel module.")
+    set(PEDIGREE_MODULE_chipset ${PEDIGREE_MODULE_pci} CACHE BOOL
+        "Build the chipset kernel module.")
+
+    pedigree_module(pci-enumeration "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/enumeration.cc)
+
+    pedigree_module(chipset "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/chipset/main.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/chipset/Qm67.cc)
+
     pedigree_module(pci "" ""
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/pci.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/ChipsetRouting.cc)
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/pci.cc)
+    add_dependencies(chipset pci-enumeration)
+    add_dependencies(pci chipset)
+
+    if (PEDIGREE_MODULE_pci AND NOT PEDIGREE_MODULE_chipset)
+        message(FATAL_ERROR "The pci module requires PEDIGREE_MODULE_chipset.")
+    endif ()
+    if (PEDIGREE_MODULE_chipset AND NOT PEDIGREE_MODULE_pci-enumeration)
+        message(FATAL_ERROR
+            "The chipset module requires PEDIGREE_MODULE_pci-enumeration.")
+    endif ()
 
     pedigree_module(ps2mouse "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ps2mouse/Ps2MouseCallbackRegistry.cc

@@ -198,6 +198,10 @@ class EXPORTED_PUBLIC UsbDevice {
     return m_nPort;
   }
 
+  UsbHub* getHub() const {
+    return m_pHub;
+  }
+
   /// Returns the speed at which the device operates
   inline UsbSpeed getSpeed() {
     return m_Speed;

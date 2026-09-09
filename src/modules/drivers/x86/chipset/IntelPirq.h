@@ -1,6 +1,6 @@
 /* Copyright (c) 2026, Pedigree Developers. SPDX-License-Identifier: ISC */
-#ifndef PEDIGREE_INTEL_PIRQ_H
-#define PEDIGREE_INTEL_PIRQ_H
+#ifndef PEDIGREE_CHIPSET_INTEL_PIRQ_H
+#define PEDIGREE_CHIPSET_INTEL_PIRQ_H
 #include "pedigree/kernel/processor/types.h"
 
 // Intel 6 Series datasheet 324645, sections 10.1.20-34 and 13.1.16/18.

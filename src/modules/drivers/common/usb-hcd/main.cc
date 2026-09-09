@@ -67,6 +67,7 @@ static void probeEhci(Device* pDev) {
   // Replace pDev with pEhci, then delete pDev
   pDev->getParent()->replaceChild(pDev, pEhci);
   delete pDev;
+  pEhci->startFirmwareRecovery();
 
   bFound = true;
 }

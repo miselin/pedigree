@@ -4,7 +4,7 @@
 #include <array>
 #include <vector>
 
-#include "modules/drivers/x86/pci/IntelPirq.h"
+#include "modules/drivers/x86/chipset/IntelPirq.h"
 #include <gtest/gtest.h>
 
 namespace {

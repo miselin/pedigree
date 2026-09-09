@@ -182,6 +182,7 @@ bool Ehci::initialiseController() {
     ERROR("EHCI: unsupported inherited PCI function state");
     return false;
   }
+  m_FirmwarePciCommand = pciState.command;
   const uint32_t bar = pciState.bars[0];
   if ((bar & 1U) || ((bar & 6U) != 0 && (bar & 6U) != 4))
     return false;
@@ -259,6 +260,7 @@ bool Ehci::initialiseController() {
   constexpr size_t EecpSlotCount = (0x100 - EecpMinimum) / 4;
   size_t capabilityBudget = EecpSlotCount;
   uint64_t visitedCapabilities = 0;
+  bool foundLegacy = false;
   while (eecp) {
     if (!capabilityBudget) {
       ERROR("EHCI: EECP capability chain exceeded PCI config space");
@@ -285,45 +287,13 @@ bool Ehci::initialiseController() {
         ERROR("EHCI: truncated USB legacy capability");
         return false;
       }
-      // Perform handoff if necessary
-      constexpr uint32_t BiosOwned = 1U << 16;
-      constexpr uint32_t OsOwned = 1U << 24;
-      if (legsup & BiosOwned) {
-#ifdef USB_VERBOSE_DEBUG
-        DEBUG_LOG("EHCI: Performing handoff from BIOS to the OS...");
-#endif
-
-        // Take ownership of the controller
-        if (!pci.writeConfig8(this, eecp + 3, 1))
-          return false;
-
-        // Wait for the BIOS to relinquish control
-        constexpr size_t OwnershipPollLimit = 1000;
-        size_t ownershipPolls = OwnershipPollLimit;
-        while (ownershipPolls && (legsup & BiosOwned)) {
-          --ownershipPolls;
-          Time::delay(1 * Time::Multiplier::Millisecond);
-          if (!pci.readConfig32(this, eecp, legsup))
-            return false;
-        }
-        if ((legsup & BiosOwned) || !(legsup & OsOwned)) {
-          ERROR(
-              "EHCI: BIOS ownership handoff did not complete within "
-              "1 second");
-          return false;
-        }
-      }
-      if (!EhciLegacy::disableSmis(
-              eecp,
-              [&](uint16_t offset, uint32_t& value) {
-                return pci.readConfig32(this, offset, value);
-              },
-              [&](uint16_t offset, uint32_t value) {
-                return pci.writeConfig32(this, offset, value);
-              })) {
-        ERROR("EHCI: legacy SMI sources did not disable");
+      if (foundLegacy) {
+        ERROR("EHCI: duplicate USB legacy capability");
         return false;
       }
+      foundLegacy = true;
+      if (!acquireFirmware(eecp))
+        return false;
     }
 
     eecp = (legsup >> 8) & 0xFF;  // Zero = "end of list"
@@ -335,6 +305,7 @@ bool Ehci::initialiseController() {
 #endif
 
   m_HardwareOwned = true;
+  m_HardwareTouched = true;
   m_pBase->write32(0, m_nOpRegsOffset + EHCI_INTR);
   (void)m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
 
@@ -483,7 +454,8 @@ bool Ehci::initialiseController() {
   m_pBase->write32(m_pBase->read32(m_nOpRegsOffset + EHCI_CMD) & ~EHCI_CMD_ASYNCLE,
                    m_nOpRegsOffset + EHCI_CMD);
   if (!waitForMmioState(m_pBase, m_nOpRegsOffset + EHCI_STS, EhciAsyncScheduleStatus, 0)) {
-    panic("EHCI asynchronous schedule did not stop within 100 ms");
+    ERROR("EHCI asynchronous schedule did not stop within 100 ms");
+    return false;
   }
 
   // Write the async list head pointer
@@ -503,7 +475,8 @@ bool Ehci::initialiseController() {
   m_pBase->write32(m_pBase->read32(m_nOpRegsOffset + EHCI_CMD) | EHCI_CMD_RUN,
                    m_nOpRegsOffset + EHCI_CMD);
   if (!waitForMmioState(m_pBase, m_nOpRegsOffset + EHCI_STS, EHCI_STS_HALTED, 0)) {
-    panic("EHCI controller did not start within 100 ms");
+    ERROR("EHCI controller did not start within 100 ms");
+    return false;
   }
 
   m_DequeueThread.adopt(new Thread(Processor::information().getCurrentThread()->getParent(),
@@ -535,13 +508,23 @@ bool Ehci::initialiseController() {
                    m_nOpRegsOffset + EHCI_CMD);
   if (!waitForMmioState(m_pBase, m_nOpRegsOffset + EHCI_STS, EhciAsyncScheduleStatus,
                         EhciAsyncScheduleStatus)) {
-    panic("EHCI asynchronous schedule did not start within 100 ms");
+    ERROR("EHCI asynchronous schedule did not start within 100 ms");
+    return false;
   }
 
   // Clear the aggregate before scanning. Any edge after this flush remains
   // pending for the live publication path when PORTCH is enabled below.
   m_pBase->write32(EHCI_STS_PORTCH, m_nOpRegsOffset + EHCI_STS);
   (void)m_pBase->read32(m_nOpRegsOffset + EHCI_STS);
+
+  // Hold recovery until every initially queued root port has had a chance.
+  {
+    LockGuard<Spinlock> startupGuard(m_StartupLock);
+    m_Startup.enableRecovery(m_Handoff.wasBiosOwned());
+    m_InitialPortMask = (1U << m_nPorts) - 1;
+    if (m_InitialPortMask && !m_Startup.begin())
+      return false;
+  }
 
   // Search for ports with devices and initialise them.
   for (size_t i = 0; i < m_nPorts; i++) {
@@ -566,6 +549,12 @@ bool Ehci::initialiseController() {
       ERROR("EHCI: initial reset on port " << Dec << i << Hex
                                            << " did not clear within "
                                               "100 ms");
+      {
+        StartupActivity failedPort(this);
+        if (failedPort)
+          failedPort.failed();
+      }
+      completeInitialPort(i);
       continue;
     }
 
@@ -602,6 +591,21 @@ bool Ehci::initialiseController() {
 }
 
 Ehci::~Ehci() {
+  m_RecoveryStopping = true;
+  m_RecoveryWake.release();
+  m_RecoveryThread.join();
+  shutdownController();
+  returnToFirmware();
+}
+
+void Ehci::shutdownController() {
+  if (m_ControllerStopped)
+    return;
+  m_ControllerStopped = true;
+  {
+    LockGuard<Spinlock> startupGuard(m_StartupLock);
+    m_Startup.close();
+  }
   // Quiesce only the port producer first. Transfer completion IRQs and the
   // dequeue worker must remain live while an active port request drains.
   {
@@ -785,6 +789,7 @@ Ehci::~Ehci() {
     m_pCurrentQueueHead = nullptr;
     m_pCurrentQueueTail = nullptr;
   }
+  m_HardwareOwned = false;
 }
 
 static int threadStub(void* p) {
@@ -1988,7 +1993,8 @@ void Ehci::modifyPortControl(size_t portRegister, uint32_t clearMask, uint32_t s
 }
 
 bool Ehci::portReset(uint8_t nPort, bool bErrorResponse) {
-  if (nPort >= m_nPorts)
+  StartupActivity startup(this);
+  if (!startup || !m_HardwareOwned || nPort >= m_nPorts)
     return false;
 
   const size_t portRegister = m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4);
@@ -2053,12 +2059,31 @@ uint64_t Ehci::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4
     return 0;
   }
 
+  struct InitialPortCompletion {
+    Ehci* controller;
+    size_t port;
+    ~InitialPortCompletion() {
+      controller->completeInitialPort(port);
+    }
+  } initial{this, static_cast<size_t>(p1)};
+  StartupActivity startup(this);
+  if (!startup)
+    return 0;
+
   // See if there's any device attached on the port
   if (m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + p1 * 4) & EHCI_PORTSC_CONN) {
-    if (portReset(p1))
-      if (!deviceConnected(p1, HighSpeed))
+    if (portReset(p1)) {
+      if (!deviceConnected(p1, HighSpeed)) {
         WARNING("EHCI: Port " << Dec << p1 << Hex
                               << " appeared to be connected but could not be set up");
+        startup.failed();
+      }
+    } else {
+      const uint32_t port = m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + p1 * 4);
+      // Companion-owned low/full-speed ports are not failed EHCI devices.
+      if ((port & EHCI_PORTSC_CONN) && !(port & (1U << 13)))
+        startup.failed();
+    }
   } else {
     DEBUG_LOG("USB: EHCI: Port " << Dec << p1 << Hex << " is disconnected");
 
@@ -2070,5 +2095,6 @@ uint64_t Ehci::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4
 void Ehci::cancelRequest(const Request& request) {
   if (request.p1 < m_nPorts) {
     m_PortChanges[request.p1].cancel(static_cast<size_t>(request.p8));
+    completeInitialPort(request.p1);
   }
 }

@@ -1,5 +1,5 @@
 /* Copyright (c) 2026, Pedigree Developers. SPDX-License-Identifier: ISC */
-#include "ChipsetRouting.h"
+#include "Qm67.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Pci.h"
@@ -49,7 +49,7 @@ uint16_t hpetExclusions(uint32_t hptc) {
 }
 }  // namespace
 
-void routeChipsetInterrupts(const Vector<Device*>& devices) {
+void Qm67::routeInterrupts(const Vector<Device*>& devices) {
   auto& pci = PciBus::instance();
   Device* lpc = nullptr;
   for (size_t i = 0; i < devices.size(); ++i) {

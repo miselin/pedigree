@@ -31,6 +31,7 @@
 #include <config.h>
 
 #include "modules/system/usb/Usb.h"
+#include "modules/system/usb/UsbStartup.h"
 
 class UsbHub;
 class UsbDeviceContainer;
@@ -81,6 +82,29 @@ class EXPORTED_PUBLIC UsbInterruptInHandle {
 
 class EXPORTED_PUBLIC UsbHub : public Device {
  public:
+  /** Holds controller startup admission across enumeration or a driver probe. */
+  class EXPORTED_PUBLIC StartupActivity {
+   public:
+    explicit StartupActivity(UsbHub* hub);
+    ~StartupActivity();
+    explicit operator bool() const {
+      return m_Admitted;
+    }
+    void failed() {
+      m_Outcome = UsbStartup::Outcome::Failed;
+    }
+    void deviceReady() {
+      m_Outcome = UsbStartup::Outcome::DeviceReady;
+    }
+
+   private:
+    StartupActivity(const StartupActivity&) = delete;
+    StartupActivity& operator=(const StartupActivity&) = delete;
+    UsbHub* m_Root;
+    bool m_Admitted;
+    UsbStartup::Outcome m_Outcome = UsbStartup::Outcome::Neutral;
+  };
+
   /**
    * Suppresses root-port connection-change handling for one lexical scope.
    *
@@ -225,6 +249,7 @@ class EXPORTED_PUBLIC UsbHub : public Device {
   virtual bool portReset(uint8_t nPort, bool bErrorResponse = false) = 0;
 
  private:
+  bool deviceConnectedAdmitted(uint8_t nPort, UsbSpeed speed);
 #if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
   static bool runInterruptOwnershipRegression();
   static int retireProbeSubtreeForTest(void* parameter);
@@ -295,6 +320,11 @@ class EXPORTED_PUBLIC UsbHub : public Device {
   bool m_RetainDisconnectedAddresses = false;
 
  protected:
+  virtual bool beginStartupActivity() {
+    return true;
+  }
+  virtual void endStartupActivity(UsbStartup::Outcome) {}
+
   friend class UsbInterruptInHandle;
   /** The last interface and subtree pin released this logical address. */
   virtual void releaseDeviceAddress(uint8_t) {}
