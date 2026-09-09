@@ -143,14 +143,6 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager {
       return m_TotalPages;
     }
 
-    void setCapacity(size_t newCapacity) {
-      m_DesiredCapacity = newCapacity;
-    }
-
-    void increaseCapacity(size_t by) {
-      m_DesiredCapacity += by;
-    }
-
    protected:
     /** Mark all stacks tracking pages above 4GB mark ready. */
     void markAbove4GReady();
@@ -195,10 +187,8 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager {
     /** Current pages available. */
     size_t m_FreePages;
     size_t m_TotalPages;
-    /** Current capacity (i.e. mapped pages). */
-    size_t m_Capacity;
-    /** Desired capacity. New pages will be mapped until demand is met. */
-    size_t m_DesiredCapacity;
+    /** Each physical-address class needs its own backing storage. */
+    size_t m_DesiredCapacity[StackCount];
 
     /** Whether or not a particular stack is ready for use. */
     Atomic<bool> m_StackReady[StackCount];

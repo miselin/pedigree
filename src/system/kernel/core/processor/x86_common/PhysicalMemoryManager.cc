@@ -515,9 +515,6 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t& Info) {
       top = rangeTop;
     }
 
-    // Prepare the page stack for the additional pages we're giving it.
-    m_PageStack.increaseCapacity((length / pageSize) + 1);
-
     m_PageStack.free(addr, length, true);
   }
 
@@ -692,7 +689,6 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t& Info)
         if (alignedHighAddr < alignedRangeTop) {
           uint64_t highLength = alignedRangeTop - alignedHighAddr;
           size_t numPages = highLength / pageSize;
-          m_PageStack.increaseCapacity(numPages);
           if (alignedHighAddr < sixtyFourGiB && alignedRangeTop > sixtyFourGiB) {
             m_PageStack.free(alignedHighAddr, sixtyFourGiB - alignedHighAddr, true);
             m_PageStack.free(sixtyFourGiB, alignedRangeTop - sixtyFourGiB, true);
@@ -948,13 +944,13 @@ physical_uintptr_t X86CommonPhysicalMemoryManager::PageStack::allocate(size_t co
     Processor::pause();
   }
 
-  if (index == 2 && (m_StackMax[2] == m_StackSize[2] || !m_StackReady[2]))
+  if (index == 2 && (!m_StackSize[2] || !m_StackReady[2]))
     index = 1;
-  if (index == 1 && (m_StackMax[1] == m_StackSize[1] || !m_StackReady[1]))
+  if (index == 1 && (!m_StackSize[1] || !m_StackReady[1]))
     index = 0;
 
   physical_uintptr_t result = 0;
-  if ((m_StackMax[index] != m_StackSize[index]) && m_StackSize[index]) {
+  if (m_StackSize[index]) {
     if (index == 0) {
       m_StackSize[0] -= 4;
       result = *(reinterpret_cast<uint32_t*>(m_Stack[0]) + m_StackSize[0] / 4);
@@ -1011,6 +1007,10 @@ void X86CommonPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress, s
 
   uint64_t topPhysical = physicalAddress + length;
 
+  if (newMemory) {
+    m_DesiredCapacity[index] += length / getPageSize();
+  }
+
   for (; physicalAddress < topPhysical; physicalAddress += getPageSize()) {
     // Expand the stack if necessary.
     if (!maybeMap(index, physicalAddress)) {
@@ -1019,6 +1019,11 @@ void X86CommonPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress, s
   }
 
   size_t numPages = (topPhysical - physicalAddress) / getPageSize();
+  size_t entrySize = index ? sizeof(uint64_t) : sizeof(uint32_t);
+  if (m_StackSize[index] > m_StackMax[index] ||
+      numPages > (m_StackMax[index] - m_StackSize[index]) / entrySize) {
+    panic("PhysicalMemoryManager: page stack capacity exhausted");
+  }
 
   if (index == 0) {
     performPush(reinterpret_cast<uint32_t*>(m_Stack[index]), m_StackSize[index], physicalAddress,
@@ -1044,12 +1049,11 @@ void X86CommonPhysicalMemoryManager::PageStack::free(uint64_t physicalAddress, s
 }
 
 X86CommonPhysicalMemoryManager::PageStack::PageStack() {
-  m_Capacity = 0;
-  m_DesiredCapacity = 0;
-
   for (size_t i = 0; i < StackCount; i++) {
+    m_Stack[i] = nullptr;
     m_StackMax[i] = 0;
     m_StackSize[i] = 0;
+    m_DesiredCapacity[i] = 0;
     m_StackReady[i] = false;
   }
 
@@ -1091,11 +1095,12 @@ void X86CommonPhysicalMemoryManager::PageStack::markBelow4GReady() {
 
 bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(size_t index, uint64_t physicalAddress) {
   bool mapped = false;
+  size_t entrySize = index ? sizeof(uint64_t) : sizeof(uint32_t);
 
   void* virtualAddress = adjust_pointer(m_Stack[index], m_StackMax[index]);
 
   // Do we even need to do this mapping?
-  if (m_Capacity >= m_DesiredCapacity) {
+  if (m_StackMax[index] / entrySize >= m_DesiredCapacity[index]) {
     return false;
   }
 
@@ -1129,25 +1134,13 @@ bool X86CommonPhysicalMemoryManager::PageStack::maybeMap(size_t index, uint64_t 
 
   // Another page worth of entries is mapped - update capacity accordingly.
   if (AddressSpace.isMapped(virtualAddress)) {
-    // This address is now valid for stack usage, so it adds capacity for
-    // significantly more pages to the stack.
-    size_t entrySize = sizeof(uint32_t);
-    if (index != 0) {
-      entrySize = sizeof(uint64_t);
-    }
-    m_Capacity += getPageSize() / entrySize;
-
     // This page is mapped, so we need to go ahead and start allocating the
     // next page in the stack. This way we always have the entire stack
     // mapped before we start pushing pages into it.
     m_StackMax[index] += getPageSize();
-
-    // Top of stack mapped, do we need to expand further?
-    if (m_Capacity >= m_DesiredCapacity) {
-      // No need to map here.
-      return false;
-    }
   }
 
+  // A page used for backing storage must never be pushed onto the free list,
+  // including the final page that satisfies this stack's capacity demand.
   return mapped;
 }

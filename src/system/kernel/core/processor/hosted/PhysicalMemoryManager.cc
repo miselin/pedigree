@@ -390,7 +390,6 @@ void HostedPhysicalMemoryManager::initialise(const BootstrapStruct_t& Info) {
   size_t pageSize = getPageSize();
 
   // Free pages into the page stack first.
-  m_PageStack.increaseCapacity((HOSTED_PHYSICAL_MEMORY_SIZE / pageSize) + 1);
   m_PageStack.free(0, HOSTED_PHYSICAL_MEMORY_SIZE, true);
   m_PageStack.markBelow4GReady();
   TRACE("Hosted PMM: page stack done");
