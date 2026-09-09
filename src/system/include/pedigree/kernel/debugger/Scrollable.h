@@ -34,6 +34,8 @@ class Scrollable {
   void resize(size_t width, size_t height);
   void scroll(ssize_t lines);
   void scrollTo(size_t absolute);
+  void scrollHorizontal(ssize_t columns);
+  void horizontalScrollTo(size_t absolute);
   void refresh(DebuggerIO* pScreen);
   void setScrollKeys(char up, char down);
   ssize_t getLine();
@@ -48,6 +50,7 @@ class Scrollable {
   virtual const char* getLine2(size_t index, size_t& colOffset, DebuggerIO::Colour& colour,
                                DebuggerIO::Colour& bgColour) = 0;
   virtual size_t getLineCount() = 0;
+  virtual size_t getContentWidth();
   virtual ~Scrollable();
 
  protected:
@@ -56,6 +59,7 @@ class Scrollable {
   size_t m_width;
   size_t m_height;
   ssize_t m_line;
+  size_t m_column;
   char m_ScrollUp;
   char m_ScrollDown;
 };

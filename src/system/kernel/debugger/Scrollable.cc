@@ -21,18 +21,43 @@
 
 namespace {
 void drawClippedString(DebuggerIO* screen, const char* text, size_t row, size_t column,
-                       size_t width, DebuggerIO::Colour colour, DebuggerIO::Colour bgColour) {
+                       size_t width, size_t offset, DebuggerIO::Colour colour,
+                       DebuggerIO::Colour bgColour) {
   if (!text || column >= width) {
     return;
   }
 
-  HugeStaticString clipped(text, width - column);
+  const size_t length = StringLength(text);
+  if (offset >= length) {
+    return;
+  }
+
+  HugeStaticString clipped(text + offset, width - column);
   screen->drawString(clipped, row, column, colour, bgColour);
+}
+
+void drawScrolledString(DebuggerIO* screen, const char* text, size_t row, size_t left, size_t right,
+                        size_t logicalColumn, size_t horizontalOffset, DebuggerIO::Colour colour,
+                        DebuggerIO::Colour bgColour) {
+  if (horizontalOffset < logicalColumn) {
+    drawClippedString(screen, text, row, left + logicalColumn - horizontalOffset, right, 0, colour,
+                      bgColour);
+  } else {
+    drawClippedString(screen, text, row, left, right, horizontalOffset - logicalColumn, colour,
+                      bgColour);
+  }
 }
 }  // namespace
 
 Scrollable::Scrollable()
-    : m_x(0), m_y(0), m_width(0), m_height(0), m_line(0), m_ScrollUp('j'), m_ScrollDown('k') {}
+    : m_x(0),
+      m_y(0),
+      m_width(0),
+      m_height(0),
+      m_line(0),
+      m_column(0),
+      m_ScrollUp('j'),
+      m_ScrollDown('k') {}
 Scrollable::~Scrollable() = default;
 
 void Scrollable::move(size_t x, size_t y) {
@@ -43,6 +68,7 @@ void Scrollable::move(size_t x, size_t y) {
 void Scrollable::resize(size_t width, size_t height) {
   m_width = width;
   m_height = height;
+  horizontalScrollTo(m_column);
 }
 
 void Scrollable::scroll(ssize_t lines) {
@@ -65,6 +91,17 @@ void Scrollable::scrollTo(size_t absolute) {
     m_line = 0;
 }
 
+void Scrollable::scrollHorizontal(ssize_t columns) {
+  horizontalScrollTo(
+      static_cast<size_t>(max(static_cast<ssize_t>(0), static_cast<ssize_t>(m_column) + columns)));
+}
+
+void Scrollable::horizontalScrollTo(size_t absolute) {
+  const ssize_t maxColumn = max(static_cast<ssize_t>(0), static_cast<ssize_t>(getContentWidth()) -
+                                                             static_cast<ssize_t>(m_width));
+  m_column = min(absolute, static_cast<size_t>(maxColumn));
+}
+
 void Scrollable::refresh(DebuggerIO* pScreen) {
   pScreen->disableRefreshes();
 
@@ -85,12 +122,13 @@ void Scrollable::refresh(DebuggerIO* pScreen) {
       DebuggerIO::Colour bgColour = DebuggerIO::Black;
       size_t colOffset;
       const char* Line = getLine1(line, colour, bgColour);
-      drawClippedString(pScreen, Line, m_y + i, m_x, m_x + m_width, colour, bgColour);
+      drawScrolledString(pScreen, Line, m_y + i, m_x, m_x + m_width, 0, m_column, colour, bgColour);
 
       colour = DebuggerIO::White;
       bgColour = DebuggerIO::Black;
       Line = getLine2(line, colOffset, colour, bgColour);
-      drawClippedString(pScreen, Line, m_y + i, m_x + colOffset, m_x + m_width, colour, bgColour);
+      drawScrolledString(pScreen, Line, m_y + i, m_x, m_x + m_width, colOffset, m_column, colour,
+                         bgColour);
     }
     line++;
   }
@@ -133,5 +171,9 @@ size_t Scrollable::height() const {
   return m_height;
 }
 size_t Scrollable::width() const {
+  return m_width;
+}
+
+size_t Scrollable::getContentWidth() {
   return m_width;
 }

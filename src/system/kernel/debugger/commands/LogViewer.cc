@@ -35,6 +35,7 @@ bool LogViewer::execute(const HugeStaticString& input, HugeStaticString& output,
   // Initialise the Scrollable class
   move(0, 1);
   resize(pScreen->getWidth(), pScreen->getHeight() - 2);
+  horizontalScrollTo(0);
   setScrollKeys('j', 'k');
 
   // Clear the top status lines.
@@ -51,11 +52,9 @@ bool LogViewer::execute(const HugeStaticString& input, HugeStaticString& output,
   pScreen->drawHorizontalLine(' ', pScreen->getHeight() - 1, 0, pScreen->getWidth() - 1,
                               DebuggerIO::White, DebuggerIO::Green);
 
-  NormalStaticString footer(
-      "j: up  k: down  backspace: page up  space: page down  q: quit");
+  NormalStaticString footer("h/l: left/right  j/k: up/down  backspace/space: page  q: quit");
   footer.truncate(pScreen->getWidth());
-  pScreen->drawString(footer, pScreen->getHeight() - 1, 0, DebuggerIO::White,
-                      DebuggerIO::Green);
+  pScreen->drawString(footer, pScreen->getHeight() - 1, 0, DebuggerIO::White, DebuggerIO::Green);
 
   // Main loop.
   bool bStop = false;
@@ -72,6 +71,10 @@ bool LogViewer::execute(const HugeStaticString& input, HugeStaticString& output,
       scroll(-1);
     else if (c == 'k')
       scroll(1);
+    else if (c == 'h')
+      scrollHorizontal(-8);
+    else if (c == 'l')
+      scrollHorizontal(8);
     else if (c == ' ')
       scroll(static_cast<ssize_t>(height()));
     else if (c == 0x08)
@@ -151,4 +154,18 @@ const char* LogViewer::getLine2(size_t index, size_t& colOffset, DebuggerIO::Col
 size_t LogViewer::getLineCount() {
   Log& log = Log::instance();
   return log.getStaticEntryCount() + log.getDynamicEntryCount();
+}
+
+size_t LogViewer::getContentWidth() {
+  Log& log = Log::instance();
+  size_t width = 11;
+
+  for (size_t i = 0; i < log.getStaticEntryCount(); ++i) {
+    width = max(width, static_cast<size_t>(11 + log.getStaticEntry(i).str.length()));
+  }
+  for (size_t i = 0; i < log.getDynamicEntryCount(); ++i) {
+    width = max(width, static_cast<size_t>(11 + log.getDynamicEntry(i).str.length()));
+  }
+
+  return width;
 }
