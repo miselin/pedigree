@@ -22,17 +22,20 @@
 #include <lwip/errno.h>
 #include <lwip/sys.h>
 #include <pedigree/kernel/Log.h>
+#include <pedigree/kernel/panic.h>
 #include <pedigree/kernel/process/Mutex.h>
 #include <pedigree/kernel/process/Semaphore.h>
 #include <pedigree/kernel/process/Thread.h>
 #include <pedigree/kernel/processor/Processor.h>
 #include <pedigree/kernel/utilities/RingBuffer.h>
+#include <pedigree/kernel/utilities/SecureRandom.h>
 #include <pedigree/kernel/utilities/pocketknife.h>
 
 #if UTILITY_LINUX
 #include <errno.h>
 #include <thread>
 #include <time.h>
+#include <unistd.h>
 
 static Spinlock g_Protection(false);
 #else
@@ -48,6 +51,29 @@ struct pedigree_mbox {
 };
 
 void sys_init() {}
+
+static bool dns_random_bytes(void* buffer, size_t length) {
+#if UTILITY_LINUX
+  return getentropy(buffer, length) == 0;
+#else
+  return secure_random_bytes(buffer, length) == length;
+#endif
+}
+
+extern "C" int pedigree_dns_random_ready(void) {
+  uint8_t scratch = 0;
+  const bool ready = dns_random_bytes(&scratch, sizeof(scratch));
+  pedigree_random::erase(&scratch, sizeof(scratch));
+  return ready;
+}
+
+extern "C" uint32_t pedigree_dns_random(void) {
+  uint32_t result = 0;
+  // DNS admits requests only after seeding, and readiness cannot be revoked.
+  if (!dns_random_bytes(&result, sizeof(result)))
+    panic("DNS random generator unavailable after request admission");
+  return result;
+}
 
 u32_t sys_now() {
 #if UTILITY_LINUX

@@ -31,7 +31,8 @@ extern void free(void*);
 
 EXPORTED_PUBLIC size_t strlen(const char* s);
 char* strcpy(char* dest, const char* src);
-char* strncpy(char* dest, const char* src, size_t len);
+EXPORTED_PUBLIC char* strncpy(char* dest, const char* src, size_t len);
+EXPORTED_PUBLIC unsigned long strtoul(const char* nptr, char** endptr, int base);
 EXPORTED_PUBLIC int strcmp(const char* p1, const char* p2);
 EXPORTED_PUBLIC int strncmp(const char* p1, const char* p2, size_t n);
 char* strcat(char* dest, const char* src);

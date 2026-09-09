@@ -365,6 +365,8 @@ bool ProcFs::initialise(Disk* pDisk) {
   MountFile* mounts = new MountFile(getNextInode(), this, m_pRoot);
   m_pRoot->addEntry(mounts->getName(), mounts);
 
+  initialiseResolverFile();
+
   UptimeFile* uptime = new UptimeFile(getNextInode(), this, m_pRoot);
   m_pRoot->addEntry(uptime->getName(), uptime);
 

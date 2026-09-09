@@ -59,6 +59,7 @@
 #define LWIP_HDR_DNS_H
 
 #include "lwip/opt.h"
+#include "lwip/err.h"
 
 #if LWIP_DNS
 

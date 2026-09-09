@@ -66,7 +66,7 @@
 #include "lwip/dns.h"
 
 #include <string.h> /* memset */
-#include <stdlib.h> /* atoi */
+#include <stdlib.h> /* strtoul */
 
 /** helper struct for gethostbyname_r to access the char* buffer */
 struct gethostbyname_r_helper {
@@ -324,10 +324,12 @@ lwip_getaddrinfo(const char *nodename, const char *servname,
   if (servname != NULL) {
     /* service name specified: convert to port number
      * @todo?: currently, only ASCII integers (port numbers) are supported (AI_NUMERICSERV)! */
-    port_nr = atoi(servname);
-    if ((port_nr <= 0) || (port_nr > 0xffff)) {
+    char *end;
+    unsigned long parsed_port = strtoul(servname, &end, 10);
+    if ((end == servname) || (*end != '\0') || (parsed_port == 0) || (parsed_port > 0xffff)) {
       return EAI_SERVICE;
     }
+    port_nr = (int)parsed_port;
   }
 
   if (nodename != NULL) {

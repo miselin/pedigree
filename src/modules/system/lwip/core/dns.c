@@ -1344,6 +1344,16 @@ dns_enqueue(const char *name, size_t hostnamelen, dns_found_callback found,
 
 #if ((LWIP_DNS_SECURE & LWIP_DNS_SECURE_NO_MULTIPLE_OUTSTANDING) != 0)
   u8_t r;
+#endif
+
+#ifdef DNS_RAND_READY
+  /* No table entry or PCB may consume predictable identifiers before seeding. */
+  if (!DNS_RAND_READY()) {
+    return ERR_WOULDBLOCK;
+  }
+#endif
+
+#if ((LWIP_DNS_SECURE & LWIP_DNS_SECURE_NO_MULTIPLE_OUTSTANDING) != 0)
   /* check for duplicate entries */
   for (i = 0; i < DNS_TABLE_SIZE; i++) {
     if ((dns_table[i].state == DNS_STATE_ASKING) &&

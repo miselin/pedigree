@@ -213,6 +213,7 @@ class ProcFs : public Filesystem {
   ProcFs& operator=(const ProcFs&);
 
   bool initialiseNamespaceLinks();
+  void initialiseResolverFile();
   ProcFsDirectory* createProcessDirectory(PosixProcess* process);
 
   ProcFsDirectory* m_pRoot;

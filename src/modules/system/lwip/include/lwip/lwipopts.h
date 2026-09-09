@@ -54,6 +54,22 @@
 #define IP_SOF_BROADCAST 1
 
 #define LWIP_DHCP 1
+#define DHCP_CREATE_RAND_XID 0
+#define LWIP_DNS 1
+
+// Keep pre-seed DHCP and transport initialization independent of DNS randomness.
+// Defining LWIP_RAND would also change those existing startup paths.
+#ifdef __cplusplus
+extern "C" {
+#endif
+int pedigree_dns_random_ready(void);
+uint32_t pedigree_dns_random(void);
+#ifdef __cplusplus
+}
+#endif
+#define DNS_RAND_READY() pedigree_dns_random_ready()
+#define DNS_RAND_TXID() pedigree_dns_random()
+
 #define LWIP_AUTOIP 1
 #define LWIP_DHCP_AUTOIP_COOP 1
 
