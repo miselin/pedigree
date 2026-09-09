@@ -320,6 +320,27 @@ void X86CommonProcessor::cpuid(uint32_t inEax, uint32_t inEcx, uint32_t& eax, ui
   asm volatile("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "a"(inEax), "c"(inEcx));
 }
 
+#if MULTIPROCESSOR && X64
+namespace {
+size_t currentProcessorIndexFromTss(const Vector<ProcessorInformation*>& processors) {
+  uint16_t selector;
+  asm volatile("str %0" : "=r"(selector));
+
+  // The permanent GDT assigns two entries per CPU, starting at entry 7.
+  // Before its LTR, an AP still has the null TR established by INIT and must
+  // use the APIC fallback. The BSP loads its TSS before m_Initialised reaches 2.
+  constexpr uint16_t firstTssSelector = 7 << 3;
+  if (selector < firstTssSelector || ((selector - firstTssSelector) & 0xF))
+    return processors.count();
+
+  const size_t index = (selector - firstTssSelector) >> 4;
+  if (index >= processors.count() || processors[index]->getTssSelector() != selector)
+    return processors.count();
+  return index;
+}
+}  // namespace
+#endif
+
 ProcessorId ProcessorBase::id() {
   if (m_Initialised < 2)
     return 0;
@@ -328,6 +349,12 @@ ProcessorId ProcessorBase::id() {
   Pc& pc = Pc::instance();
   if (!pc.localApicAvailable())
     return 0;
+
+#if X64
+  const size_t index = currentProcessorIndexFromTss(m_ProcessorInformation);
+  if (index < m_ProcessorInformation.count())
+    return m_ProcessorInformation[index]->m_ProcessorId;
+#endif
 
   uint8_t apicId = pc.getLocalApic().getId();
 
@@ -347,6 +374,12 @@ size_t ProcessorBase::index() {
   Pc& pc = Pc::instance();
   if (!pc.localApicAvailable())
     return 0;
+
+#if X64
+  const size_t index = currentProcessorIndexFromTss(m_ProcessorInformation);
+  if (index < m_ProcessorInformation.count())
+    return index;
+#endif
 
   const uint8_t apicId = pc.getLocalApic().getId();
   for (size_t i = 0; i < m_ProcessorInformation.count(); ++i) {
@@ -370,6 +403,12 @@ ProcessorInformation& ProcessorBase::information() {
   Pc& pc = Pc::instance();
   if (!pc.localApicAvailable())
     return m_SafeBspProcessorInformation;
+
+#if X64
+  const size_t index = currentProcessorIndexFromTss(m_ProcessorInformation);
+  if (index < m_ProcessorInformation.count())
+    return *m_ProcessorInformation[index];
+#endif
 
   uint8_t apicId = pc.getLocalApic().getId();
 
