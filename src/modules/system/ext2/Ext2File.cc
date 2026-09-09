@@ -20,6 +20,7 @@
 #include "Ext2File.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/TargetInfo.h"
+#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -386,6 +387,110 @@ bool Ext2File::sync(size_t offset, bool async) {
   }
   LockGuard<Mutex> guard(m_State->writebackLock);
   return Ext2Node::sync(offset, async);
+}
+
+bool Ext2File::syncPages(const uint64_t* offsets, size_t count) {
+  if (count > Disk::MaxSyncPages || (count && !offsets))
+    return false;
+  if (!count)
+    return true;
+  if (useFillCache()) {
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    uintptr_t keys[Disk::MaxSyncPages];
+    for (size_t i = 0; i < count; ++i) {
+      if (offsets[i] >= getSize() || offsets[i] % pageSize || offsets[i] > ~uintptr_t{0})
+        return false;
+      keys[i] = offsets[i];
+    }
+    // Claim the authoritative file pages before taking the inode lock: a
+    // callback already copying one of these pages may need that same lock.
+    return cacheState().fill.syncBatch(
+        keys, count,
+        [](const Cache::WritebackPage* pages, size_t count, void* context) {
+          auto* state = static_cast<Ext2InodeState*>(context);
+          LockGuard<Mutex> guard(state->writebackLock);
+          Ext2Filesystem* filesystem = state->filesystem;
+          Disk* disk = filesystem->m_pDisk;
+          const size_t blockSize = filesystem->m_BlockSize;
+          const size_t pageSize = PhysicalMemoryManager::getPageSize();
+          if (!disk || !blockSize || pageSize % blockSize)
+            return false;
+          uint32_t blocks[Disk::MaxSyncPages];
+          uint64_t locations[Disk::MaxSyncPages];
+          size_t blockCount = 0;
+          bool succeeded = true;
+          auto flush = [&] {
+            if (!blockCount)
+              return;
+            succeeded = disk->syncPages(locations, blockCount) && succeeded;
+            for (size_t i = 0; i < blockCount; ++i)
+              filesystem->unpinBlock(blocks[i]);
+            blockCount = 0;
+          };
+          // Keep both cache layers pinned through each device barrier. The
+          // upper cache settles only after every constituent batch completes.
+          for (size_t i = 0; i < count; ++i) {
+            for (size_t offset = 0; offset < pageSize; offset += blockSize) {
+              if (pages[i].key > ~uintptr_t{0} - offset) {
+                succeeded = false;
+                break;
+              }
+              const size_t location = pages[i].key + offset;
+              if (location >= state->size)
+                break;
+              const size_t block = location / blockSize;
+              if (block >= state->blocks.count() || state->blocks[block] == ~uint32_t(0)) {
+                succeeded = false;
+                continue;
+              }
+              const uint32_t physical = state->blocks[block];
+              if (!physical)
+                continue;
+              const uintptr_t destination = filesystem->readBlock(physical);
+              if (!destination || destination == FILE_BAD_BLOCK) {
+                succeeded = false;
+                continue;
+              }
+              const size_t remaining = state->size - location;
+              const size_t length = remaining < blockSize ? remaining : blockSize;
+              ForwardMemoryCopy(reinterpret_cast<void*>(destination),
+                                reinterpret_cast<const void*>(pages[i].location + offset), length);
+              blocks[blockCount] = physical;
+              locations[blockCount++] = static_cast<uint64_t>(physical) * blockSize;
+              if (blockCount == Disk::MaxSyncPages)
+                flush();
+            }
+          }
+          flush();
+          return succeeded;
+        },
+        m_State);
+  }
+
+  LockGuard<Mutex> guard(m_State->writebackLock);
+  Disk* disk = m_pExt2Fs->m_pDisk;
+  const size_t blockSize = m_pExt2Fs->m_BlockSize;
+  if (!disk || !blockSize)
+    return false;
+  for (size_t i = 0; i < count; ++i) {
+    if (offsets[i] >= m_nSize || (offsets[i] % blockSize) ||
+        offsets[i] / blockSize >= m_Blocks.count())
+      return false;
+  }
+  uint64_t locations[Disk::MaxSyncPages];
+  size_t locationCount = 0;
+  for (size_t i = 0; i < count; ++i) {
+    const size_t block = offsets[i] / blockSize;
+    if (!ensureBlockLoaded(block))
+      return false;
+    if (!m_Blocks[block])
+      continue;
+    const uint64_t location = static_cast<uint64_t>(m_Blocks[block]) * blockSize;
+    if (location >= disk->getSize())
+      return false;
+    locations[locationCount++] = location;
+  }
+  return disk->syncPages(locations, locationCount);
 }
 
 size_t Ext2File::getBlockSize() const {

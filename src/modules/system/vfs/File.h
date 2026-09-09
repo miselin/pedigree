@@ -189,6 +189,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
    */
   virtual bool sync(size_t offset, bool async);
 
+  /** Persists a bounded group of offsets whose producer pages remain pinned. */
+  virtual bool syncPages(const uint64_t* offsets, size_t count);
+
   /** Returns the time the file was created. */
   Time::Timestamp getCreationTime();
   /** Sets the time the file was created. */

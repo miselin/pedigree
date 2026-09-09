@@ -635,6 +635,70 @@ bool ScsiDisk::sync(uint64_t location, bool async) {
   return succeeded;
 }
 
+bool ScsiDisk::syncPages(const uint64_t* locations, size_t count) {
+  static_assert(Disk::MaxSyncPages <= Cache::MaxWritebackPages);
+  if (count > MaxSyncPages || (count && !locations))
+    return false;
+  if (!count)
+    return true;
+#if CRIPPLE_HDD
+  return false;
+#else
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return false;
+  auto* controller = static_cast<ScsiController*>(m_pParent);
+  OperationBarrier::Lease operation;
+  if (!controller || !controller->acquireDiskOperation(operation))
+    return false;
+  const size_t nativeBlockSize = getNativeBlockSize();
+  if (!nativeBlockSize || ScsiCachePageBytes % nativeBlockSize)
+    return false;
+
+  uintptr_t keys[MaxSyncPages] = {};
+  size_t pageCount = 0;
+  for (size_t i = 0; i < count; ++i) {
+    const uint64_t location = locations[i];
+    if (location >= getSize() || location % 512)
+      return false;
+    const uint64_t alignment = getAlignmentPoint(location);
+    const uint64_t key = location - ((location - alignment) % ScsiCachePageBytes);
+    const size_t length = getCachePageValidLength(key);
+    if (key > ~uintptr_t{0} || !length || key % nativeBlockSize || length % nativeBlockSize)
+      return false;
+    bool duplicate = false;
+    for (size_t j = 0; j < pageCount; ++j)
+      duplicate |= keys[j] == key;
+    if (!duplicate)
+      keys[pageCount++] = key;
+  }
+  struct Batch {
+    ScsiDisk* disk;
+    ScsiController* controller;
+  } batch = {this, controller};
+  return m_Cache.syncBatch(
+      keys, pageCount,
+      [](const Cache::WritebackPage* pages, size_t size, void* context) {
+        auto& batch = *static_cast<Batch*>(context);
+        bool succeeded = true;
+        for (size_t i = 0; i < size; ++i) {
+          const uint64_t written = batch.controller->addRequest(
+              0, RequestQueue::NewRequest, SCSI_REQUEST_WRITE_DIRECT,
+              reinterpret_cast<uint64_t>(batch.disk), pages[i].key, pages[i].location);
+          succeeded = written == batch.disk->getCachePageValidLength(pages[i].key) && succeeded;
+        }
+        // Even a partial failure can have submitted writes. Complete their
+        // barrier before returning, and leave the entire batch retryable.
+        const uint64_t flushed =
+            batch.controller->addRequest(0, RequestQueue::NewRequest, SCSI_REQUEST_SYNC,
+                                         reinterpret_cast<uint64_t>(batch.disk), SyncWholeDevice);
+        return succeeded && flushed != 0;
+      },
+      &batch);
+#endif
+}
+
 bool ScsiDisk::syncAll() {
   TerminationDeferral lifetime;
   DiskUse diskUse;

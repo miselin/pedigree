@@ -76,6 +76,7 @@ class Ext2File : public File, public Ext2Node {
 
   virtual bool sync();
   virtual bool sync(size_t offset, bool async);
+  bool syncPages(const uint64_t* offsets, size_t count) override;
 
   virtual size_t getBlockSize() const;
 

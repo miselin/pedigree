@@ -20,6 +20,7 @@
 #include "File.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -551,24 +552,64 @@ bool File::syncRange(size_t offset, size_t length) {
   }
 
   bool succeeded = true;
+  uint64_t batch[Disk::MaxSyncPages];
+  size_t batchCount = 0;
+  auto flushBatch = [&] {
+    if (!batchCount)
+      return;
+    succeeded = syncPages(batch, batchCount) && succeeded;
+    for (size_t i = 0; i < batchCount; ++i) {
+      if (filled)
+        cacheState().fill.release(batch[i]);
+      else
+        unpinBlock(batch[i]);
+    }
+    batchCount = 0;
+  };
   for (const SyncPage& page : pages) {
     const uint64_t location = page.block * blockSize;
+    // The index holds weak identities. Pin each producer page before checking
+    // the snapshot, and retain that pin through the batch's durability result.
     if (filled) {
-      succeeded = sync(location, false) && succeeded;
+      const uintptr_t buffer = cacheState().fill.lookup(location);
+      if (!buffer)
+        continue;
+      if (buffer != page.buffer) {
+        cacheState().fill.release(location);
+        continue;
+      }
+      batch[batchCount++] = location;
+      if (batchCount == Disk::MaxSyncPages)
+        flushBatch();
       continue;
     }
     if (!pinBlock(location)) {
       continue;
     }
 
-    // cacheState().data is a weak identity index. Pin the producer cache, then
-    // verify that the snapshot still names the pinned page.
     if (getCachedPage(page.block) == page.buffer) {
       writeBlock(location, page.buffer);
-      succeeded = sync(location, false) && succeeded;
+      batch[batchCount++] = location;
+      if (batchCount == Disk::MaxSyncPages)
+        flushBatch();
+    } else {
+      unpinBlock(location);
     }
-    unpinBlock(location);
   }
+  flushBatch();
+  return succeeded;
+}
+
+bool File::syncPages(const uint64_t* offsets, size_t count) {
+  if (count > Disk::MaxSyncPages || (count && !offsets))
+    return false;
+  for (size_t i = 0; i < count; ++i) {
+    if (offsets[i] >= getSize())
+      return false;
+  }
+  bool succeeded = true;
+  for (size_t i = 0; i < count; ++i)
+    succeeded = sync(offsets[i], false) && succeeded;
   return succeeded;
 }
 

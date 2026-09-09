@@ -409,3 +409,183 @@ TEST(CacheSync, TimerProcessesMaximumKeyWithoutWrappingItsCursor) {
   EXPECT_TRUE(cache.evict(LastKey));
   EXPECT_EQ(observer.writes, 1U);
 }
+
+namespace {
+struct BatchObserver {
+  Cache* cache = nullptr;
+  size_t batches = 0;
+  size_t ordinaryWrites = 0;
+  bool succeed = true;
+  bool ordinarySucceeds = false;
+  bool mutate = false;
+  unsigned char lastWritten = 0;
+
+  static bool ordinary(CacheConstants::CallbackCause cause, uintptr_t, uintptr_t location,
+                       void* context) {
+    auto& observer = *static_cast<BatchObserver*>(context);
+    if (cause == CacheConstants::WriteBack) {
+      ++observer.ordinaryWrites;
+      observer.lastWritten = *reinterpret_cast<unsigned char*>(location);
+      return observer.ordinarySucceeds;
+    }
+    return true;
+  }
+
+  static bool batch(const Cache::WritebackPage* pages, size_t count, void* context) {
+    auto& observer = *static_cast<BatchObserver*>(context);
+    ++observer.batches;
+    EXPECT_EQ(count, 2U);
+    if (count != 2)
+      return false;
+    uintptr_t keys[2] = {pages[0].key, pages[1].key};
+    for (size_t i = 0; i < count; ++i) {
+      EXPECT_FALSE(observer.cache->evict(keys[i]));
+      const uintptr_t pinned = observer.cache->lookup(keys[i]);
+      EXPECT_EQ(pinned, pages[i].location);
+      if (pinned)
+        observer.cache->release(keys[i]);
+    }
+    EXPECT_FALSE(observer.cache->syncBatch(keys, count, batch, context));
+    if (observer.mutate)
+      *reinterpret_cast<unsigned char*>(pages[1].location) = 0xA6;
+    return observer.succeed;
+  }
+};
+}  // namespace
+
+TEST(CacheSync, BatchClaimsAllPagesBeforeCallbackAndRetainsCallerPins) {
+  BatchObserver observer;
+  Cache cache;
+  observer.cache = &cache;
+  cache.setCallback(BatchObserver::ordinary, &observer);
+  constexpr uintptr_t Keys[] = {0, Page};
+  ASSERT_NE(publish(cache, Keys[0]), 0U);
+  ASSERT_NE(publish(cache, Keys[1]), 0U);
+  ASSERT_TRUE(cache.pin(Keys[0]));
+  ASSERT_TRUE(cache.syncBatch(Keys, 2, BatchObserver::batch, &observer));
+  EXPECT_EQ(observer.batches, 1U);
+  EXPECT_EQ(observer.ordinaryWrites, 0U);
+  EXPECT_FALSE(cache.evict(Keys[0]));
+  EXPECT_TRUE(cache.evict(Keys[1]));
+  cache.release(Keys[0]);
+  EXPECT_TRUE(cache.evict(Keys[0]));
+  EXPECT_EQ(observer.ordinaryWrites, 0U);
+}
+
+TEST(CacheSync, FailedBatchKeepsEveryPageRetryableUntilSharedCommitSucceeds) {
+  BatchObserver observer;
+  Cache cache;
+  observer.cache = &cache;
+  observer.succeed = false;
+  cache.setCallback(BatchObserver::ordinary, &observer);
+  constexpr uintptr_t Keys[] = {0, Page};
+  ASSERT_NE(publish(cache, Keys[0]), 0U);
+  ASSERT_NE(publish(cache, Keys[1]), 0U);
+  ASSERT_FALSE(cache.syncBatch(Keys, 2, BatchObserver::batch, &observer));
+  EXPECT_FALSE(cache.evict(Keys[0]));
+  EXPECT_FALSE(cache.evict(Keys[1]));
+  EXPECT_EQ(observer.ordinaryWrites, 2U);
+  EXPECT_TRUE(cache.exists(0, 2 * Page));
+  observer.succeed = true;
+  ASSERT_TRUE(cache.syncBatch(Keys, 2, BatchObserver::batch, &observer));
+  EXPECT_EQ(observer.batches, 2U);
+  EXPECT_TRUE(cache.evict(Keys[0]));
+  EXPECT_TRUE(cache.evict(Keys[1]));
+  EXPECT_EQ(observer.ordinaryWrites, 2U);
+}
+
+TEST(CacheSync, BatchCompletionDoesNotHideMutationDuringCallback) {
+  BatchObserver observer;
+  Cache cache;
+  observer.cache = &cache;
+  observer.mutate = true;
+  observer.ordinarySucceeds = true;
+  cache.setCallback(BatchObserver::ordinary, &observer);
+  constexpr uintptr_t Keys[] = {0, Page};
+  ASSERT_NE(publish(cache, Keys[0]), 0U);
+  ASSERT_NE(publish(cache, Keys[1]), 0U);
+  ASSERT_TRUE(cache.syncBatch(Keys, 2, BatchObserver::batch, &observer));
+  for (size_t i = 0; i < 4; ++i)
+    cache.timer(CACHE_WRITEBACK_PERIOD * 1000000ULL);
+  EXPECT_EQ(observer.ordinaryWrites, 1U);
+  EXPECT_EQ(observer.lastWritten, 0xA6);
+  EXPECT_TRUE(cache.empty());
+  EXPECT_EQ(observer.ordinaryWrites, 1U);
+}
+
+TEST(CacheSync, BatchValidatesEveryKeyBeforeInvokingCallback) {
+  BatchObserver observer;
+  Cache cache;
+  observer.cache = &cache;
+  cache.setCallback(BatchObserver::ordinary, &observer);
+  ASSERT_NE(publish(cache, 0), 0U);
+  ASSERT_NE(cache.insert(Page), 0U);
+  constexpr uintptr_t Duplicate[] = {0, 0};
+  constexpr uintptr_t Missing[] = {0, 2 * Page};
+  constexpr uintptr_t Editing[] = {0, Page};
+  EXPECT_TRUE(cache.syncBatch(nullptr, 0, nullptr, nullptr));
+  EXPECT_FALSE(cache.syncBatch(nullptr, 1, BatchObserver::batch, &observer));
+  EXPECT_FALSE(
+      cache.syncBatch(Duplicate, Cache::MaxWritebackPages + 1, BatchObserver::batch, &observer));
+  EXPECT_FALSE(cache.syncBatch(Duplicate, 2, BatchObserver::batch, &observer));
+  EXPECT_FALSE(cache.syncBatch(Missing, 2, BatchObserver::batch, &observer));
+  EXPECT_FALSE(cache.syncBatch(Editing, 2, BatchObserver::batch, &observer));
+  EXPECT_EQ(observer.batches, 0U);
+  EXPECT_EQ(observer.ordinaryWrites, 0U);
+  EXPECT_TRUE(cache.discardEditing(Page));
+  observer.ordinarySucceeds = true;
+  EXPECT_TRUE(cache.evict(0));
+}
+
+TEST(CacheSync, CompletedBatchSupersedesQueuedConditionalWritesButNotExplicitSync) {
+  BatchObserver observer;
+  Cache cache;
+  observer.cache = &cache;
+  observer.ordinarySucceeds = true;
+  cache.setCallback(BatchObserver::ordinary, &observer);
+  constexpr uintptr_t Keys[] = {0, Page};
+  uintptr_t pages[] = {publish(cache, Keys[0]), publish(cache, Keys[1])};
+  ASSERT_NE(pages[0], 0U);
+  ASSERT_NE(pages[1], 0U);
+  ASSERT_TRUE(cache.syncBatch(Keys, 2, BatchObserver::batch, &observer));
+  EXPECT_EQ(cache.executeRequest(0, CacheConstants::WriteBack, Keys[0], pages[0], 0, 0, 1, 0), 2U);
+  EXPECT_EQ(cache.executeRequest(0, CacheConstants::WriteBack, Keys[1], pages[1], 0, 0, 1, 0), 2U);
+  EXPECT_EQ(observer.ordinaryWrites, 0U);
+
+  *reinterpret_cast<unsigned char*>(pages[1]) = 0xA6;
+  EXPECT_EQ(cache.executeRequest(0, CacheConstants::WriteBack, Keys[1], pages[1], 0, 0, 1, 0), 2U);
+  EXPECT_EQ(observer.ordinaryWrites, 1U);
+  EXPECT_EQ(observer.lastWritten, 0xA6);
+  EXPECT_EQ(cache.executeRequest(0, CacheConstants::WriteBack, Keys[1], pages[1], 0, 0, 0, 0), 2U);
+  EXPECT_EQ(observer.ordinaryWrites, 2U);
+  EXPECT_TRUE(cache.evict(Keys[0]));
+  EXPECT_TRUE(cache.evict(Keys[1]));
+  EXPECT_EQ(observer.ordinaryWrites, 2U);
+}
+
+TEST(CacheSync, ConditionalWritesRetryFailedBatchesAndRejectEditingPages) {
+  BatchObserver observer;
+  Cache cache;
+  observer.cache = &cache;
+  observer.succeed = false;
+  cache.setCallback(BatchObserver::ordinary, &observer);
+  constexpr uintptr_t Keys[] = {0, Page};
+  uintptr_t pages[] = {publish(cache, Keys[0]), publish(cache, Keys[1])};
+  ASSERT_NE(pages[0], 0U);
+  ASSERT_NE(pages[1], 0U);
+  ASSERT_FALSE(cache.syncBatch(Keys, 2, BatchObserver::batch, &observer));
+  EXPECT_EQ(cache.executeRequest(0, CacheConstants::WriteBack, Keys[0], pages[0], 0, 0, 1, 0), 0U);
+  EXPECT_EQ(observer.ordinaryWrites, 1U);
+  observer.ordinarySucceeds = true;
+  for (size_t i = 0; i < 2; ++i)
+    EXPECT_EQ(cache.executeRequest(0, CacheConstants::WriteBack, Keys[i], pages[i], 0, 0, 1, 0),
+              2U);
+  EXPECT_EQ(observer.ordinaryWrites, 3U);
+  cache.markEditing(Keys[1]);
+  *reinterpret_cast<unsigned char*>(pages[1]) = 0xB7;
+  EXPECT_EQ(cache.executeRequest(0, CacheConstants::WriteBack, Keys[1], pages[1], 0, 0, 1, 0), 0U);
+  EXPECT_EQ(observer.ordinaryWrites, 3U);
+  EXPECT_TRUE(cache.discardEditing(Keys[1]));
+  EXPECT_TRUE(cache.evict(Keys[0]));
+  EXPECT_EQ(observer.ordinaryWrites, 3U);
+}

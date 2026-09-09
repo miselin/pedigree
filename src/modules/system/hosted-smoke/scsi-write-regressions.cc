@@ -61,6 +61,10 @@ class ScriptedScsiController final : public ScsiController {
         m_SyncOpcodes(),
         m_SyncWhole(),
         m_SyncCount(0),
+        m_WritesAtLastSync(0),
+        m_HoldNextSync(0),
+        m_SyncEntered(0, false),
+        m_SyncRelease(0, false),
         m_SyncRequestLocations(),
         m_SyncRequestCount(0),
         m_UnitReadyCount(0),
@@ -165,8 +169,16 @@ class ScriptedScsiController final : public ScsiController {
         for (size_t i = 1; i < nCommandSize; ++i) {
           whole = whole && command[i] == 0;
         }
+        m_WritesAtLastSync = m_WriteCount;
         m_SyncWhole[m_SyncCount] = whole;
         m_SyncOpcodes[m_SyncCount++] = opcode;
+        if (m_HoldNextSync.compareAndSwap(1, 0)) {
+          m_SyncEntered.release();
+          if (!m_SyncRelease.acquireForCompletion()) {
+            m_Valid = false;
+            return false;
+          }
+        }
         return m_SyncMode == SyncMode::Pass10 ||
                (m_SyncMode == SyncMode::Pass16 && opcode == 0x91) ||
                (m_SyncMode == SyncMode::FailWhole && !whole);
@@ -188,13 +200,28 @@ class ScriptedScsiController final : public ScsiController {
     m_DirectPage = 0;
     m_LastWriteBytes = 0;
     m_SyncCount = 0;
+    m_WritesAtLastSync = 0;
     m_SyncRequestCount = 0;
   }
 
   void beginSync(SyncMode mode) {
     m_SyncMode = mode;
     m_SyncCount = 0;
+    m_WritesAtLastSync = 0;
     m_SyncRequestCount = 0;
+  }
+
+  void holdNextSync() {
+    m_HoldNextSync = 1;
+  }
+
+  bool waitForHeldSync() {
+    return m_SyncEntered.acquireForCompletion(1, 0, 500000);
+  }
+
+  void releaseHeldSync() {
+    m_HoldNextSync = 0;
+    m_SyncRelease.release();
   }
 
   bool syncTraceMatches(const uint8_t* expected, size_t count) const {
@@ -300,6 +327,10 @@ class ScriptedScsiController final : public ScsiController {
     return m_WriteCount;
   }
 
+  size_t writesAtLastSync() const {
+    return m_WritesAtLastSync;
+  }
+
   uintptr_t lastWriteBuffer() const {
     return m_LastWriteBuffer;
   }
@@ -402,12 +433,16 @@ class ScriptedScsiController final : public ScsiController {
   }
 
   WriteMode m_Mode;
-  uint8_t m_WriteOpcodes[16];
+  uint8_t m_WriteOpcodes[32];
   size_t m_WriteCount;
   SyncMode m_SyncMode;
   uint8_t m_SyncOpcodes[8];
   bool m_SyncWhole[8];
   size_t m_SyncCount;
+  size_t m_WritesAtLastSync;
+  Atomic<size_t> m_HoldNextSync;
+  Semaphore m_SyncEntered;
+  Semaphore m_SyncRelease;
   uint64_t m_SyncRequestLocations[8];
   size_t m_SyncRequestCount;
   size_t m_UnitReadyCount;
@@ -1652,6 +1687,209 @@ bool scsiSyncAll() {
   return passed;
 }
 
+bool scsiSyncBatch(bool failWrite, bool failFlush) {
+  constexpr uint64_t Keys[] = {CheckedSyncLocation, CheckedSyncLocation + PageBytes};
+  constexpr uint8_t Flush[] = {0x35};
+  constexpr uint8_t FailedFlush[] = {0x35, 0x35, 0x35, 0x91, 0x91, 0x91};
+  constexpr bool Whole[] = {true, true, true, true, true, true};
+  Fixture fixture;
+  if (!fixture.ready)
+    return false;
+  fixture.disk.pauseBackgroundWriteback();
+  if (!fixture.disk.preparePage(Keys[0]) || !fixture.disk.preparePage(Keys[1]))
+    return false;
+  fixture.controller.beginWrites(failWrite ? WriteMode::FailAll : WriteMode::PassWrite12);
+  fixture.controller.beginSync(failFlush ? SyncMode::FailAll : SyncMode::Pass10);
+  const bool result = fixture.disk.syncPages(Keys, 2);
+  const size_t expectedWrites = failWrite ? 18 : 8;
+  const bool committed =
+      result == !(failWrite || failFlush) && fixture.controller.writeCount() == expectedWrites &&
+      fixture.controller.writesAtLastSync() == expectedWrites &&
+      fixture.controller.syncTraceMatches(failFlush ? FailedFlush : Flush, failFlush ? 6 : 1) &&
+      fixture.controller.syncGeometryMatches(Whole, failFlush ? 6 : 1);
+  bool retained = true;
+  if (failWrite || failFlush) {
+    // A failed common barrier keeps even successfully transferred pages dirty.
+    // A backend attempt on each eviction also detects a leaked batch pin.
+    for (uint64_t key : Keys) {
+      fixture.controller.beginWrites(WriteMode::PassWrite12);
+      fixture.controller.beginSync(SyncMode::FailAll);
+      retained = !fixture.disk.evictPage(key) && fixture.disk.hasPage(key) &&
+                 fixture.controller.writeCount() == 4 &&
+                 fixture.controller.syncTraceMatches(FailedFlush, sizeof(FailedFlush)) && retained;
+    }
+  }
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::Pass10);
+  const bool pinned = fixture.disk.pin(Keys[0]);
+  const bool retried = fixture.disk.syncPages(Keys, 2) && fixture.controller.writeCount() == 8 &&
+                       fixture.controller.writesAtLastSync() == 8 &&
+                       fixture.controller.syncTraceMatches(Flush, sizeof(Flush));
+  const bool callerPin = pinned && !fixture.disk.evictPage(Keys[0]);
+  if (pinned)
+    fixture.disk.unpin(Keys[0]);
+  const bool balanced = fixture.disk.evictPage(Keys[0]) && fixture.disk.evictPage(Keys[1]) &&
+                        fixture.controller.writeCount() == 8 &&
+                        fixture.controller.syncTraceMatches(Flush, sizeof(Flush));
+  const bool passed = committed && retained && retried && callerPin && balanced;
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-sync-batch write-failure="
+           << failWrite << ", flush-failure=" << failFlush);
+  else
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-sync-batch: commit="
+          << committed << ", retained=" << retained << ", retry=" << retried
+          << ", caller-pin=" << callerPin << ", balanced=" << balanced);
+  return passed;
+}
+
+struct SyncBatchContext {
+  HostedScsiDisk* disk;
+  uint64_t keys[2];
+  Atomic<size_t> entered{0};
+  Atomic<size_t> returned{0};
+  bool result = false;
+};
+
+int syncBatchPages(void* parameter) {
+  auto& context = *static_cast<SyncBatchContext*>(parameter);
+  context.entered = 1;
+  context.result = context.disk->syncPages(context.keys, 2);
+  context.returned = 1;
+  return 0;
+}
+
+bool scsiOverlappingSyncBatches() {
+  constexpr uint64_t First = CheckedSyncLocation;
+  constexpr uint64_t Second = First + PageBytes;
+  constexpr uint8_t Flushes[] = {0x35, 0x35};
+  constexpr bool Whole[] = {true, true};
+  Fixture fixture;
+  if (!fixture.ready)
+    return false;
+  fixture.disk.pauseBackgroundWriteback();
+  if (!fixture.disk.preparePage(First) || !fixture.disk.preparePage(Second))
+    return false;
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::Pass10);
+  fixture.controller.holdNextSync();
+  SyncBatchContext first{&fixture.disk, {First, Second}};
+  SyncBatchContext second{&fixture.disk, {Second, First}};
+  Thread* producer = new Thread(Scheduler::instance().getKernelProcess(), syncBatchPages, &first,
+                                nullptr, false, true);
+  producer->setName("hosted SCSI held batch barrier");
+  const bool held = fixture.controller.waitForHeldSync();
+  Thread* waiter = nullptr;
+  bool waiting = false;
+  if (held) {
+    waiter = new Thread(Scheduler::instance().getKernelProcess(), syncBatchPages, &second, nullptr,
+                        false, true);
+    waiter->setName("hosted SCSI overlapping reverse batch");
+    const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+    while (Time::getTicks() < deadline) {
+      Thread::WaitDebugInfo info = {};
+      uintptr_t address = 0;
+      if (waiter->getWaitDebugInfo(info) && info.queue && info.queued &&
+          waiter->getDebugState(address) == Thread::CallbackDrain) {
+        waiting = true;
+        break;
+      }
+      if (second.returned)
+        break;
+      Scheduler::instance().yield();
+    }
+  }
+  const bool excluded = held && waiting && !first.returned && !second.returned &&
+                        fixture.controller.writeCount() == 8 && !fixture.disk.evictPage(First) &&
+                        !fixture.disk.evictPage(Second);
+  fixture.controller.releaseHeldSync();
+  const bool firstCompleted = waitUntilSet(first.returned);
+  const bool secondCompleted = waiter && waitUntilSet(second.returned);
+  const bool firstJoined = producer->joinForCompletion();
+  const bool secondJoined = waiter && waiter->joinForCompletion();
+  const bool serialised = firstCompleted && secondCompleted && firstJoined && secondJoined &&
+                          first.result && second.result && fixture.controller.writeCount() == 16 &&
+                          fixture.controller.writesAtLastSync() == 16 &&
+                          fixture.controller.syncTraceMatches(Flushes, sizeof(Flushes)) &&
+                          fixture.controller.syncGeometryMatches(Whole, 2);
+  const bool balanced = fixture.disk.evictPage(First) && fixture.disk.evictPage(Second) &&
+                        fixture.controller.writeCount() == 16;
+  const bool passed = excluded && serialised && balanced;
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-overlapping-sync-batches");
+  else
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-overlapping-sync-batches: excluded="
+          << excluded << ", serialised=" << serialised << ", balanced=" << balanced);
+  return passed;
+}
+
+bool scsiSyncBatchValidation() {
+  constexpr uint64_t Key = CheckedSyncLocation;
+  constexpr uint64_t Duplicate[] = {Key, Key + 512, Key + 1024};
+  constexpr uint64_t Missing[] = {Key, Key + PageBytes};
+  constexpr uint64_t Outside[] = {Key, 64 * PageBytes};
+  constexpr uint64_t Overflow[] = {Key, ~uint64_t{0}};
+  constexpr uint8_t Flush[] = {0x35};
+  Fixture fixture;
+  if (!fixture.ready)
+    return false;
+  fixture.disk.pauseBackgroundWriteback();
+  if (!fixture.disk.preparePage(Key))
+    return false;
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::Pass10);
+  const bool rejected = fixture.disk.syncPages(nullptr, 0) && !fixture.disk.syncPages(nullptr, 1) &&
+                        !fixture.disk.syncPages(Duplicate, Cache::MaxWritebackPages + 1) &&
+                        !fixture.disk.syncPages(Missing, 2) &&
+                        !fixture.disk.syncPages(Outside, 2) && !fixture.disk.syncPages(Overflow, 2);
+  const bool editing = fixture.disk.prepareEditingPage(Key + PageBytes) &&
+                       !fixture.disk.syncPages(Missing, 2) &&
+                       fixture.disk.discardEditingPage(Key + PageBytes);
+  const bool noIo =
+      fixture.controller.hasNoDirectActivity() && fixture.controller.syncTraceMatches(nullptr, 0);
+  const bool deduplicated = fixture.disk.syncPages(Duplicate, 3) &&
+                            fixture.controller.writeCount() == 4 &&
+                            fixture.controller.writesAtLastSync() == 4 &&
+                            fixture.controller.syncTraceMatches(Flush, sizeof(Flush));
+  const bool balanced = fixture.disk.evictPage(Key) && fixture.controller.writeCount() == 4;
+  const bool passed = rejected && editing && noIo && deduplicated && balanced;
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-sync-batch-validation");
+  else
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-sync-batch-validation: rejected="
+          << rejected << ", editing=" << editing << ", no-io=" << noIo << ", dedup=" << deduplicated
+          << ", balanced=" << balanced);
+  return passed;
+}
+
+bool scsiSyncBatchTerminalGeometry() {
+  constexpr uint64_t Terminal = 4 * PageBytes;
+  constexpr size_t TerminalBytes = 512;
+  constexpr uint64_t Keys[] = {0, Terminal};
+  constexpr uint8_t Flush[] = {0x35};
+  constexpr bool Whole[] = {true};
+  ScriptedScsiController controller(Terminal + TerminalBytes);
+  HostedScsiDisk disk;
+  if (!disk.initialise(&controller, 0))
+    return false;
+  disk.pauseBackgroundWriteback();
+  if (!disk.preparePage(Keys[0]) || !disk.preparePage(Keys[1]))
+    return false;
+  controller.beginWrites(WriteMode::PassWrite12);
+  controller.beginSync(SyncMode::Pass10);
+  const bool written =
+      disk.syncPages(Keys, 2) && controller.writeCount() == 8 &&
+      controller.lastWriteBytes() == TerminalBytes && controller.writesAtLastSync() == 8 &&
+      controller.syncTraceMatches(Flush, sizeof(Flush)) && controller.syncGeometryMatches(Whole, 1);
+  const bool balanced =
+      disk.evictPage(Keys[0]) && disk.evictPage(Keys[1]) && controller.writeCount() == 8;
+  const bool passed = written && balanced;
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-sync-batch-terminal");
+  else
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-sync-batch-terminal: write bounds, final flush or pins");
+  return passed;
+}
+
 bool scsiTerminalCachePage() {
   constexpr size_t TerminalBytes = 512;
   constexpr uint64_t TerminalLocation = 4 * PageBytes;
@@ -1757,7 +1995,15 @@ EXPORTED_PUBLIC bool runHostedScsiSyncRegressions() {
   const bool deferredRetry = scsiDeferredWriteRetry();
   const bool deferredShutdown = scsiDeferredWriteShutdown();
   const bool syncAll = scsiSyncAll();
-  return deferredWrites && deferredRetry && deferredShutdown && syncAll;
+  const bool batch = scsiSyncBatch(false, false);
+  const bool batchWriteFailure = scsiSyncBatch(true, false);
+  const bool batchFlushFailure = scsiSyncBatch(false, true);
+  const bool overlappingBatches = scsiOverlappingSyncBatches();
+  const bool batchValidation = scsiSyncBatchValidation();
+  const bool batchTerminal = scsiSyncBatchTerminalGeometry();
+  return deferredWrites && deferredRetry && deferredShutdown && syncAll && batch &&
+         batchWriteFailure && batchFlushFailure && overlappingBatches && batchValidation &&
+         batchTerminal;
 }
 
 EXPORTED_PUBLIC bool runHostedScsiWriteRegressions() {

@@ -129,7 +129,8 @@ class EXPORTED_PUBLIC CacheManager :
 
   /** Publishes a request which owns the target Cache lifetime. */
   uint64_t addCacheRequest(Cache* cache, bool asynchronous, CacheConstants::CallbackCause cause,
-                           uintptr_t key, uintptr_t location = 0, bool transferredPin = false);
+                           uintptr_t key, uintptr_t location = 0, bool transferredPin = false,
+                           bool onlyIfDirty = false);
 
   /**
    * RequestQueue doer - children give us new jobs, and we call out to
@@ -444,6 +445,21 @@ class EXPORTED_PUBLIC Cache {
    */
   MUST_USE_RESULT bool syncAll();
 
+  static constexpr size_t MaxWritebackPages = 64;
+  struct WritebackPage {
+    uintptr_t key;
+    uintptr_t location;
+  };
+  using writeback_batch_t = bool (*)(const WritebackPage*, size_t, void*);
+
+  /**
+   * Claims up to MaxWritebackPages distinct resident pages for one durable
+   * callback. No page is settled or released before the shared result; a failed
+   * callback leaves every page retryable. Keys must remain valid for this call.
+   */
+  MUST_USE_RESULT bool syncBatch(const uintptr_t* keys, size_t count, writeback_batch_t callback,
+                                 void* metadata);
+
   /**
    * Triggers the cache to calculate the checksum of the given location.
    * This may be useful to avoid a spurious writeback when reading data into
@@ -590,7 +606,7 @@ class EXPORTED_PUBLIC Cache {
 
  private:
   /** Writes an already pinned page, optionally joining an active callback. */
-  bool writebackPage(uintptr_t key, uintptr_t location, bool wait);
+  bool writebackPage(uintptr_t key, uintptr_t location, bool wait, bool onlyIfDirty = false);
 
   /** Key-item pairs. */
   Tree<uintptr_t, CachePage*> m_Pages;

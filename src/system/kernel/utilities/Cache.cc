@@ -280,7 +280,7 @@ uint64_t CacheManager::cacheGenerationWatermark() {
 
 uint64_t CacheManager::addCacheRequest(Cache* cache, bool asynchronous,
                                        CacheConstants::CallbackCause cause, uintptr_t key,
-                                       uintptr_t location, bool transferredPin) {
+                                       uintptr_t location, bool transferredPin, bool onlyIfDirty) {
 #if THREADS
   // RequestQueue rejects these contexts before taking payload ownership.
   // In particular, last-reference cancellation can request another eviction.
@@ -313,11 +313,12 @@ uint64_t CacheManager::addCacheRequest(Cache* cache, bool asynchronous,
 
   if (asynchronous) {
     return addAsyncRequest(1, reinterpret_cast<uint64_t>(cache), cause, key, location,
-                           transferredPin ? 1 : 0, generation, 0, requestToken);
+                           transferredPin ? 1 : 0, generation, onlyIfDirty ? 1 : 0, requestToken);
   }
 
   return addRequest(1, RequestQueue::NewRequest, reinterpret_cast<uint64_t>(cache), cause, key,
-                    location, transferredPin ? 1 : 0, generation, 0, requestToken);
+                    location, transferredPin ? 1 : 0, generation, onlyIfDirty ? 1 : 0,
+                    requestToken);
 }
 
 uint64_t CacheManager::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
@@ -1410,7 +1411,113 @@ bool Cache::syncAll() {
   return succeeded;
 }
 
-bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait) {
+bool Cache::syncBatch(const uintptr_t* keys, size_t count, writeback_batch_t callback,
+                      void* metadata) {
+  if (!ensureUsable("syncBatch") || count > MaxWritebackPages || (count && (!keys || !callback))) {
+    return false;
+  }
+  if (!count)
+    return true;
+  for (size_t i = 0; i < count; ++i) {
+    for (size_t j = 0; j < i; ++j) {
+      if (keys[i] == keys[j])
+        return false;
+    }
+  }
+#if THREADS
+  TerminationDeferral terminationDeferral;
+  OperationBarrier::Lease operation;
+  if (!m_ManagerOperations.tryAcquire(operation))
+    return false;
+  Thread* currentThread = Processor::information().getCurrentThread();
+  const bool canWait = currentThread && !CacheManager::instance().callbackContext();
+#endif
+  CachePage* pages[MaxWritebackPages] = {};
+  WritebackPage writes[MaxWritebackPages] = {};
+  uint64_t submittedChecksums[MaxWritebackPages][2] = {};
+  while (true) {
+#if THREADS
+    auto waitGuard = m_EvictionWaiters.acquire();
+#endif
+    CachePage* busy = nullptr;
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      if (static_cast<size_t>(m_ShutdownState) || !m_Callback)
+        return false;
+      // Claim all pages together: two overlapping batches must never each own
+      // a prefix while waiting for the other batch's remaining callbacks.
+      for (size_t i = 0; i < count; ++i) {
+        CachePage* page = m_Pages.lookup(keys[i]);
+        if (!page || page->status == CachePage::Editing ||
+            page->evictionState == CachePage::EvictionState::Draining ||
+            page->evictionState == CachePage::EvictionState::Retiring ||
+            page->refcnt == ~size_t{0} || page->writebackPins == ~size_t{0}) {
+          return false;
+        }
+        if (page->callbackActive || page->evictionState == CachePage::EvictionState::WriteBack) {
+#if THREADS
+          if (!canWait || page->callbackOwner == currentThread)
+            return false;
+#else
+          return false;
+#endif
+          busy = page;
+        }
+        pages[i] = page;
+      }
+      if (!busy) {
+        for (size_t i = 0; i < count; ++i) {
+          CachePage* page = pages[i];
+          ++page->refcnt;
+          ++page->writebackPins;
+          page->callbackActive = true;
+#if THREADS
+          page->callbackOwner = currentThread;
+#endif
+          writes[i] = {keys[i], page->location};
+          promotePage(page);
+        }
+      }
+    }
+    if (!busy)
+      break;
+#if THREADS
+    const auto reason = waitGuard.waitForCompletion(WaitQueue::Channel(busy), Thread::CallbackDrain,
+                                                    reinterpret_cast<uintptr_t>(busy));
+    (void)reason;
+#endif
+  }
+  for (size_t i = 0; i < count; ++i)
+    checksum(reinterpret_cast<const void*>(writes[i].location), CachePageSize,
+             submittedChecksums[i]);
+  const bool succeeded = callback(writes, count, metadata);
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    for (size_t i = 0; i < count; ++i) {
+      CachePage* page = pages[i];
+      page->writebackFailed = !succeeded;
+      if (succeeded) {
+        page->checksum[0] = submittedChecksums[i][0];
+        page->checksum[1] = submittedChecksums[i][1];
+        if (page->status == CachePage::ChecksumChanging)
+          page->status = CachePage::ChecksumStable;
+      }
+      page->callbackActive = false;
+#if THREADS
+      page->callbackOwner = nullptr;
+#endif
+    }
+  }
+  for (size_t i = 0; i < count; ++i) {
+#if THREADS
+    m_EvictionWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(pages[i]));
+#endif
+    releaseWriteback(keys[i]);
+  }
+  return succeeded;
+}
+
+bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait, bool onlyIfDirty) {
   CachePage* page = nullptr;
   writeback_t callback = nullptr;
   void* callbackMeta = nullptr;
@@ -1430,10 +1537,14 @@ bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait) {
       if (!page || page->location != location || !m_Callback) {
         return false;
       }
-      if (wait && page->status == CachePage::Editing) {
+      if ((wait || onlyIfDirty) && page->status == CachePage::Editing) {
         return false;
       }
       if (!page->callbackActive && page->evictionState != CachePage::EvictionState::WriteBack) {
+        // A durable batch can supersede a timer request already in the queue.
+        // Explicit sync remains forced, and failed or newly changed data retries.
+        if (onlyIfDirty && !page->writebackFailed && verifyChecksum(page))
+          return true;
         // A previously admitted writeback pin is allowed to finish while a
         // retirement waits in Draining for precisely these pins to disappear.
         page->callbackActive = true;
@@ -1632,7 +1743,7 @@ void Cache::timer(uint64_t delta) {
     }
 #endif
     CacheManager::instance().addCacheRequest(this, true, CacheConstants::WriteBack, key, location,
-                                             true);
+                                             true, true);
   }
 }
 
@@ -1690,7 +1801,7 @@ uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p
 
   // Never block the shared worker behind a direct callback which may itself
   // submit work to CacheManager. A rejected request retains dirty data.
-  const bool succeeded = writebackPage(p3, p4, false);
+  const bool succeeded = writebackPage(p3, p4, false, p7 != 0);
 
   // Unpin page, writeback complete
   releaseWriteback(p3);

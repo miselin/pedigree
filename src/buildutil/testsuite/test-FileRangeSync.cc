@@ -1,4 +1,5 @@
 /* Copyright (c) 2026, Pedigree Developers. */
+#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
 #include <algorithm>
@@ -10,10 +11,10 @@
 namespace {
 class RangeSyncFile final : public File {
  public:
-  RangeSyncFile()
+  explicit RangeSyncFile(size_t pageCount = 3)
       : pageSize(PhysicalMemoryManager::getPageSize()),
-        bytes(3 * pageSize, 0),
-        persisted(3 * pageSize, 0) {
+        bytes(pageCount * pageSize, 0),
+        persisted(pageCount * pageSize, 0) {
     setSize(bytes.size());
   }
 
@@ -29,6 +30,12 @@ class RangeSyncFile final : public File {
     return true;
   }
 
+  bool syncPages(const uint64_t* offsets, size_t count) override {
+    EXPECT_EQ(pins, count);
+    batchSizes.push_back(count);
+    return File::syncPages(offsets, count);
+  }
+
   void prime() {
     ASSERT_EQ(read(0, bytes.size(), 0), bytes.size());
     ASSERT_EQ(pins, 0U);
@@ -37,6 +44,7 @@ class RangeSyncFile final : public File {
   void resetCalls() {
     writes.clear();
     synced.clear();
+    batchSizes.clear();
   }
 
   const size_t pageSize;
@@ -44,6 +52,7 @@ class RangeSyncFile final : public File {
   std::vector<unsigned char> persisted;
   std::vector<size_t> writes;
   std::vector<size_t> synced;
+  std::vector<size_t> batchSizes;
   size_t failedOffset = ~size_t(0);
   size_t pins = 0;
 
@@ -148,4 +157,97 @@ TEST(FileRangeSync, EmptySuffixAndWrappedRangesPerformNoIo) {
   EXPECT_TRUE(file.synced.empty());
   EXPECT_TRUE(file.writes.empty());
   EXPECT_EQ(file.pins, 0U);
+}
+
+TEST(FileRangeSync, BoundedBatchesRetainAllPinsAndContinueAfterFailure) {
+  RangeSyncFile file(Disk::MaxSyncPages + 3);
+  file.prime();
+  file.failedOffset = 0;
+  EXPECT_FALSE(file.syncRange(0, 0));
+  EXPECT_EQ(file.batchSizes, (std::vector<size_t>{Disk::MaxSyncPages, 3}));
+  EXPECT_EQ(file.synced.size(), Disk::MaxSyncPages + 3);
+  EXPECT_EQ(file.writes, file.synced);
+  EXPECT_EQ(file.pins, 0U);
+  file.failedOffset = ~size_t(0);
+  file.resetCalls();
+  EXPECT_TRUE(file.syncRange(0, 0));
+  EXPECT_EQ(file.pins, 0U);
+}
+
+TEST(FileRangeSync, BatchFallbackRejectsInvalidListBeforeAnySync) {
+  RangeSyncFile file;
+  const uint64_t offsets[] = {0, file.bytes.size()};
+  EXPECT_FALSE(file.File::syncPages(offsets, 2));
+  EXPECT_FALSE(file.File::syncPages(nullptr, 1));
+  EXPECT_FALSE(file.File::syncPages(offsets, Disk::MaxSyncPages + 1));
+  EXPECT_TRUE(file.File::syncPages(nullptr, 0));
+  EXPECT_TRUE(file.synced.empty());
+  EXPECT_EQ(file.pins, 0U);
+}
+
+namespace {
+class FillRangeSyncFile final : public File {
+ public:
+  FillRangeSyncFile() : pageSize(PhysicalMemoryManager::getPageSize()), bytes(3 * pageSize, 0) {
+    setSize(bytes.size());
+    enableFillCacheWriteback();
+  }
+
+  void prime() {
+    ASSERT_EQ(read(0, bytes.size(), 0), bytes.size());
+    ASSERT_EQ(lowerPins, 0U);
+  }
+
+  bool syncPages(const uint64_t* offsets, size_t count) override {
+    EXPECT_EQ(count, 3U);
+    for (size_t i = 0; i < count; ++i) {
+      // This dispatch precedes any backend claim. The range collector itself
+      // must retain every selected upper page until the batch result returns.
+      EXPECT_FALSE(cacheState().fill.evict(offsets[i]));
+      ++evictionAttempts;
+    }
+    return !fail;
+  }
+
+  bool evictPage(size_t offset) {
+    return cacheState().fill.evict(offset);
+  }
+
+  const size_t pageSize;
+  std::vector<unsigned char> bytes;
+  size_t lowerPins = 0;
+  size_t evictionAttempts = 0;
+  bool fail = false;
+
+ protected:
+  uintptr_t readBlock(uint64_t offset) override {
+    ++lowerPins;
+    return reinterpret_cast<uintptr_t>(bytes.data() + offset);
+  }
+
+  void unpinBlock(uint64_t) override {
+    ASSERT_GT(lowerPins, 0U);
+    --lowerPins;
+  }
+
+  bool useFillCache() const override {
+    return true;
+  }
+
+  size_t getBlockSize() const override {
+    return pageSize;
+  }
+};
+}  // namespace
+
+TEST(FileRangeSync, FillBatchRetainsSnapshotPagesAndReleasesPinsAfterEitherResult) {
+  for (bool fail : {false, true}) {
+    FillRangeSyncFile file;
+    file.prime();
+    file.fail = fail;
+    EXPECT_EQ(file.syncRange(0, 0), !fail);
+    EXPECT_EQ(file.evictionAttempts, 3U);
+    for (size_t i = 0; i < 3; ++i)
+      EXPECT_TRUE(file.evictPage(i * file.pageSize));
+  }
 }

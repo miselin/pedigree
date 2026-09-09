@@ -152,6 +152,19 @@ bool Disk::sync(uint64_t location, bool async) {
   return false;
 }
 
+bool Disk::syncPages(const uint64_t* locations, size_t count) {
+  if (count > MaxSyncPages || (count && !locations))
+    return false;
+  for (size_t i = 0; i < count; ++i) {
+    if (locations[i] >= getSize())
+      return false;
+  }
+  bool succeeded = true;
+  for (size_t i = 0; i < count; ++i)
+    succeeded = sync(locations[i], false) && succeeded;
+  return succeeded;
+}
+
 bool Disk::syncAll() {
   return false;
 }

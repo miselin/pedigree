@@ -27,6 +27,26 @@ Partition::Partition(const String& type, uint64_t start, uint64_t length)
 
 Partition::~Partition() {}
 
+bool Partition::syncPages(const uint64_t* locations, size_t count) {
+  if (count > MaxSyncPages || (count && !locations))
+    return false;
+  if (!count)
+    return true;
+  Disk* parent = static_cast<Disk*>(getParent());
+  if (!parent)
+    return false;
+  uint64_t translated[MaxSyncPages];
+  for (size_t i = 0; i < count; ++i) {
+    if (!containsCachePage(locations[i]) || locations[i] > ~uint64_t(0) - m_Start)
+      return false;
+    translated[i] = locations[i] + m_Start;
+    if (translated[i] >= parent->getSize())
+      return false;
+  }
+  ensureAligned(parent);
+  return parent->syncPages(translated, count);
+}
+
 bool Partition::syncAll() {
   Disk* parent = static_cast<Disk*>(getParent());
   // A device-wide drain is stronger than the partition's persistence boundary.

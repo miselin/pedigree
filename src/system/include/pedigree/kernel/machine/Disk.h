@@ -201,6 +201,11 @@ class EXPORTED_PUBLIC Disk : public Device {
    */
   virtual bool sync(uint64_t location, bool async);
 
+  static constexpr size_t MaxSyncPages = 64;
+
+  /** Synchronously persists every listed cached page, including the device cache. */
+  MUST_USE_RESULT virtual bool syncPages(const uint64_t* locations, size_t count);
+
   /** Drains existing cached writes and the device write cache synchronously. */
   MUST_USE_RESULT virtual bool syncAll();
 

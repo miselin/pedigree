@@ -112,6 +112,8 @@ class Partition : public Disk {
     return parent->sync(location + m_Start, async);
   }
 
+  MUST_USE_RESULT bool syncPages(const uint64_t* locations, size_t count) override;
+
   MUST_USE_RESULT virtual bool syncAll() override;
 
   Disk* physicalDisk() override {
