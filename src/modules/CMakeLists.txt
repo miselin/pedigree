@@ -894,7 +894,8 @@ if (PEDIGREE_DRIVERDIR STREQUAL "x86")
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ne2k/main.cc)
 
     pedigree_module(pci "" ""
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/pci.cc)
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/pci.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/ChipsetRouting.cc)
 
     pedigree_module(ps2mouse "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ps2mouse/Ps2MouseCallbackRegistry.cc

@@ -223,6 +223,30 @@ irq_id_t Pic::registerHardIsaIrqHandler(uint8_t irq, HardIrqHandler* handler,
 
   return irq + BASE_INTERRUPT_VECTOR;
 }
+bool Pic::reservePciRoute(uint8_t irq) {
+  if (irq >= PicIrqState::LineCount)
+    return false;
+  StateGuard guard(*this);
+  if (!guard.owned() || m_ShuttingDown || !m_ElcrPort || m_UnregisterReservations[irq] ||
+      !m_IrqState.canReservePciRoute(irq))
+    return false;
+  if (m_IrqState.pciRouteReserved(irq))
+    return true;
+
+  beginLineTransitionLocked(irq);
+  const uint8_t previous = m_ElcrPort.read8(irq / 8);
+  if (!claimPciTriggerLocked(irq)) {
+    if (m_ElcrPort.read8(irq / 8) != previous)
+      panic("PIC: cannot roll back failed PCI route reservation");
+    finishLineTransitionLocked(irq);
+    return false;
+  }
+  m_IrqState.reservePciRoute(irq);
+  finishLineTransitionLocked(irq);
+  publishDiagnosticLineLocked(irq);
+  return true;
+}
+
 bool Pic::claimPciTriggerLocked(uint8_t irq) {
   if (!m_ElcrPort)
     return false;
@@ -243,7 +267,7 @@ bool Pic::claimPciTriggerLocked(uint8_t irq) {
 
 void Pic::restorePciTriggerLocked(uint8_t irq) {
   const uint16_t bit = uint16_t{1} << irq;
-  if (!(m_OwnedElcr & bit))
+  if (!(m_OwnedElcr & bit) || m_IrqState.pciRouteReserved(irq))
     return;
   uint8_t previous = 0;
   if (!updatePicElcr(

@@ -295,6 +295,7 @@ set(TESTSUITE_SRCS
     testsuite/test-Gpt.cc
     testsuite/test-PciBar.cc
     testsuite/test-PciConfigAccess.cc
+    testsuite/test-IntelPirq.cc
     testsuite/test-PciFunctionState.cc
     testsuite/test-EhciLegacy.cc
     testsuite/test-InterruptProbe.cc

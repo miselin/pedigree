@@ -28,6 +28,8 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "Bar.h"
+#include "ChipsetRouting.h"
+#include "ProbeBars.h"
 #include "modules/Module.h"
 #include "pci_list.h"
 
@@ -75,6 +77,7 @@ static const char* getDevice(uint16_t vendor, uint16_t device) {
 }
 
 static bool entry() {
+  Vector<Device*> devices;
   for (int iBus = 0; iBus < MAX_BUS; iBus++) {
     // Firstly add the ISA bus.
     char* str = new char[256];
@@ -118,42 +121,27 @@ static bool entry() {
         NOTICE("PCI:     Class: " << cs.class_code << " Subclass: " << cs.subclass
                                   << " ProgIF: " << cs.progif);
 
-        const uint8_t headerType = cs.header_type & 0x7f;
-        const size_t barCount = headerType == 0 ? 6 : headerType == 1 ? 2 : headerType == 2 ? 1 : 0;
         auto& pci = PciBus::instance();
-        // Only disable address decoding while sizing BARs. Firmware DMA may
-        // still be active until the owning driver performs its handoff.
-        if (!pci.updateCommand(pDevice, 3, 0)) {
+        const PciBar::Probe bars = PciBar::probe(pci, pDevice, cs);
+        if (bars.result == PciBar::ProbeResult::DecodeDisableFailed) {
           ERROR("PCI: cannot disable decoding for BAR sizing");
           delete pDevice;
           continue;
         }
-        uint32_t masks[6] = {};
-        bool barsRestored = true;
-        for (size_t l = 0; l < barCount; ++l) {
-          const uint8_t offset = 4 + l;
-          pci.writeConfigSpace(pDevice, offset, 0xffffffffU);
-          masks[l] = pci.readConfigSpace(pDevice, offset);
-          pci.writeConfigSpace(pDevice, offset, cs.bar[l]);
-          if (pci.readConfigSpace(pDevice, offset) != cs.bar[l]) {
-            barsRestored = false;
-            break;
-          }
-        }
-        if (!barsRestored || !pci.updateCommand(pDevice, 3, cs.command & 3)) {
-          (void)pci.updateCommand(pDevice, 7, 0);
+        if (bars.result == PciBar::ProbeResult::RestoreFailed) {
           ERROR("PCI: BAR/command restoration failed; function left disabled");
           delete pDevice;
           continue;
         }
+        const size_t barCount = bars.count;
         for (size_t l = 0; l < barCount; ++l) {
           const bool wide = !(cs.bar[l] & 1U) && (cs.bar[l] & 6U) == 4;
           if (wide && l + 1 == barCount)
             break;
           const uint32_t high = wide ? cs.bar[l + 1] : 0;
-          const uint32_t maskHigh = wide ? masks[l + 1] : 0;
+          const uint32_t maskHigh = wide ? bars.masks[l + 1] : 0;
           PciBar::Mapping mapping;
-          if (PciBar::decode(cs.bar[l], high, masks[l], maskHigh, mapping) &&
+          if (PciBar::decode(cs.bar[l], high, bars.masks[l], maskHigh, mapping) &&
               mapping.base <= ~uintptr_t{0} && mapping.bytes <= ~size_t{0}) {
             StringFormat(c, "bar%u", static_cast<unsigned>(l));
             NOTICE("PCI:     BAR" << Dec << l << Hex << ": " << mapping.base << ".."
@@ -172,6 +160,7 @@ static bool entry() {
         pDevice->setParent(pBus);
 
         pDevice->setPciConfigHeader(cs);
+        devices.pushBack(pDevice);
       }
     }
 
@@ -183,6 +172,7 @@ static bool entry() {
     }
   }
 
+  routeChipsetInterrupts(devices);
   return true;
 }
 

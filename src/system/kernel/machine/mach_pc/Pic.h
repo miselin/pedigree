@@ -55,6 +55,9 @@ class Pic : public IrqManager, private InterruptHandler {
     return m_Instance;
   }
 
+  /** Retains a motherboard PCI route's level trigger for the rest of boot. */
+  bool reservePciRoute(uint8_t irq);
+
   //
   // IrqManager interface
   //

@@ -20,6 +20,8 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "Pic.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/machine/PciConfigAccess.h"
@@ -139,4 +141,9 @@ bool PciBus::disableMessageInterrupts(Device* device, const PciFunctionState::St
 bool PciBus::resourcesUnchanged(Device* device, const PciFunctionState::State& state) {
   FunctionConfig function{device};
   return PciFunctionState::resourcesUnchanged(function, state);
+}
+
+bool PciBus::reserveLegacyInterrupt(uint8_t irq) {
+  return Machine::instance().getIrqManager() == &Pic::instance() &&
+         Pic::instance().reservePciRoute(irq);
 }

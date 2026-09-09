@@ -14,6 +14,8 @@
 
 #include <config.h>
 
+#include "PicElcr.h"
+
 /**
  * Software ownership state for the dual 8259 PIC.
  *
@@ -47,6 +49,7 @@ class PicIrqState {
       m_TransitionPending[i] = false;
       m_RequestedEnabled[i] = true;
       m_SchedulerOwned[i] = false;
+      m_PciRouteReserved[i] = false;
     }
   }
 
@@ -69,6 +72,27 @@ class PicIrqState {
 
   bool canRegister(size_t irq, const IrqPolicy& policy) const {
     return canRegister(irq, policy, legacyDelivery(policy));
+  }
+
+  bool canReservePciRoute(size_t irq) const {
+    return irq < LineCount && (PicElcrProgrammable & bit(irq)) &&
+           canRegister(irq, IrqPolicy::pciIntxThreaded(), IrqDelivery::Threaded);
+  }
+
+  /** Platform routing outlives the drivers which register its callbacks. */
+  void reservePciRoute(size_t irq) {
+    assert(canReservePciRoute(irq));
+    m_PciRouteReserved[irq] = true;
+    m_TriggerModes[irq] = TriggerMode::Level;
+    m_ControllerAck[irq] = IrqControllerAck::AfterHardStage;
+    if (!handlerCount(irq))
+      m_RequestedEnabled[irq] = false;
+    rebuildMask();
+  }
+
+  bool pciRouteReserved(size_t irq) const {
+    assert(irq < LineCount);
+    return m_PciRouteReserved[irq];
   }
 
   bool canRegisterScheduler(size_t irq, const IrqPolicy& policy) const {
@@ -139,7 +163,8 @@ class PicIrqState {
       m_ThreadedPending[irq] = false;
       m_AcknowledgedGenerations[irq] = m_DispatchGenerations[irq];
       m_RequestedEnabled[irq] = false;
-      m_TriggerModes[irq] = TriggerMode::Unconfigured;
+      m_TriggerModes[irq] =
+          m_PciRouteReserved[irq] ? TriggerMode::Level : TriggerMode::Unconfigured;
       m_ControllerAck[irq] = IrqControllerAck::AfterHardStage;
       rebuildMask();
     }
@@ -371,7 +396,7 @@ class PicIrqState {
     uint16_t mask = 0;
     for (size_t i = 0; i < LineCount; ++i) {
       if (!m_RequestedEnabled[i] || m_AcknowledgementPending[i] || m_ThreadedPending[i] ||
-          m_TransitionPending[i]) {
+          m_TransitionPending[i] || (m_PciRouteReserved[i] && !handlerCount(i))) {
         mask |= bit(i);
       }
     }
@@ -396,6 +421,7 @@ class PicIrqState {
   bool m_TransitionPending[LineCount];
   bool m_RequestedEnabled[LineCount];
   bool m_SchedulerOwned[LineCount];
+  bool m_PciRouteReserved[LineCount];
 };
 
 struct PicContentionLineResult {

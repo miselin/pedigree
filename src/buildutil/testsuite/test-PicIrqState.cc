@@ -1281,3 +1281,114 @@ TEST(PicContentionActions, RealSlaveEoiPrecedesSpuriousCascadeEoi) {
   expectWrite(recorder, 3, PicControllerWriteTarget::MasterCommand, 0x62);
   expectWrite(recorder, 4, PicControllerWriteTarget::MasterCommand, 0x62);
 }
+
+TEST(PicIrqState, PciRouteReservationWithoutHandlersRemainsMasked) {
+  PicIrqState state;
+  ASSERT_TRUE(state.canReservePciRoute(10));
+  state.beginLineTransition(10);
+  state.reservePciRoute(10);
+  EXPECT_FALSE(state.enabled(10));
+  state.finishLineTransition(10);
+
+  EXPECT_TRUE(state.pciRouteReserved(10));
+  EXPECT_EQ(state.handlerCount(10), 0U);
+  EXPECT_EQ(state.delivery(10), IrqDelivery::None);
+  EXPECT_EQ(state.trigger(10), IrqTrigger::Level);
+  EXPECT_FALSE(state.requestedEnabled(10));
+  EXPECT_FALSE(state.enabled(10));
+  EXPECT_FALSE(state.canRegister(10, IrqPolicy::edgeHard(), IrqDelivery::Hard));
+  EXPECT_FALSE(state.canRegister(10, IrqPolicy::edgeThreaded(), IrqDelivery::Threaded));
+  state.setEnabled(10, true);
+  EXPECT_FALSE(state.enabled(10));
+  state.setAllEnabled(true);
+  EXPECT_FALSE(state.enabled(10));
+  EXPECT_FALSE(state.acknowledge(10));
+  EXPECT_FALSE(state.enabled(10));
+}
+
+TEST(PicIrqState, PciRouteReservationCannotStealEdgeSchedulerOrFixedEdgeLines) {
+  PicIrqState state;
+  for (size_t irq : {0U, 1U, 2U, 8U, 13U, 16U, 255U})
+    EXPECT_FALSE(state.canReservePciRoute(irq));
+
+  state.schedulerRegistered(0, IrqPolicy::edgeHard());
+  EXPECT_FALSE(state.canReservePciRoute(0));
+  EXPECT_TRUE(state.schedulerRegistered(0));
+  state.handlerRegistered(10, IrqPolicy::edgeThreaded(), IrqDelivery::Threaded);
+  const uint16_t mask = state.mask();
+  EXPECT_FALSE(state.canReservePciRoute(10));
+  EXPECT_FALSE(state.pciRouteReserved(10));
+  EXPECT_EQ(state.trigger(10), IrqTrigger::Edge);
+  EXPECT_EQ(state.handlerCount(10), 1U);
+  EXPECT_EQ(state.mask(), mask);
+
+  state.handlerUnregistered(10, IrqDelivery::Threaded);
+  EXPECT_TRUE(state.canReservePciRoute(10));
+  const IrqPolicy conflicting(IrqTrigger::Level, IrqControllerAck::BeforeHardStage,
+                              IrqLineRelease::AfterThreadedCompletion);
+  ASSERT_TRUE(state.canRegister(11, conflicting, IrqDelivery::Threaded));
+  state.handlerRegistered(11, conflicting, IrqDelivery::Threaded);
+  EXPECT_FALSE(state.canReservePciRoute(11));
+  EXPECT_FALSE(state.pciRouteReserved(11));
+}
+
+TEST(PicIrqState, PciRouteReservationPreservesLiveThreadedDispatch) {
+  PicIrqState state;
+  state.handlerRegistered(11, IrqPolicy::pciIntxThreaded(), IrqDelivery::Threaded);
+  const size_t generation = state.beginDispatch(11);
+  state.beginThreadedDispatch(11);
+  ASSERT_FALSE(state.enabled(11));
+
+  ASSERT_TRUE(state.canReservePciRoute(11));
+  state.reservePciRoute(11);
+  state.reservePciRoute(11);
+  EXPECT_EQ(state.handlerCount(11), 1U);
+  EXPECT_EQ(state.dispatchGeneration(11), generation);
+  EXPECT_TRUE(state.threadedPending(11));
+  EXPECT_TRUE(state.requestedEnabled(11));
+  EXPECT_FALSE(state.enabled(11));
+  ASSERT_TRUE(state.completeThreadedDispatch(11, generation, true));
+  EXPECT_TRUE(state.enabled(11));
+  EXPECT_TRUE(state.pciRouteReserved(11));
+}
+
+TEST(PicIrqState, SharedPciHandlersRetainReservationAfterEitherRetirementOrder) {
+  for (IrqDelivery first : {IrqDelivery::Hard, IrqDelivery::Threaded}) {
+    PicIrqState state;
+    state.reservePciRoute(10);
+    ASSERT_TRUE(state.canRegister(10, IrqPolicy::pciIntxHard(), IrqDelivery::Hard));
+    state.handlerRegistered(10, IrqPolicy::pciIntxHard(), IrqDelivery::Hard);
+    ASSERT_TRUE(state.canRegister(10, IrqPolicy::pciIntxThreaded(), IrqDelivery::Threaded));
+    state.handlerRegistered(10, IrqPolicy::pciIntxThreaded(), IrqDelivery::Threaded);
+    EXPECT_EQ(state.delivery(10), IrqDelivery::Mixed);
+    EXPECT_TRUE(state.enabled(10));
+
+    const IrqDelivery last = first == IrqDelivery::Hard ? IrqDelivery::Threaded : IrqDelivery::Hard;
+    state.handlerUnregistered(10, first);
+    EXPECT_EQ(state.handlerCount(10), 1U);
+    EXPECT_TRUE(state.enabled(10));
+    state.beginLineTransition(10);
+    state.handlerUnregistered(10, last);
+    state.finishLineTransition(10);
+    EXPECT_EQ(state.handlerCount(10), 0U);
+    EXPECT_EQ(state.delivery(10), IrqDelivery::None);
+    EXPECT_EQ(state.trigger(10), IrqTrigger::Level);
+    EXPECT_TRUE(state.pciRouteReserved(10));
+    EXPECT_FALSE(state.enabled(10));
+    EXPECT_FALSE(state.canRegister(10, IrqPolicy::edgeHard(), IrqDelivery::Hard));
+    EXPECT_FALSE(state.canRegister(10, IrqPolicy::edgeThreaded(), IrqDelivery::Threaded));
+    state.handlerRegistered(10, IrqPolicy::pciIntxThreaded(), IrqDelivery::Threaded);
+    EXPECT_TRUE(state.enabled(10));
+    EXPECT_TRUE(state.pciRouteReserved(10));
+  }
+}
+
+TEST(PicIrqState, UnreservedPciRetirementStillAllowsAnEdgeReplacement) {
+  PicIrqState state;
+  state.handlerRegistered(10, IrqPolicy::pciIntxThreaded(), IrqDelivery::Threaded);
+  state.handlerUnregistered(10, IrqDelivery::Threaded);
+  EXPECT_FALSE(state.pciRouteReserved(10));
+  EXPECT_FALSE(state.enabled(10));
+  EXPECT_TRUE(state.canRegister(10, IrqPolicy::edgeHard(), IrqDelivery::Hard));
+  EXPECT_TRUE(state.canRegister(10, IrqPolicy::edgeThreaded(), IrqDelivery::Threaded));
+}

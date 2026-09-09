@@ -83,6 +83,8 @@ class EXPORTED_PUBLIC PciBus {
   bool writeConfig8(Device* device, uint16_t offset, uint8_t value);
   bool writeConfig16(Device* device, uint16_t offset, uint16_t value);
   bool writeConfig32(Device* device, uint16_t offset, uint32_t value);
+  // Reserve a level-triggered PIC line before programming a chipset route.
+  bool reserveLegacyInterrupt(uint8_t irq);
   bool updateCommand(Device* device, uint16_t clearBits, uint16_t setBits);
   bool inspectFunction(Device* device, PciFunctionState::State& state);
   bool disableMessageInterrupts(Device* device, const PciFunctionState::State& state);
