@@ -188,14 +188,16 @@ Smp::Smp()
 bool Smp::find() {
   // Search in the first kilobyte of the EBDA
   // The BIOS Data Area stores the EBDA segment at physical address 0x40E.
-  uint16_t* ebdaSegment = reinterpret_cast<uint16_t*>(0x40E);
-  // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference)
-  m_pFloatingPointer = find(reinterpret_cast<void*>((*ebdaSegment) * 16), 0x400);
+  // GCC's object-bounds analysis excludes this first page; copy the raw firmware bytes.
+  uint16_t ebdaSegment;
+  MemoryCopy(&ebdaSegment, reinterpret_cast<const void*>(0x40E), sizeof(ebdaSegment));
+  m_pFloatingPointer = find(reinterpret_cast<void*>(ebdaSegment * 16), 0x400);
 
   if (m_pFloatingPointer == 0) {
     // Search in the last kilobyte of the base memory
-    uint16_t* baseSize = reinterpret_cast<uint16_t*>(0x413);
-    m_pFloatingPointer = find(reinterpret_cast<void*>((*baseSize - 1) * 1024), 0x400);
+    uint16_t baseSize;
+    MemoryCopy(&baseSize, reinterpret_cast<const void*>(0x413), sizeof(baseSize));
+    m_pFloatingPointer = find(reinterpret_cast<void*>((baseSize - 1) * 1024), 0x400);
 
     if (m_pFloatingPointer == 0) {
       // Search in the BIOS ROM address space

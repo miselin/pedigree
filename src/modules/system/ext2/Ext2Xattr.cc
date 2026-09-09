@@ -1,7 +1,7 @@
 /* Copyright (c) 2026, Pedigree Developers. */
 #include "Ext2Xattr.h"
 #include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "Ext2Filesystem.h"
@@ -330,6 +330,8 @@ void Ext2Node::updateAllocatedSectorCount() {
   uint32_t sectors;
   const bool valid = encodeAllocation(m_State->allocatedDataBlocks, m_nMetadataBlocks,
                                       m_pInode->i_file_acl != 0, m_pExt2Fs->m_BlockSize, sectors);
-  assert(valid);
+  if (!valid) {
+    panic("Ext2: allocated sector count exceeds inode capacity");
+  }
   m_pInode->i_blocks = HOST_TO_LITTLE32(sectors);
 }

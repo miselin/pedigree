@@ -15,7 +15,7 @@ CMAKE = shutil.which("cmake")
 
 @unittest.skipUnless(os.name == "posix" and CMAKE, "requires CMake on POSIX")
 class CMakeToolchainTests(unittest.TestCase):
-    def _prepare_target_fixture(self, temporary_path):
+    def _prepare_target_fixture(self, temporary_path, before_return=""):
         source = temporary_path / "source"
         build = temporary_path / "build"
         source.mkdir()
@@ -31,7 +31,7 @@ class CMakeToolchainTests(unittest.TestCase):
         validation_end = "    add_subdirectory(src/modules)\n"
         self.assertEqual(cmake_lists.count(validation_end), 1)
         cmake_lists = cmake_lists.replace(
-            validation_end, "    return()\n\n" + validation_end, 1
+            validation_end, before_return + "    return()\n\n" + validation_end, 1
         )
         (source / "CMakeLists.txt").write_text(cmake_lists)
 
@@ -55,6 +55,105 @@ class CMakeToolchainTests(unittest.TestCase):
             "-DPEDIGREE_REGENERATE_KEYMAP_SOURCES=OFF",
             *extra_arguments,
         ]
+
+    def test_optimization_flags_reach_target_consumers_only(self):
+        toolchain = Path(
+            os.environ.get(
+                "PEDIGREE_TEST_TOOLCHAIN_ROOT", ROOT / "compilers/dir"
+            )
+        )
+        if not (toolchain / "bin/x86_64-pedigree-gcc").is_file():
+            self.skipTest("Pedigree cross toolchain is not installed")
+
+        probe = textwrap.dedent(
+            """\
+            add_library(flag_probe STATIC flag_probe.c flag_probe.cc)
+            target_compile_options(flag_probe PRIVATE
+                "$<$<COMPILE_LANGUAGE:C>:${GENERIC_CFLAGS}>"
+                "$<$<COMPILE_LANGUAGE:CXX>:${GENERIC_CXXFLAGS}>")
+            """
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            source, target_build = self._prepare_target_fixture(
+                Path(temporary), before_return=probe
+            )
+            for suffix in ("c", "cc"):
+                (source / f"flag_probe.{suffix}").write_text(
+                    "int probe(void) { return 0; }\n"
+                )
+            cmake_file = source / "CMakeLists.txt"
+            host_boundary = "    add_subdirectory(external/googletest)\n"
+            cmake_lists = cmake_file.read_text()
+            self.assertEqual(cmake_lists.count(host_boundary), 1)
+            # Exercise the HOST_TOOLS branch without generating its test and
+            # filesystem utility libraries just to inspect common flags.
+            cmake_file.write_text(
+                cmake_lists.replace(
+                    host_boundary,
+                    probe + "return()\n" + host_boundary,
+                    1,
+                )
+            )
+            cases = (
+                ("TARGET", "ON", "ON", "-Os"),
+                ("TARGET", "ON", "OFF", "-O3"),
+                ("TARGET", "OFF", "ON", "-O0"),
+                ("HOST_TOOLS", "ON", "ON", None),
+                ("HOST_TOOLS", "OFF", "ON", None),
+            )
+            for role, optimize, size, expected in cases:
+                with self.subTest(role=role, optimize=optimize, size=size):
+                    build = (
+                        target_build
+                        if role == "TARGET"
+                        else Path(temporary) / "host"
+                    )
+                    command = self._target_configure_command(
+                        source,
+                        build,
+                        "-DCMAKE_BUILD_TYPE=Debug",
+                        "-DPEDIGREE_BUILD_UEFI=OFF",
+                        f"-DPEDIGREE_BUILD_ROLE={role}",
+                        f"-DPEDIGREE_OPTIMIZE={optimize}",
+                        f"-DPEDIGREE_OPTIMIZE_SIZE={size}",
+                    )
+                    if role == "TARGET":
+                        command.append(f"-DPEDIGREE_TOOLCHAIN_ROOT={toolchain}")
+                    else:
+                        command = [
+                            argument
+                            for argument in command
+                            if not argument.startswith("-DCMAKE_TOOLCHAIN_FILE=")
+                        ]
+                    result = subprocess.run(
+                        command, capture_output=True, text=True
+                    )
+                    self.assertEqual(
+                        result.returncode, 0, msg=result.stdout + result.stderr
+                    )
+                    database = json.loads(
+                        (build / "compile_commands.json").read_text()
+                    )
+                    for filename in ("flag_probe.c", "flag_probe.cc"):
+                        entries = [
+                            entry
+                            for entry in database
+                            if entry["file"].endswith("/" + filename)
+                        ]
+                        self.assertTrue(entries, msg=filename)
+                        for entry in entries:
+                            arguments = entry.get("arguments")
+                            if arguments is None:
+                                arguments = shlex.split(entry["command"])
+                            optimization = [
+                                arg for arg in arguments if arg.startswith("-O")
+                            ]
+                            self.assertEqual(
+                                optimization[-1] if optimization else None,
+                                expected,
+                                msg=entry,
+                            )
+                            self.assertIn("-g", arguments, msg=entry)
 
     def test_cross_toolchain_loads_pedigree_platform(self):
         compiler = ROOT / "compilers/dir/bin/x86_64-pedigree-gcc"
