@@ -18,6 +18,7 @@
  */
 
 #include "Keyboard.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/machine/InputManager.h"
@@ -49,6 +50,10 @@ X86Keyboard::X86Keyboard(Ps2Controller* controller)
       m_Escape(KeymapManager::EscapeNone),
       m_IrqId(0),
       m_LedState(0),
+      m_LedCommandState(LedIdle),
+      m_LedSent(0),
+      m_LedRetries(0),
+      m_LedLock(),
       m_ReaderThread() {}
 
 X86Keyboard::~X86Keyboard() {
@@ -136,20 +141,52 @@ char X86Keyboard::scancodeToAscii(uint8_t scancode) {
 }
 
 char X86Keyboard::getLedState() {
+  LockGuard<Mutex> guard(m_LedLock);
   return m_LedState;
 }
 
 void X86Keyboard::setLedState(char state) {
-  m_LedState = state;
+  updateLedState(state, false);
+}
 
-  m_pPs2Controller->writeFirstPort(0xED);
-  m_pPs2Controller->writeFirstPort(state);
+void X86Keyboard::updateLedState(char state, bool toggle) {
+  LockGuard<Mutex> guard(m_LedLock);
+  m_LedState = (toggle ? m_LedState ^ state : state) & 7;
+  if (m_LedCommandState == LedIdle) {
+    m_LedCommandState = LedCommandAck;
+    m_LedRetries = 0;
+    m_pPs2Controller->writeFirstPort(0xED);
+  }
+}
 
-  uint8_t response = 0;
-  if (m_pPs2Controller->readFirstPort(response)) {
-    NOTICE("X86Keyboard: setLedState response: " << Hex << response);
+void X86Keyboard::handleLedResponse(uint8_t response) {
+  // Command replies share the scancode FIFO. Only the reader consumes it,
+  // so queued key releases cannot be mistaken for a synchronous LED reply.
+  LockGuard<Mutex> guard(m_LedLock);
+  if (m_LedCommandState == LedIdle) {
+    return;
+  }
+
+  if (response == 0xFE) {
+    if (m_LedRetries++ == 3) {
+      m_LedCommandState = LedIdle;
+      ERROR("X86Keyboard: LED command retry limit reached");
+      return;
+    }
+    m_pPs2Controller->writeFirstPort(m_LedCommandState == LedCommandAck ? 0xED : m_LedSent);
+    return;
+  }
+
+  m_LedRetries = 0;
+  if (m_LedCommandState == LedCommandAck) {
+    m_LedSent = m_LedState;
+    m_LedCommandState = LedDataAck;
+    m_pPs2Controller->writeFirstPort(m_LedSent);
+  } else if (m_LedSent != m_LedState) {
+    m_LedCommandState = LedCommandAck;
+    m_pPs2Controller->writeFirstPort(0xED);
   } else {
-    ERROR("X86Keyboard: failed to read response in setLedState");
+    m_LedCommandState = LedIdle;
   }
 }
 
@@ -188,7 +225,7 @@ void X86Keyboard::readerThread() {
       continue;
     }
     if (scancode == 0xFA || scancode == 0xFE) {
-      // ignore for now
+      handleLedResponse(scancode);
       continue;
     }
 
@@ -227,16 +264,13 @@ void X86Keyboard::readerThread() {
       uint8_t code = scancode & ~0x80;
       if (code == 0x3A) {
         DEBUG_LOG("X86Keyboard: Caps Lock toggled");
-        m_LedState ^= Keyboard::CapsLock;
-        setLedState(m_LedState);
+        updateLedState(Keyboard::CapsLock, true);
       } else if (code == 0x45) {
         DEBUG_LOG("X86Keyboard: Num Lock toggled");
-        m_LedState ^= Keyboard::NumLock;
-        setLedState(m_LedState);
+        updateLedState(Keyboard::NumLock, true);
       } else if (code == 0x46) {
         DEBUG_LOG("X86Keyboard: Scroll Lock toggled");
-        m_LedState ^= Keyboard::ScrollLock;
-        setLedState(m_LedState);
+        updateLedState(Keyboard::ScrollLock, true);
       }
     }
 

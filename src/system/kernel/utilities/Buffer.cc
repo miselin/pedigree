@@ -206,6 +206,32 @@ size_t Buffer<T, allowShortOperation>::write(const T* buffer, size_t count, bool
 }
 
 template <class T, bool allowShortOperation>
+size_t Buffer<T, allowShortOperation>::writeAvailable(const T* buffer, size_t count, bool atomic) {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return 0;
+  }
+
+  m_Lock.acquire();
+  size_t written = 0;
+  if (m_bCanRead && m_bCanWrite) {
+    const size_t available = m_BufferSize - m_DataSize;
+    if (!atomic || count <= available) {
+      written = writeLocked(buffer, count < available ? count : available);
+      if (written) {
+        m_ReadCondition.signal();
+      }
+    }
+  }
+  m_Lock.release();
+
+  if (written) {
+    notifyMonitors();
+  }
+  return written;
+}
+
+template <class T, bool allowShortOperation>
 size_t Buffer<T, allowShortOperation>::writeAtomic(const T* buffer, size_t count, bool block) {
   ActiveOperation operation(*this);
   if (!operation || count > m_BufferSize) {

@@ -953,6 +953,37 @@ TEST(PicContentionActions, CurrentRtcThreadedEntrySurvivesControllerOwner) {
   EXPECT_TRUE(state.enabled(Irq));
 }
 
+TEST(PicContentionActions, Ps2ThreadedEntriesSurviveControllerOwner) {
+  for (size_t irq : {size_t{1}, size_t{12}}) {
+    PicIrqState state;
+    state.setAllEnabled(false);
+    state.handlerRegistered(irq, IrqPolicy::edgeThreaded(), IrqDelivery::Threaded);
+
+    PicControllerStateGate gate;
+    ASSERT_TRUE(gate.tryAcquireClean());
+    EXPECT_FALSE(gate.queueEntry(irq, gate.currentLifetime(irq)));
+    PicControllerStateGate::PendingActions pending;
+    ASSERT_TRUE(gate.takePending(pending));
+    ASSERT_EQ(pending.entry[irq], size_t{1});
+
+    const PicContentionLineResult result = resolvePicContentionLine(
+        state, irq, pending.entry[irq], pending.tail[irq], pending.tailEoi[irq]);
+    EXPECT_FALSE(result.quarantine);
+    EXPECT_FALSE(result.invalidateThreaded);
+    EXPECT_EQ(result.threadedOccurrences, size_t{1});
+    EXPECT_EQ(result.unhandledOccurrences, size_t{0});
+    EXPECT_TRUE(state.enabled(irq));
+    EXPECT_FALSE(state.acknowledgementPending(irq));
+
+    const size_t generation = state.beginDispatch(irq);
+    state.beginThreadedDispatch(irq);
+    EXPECT_TRUE(state.enabled(irq));
+    EXPECT_TRUE(state.completeThreadedDispatch(irq, generation, true));
+    EXPECT_TRUE(state.enabled(irq));
+    EXPECT_FALSE(state.acknowledgementPending(irq));
+  }
+}
+
 TEST(PicContentionActions, DeferredWorkUsesOnlyPhysicalOverride) {
   PicControllerStateGate::PendingActions stale;
   size_t realEntries[PicIrqState::LineCount] = {};

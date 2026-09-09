@@ -18,6 +18,7 @@
  */
 
 #include "Ps2Controller.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Controller.h"
 #include "pedigree/kernel/machine/Device.h"
@@ -36,55 +37,47 @@ static constexpr size_t Ps2IoPollLimit = 1000000;
 
 Ps2Controller::Ps2Controller(Controller* pDev)
     : Controller(pDev),
-      SplitIrqHandler(MakeConstantString("PS/2 controller bottom half")),
+      IrqHandler(),
       m_pBase(nullptr),
       m_bHasSecondPort(false),
       m_FirstPortBuffer(16384),
       m_SecondPortBuffer(16384),
-      m_FirstIrqEnabled(0),
-      m_SecondIrqEnabled(0),
       m_FirstIrqId(0),
       m_SecondIrqId(0),
       m_DebugState(),
       m_ConfigByte(0),
       m_IoGate(),
-      m_CapturedBytes(),
+      m_DrainLock(),
       m_ReadMode(PollingReadMode),
       m_RejectedThreadIo(0),
-      m_HardGateContentions(0),
-      m_CaptureDeferrals(0),
-      m_CaptureDrops(0),
       m_FirstPortDrops(0),
       m_SecondPortDrops(0),
-      m_RouteMismatches(0),
-      m_EmptyIrqs(0),
-      m_SplitInitialised(false) {}
+      m_EmptyIrqs(0) {}
 
 Ps2Controller::Ps2Controller()
     : Controller(),
-      SplitIrqHandler(MakeConstantString("PS/2 controller bottom half")),
+      IrqHandler(),
       m_pBase(nullptr),
       m_bHasSecondPort(false),
       m_FirstPortBuffer(16384),
       m_SecondPortBuffer(16384),
-      m_FirstIrqEnabled(0),
-      m_SecondIrqEnabled(0),
       m_FirstIrqId(0),
       m_SecondIrqId(0),
       m_DebugState(),
       m_ConfigByte(0),
       m_IoGate(),
-      m_CapturedBytes(),
+      m_DrainLock(),
       m_ReadMode(PollingReadMode),
       m_RejectedThreadIo(0),
-      m_HardGateContentions(0),
-      m_CaptureDeferrals(0),
-      m_CaptureDrops(0),
       m_FirstPortDrops(0),
       m_SecondPortDrops(0),
-      m_RouteMismatches(0),
-      m_EmptyIrqs(0),
-      m_SplitInitialised(false) {}
+      m_EmptyIrqs(0) {}
+
+Ps2Controller::~Ps2Controller() {
+  if (m_FirstIrqId || m_SecondIrqId) {
+    uninitialise();
+  }
+}
 
 void Ps2Controller::initialise() {
   TRACE("PS2 Controller startup");
@@ -143,54 +136,56 @@ void Ps2Controller::initialise() {
 }
 
 bool Ps2Controller::initialise3() {
-  if (m_SplitInitialised || !initialiseSplitIrq()) {
+  if (m_FirstIrqId || m_SecondIrqId || !m_pBase) {
     return false;
   }
-  m_SplitInitialised = true;
 
   m_FirstPortBuffer.wipe();
   m_SecondPortBuffer.wipe();
   m_FirstPortBuffer.enableWrites();
   m_SecondPortBuffer.enableWrites();
-  m_CapturedBytes.reset();
   m_RejectedThreadIo = 0;
-  m_HardGateContentions = 0;
-  m_CaptureDeferrals = 0;
-  m_CaptureDrops = 0;
   m_FirstPortDrops = 0;
   m_SecondPortDrops = 0;
-  m_RouteMismatches = 0;
   m_EmptyIrqs = 0;
+  m_ReadMode = BufferedReadMode;
 
   IrqManager& irqManager = *Machine::instance().getIrqManager();
-  m_FirstIrqId = registerIsaSplitIrq(irqManager, 1, IrqPolicy::edgeHard());
-  m_SecondIrqId = registerIsaSplitIrq(irqManager, 12, IrqPolicy::edgeHard());
-  if (!m_FirstIrqId || !m_SecondIrqId) {
-    if (!shutdownSplitIrq()) {
-      FATAL("PS/2 could not stop a partially registered split IRQ");
-    }
-    m_FirstIrqId = 0;
-    m_SecondIrqId = 0;
-    m_SplitInitialised = false;
-    m_ReadMode = StoppingReadMode;
-    m_FirstPortBuffer.disableWrites();
-    m_SecondPortBuffer.disableWrites();
+  m_FirstIrqId = irqManager.registerIsaIrqHandler(1, this, IrqPolicy::edgeThreaded());
+  if (m_FirstIrqId && m_bHasSecondPort) {
+    m_SecondIrqId = irqManager.registerIsaIrqHandler(12, this, IrqPolicy::edgeThreaded());
+  }
+  if (!m_FirstIrqId || (m_bHasSecondPort && !m_SecondIrqId)) {
+    uninitialise();
     return false;
   }
 
-  irqManager.control(1, IrqManager::MitigationThreshold, 100);
-  irqManager.control(12, IrqManager::MitigationThreshold, 100);
-  m_ReadMode = BufferedReadMode;
   return true;
 }
 
 void Ps2Controller::uninitialise() {
-  if (m_SplitInitialised && !shutdownSplitIrq()) {
-    FATAL("PS/2 teardown could not drain its split IRQ worker");
+  if (m_FirstIrqId || m_SecondIrqId) {
+    if (!configureIrqEnable(false, false)) {
+      FATAL("PS/2 teardown could not disable its interrupt sources");
+    }
+
+    // Device streaming can continue after its IRQ bits are cleared. Stop the
+    // drain loop before waiting for callbacks, even under continuous traffic.
+    m_ReadMode = StoppingReadMode;
+    IrqManager& irqManager = *Machine::instance().getIrqManager();
+    if (m_FirstIrqId) {
+      if (!irqManager.unregisterHandler(m_FirstIrqId, this)) {
+        FATAL("PS/2 teardown could not drain its first port callback");
+      }
+      m_FirstIrqId = 0;
+    }
+    if (m_SecondIrqId) {
+      if (!irqManager.unregisterHandler(m_SecondIrqId, this)) {
+        FATAL("PS/2 teardown could not drain its second port callback");
+      }
+      m_SecondIrqId = 0;
+    }
   }
-  m_FirstIrqId = 0;
-  m_SecondIrqId = 0;
-  m_SplitInitialised = false;
 
   // No producer remains. Publish the terminal read mode before waking blocked
   // readers so none can fall back to polling during teardown.
@@ -340,10 +335,8 @@ bool Ps2Controller::configureIrqEnable(bool firstEnabled, bool secondEnabled) {
 
   IrqManager& irqManager = *Machine::instance().getIrqManager();
 
-  // Keep the gate across both the PIC and 8042 transitions. A hard callback
-  // which arrives on another CPU fails admission once and publishes recovery.
-  m_FirstIrqEnabled = 0;
-  m_SecondIrqEnabled = 0;
+  // Keep controller configuration atomic with respect to both port workers.
+  secondEnabled = secondEnabled && m_bHasSecondPort;
   irqManager.enable(1, false);
   irqManager.enable(12, false);
 
@@ -371,9 +364,7 @@ bool Ps2Controller::configureIrqEnable(bool firstEnabled, bool secondEnabled) {
   NOTICE("completed!");
 
   // re-enable now that we're done here
-  m_FirstIrqEnabled = firstEnabled ? 1 : 0;
   irqManager.enable(1, firstEnabled);
-  m_SecondIrqEnabled = secondEnabled ? 1 : 0;
   irqManager.enable(12, secondEnabled);
   releaseIo();
   return true;
@@ -453,103 +444,50 @@ void Ps2Controller::setDebugState(bool debugState) {
   m_DebugState.set(debugState);
 }
 
-SplitIrqHandler::HardStageDisposition Ps2Controller::hardIrq(irq_id_t number, InterruptState& state,
-                                                             size_t& work) {
-  (void)state;
-  if (m_DebugState.active()) {
-    return HardStageDisposition::Handled;
-  }
-
-  // Never wait behind controller configuration in hard context. The worker
-  // polls the shared output register after the interrupted owner releases it.
-  if (!m_IoGate.tryAcquire()) {
-    m_HardGateContentions += 1;
-    work = RecoveryWork;
-    return HardStageDisposition::Deferred;
-  }
-
-  const uint8_t status = m_pBase->read8(4);
-  if (!(status & OutputBufferFull)) {
+IrqDisposition Ps2Controller::irq(irq_id_t number) {
+  (void)number;
+  // Both IRQ workers share port 0x60. Keep capture and delivery ordered even
+  // when a worker for the other port has already drained this occurrence.
+  LockGuard<Mutex> drain(m_DrainLock);
+  size_t batch = 0;
+  bool received = false;
+  while (m_ReadMode.value() != StoppingReadMode && !m_DebugState.active()) {
+    if (!acquireIoForThread()) {
+      return IrqDisposition::NotHandled;
+    }
+    const uint8_t status = m_pBase->read8(4);
+    if (!(status & OutputBufferFull)) {
+      releaseIo();
+      break;
+    }
+    const uint8_t value = m_pBase->read8(0);
+    const bool secondPort = (status & SecondPortData) != 0;
     releaseIo();
-    m_EmptyIrqs += 1;
-    return HardStageDisposition::Handled;
-  }
+    received = true;
 
-  if (!m_CapturedBytes.hasCapacity()) {
-    // Leave port 0x60 untouched. The worker first drains the fixed queue,
-    // then polls this still-latched byte under ordinary thread admission.
-    releaseIo();
-    m_CaptureDeferrals += 1;
-    work = RecoveryWork;
-    return HardStageDisposition::Deferred;
-  }
-
-  const uint8_t received = m_pBase->read8(0);
-  const bool secondPort = (status & SecondPortData) != 0;
-  if (secondPort != (number == 12)) {
-    m_RouteMismatches += 1;
-  }
-  if (!m_CapturedBytes.tryPush(Ps2CapturedByte(received, secondPort))) {
-    m_CaptureDrops += 1;
-  }
-  releaseIo();
-
-  work = CapturedWork;
-  return HardStageDisposition::Deferred;
-}
-
-bool Ps2Controller::captureOneLocked() {
-  const uint8_t status = m_pBase->read8(4);
-  if (!(status & OutputBufferFull)) {
-    return false;
-  }
-
-  if (!m_CapturedBytes.hasCapacity()) {
-    m_CaptureDeferrals += 1;
-    return false;
-  }
-
-  const Ps2CapturedByte record(m_pBase->read8(0), (status & SecondPortData) != 0);
-  if (!m_CapturedBytes.tryPush(record)) {
-    m_CaptureDrops += 1;
-  }
-  return true;
-}
-
-void Ps2Controller::drainCapturedBytes() {
-  Ps2CapturedByte record;
-  while (m_CapturedBytes.pop(record)) {
-    Buffer<uint8_t>& destination = record.secondPort ? m_SecondPortBuffer : m_FirstPortBuffer;
-    if (destination.write(&record.value, 1, false) != 1) {
-      if (record.secondPort) {
+    Buffer<uint8_t>& destination = secondPort ? m_SecondPortBuffer : m_FirstPortBuffer;
+    // Reader lock contention must not discard a release, but an unconsumed
+    // auxiliary port must not stop this shared worker by filling its buffer.
+    if (destination.writeAvailable(&value, 1) != 1) {
+      if (secondPort) {
         m_SecondPortDrops += 1;
       } else {
         m_FirstPortDrops += 1;
       }
     }
-  }
-}
 
-void Ps2Controller::threadedIrq(size_t work) {
-  drainCapturedBytes();
-  if (work & RecoveryWork) {
-    if (acquireIoForThread()) {
-      captureOneLocked();
-      releaseIo();
-    } else {
-      return;
+    if (++batch == 256) {
+      // Retain the drain obligation across a scheduling turn: returning with
+      // OBF set could strand data if its edge was already coalesced.
+      Scheduler::instance().yield();
+      batch = 0;
     }
   }
-  drainCapturedBytes();
-}
-
-bool Ps2Controller::quiesceIrqSources() {
-  return configureIrqEnable(false, false);
-}
-
-void Ps2Controller::rearmIrqSources(size_t work) {
-  (void)work;
-  // The edge-triggered 8042 source was quiesced by reading port 0x60.
+  if (!received) {
+    m_EmptyIrqs += 1;
+  }
+  return m_ReadMode.value() == StoppingReadMode ? IrqDisposition::Quiesced
+                                                : IrqDisposition::Handled;
 }
 
 bool Ps2Controller::waitForReadingLocked() {

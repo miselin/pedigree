@@ -16,6 +16,7 @@ namespace {
 enum class BufferOperation {
   Read,
   Write,
+  WriteAvailable,
   CanRead,
   CanWrite,
 };
@@ -42,6 +43,9 @@ int waitOnBuffer(void* parameter) {
     case BufferOperation::Write:
       context->result = context->buffer->write(&context->value, 1, true);
       break;
+    case BufferOperation::WriteAvailable:
+      context->result = context->buffer->writeAvailable(&context->value, 1);
+      break;
     case BufferOperation::CanRead:
       context->result = context->buffer->canRead(true) ? 1 : 0;
       break;
@@ -53,13 +57,14 @@ int waitOnBuffer(void* parameter) {
   return 0;
 }
 
-bool waitUntilBlocked(Thread* thread, BufferWaitContext& context) {
+bool waitUntilBlocked(Thread* thread, BufferWaitContext& context,
+                      Thread::DebugState state = Thread::CondWait) {
   const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
   while (Time::getTicks() < deadline) {
     Thread::WaitDebugInfo wait = {};
     uintptr_t address = 0;
     if (context.entered == 1 && context.returned == 0 && thread->getWaitDebugInfo(wait) &&
-        wait.queued && thread->getDebugState(address) == Thread::CondWait) {
+        wait.queued && thread->getDebugState(address) == state) {
       return true;
     }
     if (thread->getStatus() == Thread::AwaitingJoin) {
@@ -76,6 +81,28 @@ bool waitUntilReturned(BufferWaitContext& first, BufferWaitContext& second) {
     Scheduler::instance().yield();
   }
   return first.returned == 1 && second.returned == 1;
+}
+
+bool availableWriteWaitsForLockOwnership() {
+  Buffer<uint8_t> buffer(1);
+  BufferWaitContext context(&buffer, BufferOperation::WriteAvailable, 0x92);
+  Thread* writer = new Thread(Scheduler::instance().getKernelProcess(), waitOnBuffer, &context,
+                              nullptr, false, true, true);
+  writer->setName("hosted Buffer available-write contention");
+
+  buffer.acquireHostedOperationLock();
+  const bool started = writer->start();
+  const bool blocked = started && waitUntilBlocked(writer, context, Thread::SemWait);
+  buffer.releaseHostedOperationLock();
+  const bool joined = started && writer->joinForCompletion();
+  if (!started) {
+    delete writer;
+  }
+
+  uint8_t observed = 0;
+  const bool delivered = buffer.read(&observed, 1, false) == 1 && observed == context.value;
+  return started && blocked && joined && context.returned == 1 && context.result == 1 &&
+         delivered && buffer.getHostedActiveOperationCount() == 0;
 }
 
 bool blockedReaderReturnsWhenReadsAreDisabled() {
@@ -237,6 +264,13 @@ bool blockedCanWriteReturnsWhenReadsAreDisabled() {
 }  // namespace
 
 bool runHostedBufferRegressions() {
+  const bool availableWritePassed = availableWriteWaitsForLockOwnership();
+  if (availableWritePassed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS buffer-write-available-contention");
+  } else {
+    ERROR("HOSTED-WAIT-TEST: FAIL buffer-write-available-contention: contended byte was lost");
+  }
+
   const bool readerPassed = blockedReaderReturnsWhenReadsAreDisabled();
   if (readerPassed) {
     NOTICE("HOSTED-WAIT-TEST: PASS buffer-disable-reads-wake");
@@ -269,5 +303,5 @@ bool runHostedBufferRegressions() {
         "closed");
   }
 
-  return readerPassed && writerPassed && canReadPassed && canWritePassed;
+  return availableWritePassed && readerPassed && writerPassed && canReadPassed && canWritePassed;
 }

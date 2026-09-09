@@ -23,6 +23,7 @@
 #include "pedigree/kernel/machine/Keyboard.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -59,6 +60,9 @@ class X86Keyboard : public Keyboard {
   static int readerThreadTrampoline(void*);
   void readerThread();
 
+  void updateLedState(char state, bool toggle);
+  void handleLedResponse(uint8_t response);
+
   /// Converts a scancode into an ASCII character (for use in debug state)
   char scancodeToAscii(uint8_t scancode);
 
@@ -73,6 +77,12 @@ class X86Keyboard : public Keyboard {
 
   /// Current LED state
   char m_LedState;
+
+  enum LedCommandState { LedIdle, LedCommandAck, LedDataAck };
+  LedCommandState m_LedCommandState;
+  uint8_t m_LedSent;
+  size_t m_LedRetries;
+  Mutex m_LedLock;
 
   /// The controller buffer may block this worker until teardown wakes it.
   OwnedThread m_ReaderThread;

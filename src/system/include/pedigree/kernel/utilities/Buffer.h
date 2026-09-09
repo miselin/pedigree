@@ -63,6 +63,13 @@ class EXPORTED_PUBLIC Buffer {
   size_t write(const T* buffer, size_t count, bool block = true);
 
   /**
+   * Waits for buffer lock ownership, then writes up to the currently available
+   * capacity without waiting for a reader. Returns zero if either side closed.
+   * When atomic is true, insufficient capacity leaves the buffer unchanged.
+   */
+  size_t writeAvailable(const T* buffer, size_t count, bool atomic = false);
+
+  /**
    * Writes the complete input as one indivisible operation. If the input fits
    * in the buffer but there is not enough room yet, a blocking caller waits
    * before publishing any of it.

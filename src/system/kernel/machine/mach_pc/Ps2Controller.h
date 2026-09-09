@@ -22,10 +22,10 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/Ps2CaptureState.h"
-#include "pedigree/kernel/machine/SplitIrqHandler.h"
 #include "pedigree/kernel/machine/types.h"
-#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -34,12 +34,12 @@
 
 class IoBase;
 
-class Ps2Controller : public Controller, private SplitIrqHandler {
+class Ps2Controller : public Controller, private IrqHandler {
  public:
   Ps2Controller(Controller* pDev);
   Ps2Controller();
 
-  virtual ~Ps2Controller() {}
+  virtual ~Ps2Controller();
 
   virtual void getName(String& str) {
     str.assign("PS/2 Controller", 16);
@@ -50,9 +50,9 @@ class Ps2Controller : public Controller, private SplitIrqHandler {
   }
 
   void initialise();
-  /** Starts the split IRQ worker after scheduler initialisation. */
+  /** Registers threaded IRQ delivery after scheduler initialisation. */
   bool initialise3();
-  /** Quiesces both ports and drains the split IRQ worker. */
+  /** Quiesces both ports and drains their IRQ callbacks. */
   void uninitialise();
 
   /// Send a command with no response or data. A timed-out command is dropped.
@@ -96,8 +96,6 @@ class Ps2Controller : public Controller, private SplitIrqHandler {
   }
 
  private:
-  static constexpr size_t CapturedWork = 1;
-  static constexpr size_t RecoveryWork = 2;
   static constexpr size_t PollingReadMode = 0;
   static constexpr size_t BufferedReadMode = 1;
   static constexpr size_t StoppingReadMode = 2;
@@ -105,10 +103,7 @@ class Ps2Controller : public Controller, private SplitIrqHandler {
   static constexpr uint8_t InputBufferFull = 1 << 1;
   static constexpr uint8_t SecondPortData = 1 << 5;
 
-  HardStageDisposition hardIrq(irq_id_t number, InterruptState& state, size_t& work) override;
-  void threadedIrq(size_t work) override;
-  bool quiesceIrqSources() override;
-  void rearmIrqSources(size_t work) override;
+  IrqDisposition irq(irq_id_t number) override;
 
   bool acquireIoForThread();
   void releaseIo();
@@ -119,8 +114,6 @@ class Ps2Controller : public Controller, private SplitIrqHandler {
   bool sendCommandWithResponseLocked(uint8_t command, uint8_t data, uint8_t& response);
   bool writeFirstPortLocked(uint8_t byte);
   bool configureIrqEnable(bool firstEnabled, bool secondEnabled);
-  bool captureOneLocked();
-  void drainCapturedBytes();
 
   bool waitForReadingLocked();
   bool waitForWritingLocked();
@@ -131,9 +124,6 @@ class Ps2Controller : public Controller, private SplitIrqHandler {
   Buffer<uint8_t> m_FirstPortBuffer;
   Buffer<uint8_t> m_SecondPortBuffer;
 
-  Atomic<size_t> m_FirstIrqEnabled;
-  Atomic<size_t> m_SecondIrqEnabled;
-
   irq_id_t m_FirstIrqId;
   irq_id_t m_SecondIrqId;
 
@@ -142,17 +132,12 @@ class Ps2Controller : public Controller, private SplitIrqHandler {
   uint8_t m_ConfigByte;
 
   Ps2IoAdmissionGate m_IoGate;
-  Ps2CaptureQueue m_CapturedBytes;
+  Mutex m_DrainLock;
   Atomic<size_t> m_ReadMode;
   Atomic<size_t> m_RejectedThreadIo;
-  Atomic<size_t> m_HardGateContentions;
-  Atomic<size_t> m_CaptureDeferrals;
-  Atomic<size_t> m_CaptureDrops;
   Atomic<size_t> m_FirstPortDrops;
   Atomic<size_t> m_SecondPortDrops;
-  Atomic<size_t> m_RouteMismatches;
   Atomic<size_t> m_EmptyIrqs;
-  bool m_SplitInitialised;
 };
 
 #endif

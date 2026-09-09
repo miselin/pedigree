@@ -98,6 +98,51 @@ TEST(PedigreeBuffer, AtomicWriteDoesNotPublishAPrefix) {
   EXPECT_EQ(result[2], 'c');
 }
 
+TEST(PedigreeBuffer, WriteAvailableDoesNotWaitForCapacity) {
+  Buffer<uint8_t> buffer(2);
+  const uint8_t scancodes[] = {0x12, 0x92, 0xaa};
+  EXPECT_EQ(buffer.writeAvailable(nullptr, 0), 0U);
+  EXPECT_EQ(buffer.writeAvailable(scancodes, 3), 2U);
+  EXPECT_EQ(buffer.writeAvailable(scancodes + 2, 1), 0U);
+
+  uint8_t observed[2] = {};
+  ASSERT_EQ(buffer.read(observed, 2, false), 2U);
+  EXPECT_EQ(observed[0], 0x12);
+  EXPECT_EQ(observed[1], 0x92);
+  EXPECT_EQ(buffer.writeAvailable(scancodes + 2, 1), 1U);
+}
+
+TEST(PedigreeBuffer, WriteAvailableRejectsClosedEnds) {
+  Buffer<uint8_t> buffer(2);
+  const uint8_t release = 0x92;
+  buffer.disableReads();
+  EXPECT_EQ(buffer.writeAvailable(&release, 1), 0U);
+  buffer.enableReads();
+  buffer.disableWrites();
+  EXPECT_EQ(buffer.writeAvailable(&release, 1), 0U);
+  EXPECT_EQ(buffer.getDataSize(), 0U);
+  buffer.enableWrites();
+  EXPECT_EQ(buffer.writeAvailable(&release, 1), 1U);
+}
+
+TEST(PedigreeBuffer, AtomicWriteAvailablePreservesWholeInput) {
+  Buffer<char> buffer(4);
+  ASSERT_EQ(buffer.writeAvailable("abc", 3), 3U);
+  EXPECT_EQ(buffer.writeAvailable("de", 2, true), 0U);
+  EXPECT_EQ(buffer.getDataSize(), 3U);
+
+  char observed[4] = {};
+  ASSERT_EQ(buffer.read(observed, sizeof(observed), false), 3U);
+  EXPECT_EQ(memcmp(observed, "abc", 3), 0);
+  EXPECT_EQ(buffer.writeAvailable("abcde", 5, true), 0U);
+  EXPECT_EQ(buffer.getDataSize(), 0U);
+
+  EXPECT_EQ(buffer.writeAvailable("abcd", 4, true), 4U);
+  EXPECT_EQ(buffer.writeAvailable("e", 1, true), 0U);
+  ASSERT_EQ(buffer.read(observed, sizeof(observed), false), 4U);
+  EXPECT_EQ(memcmp(observed, "abcd", 4), 0);
+}
+
 TEST(PedigreeBuffer, ReadTooMany) {
   Buffer<char> buffer(8);
 

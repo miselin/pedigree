@@ -1812,8 +1812,8 @@ void TextIO::handleInput(InputManager::InputNotification& in) {
     }
 
     uint8_t buf = in.data.rawkey.scancode | (in.data.rawkey.keyUp ? 0x80 : 0);
-    if (!m_OutBuffer.tryWrite(reinterpret_cast<char*>(&buf), sizeof(buf))) {
-      WARNING("TextIO: input buffer is busy, dropping keypress");
+    if (m_OutBuffer.writeAvailable(reinterpret_cast<char*>(&buf), sizeof(buf), true) != sizeof(buf)) {
+      WARNING("TextIO: input buffer is full or closed, dropping keypress");
       return;
     }
 
@@ -1893,8 +1893,10 @@ void TextIO::handleInput(InputManager::InputNotification& in) {
     return;
   }
 
-  if (!m_OutBuffer.tryWrite(input, inputLength)) {
-    WARNING("TextIO: input buffer is busy, dropping keypress");
+  // Input callbacks run in thread context. Wait out reader contention without
+  // waiting for capacity or splitting a terminal escape sequence.
+  if (m_OutBuffer.writeAvailable(input, inputLength, true) != inputLength) {
+    WARNING("TextIO: input buffer is full or closed, dropping keypress");
     return;
   }
 
