@@ -1304,6 +1304,147 @@ bool strictRangeGeometry() {
   }
   return passed;
 }
+
+struct TimerWritebackContext {
+  Cache* cache = nullptr;
+  uintptr_t key = 0;
+  Semaphore admissionEntered{0};
+  Semaphore allowPublication{0};
+  Semaphore callbackEntered{0};
+  Semaphore allowCallbackReturn{0};
+  Atomic<size_t> admissions{0};
+  Atomic<size_t> callbacks{0};
+  uint8_t lastWritten = 0;
+  bool failFirst = false;
+};
+
+void timerWritebackAdmission(Cache*, uintptr_t, void* parameter) {
+  auto& context = *static_cast<TimerWritebackContext*>(parameter);
+  if ((context.admissions += 1) == 1) {
+    context.cache->startAtomic();
+    context.admissionEntered.release();
+    const bool released = context.allowPublication.acquireForCompletion();
+    (void)released;
+  }
+}
+
+bool timerWritebackCallback(CacheConstants::CallbackCause cause, uintptr_t, uintptr_t page,
+                            void* parameter) {
+  if (cause != CacheConstants::WriteBack) {
+    return true;
+  }
+  auto& context = *static_cast<TimerWritebackContext*>(parameter);
+  const size_t call = (context.callbacks += 1);
+  context.lastWritten = *reinterpret_cast<uint8_t*>(page);
+  if (call == 1) {
+    context.callbackEntered.release();
+    const bool released = context.allowCallbackReturn.acquireForCompletion();
+    (void)released;
+  }
+  return !(context.failFirst && call == 1);
+}
+
+void tickWriteback(Cache& cache) {
+  cache.endAtomic();
+  cache.timer(CACHE_WRITEBACK_PERIOD * 1000000ULL);
+  cache.startAtomic();
+}
+
+int publishTimerWriteback(void* parameter) {
+  auto& context = *static_cast<TimerWritebackContext*>(parameter);
+  tickWriteback(*context.cache);
+  return 0;
+}
+
+bool timerWritebackCoalescing(bool failFirst, bool mutateDuringWriteback) {
+  const char* test = failFirst ? "cache-timer-pending-failure"
+                              : (mutateDuringWriteback ? "cache-timer-pending-mutation"
+                                                       : "cache-timer-pending-success");
+  TimerWritebackContext context;
+  context.failFirst = failFirst;
+  context.key = 0xCA7F800;
+  Cache cache;
+  context.cache = &cache;
+  cache.startAtomic();
+  cache.setCallback(timerWritebackCallback, &context);
+  const uintptr_t page = cache.insert(context.key);
+  if (!checkNamed(page != 0, test, "could not create the test page")) {
+    return false;
+  }
+  *reinterpret_cast<uint8_t*>(page) = 0x57;
+  cache.markNoLongerEditing(context.key);
+  tickWriteback(cache);
+  cache.markDirty(context.key);
+  cache.setWritebackAdmissionHookForTest(timerWritebackAdmission, &context);
+
+  // A separate synchronous request fences the worker after each released
+  // callback, including checksum publication and writeback-pin retirement.
+  Cache fence;
+  fence.startAtomic();
+  fence.setCallback(
+      [](CacheConstants::CallbackCause, uintptr_t, uintptr_t, void*) { return true; }, nullptr);
+  const uintptr_t fencePage = fence.insert(0);
+  if (!checkNamed(fencePage != 0, test, "could not create the worker fence")) {
+    cache.setWritebackAdmissionHookForTest(nullptr, nullptr);
+    context.allowCallbackReturn.release();
+    return false;
+  }
+  fence.markNoLongerEditing(0);
+
+  Thread* producer = new Thread(Scheduler::instance().getKernelProcess(), publishTimerWriteback,
+                                &context, nullptr, false, true);
+  producer->setName("hosted Cache paused timer producer");
+  const bool admissionPaused = context.admissionEntered.acquire(1, 2);
+  if (admissionPaused) {
+    for (size_t i = 0; i < 3; ++i) {
+      tickWriteback(cache);
+    }
+  }
+  const bool onePendingAdmission = context.admissions == 1;
+  context.allowPublication.release();
+  const bool producerJoined = producer->join();
+  const bool callbackPaused = context.callbackEntered.acquire(1, 2);
+  if (callbackPaused) {
+    for (size_t i = 0; i < 3; ++i) {
+      tickWriteback(cache);
+    }
+    if (mutateDuringWriteback) {
+      *reinterpret_cast<uint8_t*>(page) = 0xA6;
+    }
+  }
+  const bool oneActiveAdmission = context.admissions == 1;
+  context.allowCallbackReturn.release();
+  const bool firstDrained = fence.sync(0, false);
+  const bool oneInitialCallback = context.callbacks == 1;
+
+  // Failure is immediately retryable; a mutation must first be detected by
+  // the checksum scan. Drain each epoch so queued work cannot mask a retry.
+  bool retriesDrained = true;
+  for (size_t i = 0; i < 3; ++i) {
+    tickWriteback(cache);
+    retriesDrained = fence.sync(0, false) && retriesDrained;
+  }
+  const size_t expected = failFirst || mutateDuringWriteback ? 2 : 1;
+  const bool expectedCallbacks = context.callbacks == expected && context.admissions == expected;
+  const bool expectedBytes = context.lastWritten == (mutateDuringWriteback ? 0xA6 : 0x57);
+  cache.setWritebackAdmissionHookForTest(nullptr, nullptr);
+  const bool reclaimed = cache.empty();
+
+  const bool passed =
+      checkNamed(admissionPaused && callbackPaused && producerJoined, test,
+                 "writeback did not reach both controlled publication phases") &&
+      checkNamed(onePendingAdmission && oneActiveAdmission, test,
+                 "timer admitted duplicate work while writeback was pending or active") &&
+      checkNamed(firstDrained && oneInitialCallback && retriesDrained, test,
+                 "worker did not drain exactly one initial writeback") &&
+      checkNamed(expectedCallbacks && expectedBytes, test,
+                 "completion lost a mutation, failed to retry, or wrote clean data again") &&
+      checkNamed(reclaimed, test, "completed writeback retained a page pin");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << test);
+  }
+  return passed;
+}
 }  // namespace
 
 bool runHostedCacheDiscardRegressions() {
@@ -1316,9 +1457,14 @@ bool runHostedCacheSyncRegressions() {
          syncAllFromCacheManager();
 }
 
+bool runHostedCacheTimerRegressions() {
+  return timerWritebackCoalescing(false, false) && timerWritebackCoalescing(true, false) &&
+         timerWritebackCoalescing(false, true);
+}
+
 bool runHostedCacheRegressions() {
   return callbackLifetime() && queuedRequestLifetime() && emptyAndReuse() &&
          retirementPublication() && failedPublicationDiscard() && retirePrepublicationWriteback() &&
          runHostedCacheDiscardRegressions() && retireWritebackContract() && rangeExistence() &&
-         strictRangeGeometry() && runHostedCacheSyncRegressions();
+         strictRangeGeometry() && runHostedCacheSyncRegressions() && runHostedCacheTimerRegressions();
 }

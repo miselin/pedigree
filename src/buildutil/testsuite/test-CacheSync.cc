@@ -261,3 +261,45 @@ TEST(CacheSync, TimerChecksCleanPrefixesOncePerEpochAndServicesLaterChanges) {
   EXPECT_EQ(observer.writes[TimerCleanPages + 1], 5U);
   EXPECT_TRUE(cache.empty());
 }
+
+TEST(CacheSync, TimerWritesEachMutationOnceAndRetainsFailedCompletionForRetry) {
+  Observer observer;
+  Cache cache;
+  cache.setCallback(Observer::callback, &observer);
+  const uintptr_t page = cache.insert(0);
+  ASSERT_NE(page, 0U);
+  auto* bytes = reinterpret_cast<unsigned char*>(page);
+  for (size_t i = 0; i < Page; ++i) {
+    bytes[i] = 0x57;
+  }
+  cache.markNoLongerEditing(0);
+  const uint64_t period = CACHE_WRITEBACK_PERIOD * 1000000ULL;
+  for (size_t i = 0; i < 5; ++i) {
+    cache.timer(period);
+  }
+  EXPECT_EQ(observer.writes, 0U);
+
+  bytes[0] = 0xA6;
+  for (size_t i = 0; i < 5; ++i) {
+    cache.timer(period);
+  }
+  EXPECT_EQ(observer.writes, 1U);
+
+  bytes[Page - 1] = 0xC3;
+  observer.failedKey = 0;
+  cache.timer(period);
+  EXPECT_EQ(observer.writes, 1U);
+  cache.timer(period);
+  EXPECT_EQ(observer.writes, 2U);
+  cache.timer(period);
+  EXPECT_EQ(observer.writes, 3U);
+  observer.failedKey = ~uintptr_t{0};
+  cache.timer(period);
+  EXPECT_EQ(observer.writes, 4U);
+  for (size_t i = 0; i < 5; ++i) {
+    cache.timer(period);
+  }
+  EXPECT_EQ(observer.writes, 4U);
+  EXPECT_TRUE(cache.empty());
+  EXPECT_EQ(observer.writes, 4U);
+}

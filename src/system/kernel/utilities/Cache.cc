@@ -1469,6 +1469,10 @@ bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait) {
     if (succeeded) {
       page->checksum[0] = submittedChecksum[0];
       page->checksum[1] = submittedChecksum[1];
+      // Otherwise the stable-checksum scan schedules this completed write again.
+      if (page->status == CachePage::ChecksumChanging) {
+        page->status = CachePage::ChecksumStable;
+      }
     }
     page->callbackActive = false;
 #if THREADS
@@ -1561,6 +1565,11 @@ void Cache::timer(uint64_t delta) {
         }
         page->writebackEpoch = m_WritebackEpoch;
         if (page->evictionState != CachePage::EvictionState::None) {
+          continue;
+        }
+        // A queued write owns the retry until it completes. Rescanning it can
+        // otherwise enqueue another write on every timer tick.
+        if (page->writebackPins) {
           continue;
         }
         if (page->status == CachePage::Editing) {
