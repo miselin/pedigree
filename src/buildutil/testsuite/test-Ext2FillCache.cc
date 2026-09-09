@@ -281,6 +281,75 @@ class ResizeFixture {
 
 }  // namespace
 
+TEST_P(Ext2FillCacheWriteback, CachedReadPreservesBytesAndRefillsAfterEviction) {
+  ResizeFixture fixture(GetParam());
+  std::vector<uint8_t> bytes(kNativePageSize);
+  std::vector<uint64_t> locations;
+  for (size_t i = 0; i < kNativePageSize / fixture.blockSize; ++i) {
+    locations.push_back(static_cast<uint64_t>(fixture.blocks[i]) * fixture.blockSize);
+  }
+
+  fixture.disk.clearActivity();
+  ASSERT_EQ(fixture.file->read(0, bytes.size(), reinterpret_cast<uintptr_t>(bytes.data())),
+            bytes.size());
+  expectBalancedPins(fixture.disk, locations);
+  const std::vector<uint8_t> cached = bytes;
+  const uintptr_t address = fixture.address(0);
+  ASSERT_NE(address, 0U);
+
+  fixture.disk.fill(locations[0], fixture.blockSize, 0xD3);
+  Ext2FillCacheTestPeer::setDataCacheSentinel(*fixture.file, 0, FILE_BAD_BLOCK);
+  fixture.disk.clearActivity();
+  for (size_t i = 0; i < 4; ++i) {
+    ASSERT_EQ(fixture.file->read(0, bytes.size(), reinterpret_cast<uintptr_t>(bytes.data())),
+              bytes.size());
+    EXPECT_EQ(bytes, cached);
+  }
+  EXPECT_EQ(Ext2FillCacheTestPeer::dataCacheSentinel(*fixture.file, 0), address);
+  expectBalancedPins(fixture.disk, {});
+  ASSERT_TRUE(Ext2FillCacheTestPeer::evictFillPage(*fixture.file, 0));
+
+  fixture.disk.clearActivity();
+  ASSERT_EQ(fixture.file->read(0, bytes.size(), reinterpret_cast<uintptr_t>(bytes.data())),
+            bytes.size());
+  std::vector<uint8_t> expected = cached;
+  std::fill_n(expected.begin(), fixture.blockSize, 0xD3);
+  EXPECT_EQ(bytes, expected);
+  expectBalancedPins(fixture.disk, locations);
+  EXPECT_TRUE(Ext2FillCacheTestPeer::evictFillPage(*fixture.file, 0));
+}
+
+TEST_P(Ext2FillCacheWriteback, DirectReadRefreshesResidentPageAndReleasesReference) {
+  ResizeFixture fixture(GetParam());
+  std::vector<uint8_t> bytes(kNativePageSize);
+  ASSERT_EQ(fixture.file->read(0, bytes.size(), reinterpret_cast<uintptr_t>(bytes.data())),
+            bytes.size());
+  std::vector<uint8_t> expected = bytes;
+  std::vector<uint64_t> locations;
+  for (size_t i = 0; i < kNativePageSize / fixture.blockSize; ++i) {
+    locations.push_back(static_cast<uint64_t>(fixture.blocks[i]) * fixture.blockSize);
+  }
+
+  fixture.file->enableDirect();
+  for (uint8_t value : {0xD4, 0xE5}) {
+    fixture.disk.fill(locations[0], fixture.blockSize, value);
+    std::fill_n(expected.begin(), fixture.blockSize, value);
+    fixture.disk.clearActivity();
+    ASSERT_EQ(fixture.file->read(0, bytes.size(), reinterpret_cast<uintptr_t>(bytes.data())),
+              bytes.size());
+    EXPECT_EQ(bytes, expected);
+    expectBalancedPins(fixture.disk, locations);
+  }
+  fixture.file->disableDirect();
+
+  fixture.disk.clearActivity();
+  ASSERT_EQ(fixture.file->read(0, bytes.size(), reinterpret_cast<uintptr_t>(bytes.data())),
+            bytes.size());
+  EXPECT_EQ(bytes, expected);
+  expectBalancedPins(fixture.disk, {});
+  EXPECT_TRUE(Ext2FillCacheTestPeer::evictFillPage(*fixture.file, 0));
+}
+
 TEST_P(Ext2FillCacheWriteback, FailedShrinkTailReadPreservesCachedPrefixAndSuffix) {
   ResizeFixture fixture(GetParam());
   ASSERT_TRUE(fixture.fill());

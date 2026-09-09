@@ -1456,6 +1456,15 @@ uintptr_t File::readIntoCache(uintptr_t block) {
   if (fillCache) {
     LockGuard<Mutex> fillGuard(cacheState().fillLock);
 
+    // Resident reads must not enter insertion's memory-pressure eviction path.
+    if (!m_bDirect) {
+      const uintptr_t cached = cacheState().fill.lookup(offset);
+      if (cached) {
+        setCachedPage(block, cached);
+        return cached;
+      }
+    }
+
     // Using Cache::insert() here is atomic compared to if we did a
     // lookup() followed by an insert() - means we don't need to lock the
     // File object to do this.
