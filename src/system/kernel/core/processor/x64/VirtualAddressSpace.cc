@@ -691,7 +691,8 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
             if (!(*ptEntry & (PAGE_PRESENT | PAGE_NO_ACCESS)))
               continue;
 
-            uint64_t flags = PAGE_GET_FLAGS(ptEntry);
+            const uint64_t originalFlags = PAGE_GET_FLAGS(ptEntry);
+            uint64_t flags = originalFlags;
             physical_uintptr_t physicalAddress = PAGE_GET_PHYSICAL_ADDRESS(ptEntry);
 
             void* virtualAddress =
@@ -737,10 +738,9 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
             // We need to modify the entry in *this* address space as
             // well to also have the read-only and copy-on-write flag
             // set, as otherwise writes in the parent process will cause
-            // the child process to see those changes immediately. Note:
-            // changes only needed if we're setting copy-on-write as
-            // otherwise the flags are unchanged in the parent space.
-            if (copyOnWrite) {
+            // the child process to see those changes immediately. An
+            // already protected CoW entry needs no second update.
+            if (copyOnWrite && flags != originalFlags) {
               PAGE_SET_FLAGS(ptEntry, flags);
               if (!invalidateMapping(virtualAddress, mutation)) {
                 mutation.panicInvalidationFailure();
