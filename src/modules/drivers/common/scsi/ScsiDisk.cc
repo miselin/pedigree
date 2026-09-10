@@ -249,6 +249,7 @@ ScsiDisk::ScsiDisk()
       m_FirstCacheRangeAdmission(nullptr),
       m_LastCacheRangeAdmission(nullptr),
       m_AlignmentLock(),
+      m_HasShiftedCacheAlignment(false),
       m_NumBlocks(0),
       m_BlockSize(ScsiCachePageBytes),
       m_NativeBlockSize(0),
@@ -531,6 +532,141 @@ BufferView ScsiDisk::read(uint64_t location) {
     return BufferView();
   }
   return BufferView::fromAddress(buffer + pageOffset, validPageLength - pageOffset);
+}
+
+bool ScsiDisk::readInto(uint64_t location, void* buffer, size_t length) {
+  return transferBufferRange(location, buffer, length, false);
+}
+
+bool ScsiDisk::writeFrom(uint64_t location, const void* buffer, size_t length) {
+#if CRIPPLE_HDD
+  return !length && location <= getSize();
+#else
+  return transferBufferRange(location, const_cast<void*>(buffer), length, true);
+#endif
+}
+
+bool ScsiDisk::transferBuffer(uint64_t location, void* buffer, size_t length, bool writing) {
+  return false;
+}
+
+bool ScsiDisk::transferBufferRange(uint64_t location, void* buffer, size_t length, bool writing) {
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return false;
+  auto* controller = static_cast<ScsiController*>(m_pParent);
+  OperationBarrier::Lease operation;
+  if (!controller || !controller->acquireDiskOperation(operation))
+    return false;
+
+  if ((!buffer && length) || location > getSize() || length > getSize() - location)
+    return false;
+  if (!length)
+    return true;
+
+  const size_t native = getNativeBlockSize();
+  // A shifted origin can leave overlapping cache keys even before the origin.
+  // Keep the whole device on its legacy path once that alignment policy exists.
+  if (!supportsBufferTransfers() || !native || ScsiCachePageBytes % native ||
+      hasShiftedCacheAlignment()) {
+    return writing ? Disk::writeFrom(location, buffer, length)
+                   : Disk::readInto(location, buffer, length);
+  }
+
+  auto* bytes = static_cast<uint8_t*>(buffer);
+  while (length) {
+    const uint64_t alignment = getAlignmentPoint(location);
+    const uint64_t key = location - ((location - alignment) % ScsiCachePageBytes);
+    const size_t offset = location - key;
+    const size_t validLength = getCachePageValidLength(key);
+    if (key > ~uintptr_t{0} || offset >= validLength || key % native || validLength % native)
+      return false;
+    const size_t available = validLength - offset;
+    const size_t chunk = length < available ? length : available;
+
+    // Readers may retain writable aliases indefinitely, especially when small
+    // filesystem blocks share a page with metadata. Preserve those aliases and
+    // update their page; only an absent page can bypass the block cache.
+    bool complete = false;
+    for (size_t attempt = 0; attempt < 8 && !complete; ++attempt) {
+      {
+        CacheRangeAdmission admission(*this, key, ScsiCachePageBytes, true);
+        // align() joins admitted ranges before publishing a shifted origin.
+        // A change between chunks leaves any completed prefix retryable.
+        if (hasShiftedCacheAlignment())
+          return false;
+        uintptr_t page = 0;
+        bool ready = m_Cache.lookupStable(key, page);
+        // A partial native sector needs a complete cached sector before merging;
+        // all other absent ranges go directly to the caller's storage.
+        if (ready && !page && (location % native || chunk % native)) {
+          if (doRead(key) < validLength)
+            return false;
+          ready = m_Cache.lookupStable(key, page);
+        }
+        if (ready) {
+          if (page) {
+            CachePageGuard guard(m_Cache, key);
+            auto* cached = reinterpret_cast<uint8_t*>(page) + offset;
+            if (writing) {
+              MemoryCopy(cached, bytes, chunk);
+              m_Cache.markDirty(key);
+              const uintptr_t cacheKey = key;
+              if (!m_Cache.syncBatch(
+                      &cacheKey, 1,
+                      [](const Cache::WritebackPage* pages, size_t count, void* context) {
+                        auto* disk = static_cast<ScsiDisk*>(context);
+                        for (size_t i = 0; i < count; ++i) {
+                          if (disk->doWriteDirect(pages[i].key, pages[i].location) !=
+                              disk->getCachePageValidLength(pages[i].key))
+                            return false;
+                        }
+                        return true;
+                      },
+                      this))
+                return false;
+            } else {
+              MemoryCopy(bytes, cached, chunk);
+            }
+          } else if (!transferBuffer(location, bytes, chunk, writing)) {
+            return false;
+          }
+          complete = true;
+        }
+      }
+      if (!complete) {
+        // A cache callback may itself need range admission. Join it without
+        // that gate or a borrowed pin, then recheck identity after re-entry.
+        uintptr_t retryPage = 0;
+        if (attempt == 7 || !m_Cache.lookupStable(key, retryPage, true))
+          return false;
+        if (retryPage)
+          m_Cache.release(key);
+      }
+    }
+    bytes += chunk;
+    location += chunk;
+    length -= chunk;
+  }
+  return true;
+}
+
+bool ScsiDisk::syncData() {
+#if CRIPPLE_HDD
+  return false;
+#else
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return false;
+  auto* controller = static_cast<ScsiController*>(m_pParent);
+  OperationBarrier::Lease operation;
+  if (!controller || !controller->acquireDiskOperation(operation))
+    return false;
+  return controller->addRequest(0, RequestQueue::NewRequest, SCSI_REQUEST_SYNC,
+                                reinterpret_cast<uint64_t>(this), SyncWholeDevice) != 0;
+#endif
 }
 
 void ScsiDisk::write(uint64_t location) {
@@ -825,12 +961,14 @@ void ScsiDisk::align(uint64_t location) {
     return;
   }
 
+  CacheRangeAdmission admission(*this, 0, getSize(), true);
   LockGuard<Mutex> guard(m_AlignmentLock);
   for (size_t i = 0; i < m_AlignPoints.count(); ++i) {
     if (m_AlignPoints[i] == location) {
       return;
     }
   }
+  m_HasShiftedCacheAlignment |= location % ScsiCachePageBytes != 0;
   m_AlignPoints.pushBack(location);
 }
 
@@ -1179,4 +1317,9 @@ uint64_t ScsiDisk::getAlignmentPoint(uint64_t location) const {
     }
   }
   return alignPoint;
+}
+
+bool ScsiDisk::hasShiftedCacheAlignment() const {
+  LockGuard<Mutex> guard(m_AlignmentLock);
+  return m_HasShiftedCacheAlignment;
 }

@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/utilities/String.h"
 
 Disk::Disk() : m_Endpoint(nullptr) {
@@ -91,6 +92,78 @@ void Disk::dump(String& str) {
 
 BufferView Disk::read(uint64_t location) {
   return BufferView();
+}
+
+bool Disk::readInto(uint64_t location, void* buffer, size_t length) {
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return false;
+  if ((!buffer && length) || location > getSize() || length > getSize() - location)
+    return false;
+  if (!length)
+    return true;
+
+  auto* output = static_cast<uint8_t*>(buffer);
+  while (length) {
+    const uint64_t aligned = location - location % 512;
+    const size_t offset = location - aligned;
+    const BufferView view = read(aligned);
+    if (!view)
+      return false;
+    if (view.size() <= offset) {
+      unpin(aligned);
+      return false;
+    }
+    const size_t available = view.size() - offset;
+    const size_t chunk = length < available ? length : available;
+    MemoryCopy(output, view.subview(offset, chunk).data(), chunk);
+    unpin(aligned);
+    output += chunk;
+    location += chunk;
+    length -= chunk;
+  }
+  return true;
+}
+
+bool Disk::writeFrom(uint64_t location, const void* buffer, size_t length) {
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return false;
+  if ((!buffer && length) || location > getSize() || length > getSize() - location)
+    return false;
+  if (!length)
+    return true;
+
+  const auto* input = static_cast<const uint8_t*>(buffer);
+  while (length) {
+    const uint64_t aligned = location - location % 512;
+    const size_t offset = location - aligned;
+    const BufferView view = read(aligned);
+    if (!view)
+      return false;
+    if (view.size() <= offset) {
+      unpin(aligned);
+      return false;
+    }
+    const size_t available = view.size() - offset;
+    const size_t chunk = length < available ? length : available;
+    MemoryCopy(view.subview(offset, chunk).data(), input, chunk);
+    write(aligned);
+    const bool written = sync(aligned, false);
+    unpin(aligned);
+    if (!written)
+      return false;
+    input += chunk;
+    location += chunk;
+    length -= chunk;
+  }
+  return true;
+}
+
+bool Disk::syncData() {
+  return true;
 }
 
 bool Disk::readViews(uint64_t location, size_t length, BufferViewSequence& views) {

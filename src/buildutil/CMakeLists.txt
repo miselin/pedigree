@@ -282,6 +282,7 @@ set(TESTSUITE_SRCS
     testsuite/test-CacheDiscard.cc
     testsuite/test-CacheSync.cc
     testsuite/test-CacheDirtyTracking.cc
+    testsuite/test-DiskProducerBuffers.cc
     testsuite/test-CacheMemory.cc
     testsuite/test-Ext2Writeback.cc
     testsuite/test-FileRangeSync.cc

@@ -114,6 +114,10 @@ class Partition : public Disk {
 
   MUST_USE_RESULT bool syncPages(const uint64_t* locations, size_t count) override;
 
+  bool readInto(uint64_t location, void* buffer, size_t length) override;
+  bool writeFrom(uint64_t location, const void* buffer, size_t length) override;
+  bool syncData() override;
+
   MUST_USE_RESULT virtual bool syncAll() override;
 
   Disk* physicalDisk() override {
@@ -164,6 +168,8 @@ class Partition : public Disk {
   }
 
  private:
+  bool containsRange(uint64_t location, size_t length) const;
+
   bool containsCachePage(uint64_t location) const {
     if (location >= m_Length) {
       return false;

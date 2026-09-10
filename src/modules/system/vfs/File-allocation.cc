@@ -48,6 +48,7 @@ bool File::allocateRange(size_t offset, size_t length, bool keepSize) {
           const size_t amount =
               newSize - oldSize < pageSize - within ? newSize - oldSize : pageSize - within;
           ByteSet(reinterpret_cast<void*>(page + within), 0, amount);
+          cacheState().fill.markDirty(pageOffset);
           cacheState().fill.release(pageOffset);
         }
       }

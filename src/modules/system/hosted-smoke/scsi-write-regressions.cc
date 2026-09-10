@@ -479,7 +479,9 @@ class HostedScsiDisk final : public ScsiDisk {
         m_ObserveUnpin(false),
         m_UnpinCalls(0),
         m_LastUnpinLocation(0),
-        m_CacheFillSize(PageBytes) {}
+        m_CacheFillSize(PageBytes),
+        m_BufferTransfersEnabled(false),
+        m_BufferTransferCount(0) {}
 
   bool preparePage(uint64_t location) {
     bool alreadyExisted = false;
@@ -575,6 +577,14 @@ class HostedScsiDisk final : public ScsiDisk {
     m_CacheFillSize = fillSize;
   }
 
+  void enableBufferTransfers() {
+    m_BufferTransfersEnabled = true;
+  }
+
+  size_t bufferTransferCount() const {
+    return m_BufferTransferCount;
+  }
+
   void beginUnpinObservation() {
     m_UnpinCalls = 0;
     m_LastUnpinLocation = 0;
@@ -606,6 +616,17 @@ class HostedScsiDisk final : public ScsiDisk {
   }
 
  protected:
+  bool supportsBufferTransfers() const override {
+    return m_BufferTransfersEnabled;
+  }
+
+  bool transferBuffer(uint64_t location, void* buffer, size_t length, bool writing) override {
+    ++m_BufferTransferCount;
+    if (!writing)
+      ByteSet(buffer, 0xa6, length);
+    return true;
+  }
+
   size_t getCacheFillSize() const override {
     return m_CacheFillSize;
   }
@@ -617,6 +638,8 @@ class HostedScsiDisk final : public ScsiDisk {
   size_t m_UnpinCalls;
   uint64_t m_LastUnpinLocation;
   size_t m_CacheFillSize;
+  bool m_BufferTransfersEnabled;
+  size_t m_BufferTransferCount;
 };
 
 struct RetirementResult {
@@ -1400,9 +1423,11 @@ bool scsiRetireReadRecheck(Fixture& fixture) {
   if (readPublished) {
     sharedReader = startRead(sharedRead, "hosted SCSI shared cache-hit reader");
   }
-  const bool sharedCompletedBeforeRelease =
-      sharedReader &&
-      (static_cast<size_t>(sharedRead.returned) || waitUntilSet(sharedRead.returned));
+  // The first reader owns exclusive admission through publication and lookup.
+  // An overlapping reader must queue ahead of retirement, then reuse its page.
+  const bool sharedBlockedBeforeRelease =
+      sharedReader && waitUntilQueuedAt(sharedReader, Thread::CondWait, LookupPauseLocation) &&
+      !static_cast<size_t>(sharedRead.returned);
 
   DirectRetirementContext lookupRetirement(&fixture.disk, LookupPauseLocation);
   Thread* lookupRetirer = nullptr;
@@ -1435,7 +1460,7 @@ bool scsiRetireReadRecheck(Fixture& fixture) {
   const bool lookupOrder = fixture.controller.requestTraceMatches(
       LookupPauseOrder, sizeof(LookupPauseOrder) / sizeof(LookupPauseOrder[0]));
   const bool finalLookupProtected =
-      lookupPauseEntered && readPublished && sharedCompletedBeforeRelease &&
+      lookupPauseEntered && readPublished && sharedBlockedBeforeRelease &&
       admissionHeldThroughLookup && pausedCompleted && sharedCompleted && lookupRetireCompleted &&
       pausedJoined && sharedJoined && lookupRetireJoined && pausedRead.result &&
       sharedRead.result && lookupRetirement.succeeded == 1 &&
@@ -1451,9 +1476,17 @@ bool scsiRetireReadRecheck(Fixture& fixture) {
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS scsi-retire-read-recheck");
   } else {
-    ERROR(
-        "HOSTED-WAIT-TEST: FAIL scsi-retire-read-recheck: interior overlap, disjoint progress, "
-        "failed-retirement cache recheck, shared reads, or final lookup changed");
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-retire-read-recheck");
+    ERROR("SCSI recheck range: prepared=" << interiorPrepared << ", pinned=" << interiorPinned
+                                          << ", admission=" << rangeAdmission
+                                          << ", cleanup=" << rangeCleaned);
+    ERROR("SCSI recheck failure: prepared=" << recheckPrepared << ", pinned=" << recheckPinned
+                                            << ", rechecked=" << failureRechecked
+                                            << ", cleanup=" << recheckCleaned);
+    ERROR("SCSI recheck lookup: pause=" << lookupPauseEntered << ", published=" << readPublished
+                                        << ", reader-wait=" << sharedBlockedBeforeRelease
+                                        << ", retire-wait=" << admissionHeldThroughLookup);
+    ERROR("SCSI recheck result: lookup=" << finalLookupProtected << ", cleanup=" << lookupCleaned);
   }
   return passed;
 }
@@ -1939,6 +1972,62 @@ bool scsiTerminalCachePage() {
   return passed;
 }
 
+bool scsiProducerShiftedOriginFallback() {
+  constexpr uint64_t ShiftedOrigin = 1536;
+  constexpr uint64_t LaterPage = 4 * PageBytes;
+  Fixture fixture;
+  if (!fixture.ready)
+    return false;
+  fixture.disk.pauseBackgroundWriteback();
+  fixture.disk.enableBufferTransfers();
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::Pass10);
+  uint8_t buffer[1024] = {};
+
+  fixture.disk.align(PageBytes);
+  const bool alignedFastPath = fixture.disk.readInto(LaterPage, buffer, 512) && buffer[0] == 0xa6 &&
+                               fixture.disk.bufferTransferCount() == 1 &&
+                               !fixture.disk.hasPage(LaterPage);
+
+  fixture.disk.align(ShiftedOrigin);
+  const bool prepared = fixture.disk.preparePage(ShiftedOrigin);
+  const BufferView loan = prepared ? fixture.disk.read(ShiftedOrigin) : BufferView();
+  if (loan) {
+    static_cast<uint8_t*>(loan.data())[0] = 0xc7;
+    fixture.disk.write(ShiftedOrigin);
+  }
+
+  // Even bytes before the origin can occupy a page overlapping its cache key.
+  const bool beforeOrigin = fixture.disk.readInto(0, buffer, 512);
+  const bool acrossOrigin = fixture.disk.readInto(1024, buffer, sizeof(buffer));
+  const bool afterAlignedOrigin = fixture.disk.readInto(LaterPage, buffer, 512);
+  const bool dirtyLoanVisible =
+      loan && fixture.disk.readInto(ShiftedOrigin, buffer, 512) && buffer[0] == 0xc7;
+  ByteSet(buffer, 0xd2, sizeof(buffer));
+  const bool loanUpdated = loan && fixture.disk.writeFrom(ShiftedOrigin, buffer, 512) &&
+                           static_cast<const uint8_t*>(loan.data())[0] == 0xd2 &&
+                           static_cast<const uint8_t*>(loan.data())[512] == 0x5a;
+  const bool crossWrite = fixture.disk.writeFrom(1024, buffer, sizeof(buffer));
+  const bool legacyOnly = fixture.disk.bufferTransferCount() == 1 && fixture.disk.hasPage(0) &&
+                          fixture.disk.hasPage(ShiftedOrigin) && fixture.disk.hasPage(LaterPage);
+  if (loan)
+    fixture.disk.unpin(ShiftedOrigin);
+
+  const bool passed = alignedFastPath && prepared && beforeOrigin && acrossOrigin &&
+                      afterAlignedOrigin && dirtyLoanVisible && loanUpdated && crossWrite &&
+                      legacyOnly;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-producer-shifted-origin-fallback");
+  } else {
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-producer-shifted-origin-fallback: aligned="
+          << alignedFastPath << ", prepared=" << prepared << ", before=" << beforeOrigin
+          << ", across=" << acrossOrigin << ", after=" << afterAlignedOrigin
+          << ", dirty-loan=" << dirtyLoanVisible << ", updated=" << loanUpdated
+          << ", cross-write=" << crossWrite << ", legacy=" << legacyOnly);
+  }
+  return passed;
+}
+
 bool scsiOpticalReadAfterToc() {
   constexpr size_t OpticalBlockBytes = 2048;
   constexpr uint64_t VolumeDescriptorLocation = 16 * OpticalBlockBytes;
@@ -2001,9 +2090,10 @@ EXPORTED_PUBLIC bool runHostedScsiSyncRegressions() {
   const bool overlappingBatches = scsiOverlappingSyncBatches();
   const bool batchValidation = scsiSyncBatchValidation();
   const bool batchTerminal = scsiSyncBatchTerminalGeometry();
+  const bool producerAlignment = scsiProducerShiftedOriginFallback();
   return deferredWrites && deferredRetry && deferredShutdown && syncAll && batch &&
          batchWriteFailure && batchFlushFailure && overlappingBatches && batchValidation &&
-         batchTerminal;
+         batchTerminal && producerAlignment;
 }
 
 EXPORTED_PUBLIC bool runHostedScsiWriteRegressions() {

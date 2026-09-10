@@ -14,11 +14,13 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 class FillCacheDisk final : public Disk {
  public:
   static constexpr size_t kPageSize = TargetInfo::getPageSize();
+  using Transfer = std::pair<uint64_t, size_t>;
 
   FillCacheDisk()
       : storage(512 * 1024, 0),
@@ -39,6 +41,46 @@ class FillCacheDisk final : public Disk {
     operations.push_back('R');
     const size_t pageOffset = location % kPageSize;
     return BufferView(storage.data() + location, kPageSize - pageOffset);
+  }
+
+  bool readInto(uint64_t location, void* buffer, size_t length) override {
+    if (!validTransfer(location, buffer, length))
+      return false;
+    if (failedReadLocation >= location && failedReadLocation - location < length)
+      return false;
+    dataReads.emplace_back(location, length);
+    operations.push_back('I');
+    std::memcpy(buffer, storage.data() + location, length);
+    return true;
+  }
+
+  bool writeFrom(uint64_t location, const void* buffer, size_t length) override {
+    if (!validTransfer(location, buffer, length))
+      return false;
+    if (failedWriteLocation >= location && failedWriteLocation - location < length)
+      return false;
+    if (failedSyncLocation >= location && failedSyncLocation - location < length) {
+      failedSyncs.push_back(failedSyncLocation);
+      return false;
+    }
+    dataWrites.emplace_back(location, length);
+    pendingWrites.emplace_back(location, length);
+    operations.push_back('O');
+    std::memcpy(storage.data() + location, buffer, length);
+    return true;
+  }
+
+  bool syncData() override {
+    ++dataBarriers;
+    operations.push_back('B');
+    if (failedDataBarrier)
+      return false;
+    for (const auto& transfer : pendingWrites) {
+      std::copy_n(storage.begin() + transfer.first, transfer.second,
+                  persisted.begin() + transfer.first);
+    }
+    pendingWrites.clear();
+    return true;
   }
 
   void write(uint64_t location) override {
@@ -157,6 +199,9 @@ class FillCacheDisk final : public Disk {
     writePins.clear();
     operations.clear();
     scheduledPages.clear();
+    dataReads.clear();
+    dataWrites.clear();
+    dataBarriers = 0;
   }
 
   std::vector<uint64_t> metadataLocations;
@@ -170,11 +215,26 @@ class FillCacheDisk final : public Disk {
   std::vector<bool> writePins;
   std::vector<char> operations;
   std::vector<uint64_t> scheduledPages;
+  std::vector<Transfer> dataReads;
+  std::vector<Transfer> dataWrites;
+  std::vector<Transfer> pendingWrites;
+  size_t dataBarriers = 0;
+  bool failedDataBarrier = false;
   uint64_t failedSyncLocation = ~uint64_t(0);
   uint64_t failedReadLocation = ~uint64_t(0);
+  uint64_t failedWriteLocation = ~uint64_t(0);
   std::vector<uint64_t> failedSyncs;
   bool outOfRange = false;
   bool unbalancedUnpin = false;
+
+ private:
+  bool validTransfer(uint64_t location, const void* buffer, size_t length) {
+    if ((!buffer && length) || location > storage.size() || length > storage.size() - location) {
+      outOfRange = true;
+      return false;
+    }
+    return true;
+  }
 };
 
 #endif

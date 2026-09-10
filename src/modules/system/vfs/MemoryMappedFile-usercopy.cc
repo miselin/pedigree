@@ -102,6 +102,14 @@ MemoryMapManager::UserPageCopyStatus MemoryMapManager::copyUserPage(VirtualAddre
     }
   }
 
+  if (write && selected && selected->backingFile()) {
+    uintptr_t identity = 0;
+    size_t fileOffset = 0;
+    if (selected->sharedBacking(pageAddress, identity, fileOffset)) {
+      selected->backingFile()->markPageExternallyWritable(fileOffset);
+    }
+  }
+
   switch (space.copyResidentUserPage(address, kernelBuffer, bytes, write)) {
     case VirtualAddressSpace::ResidentCopyStatus::Success:
       return UserPageCopyStatus::Success;

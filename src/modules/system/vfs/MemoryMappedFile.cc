@@ -324,7 +324,12 @@ void MemoryMappedFile::setPermissions(MemoryMappedObject::Permissions perms) {
       physical_uintptr_t physical;
       size_t flags;
       va.getMapping(address, physical, flags);
-      va.setFlags(address, protectionFlags(flags, perms, !m_bCopyOnWrite));
+      const size_t newFlags = protectionFlags(flags, perms, !m_bCopyOnWrite);
+      if (!m_bCopyOnWrite && it.value() == ~0UL && (newFlags & VirtualAddressSpace::Write) &&
+          !(flags & VirtualAddressSpace::Write)) {
+        m_pBacking->markPageExternallyWritable(m_Offset + (it.key() - m_Address));
+      }
+      va.setFlags(address, newFlags);
     }
   }
   m_Permissions = perms;
@@ -428,6 +433,48 @@ static physical_uintptr_t getBackingPage(File* pBacking, size_t fileOffset) {
   return phys;
 }
 
+bool MemoryMappedObject::syncRange(uintptr_t at, size_t length, bool async) {
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  bool succeeded = true;
+  for (size_t offset = 0; offset < length; offset += pageSize)
+    succeeded = sync(at + offset, async) && succeeded;
+  return succeeded;
+}
+
+bool MemoryMappedFile::syncRange(uintptr_t at, size_t length, bool async) {
+  TerminationDeferral terminationDeferral;
+  LockGuard<Mutex> guard(m_Lock);
+  if (m_bCopyOnWrite || !length)
+    return true;
+  if (at < m_Address || at - m_Address >= m_Length)
+    return false;
+  const size_t available = m_Length - (at - m_Address);
+  if (length > available)
+    length = available;
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  uint64_t offsets[Cache::MaxWritebackPages];
+  size_t count = 0;
+  bool succeeded = true;
+  for (size_t offset = 0; offset < length; offset += pageSize) {
+    const uintptr_t address = at + offset;
+    if (getMapping(address) != ~0UL)
+      continue;
+    const size_t fileOffset = m_Offset + address - m_Address;
+    if (async) {
+      succeeded = m_pBacking->sync(fileOffset, true) && succeeded;
+    } else {
+      offsets[count++] = fileOffset;
+      if (count == Cache::MaxWritebackPages) {
+        succeeded = m_pBacking->syncPages(offsets, count) && succeeded;
+        count = 0;
+      }
+    }
+  }
+  if (count)
+    succeeded = m_pBacking->syncPages(offsets, count) && succeeded;
+  return succeeded;
+}
+
 bool MemoryMappedFile::sync(uintptr_t at, bool async) {
   TerminationDeferral terminationDeferral;
   LockGuard<Mutex> guard(m_Lock);
@@ -526,6 +573,7 @@ bool MemoryMappedFile::trap(VirtualAddressSpace& va, uintptr_t address, bool bWr
 
     size_t flags = VirtualAddressSpace::Shared | VirtualAddressSpace::Borrowed;
     if (!m_bCopyOnWrite && (m_Permissions & Write)) {
+      m_pBacking->markPageExternallyWritable(fileOffset);
       flags |= VirtualAddressSpace::Write;
     }
 
@@ -1146,6 +1194,18 @@ bool MemoryMapManager::op(MemoryMapManager::Ops what, uintptr_t base, size_t len
   }
 
   bool success = true;
+  if (what == Sync) {
+    const uintptr_t end = base + length;
+    for (MemoryMappedObject* object : *pMmObjectList) {
+      const uintptr_t objectEnd =
+          (object->address() + object->length() + pageSz - 1) & ~(pageSz - 1);
+      const uintptr_t start = base > object->address() ? base : object->address();
+      const uintptr_t stop = end < objectEnd ? end : objectEnd;
+      if (start < stop)
+        success = object->syncRange(start, stop - start, async) && success;
+    }
+    return success;
+  }
   for (uintptr_t address = base; address < (base + length); address += pageSz) {
     for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin();
          it != pMmObjectList->end(); it++) {

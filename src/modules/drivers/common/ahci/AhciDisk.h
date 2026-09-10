@@ -46,6 +46,12 @@ class EXPORTED_PUBLIC AhciDisk final : public ScsiDisk {
     return m_Port;
   }
 
+ protected:
+  bool supportsBufferTransfers() const override {
+    return true;
+  }
+  bool transferBuffer(uint64_t location, void* buffer, size_t length, bool writing) override;
+
  private:
   friend class AhciController;
   size_t validPageLength(uint64_t location) const;

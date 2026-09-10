@@ -315,15 +315,14 @@ uint64_t File::writeUnlocked(uint64_t location, uint64_t size, uintptr_t buffer,
     uintptr_t offs = location % blockSize;
     uintptr_t sz = (size + offs > blockSize) ? blockSize - offs : size;
 
-    uintptr_t buff = readIntoCache(block);
+    uintptr_t buff = readIntoCache(block, useFillCache() && !offs && sz == blockSize);
     if (buff == FILE_BAD_BLOCK) {
-      ERROR("File::read - failed to get page from cache, returning early");
+      ERROR("File::write - failed to get page from cache, returning early");
       return n;
     }
 
     ForwardMemoryCopy(reinterpret_cast<void*>(buff + offs), reinterpret_cast<void*>(buffer), sz);
 
-    // Trigger an immediate write-back - write-through cache.
     if (useFillCache()) {
       const uint64_t pageOffset = block * blockSize;
       const size_t firstBlock = offs / filesystemBlockSize;
@@ -535,16 +534,10 @@ bool File::syncRange(size_t offset, size_t length) {
   Vector<SyncPage> pages(snapshotSize);
   {
     LockGuard<Mutex> guard(cacheState().indexLock);
-    const size_t count =
-        cacheState().data.count() < snapshotSize ? cacheState().data.count() : snapshotSize;
-    for (size_t i = 0; i < count; ++i) {
-      auto result = cacheState().data.getNth(i);
-      if (result.hasError()) {
-        break;
-      }
-
-      const uintptr_t buffer = result.value().second();
-      const size_t block = result.value().first().hash();
+    for (auto it = cacheState().data.begin();
+         it != cacheState().data.end() && pages.count() < snapshotSize; ++it) {
+      const uintptr_t buffer = it.__getNode()->value;
+      const size_t block = it.__getNode()->key.hash();
       if (buffer != FILE_BAD_BLOCK && block >= firstBlock && block <= lastBlock) {
         pages.pushBack({block, buffer});
       }
@@ -1120,9 +1113,11 @@ bool File::resize(size_t size) {
     backend.get()->commit();
     if (fillPlan)
       fillPlan.get()->commit();
-    if (boundary.address)
+    if (boundary.address) {
       ByteSet(reinterpret_cast<void*>(boundary.address + size % pageSize), 0,
               pageSize - size % pageSize);
+      cacheState().fill.markDirty(boundaryOffset);
+    }
     // Native-block backends also cache borrowed addresses in this index.
     // Preserve prefix entries while invalidating every detached suffix alias.
     const size_t cacheBlockSize = useFillCache() ? pageSize : getBlockSize();
@@ -1147,6 +1142,7 @@ bool File::resize(size_t size) {
         const size_t amount =
             (size - oldSize < pageSize - offset) ? size - oldSize : pageSize - offset;
         ByteSet(reinterpret_cast<void*>(buffer + offset), 0, amount);
+        cacheState().fill.markDirty(pageOffset);
         cacheState().fill.release(pageOffset);
       }
     }
@@ -1407,6 +1403,32 @@ void File::setCachedPage(size_t block, uintptr_t value, bool locked) {
   }
 }
 
+void File::markPageExternallyWritable(size_t offset) {
+  if (useFillCache()) {
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    cacheState().fill.markExternallyWritable(offset - offset % pageSize);
+  }
+}
+
+bool File::readPage(uint64_t location, uintptr_t destination) {
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const size_t blockSize = getBlockSize();
+  if (!blockSize || pageSize % blockSize)
+    return false;
+  ByteSet(reinterpret_cast<void*>(destination), 0, pageSize);
+  const size_t size = getSize();
+  for (size_t i = 0; i < pageSize && location < size && i < size - location; i += blockSize) {
+    const uintptr_t block = readBlock(location + i);
+    if (!block || block == FILE_BAD_BLOCK)
+      return false;
+    const size_t remaining = size - location - i;
+    ForwardMemoryCopy(reinterpret_cast<void*>(destination + i), reinterpret_cast<void*>(block),
+                      remaining < blockSize ? remaining : blockSize);
+    unpinBlock(location + i);
+  }
+  return true;
+}
+
 bool File::useFillCache() const {
   EMIT_IF(VFS_NOMMU) {
 #if defined(PEDIGREE_BUILDUTILS)
@@ -1446,7 +1468,7 @@ bool File::syncFillCache(size_t offset, bool async, bool& present) {
   return succeeded;
 }
 
-uintptr_t File::readIntoCache(uintptr_t block) {
+uintptr_t File::readIntoCache(uintptr_t block, bool overwriteWholePage) {
   size_t blockSize = getBlockSize();
   size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
   const bool fillCache = useFillCache();
@@ -1486,31 +1508,25 @@ uintptr_t File::readIntoCache(uintptr_t block) {
         return vaddr;
       }
       existingReference = true;
-    }
-
-    // Read the blocks
-    ByteSet(reinterpret_cast<void*>(vaddr), 0, nativeBlockSize);
-    for (size_t i = 0; i < nativeBlockSize; i += blockSize) {
-      if ((offset + i) >= getSize()) {
-        break;
-      }
-      uintptr_t blockAddr = readBlock(offset + i);
-      if (!blockAddr || blockAddr == FILE_BAD_BLOCK) {
-        if (existingReference) {
-          cacheState().fill.release(offset);
-        }
-        if (!didExist && !cacheState().fill.discardEditing(offset)) {
-          WARNING(
-              "File::readIntoCache could not discard a failed fill "
-              "for offset "
-              << offset);
-        }
+      // A fresh backend read must not overwrite deferred writes in this page.
+      if (!cacheState().fill.sync(offset, false)) {
+        cacheState().fill.release(offset);
         return FILE_BAD_BLOCK;
       }
-      const size_t remaining = getSize() - (offset + i);
-      ForwardMemoryCopy(reinterpret_cast<void*>(vaddr + i), reinterpret_cast<void*>(blockAddr),
-                        remaining < blockSize ? remaining : blockSize);
-      unpinBlock(offset + i);
+    }
+
+    // The write lock excludes readers until the caller replaces the whole page.
+    // Initialising it still gives legacy checksum owners a defined clean image.
+    if (overwriteWholePage) {
+      ByteSet(reinterpret_cast<void*>(vaddr), 0, nativeBlockSize);
+    } else if (!readPage(offset, vaddr)) {
+      if (existingReference) {
+        cacheState().fill.release(offset);
+      }
+      if (!didExist && !cacheState().fill.discardEditing(offset)) {
+        WARNING("File::readIntoCache could not discard a failed fill for offset " << offset);
+      }
+      return FILE_BAD_BLOCK;
     }
 
     cacheState().fill.markNoLongerEditing(offset, nativeBlockSize);

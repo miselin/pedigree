@@ -583,13 +583,14 @@ TEST(Ext2InodeTable, ReadsOnlyRequestedBlocksAndPreservesPointersAcrossGrowth) {
     EXPECT_EQ(Ext2WritebackTestPeer::getInode(filesystem, 2), first + 1);
     ASSERT_NE(Ext2WritebackTestPeer::getInode(filesystem, inodesPerGroup), nullptr);
     EXPECT_EQ(disk.reads, std::vector<uint64_t>({uint64_t(tableStart) * kBlockSize,
-                                               uint64_t(lastBlock) * kBlockSize}));
+                                                 uint64_t(lastBlock) * kBlockSize}));
     EXPECT_EQ(Ext2WritebackTestPeer::getInode(filesystem, 1), first);
     EXPECT_EQ(LITTLE_TO_HOST16(first->i_uid), 1234);
   }
   EXPECT_EQ(std::count(disk.unpins.begin(), disk.unpins.end(), uint64_t(tableStart) * kBlockSize),
             1);
-  EXPECT_EQ(std::count(disk.unpins.begin(), disk.unpins.end(), uint64_t(lastBlock) * kBlockSize), 1);
+  EXPECT_EQ(std::count(disk.unpins.begin(), disk.unpins.end(), uint64_t(lastBlock) * kBlockSize),
+            1);
   for (uint32_t block = tableStart + 1; block < lastBlock; ++block)
     EXPECT_EQ(std::count(disk.unpins.begin(), disk.unpins.end(), uint64_t(block) * kBlockSize), 0);
 }
@@ -614,14 +615,14 @@ TEST(Ext2InodeTable, FailedBlockCanRetryWithoutDiscardingEarlierPointers) {
     EXPECT_TRUE(disk.unpins.empty());
     disk.failedRead = UINT64_MAX;
     ASSERT_NE(Ext2WritebackTestPeer::getInode(filesystem, targetInode), nullptr);
-    EXPECT_EQ(disk.reads, std::vector<uint64_t>({uint64_t(tableStart) * kBlockSize, targetLocation,
-                                               targetLocation}));
+    EXPECT_EQ(disk.reads, std::vector<uint64_t>(
+                              {uint64_t(tableStart) * kBlockSize, targetLocation, targetLocation}));
   }
   EXPECT_EQ(std::count(disk.unpins.begin(), disk.unpins.end(), uint64_t(tableStart) * kBlockSize),
             1);
   EXPECT_EQ(std::count(disk.unpins.begin(), disk.unpins.end(), targetLocation), 1);
-  EXPECT_EQ(std::count(disk.unpins.begin(), disk.unpins.end(),
-                       uint64_t(tableStart + 1) * kBlockSize), 0);
+  EXPECT_EQ(
+      std::count(disk.unpins.begin(), disk.unpins.end(), uint64_t(tableStart + 1) * kBlockSize), 0);
 }
 
 TEST(Ext2Growth, SerializesGlobalBitmapAllocation) {
@@ -1058,6 +1059,10 @@ namespace {
 class FillBatchDisk final : public Disk {
  public:
   static constexpr size_t Page = TargetInfo::getPageSize();
+  struct Transfer {
+    uint64_t location;
+    size_t length;
+  };
   FillBatchDisk() : bytes(2 * 1024 * 1024, 0x11), persisted(bytes), pins(bytes.size() / Page, 0) {}
 
   BufferView read(uint64_t location) override {
@@ -1066,6 +1071,35 @@ class FillBatchDisk final : public Disk {
     ++pins[location / Page];
     ++reads;
     return BufferView(bytes.data() + location, Page - location % Page);
+  }
+  bool readInto(uint64_t location, void* buffer, size_t length) override {
+    if (!buffer || location > bytes.size() || length > bytes.size() - location)
+      return false;
+    dataReads.push_back({location, length});
+    MemoryCopy(buffer, bytes.data() + location, length);
+    return true;
+  }
+  bool writeFrom(uint64_t location, const void* buffer, size_t length) override {
+    if (!buffer || location > bytes.size() || length > bytes.size() - location)
+      return false;
+    dataWrites.push_back({location, length});
+    if (!allowTransfers || dataWrites.size() == failedTransfer)
+      return false;
+    MemoryCopy(bytes.data() + location, buffer, length);
+    pendingWrites.push_back({location, length});
+    ++completedSinceBarrier;
+    return true;
+  }
+  bool syncData() override {
+    batchSizes.push_back(completedSinceBarrier);
+    completedSinceBarrier = 0;
+    if (failBarrier)
+      return false;
+    for (const Transfer& transfer : pendingWrites)
+      std::copy_n(bytes.begin() + transfer.location, transfer.length,
+                  persisted.begin() + transfer.location);
+    pendingWrites.clear();
+    return true;
   }
   bool pin(uint64_t location) override {
     if (location >= bytes.size())
@@ -1089,48 +1123,39 @@ class FillBatchDisk final : public Disk {
   }
   void write(uint64_t) override {}
   void align(uint64_t) override {}
-  bool sync(uint64_t location, bool async) override {
-    EXPECT_FALSE(async);
+  bool sync(uint64_t, bool) override {
     ++singleSyncs;
-    if (!allowSingleSync)
-      return false;
-    persistPage(location);
-    return true;
+    return false;
   }
-  bool syncPages(const uint64_t* locations, size_t count) override {
-    EXPECT_LE(count, Disk::MaxSyncPages);
-    batchSizes.push_back(count);
-    for (size_t i = 0; i < count; ++i) {
-      EXPECT_LT(locations[i], bytes.size());
-      EXPECT_GT(pins[locations[i] / Page], 0U);
-    }
-    if (batchSizes.size() == failedBatch)
-      return false;
-    for (size_t i = 0; i < count; ++i)
-      persistPage(locations[i]);
-    return true;
+  bool syncPages(const uint64_t*, size_t) override {
+    ++legacyBatches;
+    return false;
   }
   bool balanced() const {
     return !unbalanced && std::all_of(pins.begin(), pins.end(), [](size_t n) { return n == 0; });
   }
   void resetActivity() {
     batchSizes.clear();
-    singleSyncs = reads = unpins = 0;
-  }
-  void persistPage(uint64_t location) {
-    const size_t start = location - location % Page;
-    std::copy_n(bytes.begin() + start, Page, persisted.begin() + start);
+    dataReads.clear();
+    dataWrites.clear();
+    singleSyncs = legacyBatches = reads = unpins = completedSinceBarrier = 0;
   }
 
   std::vector<uint8_t> bytes;
   std::vector<uint8_t> persisted;
   std::vector<size_t> pins;
   std::vector<size_t> batchSizes;
-  size_t failedBatch = ~size_t(0);
+  std::vector<Transfer> dataReads;
+  std::vector<Transfer> dataWrites;
+  std::vector<Transfer> pendingWrites;
+  size_t failedTransfer = ~size_t(0);
+  size_t completedSinceBarrier = 0;
   size_t singleSyncs = 0;
+  size_t legacyBatches = 0;
   size_t reads = 0;
   size_t unpins = 0;
-  bool allowSingleSync = true;
+  bool allowTransfers = true;
+  bool failBarrier = false;
   bool unbalanced = false;
 };
 
@@ -1147,6 +1172,7 @@ class ForcedFillBatchFile final : public Ext2File {
       const uintptr_t page = cacheState().fill.lookup(offset);
       if (!page)
         return false;
+      cacheState().fill.markExternallyWritable(offset);
       std::fill_n(reinterpret_cast<uint8_t*>(page), FillBatchDisk::Page, value);
       cacheState().fill.release(offset);
     }
@@ -1213,6 +1239,21 @@ struct FillBatchFixture {
                               [](uint8_t byte) { return byte == 0x11; }));
     }
   }
+  void expectAllTransfers() const {
+    size_t transfer = 0;
+    for (size_t i = 0; i < blocks.size(); ++i) {
+      if (!blocks[i])
+        continue;
+      ASSERT_LT(transfer, disk.dataWrites.size());
+      EXPECT_EQ(disk.dataWrites[transfer].location, blocks[i] * blockSize);
+      EXPECT_EQ(disk.dataWrites[transfer].length, std::min(blockSize, fileSize - i * blockSize));
+      ++transfer;
+    }
+    EXPECT_EQ(disk.dataWrites.size(), transfer);
+    EXPECT_TRUE(disk.dataReads.empty());
+    EXPECT_EQ(disk.singleSyncs, 0U);
+    EXPECT_EQ(disk.legacyBatches, 0U);
+  }
   const size_t blockSize;
   const size_t fileSize;
   FillBatchDisk disk;
@@ -1230,7 +1271,7 @@ TEST(Ext2Writeback, ForcedNativeFillCombinesSeveralUpperPagesInOneDiskBatch) {
   ASSERT_TRUE(fixture.file->syncRange(0, 0));
   EXPECT_EQ(fixture.file->upperBatches, (std::vector<size_t>{3}));
   EXPECT_EQ(fixture.disk.batchSizes, (std::vector<size_t>{3}));
-  EXPECT_EQ(fixture.disk.singleSyncs, 0U);
+  fixture.expectAllTransfers();
   fixture.expectPersisted(0x67);
   EXPECT_TRUE(fixture.disk.balanced());
   EXPECT_EQ(fixture.disk.reads, fixture.disk.unpins);
@@ -1243,7 +1284,7 @@ TEST(Ext2Writeback, ForcedSubpageFillBatchSkipsSparseBlocksAndPreservesPartialTa
   ASSERT_TRUE(fixture.file->syncRange(0, 0));
   EXPECT_EQ(fixture.file->upperBatches, (std::vector<size_t>{3}));
   EXPECT_EQ(fixture.disk.batchSizes, (std::vector<size_t>{fixture.blocks.size() - 1}));
-  EXPECT_EQ(fixture.disk.singleSyncs, 0U);
+  fixture.expectAllTransfers();
   fixture.expectPersisted(0x79);
   EXPECT_TRUE(fixture.disk.balanced());
   EXPECT_EQ(fixture.disk.reads, fixture.disk.unpins);
@@ -1255,25 +1296,58 @@ TEST(Ext2Writeback, ForcedFillFinalChunkFailureRetainsWholeUpperBatchForRetry) {
   FillBatchFixture fixture(blockSize, pages * FillBatchDisk::Page);
   ASSERT_TRUE(fixture.prime());
   ASSERT_TRUE(fixture.file->changeAll(0x8B));
-  fixture.disk.failedBatch = 2;
+  fixture.disk.failedTransfer = fixture.blocks.size();
   EXPECT_FALSE(fixture.file->syncRange(0, 0));
-  EXPECT_EQ(fixture.disk.batchSizes,
-            (std::vector<size_t>{Disk::MaxSyncPages, FillBatchDisk::Page / blockSize}));
+  EXPECT_EQ(fixture.file->upperBatches, (std::vector<size_t>{pages}));
+  EXPECT_EQ(fixture.disk.batchSizes, (std::vector<size_t>{fixture.blocks.size() - 1}));
+  fixture.expectAllTransfers();
+  EXPECT_EQ(fixture.disk.persisted[fixture.blocks.front() * blockSize], 0x8B);
   EXPECT_EQ(fixture.disk.persisted[fixture.blocks.back() * blockSize], 0x11);
   EXPECT_TRUE(fixture.disk.balanced());
   EXPECT_EQ(fixture.disk.reads, fixture.disk.unpins);
-  // Even an upper page whose lower writes succeeded must retain failed-batch ownership.
-  fixture.disk.allowSingleSync = false;
-  EXPECT_FALSE(fixture.file->evictUpper(0));
-  EXPECT_TRUE(fixture.file->hasUpper(0));
-  fixture.disk.allowSingleSync = true;
-  fixture.disk.failedBatch = ~size_t(0);
+
+  // The failed shared result retains even pages whose writes became durable.
+  fixture.disk.allowTransfers = false;
+  for (size_t i = 0; i < pages; ++i) {
+    EXPECT_FALSE(fixture.file->evictUpper(i * FillBatchDisk::Page));
+    EXPECT_TRUE(fixture.file->hasUpper(i * FillBatchDisk::Page));
+  }
+  fixture.disk.allowTransfers = true;
+  fixture.disk.failedTransfer = ~size_t(0);
   fixture.disk.resetActivity();
   ASSERT_TRUE(fixture.file->syncRange(0, 0));
-  EXPECT_EQ(fixture.disk.batchSizes,
-            (std::vector<size_t>{Disk::MaxSyncPages, FillBatchDisk::Page / blockSize}));
+  EXPECT_EQ(fixture.disk.batchSizes, (std::vector<size_t>{fixture.blocks.size()}));
+  fixture.expectAllTransfers();
   fixture.expectPersisted(0x8B);
   EXPECT_TRUE(fixture.disk.balanced());
   EXPECT_EQ(fixture.disk.reads, fixture.disk.unpins);
-  EXPECT_TRUE(fixture.file->evictUpper(0));
+  for (size_t i = 0; i < pages; ++i)
+    EXPECT_TRUE(fixture.file->evictUpper(i * FillBatchDisk::Page));
+}
+
+TEST(Ext2Writeback, ForcedFillBarrierFailureRetainsEveryUpperPageForRetry) {
+  constexpr size_t pages = 3;
+  FillBatchFixture fixture(FillBatchDisk::Page, pages * FillBatchDisk::Page);
+  ASSERT_TRUE(fixture.prime());
+  ASSERT_TRUE(fixture.file->changeAll(0x95));
+  const auto persisted = fixture.disk.persisted;
+  fixture.disk.failBarrier = true;
+  EXPECT_FALSE(fixture.file->syncRange(0, 0));
+  EXPECT_EQ(fixture.disk.batchSizes, (std::vector<size_t>{pages}));
+  fixture.expectAllTransfers();
+  EXPECT_EQ(fixture.disk.persisted, persisted);
+  for (size_t i = 0; i < pages; ++i) {
+    EXPECT_FALSE(fixture.file->evictUpper(i * FillBatchDisk::Page));
+    EXPECT_TRUE(fixture.file->hasUpper(i * FillBatchDisk::Page));
+  }
+
+  fixture.disk.failBarrier = false;
+  fixture.disk.resetActivity();
+  ASSERT_TRUE(fixture.file->syncRange(0, 0));
+  EXPECT_EQ(fixture.disk.batchSizes, (std::vector<size_t>{pages}));
+  fixture.expectAllTransfers();
+  fixture.expectPersisted(0x95);
+  EXPECT_TRUE(fixture.disk.balanced());
+  for (size_t i = 0; i < pages; ++i)
+    EXPECT_TRUE(fixture.file->evictUpper(i * FillBatchDisk::Page));
 }

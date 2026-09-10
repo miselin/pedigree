@@ -203,6 +203,20 @@ uint64_t AhciDisk::doWrite(uint64_t location) {
 #endif
 }
 
+bool AhciDisk::transferBuffer(uint64_t location, void* buffer, size_t length, bool writing) {
+#if CRIPPLE_HDD
+  if (writing)
+    return false;
+#endif
+  if (!m_Initialised || !buffer || !length || location >= m_Bytes || length > m_Bytes - location ||
+      location % m_SectorBytes || length % m_SectorBytes || length > TargetInfo::getPageSize() ||
+      length / m_SectorBytes > 0xffff)
+    return false;
+  return m_Controller->readWrite(m_Port, location / m_SectorBytes,
+                                 static_cast<uint16_t>(length / m_SectorBytes), buffer, length,
+                                 writing);
+}
+
 uint64_t AhciDisk::doWriteDirect(uint64_t location, uintptr_t page) {
 #if CRIPPLE_HDD
   return 0;

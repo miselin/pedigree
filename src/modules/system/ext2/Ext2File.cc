@@ -19,7 +19,6 @@
 
 #include "Ext2File.h"
 #include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/syscallError.h"
@@ -43,6 +42,7 @@ Ext2File::Ext2File(const String& name, uintptr_t inode_num, Inode* inode, Ext2Fi
     if (!m_State->cache) {
       return;
     }
+    m_State->cache->fill.setDirtyTracking(Cache::DirtyTracking::Explicit);
     m_State->cache->fill.setCallback(sharedFillCallback, m_State);
   }
   {
@@ -152,6 +152,7 @@ bool Ext2File::prepareWrite(uint64_t location, uint64_t size) {
       if (page) {
         const size_t amount = end - oldSize < pageSize - within ? end - oldSize : pageSize - within;
         ByteSet(reinterpret_cast<void*>(page + within), 0, amount);
+        cacheState().fill.markDirty(pageOffset);
         cacheState().fill.release(pageOffset);
       }
     }
@@ -267,6 +268,28 @@ uintptr_t Ext2File::readBlock(uint64_t location) {
   return Ext2Node::readBlock(location);
 }
 
+bool Ext2File::readPage(uint64_t location, uintptr_t destination) {
+  LockGuard<Mutex> guard(m_State->writebackLock);
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const size_t blockSize = m_pExt2Fs->m_BlockSize;
+  if (!destination || !blockSize || pageSize % blockSize || location % pageSize ||
+      !m_State->allocationValid || location >= m_nSize) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
+  ByteSet(reinterpret_cast<void*>(destination), 0, pageSize);
+  const size_t remaining = m_nSize - location;
+  const size_t length = remaining < pageSize ? remaining : pageSize;
+  for (size_t offset = 0; offset < length; offset += blockSize) {
+    const size_t block = (location + offset) / blockSize;
+    if (block >= m_Blocks.count() || !ensureBlockLoaded(block)) {
+      SYSCALL_ERROR(IoError);
+      return false;
+    }
+  }
+  return transferBlocksLocked(m_State, location, destination, length, false);
+}
+
 void Ext2File::writeBlock(uint64_t location, uintptr_t addr) {
   if (useFillCache()) {
     writeBlocks(location, addr, getBlockSize());
@@ -282,8 +305,18 @@ void Ext2File::writeBlocks(uint64_t location, uintptr_t addr, size_t length) {
     return;
   }
 
-  LockGuard<Mutex> guard(m_State->writebackLock);
-  writeBlocksLocked(m_State, location, addr, length, true);
+  (void)addr;
+  if (!length || location > ~uint64_t{0} - (length - 1))
+    return;
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const uint64_t last = location + length - 1;
+  uint64_t page = location - location % pageSize;
+  while (true) {
+    cacheState().fill.markDirty(page);
+    if (last - page < pageSize)
+      break;
+    page += pageSize;
+  }
 }
 
 bool Ext2File::sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t location,
@@ -302,63 +335,60 @@ bool Ext2File::sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t
       !__atomic_load_n(&state->syncReferences, __ATOMIC_ACQUIRE)) {
     return true;
   }
-  return writeBlocksLocked(state, location, page, PhysicalMemoryManager::getPageSize(), false);
+  Disk* disk = state->filesystem->m_pDisk;
+  if (!disk)
+    return false;
+  const bool written =
+      transferBlocksLocked(state, location, page, PhysicalMemoryManager::getPageSize(), true);
+  const bool durable = disk->syncData();
+  return written && durable;
 }
 
-bool Ext2File::writeBlocksLocked(Ext2InodeState* state, uint64_t location, uintptr_t addr,
-                                 size_t length, bool async) {
+bool Ext2File::transferBlocksLocked(Ext2InodeState* state, uint64_t location, uintptr_t addr,
+                                    size_t length, bool write) {
   Ext2Filesystem* filesystem = state->filesystem;
+  Disk* disk = filesystem->m_pDisk;
   const size_t blockSize = filesystem->m_BlockSize;
-  uint32_t pinnedBlocks[TargetInfo::getPageSize() / 1024] = {};
-  size_t pinnedCount = 0;
-  bool succeeded = true;
+  if (!disk || !blockSize || !state->allocationValid || location % blockSize ||
+      location > ~uint64_t{0} - length)
+    return false;
+  if (location >= state->size)
+    return true;
+  const size_t remaining = state->size - location;
+  if (length > remaining)
+    length = remaining;
 
-  // A fill page is published only after its constituent mappings were loaded.
-  // Copy every constituent before submitting a possibly coalesced disk write.
-  for (size_t offset = 0; offset < length; offset += blockSize) {
-    if (pinnedCount == sizeof(pinnedBlocks) / sizeof(pinnedBlocks[0]) ||
-        location > ~static_cast<uint64_t>(0) - offset) {
-      succeeded = false;
-      break;
-    }
+  for (size_t offset = 0; offset < length;) {
     const uint64_t blockLocation = location + offset;
-    if (blockLocation >= state->size) {
-      break;
-    }
     const size_t block = blockLocation / blockSize;
-    if (block >= state->blocks.count() || state->blocks[block] == ~uint32_t(0)) {
-      succeeded = false;
-      continue;
-    }
+    if (block >= state->blocks.count() || state->blocks[block] == ~uint32_t(0))
+      return false;
     const uint32_t physicalBlock = state->blocks[block];
+    size_t amount = length - offset < blockSize ? length - offset : blockSize;
     if (!physicalBlock) {
+      offset += amount;
       continue;
     }
-    const uintptr_t destination = filesystem->readBlock(physicalBlock);
-    if (!destination || destination == FILE_BAD_BLOCK) {
-      succeeded = false;
-      continue;
-    }
-    const size_t remaining = state->size - static_cast<size_t>(blockLocation);
-    const size_t copyLength = remaining < blockSize ? remaining : blockSize;
-    ForwardMemoryCopy(reinterpret_cast<void*>(destination), reinterpret_cast<void*>(addr + offset),
-                      copyLength);
-    pinnedBlocks[pinnedCount++] = physicalBlock;
-  }
 
-  for (size_t i = 0; i < pinnedCount; ++i) {
-    if (async) {
-      // Ordinary writes retain their authoritative fill page. Its checked
-      // callback establishes completion later, without a device flush per write.
-      filesystem->writeBlock(pinnedBlocks[i]);
-    } else {
-      succeeded = filesystem->syncBlock(pinnedBlocks[i], false) && succeeded;
+    while (amount % blockSize == 0 && amount < length - offset) {
+      const size_t next = block + amount / blockSize;
+      if (next >= state->blocks.count() || state->blocks[next] == ~uint32_t(0) ||
+          static_cast<uint64_t>(state->blocks[next]) !=
+              static_cast<uint64_t>(physicalBlock) + amount / blockSize)
+        break;
+      const size_t available = length - offset - amount;
+      amount += available < blockSize ? available : blockSize;
     }
+
+    const uint64_t diskOffset = static_cast<uint64_t>(physicalBlock) * blockSize;
+    const bool transferred =
+        write ? disk->writeFrom(diskOffset, reinterpret_cast<const void*>(addr + offset), amount)
+              : disk->readInto(diskOffset, reinterpret_cast<void*>(addr + offset), amount);
+    if (!transferred)
+      return false;
+    offset += amount;
   }
-  for (size_t i = 0; i < pinnedCount; ++i) {
-    filesystem->unpinBlock(pinnedBlocks[i]);
-  }
-  return succeeded;
+  return true;
 }
 
 bool Ext2File::pinBlock(uint64_t location) {
@@ -409,60 +439,22 @@ bool Ext2File::syncPages(const uint64_t* offsets, size_t count) {
         [](const Cache::WritebackPage* pages, size_t count, void* context) {
           auto* state = static_cast<Ext2InodeState*>(context);
           LockGuard<Mutex> guard(state->writebackLock);
-          Ext2Filesystem* filesystem = state->filesystem;
-          Disk* disk = filesystem->m_pDisk;
-          const size_t blockSize = filesystem->m_BlockSize;
+          if (!count || (state->orphan && !state->files.count() &&
+                         !__atomic_load_n(&state->syncReferences, __ATOMIC_ACQUIRE)))
+            return true;
+          Disk* disk = state->filesystem->m_pDisk;
           const size_t pageSize = PhysicalMemoryManager::getPageSize();
-          if (!disk || !blockSize || pageSize % blockSize)
+          if (!disk)
             return false;
-          uint32_t blocks[Disk::MaxSyncPages];
-          uint64_t locations[Disk::MaxSyncPages];
-          size_t blockCount = 0;
           bool succeeded = true;
-          auto flush = [&] {
-            if (!blockCount)
-              return;
-            succeeded = disk->syncPages(locations, blockCount) && succeeded;
-            for (size_t i = 0; i < blockCount; ++i)
-              filesystem->unpinBlock(blocks[i]);
-            blockCount = 0;
-          };
-          // Keep both cache layers pinned through each device barrier. The
-          // upper cache settles only after every constituent batch completes.
           for (size_t i = 0; i < count; ++i) {
-            for (size_t offset = 0; offset < pageSize; offset += blockSize) {
-              if (pages[i].key > ~uintptr_t{0} - offset) {
-                succeeded = false;
-                break;
-              }
-              const size_t location = pages[i].key + offset;
-              if (location >= state->size)
-                break;
-              const size_t block = location / blockSize;
-              if (block >= state->blocks.count() || state->blocks[block] == ~uint32_t(0)) {
-                succeeded = false;
-                continue;
-              }
-              const uint32_t physical = state->blocks[block];
-              if (!physical)
-                continue;
-              const uintptr_t destination = filesystem->readBlock(physical);
-              if (!destination || destination == FILE_BAD_BLOCK) {
-                succeeded = false;
-                continue;
-              }
-              const size_t remaining = state->size - location;
-              const size_t length = remaining < blockSize ? remaining : blockSize;
-              ForwardMemoryCopy(reinterpret_cast<void*>(destination),
-                                reinterpret_cast<const void*>(pages[i].location + offset), length);
-              blocks[blockCount] = physical;
-              locations[blockCount++] = static_cast<uint64_t>(physical) * blockSize;
-              if (blockCount == Disk::MaxSyncPages)
-                flush();
-            }
+            succeeded = transferBlocksLocked(state, pages[i].key, pages[i].location, pageSize, true) &&
+                        succeeded;
           }
-          flush();
-          return succeeded;
+          // A partially transferred batch still needs its completed writes
+          // drained before any upper page can be reported clean.
+          const bool durable = disk->syncData();
+          return succeeded && durable;
         },
         m_State);
   }

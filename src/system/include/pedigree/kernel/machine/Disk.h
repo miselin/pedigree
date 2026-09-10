@@ -86,6 +86,24 @@ class EXPORTED_PUBLIC Disk : public Device {
   virtual BufferView read(uint64_t location);
 
   /**
+   * Transfers exactly length bytes using caller-owned, pinned storage. The
+   * buffer must remain valid until return and must not alias this disk's cache.
+   * No buffer reference is retained. Failure may have transferred a prefix.
+   * Existing block-cache data remains coherent; unsupported transports copy
+   * through their ordinary cache views.
+   */
+  MUST_USE_RESULT virtual bool readInto(uint64_t location, void* buffer, size_t length);
+  MUST_USE_RESULT virtual bool writeFrom(uint64_t location, const void* buffer, size_t length);
+
+  /**
+   * Makes preceding successful writeFrom() calls durable. Call after all writes
+   * in a batch, including a partially failed batch. writeFrom() alone promises
+   * transfer completion, not a device write-cache barrier. Legacy fallbacks
+   * persist each write individually, so their final barrier is already done.
+   */
+  MUST_USE_RESULT virtual bool syncData();
+
+  /**
    * Reads exactly the requested length into a caller-supplied sequence of bounded
    * cache views. The sequence must be empty on entry. Each appended view owns
    * one cache reference until unpinViews() is called.

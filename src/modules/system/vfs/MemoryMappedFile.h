@@ -230,6 +230,9 @@ class MemoryMappedObject {
     return true;
   }
 
+  /** Synchronise a contiguous mapping range without imposing a barrier per page. */
+  virtual bool syncRange(uintptr_t at, size_t length, bool async);
+
   /** Invalidate cached state without discarding private modifications. */
   virtual void invalidate(uintptr_t at) {}
 
@@ -465,6 +468,7 @@ class MemoryMappedFile : public MemoryMappedObject {
   virtual void setPermissions(MemoryMappedObject::Permissions perms) override;
 
   virtual bool sync(uintptr_t at, bool async) override;
+  bool syncRange(uintptr_t at, size_t length, bool async) override;
   virtual void invalidate(uintptr_t at) override;
   virtual bool sharedBacking(uintptr_t at, uintptr_t& identity, size_t& offset) const override;
   virtual bool usesBacking(uintptr_t identity) const override;

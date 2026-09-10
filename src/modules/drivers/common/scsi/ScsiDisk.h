@@ -104,6 +104,9 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   bool initialise(class ScsiController* pController, size_t nUnit);
 
   virtual BufferView read(uint64_t location);
+  bool readInto(uint64_t location, void* buffer, size_t length) override;
+  bool writeFrom(uint64_t location, const void* buffer, size_t length) override;
+  bool syncData() override;
   virtual void write(uint64_t location);
   virtual void flush(uint64_t location);
   virtual bool sync(uint64_t location, bool async);
@@ -151,6 +154,11 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   virtual void unpin(uint64_t location);
 
  protected:
+  virtual bool supportsBufferTransfers() const {
+    return false;
+  }
+  virtual bool transferBuffer(uint64_t location, void* buffer, size_t length, bool writing);
+
   ScsiController* acquirePagingController(OperationBarrier::Lease& use);
   PagingStatus preparePagingCache(PagingTransport& transport);
 
@@ -210,6 +218,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   void enterCacheRange(CacheRangeAdmission& admission);
   void leaveCacheRange(CacheRangeAdmission& admission);
   bool cacheRangeBlocked(const CacheRangeAdmission& admission) const;
+  bool transferBufferRange(uint64_t location, void* buffer, size_t length, bool writing);
   static bool cacheRangesOverlap(uint64_t firstStart, size_t firstLength, uint64_t secondStart,
                                  size_t secondLength);
 
@@ -236,6 +245,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
 
   /** Snapshots the most recent alignment boundary for a location. */
   uint64_t getAlignmentPoint(uint64_t location) const;
+  bool hasShiftedCacheAlignment() const;
 
   static bool cacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
                             void* meta);
@@ -258,6 +268,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
 
   mutable Mutex m_AlignmentLock;
   Vector<uint64_t> m_AlignPoints;
+  bool m_HasShiftedCacheAlignment;
 
   size_t m_NumBlocks;
   size_t m_BlockSize;

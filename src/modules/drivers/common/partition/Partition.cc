@@ -27,6 +27,36 @@ Partition::Partition(const String& type, uint64_t start, uint64_t length)
 
 Partition::~Partition() {}
 
+bool Partition::containsRange(uint64_t location, size_t length) const {
+  const auto* parent = static_cast<const Disk*>(getParent());
+  if (!parent || location > m_Length || length > m_Length - location ||
+      location > ~uint64_t{0} - m_Start)
+    return false;
+  const uint64_t translated = m_Start + location;
+  return translated <= parent->getSize() && length <= parent->getSize() - translated;
+}
+
+bool Partition::readInto(uint64_t location, void* buffer, size_t length) {
+  if (!containsRange(location, length))
+    return false;
+  auto* parent = static_cast<Disk*>(getParent());
+  ensureAligned(parent);
+  return parent->readInto(m_Start + location, buffer, length);
+}
+
+bool Partition::writeFrom(uint64_t location, const void* buffer, size_t length) {
+  if (!containsRange(location, length))
+    return false;
+  auto* parent = static_cast<Disk*>(getParent());
+  ensureAligned(parent);
+  return parent->writeFrom(m_Start + location, buffer, length);
+}
+
+bool Partition::syncData() {
+  auto* parent = static_cast<Disk*>(getParent());
+  return parent && parent->syncData();
+}
+
 bool Partition::syncPages(const uint64_t* locations, size_t count) {
   if (count > MaxSyncPages || (count && !locations))
     return false;

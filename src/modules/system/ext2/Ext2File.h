@@ -95,6 +95,7 @@ class Ext2File : public File, public Ext2Node {
   virtual bool allowResize(size_t oldSize, size_t newSize) override;
   virtual bool allowPhysicalPage() const override;
   virtual bool prepareWrite(uint64_t location, uint64_t size) override;
+  bool readPage(uint64_t location, uintptr_t destination) override;
   virtual bool resizeFile(size_t size) override;
   virtual bool allocateFileRange(size_t offset, size_t length) override;
   virtual bool prepareShrink(const ShrinkContext& context,
@@ -112,8 +113,8 @@ class Ext2File : public File, public Ext2Node {
   bool m_Initialized = false;
   static bool sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t location,
                                  uintptr_t page, void* state);
-  static bool writeBlocksLocked(Ext2InodeState* state, uint64_t location, uintptr_t address,
-                                size_t length, bool async);
+  static bool transferBlocksLocked(Ext2InodeState* state, uint64_t location, uintptr_t address,
+                                   size_t length, bool write);
 };
 
 #endif
