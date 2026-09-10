@@ -58,7 +58,7 @@ class Iso9660Directory : public Directory {
     return false;
   }
 
-  void fileAttributeChanged() {}
+  void fileAttributeChanged() override {}
 
   inline Iso9660DirRecord& getDirRecord() {
     return m_Dir;

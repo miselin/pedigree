@@ -43,8 +43,8 @@ class FatFile : public File {
   FatFile(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
           Time::Timestamp creationTime, uintptr_t inode, class Filesystem* pFs, size_t size,
           uint32_t dirClus = 0, uint32_t dirOffset = 0, File* pParent = 0);
-  /** Destructor - doesn't do anything. */
-  virtual ~FatFile();
+  /** Drains checked page writeback before destroying FAT metadata. */
+  ~FatFile() override;
 
   uint32_t getDirCluster() {
     return m_DirClus;
@@ -59,18 +59,22 @@ class FatFile : public File {
     m_DirOffset = custom;
   }
 
-  uintptr_t readBlock(uint64_t location);
-  void writeBlock(uint64_t location, uintptr_t addr);
+  uintptr_t readBlock(uint64_t location) override;
+  void writeBlock(uint64_t location, uintptr_t addr) override;
 
-  virtual void extend(size_t newSize);
-  virtual void extend(size_t newSize, uint64_t location, uint64_t size);
+  void extend(size_t newSize) override;
+  void extend(size_t newSize, uint64_t location, uint64_t size) override;
 
-  virtual Attributes getAttributes() const;
-  virtual bool sync();
-  virtual bool sync(size_t offset, bool async);
+  Attributes getAttributes() const override;
+  bool sync() override;
+  bool sync(size_t offset, bool async) override;
 
-  virtual bool pinBlock(uint64_t location);
-  virtual void unpinBlock(uint64_t location);
+  bool pinBlock(uint64_t location) override;
+  void unpinBlock(uint64_t location) override;
+
+ protected:
+  bool useFillCache() const override;
+  bool readPage(uint64_t location, uintptr_t destination) override;
 
  private:
   static bool checkedWriteCallback(CacheConstants::CallbackCause cause, uintptr_t location,
@@ -79,9 +83,6 @@ class FatFile : public File {
   uint32_t m_DirClus;
   uint32_t m_DirOffset;
   bool m_MetadataDirty;
-
-  Cache m_FileBlockCache;
-  Mutex m_FileBlockCacheLock;
 };
 
 #endif

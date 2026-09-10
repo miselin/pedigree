@@ -308,6 +308,7 @@ File* Iso9660Filesystem::fileFromDirRecord(Iso9660DirRecord& dir, size_t inodeNu
   }
 }
 
+#ifndef ISO9660_STANDALONE
 static bool initIso9660() {
   VFS::instance().addProbeCallback(&Iso9660Filesystem::probe);
   return true;
@@ -320,3 +321,4 @@ static void destroyIso9660() {
 }
 
 MODULE_INFO("iso9660", &initIso9660, &destroyIso9660, "vfs");
+#endif

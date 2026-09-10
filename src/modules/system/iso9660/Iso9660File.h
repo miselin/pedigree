@@ -45,19 +45,28 @@ class Iso9660File : public File {
               size_t size, Iso9660DirRecord& record, File* pParent = 0)
       : File(name, accessedTime, modifiedTime, creationTime, inode, pFs, size, pParent),
         m_pFs(pFs),
-        m_Dir(record) {}
-  virtual ~Iso9660File() {}
+        m_Dir(record) {
+    cacheState().fill.setDirtyTracking(Cache::DirtyTracking::Explicit);
+    enableFillCacheWriteback();
+  }
+  ~Iso9660File() override {
+    shutdownFillCacheWriteback();
+  }
+
+  bool prepareSharedMapping(size_t offset, size_t length) override;
 
   inline Iso9660DirRecord& getDirRecord() {
     return m_Dir;
   }
 
  protected:
-  virtual uintptr_t readBlock(uint64_t location);
-  virtual bool pinBlock(uint64_t location);
-  virtual void unpinBlock(uint64_t location);
+  bool readPage(uint64_t location, uintptr_t destination) override;
+  bool prepareWrite(uint64_t location, uint64_t size) override;
+  uintptr_t readBlock(uint64_t location) override;
+  bool pinBlock(uint64_t location) override;
+  void unpinBlock(uint64_t location) override;
 
-  virtual size_t getBlockSize() const {
+  size_t getBlockSize() const override {
     return TargetInfo::getPageSize() < 2048 ? TargetInfo::getPageSize() : 2048;
   }
 

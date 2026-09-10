@@ -21,12 +21,28 @@
 
 class FatWritebackTestPeer {
  public:
+  static void forceFill(FatFile& file, bool enabled) {
+    file.m_bForceFillCache = enabled;
+  }
+
+  static uintptr_t lookup(FatFile& file, size_t offset) {
+    return file.cacheState().fill.lookup(offset);
+  }
+
+  static void release(FatFile& file, size_t offset) {
+    file.cacheState().fill.release(offset);
+  }
+
+  static void tick(FatFile& file) {
+    file.cacheState().fill.timer(CACHE_WRITEBACK_PERIOD * 1000000ULL);
+  }
+
   static bool evict(FatFile& file, size_t offset) {
-    return file.m_FileBlockCache.evict(offset);
+    return file.cacheState().fill.evict(offset);
   }
 
   static bool exists(FatFile& file, size_t offset) {
-    return file.m_FileBlockCache.exists(offset, TargetInfo::getPageSize());
+    return file.cacheState().fill.exists(offset, TargetInfo::getPageSize());
   }
 };
 
@@ -45,6 +61,7 @@ class FatDisk final : public Disk {
     if (location >= DiskSize || location == failedRead)
       return BufferView();
     ++references;
+    ++reads;
     return BufferView(bytes.data() + location, SectorSize - location % SectorSize);
   }
 
@@ -92,6 +109,7 @@ class FatDisk final : public Disk {
   uint64_t failedRead = UINT64_MAX;
   uint64_t failedSync = UINT64_MAX;
   int references = 0;
+  size_t reads = 0;
 };
 
 class FatHarness final : public FatFilesystem {
@@ -158,6 +176,7 @@ struct FatFixture {
       : file(String("checked"), 0, 0, 0, clusters.empty() ? 0 : clusters[0], &filesystem, size, 2) {
     filesystem.configure(disk, type);
     filesystem.chain(disk, clusters, size);
+    FatWritebackTestPeer::forceFill(file, true);
   }
 
   FatDisk disk;
@@ -235,6 +254,129 @@ TEST(FatWriteback, FailedCacheWritebackRetainsPageAndRetries) {
   EXPECT_EQ(fixture.disk.stored[FileLocation + 17], source);
   EXPECT_TRUE(FatWritebackTestPeer::evict(fixture.file, 0));
   EXPECT_FALSE(FatWritebackTestPeer::exists(fixture.file, 0));
+  EXPECT_EQ(fixture.disk.references, 0);
+}
+
+TEST(FatWriteback, LegacyAndFillReadsShareTheSamePageAndEvictionIdentity) {
+  const size_t pageSize = TargetInfo::getPageSize();
+  std::vector<uint32_t> clusters;
+  for (size_t i = 0; i < 2 * pageSize / SectorSize; ++i)
+    clusters.push_back(3 + i);
+  FatFixture fixture(2 * pageSize, clusters);
+  fixture.disk.bytes[FileLocation + pageSize + 7] = 0x6B;
+  FatWritebackTestPeer::forceFill(fixture.file, false);
+  uint8_t value = 0;
+  ASSERT_EQ(fixture.file.read(pageSize + 7, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  ASSERT_EQ(value, 0x6B);
+  const uintptr_t legacy = FatWritebackTestPeer::lookup(fixture.file, pageSize);
+  ASSERT_NE(legacy, 0U);
+  const size_t reads = fixture.disk.reads;
+
+  FatWritebackTestPeer::forceFill(fixture.file, true);
+  EXPECT_EQ(fixture.file.read(pageSize + 7, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  const uintptr_t canonical = FatWritebackTestPeer::lookup(fixture.file, pageSize);
+  EXPECT_EQ(canonical, legacy);
+  EXPECT_EQ(fixture.disk.reads, reads);
+  if (canonical)
+    FatWritebackTestPeer::release(fixture.file, pageSize);
+  EXPECT_FALSE(FatWritebackTestPeer::evict(fixture.file, pageSize));
+  FatWritebackTestPeer::release(fixture.file, pageSize);
+  ASSERT_TRUE(FatWritebackTestPeer::evict(fixture.file, pageSize));
+
+  // A byte key must clear the corresponding page-indexed weak identity.
+  fixture.disk.bytes[FileLocation + pageSize + 7] = 0xA3;
+  FatWritebackTestPeer::forceFill(fixture.file, false);
+  ASSERT_EQ(fixture.file.read(pageSize + 7, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  EXPECT_EQ(value, 0xA3);
+  EXPECT_GT(fixture.disk.reads, reads);
+  EXPECT_EQ(fixture.disk.references, 0);
+}
+
+TEST(FatWriteback, CanonicalCleanReadsDoNotWriteBack) {
+  FatFixture fixture(SectorSize);
+  fixture.disk.bytes[FileLocation + 17] = 0x6B;
+  uint8_t value = 0;
+  ASSERT_EQ(fixture.file.read(17, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  EXPECT_EQ(value, 0x6B);
+  ASSERT_TRUE(fixture.file.sync());
+  for (size_t i = 0; i < 5; ++i)
+    FatWritebackTestPeer::tick(fixture.file);
+  EXPECT_TRUE(fixture.disk.writes.empty());
+  EXPECT_TRUE(fixture.disk.syncs.empty());
+  EXPECT_EQ(fixture.disk.references, 0);
+}
+
+TEST(FatWriteback, FailedCanonicalFillDoesNotPublishAPartialPage) {
+  FatFixture fixture(2 * SectorSize, {3, 4});
+  fixture.disk.bytes[FileLocation + 17] = 0x6B;
+  fixture.disk.failedRead = FileLocation + SectorSize;
+  uint8_t value = 0;
+  EXPECT_EQ(fixture.file.read(17, 1, reinterpret_cast<uintptr_t>(&value)), 0U);
+  EXPECT_FALSE(FatWritebackTestPeer::exists(fixture.file, 0));
+  EXPECT_EQ(fixture.disk.references, 0);
+  fixture.disk.failedRead = UINT64_MAX;
+  ASSERT_EQ(fixture.file.read(17, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  EXPECT_EQ(value, 0x6B);
+  EXPECT_TRUE(FatWritebackTestPeer::exists(fixture.file, 0));
+  EXPECT_EQ(fixture.disk.references, 0);
+}
+
+TEST(FatWriteback, SharedWritablePageMutationRetriesFailedDurability) {
+  FatFixture fixture(SectorSize);
+  uint8_t value = 0;
+  ASSERT_EQ(fixture.file.read(17, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  const uintptr_t page = FatWritebackTestPeer::lookup(fixture.file, 0);
+  ASSERT_NE(page, 0U);
+  fixture.file.markPageExternallyWritable(17);
+  reinterpret_cast<uint8_t*>(page)[17] = 0xA6;
+  FatWritebackTestPeer::release(fixture.file, 0);
+
+  fixture.disk.failedSync = FileLocation;
+  EXPECT_FALSE(fixture.file.sync());
+  EXPECT_FALSE(FatWritebackTestPeer::evict(fixture.file, 0));
+  EXPECT_TRUE(FatWritebackTestPeer::exists(fixture.file, 0));
+  EXPECT_EQ(fixture.disk.stored[FileLocation + 17], 0U);
+  fixture.disk.failedSync = UINT64_MAX;
+  for (size_t i = 0; i < 5; ++i)
+    FatWritebackTestPeer::tick(fixture.file);
+  EXPECT_EQ(fixture.disk.stored[FileLocation + 17], 0xA6);
+  const size_t writes = fixture.disk.writes.size();
+  for (size_t i = 0; i < 5; ++i)
+    FatWritebackTestPeer::tick(fixture.file);
+  EXPECT_EQ(fixture.disk.writes.size(), writes);
+  EXPECT_EQ(fixture.disk.references, 0);
+}
+
+TEST(FatWriteback, GrowthClearsResidentEofPaddingWithoutDiscardingDirtyPrefix) {
+  FatFixture fixture(17);
+  uint8_t value = 0;
+  ASSERT_EQ(fixture.file.read(0, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  const uintptr_t page = FatWritebackTestPeer::lookup(fixture.file, 0);
+  ASSERT_NE(page, 0U);
+  fixture.file.markPageExternallyWritable(0);
+  auto* bytes = reinterpret_cast<uint8_t*>(page);
+  bytes[3] = 0x6B;
+  std::fill_n(bytes + 17, 100, 0xF3);
+  FatWritebackTestPeer::release(fixture.file, 0);
+  ASSERT_TRUE(fixture.file.sync());
+  EXPECT_EQ(fixture.disk.stored[FileLocation + 3], 0x6B);
+
+  const uintptr_t writable = FatWritebackTestPeer::lookup(fixture.file, 0);
+  ASSERT_NE(writable, 0U);
+  reinterpret_cast<uint8_t*>(writable)[3] = 0xB6;
+  FatWritebackTestPeer::release(fixture.file, 0);
+  fixture.file.extend(81);
+  ASSERT_EQ(fixture.file.getSize(), 81U);
+  ASSERT_TRUE(fixture.file.sync());
+  std::array<uint8_t, 81> observed;
+  ASSERT_EQ(fixture.file.read(0, observed.size(), reinterpret_cast<uintptr_t>(observed.data())),
+            observed.size());
+  EXPECT_EQ(observed[3], 0xB6);
+  EXPECT_EQ(fixture.disk.stored[FileLocation + 3], 0xB6);
+  for (size_t i = 17; i < observed.size(); ++i) {
+    EXPECT_EQ(observed[i], 0U) << i;
+    EXPECT_EQ(fixture.disk.stored[FileLocation + i], 0U) << i;
+  }
   EXPECT_EQ(fixture.disk.references, 0);
 }
 

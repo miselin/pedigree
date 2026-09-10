@@ -20,6 +20,37 @@
 #include "Iso9660File.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/utility.h"
+
+bool Iso9660File::readPage(uint64_t location, uintptr_t destination) {
+  const size_t pageSize = TargetInfo::getPageSize();
+  if (!destination || location % pageSize || !m_pFs || !m_pFs->m_pDisk)
+    return false;
+  const size_t size = getSize();
+  if (location >= size) {
+    ByteSet(reinterpret_cast<void*>(destination), 0, pageSize);
+    return true;
+  }
+  const size_t remaining = size - location;
+  const size_t amount = remaining < pageSize ? remaining : pageSize;
+  const uint64_t extent = static_cast<uint64_t>(LITTLE_TO_HOST32(m_Dir.ExtentLocation_LE)) * 2048;
+  if (location > ~uint64_t(0) - extent ||
+      !m_pFs->m_pDisk->readInto(extent + location, reinterpret_cast<void*>(destination), amount))
+    return false;
+  ByteSet(reinterpret_cast<void*>(destination + amount), 0, pageSize - amount);
+  return true;
+}
+
+bool Iso9660File::prepareWrite(uint64_t, uint64_t) {
+  SYSCALL_ERROR(ReadOnlyFilesystem);
+  return false;
+}
+
+bool Iso9660File::prepareSharedMapping(size_t, size_t) {
+  SYSCALL_ERROR(ReadOnlyFilesystem);
+  return false;
+}
 
 uintptr_t Iso9660File::readBlock(uint64_t location) {
   return reinterpret_cast<Iso9660Filesystem*>(m_pFilesystem)->readBlock(this, location);

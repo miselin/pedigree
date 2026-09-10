@@ -28,10 +28,9 @@ FatFile::FatFile(String name, Time::Timestamp accessedTime, Time::Timestamp modi
     : File(name, accessedTime, modifiedTime, creationTime, inode, pFs, size, pParent),
       m_DirClus(dirClus),
       m_DirOffset(dirOffset),
-      m_MetadataDirty(false),
-      m_FileBlockCache(),
-      m_FileBlockCacheLock() {
-  m_FileBlockCache.setCallback(checkedWriteCallback, this);
+      m_MetadataDirty(false) {
+  cacheState().fill.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  cacheState().fill.setCallback(checkedWriteCallback, this);
 
   // No permissions on FAT - set all to RWX.
   setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OW |
@@ -39,57 +38,71 @@ FatFile::FatFile(String name, Time::Timestamp accessedTime, Time::Timestamp modi
 }
 
 FatFile::~FatFile() {
-  m_FileBlockCache.shutdown();
+  cacheState().fill.shutdown();
 }
 
 uintptr_t FatFile::readBlock(uint64_t location) {
-  LockGuard<Mutex> guard(m_FileBlockCacheLock);
-  FatFilesystem* pFs = static_cast<FatFilesystem*>(m_pFilesystem);
+  LockGuard<Mutex> guard(cacheState().fillLock);
+  location -= location % getBlockSize();
 
-  uintptr_t buffer = m_FileBlockCache.lookup(location);
+  uintptr_t buffer = cacheState().fill.lookup(location);
   if (buffer) {
     return buffer;
   }
 
   bool didExist = false;
-  buffer = m_FileBlockCache.insert(location, &didExist);
+  buffer = cacheState().fill.insert(location, &didExist);
   if (!buffer) {
     return 0;
   }
 
   if (!didExist) {
-    if (location >= getSize()) {
-      const bool discarded = m_FileBlockCache.discardEditing(location);
-      (void)discarded;
-      return 0;
-    }
-
-    const size_t expected =
-        ((getSize() - location) < getBlockSize()) ? (getSize() - location) : getBlockSize();
-    ByteSet(reinterpret_cast<void*>(buffer), 0, getBlockSize());
-    const uint64_t bytesRead = pFs->read(this, location, getBlockSize(), buffer);
-    if (bytesRead != expected) {
-      if (!m_FileBlockCache.discardEditing(location)) {
+    if (!readPage(location, buffer)) {
+      if (!cacheState().fill.discardEditing(location)) {
         WARNING("FatFile::readBlock could not discard a failed fill at " << location);
       }
       return 0;
     }
-    m_FileBlockCache.markNoLongerEditing(location);
+    cacheState().fill.markNoLongerEditing(location);
   }
 
-  return m_FileBlockCache.lookup(location);
+  return cacheState().fill.lookup(location);
+}
+
+bool FatFile::useFillCache() const {
+  EMIT_IF(VFS_NOMMU) {
+#if defined(PEDIGREE_BUILDUTILS)
+    return m_bForceFillCache;
+#else
+    return false;
+#endif
+  }
+  else {
+    return true;
+  }
+}
+
+bool FatFile::readPage(uint64_t location, uintptr_t destination) {
+  const size_t pageSize = getBlockSize();
+  ByteSet(reinterpret_cast<void*>(destination), 0, pageSize);
+  const size_t size = getSize();
+  if (location >= size)
+    return false;
+  const size_t expected = size - location < pageSize ? size - location : pageSize;
+  FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
+  return filesystem->read(this, location, expected, destination) == expected;
 }
 
 void FatFile::writeBlock(uint64_t location, uintptr_t addr) {
   // The producer page remains authoritative until checked writeback completes.
-  m_FileBlockCache.markDirty(location);
+  cacheState().fill.markDirty(location - location % getBlockSize());
 }
 
 bool FatFile::checkedWriteCallback(CacheConstants::CallbackCause cause, uintptr_t location,
                                    uintptr_t page, void* meta) {
   FatFile* file = static_cast<FatFile*>(meta);
   if (cause != CacheConstants::WriteBack)
-    return File::writeCallback(cause, location, page, static_cast<File*>(file));
+    return File::fillCacheCallback(cause, location, page, static_cast<File*>(file));
 
   const size_t size = file->getSize();
   if (location >= size)
@@ -108,7 +121,7 @@ bool FatFile::sync() {
 
 bool FatFile::sync(size_t offset, bool async) {
   offset -= offset % getBlockSize();
-  const bool dataSucceeded = m_FileBlockCache.sync(offset, async);
+  const bool dataSucceeded = cacheState().fill.sync(offset, async);
   FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
   return filesystem->syncFileMetadata(this) && dataSucceeded;
 }
@@ -124,17 +137,32 @@ File::Attributes FatFile::getAttributes() const {
 }
 
 bool FatFile::pinBlock(uint64_t location) {
-  return m_FileBlockCache.pin(location);
+  return cacheState().fill.pin(location - location % getBlockSize());
 }
 
 void FatFile::unpinBlock(uint64_t location) {
-  m_FileBlockCache.release(location);
+  cacheState().fill.release(location - location % getBlockSize());
 }
 
 void FatFile::extend(size_t newSize) {
   FatFilesystem* pFs = static_cast<FatFilesystem*>(m_pFilesystem);
 
+  const size_t oldSize = getSize();
   pFs->extend(this, newSize);
+  const size_t size = getSize();
+  const size_t pageSize = getBlockSize();
+  const size_t within = oldSize % pageSize;
+  if (size > oldSize && within) {
+    const size_t pageOffset = oldSize - within;
+    const uintptr_t page = cacheState().fill.lookup(pageOffset);
+    if (page) {
+      // Writable mappings can have changed padding beyond the previous EOF.
+      const size_t amount = size - oldSize < pageSize - within ? size - oldSize : pageSize - within;
+      ByteSet(reinterpret_cast<void*>(page + within), 0, amount);
+      cacheState().fill.markDirty(pageOffset);
+      cacheState().fill.release(pageOffset);
+    }
+  }
 }
 
 void FatFile::extend(size_t newSize, uint64_t location, uint64_t size) {

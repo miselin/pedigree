@@ -226,6 +226,13 @@ add_library(fat
 )
 target_compile_definitions(fat PRIVATE FAT_STANDALONE)
 
+add_library(iso9660
+    ${CMAKE_SOURCE_DIR}/src/modules/system/iso9660/Iso9660File.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/iso9660/Iso9660Filesystem.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/iso9660/Iso9660Directory.cc
+)
+target_compile_definitions(iso9660 PRIVATE ISO9660_STANDALONE)
+
 add_library(partition
     ${CMAKE_SOURCE_DIR}/src/modules/drivers/common/partition/Partition.cc
     ${CMAKE_SOURCE_DIR}/src/modules/drivers/common/partition/apple.cc
@@ -279,6 +286,7 @@ set(TESTSUITE_SRCS
     testsuite/test-BloomFilter.cc
     testsuite/test-DiskImage.cc
     testsuite/test-Ext2FillCache.cc
+    testsuite/test-Iso9660Pages.cc
     testsuite/test-CacheDiscard.cc
     testsuite/test-CacheSync.cc
     testsuite/test-CacheDirtyTracking.cc
@@ -388,7 +396,7 @@ set_source_files_properties(
     PROPERTIES COMPILE_DEFINITIONS "BITS_32=0;MACH_HOSTED=1")
 add_executable(testsuite ${TESTSUITE_SRCS})
 target_link_libraries(testsuite PRIVATE
-    debugger ext2 fat partition ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
+    debugger ext2 fat iso9660 partition ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
     Threads::Threads gtest gtest_main)
 target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
 if (PEDIGREE_COVERAGE)
@@ -400,7 +408,7 @@ endif ()
 if (HAVE_ASAN)
     add_executable(testsuite-asan ${TESTSUITE_SRCS})
     target_link_libraries(testsuite-asan PRIVATE
-        debugger ext2 fat partition ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
+        debugger ext2 fat iso9660 partition ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
         Threads::Threads gtest gtest_main)
     target_compile_definitions(testsuite-asan PRIVATE -DTESTSUITE)
     target_compile_options(testsuite-asan PRIVATE "-fsanitize=address")
@@ -424,7 +432,7 @@ if (PEDIGREE_MODULE_IMAGE_FIXTURE_FILE)
 endif ()
 
 if (BUILDUTILS_PROFILE_FLAGS)
-    foreach (target kernel utility vfs ext2 fat ramfs partition debugger config posix
+    foreach (target kernel utility vfs ext2 fat iso9660 ramfs partition debugger config posix
              keymap ext2img instrument memorytracer headerify
              pedigree-configdb pedigree-initrd-builder)
         target_compile_options(${target} PRIVATE ${BUILDUTILS_PROFILE_FLAGS})
