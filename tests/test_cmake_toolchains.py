@@ -56,6 +56,37 @@ class CMakeToolchainTests(unittest.TestCase):
             *extra_arguments,
         ]
 
+    def test_minimal_uefi_profile_discovers_python(self):
+        toolchain = Path(
+            os.environ.get("PEDIGREE_TEST_TOOLCHAIN_ROOT", ROOT / "compilers/dir")
+        )
+        if not (toolchain / "bin/x86_64-pedigree-gcc").is_file():
+            self.skipTest("Pedigree cross toolchain is not installed")
+        probe = textwrap.dedent(
+            """\
+            if (NOT EXISTS "${PYTHON_EXECUTABLE}")
+                message(FATAL_ERROR "UEFI helpers have no Python interpreter")
+            endif ()
+            execute_process(COMMAND "${PYTHON_EXECUTABLE}" -c
+                "import sys; sys.exit(0 if sys.version_info.major == 3 else 1)"
+                RESULT_VARIABLE python_result)
+            if (NOT python_result EQUAL 0)
+                message(FATAL_ERROR "UEFI helper interpreter failed")
+            endif ()
+            """
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            source, build = self._prepare_target_fixture(Path(temporary), probe)
+            result = subprocess.run(
+                self._target_configure_command(
+                    source, build,
+                    f"-DPEDIGREE_TOOLCHAIN_ROOT={toolchain}",
+                    "-DPEDIGREE_BUILD_UEFI=ON",
+                ),
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_optimization_flags_reach_target_consumers_only(self):
         toolchain = Path(
             os.environ.get(
