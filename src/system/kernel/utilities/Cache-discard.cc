@@ -67,16 +67,19 @@ bool Cache::PreparedDiscard::writeback(retirement_writeback_t callback, void* co
 #endif
       // A later device-cache flush may fail even after this write succeeds.
       // Rollback must leave every submitted page eligible for another write.
-      page->writebackFailed = true;
+      m_Cache.recordMutation(page);
     }
-    if (!callback(page->key, page->location, context))
+    const bool written = callback(page->key, page->location, context);
+    if (!written)
       succeeded = false;
     {
       LockGuard<Spinlock> guard(m_Cache.m_Lock);
+      page->writebackFailed = page->writebackFailed || !written;
       page->callbackActive = false;
 #if THREADS
       page->callbackOwner = nullptr;
 #endif
+      m_Cache.updateWritebackIndex(page);
     }
 #if THREADS
     m_Cache.m_EvictionWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(page));

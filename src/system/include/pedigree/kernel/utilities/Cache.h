@@ -225,6 +225,10 @@ class EXPORTED_PUBLIC Cache {
     bool checksumChanging;
 
     bool writebackFailed;
+    bool externallyWritable;
+    bool writebackIndexed;
+    uint64_t mutationGeneration;
+    uint64_t writtenGeneration;
     uint64_t writebackEpoch;
 
     /// Current page status.
@@ -297,8 +301,22 @@ class EXPORTED_PUBLIC Cache {
    */
   void setCallback(writeback_t newCallback, void* meta);
 
+  enum class DirtyTracking { Checksum, Explicit };
+
+  /** Selects dirty tracking before inserting pages. Checksum is the default.
+   * Explicit owners must markDirty after every modification of published data.
+   */
+  void setDirtyTracking(DirtyTracking tracking);
+
   /** Looks for \p key , increasing \c refcnt by one if returned. */
   uintptr_t lookup(uintptr_t key);
+
+  /** Pins a published page, or returns true with location zero for a confirmed
+   * miss. Optional waiting joins callbacks and eviction, never publication or
+   * a drain of external loans. Callers must release backend range locks before
+   * waiting and revalidate after reacquiring them. Existing pins are allowed.
+   */
+  MUST_USE_RESULT bool lookupStable(uintptr_t key, uintptr_t& location, bool wait = false);
 
   /**
    * Creates a cache entry with the given key.
@@ -449,7 +467,8 @@ class EXPORTED_PUBLIC Cache {
   /**
    * Synchronises the given cache key back to a backing store, if a
    * callback has been assigned to the Cache. Synchronous calls report the
-   * callback result; asynchronous calls report queue admission only.
+   * callback result; asynchronous calls report queue admission only. Clean
+   * explicit pages need no payload callback; owners must still flush hardware.
    */
   bool sync(uintptr_t key, bool async);
 
@@ -470,7 +489,10 @@ class EXPORTED_PUBLIC Cache {
   /**
    * Claims up to MaxWritebackPages distinct resident pages for one durable
    * callback. No page is settled or released before the shared result; a failed
-   * callback leaves every page retryable. Keys must remain valid for this call.
+   * callback leaves every submitted page retryable. Clean explicit pages are
+   * omitted, so the callback can receive fewer pages than requested or be
+   * skipped entirely. Owners must still flush hardware. Keys must remain valid
+   * for this call.
    */
   MUST_USE_RESULT bool syncBatch(const uintptr_t* keys, size_t count, writeback_batch_t callback,
                                  void* metadata);
@@ -482,8 +504,13 @@ class EXPORTED_PUBLIC Cache {
    */
   void triggerChecksum(uintptr_t key);
 
-  /** Keeps a pinned page dirty after a direct backend writeback fails. */
+  /** Records a modification, including one made during an active writeback. */
   void markDirty(uintptr_t key);
+
+  /** Enables checksum detection before exposing a writable external mapping.
+   * The fallback remains active for this page's entire residency.
+   */
+  void markExternallyWritable(uintptr_t key);
 
   /**
    * Enters a critical section with respect to this cache. That is, do not
@@ -589,6 +616,11 @@ class EXPORTED_PUBLIC Cache {
    */
   bool verifyChecksum(CachePage* pPage, bool replace = false);
 
+  bool tracksChecksum(const CachePage* page) const;
+  bool needsWriteback(CachePage* page);
+  void updateWritebackIndex(CachePage* page);
+  void recordMutation(CachePage* page);
+
   /**
    * Checksum do-er.
    */
@@ -625,6 +657,10 @@ class EXPORTED_PUBLIC Cache {
 
   /** Key-item pairs. */
   Tree<uintptr_t, CachePage*> m_Pages;
+
+  /** Explicit caches scan only dirty, unpublished, or externally writable pages. */
+  Tree<uintptr_t, CachePage*> m_WritebackPages;
+  DirtyTracking m_DirtyTracking;
 
   /** Bloom filter for lookups into m_Pages. */
   BloomFilter<uintptr_t> m_PageFilter;

@@ -476,6 +476,8 @@ void CacheManager::trimThread() {
 
 Cache::Cache(size_t pageConstraints)
     : m_Pages(),
+      m_WritebackPages(),
+      m_DirtyTracking(DirtyTracking::Checksum),
       // Each inode owns a Cache. Keep first-page metadata small; a saturated
       // filter still falls back to the authoritative page tree.
       m_PageFilter(4096, 4),
@@ -612,6 +614,52 @@ uintptr_t Cache::lookup(uintptr_t key) {
   return ptr;
 }
 
+bool Cache::lookupStable(uintptr_t key, uintptr_t& location, bool wait) {
+  location = 0;
+  if (!ensureUsable("lookupStable"))
+    return false;
+#if THREADS
+  TerminationDeferral terminationDeferral;
+  OperationBarrier::Lease operation;
+  if (!m_ManagerOperations.tryAcquire(operation))
+    return false;
+  Thread* currentThread = Processor::information().getCurrentThread();
+  const bool canWait = wait && currentThread && !CacheManager::instance().callbackContext();
+#else
+  (void)wait;
+#endif
+  while (true) {
+#if THREADS
+    auto waitGuard = m_EvictionWaiters.acquire();
+#endif
+    CachePage* page = nullptr;
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      page = m_PageFilter.contains(key) ? m_Pages.lookup(key) : nullptr;
+      if (!page)
+        return true;
+      if (page->status == CachePage::Editing ||
+          page->evictionState == CachePage::EvictionState::Draining || page->refcnt == ~size_t{0})
+        return false;
+      if (!page->callbackActive && page->evictionState == CachePage::EvictionState::None) {
+        ++page->refcnt;
+        location = page->location;
+        promotePage(page);
+        return true;
+      }
+#if THREADS
+      if (!canWait || page->callbackOwner == currentThread)
+#endif
+        return false;
+    }
+#if THREADS
+    const auto reason =
+        waitGuard.waitForCompletion(WaitQueue::Channel(page), Thread::CallbackDrain, key);
+    (void)reason;
+#endif
+  }
+}
+
 uintptr_t Cache::insert(uintptr_t key, bool* alreadyExisted) {
   if (!ensureUsable("insert")) {
     return 0;
@@ -677,6 +725,7 @@ uintptr_t Cache::insert(uintptr_t key, bool* alreadyExisted) {
     pPage->checksum[1] = 0;
     pPage->status = CachePage::Editing;
     m_Pages.insert(key, pPage);
+    updateWritebackIndex(pPage);
     m_PageFilter.add(key);
     linkPage(pPage);
 
@@ -796,6 +845,7 @@ uintptr_t Cache::insert(uintptr_t key, size_t size, bool* alreadyExisted) {
       pPage->status = CachePage::Editing;
 
       m_Pages.insert(key + (page * CachePageSize), pPage);
+      updateWritebackIndex(pPage);
       m_PageFilter.add(key + (page * CachePageSize));
       linkPage(pPage);
 
@@ -862,6 +912,9 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
   void* callbackMeta = nullptr;
   uintptr_t location = 0;
   bool dirty = false;
+  uint64_t submittedGeneration = 0;
+  uint64_t submittedChecksum[2] = {};
+  bool submittedChecksumTracking = false;
 
   {
     LockGuard<Spinlock> guard(m_Lock);
@@ -894,7 +947,9 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
       }
 
       page->evictionState = CachePage::EvictionState::WriteBack;
-      dirty = callback && (page->writebackFailed || !verifyChecksum(page));
+      dirty = callback && needsWriteback(page);
+      submittedGeneration = page->mutationGeneration;
+      submittedChecksumTracking = dirty && tracksChecksum(page);
       page->callbackActive = dirty;
 #if THREADS
       page->callbackOwner = dirty ? Processor::information().getCurrentThread() : nullptr;
@@ -905,6 +960,8 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
   }
 
   // Backing-store I/O can block and may re-enter this Cache.
+  if (submittedChecksumTracking)
+    checksum(reinterpret_cast<const void*>(location), CachePageSize, submittedChecksum);
   if (dirty && !callback(CacheConstants::WriteBack, key, location, callbackMeta)) {
     {
       LockGuard<Spinlock> guard(m_Lock);
@@ -914,6 +971,7 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
       page->callbackOwner = nullptr;
 #endif
       page->evictionState = CachePage::EvictionState::None;
+      updateWritebackIndex(page);
     }
 #if THREADS
     m_EvictionWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(page));
@@ -938,17 +996,30 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
 #if THREADS
       page->callbackOwner = nullptr;
 #endif
+      if (dirty) {
+        page->writebackFailed = false;
+        page->writtenGeneration = submittedGeneration;
+        if (submittedChecksumTracking) {
+          page->checksum[0] = submittedChecksum[0];
+          page->checksum[1] = submittedChecksum[1];
+        }
+        if (page->status == CachePage::ChecksumChanging)
+          page->status = CachePage::ChecksumStable;
+      }
       // A callback or concurrent lookup may have pinned the page while
       // the cache lock was dropped. In that case, restore ordinary
       // admission.
       const size_t permittedReferences =
           (callback || mode == EvictionMode::DiscardBaseReference) ? 1 : 0;
-      if (page->refcnt > permittedReferences) {
+      if (page->refcnt > permittedReferences ||
+          (callback && (page->mutationGeneration != page->writtenGeneration ||
+                        (dirty && needsWriteback(page))))) {
         page->evictionState = CachePage::EvictionState::None;
         pinnedAgain = true;
       } else {
         page->evictionState = CachePage::EvictionState::Retiring;
       }
+      updateWritebackIndex(page);
     }
 
     if (pinnedAgain) {
@@ -988,6 +1059,8 @@ bool Cache::finishRetirement(CachePage* page, writeback_t callback, void* callba
       return false;
     }
     m_Pages.remove(key);
+    if (page->writebackIndexed)
+      m_WritebackPages.remove(key);
     unlinkPage(page);
   }
 
@@ -1120,6 +1193,7 @@ bool Cache::retireWriteback(uintptr_t key, retirement_writeback_t callback, void
     } else if (current == page && page->evictionState == CachePage::EvictionState::Draining) {
       page->writebackFailed = page->writebackFailed || !writebackSucceeded;
       page->evictionState = CachePage::EvictionState::None;
+      updateWritebackIndex(page);
       wake = true;
     }
   }
@@ -1299,9 +1373,18 @@ bool Cache::sync(uintptr_t key, bool async) {
       return false;
     }
 
+    if (m_DirtyTracking == DirtyTracking::Explicit && pPage->status != CachePage::Editing &&
+        !pPage->callbackActive && pPage->evictionState == CachePage::EvictionState::None &&
+        !needsWriteback(pPage)) {
+      return true;
+    }
+
+    // Preserve legacy forced writeback if queue admission fails.
+    if (m_DirtyTracking == DirtyTracking::Checksum)
+      recordMutation(pPage);
+
     ++pPage->refcnt;
     ++pPage->writebackPins;
-    pPage->writebackFailed = true;
     location = pPage->location;
     promotePage(pPage);
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -1342,6 +1425,7 @@ bool Cache::syncAll() {
     bool pinned;
   };
   Vector<Entry> entries;
+  auto& candidates = m_DirtyTracking == DirtyTracking::Explicit ? m_WritebackPages : m_Pages;
   bool snapshotted = false;
   // Allocation stays outside the cache lock; bounded retries avoid chasing
   // an indefinitely growing cache while holding the object's lifetime.
@@ -1355,17 +1439,17 @@ bool Cache::syncAll() {
       if (!m_Callback) {
         return true;
       }
-      count = m_Pages.count();
+      count = candidates.count();
     }
     if (!entries.tryReserve(count)) {
       return false;
     }
     {
       LockGuard<Spinlock> guard(m_Lock);
-      if (m_Pages.count() > entries.size()) {
+      if (candidates.count() > entries.size()) {
         continue;
       }
-      for (auto it = m_Pages.begin(); it != m_Pages.end(); ++it) {
+      for (auto it = candidates.begin(); it != candidates.end(); ++it) {
 #if THREADS
         if ((it.value()->callbackOwner && it.value()->callbackOwner == currentThread) ||
             (!currentThread && it.value()->callbackActive)) {
@@ -1381,7 +1465,7 @@ bool Cache::syncAll() {
           return false;
         }
       }
-      for (auto it = m_Pages.begin(); it != m_Pages.end(); ++it) {
+      for (auto it = candidates.begin(); it != candidates.end(); ++it) {
         CachePage* page = it.value();
         const bool pinned = page->evictionState != CachePage::EvictionState::Draining &&
                             page->evictionState != CachePage::EvictionState::Retiring;
@@ -1480,6 +1564,9 @@ bool Cache::syncBatch(const uintptr_t* keys, size_t count, writeback_batch_t cal
   CachePage* pages[MaxWritebackPages] = {};
   WritebackPage writes[MaxWritebackPages] = {};
   uint64_t submittedChecksums[MaxWritebackPages][2] = {};
+  uint64_t submittedGenerations[MaxWritebackPages] = {};
+  bool submittedChecksumTracking[MaxWritebackPages] = {};
+  size_t writeCount = 0;
   while (true) {
 #if THREADS
     auto waitGuard = m_EvictionWaiters.acquire();
@@ -1511,15 +1598,23 @@ bool Cache::syncBatch(const uintptr_t* keys, size_t count, writeback_batch_t cal
         pages[i] = page;
       }
       if (!busy) {
+        writeCount = 0;
         for (size_t i = 0; i < count; ++i) {
           CachePage* page = pages[i];
+          if (m_DirtyTracking == DirtyTracking::Explicit && !needsWriteback(page))
+            continue;
           ++page->refcnt;
           ++page->writebackPins;
           page->callbackActive = true;
 #if THREADS
           page->callbackOwner = currentThread;
 #endif
-          writes[i] = {keys[i], page->location};
+          pages[writeCount] = page;
+          writes[writeCount] = {keys[i], page->location};
+          submittedGenerations[writeCount] = page->mutationGeneration;
+          submittedChecksumTracking[writeCount] = tracksChecksum(page);
+          ++writeCount;
+          updateWritebackIndex(page);
           promotePage(page);
         }
       }
@@ -1532,18 +1627,25 @@ bool Cache::syncBatch(const uintptr_t* keys, size_t count, writeback_batch_t cal
     (void)reason;
 #endif
   }
-  for (size_t i = 0; i < count; ++i)
-    checksum(reinterpret_cast<const void*>(writes[i].location), CachePageSize,
-             submittedChecksums[i]);
-  const bool succeeded = callback(writes, count, metadata);
+  if (!writeCount)
+    return true;
+  for (size_t i = 0; i < writeCount; ++i) {
+    if (submittedChecksumTracking[i])
+      checksum(reinterpret_cast<const void*>(writes[i].location), CachePageSize,
+               submittedChecksums[i]);
+  }
+  const bool succeeded = callback(writes, writeCount, metadata);
   {
     LockGuard<Spinlock> guard(m_Lock);
-    for (size_t i = 0; i < count; ++i) {
+    for (size_t i = 0; i < writeCount; ++i) {
       CachePage* page = pages[i];
       page->writebackFailed = !succeeded;
       if (succeeded) {
-        page->checksum[0] = submittedChecksums[i][0];
-        page->checksum[1] = submittedChecksums[i][1];
+        page->writtenGeneration = submittedGenerations[i];
+        if (submittedChecksumTracking[i]) {
+          page->checksum[0] = submittedChecksums[i][0];
+          page->checksum[1] = submittedChecksums[i][1];
+        }
         if (page->status == CachePage::ChecksumChanging)
           page->status = CachePage::ChecksumStable;
       }
@@ -1551,13 +1653,14 @@ bool Cache::syncBatch(const uintptr_t* keys, size_t count, writeback_batch_t cal
 #if THREADS
       page->callbackOwner = nullptr;
 #endif
+      updateWritebackIndex(page);
     }
   }
-  for (size_t i = 0; i < count; ++i) {
+  for (size_t i = 0; i < writeCount; ++i) {
 #if THREADS
     m_EvictionWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(pages[i]));
 #endif
-    releaseWriteback(keys[i]);
+    releaseWriteback(writes[i].key);
   }
   return succeeded;
 }
@@ -1566,6 +1669,8 @@ bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait, bool onl
   CachePage* page = nullptr;
   writeback_t callback = nullptr;
   void* callbackMeta = nullptr;
+  uint64_t submittedGeneration = 0;
+  bool submittedChecksumTracking = false;
 #if THREADS
   Thread* currentThread = Processor::information().getCurrentThread();
   const bool canWait = wait && currentThread && !CacheManager::instance().callbackContext();
@@ -1582,13 +1687,14 @@ bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait, bool onl
       if (!page || page->location != location || !m_Callback) {
         return false;
       }
-      if ((wait || onlyIfDirty) && page->status == CachePage::Editing) {
+      if ((wait || onlyIfDirty || m_DirtyTracking == DirtyTracking::Explicit) &&
+          page->status == CachePage::Editing) {
         return false;
       }
       if (!page->callbackActive && page->evictionState != CachePage::EvictionState::WriteBack) {
         // A durable batch can supersede a timer request already in the queue.
-        // Explicit sync remains forced, and failed or newly changed data retries.
-        if (onlyIfDirty && !page->writebackFailed && verifyChecksum(page))
+        // Legacy sync stays forced; explicit owners submit only known changes.
+        if ((onlyIfDirty || m_DirtyTracking == DirtyTracking::Explicit) && !needsWriteback(page))
           return true;
         // A previously admitted writeback pin is allowed to finish while a
         // retirement waits in Draining for precisely these pins to disappear.
@@ -1598,12 +1704,14 @@ bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait, bool onl
 #endif
         callback = m_Callback;
         callbackMeta = m_CallbackMeta;
+        submittedGeneration = page->mutationGeneration;
+        submittedChecksumTracking = tracksChecksum(page);
+        updateWritebackIndex(page);
         break;
       }
 #if THREADS
       if (!canWait || page->callbackOwner == currentThread) {
 #endif
-        page->writebackFailed = true;
         return false;
 #if THREADS
       }
@@ -1616,15 +1724,19 @@ bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait, bool onl
 #endif
   }
 
-  uint64_t submittedChecksum[2];
-  checksum(reinterpret_cast<const void*>(location), CachePageSize, submittedChecksum);
+  uint64_t submittedChecksum[2] = {};
+  if (submittedChecksumTracking)
+    checksum(reinterpret_cast<const void*>(location), CachePageSize, submittedChecksum);
   const bool succeeded = callback(CacheConstants::WriteBack, key, location, callbackMeta);
   {
     LockGuard<Spinlock> guard(m_Lock);
     page->writebackFailed = !succeeded;
     if (succeeded) {
-      page->checksum[0] = submittedChecksum[0];
-      page->checksum[1] = submittedChecksum[1];
+      page->writtenGeneration = submittedGeneration;
+      if (submittedChecksumTracking) {
+        page->checksum[0] = submittedChecksum[0];
+        page->checksum[1] = submittedChecksum[1];
+      }
       // Otherwise the stable-checksum scan schedules this completed write again.
       if (page->status == CachePage::ChecksumChanging) {
         page->status = CachePage::ChecksumStable;
@@ -1634,6 +1746,7 @@ bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait, bool onl
 #if THREADS
     page->callbackOwner = nullptr;
 #endif
+    updateWritebackIndex(page);
   }
 #if THREADS
   m_EvictionWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(page));
@@ -1648,8 +1761,20 @@ void Cache::markDirty(uintptr_t key) {
   LockGuard<Spinlock> guard(m_Lock);
   CachePage* page = m_Pages.lookup(key);
   if (page) {
-    page->writebackFailed = true;
+    recordMutation(page);
   }
+}
+
+void Cache::markExternallyWritable(uintptr_t key) {
+  if (!ensureUsable("markExternallyWritable"))
+    return;
+  LockGuard<Spinlock> guard(m_Lock);
+  CachePage* page = m_Pages.lookup(key);
+  if (!page || tracksChecksum(page))
+    return;
+  page->externallyWritable = true;
+  calculateChecksum(page);
+  updateWritebackIndex(page);
 }
 
 void Cache::triggerChecksum(uintptr_t key) {
@@ -1701,6 +1826,7 @@ void Cache::timer(uint64_t delta) {
   // Bound interrupt-disabled work to one page, including clean prefixes. A
   // copied key also lets callbacks mutate the tree without invalidating a scan.
   uintptr_t nextKey = 0;
+  auto& candidates = m_DirtyTracking == DirtyTracking::Explicit ? m_WritebackPages : m_Pages;
   bool finished = false;
   while (!finished) {
     bool queueWriteback = false;
@@ -1717,7 +1843,7 @@ void Cache::timer(uint64_t delta) {
       }
 
       CachePage* page = nullptr;
-      if (!m_Pages.lowerBound(nextKey, key, page)) {
+      if (!candidates.lowerBound(nextKey, key, page)) {
         return;
       }
       finished = key == ~uintptr_t{0};
@@ -1744,8 +1870,10 @@ void Cache::timer(uint64_t delta) {
         page->status = CachePage::ChecksumStable;
         continue;
       }
-      if (page->writebackFailed) {
+      if (page->writebackFailed || page->mutationGeneration != page->writtenGeneration) {
         // A stable checksum cannot make an unsuccessful backend write clean.
+      } else if (!tracksChecksum(page)) {
+        continue;
       } else if (page->status == CachePage::ChecksumChanging) {
         if (!verifyChecksum(page, true)) {
           continue;
@@ -1754,7 +1882,7 @@ void Cache::timer(uint64_t delta) {
       } else if (page->status == CachePage::ChecksumStable) {
         if (!verifyChecksum(page, true)) {
           page->status = CachePage::ChecksumChanging;
-          page->writebackFailed = true;
+          recordMutation(page);
         }
         continue;
       } else {
@@ -1763,7 +1891,6 @@ void Cache::timer(uint64_t delta) {
       }
 
       promotePage(page);
-      page->writebackFailed = true;
       ++page->refcnt;
       ++page->writebackPins;
       location = page->location;
@@ -1813,6 +1940,17 @@ void Cache::setCallback(Cache::writeback_t newCallback, void* meta) {
   }
   m_Callback = newCallback;
   m_CallbackMeta = meta;
+}
+
+void Cache::setDirtyTracking(DirtyTracking tracking) {
+  if (!ensureUsable("setDirtyTracking"))
+    return;
+  LockGuard<Spinlock> guard(m_Lock);
+  if (m_Pages.count()) {
+    FATAL("Cache dirty tracking must be selected before inserting pages");
+    return;
+  }
+  m_DirtyTracking = tracking;
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -1920,11 +2058,15 @@ void Cache::unlinkPage(CachePage* pPage) {
 }
 
 void Cache::calculateChecksum(CachePage* pPage) {
+  if (!tracksChecksum(pPage))
+    return;
   void* buffer = reinterpret_cast<void*>(pPage->location);
   checksum(buffer, CachePageSize, pPage->checksum);
 }
 
 bool Cache::verifyChecksum(CachePage* pPage, bool replace) {
+  if (!tracksChecksum(pPage))
+    return true;
   void* buffer = reinterpret_cast<void*>(pPage->location);
 
   uint64_t new_checksum[2];
@@ -1937,6 +2079,37 @@ bool Cache::verifyChecksum(CachePage* pPage, bool replace) {
   }
 
   return result;
+}
+
+bool Cache::tracksChecksum(const CachePage* page) const {
+  return m_DirtyTracking == DirtyTracking::Checksum || page->externallyWritable;
+}
+
+bool Cache::needsWriteback(CachePage* page) {
+  return page->writebackFailed || page->mutationGeneration != page->writtenGeneration ||
+         !verifyChecksum(page);
+}
+
+void Cache::updateWritebackIndex(CachePage* page) {
+  if (m_DirtyTracking != DirtyTracking::Explicit)
+    return;
+  const bool candidate = page->externallyWritable || page->writebackFailed ||
+                         page->mutationGeneration != page->writtenGeneration ||
+                         page->status == CachePage::Editing || page->callbackActive;
+  if (candidate && !page->writebackIndexed) {
+    m_WritebackPages.insert(page->key, page);
+    page->writebackIndexed = true;
+  } else if (!candidate && page->writebackIndexed) {
+    m_WritebackPages.remove(page->key);
+    page->writebackIndexed = false;
+  }
+}
+
+void Cache::recordMutation(CachePage* page) {
+  ++page->mutationGeneration;
+  if (page->mutationGeneration == page->writtenGeneration)
+    ++page->mutationGeneration;
+  updateWritebackIndex(page);
 }
 
 void Cache::checksum(const void* data, size_t len, uint64_t out[2]) {
@@ -1972,6 +2145,7 @@ void Cache::markEditing(uintptr_t key, size_t length) {
     }
 
     pPage->status = CachePage::Editing;
+    updateWritebackIndex(pPage);
   }
 }
 
@@ -2003,12 +2177,13 @@ void Cache::markNoLongerEditing(uintptr_t key, size_t length) {
       continue;
     }
 
-    pPage->status = CachePage::EditTransition;
+    pPage->status = tracksChecksum(pPage) ? CachePage::EditTransition : CachePage::ChecksumStable;
 
     // We have to checksum here as a write could happen between now and the
     // actual handling of the EditTransition, which would lead to some pages
     // potentially failing to complete a writeback (not good).
     calculateChecksum(pPage);
+    updateWritebackIndex(pPage);
   }
 }
 

@@ -1445,6 +1445,129 @@ bool timerWritebackCoalescing(bool failFirst, bool mutateDuringWriteback) {
   }
   return passed;
 }
+
+struct ExplicitCacheCall {
+  enum Kind { Sync, Lookup, Redirty };
+  ExplicitCacheCall(TimerWritebackContext& state, Kind operation)
+      : context(state), kind(operation) {}
+  TimerWritebackContext& context;
+  Kind kind;
+  uintptr_t page = 0;
+  Semaphore done{0};
+  Atomic<size_t> result{0};
+};
+
+int explicitCacheWorker(void* parameter) {
+  auto& call = *static_cast<ExplicitCacheCall*>(parameter);
+  Cache& cache = *call.context.cache;
+  const uintptr_t key = call.context.key;
+  bool succeeded = false;
+  if (call.kind == ExplicitCacheCall::Sync) {
+    succeeded = cache.syncAll();
+  } else if (call.kind == ExplicitCacheCall::Lookup) {
+    // Transfer the lookup pin to the test so it can verify eviction refusal.
+    succeeded = cache.lookupStable(key, call.page, true);
+  } else {
+    call.page = cache.lookup(key);
+    if (call.page) {
+      *reinterpret_cast<uint8_t*>(call.page) = 0xA6;
+      cache.markDirty(key);
+      cache.release(key);
+      succeeded = true;
+    }
+  }
+  call.result = succeeded ? 1 : 0;
+  call.done.release();
+  return 0;
+}
+
+bool explicitWritebackThreading(bool redirty) {
+  const char* test = redirty ? "cache-explicit-concurrent-redirty" : "cache-explicit-lookup-wakeup";
+  TimerWritebackContext context;
+  context.key = 0xCA7F900;
+  Cache cache;
+  context.cache = &cache;
+  cache.startAtomic();
+  cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  cache.setCallback(timerWritebackCallback, &context);
+  const uintptr_t page = cache.insert(context.key);
+  if (!checkNamed(page != 0, test, "could not create the test page")) {
+    return false;
+  }
+  *reinterpret_cast<uint8_t*>(page) = 0x57;
+  cache.markNoLongerEditing(context.key);
+  cache.markDirty(context.key);
+
+  ExplicitCacheCall first(context, ExplicitCacheCall::Sync);
+  Thread* writer = new Thread(Scheduler::instance().getKernelProcess(), explicitCacheWorker, &first,
+                              nullptr, false, true);
+  writer->setName("hosted Cache explicit paused writer");
+  const bool callbackPaused = context.callbackEntered.acquire(1, 2);
+  if (!callbackPaused) {
+    context.allowCallbackReturn.release();
+    writer->joinForCompletion();
+    return checkNamed(false, test, "explicit dirty callback did not start");
+  }
+
+  ExplicitCacheCall second(context,
+                           redirty ? ExplicitCacheCall::Redirty : ExplicitCacheCall::Lookup);
+  Thread* peer = new Thread(Scheduler::instance().getKernelProcess(), explicitCacheWorker, &second,
+                            nullptr, false, true);
+  peer->setName(String(redirty ? "hosted Cache concurrent explicit mutation"
+                               : "hosted Cache stable lookup"));
+  const bool concurrentPhase = redirty
+                                   ? second.done.acquire(1, 2)
+                                   : waitUntilQueuedAt(peer, Thread::CallbackDrain, context.key);
+  context.allowCallbackReturn.release();
+  const bool writerJoined = writer->joinForCompletion();
+  bool peerCompleted = concurrentPhase;
+  if (!redirty) {
+    peerCompleted = second.done.acquire(1, 2);
+    if (!peerCompleted) {
+      // A lost completion wake must fail the test without stranding its worker.
+      // The cache and page remain alive, and the writer has left the callback.
+      Thread::WaitDebugInfo wait = {};
+      uintptr_t address = 0;
+      if (peer->getWaitDebugInfo(wait) && wait.queue && wait.queued &&
+          peer->getDebugState(address) == Thread::CallbackDrain && address == context.key) {
+        wait.queue->wakeAll(WaitQueue::WakeReason::Signalled,
+                            WaitQueue::Channel(wait.channelOwner, wait.channelValue));
+      }
+    }
+  }
+  const bool peerJoined = peer->joinForCompletion();
+  const bool firstWrite =
+      first.result == 1 && context.callbacks == 1 && context.lastWritten == 0x57;
+  const bool samePage = second.result == 1 && second.page == page;
+  bool lookupPinned = true;
+  if (!redirty) {
+    lookupPinned = samePage && !cache.evict(context.key);
+    if (second.page) {
+      cache.release(context.key);
+    }
+  }
+
+  const bool nextSynced = cache.sync(context.key, false);
+  const size_t expectedWrites = redirty ? 2 : 1;
+  const bool latestWritten =
+      context.callbacks == expectedWrites && context.lastWritten == (redirty ? 0xA6 : 0x57);
+  const bool cleanSynced = cache.syncAll();
+  const bool stayedClean = context.callbacks == expectedWrites;
+  const bool reclaimed = cache.empty();
+  const bool passed =
+      checkNamed(concurrentPhase && peerCompleted && writerJoined && peerJoined, test,
+                 redirty ? "mutation did not finish while the callback was paused"
+                         : "stable lookup did not publish and complete its callback-drain wait") &&
+      checkNamed(firstWrite && samePage && lookupPinned, test,
+                 "initial write or the concurrent page pin changed identity") &&
+      checkNamed(nextSynced && latestWritten && cleanSynced && stayedClean, test,
+                 "callback completion lost a dirty generation or rewrote a clean page") &&
+      checkNamed(reclaimed, test, "completed workers retained a page pin");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << test);
+  }
+  return passed;
+}
 }  // namespace
 
 bool runHostedCacheDiscardRegressions() {
@@ -1466,5 +1589,6 @@ bool runHostedCacheRegressions() {
   return callbackLifetime() && queuedRequestLifetime() && emptyAndReuse() &&
          retirementPublication() && failedPublicationDiscard() && retirePrepublicationWriteback() &&
          runHostedCacheDiscardRegressions() && retireWritebackContract() && rangeExistence() &&
-         strictRangeGeometry() && runHostedCacheSyncRegressions() && runHostedCacheTimerRegressions();
+         strictRangeGeometry() && runHostedCacheSyncRegressions() && runHostedCacheTimerRegressions() &&
+         explicitWritebackThreading(false) && explicitWritebackThreading(true);
 }
