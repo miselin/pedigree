@@ -4,7 +4,7 @@
 
 set -eu
 
-script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd -P)
+script_dir=$(CDPATH= cd -P "$(dirname "$0")" && pwd -P)
 
 if host_system=$(uname -s 2>/dev/null); then
     :
