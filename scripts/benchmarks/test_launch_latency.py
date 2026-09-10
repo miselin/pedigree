@@ -3,6 +3,10 @@
 
 import importlib.util
 from pathlib import Path
+import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 
@@ -110,6 +114,80 @@ class SerialLinesTest(unittest.TestCase):
         self.assertEqual(RUNNER.serial_lines(wire, b"LAUNCHBENCH metric first_us=768"), [])
         self.assertEqual(RUNNER.serial_lines(wire, b"57\n"),
                          ["LAUNCHBENCH metric first_us=76857"])
+
+
+@unittest.skipUnless(shutil.which("cc"), "native C compiler unavailable")
+class BenchmarkDriverTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temporary = tempfile.TemporaryDirectory(prefix="launch-latency-test-")
+        cls.directory = Path(cls.temporary.name)
+        cls.binary = cls.directory / "launch-latency"
+        subprocess.run([
+            shutil.which("cc"), "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+            str(Path(__file__).with_name("launch-latency.c")), "-o", str(cls.binary),
+        ], check=True, capture_output=True, text=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temporary.cleanup()
+
+    def run_fixture(self, operation, order, size=8 * 1024 * 1024, *, corrupt=False,
+                    read_size=None):
+        data = bytearray((i * 37 + (i >> 8) * 17 + 0x53) & 255 for i in range(size))
+        if corrupt:
+            data[4096 + 123] ^= 1
+        fixture = self.directory / "launch-input.bin"
+        fixture.write_bytes(data)
+        command = [str(self.binary), "--iterations", "3"]
+        if read_size is not None:
+            command += ["--read-size", str(read_size)]
+        command += [operation, str(fixture), order]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=20)
+        metrics = re.findall(
+            r"LAUNCHBENCH metric phase=(\S+) first_us=(\d+) total_us=(\d+) "
+            r"bytes=(\d+) checksum=(\d+)", result.stdout)
+        return result, metrics, size + sum(data)
+
+    def assert_phases(self, result, metrics, phase, size, checksum):
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("LAUNCHBENCH PASS END", result.stdout)
+        self.assertEqual([metric[0] for metric in metrics], [f"{phase}-{i}" for i in range(3)])
+        for name, first, total, covered, actual_checksum in metrics:
+            self.assertIn(f"LAUNCHBENCH READY phase={name}", result.stdout)
+            self.assertIn(f"LAUNCHBENCH DONE phase={name}", result.stdout)
+            self.assertLessEqual(int(first), int(total))
+            self.assertEqual(int(covered), size)
+            self.assertEqual(int(actual_checksum), checksum)
+
+    def test_mmap_orders_validate_full_8mib_span_and_warm_repeats(self):
+        for order in ("sequential", "permuted"):
+            with self.subTest(order=order):
+                result, metrics, checksum = self.run_fixture("mmap", order)
+                self.assert_phases(result, metrics, f"mmap-{order}", 8 * 1024 * 1024, checksum)
+
+    def test_mmap_validation_detects_corruption_between_touched_bytes(self):
+        result, metrics, _ = self.run_fixture("mmap", "permuted", 16 * 4096, corrupt=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("operation=fixture-pattern", result.stderr)
+        self.assertEqual(metrics, [])
+        self.assertNotIn("LAUNCHBENCH PASS END", result.stdout)
+
+    def test_only_permuted_mapping_requires_power_of_two_page_count(self):
+        result, metrics, checksum = self.run_fixture("mmap", "sequential", 3 * 4096)
+        self.assert_phases(result, metrics, "mmap-sequential", 3 * 4096, checksum)
+        result, metrics, _ = self.run_fixture("mmap", "permuted", 3 * 4096)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("operation=fixture-power-of-two", result.stderr)
+        self.assertEqual(metrics, [])
+
+    def test_scalar_read_size_option_remains_independent_of_mmap_page_touches(self):
+        result, metrics, checksum = self.run_fixture(
+            "read", "sequential", 2 * 65536, read_size=65536)
+        self.assert_phases(result, metrics, "read-sequential", 2 * 65536, checksum)
+        result, metrics, checksum = self.run_fixture(
+            "mmap", "permuted", 16 * 4096, read_size=131072)
+        self.assert_phases(result, metrics, "mmap-permuted", 16 * 4096, checksum)
 
 
 if __name__ == "__main__":

@@ -213,13 +213,31 @@ sequential
 
 Use host `--mode read-sequential`; use `permuted` and `--mode read-permuted` in a
 separate fresh guest for the other arm. Both perform the same number of 4 KiB
-`pread()` calls into the correct destination offsets. The permuted order is
+`pread()` calls into the correct destination offsets by default. Add
+`--read-size` and a power-of-two byte count from 4096 through 131072 before `read`
+in the guest config for larger requests; the fixture must be divisible by that
+size. The permuted order is
 `(page*1531+17) % page_count`. File open/stat, buffer allocation/prefaulting, and
 byte verification are outside the read timer. The size limit is 32 MiB. Every byte
 is checked after timing; the metric checksum is the byte sum plus byte count.
 The repeating fixture pattern is a benchmark guard, not a comprehensive storage
 correctness test. Warm repeats test cached reads and copies. Order-sensitive
 read-ahead should improve sequential access without amplifying permuted reads.
+
+For fault locality, use `mmap`, `/launch-input.bin`, and `sequential` as the three
+guest config lines, with host `--mode mmap-sequential`. Use `permuted` and host
+`--mode mmap-permuted` in a separate fresh guest. These modes map the same fixture
+once with `PROT_READ` and `MAP_PRIVATE`, then time one volatile byte access per 4 KiB
+page in the selected order. Open, stat, and mapping setup occur before the first
+gate; the mapping is not touched before the cold timer. Full-byte validation and
+checksum calculation follow each timer. All three iterations retain the same
+mapping, so later iterations measure resident access. `--read-size` affects only
+the `read` modes. The mmap metric's `bytes` is the **covered file span**, not the
+number of bytes copied or sampled; the report labels it `mapped_file_span`.
+Its checksum remains the sum of every fixture byte plus the file size.
+Resident touch loops can finish below the guest clock's reported resolution;
+a zero duration is not a throughput measurement. Visiting every page eventually
+also cannot quantify cache pollution from sparse accesses to a much larger file.
 
 `report.json` retains guest timings, per-phase QMP block-stat deltas, and NCQ
 submission/completion counts, maximum outstanding tags, and read-size histograms.

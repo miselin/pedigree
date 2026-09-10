@@ -1,6 +1,8 @@
 # Read request sizes during startup
 
 Measured September 9, 2026, against the completed page-cache/storage changes.
+This is the baseline before [batched reads and fault read-ahead](read-ahead.md);
+the implementation descriptions below refer to that baseline.
 The measured startup and version-command launches did not issue regular-file
 reads larger than 4 KiB. Supporting asynchronous submission only for larger
 `File::read()` calls would therefore leave these workloads on the single-page
@@ -125,11 +127,9 @@ baselines, `profile_support.py`, launch/boot runners, the large-read control,
 `profile-initrd.tar`, provenance and disposable images. Kernel and original
 release images were not replaced.
 
-## Next experiment
+## Follow-up
 
-Measure adjacent fault-offset reuse, then try a small bounded cluster of file
-pages within the mapping and EOF. Submit those fills through an asynchronous
-request window, retain page ownership until completion, and let the demanded
-page's completion satisfy the fault. Track useful prefetched pages, extra bytes,
-cold launch time and warm regressions. Increasing backend concurrency alone
-cannot create neighbouring demand that the mapping layer never submits.
+The [follow-up implementation and measurements](read-ahead.md) add bounded
+fault read-ahead, concurrent page transfers through AHCI, and larger regular-file
+vector reads. The loaders retain their file mappings. The new benchmark also
+measures sequential and permuted first touches independently of process startup.

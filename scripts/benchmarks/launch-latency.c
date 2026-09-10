@@ -12,6 +12,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -264,13 +265,15 @@ static void prewarm(const char* list) {
   metric("prewarm", start, first ? first : start, end, bytes, 0);
 }
 
-static void read_fixture(const char* path, int permuted, unsigned iterations) {
+static void read_fixture(const char* path, int permuted, unsigned iterations, size_t read_size) {
   int fd = open(path, O_RDONLY);
   struct stat st;
   if (fd < 0 || fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
       st.st_size > MAX_FIXTURE || st.st_size % PAGE_BYTES)
     fail("fixture-size");
-  size_t size = (size_t)st.st_size, pages = size / PAGE_BYTES;
+  size_t size = (size_t)st.st_size, pages = size / read_size;
+  if (size % read_size)
+    fail("fixture-read-size");
   if (permuted && (pages & (pages - 1)))
     fail("fixture-power-of-two");
   unsigned char* buffer = malloc(size);
@@ -290,9 +293,9 @@ static void read_fixture(const char* path, int permuted, unsigned iterations) {
     for (size_t i = 0; i < pages; ++i) {
       // An odd multiplier permutes a power-of-two page count exactly once.
       size_t page = permuted ? (i * 1531U + 17U) % pages : i;
-      size_t done = 0, offset = page * PAGE_BYTES;
-      while (done < PAGE_BYTES) {
-        ssize_t n = pread(fd, buffer + offset + done, PAGE_BYTES - done, (off_t)(offset + done));
+      size_t done = 0, offset = page * read_size;
+      while (done < read_size) {
+        ssize_t n = pread(fd, buffer + offset + done, read_size - done, (off_t)(offset + done));
         if (n < 0 && errno == EINTR)
           continue;
         if (n <= 0)
@@ -314,6 +317,53 @@ static void read_fixture(const char* path, int permuted, unsigned iterations) {
   }
   free(buffer);
   close(fd);
+}
+
+static void mmap_fixture(const char* path, int permuted, unsigned iterations) {
+  int fd = open(path, O_RDONLY);
+  struct stat st;
+  if (fd < 0 || fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+      st.st_size > MAX_FIXTURE || st.st_size % PAGE_BYTES)
+    fail("fixture-size");
+  size_t size = (size_t)st.st_size, pages = size / PAGE_BYTES;
+  if (permuted && (pages & (pages - 1)))
+    fail("fixture-power-of-two");
+  unsigned char* mapping = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+  if (mapping == MAP_FAILED)
+    fail("fixture-mmap");
+  close(fd);
+  const volatile unsigned char* touched = mapping;
+  for (unsigned iteration = 0; iteration < iterations; ++iteration) {
+    char phase[64];
+    snprintf(phase, sizeof(phase), "mmap-%s-%u", permuted ? "permuted" : "sequential", iteration);
+    gate(phase);
+    uint64_t start = now_ns(), first = 0, touched_checksum = 0;
+    for (size_t i = 0; i < pages; ++i) {
+      size_t page = permuted ? (i * 1531U + 17U) % pages : i;
+      touched_checksum += touched[page * PAGE_BYTES];
+      if (!first)
+        first = now_ns();
+    }
+    uint64_t end = now_ns(), checksum = size, expected_touched = 0;
+    // Validation follows the timed fault sequence and leaves this mapping warm.
+    for (size_t i = 0; i < size; ++i) {
+      unsigned char value = mapping[i];
+      if (value != (unsigned char)(i * 37U + (i >> 8) * 17U + 0x53U)) {
+        errno = EILSEQ;
+        fail("fixture-pattern");
+      }
+      checksum += value;
+      if (!(i % PAGE_BYTES))
+        expected_touched += value;
+    }
+    if (touched_checksum != expected_touched) {
+      errno = EILSEQ;
+      fail("fixture-touches");
+    }
+    metric(phase, start, first, end, size, checksum);
+  }
+  if (munmap(mapping, size))
+    fail("fixture-munmap");
 }
 
 int main(int argc, char** argv) {
@@ -361,6 +411,7 @@ int main(int argc, char** argv) {
   if (argc > MAX_ARGS || chdir("/"))
     fail("arguments");
   unsigned iterations = 3;
+  size_t read_size = PAGE_BYTES;
   const char* prewarm_list = NULL;
   int arg = 1;
   while (arg < argc && !strncmp(argv[arg], "--", 2)) {
@@ -383,6 +434,13 @@ int main(int argc, char** argv) {
       ++arg;
     } else if (!strcmp(argv[arg], "--prewarm") && arg + 1 < argc) {
       prewarm_list = argv[arg + 1];
+      arg += 2;
+    } else if (!strcmp(argv[arg], "--read-size") && arg + 1 < argc) {
+      char* end;
+      unsigned long n = strtoul(argv[arg + 1], &end, 10);
+      if (!argv[arg + 1][0] || *end || n < PAGE_BYTES || n > 128 * 1024 || (n & (n - 1)))
+        fail("read-size");
+      read_size = n;
       arg += 2;
     } else if (!strcmp(argv[arg], "--iterations") && arg + 1 < argc) {
       char* end;
@@ -417,7 +475,10 @@ int main(int argc, char** argv) {
     }
   } else if (arg + 3 == argc && !strcmp(argv[arg], "read") &&
              (!strcmp(argv[arg + 2], "sequential") || !strcmp(argv[arg + 2], "permuted"))) {
-    read_fixture(argv[arg + 1], !strcmp(argv[arg + 2], "permuted"), iterations);
+    read_fixture(argv[arg + 1], !strcmp(argv[arg + 2], "permuted"), iterations, read_size);
+  } else if (arg + 3 == argc && !strcmp(argv[arg], "mmap") &&
+             (!strcmp(argv[arg + 2], "sequential") || !strcmp(argv[arg + 2], "permuted"))) {
+    mmap_fixture(argv[arg + 1], !strcmp(argv[arg + 2], "permuted"), iterations);
   } else {
     fail("usage");
   }

@@ -111,7 +111,8 @@ def main():
     parser.add_argument("--firmware-code", type=Path, required=True)
     parser.add_argument("--firmware-vars", type=Path)
     parser.add_argument("--cpus", type=int, choices=(1, 4), default=4)
-    parser.add_argument("--mode", choices=("launch", "read-sequential", "read-permuted"),
+    parser.add_argument("--mode", choices=("launch", "read-sequential", "read-permuted",
+                                          "mmap-sequential", "mmap-permuted"),
                         default="launch")
     parser.add_argument("--iterations", type=int, default=3)
     parser.add_argument("--prewarm", action="store_true")
@@ -211,6 +212,8 @@ def main():
                         current["metric"] = dict(zip(
                             ("first_us", "total_us", "bytes", "checksum"),
                             (int(value) for value in match.groups()[1:])))
+                        current["bytes_kind"] = ("mapped_file_span" if match[1].startswith("mmap-")
+                                                 else "transferred_bytes")
                         if not (0 <= current["metric"]["first_us"] <= current["metric"]["total_us"]):
                             raise RuntimeError("invalid guest timing interval")
                     match = re.search(r"LAUNCHBENCH DONE phase=(\S+)", line)
