@@ -244,20 +244,25 @@ const char* KernelElf::runtimeLookupSymbolLocked(uintptr_t addr, uintptr_t* star
     }
 
     const auto& slot = *prepared;
-    for (size_t i = 1; i < slot.plan.symbolCount; ++i) {
-      ModuleImage::Symbol symbol;
-      if (!slot.plan.exportedSymbol(i, symbol)) {
+    ModuleImage::Symbol symbol;
+    for (size_t i = 1; slot.plan.symbol(i, symbol, false); ++i) {
+      // Diagnostics use the retained full table, independently of exports.
+      const unsigned type = ST_TYPE(symbol.info);
+      if (!symbol.shndx || symbol.shndx >= 0xff00 ||
+          (type != STT_FUNC && type != STT_NOTYPE) || ST_BIND(symbol.info) > STB_WEAK ||
+          symbol.value > ~uintptr_t{0} - slot.base ||
+          !slot.plan.contains(symbol.value, symbol.size ? symbol.size : 1, PF_R | PF_X)) {
         continue;
       }
 
       const uintptr_t symbolAddress = slot.base + symbol.value;
       const size_t symbolSize = symbol.size ? symbol.size : 1;
       if (addr >= symbolAddress && addr - symbolAddress < symbolSize) {
-        if (startAddr) {
-          *startAddr = symbolAddress;
-        }
-        const char* name = slot.plan.symbolName(symbol);
-        if (name) {
+        const char* name = slot.plan.symbolName(symbol, false);
+        if (name && *name) {
+          if (startAddr) {
+            *startAddr = symbolAddress;
+          }
           return name;
         }
       }

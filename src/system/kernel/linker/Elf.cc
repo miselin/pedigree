@@ -1086,27 +1086,26 @@ const char* Elf::lookupSymbol(uintptr_t addr, uintptr_t* startAddr, T* symbolTab
       continue;
     }
 
-    // Make sure it's a binding we can use.
-    // We skip over all non-global symbols to enforce decoration of
-    // functions with export tags, and to ensure functions are not
-    // unintentionally exposed.
-    if (ST_BIND(pSymbol->info) != STB_GLOBAL) {
+    // Address diagnostics include private functions without exporting them to
+    // the name-based linker. Undefined imports cannot describe this image.
+    if (!pSymbol->shndx || pSymbol->shndx >= 0xff00 ||
+        ST_BIND(pSymbol->info) > STB_WEAK || pSymbol->value > ~uintptr_t{0} - m_LoadBase) {
       ++pSymbol;
       continue;
     }
 
-    /// \todo we should check for STV_HIDDEN symbol - but can't tell if
-    /// we're local or not here and if we're local, a hidden symbol is
-    /// totally fine. Need to indicate which ELF the relocation is for.
-
-    // If we're checking for a symbol that is apparently zero-sized, add one
-    // so we can actually count it!
-    Elf_Xword size = pSymbol->size;
-    if (size == 0)
-      size = 0x100;
     const uintptr_t symbolAddress = pSymbol->value + m_LoadBase;
-    if ((addr >= symbolAddress) && (addr < (symbolAddress + size))) {
+    // A zero-sized assembly label names only its exact address: guessing a
+    // range can hide the real neighbouring function.
+    if (addr >= symbolAddress &&
+        (pSymbol->size ? addr - symbolAddress < pSymbol->size : addr == symbolAddress) &&
+        pSymbol->name < m_nStringTableSize) {
       const char* pStr = pStrtab + pSymbol->name;
+      if (!*pStr || BoundedStringLength(pStr, m_nStringTableSize - pSymbol->name) ==
+                        m_nStringTableSize - pSymbol->name) {
+        ++pSymbol;
+        continue;
+      }
       if (startAddr)
         *startAddr = symbolAddress;
       return pStr;

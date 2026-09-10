@@ -221,6 +221,7 @@ bool KernelElf::initialise(const BootstrapStruct_t& pBootstrap) {
       m_nSymbolTableSize = pSh->size;
     } else if (!StringCompare(pStr, ".strtab")) {
       m_pStringTable = reinterpret_cast<char*>(pSh->addr);
+      m_nStringTableSize = pSh->size;
     } else if (!StringCompare(pStr, ".shstrtab")) {
       m_pShstrtab = reinterpret_cast<char*>(pSh->addr);
     } else if (!StringCompare(pStr, ".debug_frame")) {
@@ -1679,8 +1680,6 @@ uintptr_t KernelElf::globalLookupSymbol(const char* pName) {
 }
 
 const char* KernelElf::globalLookupSymbol(uintptr_t addr, uintptr_t* startAddr) {
-  /// \todo This shouldn't match local or weak symbols.
-
   // Try a lookup in the kernel.
   const char* ret;
   if ((ret = lookupSymbol(addr, startAddr, m_pSymbolTable))) {
