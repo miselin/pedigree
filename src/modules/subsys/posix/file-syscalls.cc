@@ -362,7 +362,7 @@ namespace {
 constexpr size_t ScalarIoBounceCapacity = PIPE_BUF_MAX + 1;
 constexpr size_t RegularReadBounceCapacity = 64 * 1024;
 
-UniqueArray<uint8_t> allocateScalarReadBounce(File* file, size_t length, size_t& capacity) {
+UniqueArray<uint8_t> allocateReadBounce(File* file, size_t length, size_t& capacity) {
   const bool diskBackedRegular = file->supportsRegularFileOperations() && !file->isBlockDevice() &&
                                  file->getFilesystem() && file->getFilesystem()->getDisk();
   const size_t limit = diskBackedRegular ? RegularReadBounceCapacity : ScalarIoBounceCapacity;
@@ -375,7 +375,7 @@ UniqueArray<uint8_t> allocateScalarReadBounce(File* file, size_t length, size_t&
   return bounce;
 }
 
-bool checkScalarReadDestination(char* destination, size_t& requested) {
+bool checkReadDestination(void* destination, size_t& requested) {
   if (PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(destination), requested, 1,
                                       PosixSubsystem::SafeWrite)) {
     return true;
@@ -518,7 +518,7 @@ int posix_read(int fd, char* ptr, int len) {
     return -1;
   }
   size_t bounceCapacity = 0;
-  UniqueArray<uint8_t> bounce = allocateScalarReadBounce(pFd->getFile(), length, bounceCapacity);
+  UniqueArray<uint8_t> bounce = allocateReadBounce(pFd->getFile(), length, bounceCapacity);
   if (!bounce) {
     SYSCALL_ERROR(OutOfMemory);
     return -1;
@@ -539,7 +539,7 @@ int posix_read(int fd, char* ptr, int len) {
 
       // Avoid consuming data for an address which is already known to be
       // unusable. copyToUser repeats this check after a blocking operation.
-      if (!checkScalarReadDestination(userDestination, requested)) {
+      if (!checkReadDestination(userDestination, requested)) {
         if (totalRead) {
           pThread->clearInterruption();
           return static_cast<int>(totalRead);
@@ -897,8 +897,7 @@ ssize_t posix_pread64(int fd, char* ptr, size_t len, off_t offset) {
   }
 
   size_t bounceCapacity = 0;
-  UniqueArray<uint8_t> bounce =
-      allocateScalarReadBounce(descriptor->getFile(), len, bounceCapacity);
+  UniqueArray<uint8_t> bounce = allocateReadBounce(descriptor->getFile(), len, bounceCapacity);
   if (!bounce) {
     SYSCALL_ERROR(OutOfMemory);
     return -1;
@@ -916,7 +915,7 @@ ssize_t posix_pread64(int fd, char* ptr, size_t len, off_t offset) {
     const size_t remaining = len - totalRead;
     size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
     char* userDestination = reinterpret_cast<char*>(reinterpret_cast<uintptr_t>(ptr) + totalRead);
-    if (!checkScalarReadDestination(userDestination, requested)) {
+    if (!checkReadDestination(userDestination, requested)) {
       if (totalRead) {
         thread->clearInterruption();
         return static_cast<ssize_t>(totalRead);
@@ -1597,9 +1596,13 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
       return static_cast<int>(copied);
     }
 
-    const size_t bounceCapacity =
-        totalLength < ScalarIoBounceCapacity ? totalLength : ScalarIoBounceCapacity;
-    UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
+    size_t bounceCapacity = 0;
+    UniqueArray<uint8_t> bounce =
+        allocateReadBounce(descriptor->getFile(), totalLength, bounceCapacity);
+    if (!bounce) {
+      SYSCALL_ERROR(OutOfMemory);
+      return -1;
+    }
     int totalRead = 0;
     for (int i = 0; i < iovcnt; ++i) {
       F_NOTICE("readv: iov[" << i << "] is @ " << vectors[i].iov_base << ", " << vectors[i].iov_len
@@ -1617,11 +1620,10 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
         }
 
         const size_t remaining = vectors[i].iov_len - vectorOffset;
-        const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+        size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
         void* userDestination = reinterpret_cast<void*>(
             reinterpret_cast<uintptr_t>(vectors[i].iov_base) + vectorOffset);
-        if (!PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(userDestination),
-                                             requested, 1, PosixSubsystem::SafeWrite)) {
+        if (!checkReadDestination(userDestination, requested)) {
           thread->clearInterruption();
           if (totalRead) {
             return totalRead;
@@ -1745,9 +1747,13 @@ ssize_t positionalReadVector(int fd, const struct iovec* iov, int iovcnt, off_t 
   }
 
   struct iovec* vectors = vectorOwner.get();
-  const size_t bounceCapacity =
-      totalLength < ScalarIoBounceCapacity ? totalLength : ScalarIoBounceCapacity;
-  UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
+  size_t bounceCapacity = 0;
+  UniqueArray<uint8_t> bounce =
+      allocateReadBounce(descriptor->getFile(), totalLength, bounceCapacity);
+  if (!bounce) {
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
   const bool canBlock = !(statusFlags & O_NONBLOCK);
   const uint64_t startingOffset = static_cast<uint64_t>(offset);
   size_t totalRead = 0;
@@ -1762,11 +1768,10 @@ ssize_t positionalReadVector(int fd, const struct iovec* iov, int iovcnt, off_t 
       }
 
       const size_t remaining = vectors[i].iov_len - vectorOffset;
-      const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+      size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
       void* userDestination =
           reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(vectors[i].iov_base) + vectorOffset);
-      if (!PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(userDestination), requested,
-                                           1, PosixSubsystem::SafeWrite)) {
+      if (!checkReadDestination(userDestination, requested)) {
         thread->clearInterruption();
         if (totalRead) {
           return static_cast<ssize_t>(totalRead);

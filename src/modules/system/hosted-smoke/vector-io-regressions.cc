@@ -8,6 +8,7 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/errors.h"
+#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
@@ -24,6 +25,7 @@
 #include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/file-syscalls.h"
 #include "modules/system/vfs/File.h"
+#include "modules/system/vfs/Filesystem.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "modules/system/vfs/Pipe.h"
 
@@ -472,6 +474,214 @@ bool allocateUserMapping(Process* process, size_t length, uintptr_t& address) {
     address = 0;
     return false;
   }
+  return true;
+}
+
+class VectorReadDisk final : public Disk {
+ public:
+  bool pin(uint64_t) override {
+    return false;
+  }
+  void unpin(uint64_t) override {}
+};
+
+class VectorReadFilesystem final : public Filesystem {
+ public:
+  bool initialise(Disk* disk) override {
+    m_pDisk = disk;
+    return true;
+  }
+  File* getRoot() const override {
+    return nullptr;
+  }
+  const String& getVolumeLabel() const override {
+    return m_Label;
+  }
+
+ protected:
+  bool createFile(File*, const String&, uint32_t) override {
+    return false;
+  }
+  bool createDirectory(File*, const String&, uint32_t) override {
+    return false;
+  }
+  bool createSymlink(File*, const String&, const String&) override {
+    return false;
+  }
+  bool removeNode(File*, const String&, File*) override {
+    return false;
+  }
+
+ private:
+  String m_Label;
+};
+
+constexpr size_t DiskReadCapacity = 64 * 1024;
+enum class DiskVectorReadMode { Complete, Short, PrefixFault, CopyFault };
+
+class DiskVectorReadFile final : public File {
+ public:
+  explicit DiskVectorReadFile(Filesystem* filesystem)
+      : File(String("disk-vector-read"), 0, 0, 0, 3, filesystem, DiskReadCapacity * 3, nullptr),
+        m_Data(UniqueArray<char>::allocate(DiskReadCapacity * 3)) {
+    for (size_t i = 0; i < DiskReadCapacity * 3; ++i) {
+      m_Data.get()[i] = vectorPattern(i);
+    }
+  }
+
+  size_t readCount() const {
+    return m_ReadCount;
+  }
+
+  void denyWritesAfterFirstRead(uintptr_t address, size_t length) {
+    m_DenyAddress = address;
+    m_DenyLength = length;
+  }
+
+ protected:
+  Mutex& dataMutationLock() override {
+    // Each File::read owns this guard once, including reads served by its cache.
+    if (!m_ReadCount++ && m_DenyLength) {
+      MemoryMapManager::instance().setPermissions(m_DenyAddress, m_DenyLength,
+                                                  MemoryMappedObject::Read);
+    }
+    return File::dataMutationLock();
+  }
+
+  uintptr_t readBlock(uint64_t location) override {
+    return reinterpret_cast<uintptr_t>(m_Data.get() + location);
+  }
+
+  bool pinBlock(uint64_t) override {
+    return true;
+  }
+
+ private:
+  UniqueArray<char> m_Data;
+  size_t m_ReadCount = 0;
+  uintptr_t m_DenyAddress = 0;
+  size_t m_DenyLength = 0;
+};
+
+struct DiskVectorReadContext {
+  Process* process;
+  DiskVectorReadFile* file;
+  DiskVectorReadMode mode;
+  bool positional;
+  ssize_t result = -2;
+  int error = 0;
+  bool valid = false;
+};
+
+int diskVectorReader(void* parameter) {
+  auto& context = *static_cast<DiskVectorReadContext*>(parameter);
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const size_t mappingLength = DiskReadCapacity * 2 + pageSize * 3;
+  uintptr_t address = 0;
+  if (!allocateUserMapping(context.process, mappingLength, address)) {
+    return 1;
+  }
+  auto* first = reinterpret_cast<char*>(address);
+  const bool prefixFault = context.mode == DiskVectorReadMode::PrefixFault;
+  const size_t firstLength = prefixFault ? 13 : DiskReadCapacity + 7;
+  const size_t secondLength = prefixFault ? DiskReadCapacity * 2 : 13;
+  auto* second = first + (prefixFault ? pageSize : DiskReadCapacity + pageSize);
+  ByteSet(first, 0, mappingLength);
+  if (context.mode == DiskVectorReadMode::Short) {
+    context.file->setSize((context.positional ? 29 : 17) + 23);
+  } else if (prefixFault) {
+    // The vector snapshot passes; the next large precheck must still deliver
+    // the prefix that the previous 4097-byte chunks could copy.
+    const uintptr_t denied = reinterpret_cast<uintptr_t>(second) + pageSize * 2;
+    context.file->denyWritesAfterFirstRead(denied, address + mappingLength - denied);
+  } else if (context.mode == DiskVectorReadMode::CopyFault) {
+    const uintptr_t denied = address + pageSize * 2;
+    context.file->denyWritesAfterFirstRead(denied, address + mappingLength - denied);
+  }
+
+  struct iovec vectors[2] = {{first, firstLength}, {second, secondLength}};
+  Thread* thread = Processor::information().getCurrentThread();
+  thread->setErrno(PreservedErrno);
+  context.result =
+      context.positional ? posix_preadv(92, vectors, 2, 29) : posix_readv(92, vectors, 2);
+  context.error = thread->getErrno();
+
+  const size_t firstCopied = context.mode == DiskVectorReadMode::CopyFault ? 0
+                             : context.mode == DiskVectorReadMode::Short   ? 23
+                                                                           : firstLength;
+  const size_t secondCopied = prefixFault                                    ? BounceCapacity
+                              : context.mode == DiskVectorReadMode::Complete ? secondLength
+                                                                             : 0;
+  const size_t start = context.positional ? 29 : 17;
+  bool valid = true;
+  for (size_t i = 0; i < firstLength && valid; ++i) {
+    valid = first[i] == (i < firstCopied ? vectorPattern(start + i) : 0);
+  }
+  for (size_t i = 0; i < secondLength && valid; ++i) {
+    valid = second[i] == (i < secondCopied ? vectorPattern(start + firstCopied + i) : 0);
+  }
+  context.valid = valid;
+  MemoryMapManager::instance().remove(address, mappingLength);
+  context.process->freeUserRange(Process::UserRegion::Normal, address, mappingLength);
+  return 0;
+}
+
+bool diskVectorReadCase(Process* kernelProcess, DiskVectorReadMode mode, bool positional) {
+  Process* process = new Process(kernelProcess);
+  auto* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  VectorReadDisk disk;
+  VectorReadFilesystem filesystem;
+  filesystem.initialise(&disk);
+  DiskVectorReadFile file(&filesystem);
+  auto* descriptor = new FileDescriptor(&file, 17, 92, 0, O_RDONLY);
+  subsystem->addFileDescriptor(92, descriptor);
+  auto description = descriptor->acquireOpenFileDescription();
+
+  DiskVectorReadContext context{process, &file, mode, positional};
+  Thread* worker = new Thread(process, diskVectorReader, &context, nullptr, false, true, true);
+  worker->setName("hosted disk vector reader");
+  const bool started = worker->start();
+  const bool joined = started && worker->joinForCompletion();
+  if (!started) {
+    delete worker;
+  }
+
+  const ssize_t expected = mode == DiskVectorReadMode::CopyFault     ? -1
+                           : mode == DiskVectorReadMode::Short       ? 23
+                           : mode == DiskVectorReadMode::PrefixFault ? 13 + BounceCapacity
+                                                                     : DiskReadCapacity + 20;
+  const size_t calls = mode == DiskVectorReadMode::Complete      ? 3
+                       : mode == DiskVectorReadMode::PrefixFault ? 2
+                                                                 : 1;
+  const uint64_t finalOffset = positional || expected < 0 ? 17 : 17 + expected;
+  bool passed = started && joined && context.valid && context.result == expected &&
+                context.error == (expected < 0 ? Error::BadAddress : PreservedErrno) &&
+                file.readCount() == calls && descriptor->getOffset() == finalOffset;
+  passed = closeDescriptor(subsystem, 92) && passed;
+  description.reset();
+  delete process;
+  if (!passed) {
+    ERROR("HOSTED-SYSCALL-TEST: FAIL disk-vector-read-batching: mode="
+          << static_cast<int>(mode) << " positional=" << positional << " result=" << context.result
+          << " errno=" << context.error << " calls=" << file.readCount());
+  }
+  return passed;
+}
+
+bool diskVectorReadBatching(Process* kernelProcess) {
+  const bool positions[] = {false, true};
+  const DiskVectorReadMode modes[] = {DiskVectorReadMode::Complete, DiskVectorReadMode::Short,
+                                      DiskVectorReadMode::PrefixFault,
+                                      DiskVectorReadMode::CopyFault};
+  for (bool positional : positions) {
+    for (DiskVectorReadMode mode : modes) {
+      if (!diskVectorReadCase(kernelProcess, mode, positional)) {
+        return false;
+      }
+    }
+  }
+  NOTICE("HOSTED-SYSCALL-TEST: PASS disk-vector-read-batching");
   return true;
 }
 
@@ -964,6 +1174,7 @@ bool vectorSigpipeAfterWriteGuard(Process* kernelProcess) {
 
 bool runHostedVectorIoRegressions(Process* process) {
   return vectorWriteBounceAndLifetime(process) && vectorReadBounceAndScatter(process) &&
-         vectorUsercopyFaultProgress(process) && vectorSignalProgress(process) &&
-         vectorPipeBoundaryIndependentPartial(process) && vectorSigpipeAfterWriteGuard(process);
+         diskVectorReadBatching(process) && vectorUsercopyFaultProgress(process) &&
+         vectorSignalProgress(process) && vectorPipeBoundaryIndependentPartial(process) &&
+         vectorSigpipeAfterWriteGuard(process);
 }
