@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/debugger/DebuggerCommand.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 bool DebuggerIO::readCli(HugeStaticString& str, DebuggerCommand* pAutoComplete) {
@@ -35,7 +36,7 @@ bool DebuggerIO::readCli(HugeStaticString& str, DebuggerCommand* pAutoComplete) 
   // Spin in a loop until we get a printable character. getChar returns 0 if a
   // non-printing character is recieved.
   while (!(ch = getChar()))
-    ;
+    Processor::pause();
 
   // Was this a newline?
   if (ch == '\n' || ch == '\r') {

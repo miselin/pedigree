@@ -275,7 +275,7 @@ void Debugger::start(InterruptState& state, LargeStaticString& description) {
       pInterfaces[i]->drawString(str, 2, 0, DebuggerIO::LightBlue, DebuggerIO::Black);
     }
     // Poll each device.
-    while (pIo == 0)
+    while (pIo == 0) {
       for (int i = 0; i < nInterfaces; i++) {
         char c = pInterfaces[i]->getCharNonBlock();
         if ((c >= 32 && static_cast<unsigned char>(c) <= 127) || c == '\n' || c == 0x08 ||
@@ -285,6 +285,9 @@ void Debugger::start(InterruptState& state, LargeStaticString& description) {
           break;
         }
       }
+      if (!pIo)
+        Processor::pause();
+    }
   } else {
     pIo = pInterfaces[n];
     nChosenInterface = n;
