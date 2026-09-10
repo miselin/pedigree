@@ -22,6 +22,8 @@
 #include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/core/cppsupport.h"
 #include "pedigree/kernel/machine/Trace.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/MemoryTracing.h"
@@ -210,16 +212,53 @@ void __cxa_pure_virtual() {
   FATAL_NOLOCK("Pure virtual function call made");
 }
 
-/// Called by G++ if function local statics are initialised for the first time
+// The compiler tests byte zero before calling these Itanium ABI entry points.
 #if !HAS_THREAD_SANITIZER
-extern "C" EXPORTED_PUBLIC int __cxa_guard_acquire();
-extern "C" EXPORTED_PUBLIC void __cxa_guard_release();
+extern "C" EXPORTED_PUBLIC int __cxa_guard_acquire(uint64_t* guard);
+extern "C" EXPORTED_PUBLIC void __cxa_guard_release(uint64_t* guard);
+extern "C" EXPORTED_PUBLIC void __cxa_guard_abort(uint64_t* guard);
 
-int __cxa_guard_acquire() {
-  return 1;
+int __cxa_guard_acquire(uint64_t* guard) {
+  auto* bytes = reinterpret_cast<uint8_t*>(guard);
+  while (true) {
+    if (__atomic_load_n(bytes, __ATOMIC_ACQUIRE))
+      return 0;
+
+    uint8_t expected = 0;
+    if (__atomic_compare_exchange_n(bytes + 1, &expected, uint8_t{1}, false, __ATOMIC_ACQUIRE,
+                                    __ATOMIC_RELAXED)) {
+      // The preceding initializer may have published between our first read
+      // and claiming the now-idle guard.
+      if (__atomic_load_n(bytes, __ATOMIC_ACQUIRE)) {
+        __atomic_store_n(bytes + 1, uint8_t{0}, __ATOMIC_RELEASE);
+        return 0;
+      }
+      return 1;
+    }
+
+#if THREADS
+    if (Processor::isInitialised() >= 2 &&
+        Processor::executionContext() == ExecutionContext::WaitableThread) {
+      Scheduler::instance().yield();
+    } else
+#endif
+    {
+      // Early constructors cannot depend on a scheduler or another local
+      // static. IRQ paths must not reenter their interrupted initializer.
+      Processor::pause();
+    }
+  }
 }
-void __cxa_guard_release() {
-  // TODO
+
+void __cxa_guard_release(uint64_t* guard) {
+  auto* bytes = reinterpret_cast<uint8_t*>(guard);
+  __atomic_store_n(bytes, uint8_t{1}, __ATOMIC_RELEASE);
+  __atomic_store_n(bytes + 1, uint8_t{0}, __ATOMIC_RELEASE);
+}
+
+void __cxa_guard_abort(uint64_t* guard) {
+  auto* bytes = reinterpret_cast<uint8_t*>(guard);
+  __atomic_store_n(bytes + 1, uint8_t{0}, __ATOMIC_RELEASE);
 }
 #endif
 
