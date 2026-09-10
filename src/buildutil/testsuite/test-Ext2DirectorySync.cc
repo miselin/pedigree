@@ -18,6 +18,23 @@
 #include "modules/system/ext2/ext2.h"
 #include <gtest/gtest.h>
 
+class Ext2DirectorySyncTestPeer {
+ public:
+  static Inode* getInode(Ext2Filesystem& filesystem, uint32_t inode) {
+    return filesystem.getInode(inode);
+  }
+
+  static bool loadAllInodeTables(Ext2Filesystem& filesystem) {
+    const size_t perGroup = LITTLE_TO_HOST32(filesystem.m_pSuperblock->s_inodes_per_group);
+    const size_t perBlock = filesystem.m_BlockSize / filesystem.m_InodeSize;
+    for (size_t group = 0; group < filesystem.m_nGroupDescriptors; ++group)
+      for (size_t index = 0; index < perGroup; index += perBlock)
+        if (!filesystem.getInode(group * perGroup + index + 1))
+          return false;
+    return true;
+  }
+};
+
 namespace {
 constexpr size_t kBlockSize = 4096;
 constexpr size_t kBlocksPerGroup = 128;
@@ -331,12 +348,40 @@ TEST(Ext2DirectorySync, ParentSyncPersistsNewDirectoryAndMovedParentThroughAlias
   EXPECT_EQ(disk.pins[movedBlock], 0U);
 }
 
+TEST(Ext2DirectorySync, NamespaceSyncSkipsUnloadedInodeTableBlocks) {
+  constexpr size_t inodesPerGroup = 2048;
+  const uint64_t unloadedTable = 5 * kBlockSize;
+  DirectorySyncDisk disk(false, inodesPerGroup);
+  disk.failedRead = unloadedTable;
+  disk.failedSync = unloadedTable;
+  disk.failedBatchLocation = unloadedTable;
+  {
+    Ext2Filesystem filesystem;
+    ASSERT_TRUE(filesystem.initialise(&disk));
+    // Grow the table index past an unreadable middle slot without loading it.
+    ASSERT_NE(Ext2DirectorySyncTestPeer::getInode(filesystem, inodesPerGroup), nullptr);
+    File* parent = filesystem.getRoot();
+    ASSERT_TRUE(filesystem.Filesystem::createFile(String("created").view(), 0644, parent));
+    ASSERT_TRUE(parent->sync());
+    EXPECT_EQ(disk.pins[4], 1U);
+    EXPECT_EQ(disk.pins[132], 1U);
+    EXPECT_EQ(disk.pins[4 + inodesPerGroup * sizeof(Inode) / kBlockSize - 1], 1U);
+    EXPECT_EQ(disk.pins[5], 0U);
+    EXPECT_EQ(std::count(disk.syncs.begin(), disk.syncs.end(), unloadedTable), 0);
+    EXPECT_EQ(disk.durableEntry(2, "created"), inodesPerGroup + 1);
+    EXPECT_TRUE(disk.durableInodeAllocated(inodesPerGroup + 1));
+  }
+  EXPECT_TRUE(std::all_of(disk.pins.begin(), disk.pins.end(), [](size_t pins) { return pins == 0; }));
+}
+
 TEST(Ext2DirectorySync, LoadedMetadataUsesBoundedBatchesWithoutDroppingDependencies) {
   constexpr size_t inodesPerGroup = 2048;
   constexpr size_t tableBlocks = inodesPerGroup * sizeof(Inode) / kBlockSize;
   DirectorySyncDisk disk(false, inodesPerGroup);
   Ext2Filesystem filesystem;
   ASSERT_TRUE(filesystem.initialise(&disk));
+  // Keep this batching fixture large even though ordinary inode lookup is now lazy.
+  ASSERT_TRUE(Ext2DirectorySyncTestPeer::loadAllInodeTables(filesystem));
   File* parent = filesystem.getRoot();
   ASSERT_TRUE(parent->sync());
   ASSERT_TRUE(filesystem.Filesystem::createFile(String("created").view(), 0644, parent));
@@ -377,6 +422,8 @@ TEST_P(Ext2DirectoryBatchFailure, SharedBarrierFailureRetriesCompleteMetadataAnd
   DirectorySyncDisk disk(false, inodesPerGroup);
   Ext2Filesystem filesystem;
   ASSERT_TRUE(filesystem.initialise(&disk));
+  // Keep this batching fixture large even though ordinary inode lookup is now lazy.
+  ASSERT_TRUE(Ext2DirectorySyncTestPeer::loadAllInodeTables(filesystem));
   File* parent = filesystem.getRoot();
   ASSERT_TRUE(parent->sync());
   ASSERT_TRUE(filesystem.Filesystem::createFile(String("created").view(), 0644, parent));

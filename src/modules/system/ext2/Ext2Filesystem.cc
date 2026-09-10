@@ -114,7 +114,8 @@ Ext2Filesystem::~Ext2Filesystem() {
         if (m_pInodeTables) {
           const uint32_t start = LITTLE_TO_HOST32(descriptor->bg_inode_table);
           for (size_t i = 0; i < m_pInodeTables[group].count(); ++i) {
-            unpinBlock(start + i);
+            if (m_pInodeTables[group][i])
+              unpinBlock(start + i);
           }
         }
       }
@@ -676,7 +677,8 @@ bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNames
   }
   const uint32_t inodeGroup = (inode - 1) / inodesPerGroup;
   const uint32_t index = (inode - 1) % inodesPerGroup;
-  if (inodeGroup >= m_nGroupDescriptors || !ensureInodeTableLoaded(inodeGroup)) {
+  const size_t inodeTableIndex = (static_cast<uint64_t>(index) * m_InodeSize) / m_BlockSize;
+  if (inodeGroup >= m_nGroupDescriptors || !loadInodeTableBlock(inodeGroup, inodeTableIndex)) {
     return false;
   }
 
@@ -780,8 +782,12 @@ bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNames
     for (size_t group = 0; group < m_nGroupDescriptors; ++group) {
       GroupDesc* descriptor = m_pGroupDescriptors[group];
       const uint32_t inodeTable = LITTLE_TO_HOST32(descriptor->bg_inode_table);
+      bool loadedInodeTable = false;
       for (size_t i = 0; i < m_pInodeTables[group].count(); ++i) {
-        submitMetadata(inodeTable + i);
+        if (m_pInodeTables[group][i]) {
+          submitMetadata(inodeTable + i);
+          loadedInodeTable = true;
+        }
       }
       const uint32_t blockBitmap = LITTLE_TO_HOST32(descriptor->bg_block_bitmap);
       for (size_t i = 0; i < m_pBlockBitmaps[group].count(); ++i) {
@@ -791,7 +797,7 @@ bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNames
       for (size_t i = 0; i < m_pInodeBitmaps[group].count(); ++i) {
         submitMetadata(inodeBitmap + i);
       }
-      if (m_pInodeTables[group].count() || m_pBlockBitmaps[group].count() ||
+      if (loadedInodeTable || m_pBlockBitmaps[group].count() ||
           m_pInodeBitmaps[group].count()) {
         const uint32_t descriptorBlock = firstBlock + 1 + (group * sizeof(GroupDesc)) / m_BlockSize;
         submitMetadata(descriptorBlock);
@@ -1021,7 +1027,12 @@ bool Ext2Filesystem::prepareInodeWrite(uint32_t inode) {
     SYSCALL_ERROR(IoError);
     return false;
   }
-  return ensureInodeTableLoaded((inode - 1) / perGroup);
+  if (!m_BlockSize) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
+  const size_t block = (static_cast<uint64_t>((inode - 1) % perGroup) * m_InodeSize) / m_BlockSize;
+  return loadInodeTableBlock((inode - 1) / perGroup, block) != 0;
 }
 
 void Ext2Filesystem::releaseBlockLocked(uint32_t block, uint32_t inode) {
@@ -1247,23 +1258,23 @@ void Ext2Filesystem::retireInodeLocked(uint32_t inodeNumber, Ext2Node* retiringN
 }
 
 Inode* Ext2Filesystem::getInode(uint32_t inode) {
-  assert(inode > 0);
-
-  inode--;  // Inode zero is undefined, so it's not used.
-
-  uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
-  uint32_t group = inode / inodesPerGroup;
-  uint32_t index = inode % inodesPerGroup;
-
-  if (!ensureInodeTableLoaded(group)) {
+  const uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+  if (!inode || !inodesPerGroup || !m_BlockSize) {
+    SYSCALL_ERROR(IoError);
     return nullptr;
   }
-  Vector<size_t>& list = m_pInodeTables[group];
-
-  size_t blockNum = (index * m_InodeSize) / m_BlockSize;
-  size_t blockOff = (index * m_InodeSize) % m_BlockSize;
-
-  uintptr_t block = list[blockNum];
+  --inode;
+  const uint32_t group = inode / inodesPerGroup;
+  const uint64_t byteOffset = static_cast<uint64_t>(inode % inodesPerGroup) * m_InodeSize;
+  const size_t blockNum = byteOffset / m_BlockSize;
+  const size_t blockOff = byteOffset % m_BlockSize;
+  if (sizeof(Inode) > m_BlockSize - blockOff) {
+    SYSCALL_ERROR(IoError);
+    return nullptr;
+  }
+  const uintptr_t block = loadInodeTableBlock(group, blockNum);
+  if (!block)
+    return nullptr;
 
   Inode* pInode = reinterpret_cast<Inode*>(block + blockOff);
   if (pInode->i_flags & EXT2_COMPRBLK_FL) {
@@ -1273,18 +1284,14 @@ Inode* Ext2Filesystem::getInode(uint32_t inode) {
 }
 
 void Ext2Filesystem::writeInode(uint32_t inode) {
-  inode--;  // Inode zero is undefined, so it's not used.
-
-  uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
-  uint32_t group = inode / inodesPerGroup;
-  uint32_t index = inode % inodesPerGroup;
-
-  if (!ensureInodeTableLoaded(group)) {
+  if (!prepareInodeWrite(inode))
     return;
-  }
-
-  size_t blockNum = (index * m_InodeSize) / m_BlockSize;
-  uint64_t diskBlock = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table) + blockNum;
+  --inode;
+  const uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+  const uint32_t group = inode / inodesPerGroup;
+  const size_t blockNum =
+      (static_cast<uint64_t>(inode % inodesPerGroup) * m_InodeSize) / m_BlockSize;
+  const uint32_t diskBlock = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table) + blockNum;
   writeBlock(diskBlock);
 }
 
@@ -1398,60 +1405,42 @@ bool Ext2Filesystem::ensureFreeInodeBitmapLoaded(size_t group) {
   return true;
 }
 
-bool Ext2Filesystem::ensureInodeTableLoaded(size_t group) {
+uintptr_t Ext2Filesystem::loadInodeTableBlock(size_t group, size_t block) {
 #if THREADS || defined(STANDALONE_MUTEXES)
   LockGuard<Mutex> guard(m_InodeTableLoadLock);
 #endif
-
-  assert(group < m_nGroupDescriptors);
-  Vector<size_t>& list = m_pInodeTables[group];
-
-  if (list.count() > 0) {
-    // Descriptors already loaded.
-    return true;
+  if (group >= m_nGroupDescriptors || !m_BlockSize || !m_InodeSize) {
+    SYSCALL_ERROR(IoError);
+    return 0;
   }
-
-  // Determine how many blocks to load to bring in the full inode table.
-  uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
+  const uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
   const uint64_t inodeTableBytes = static_cast<uint64_t>(inodesPerGroup) * m_InodeSize;
-  const size_t nBlocks = (inodeTableBytes + m_BlockSize - 1) / m_BlockSize;
-
-  if (!nBlocks) {
-    ERROR("inode table has zero blocks [inode size=" << m_InodeSize
-                                                     << "], possibly corrupted filesystem.");
+  const uint64_t blocks = (inodeTableBytes + m_BlockSize - 1) / m_BlockSize;
+  const uint32_t start = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table);
+  if (block >= blocks || !start || block > ~uint32_t{0} - start) {
     SYSCALL_ERROR(IoError);
-    return false;
+    return 0;
   }
 
-  if (!list.tryReserve(nBlocks)) {
+  Vector<size_t>& list = m_pInodeTables[group];
+  if (block < list.count() && list[block])
+    return list[block];
+  if (!list.tryReserve(block + 1)) {
     SYSCALL_ERROR(OutOfMemory);
-    return false;
+    return 0;
   }
+  while (list.count() <= block)
+    list.pushBack(0);
 
-  // Load each block in the inode table.
-  const uint32_t inodeTableStart = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table);
-  if (!inodeTableStart) {
+  const uintptr_t buffer = readBlock(start + block);
+  if (!buffer) {
     SYSCALL_ERROR(IoError);
-    return false;
+    return 0;
   }
-  for (size_t i = 0; i < nBlocks; i++) {
-    uint32_t blockNumber = inodeTableStart + i;
-    uintptr_t buffer = readBlock(blockNumber);
-    if (!buffer) {
-      // Do not publish a partially loaded table. Every successful
-      // read() above owns exactly one reference.
-      while (list.count()) {
-        const size_t loaded = list.count() - 1;
-        unpinBlock(inodeTableStart + loaded);
-        list.popBack();
-      }
-      SYSCALL_ERROR(IoError);
-      return false;
-    }
-    list.pushBack(buffer);
-  }
-
-  return true;
+  // Retain the successful read's pin for stable Inode pointers. A missing
+  // slot stays retryable without disturbing previously loaded table blocks.
+  list[block] = buffer;
+  return buffer;
 }
 
 void Ext2Filesystem::increaseInodeRefcount(uint32_t inode) {

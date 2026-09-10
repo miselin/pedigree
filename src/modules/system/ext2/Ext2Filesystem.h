@@ -48,6 +48,7 @@ class Ext2Filesystem : public Filesystem {
   friend class Ext2FillCacheTestPeer;
   friend class Ext2WritebackTestPeer;
   friend class Ext2FilesystemSyncTestPeer;
+  friend class Ext2DirectorySyncTestPeer;
   friend class Ext2AllocationTestPeer;
   friend class Ext2QuotaTestPeer;
   friend class Ext2File;
@@ -175,7 +176,7 @@ class Ext2Filesystem : public Filesystem {
 
   bool ensureFreeBlockBitmapLoaded(size_t group);
   bool ensureFreeInodeBitmapLoaded(size_t group);
-  bool ensureInodeTableLoaded(size_t group);
+  uintptr_t loadInodeTableBlock(size_t group, size_t block);
 
   void releaseBlockLocked(uint32_t block, uint32_t inode = 0);
   bool prepareBlockReleaseLocked(uint32_t block);

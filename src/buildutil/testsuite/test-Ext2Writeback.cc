@@ -185,6 +185,8 @@ class GrowthDisk final : public Disk {
       return BufferView();
     }
     reads.push_back(location);
+    if (location == failedRead)
+      return BufferView();
     const size_t block = static_cast<size_t>(location / kBlockSize);
     const size_t offset = static_cast<size_t>(location % kBlockSize);
     uint8_t* data = getBlock(block);
@@ -207,7 +209,9 @@ class GrowthDisk final : public Disk {
     return location < getSize();
   }
 
-  void unpin(uint64_t) override {}
+  void unpin(uint64_t location) override {
+    unpins.push_back(location);
+  }
 
   uint8_t* getBlock(size_t block) {
     if (!blocks[block]) {
@@ -218,6 +222,8 @@ class GrowthDisk final : public Disk {
 
   std::vector<std::unique_ptr<uint8_t[]>> blocks;
   std::vector<uint64_t> reads;
+  std::vector<uint64_t> unpins;
+  uint64_t failedRead = UINT64_MAX;
   std::vector<uint64_t> writes;
 };
 
@@ -556,6 +562,66 @@ TEST(Ext2Growth, BatchesIndirectMappingAndInodeWrites) {
   EXPECT_EQ(
       static_cast<size_t>(std::count(disk.writes.begin(), disk.writes.end(), indirectLocation)),
       1U);
+}
+
+TEST(Ext2InodeTable, ReadsOnlyRequestedBlocksAndPreservesPointersAcrossGrowth) {
+  constexpr uint32_t inodesPerGroup = 4096;
+  constexpr uint32_t tableStart = 100;
+  constexpr uint32_t lastBlock = tableStart + inodesPerGroup * sizeof(Inode) / kBlockSize - 1;
+  GrowthDisk disk;
+  Superblock superblock = {};
+  superblock.s_inodes_per_group = HOST_TO_LITTLE32(inodesPerGroup);
+  GroupDesc descriptor = {};
+  descriptor.bg_inode_table = HOST_TO_LITTLE32(tableStart);
+  {
+    Ext2Filesystem filesystem;
+    Ext2WritebackTestPeer::configureGrowth(filesystem, &disk, &superblock, &descriptor);
+    Inode* first = Ext2WritebackTestPeer::getInode(filesystem, 1);
+    ASSERT_NE(first, nullptr);
+    first->i_uid = HOST_TO_LITTLE16(1234);
+    EXPECT_EQ(disk.reads, std::vector<uint64_t>({uint64_t(tableStart) * kBlockSize}));
+    EXPECT_EQ(Ext2WritebackTestPeer::getInode(filesystem, 2), first + 1);
+    ASSERT_NE(Ext2WritebackTestPeer::getInode(filesystem, inodesPerGroup), nullptr);
+    EXPECT_EQ(disk.reads, std::vector<uint64_t>({uint64_t(tableStart) * kBlockSize,
+                                               uint64_t(lastBlock) * kBlockSize}));
+    EXPECT_EQ(Ext2WritebackTestPeer::getInode(filesystem, 1), first);
+    EXPECT_EQ(LITTLE_TO_HOST16(first->i_uid), 1234);
+  }
+  EXPECT_EQ(std::count(disk.unpins.begin(), disk.unpins.end(), uint64_t(tableStart) * kBlockSize),
+            1);
+  EXPECT_EQ(std::count(disk.unpins.begin(), disk.unpins.end(), uint64_t(lastBlock) * kBlockSize), 1);
+  for (uint32_t block = tableStart + 1; block < lastBlock; ++block)
+    EXPECT_EQ(std::count(disk.unpins.begin(), disk.unpins.end(), uint64_t(block) * kBlockSize), 0);
+}
+
+TEST(Ext2InodeTable, FailedBlockCanRetryWithoutDiscardingEarlierPointers) {
+  constexpr uint32_t tableStart = 100;
+  constexpr uint32_t targetInode = 2 * kBlockSize / sizeof(Inode) + 1;
+  const uint64_t targetLocation = uint64_t(tableStart + 2) * kBlockSize;
+  GrowthDisk disk;
+  Superblock superblock = {};
+  superblock.s_inodes_per_group = HOST_TO_LITTLE32(256);
+  GroupDesc descriptor = {};
+  descriptor.bg_inode_table = HOST_TO_LITTLE32(tableStart);
+  {
+    Ext2Filesystem filesystem;
+    Ext2WritebackTestPeer::configureGrowth(filesystem, &disk, &superblock, &descriptor);
+    Inode* first = Ext2WritebackTestPeer::getInode(filesystem, 1);
+    ASSERT_NE(first, nullptr);
+    disk.failedRead = targetLocation;
+    EXPECT_EQ(Ext2WritebackTestPeer::getInode(filesystem, targetInode), nullptr);
+    EXPECT_EQ(Ext2WritebackTestPeer::getInode(filesystem, 1), first);
+    EXPECT_TRUE(disk.unpins.empty());
+    disk.failedRead = UINT64_MAX;
+    ASSERT_NE(Ext2WritebackTestPeer::getInode(filesystem, targetInode), nullptr);
+    EXPECT_EQ(disk.reads, std::vector<uint64_t>({uint64_t(tableStart) * kBlockSize, targetLocation,
+                                               targetLocation}));
+  }
+  EXPECT_EQ(std::count(disk.unpins.begin(), disk.unpins.end(), uint64_t(tableStart) * kBlockSize),
+            1);
+  EXPECT_EQ(std::count(disk.unpins.begin(), disk.unpins.end(), targetLocation), 1);
+  EXPECT_EQ(std::count(disk.unpins.begin(), disk.unpins.end(),
+                       uint64_t(tableStart + 1) * kBlockSize), 0);
 }
 
 TEST(Ext2Growth, SerializesGlobalBitmapAllocation) {
