@@ -3,8 +3,8 @@
 The self-host build profile is an experimental first step toward working on a
 Pedigree checkout from within Pedigree. It builds the amd64 kernel, dynamic
 modules and initrd, configuration database, and in-tree user
-applications and libraries. It deliberately does not build an HDD image or
-ISO, and it never installs files into `/boot`. Static-driver builds and
+applications and libraries. It does not build an HDD image, ISO, or UEFI boot
+image, and it never installs files into `/boot`. Static-driver builds and
 compiled distribution keymaps are also excluded from this initial profile.
 
 Cross and native builds consume the same amd64 target profile, so kernel and
@@ -100,6 +100,7 @@ cmake -S . -B build-boot \
     -DBUILD_TESTING=OFF \
     -DPEDIGREE_BUILD_HDD_IMAGE=OFF \
     -DPEDIGREE_BUILD_ISO=OFF \
+    -DPEDIGREE_BUILD_UEFI=OFF \
     -DPEDIGREE_BUILD_KEYMAPS=OFF \
     -DPEDIGREE_BUILD_TRANSLATIONS=OFF
 cmake --build build-boot --target boot-artifacts
@@ -192,8 +193,10 @@ With the default build directory, the primary products are:
 - `build-selfhost/pedigree-c-sdk/usr/` — Pedigree-specific userspace library
   and public headers.
 
-The default UEFI image places the native loader at the removable-media
-fallback path and keeps its artifacts in `EFI/PEDIGREE/current` and
+The self-host wrapper disables `PEDIGREE_BUILD_UEFI`, so configuring these
+artifacts does not require Clang or the ext2 image utility. UEFI image packaging
+is a separate cross-build step. The UEFI image places the native loader at the
+removable-media fallback path and keeps its artifacts in `EFI/PEDIGREE/current` and
 `EFI/PEDIGREE/known-good`. To build a GRUB-backed image with those same
 variants as chainloadable menu entries, enable `PEDIGREE_BUILD_UEFI_GRUB` and
 provide `grub-mkstandalone` (or the target-prefixed equivalent) with
