@@ -109,3 +109,142 @@ same-boot verification does not prove durability. The optional number selects
 /directory-sync`; use its default `--size-mib 1` argument for one file and
 `--mode verify-existing` for the fresh-guest check. Omit its workload flags and
 `--keep-scratch`, since this contract always retains its files.
+
+## Isolated launch and read benchmark
+
+`launch-latency.c` measures one command without running the normal startup
+services. Keep the existing init-to-login measurement as the end-to-end check;
+use this benchmark to separate cold reads, warm execution and process overhead.
+It does not change the kernel or disable writes.
+
+Build a static guest driver so the harness itself does not preload the target's
+shared libraries (substitute the configured compiler and musl sysroot):
+
+```sh
+x86_64-pedigree-gcc --sysroot=/path/to/build/musl -static -O2 \
+  -std=c11 -Wall -Wextra -Werror scripts/benchmarks/launch-latency.c \
+  -o /path/to/launch-latency
+```
+
+In a **disposable image**, replace `/usr/bin/init` with this executable, mode
+0755. Install `/launch-bench.args` with one argument per line:
+
+```text
+--serial
+--iterations
+3
+launch
+git version
+/usr/bin/git
+--version
+```
+
+The kernel starts the driver directly. No login credentials or startup scripts
+are used. The config is limited to 4096 bytes and 31 arguments. The same arguments
+can be passed explicitly when running the driver from a shell. Running it without
+`--serial` omits host gates and writes results to stdout.
+
+The supplied image must already boot its intended kernel through UEFI and expose
+COM1 as `/dev/ttyS0`. Add `--disable-log-to-serial` to its kernel command line so
+kernel messages cannot interleave character by character with benchmark records.
+For the direct UEFI loader this is the `cmdline` file beside the selected kernel
+on the ESP; preserve its root selector. Keep that setting identical across arms.
+The flag must be a separate space-delimited token: do not append a newline to it.
+Kernel log generation and its debugger history remain enabled.
+Prepare the ext2 root offline with `debugfs`, then check it
+with `e2fsck -fn` and reinsert it at the original partition offset. Preserve the
+original image; do not replace init on an installed system. Freeze each prepared
+image while any retained qcow2 overlay refers to it.
+
+```sh
+uv run --no-project python scripts/benchmarks/run-launch-latency.py \
+  --image /path/to/launch.img --output /path/to/results/git-cold \
+  --firmware-code /path/to/OVMF.fd --cpus 4
+```
+
+The runner uses a local Unix socket for serial gates and disables the guest NIC.
+Use a short output path for the socket. Each output directory must be new. Split
+OVMF firmware also needs `--firmware-vars`. Host `--iterations` and `--mode` must
+match the image config; mismatched or missing phases fail rather than silently
+producing a partial result. `--timeout` bounds the complete run, default 240 s.
+A guest used directly without the runner needs its own timeout for hung children.
+
+Each launch creates a pipe before timing, then measures from immediately before
+`fork()` until the parent receives the first stdout bytes, and separately until
+`waitpid()` completes. The child uses cwd `/`, a fixed C-locale environment,
+`/dev/null` for stdin/stderr, and a pipe for stdout. Expected output prefix and
+successful child exit are both required. Output storage is bounded; more than
+1 MiB fails. Three fork-with-output and three exec-self probes follow the target
+launches as warm process controls. They include descriptor setup, pipe delivery,
+and teardown; they are not pure syscall timings.
+
+Iteration zero is target-cold only when the target and its libraries have not
+already been read. The following iterations measure the same command with those
+pages cached. Repeat the entire guest for independent cold samples. Record the
+image, kernel, target/library hashes, compiler, CPU count, and host load when
+comparing revisions. A fresh guest does not imply a cold host page cache.
+
+For a separate explicit-prewarm arm, insert these two config lines before
+`launch` and pass `--prewarm` to the host runner:
+
+```text
+--prewarm
+/launch-prewarm.list
+```
+
+Install that list as newline-separated guest paths to the target, its ELF
+interpreter, and recursive `DT_NEEDED` libraries. Resolve these offline, not by
+executing the target in the cold guest. Deduplicate aliases of the same file.
+The `prewarm` phase times full-file reads and reports their byte cost separately.
+It can include non-loadable ELF sections: prewarm plus launch must be compared
+with cold launch before claiming a net improvement. This is an experiment in
+cache residency, not an implementation or prediction of read-ahead.
+
+For read order comparisons, install a fixture on the root filesystem (not
+RAM-backed `/tmp`) with byte `i` equal to `(i*37 + (i>>8)*17 + 0x53) & 255`.
+Choose a power-of-two page count, for example 8 MiB. Replace the three launch
+config lines with:
+
+```text
+read
+/launch-input.bin
+sequential
+```
+
+Use host `--mode read-sequential`; use `permuted` and `--mode read-permuted` in a
+separate fresh guest for the other arm. Both perform the same number of 4 KiB
+`pread()` calls into the correct destination offsets. The permuted order is
+`(page*1531+17) % page_count`. File open/stat, buffer allocation/prefaulting, and
+byte verification are outside the read timer. The size limit is 32 MiB. Every byte
+is checked after timing; the metric checksum is the byte sum plus byte count.
+The repeating fixture pattern is a benchmark guard, not a comprehensive storage
+correctness test. Warm repeats test cached reads and copies. Order-sensitive
+read-ahead should improve sequential access without amplifying permuted reads.
+
+`report.json` retains guest timings, per-phase QMP block-stat deltas, and NCQ
+submission/completion counts, maximum outstanding tags, and read-size histograms.
+The QEMU trace brackets use traced `query-blockstats` requests, so buffered trace
+file writes cannot move events between phases. Gates and QMP calls are outside
+the guest timers. These brackets also cover validation/reporting outside the
+read timer and can include kernel background I/O. `clean_boundaries` means no
+NCQ command crossed either boundary; it does not establish process ownership.
+Trace accounting includes every AHCI port; this runner attaches one root disk.
+Sizes assume its 512-byte logical sectors. Keep `serial.log`, `ahci.trace`,
+`command.json`, the overlay, and failure logs alongside the report.
+Add `--no-trace` for a timing control with NCQ trace logging disabled; QMP deltas
+remain available. The parser rejects competing kernel serial logs rather than
+attempting to repair interleaved measurements. Malformed or incomplete
+measurements fail, and the original serial bytes remain in the log.
+
+Compare command counts and sizes as well as elapsed time. Reducing 4 KiB commands
+through batching can help while still using queue depth one. Increasing NCQ depth
+requires overlapping requests; a larger userspace buffer alone does not prove
+that. Warm latency with zero disk reads points to work outside the storage
+transport. QEMU TCG timings and QMP backend time do not establish physical SSD
+throughput or T420 latency.
+
+Run the focused trace-parser checks with:
+
+```sh
+uv run --no-project python scripts/benchmarks/test_launch_latency.py -v
+```
