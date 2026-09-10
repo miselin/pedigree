@@ -6,12 +6,14 @@
  */
 
 #include "pedigree/kernel/TargetInfo.h"
+#include "pedigree/kernel/errors.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cstdint>
 #include <memory>
 #include <thread>
@@ -1076,8 +1078,16 @@ class FillBatchDisk final : public Disk {
     if (!buffer || location > bytes.size() || length > bytes.size() - location)
       return false;
     dataReads.push_back({location, length});
+    if (location == failedReadLocation)
+      return false;
     MemoryCopy(buffer, bytes.data() + location, length);
     return true;
+  }
+  bool readIntoBatch(ReadBuffer* buffers, size_t count) override {
+    readBatchSizes.push_back(count);
+    if (readBatchObserver)
+      readBatchObserver(readBatchContext);
+    return Disk::readIntoBatch(buffers, count);
   }
   bool writeFrom(uint64_t location, const void* buffer, size_t length) override {
     if (!buffer || location > bytes.size() || length > bytes.size() - location)
@@ -1137,6 +1147,7 @@ class FillBatchDisk final : public Disk {
   void resetActivity() {
     batchSizes.clear();
     dataReads.clear();
+    readBatchSizes.clear();
     dataWrites.clear();
     singleSyncs = legacyBatches = reads = unpins = completedSinceBarrier = 0;
   }
@@ -1146,6 +1157,10 @@ class FillBatchDisk final : public Disk {
   std::vector<size_t> pins;
   std::vector<size_t> batchSizes;
   std::vector<Transfer> dataReads;
+  std::vector<size_t> readBatchSizes;
+  void (*readBatchObserver)(void*) = nullptr;
+  void* readBatchContext = nullptr;
+  uint64_t failedReadLocation = UINT64_MAX;
   std::vector<Transfer> dataWrites;
   std::vector<Transfer> pendingWrites;
   size_t failedTransfer = ~size_t(0);
@@ -1184,9 +1199,29 @@ class ForcedFillBatchFile final : public Ext2File {
   bool hasUpper(size_t offset) {
     return cacheState().fill.exists(offset, FillBatchDisk::Page);
   }
+  uintptr_t upperAddress(size_t offset) {
+    const uintptr_t page = cacheState().fill.lookup(offset);
+    if (page)
+      cacheState().fill.release(offset);
+    return page;
+  }
+  std::vector<uint8_t> upperContents(size_t offset) {
+    const uintptr_t page = cacheState().fill.lookup(offset);
+    if (!page)
+      return {};
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(page);
+    std::vector<uint8_t> result(bytes, bytes + FillBatchDisk::Page);
+    cacheState().fill.release(offset);
+    return result;
+  }
   std::vector<size_t> upperBatches;
+  std::vector<size_t> upperReadBatches;
 
  protected:
+  bool readPages(ReadPage* pages, size_t count) override {
+    upperReadBatches.push_back(count);
+    return Ext2File::readPages(pages, count);
+  }
   bool useFillCache() const override {
     // MMU Ext2 uses its fill cache even when filesystem blocks are native pages.
     return true;
@@ -1350,4 +1385,126 @@ TEST(Ext2Writeback, ForcedFillBarrierFailureRetainsEveryUpperPageForRetry) {
   EXPECT_TRUE(fixture.disk.balanced());
   for (size_t i = 0; i < pages; ++i)
     EXPECT_TRUE(fixture.file->evictUpper(i * FillBatchDisk::Page));
+}
+
+TEST(Ext2Writeback, MultiPageReadBoundsBatchesAndPreservesExactEofCopy) {
+  constexpr size_t Page = FillBatchDisk::Page;
+  const size_t fileSize = (File::MaxReadPages + 2) * Page + 333;
+  FillBatchFixture fixture(Page, fileSize);
+  for (size_t i = 0; i < fixture.blocks.size(); ++i)
+    std::fill_n(fixture.disk.bytes.begin() + fixture.blocks[i] * Page, Page,
+                static_cast<uint8_t>(0x20 + i));
+  std::vector<uint8_t> result(fileSize + Page, 0xE3);
+  ASSERT_EQ(fixture.file->read(7, result.size(), reinterpret_cast<uintptr_t>(result.data())),
+            fileSize - 7);
+  EXPECT_EQ(fixture.file->upperReadBatches, (std::vector<size_t>{File::MaxReadPages, 3}));
+  EXPECT_EQ(fixture.disk.readBatchSizes, (std::vector<size_t>{Disk::MaxReadBuffers, 3}));
+  for (size_t i = 0; i < fileSize - 7; ++i)
+    ASSERT_EQ(result[i], static_cast<uint8_t>(0x20 + (i + 7) / Page));
+  EXPECT_TRUE(std::all_of(result.begin() + fileSize - 7, result.end(),
+                          [](uint8_t value) { return value == 0xE3; }));
+  const auto tail = fixture.file->upperContents((fileSize / Page) * Page);
+  ASSERT_EQ(tail.size(), Page);
+  EXPECT_TRUE(
+      std::all_of(tail.begin() + 333, tail.end(), [](uint8_t value) { return value == 0; }));
+  fixture.disk.resetActivity();
+  fixture.file->upperReadBatches.clear();
+  EXPECT_EQ(fixture.file->read(0, fileSize, 0), fileSize);
+  EXPECT_TRUE(fixture.disk.dataReads.empty());
+  EXPECT_TRUE(fixture.disk.readBatchSizes.empty());
+  EXPECT_TRUE(fixture.file->upperReadBatches.empty());
+  for (size_t i = 0; i < fixture.blocks.size(); ++i)
+    EXPECT_TRUE(fixture.file->evictUpper(i * Page));
+  EXPECT_TRUE(fixture.disk.dataWrites.empty());
+  EXPECT_TRUE(fixture.disk.balanced());
+}
+
+TEST(Ext2Writeback, MultiPagePopulationRetainsCanonicalCachedGapsAndTransportPins) {
+  constexpr size_t Page = FillBatchDisk::Page;
+  FillBatchFixture fixture(Page, 4 * Page);
+  ASSERT_EQ(fixture.file->populateRange(Page, Page), Page);
+  const uintptr_t existing = fixture.file->upperAddress(Page);
+  ASSERT_NE(existing, 0U);
+  fixture.disk.resetActivity();
+  fixture.file->upperReadBatches.clear();
+  fixture.disk.readBatchContext = fixture.file.get();
+  fixture.disk.readBatchObserver = [](void* context) {
+    auto* file = static_cast<ForcedFillBatchFile*>(context);
+    for (size_t i = 0; i < 4; ++i)
+      EXPECT_FALSE(file->evictUpper(i * Page));
+  };
+  EXPECT_EQ(fixture.file->populateRange(0, 4 * Page), 4 * Page);
+  EXPECT_EQ(fixture.file->upperAddress(Page), existing);
+  EXPECT_EQ(fixture.file->upperReadBatches, (std::vector<size_t>{3}));
+  EXPECT_EQ(fixture.disk.readBatchSizes, (std::vector<size_t>{3}));
+  fixture.disk.readBatchObserver = nullptr;
+  fixture.disk.resetActivity();
+  EXPECT_EQ(fixture.file->populateRange(0, 4 * Page), Page);
+  EXPECT_TRUE(fixture.disk.readBatchSizes.empty());
+  EXPECT_EQ(fixture.file->populateRange(4 * Page, Page), 0U);
+  EXPECT_EQ(fixture.file->populateRange(~size_t{0}, Page), 0U);
+  EXPECT_EQ(fixture.file->populateRange(0, 0), 0U);
+  for (size_t i = 0; i < 4; ++i)
+    EXPECT_TRUE(fixture.file->evictUpper(i * Page));
+  EXPECT_TRUE(fixture.disk.dataWrites.empty());
+  EXPECT_TRUE(fixture.disk.balanced());
+}
+
+TEST(Ext2Writeback, FailedMiddlePrefetchPublishesOnlyCompletePagesAndPreservesReadPrefix) {
+  constexpr size_t Page = FillBatchDisk::Page;
+  FillBatchFixture fixture(Page, 3 * Page);
+  fixture.disk.failedReadLocation = fixture.blocks[1] * Page;
+  EXPECT_EQ(fixture.file->populateRange(0, 3 * Page), Page);
+  EXPECT_TRUE(fixture.file->hasUpper(0));
+  EXPECT_FALSE(fixture.file->hasUpper(Page));
+  EXPECT_TRUE(fixture.file->hasUpper(2 * Page));
+  EXPECT_EQ(fixture.disk.readBatchSizes, (std::vector<size_t>{3}));
+  std::vector<uint8_t> result(3 * Page, 0xE3);
+  errno = Error::OutOfMemory;
+  EXPECT_EQ(fixture.file->read(0, result.size(), reinterpret_cast<uintptr_t>(result.data())), Page);
+  EXPECT_EQ(errno, Error::IoError);
+  EXPECT_TRUE(std::all_of(result.begin(), result.begin() + Page,
+                          [](uint8_t value) { return value == 0x11; }));
+  EXPECT_TRUE(std::all_of(result.begin() + Page, result.end(),
+                          [](uint8_t value) { return value == 0xE3; }));
+  EXPECT_FALSE(fixture.file->hasUpper(Page));
+  fixture.disk.failedReadLocation = UINT64_MAX;
+  fixture.disk.resetActivity();
+  EXPECT_EQ(fixture.file->read(Page, 2 * Page, 0), 2 * Page);
+  EXPECT_EQ(fixture.disk.readBatchSizes, (std::vector<size_t>{1}));
+  for (size_t i = 0; i < 3; ++i)
+    EXPECT_TRUE(fixture.file->evictUpper(i * Page));
+  EXPECT_TRUE(fixture.disk.dataWrites.empty());
+  EXPECT_TRUE(fixture.disk.balanced());
+}
+
+TEST(Ext2Writeback, MultiPageSubpageReadsHandleSparseTailsAndConstituentFailure) {
+  constexpr size_t Page = FillBatchDisk::Page;
+  constexpr size_t Block = 1024;
+  FillBatchFixture fixture(Block, 9 * Page + 333, 1);
+  EXPECT_EQ(fixture.file->populateRange(0, fixture.fileSize), fixture.fileSize);
+  EXPECT_EQ(fixture.file->upperReadBatches, (std::vector<size_t>{10}));
+  EXPECT_EQ(fixture.disk.readBatchSizes, (std::vector<size_t>{Disk::MaxReadBuffers, 4}));
+  const auto first = fixture.file->upperContents(0);
+  ASSERT_EQ(first.size(), Page);
+  for (size_t i = 0; i < first.size(); ++i)
+    ASSERT_EQ(first[i], i >= Block && i < 2 * Block ? 0 : 0x11);
+  const auto tail = fixture.file->upperContents(9 * Page);
+  ASSERT_EQ(tail.size(), Page);
+  EXPECT_TRUE(
+      std::all_of(tail.begin(), tail.begin() + 333, [](uint8_t value) { return value == 0x11; }));
+  EXPECT_TRUE(
+      std::all_of(tail.begin() + 333, tail.end(), [](uint8_t value) { return value == 0; }));
+
+  ASSERT_TRUE(fixture.file->evictUpper(8 * Page));
+  fixture.disk.failedReadLocation = fixture.blocks[34] * Block;
+  EXPECT_EQ(fixture.file->populateRange(8 * Page, Page), 0U);
+  EXPECT_FALSE(fixture.file->hasUpper(8 * Page));
+  EXPECT_TRUE(fixture.file->hasUpper(9 * Page));
+  fixture.disk.failedReadLocation = UINT64_MAX;
+  EXPECT_EQ(fixture.file->populateRange(8 * Page, Page), Page);
+  for (size_t i = 0; i < 10; ++i)
+    EXPECT_TRUE(fixture.file->evictUpper(i * Page));
+  EXPECT_TRUE(fixture.disk.dataWrites.empty());
+  EXPECT_TRUE(fixture.disk.balanced());
 }

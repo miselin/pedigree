@@ -94,6 +94,26 @@ BufferView Disk::read(uint64_t location) {
   return BufferView();
 }
 
+bool Disk::readIntoBatch(ReadBuffer* buffers, size_t count) {
+  if (count > MaxReadBuffers || (count && !buffers))
+    return false;
+  for (size_t i = 0; i < count; ++i)
+    buffers[i].complete = false;
+  if (!count)
+    return true;
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return false;
+  bool success = true;
+  for (size_t i = 0; i < count; ++i) {
+    auto& request = buffers[i];
+    request.complete = readInto(request.location, request.buffer, request.length);
+    success &= request.complete;
+  }
+  return success;
+}
+
 bool Disk::readInto(uint64_t location, void* buffer, size_t length) {
   TerminationDeferral lifetime;
   DiskUse diskUse;

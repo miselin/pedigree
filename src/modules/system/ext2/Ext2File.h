@@ -96,6 +96,7 @@ class Ext2File : public File, public Ext2Node {
   virtual bool allowPhysicalPage() const override;
   virtual bool prepareWrite(uint64_t location, uint64_t size) override;
   bool readPage(uint64_t location, uintptr_t destination) override;
+  bool readPages(ReadPage* pages, size_t count) override;
   virtual bool resizeFile(size_t size) override;
   virtual bool allocateFileRange(size_t offset, size_t length) override;
   virtual bool prepareShrink(const ShrinkContext& context,

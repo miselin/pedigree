@@ -15,6 +15,7 @@
  */
 #ifndef AHCI_PORT_H
 #define AHCI_PORT_H
+#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
@@ -30,6 +31,7 @@ class AhciPort {
   bool interrupt(bool pending);
   bool command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buffer, size_t bytes,
                bool write, bool interrupts, bool interruptProbe = false);
+  bool readBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupts);
   size_t interruptCompletions() const;
   size_t maximumOutstanding() const;
   void configureDisk(size_t sectorBytes, size_t queueDepth);
@@ -40,22 +42,31 @@ class AhciPort {
  private:
   uint32_t read(size_t reg) const;
   void write(size_t reg, uint32_t value);
+  void waitForProgress();
   bool waitClear(size_t reg, uint32_t bits, size_t milliseconds);
   bool stopEngines();
   void acknowledge(uint32_t status);
   void observe(uint32_t status, bool fromInterrupt);
   void pollCompletions(bool interrupts);
 
+  bool chooseSlot(bool queued, size_t& index);
+  bool issueCommand(size_t index, uint8_t opcode, uint64_t lba, uint16_t sectors, void* buffer,
+                    size_t bytes, bool writing, bool queued, bool interrupts);
+  bool reapCommand(size_t index, uint8_t opcode, void* buffer, size_t bytes, bool writing,
+                   bool queued, bool interrupts, bool interruptProbe);
+
   IoBase* m_Registers;
   size_t m_Port;
   MemoryRegion m_Control;
   struct Slot {
-    Slot() : data("AHCI transfer buffer"), completion(0, false), done(false), errors(0) {}
+    Slot()
+        : data("AHCI transfer buffer"), completion(0, false), done(false), errors(0), deadline(0) {}
     MemoryRegion data;
     physical_uintptr_t pages[16];
     Semaphore completion;
     bool done;
     uint32_t errors;
+    uint64_t deadline;
   };
   Slot m_Slots[32];
   Mutex m_CommandLock;

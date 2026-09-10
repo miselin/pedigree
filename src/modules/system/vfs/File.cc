@@ -261,7 +261,10 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
     if (sz > (fileSize - location))
       sz = fileSize - location;
 
-    uintptr_t buff = readIntoCache(block);
+    const size_t readAheadLimit = MaxReadPages * blockSize;
+    const size_t readAheadBytes =
+        size > blockSize ? (size < readAheadLimit - offs ? size + offs : readAheadLimit) : 0;
+    uintptr_t buff = readIntoCache(block, false, readAheadBytes);
     if (buff == FILE_BAD_BLOCK) {
       ERROR("File::read - failed to get page from cache, returning early");
       return n;
@@ -1410,6 +1413,111 @@ void File::markPageExternallyWritable(size_t offset) {
   }
 }
 
+size_t File::populateRange(size_t offset, size_t length) {
+  if (!length || isBytewise())
+    return 0;
+  if (!useFillCache() || m_bDirect) {
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    const size_t limit = MaxReadPages * pageSize - offset % pageSize;
+    return read(offset, length < limit ? length : limit, 0);
+  }
+  LockGuard<Mutex> guard(dataMutationLock());
+  return populateRangeLocked(offset, length);
+}
+
+size_t File::populateRangeLocked(size_t offset, size_t length) {
+  const size_t fileSize = getSize();
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  if (!length || offset >= fileSize || !pageSize)
+    return 0;
+  const size_t within = offset % pageSize;
+  const size_t first = offset - within;
+  const size_t limit = MaxReadPages * pageSize - within;
+  if (length > fileSize - offset)
+    length = fileSize - offset;
+  if (length > limit)
+    length = limit;
+  LockGuard<Mutex> fillGuard(cacheState().fillLock);
+  Cache& cache = cacheState().fill;
+  const uintptr_t demand = cache.lookup(first);
+  if (demand) {
+    setCachedPage(first / pageSize, demand);
+    cache.release(first);
+    return length < pageSize - within ? length : pageSize - within;
+  }
+
+  const size_t count = (within + length - 1) / pageSize + 1;
+  ReadPage pages[MaxReadPages] = {};
+  ReadPage pending[MaxReadPages] = {};
+  size_t pendingSlots[MaxReadPages] = {};
+  bool inserted[MaxReadPages] = {};
+  size_t pendingCount = 0;
+  for (size_t i = 0; i < count; ++i) {
+    const size_t location = first + i * pageSize;
+    pages[i].offset = location;
+    pages[i].buffer = cache.lookup(location);
+    if (pages[i].buffer) {
+      pages[i].complete = true;
+      continue;
+    }
+    bool existed = false;
+    const uintptr_t fresh = cache.insert(location, &existed);
+    if (!fresh)
+      continue;
+    // An Editing page's publication reference alone does not protect it from
+    // pressure-driven eviction while the rest of this batch is reserved.
+    pages[i].buffer = cache.lookup(location);
+    if (!pages[i].buffer)
+      continue;
+    inserted[i] = !existed;
+    if (existed) {
+      pages[i].complete = true;
+      continue;
+    }
+    pendingSlots[pendingCount] = i;
+    pending[pendingCount++] = pages[i];
+  }
+  if (pendingCount) {
+    const bool allRead = readPages(pending, pendingCount);
+    (void)allRead;
+    for (size_t i = 0; i < pendingCount; ++i)
+      pages[pendingSlots[i]].complete = pending[i].complete;
+  }
+
+  size_t readyPages = 0;
+  while (readyPages < count && pages[readyPages].complete)
+    ++readyPages;
+  for (size_t i = 0; i < count; ++i) {
+    if (!pages[i].buffer)
+      continue;
+    if (pages[i].complete) {
+      if (inserted[i])
+        cache.markNoLongerEditing(pages[i].offset);
+      setCachedPage(pages[i].offset / pageSize, pages[i].buffer);
+    }
+    cache.release(pages[i].offset);
+    if (inserted[i] && !pages[i].complete) {
+      const bool discarded = cache.discardEditing(pages[i].offset);
+      (void)discarded;
+    }
+  }
+  if (!readyPages)
+    return 0;
+  const size_t available = readyPages * pageSize - within;
+  return available < length ? available : length;
+}
+
+bool File::readPages(ReadPage* pages, size_t count) {
+  if (count > MaxReadPages || (count && !pages))
+    return false;
+  bool succeeded = true;
+  for (size_t i = 0; i < count; ++i) {
+    pages[i].complete = readPage(pages[i].offset, pages[i].buffer);
+    succeeded = pages[i].complete && succeeded;
+  }
+  return succeeded;
+}
+
 bool File::readPage(uint64_t location, uintptr_t destination) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const size_t blockSize = getBlockSize();
@@ -1468,7 +1576,7 @@ bool File::syncFillCache(size_t offset, bool async, bool& present) {
   return succeeded;
 }
 
-uintptr_t File::readIntoCache(uintptr_t block, bool overwriteWholePage) {
+uintptr_t File::readIntoCache(uintptr_t block, bool overwriteWholePage, size_t readAheadBytes) {
   size_t blockSize = getBlockSize();
   size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
   const bool fillCache = useFillCache();
@@ -1484,6 +1592,15 @@ uintptr_t File::readIntoCache(uintptr_t block, bool overwriteWholePage) {
       if (cached) {
         setCachedPage(block, cached);
         return cached;
+      }
+      if (readAheadBytes > nativeBlockSize) {
+        // Population takes fillLock itself; the caller retains dataMutationLock
+        // across this handoff and the final acquisition of the demand page.
+        cacheState().fillLock.release();
+        fillGuard.disown();
+        if (!populateRangeLocked(offset, readAheadBytes))
+          return FILE_BAD_BLOCK;
+        return readIntoCache(block);
       }
     }
 

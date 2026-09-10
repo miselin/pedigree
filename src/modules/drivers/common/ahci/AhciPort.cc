@@ -18,9 +18,13 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -54,12 +58,23 @@ uint32_t AhciPort::read(size_t reg) const {
 void AhciPort::write(size_t reg, uint32_t value) {
   m_Registers->write32(value, PortBase + m_Port * PortStride + reg);
 }
+void AhciPort::waitForProgress() {
+  Thread* thread = Processor::information().getCurrentThread();
+  if (!thread || !Processor::getInterrupts()) {
+    Processor::pause();
+  } else if (thread->eventsDeferred()) {
+    // Mmap faults suppress timeout events along with other event callbacks.
+    Scheduler::instance().yield();
+  } else {
+    Time::delay(Time::Multiplier::Millisecond);
+  }
+}
 bool AhciPort::waitClear(size_t reg, uint32_t bits, size_t milliseconds) {
   const auto deadline = Time::getTicks() + milliseconds * Time::Multiplier::Millisecond;
   do {
     if (!(read(reg) & bits))
       return true;
-    Time::delay(Time::Multiplier::Millisecond);
+    waitForProgress();
   } while (Time::getTicks() < deadline);
   return !(read(reg) & bits);
 }
@@ -136,11 +151,11 @@ bool AhciPort::initialise(uint32_t capabilities, uint32_t version, uint32_t exte
   write(Sctl, control | 1U);
   const auto resetUntil = Time::getTicks() + Time::Multiplier::Millisecond;
   while (Time::getTicks() < resetUntil)
-    Time::delay(Time::Multiplier::Millisecond);
+    waitForProgress();
   write(Sctl, control);
   const auto linkDeadline = Time::getTicks() + Time::Multiplier::Second;
   while ((read(Ssts) & 15U) != 3U && Time::getTicks() < linkDeadline)
-    Time::delay(Time::Multiplier::Millisecond);
+    waitForProgress();
   write(Serr, 0xffffffffU);
   if ((read(Ssts) & 15U) != 3U)
     return false;
@@ -221,39 +236,26 @@ bool AhciPort::interrupt(bool pending) {
   acknowledge(status);
   return true;
 }
-bool AhciPort::command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buffer, size_t bytes,
-                       bool writing, bool interrupts, bool interruptProbe) {
-  if (bytes > MaxTransfer || (bytes && (!buffer || (bytes & 1U))) || (lba >> 48))
+bool AhciPort::chooseSlot(bool queued, size_t& index) {
+  LockGuard<Mutex> state(m_StateLock);
+  index = 32;
+  if (!m_Online)
     return false;
-  TerminationDeferral lifetime;
-  LockGuard<Mutex> command(m_CommandLock);
-  const bool queued = m_QueueDepth && (opcode == 0x25 || opcode == 0x35);
-  if (queued)
-    opcode = writing ? 0x61 : 0x60;
-  // The admission lock prevents new queued reads from overtaking a flush.
-  const auto admissionDeadline = Time::getTicks() + 120 * Time::Multiplier::Second;
-  size_t index = 32;
-  for (;;) {
-    {
-      LockGuard<Mutex> state(m_StateLock);
-      if (!m_Online)
-        return false;
-      if (queued || !m_Active) {
-        const size_t count = queued ? m_QueueDepth : 1;
-        for (size_t i = 0; i < count; ++i) {
-          if (!(m_Active & (1U << i))) {
-            index = i;
-            break;
-          }
-        }
+  if (queued || !m_Active) {
+    const size_t count = queued ? m_QueueDepth : 1;
+    for (size_t i = 0; i < count; ++i) {
+      if (!(m_Active & (1U << i))) {
+        index = i;
+        break;
       }
     }
-    if (index != 32)
-      break;
-    if (Time::getTicks() >= admissionDeadline)
-      return false;
-    Time::delay(Time::Multiplier::Millisecond);
   }
+  return true;
+}
+
+bool AhciPort::issueCommand(size_t index, uint8_t opcode, uint64_t lba, uint16_t sectors,
+                            void* buffer, size_t bytes, bool writing, bool queued,
+                            bool interrupts) {
   Slot& slot = m_Slots[index];
   const uint32_t mask = 1U << index;
   auto* header = static_cast<CommandHeader*>(m_Control.virtualAddress()) + index;
@@ -311,30 +313,30 @@ bool AhciPort::command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buf
     FENCE();
     if (queued)
       write(Sact, mask);
+    const size_t timeoutSeconds = (opcode == 0xe7 || opcode == 0xea) ? 120 : 30;
+    slot.deadline = Time::getTicks() + timeoutSeconds * Time::Multiplier::Second;
     write(Ci, mask);
     (void)read(Ci);
   }
-  if (queued) {
-    m_CommandLock.release();
-    command.disown();
-  }
-  const size_t timeoutSeconds = (opcode == 0xe7 || opcode == 0xea) ? 120 : 30;
-  const auto deadline = Time::getTicks() + timeoutSeconds * Time::Multiplier::Second;
+  return true;
+}
+
+bool AhciPort::reapCommand(size_t index, uint8_t opcode, void* buffer, size_t bytes, bool writing,
+                           bool queued, bool interrupts, bool interruptProbe) {
+  Slot& slot = m_Slots[index];
+  const uint32_t mask = 1U << index;
+  auto* header = static_cast<CommandHeader*>(m_Control.virtualAddress()) + index;
   bool success = false;
   bool interruptGrace = interruptProbe;
   for (;;) {
-    // Only the readiness probe gives the IRQ worker a full second before
-    // polling can consume and acknowledge this command's completion.
-    const bool waitExpired =
-        interrupts && !slot.completion.acquireForCompletion(1, interruptGrace ? 1 : 0,
-                                                            interruptGrace ? 0 : 10000);
-    interruptGrace = false;
     {
       LockGuard<Mutex> state(m_StateLock);
-      if (!slot.done && (!interrupts || waitExpired)) {
+      // The readiness probe must observe a real IRQ before polling can
+      // consume its completion; ordinary owners check hardware before sleeping.
+      if (!slot.done && !interruptGrace) {
         pollCompletions(interrupts);
       }
-      if (slot.done || Time::getTicks() >= deadline) {
+      if (slot.done || Time::getTicks() >= slot.deadline) {
         FENCE();
         // AHCI 5.4.1: PRDBC is not defined for native queued commands.
         success = slot.done && !slot.errors && m_Online && !(read(queued ? Sact : Ci) & mask) &&
@@ -366,11 +368,126 @@ bool AhciPort::command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buf
         break;
       }
     }
-    if (!interrupts)
-      Time::delay(Time::Multiplier::Millisecond);
+    Thread* thread = Processor::information().getCurrentThread();
+    if (interrupts && thread && Processor::getInterrupts() && !thread->eventsDeferred()) {
+      const bool acquired = slot.completion.acquireForCompletion(1, interruptGrace ? 1 : 0,
+                                                                 interruptGrace ? 0 : 10000);
+      (void)acquired;
+    } else {
+      waitForProgress();
+    }
+    interruptGrace = false;
   }
   return success;
 }
+
+bool AhciPort::command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buffer, size_t bytes,
+                       bool writing, bool interrupts, bool interruptProbe) {
+  if (bytes > MaxTransfer || (bytes && (!buffer || (bytes & 1U))) || (lba >> 48))
+    return false;
+  TerminationDeferral lifetime;
+  LockGuard<Mutex> command(m_CommandLock);
+  const bool queued = m_QueueDepth && (opcode == 0x25 || opcode == 0x35);
+  if (queued)
+    opcode = writing ? 0x61 : 0x60;
+  const auto admissionDeadline = Time::getTicks() + 120 * Time::Multiplier::Second;
+  size_t index = 32;
+  while (true) {
+    if (!chooseSlot(queued, index))
+      return false;
+    if (index != 32)
+      break;
+    if (Time::getTicks() >= admissionDeadline)
+      return false;
+    waitForProgress();
+  }
+  if (!issueCommand(index, opcode, lba, sectors, buffer, bytes, writing, queued, interrupts))
+    return false;
+  if (queued) {
+    m_CommandLock.release();
+    command.disown();
+  }
+  return reapCommand(index, opcode, buffer, bytes, writing, queued, interrupts, interruptProbe);
+}
+
+bool AhciPort::readBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupts) {
+  if (count > Disk::MaxReadBuffers || (count && !buffers))
+    return false;
+  for (size_t i = 0; i < count; ++i)
+    buffers[i].complete = false;
+  for (size_t i = 0; i < count; ++i) {
+    const auto& buffer = buffers[i];
+    if (!buffer.buffer || !buffer.length || buffer.length > TargetInfo::getPageSize() ||
+        buffer.length > MaxTransfer || !m_SectorBytes || buffer.location % m_SectorBytes ||
+        buffer.length % m_SectorBytes || buffer.location / m_SectorBytes >= (1ULL << 48) ||
+        buffer.length / m_SectorBytes > (1ULL << 48) - buffer.location / m_SectorBytes)
+      return false;
+  }
+  TerminationDeferral lifetime;
+  if (!m_QueueDepth) {
+    for (size_t i = 0; i < count; ++i) {
+      auto& buffer = buffers[i];
+      buffer.complete =
+          command(0x25, buffer.location / m_SectorBytes, buffer.length / m_SectorBytes,
+                  buffer.buffer, buffer.length, false, interrupts);
+      if (!buffer.complete)
+        return false;
+    }
+    return true;
+  }
+
+  size_t next = 0;
+  while (next < count) {
+    size_t slots[Disk::MaxReadBuffers];
+    const size_t first = next;
+    size_t issued = 0;
+    bool admitted = true;
+    {
+      // A flush cannot overtake this wave. Reaping never requires this gate.
+      LockGuard<Mutex> command(m_CommandLock);
+      const auto admissionDeadline = Time::getTicks() + 120 * Time::Multiplier::Second;
+      while (next < count) {
+        size_t index = 32;
+        if (!chooseSlot(true, index)) {
+          admitted = false;
+          break;
+        }
+        if (index == 32) {
+          // Completed tags remain owned until reaped. Waiting here while owning
+          // tags could prevent this very batch from freeing the next slot.
+          if (issued)
+            break;
+          if (Time::getTicks() >= admissionDeadline) {
+            admitted = false;
+            break;
+          }
+          waitForProgress();
+          continue;
+        }
+        auto& buffer = buffers[next];
+        if (!issueCommand(index, 0x60, buffer.location / m_SectorBytes,
+                          buffer.length / m_SectorBytes, buffer.buffer, buffer.length, false, true,
+                          interrupts)) {
+          admitted = false;
+          break;
+        }
+        slots[issued++] = index;
+        ++next;
+      }
+    }
+    bool succeeded = admitted;
+    for (size_t i = 0; i < issued; ++i) {
+      auto& buffer = buffers[first + i];
+      buffer.complete =
+          reapCommand(slots[i], 0x60, buffer.buffer, buffer.length, false, true, interrupts, false);
+      succeeded = buffer.complete && succeeded;
+    }
+    if (!succeeded)
+      return false;
+  }
+  return true;
+}
+
 void AhciPort::shutdown() {
   LockGuard<Mutex> command(m_CommandLock);
   if (!m_AddressesInstalled)
@@ -384,7 +501,7 @@ void AhciPort::shutdown() {
     }
     if (Time::getTicks() >= deadline)
       panic("AHCI: command owners did not drain during shutdown");
-    Time::delay(Time::Multiplier::Millisecond);
+    waitForProgress();
   }
   {
     LockGuard<Mutex> state(m_StateLock);

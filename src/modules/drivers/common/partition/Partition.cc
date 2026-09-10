@@ -44,6 +44,28 @@ bool Partition::readInto(uint64_t location, void* buffer, size_t length) {
   return parent->readInto(m_Start + location, buffer, length);
 }
 
+bool Partition::readIntoBatch(ReadBuffer* buffers, size_t count) {
+  if (count > MaxReadBuffers || (count && !buffers))
+    return false;
+  for (size_t i = 0; i < count; ++i)
+    buffers[i].complete = false;
+  if (!count)
+    return true;
+  ReadBuffer translated[MaxReadBuffers];
+  for (size_t i = 0; i < count; ++i) {
+    if (!containsRange(buffers[i].location, buffers[i].length))
+      return false;
+    translated[i] = buffers[i];
+    translated[i].location += m_Start;
+  }
+  auto* parent = static_cast<Disk*>(getParent());
+  ensureAligned(parent);
+  const bool success = parent->readIntoBatch(translated, count);
+  for (size_t i = 0; i < count; ++i)
+    buffers[i].complete = translated[i].complete;
+  return success;
+}
+
 bool Partition::writeFrom(uint64_t location, const void* buffer, size_t length) {
   if (!containsRange(location, length))
     return false;

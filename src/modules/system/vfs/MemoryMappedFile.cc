@@ -404,20 +404,32 @@ void MemoryMappedFile::discardFilePages(VirtualAddressSpace& space, size_t end) 
   }
 }
 
-static physical_uintptr_t getBackingPage(File* pBacking, size_t fileOffset) {
+physical_uintptr_t MemoryMappedFile::getBackingPage(size_t fileOffset, size_t mappingBytes) {
+  File* pBacking = m_pBacking;
   size_t pageSz = PhysicalMemoryManager::getPageSize();
   const size_t fileSize = pBacking->getSize();
   if (fileOffset >= fileSize) {
     return ~0UL;
   }
-  const size_t expected = fileSize - fileOffset < pageSz ? fileSize - fileOffset : pageSz;
+  size_t expected = fileSize - fileOffset < pageSz ? fileSize - fileOffset : pageSz;
+  if (expected > mappingBytes)
+    expected = mappingBytes;
 
   physical_uintptr_t phys = pBacking->getPhysicalPage(fileOffset);
   if (phys == ~0UL) {
-    // No page found, trigger a read to fix that!
-    uint64_t actual = 0;
-
-    if ((actual = pBacking->read(fileOffset, expected, 0)) != expected) {
+    // Grow only when faults consume the preceding window. A jump starts small
+    // to avoid reading large unused portions of executables and random mappings.
+    m_ReadAheadPages = fileOffset == m_ReadAheadEnd
+                           ? (m_ReadAheadPages < 32 ? m_ReadAheadPages * 2 : 32)
+                           : 4;
+    const size_t window = mappingBytes < m_ReadAheadPages * pageSz
+                              ? mappingBytes
+                              : m_ReadAheadPages * pageSz;
+    auto* thread = Processor::information().getCurrentThread();
+    const size_t previousError = thread ? thread->getErrno() : 0;
+    const size_t actual = pBacking->populateRange(fileOffset, window);
+    m_ReadAheadEnd = fileOffset + actual;
+    if (actual < expected) {
       ERROR("Short read of " << pBacking->getName() << " in getBackingPage() - wanted " << expected
                              << " bytes but got " << actual << " instead");
     }
@@ -427,6 +439,9 @@ static physical_uintptr_t getBackingPage(File* pBacking, size_t fileOffset) {
           "*** Could not manage to get a physical page for a "
           "MemoryMappedFile ("
           << pBacking->getName() << ") - read got " << actual << " bytes!");
+    } else if (thread) {
+      // Failure of a speculative neighbour must not change a successful fault.
+      thread->setErrno(previousError);
     }
   }
 
@@ -559,7 +574,7 @@ bool MemoryMappedFile::trap(VirtualAddressSpace& va, uintptr_t address, bool bWr
       return false;
     }
     // No need to lock this section - only accessing m_Mappings once
-    physical_uintptr_t phys = getBackingPage(m_pBacking, fileOffset);
+    physical_uintptr_t phys = getBackingPage(fileOffset, m_Length - mappingOffset);
     if (phys == ~0UL) {
       if (population) {
         auto* thread = Processor::information().getCurrentThread();

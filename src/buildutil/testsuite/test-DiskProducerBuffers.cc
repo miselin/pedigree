@@ -94,6 +94,17 @@ class ForwardingDisk final : public Disk {
     lastLength = length;
     return result;
   }
+  bool readIntoBatch(ReadBuffer* buffers, size_t count) override {
+    batches.emplace_back(buffers, buffers + count);
+    bool success = true;
+    for (size_t i = 0; i < count; ++i) {
+      buffers[i].complete = result && i != failedBatchIndex;
+      success &= buffers[i].complete;
+      if (buffers[i].complete)
+        std::fill_n(static_cast<uint8_t*>(buffers[i].buffer), buffers[i].length, 0xb6);
+    }
+    return success;
+  }
   bool writeFrom(uint64_t location, const void* buffer, size_t length) override {
     writes.push_back(location);
     lastBuffer = buffer;
@@ -120,6 +131,8 @@ class ForwardingDisk final : public Disk {
   std::vector<uint64_t> reads;
   std::vector<uint64_t> writes;
   std::vector<uint64_t> alignments;
+  std::vector<std::vector<ReadBuffer>> batches;
+  size_t failedBatchIndex = std::numeric_limits<size_t>::max();
 };
 }  // namespace
 
@@ -200,6 +213,87 @@ TEST(DiskProducerBuffers, RejectsInvalidBoundsBeforeAcquiringViews) {
   EXPECT_TRUE(disk.reads.empty());
   EXPECT_TRUE(disk.writes.empty());
   disk.expectNoLoans();
+}
+
+TEST(DiskProducerBuffers, BatchFallbackDrainsLaterReadsAndMarksOnlyCompleteBuffers) {
+  LegacyBufferDisk disk;
+  disk.failedReadPage = 1;
+  uint8_t output[3][33];
+  for (auto& buffer : output)
+    std::fill_n(buffer, sizeof(buffer), 0xfd);
+  Disk::ReadBuffer requests[] = {{0, output[0] + 1, 31, true},
+                                 {PageBytes - 8, output[1] + 1, 31, true},
+                                 {2 * PageBytes + 3, output[2] + 1, 31, true}};
+  EXPECT_FALSE(disk.readIntoBatch(requests, 3));
+  EXPECT_TRUE(requests[0].complete);
+  EXPECT_FALSE(requests[1].complete);
+  EXPECT_TRUE(requests[2].complete);
+  EXPECT_TRUE(std::equal(output[0] + 1, output[0] + 32, disk.cached.begin()));
+  EXPECT_TRUE(std::equal(output[1] + 1, output[1] + 9, disk.cached.begin() + PageBytes - 8));
+  EXPECT_TRUE(std::all_of(output[1] + 9, output[1] + 32, [](uint8_t v) { return v == 0xfd; }));
+  EXPECT_TRUE(std::equal(output[2] + 1, output[2] + 32, disk.cached.begin() + 2 * PageBytes + 3));
+  for (const auto& buffer : output) {
+    EXPECT_EQ(buffer[0], 0xfd);
+    EXPECT_EQ(buffer[32], 0xfd);
+  }
+  disk.expectNoLoans();
+}
+
+TEST(DiskProducerBuffers, BatchFallbackHandlesRepeatedSubpagesAndBounds) {
+  LegacyBufferDisk disk;
+  uint8_t output[3][7] = {};
+  Disk::ReadBuffer requests[] = {
+      {5, output[0], 7, true}, {5, output[1], 7, true}, {disk.getSize() - 6, output[2], 7, true}};
+  EXPECT_FALSE(disk.readIntoBatch(requests, 3));
+  EXPECT_TRUE(requests[0].complete);
+  EXPECT_TRUE(requests[1].complete);
+  EXPECT_FALSE(requests[2].complete);
+  EXPECT_TRUE(std::equal(output[0], output[0] + 7, disk.cached.begin() + 5));
+  EXPECT_TRUE(std::equal(output[1], output[1] + 7, output[0]));
+  EXPECT_TRUE(std::all_of(output[2], output[2] + 7, [](uint8_t v) { return !v; }));
+  const size_t reads = disk.reads.size();
+  EXPECT_TRUE(disk.readIntoBatch(nullptr, 0));
+  EXPECT_FALSE(disk.readIntoBatch(nullptr, 1));
+  Disk::ReadBuffer oversized[Disk::MaxReadBuffers + 1] = {};
+  EXPECT_FALSE(disk.readIntoBatch(oversized, Disk::MaxReadBuffers + 1));
+  EXPECT_EQ(disk.reads.size(), reads);
+  disk.expectNoLoans();
+}
+
+TEST(DiskProducerBuffers, PartitionTranslatesOneBatchAndPreservesIndependentResults) {
+  ForwardingDisk parent;
+  Partition partition(String("batch"), 512, 2 * PageBytes);
+  partition.setParent(&parent);
+  parent.failedBatchIndex = 1;
+  uint8_t output[3][9] = {};
+  Disk::ReadBuffer requests[] = {{7, output[0] + 1, 7, true},
+                                 {PageBytes, output[1] + 1, 7, true},
+                                 {2 * PageBytes - 7, output[2] + 1, 7, true}};
+  EXPECT_FALSE(partition.readIntoBatch(requests, 3));
+  ASSERT_EQ(parent.batches.size(), 1U);
+  ASSERT_EQ(parent.batches[0].size(), 3U);
+  for (size_t i = 0; i < 3; ++i) {
+    EXPECT_EQ(parent.batches[0][i].location, requests[i].location + 512);
+    EXPECT_EQ(parent.batches[0][i].buffer, requests[i].buffer);
+    EXPECT_EQ(parent.batches[0][i].length, requests[i].length);
+    EXPECT_FALSE(parent.batches[0][i].complete);
+    EXPECT_EQ(requests[i].complete, i != 1);
+    EXPECT_TRUE(std::all_of(output[i] + 1, output[i] + 8,
+                            [i](uint8_t v) { return v == (i == 1 ? 0 : 0xb6); }));
+    EXPECT_EQ(output[i][0], 0);
+    EXPECT_EQ(output[i][8], 0);
+  }
+  EXPECT_EQ(requests[0].location, 7U);
+  EXPECT_EQ(requests[1].location, PageBytes);
+  EXPECT_EQ(requests[2].location, 2 * PageBytes - 7);
+  EXPECT_EQ(parent.alignments, (std::vector<uint64_t>{512}));
+  EXPECT_TRUE(parent.reads.empty());
+
+  requests[2].length = 8;
+  EXPECT_FALSE(partition.readIntoBatch(requests, 3));
+  EXPECT_EQ(parent.batches.size(), 1U);
+  for (const auto& request : requests)
+    EXPECT_FALSE(request.complete);
 }
 
 TEST(DiskProducerBuffers, PartitionForwardsExactTailRangesAndFinalBarrier) {

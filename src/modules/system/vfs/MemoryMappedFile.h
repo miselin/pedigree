@@ -501,6 +501,8 @@ class MemoryMappedFile : public MemoryMappedObject {
  private:
   void unmapUnlocked();
 
+  physical_uintptr_t getBackingPage(size_t fileOffset, size_t mappingBytes);
+
   void releaseDetachedPageUnlocked(uintptr_t oldAddress,
                                    const VirtualAddressSpace::DetachedPage& page);
 
@@ -524,6 +526,9 @@ class MemoryMappedFile : public MemoryMappedObject {
 
   /** Offset within the file that this mapping begins at. */
   size_t m_Offset;
+
+  size_t m_ReadAheadEnd = ~size_t{0};
+  size_t m_ReadAheadPages = 4;
 
   /** List of existing mappings. */
   Tree<uintptr_t, physical_uintptr_t> m_Mappings;

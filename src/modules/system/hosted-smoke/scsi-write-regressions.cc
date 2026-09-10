@@ -585,6 +585,22 @@ class HostedScsiDisk final : public ScsiDisk {
     return m_BufferTransferCount;
   }
 
+  void beginReadBufferBatch(uint64_t failedLocation = ~uint64_t{0}) {
+    m_BufferTransferCount = 0;
+    m_BufferBatchCount = 0;
+    m_LastBufferBatchSize = 0;
+    m_FailedBufferLocation = failedLocation;
+  }
+
+  size_t bufferBatchCount() const {
+    return m_BufferBatchCount;
+  }
+
+  bool bufferBatchMatches(const uint64_t* locations, size_t count) const {
+    return m_BufferBatchCount == 1 && m_LastBufferBatchSize == count &&
+           !MemoryCompare(m_BufferBatchLocations, locations, count * sizeof(uint64_t));
+  }
+
   void beginUnpinObservation() {
     m_UnpinCalls = 0;
     m_LastUnpinLocation = 0;
@@ -622,9 +638,19 @@ class HostedScsiDisk final : public ScsiDisk {
 
   bool transferBuffer(uint64_t location, void* buffer, size_t length, bool writing) override {
     ++m_BufferTransferCount;
+    if (!writing && location == m_FailedBufferLocation)
+      return false;
     if (!writing)
       ByteSet(buffer, 0xa6, length);
     return true;
+  }
+
+  bool transferReadBuffers(ReadBuffer* buffers, size_t count) override {
+    ++m_BufferBatchCount;
+    m_LastBufferBatchSize = count;
+    for (size_t i = 0; i < count; ++i)
+      m_BufferBatchLocations[i] = buffers[i].location;
+    return ScsiDisk::transferReadBuffers(buffers, count);
   }
 
   size_t getCacheFillSize() const override {
@@ -640,6 +666,10 @@ class HostedScsiDisk final : public ScsiDisk {
   size_t m_CacheFillSize;
   bool m_BufferTransfersEnabled;
   size_t m_BufferTransferCount;
+  size_t m_BufferBatchCount = 0;
+  size_t m_LastBufferBatchSize = 0;
+  uint64_t m_BufferBatchLocations[Disk::MaxReadBuffers] = {};
+  uint64_t m_FailedBufferLocation = ~uint64_t{0};
 };
 
 struct RetirementResult {
@@ -1972,6 +2002,178 @@ bool scsiTerminalCachePage() {
   return passed;
 }
 
+bool producerBytesMatch(const uint8_t* bytes, size_t length, uint8_t value) {
+  for (size_t i = 0; i < length; ++i) {
+    if (bytes[i] != value)
+      return false;
+  }
+  return true;
+}
+
+bool scsiProducerReadBatchCoherence() {
+  constexpr uint64_t Cached = 4 * PageBytes;
+  constexpr uint64_t FirstAbsent = 16 * PageBytes + 512;
+  constexpr uint64_t SecondAbsent = 32 * PageBytes;
+  constexpr uint64_t ExpectedPending[] = {FirstAbsent, SecondAbsent, FirstAbsent};
+  Fixture fixture;
+  if (!fixture.ready)
+    return false;
+  fixture.disk.pauseBackgroundWriteback();
+  fixture.disk.enableBufferTransfers();
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  if (!fixture.disk.preparePage(Cached))
+    return false;
+  const BufferView loan = fixture.disk.read(Cached);
+  if (!loan)
+    return false;
+  ByteSet(static_cast<uint8_t*>(loan.data()) + 512, 0xc7, 512);
+  fixture.disk.write(Cached);
+  fixture.controller.beginRequestTrace();
+  fixture.disk.beginReadBufferBatch();
+
+  uint8_t output[5][514];
+  ByteSet(output, 0x3f, sizeof(output));
+  Disk::ReadBuffer requests[] = {{Cached + 512, output[0] + 1, 512, false},
+                                 {FirstAbsent, output[1] + 1, 512, false},
+                                 {SecondAbsent, output[2] + 1, 512, false},
+                                 {FirstAbsent, output[3] + 1, 512, false},
+                                 {Cached + 1024, output[4] + 1, 512, false}};
+  bool passed = fixture.disk.readIntoBatch(requests, 5) &&
+                fixture.disk.bufferBatchMatches(ExpectedPending, 3) &&
+                fixture.disk.bufferTransferCount() == 3 && !fixture.controller.readCommandCount() &&
+                !fixture.controller.writeCount() && fixture.disk.hasPage(Cached) &&
+                !fixture.disk.hasPage(16 * PageBytes) && !fixture.disk.hasPage(SecondAbsent) &&
+                !fixture.disk.hasNoCacheLoans();
+  for (size_t i = 0; i < 5; ++i) {
+    const uint8_t expected = !i ? 0xc7 : i == 4 ? 0x5a : 0xa6;
+    passed = passed && requests[i].complete && producerBytesMatch(output[i] + 1, 512, expected) &&
+             output[i][0] == 0x3f && output[i][513] == 0x3f;
+  }
+
+  ByteSet(static_cast<uint8_t*>(loan.data()) + 512, 0xd8, 512);
+  fixture.disk.write(Cached);
+  fixture.disk.beginReadBufferBatch();
+  passed = fixture.disk.readIntoBatch(requests, 1) && requests[0].complete &&
+           producerBytesMatch(output[0] + 1, 512, 0xd8) && !fixture.disk.bufferBatchCount() &&
+           !fixture.disk.bufferTransferCount() && !fixture.controller.readCommandCount() && passed;
+  fixture.disk.unpin(Cached);
+  passed = fixture.disk.hasNoCacheLoans() && passed;
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-producer-read-batch-coherence");
+  else
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-producer-read-batch-coherence");
+  return passed;
+}
+
+bool scsiProducerReadBatchFailure() {
+  constexpr uint64_t Locations[] = {4 * PageBytes, 8 * PageBytes, 12 * PageBytes};
+  Fixture fixture;
+  if (!fixture.ready)
+    return false;
+  fixture.disk.enableBufferTransfers();
+  fixture.disk.beginReadBufferBatch(Locations[1]);
+  uint8_t output[3][514];
+  ByteSet(output, 0x3f, sizeof(output));
+  Disk::ReadBuffer requests[3];
+  for (size_t i = 0; i < 3; ++i)
+    requests[i] = {Locations[i], output[i] + 1, 512, true};
+  bool passed = !fixture.disk.readIntoBatch(requests, 3) &&
+                fixture.disk.bufferBatchMatches(Locations, 3) &&
+                fixture.disk.bufferTransferCount() == 3;
+  for (size_t i = 0; i < 3; ++i) {
+    passed = passed && requests[i].complete == (i != 1) &&
+             producerBytesMatch(output[i] + 1, 512, i == 1 ? 0x3f : 0xa6) && output[i][0] == 0x3f &&
+             output[i][513] == 0x3f && !fixture.disk.hasPage(Locations[i]);
+  }
+  fixture.disk.beginReadBufferBatch();
+  passed = fixture.disk.readIntoBatch(requests, 3) &&
+           fixture.disk.bufferBatchMatches(Locations, 3) &&
+           fixture.disk.bufferTransferCount() == 3 && passed;
+  for (size_t i = 0; i < 3; ++i)
+    passed = passed && requests[i].complete && producerBytesMatch(output[i] + 1, 512, 0xa6);
+  passed = fixture.disk.hasNoCacheLoans() && passed;
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-producer-read-batch-failure");
+  else
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-producer-read-batch-failure");
+  return passed;
+}
+
+enum class ReadBatchFallback { Unsupported, Unaligned, NativeSector, PageCrossing, ShiftedOrigin };
+
+bool scsiProducerReadBatchFallbackCase(ReadBatchFallback mode) {
+  const size_t native = mode == ReadBatchFallback::NativeSector ? PageBytes : 512;
+  ScriptedScsiController controller(64 * PageBytes, native);
+  HostedScsiDisk disk;
+  if (!disk.initialise(&controller, 0))
+    return false;
+  disk.pauseBackgroundWriteback();
+  if (mode != ReadBatchFallback::Unsupported)
+    disk.enableBufferTransfers();
+  controller.beginWrites(WriteMode::PassWrite12);
+  uint64_t locations[] = {0, 8 * PageBytes};
+  size_t lengths[] = {512, 512};
+  uint8_t expected = 0x3c;
+  BufferView loan;
+  if (mode == ReadBatchFallback::Unaligned) {
+    ++locations[0];
+    locations[1] += 3;
+    lengths[0] = lengths[1] = 7;
+  } else if (mode == ReadBatchFallback::NativeSector) {
+    locations[0] += 512;
+    locations[1] += 1024;
+  } else if (mode == ReadBatchFallback::PageCrossing) {
+    lengths[0] = PageBytes + 512;
+    expected = 0xa6;
+  } else if (mode == ReadBatchFallback::ShiftedOrigin) {
+    locations[0] = 1536;
+    locations[1] = 2048;
+    disk.align(locations[0]);
+    if (!disk.preparePage(locations[0]))
+      return false;
+    loan = disk.read(locations[0]);
+    if (!loan)
+      return false;
+    ByteSet(loan.data(), 0xc7, PageBytes);
+    disk.write(locations[0]);
+    expected = 0xc7;
+  }
+  auto first = UniqueArray<uint8_t>::allocate(lengths[0] + 2);
+  auto second = UniqueArray<uint8_t>::allocate(lengths[1] + 2);
+  ByteSet(first.get(), 0x3f, lengths[0] + 2);
+  ByteSet(second.get(), 0x3f, lengths[1] + 2);
+  Disk::ReadBuffer requests[] = {{locations[0], first.get() + 1, lengths[0], true},
+                                 {locations[1], second.get() + 1, lengths[1], true}};
+  disk.beginReadBufferBatch();
+  const bool passed =
+      disk.readIntoBatch(requests, 2) && requests[0].complete && requests[1].complete &&
+      !disk.bufferBatchCount() &&
+      disk.bufferTransferCount() == (mode == ReadBatchFallback::PageCrossing ? 3U : 0U) &&
+      producerBytesMatch(first.get() + 1, lengths[0], expected) &&
+      producerBytesMatch(second.get() + 1, lengths[1], expected) && first.get()[0] == 0x3f &&
+      first.get()[lengths[0] + 1] == 0x3f && second.get()[0] == 0x3f &&
+      second.get()[lengths[1] + 1] == 0x3f &&
+      (!loan || producerBytesMatch(static_cast<uint8_t*>(loan.data()), PageBytes, 0xc7));
+  if (loan)
+    disk.unpin(locations[0]);
+  if (!passed)
+    ERROR(
+        "HOSTED-WAIT-TEST: FAIL scsi-producer-read-batch-fallback mode=" << static_cast<int>(mode));
+  return passed && disk.hasNoCacheLoans();
+}
+
+bool scsiProducerReadBatchFallbacks() {
+  const ReadBatchFallback modes[] = {
+      ReadBatchFallback::Unsupported, ReadBatchFallback::Unaligned, ReadBatchFallback::NativeSector,
+      ReadBatchFallback::PageCrossing, ReadBatchFallback::ShiftedOrigin};
+  for (auto mode : modes) {
+    if (!scsiProducerReadBatchFallbackCase(mode))
+      return false;
+  }
+  NOTICE("HOSTED-WAIT-TEST: PASS scsi-producer-read-batch-fallbacks");
+  return true;
+}
+
 bool scsiProducerShiftedOriginFallback() {
   constexpr uint64_t ShiftedOrigin = 1536;
   constexpr uint64_t LaterPage = 4 * PageBytes;
@@ -2091,9 +2293,13 @@ EXPORTED_PUBLIC bool runHostedScsiSyncRegressions() {
   const bool batchValidation = scsiSyncBatchValidation();
   const bool batchTerminal = scsiSyncBatchTerminalGeometry();
   const bool producerAlignment = scsiProducerShiftedOriginFallback();
+  const bool producerReads = scsiProducerReadBatchCoherence();
+  const bool producerReadFailure = scsiProducerReadBatchFailure();
+  const bool producerReadFallbacks = scsiProducerReadBatchFallbacks();
   return deferredWrites && deferredRetry && deferredShutdown && syncAll && batch &&
          batchWriteFailure && batchFlushFailure && overlappingBatches && batchValidation &&
-         batchTerminal && producerAlignment;
+         batchTerminal && producerAlignment && producerReads && producerReadFailure &&
+         producerReadFallbacks;
 }
 
 EXPORTED_PUBLIC bool runHostedScsiWriteRegressions() {

@@ -401,6 +401,12 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /** Mark an already borrowed page before exposing a writable shared mapping. */
   void markPageExternallyWritable(size_t offset);
 
+  static constexpr size_t MaxReadPages = 32;
+  /** Populate at most MaxReadPages and return the ready prefix from offset.
+   * Existing demand pages return immediately; later fill failures leave
+   * successfully populated pages available for subsequent demands. */
+  size_t populateRange(size_t offset, size_t length);
+
   /** Enables direct mode (no File-level cache). */
   void enableDirect();
 
@@ -463,6 +469,15 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   virtual uintptr_t readBlock(uint64_t location);
   /** Fill a caller-owned native page, including zeroes for holes and the EOF tail. */
   virtual bool readPage(uint64_t location, uintptr_t destination);
+  struct ReadPage {
+    uint64_t offset;
+    uintptr_t buffer;
+    bool complete;
+  };
+  /** All destination accesses finish before return; complete identifies each
+   * fully initialised page even when another page in the batch failed. */
+  virtual bool readPages(ReadPage* pages, size_t count);
+
   /**
    * Internal function to write a block retrieved with readBlock back to
    * the file. The address of the block is provided for convenience.
@@ -649,7 +664,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
    *
    * The block index does not own this reference.
    */
-  uintptr_t readIntoCache(uintptr_t block, bool overwriteWholePage = false);
+  uintptr_t readIntoCache(uintptr_t block, bool overwriteWholePage = false,
+                          size_t readAheadBytes = 0);
+  size_t populateRangeLocked(size_t offset, size_t length);
 
   /** Releases the per-use reference returned by readIntoCache(). */
   void releaseReadReference(uintptr_t block);

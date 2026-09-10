@@ -105,6 +105,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
 
   virtual BufferView read(uint64_t location);
   bool readInto(uint64_t location, void* buffer, size_t length) override;
+  bool readIntoBatch(ReadBuffer* buffers, size_t count) override;
   bool writeFrom(uint64_t location, const void* buffer, size_t length) override;
   bool syncData() override;
   virtual void write(uint64_t location);
@@ -158,6 +159,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
     return false;
   }
   virtual bool transferBuffer(uint64_t location, void* buffer, size_t length, bool writing);
+  virtual bool transferReadBuffers(ReadBuffer* buffers, size_t count);
 
   ScsiController* acquirePagingController(OperationBarrier::Lease& use);
   PagingStatus preparePagingCache(PagingTransport& transport);

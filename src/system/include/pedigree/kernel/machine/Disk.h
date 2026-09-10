@@ -95,6 +95,22 @@ class EXPORTED_PUBLIC Disk : public Device {
   MUST_USE_RESULT virtual bool readInto(uint64_t location, void* buffer, size_t length);
   MUST_USE_RESULT virtual bool writeFrom(uint64_t location, const void* buffer, size_t length);
 
+  struct ReadBuffer {
+    uint64_t location;
+    void* buffer;
+    size_t length;
+    bool complete;
+  };
+  static constexpr size_t MaxReadBuffers = 32;
+
+  /**
+   * Reads up to MaxReadBuffers independent ranges into caller-owned storage.
+   * Every issued transfer is drained before return, including on failure.
+   * complete is reset on entry and set only for fully initialised buffers;
+   * successful buffers remain usable when another range fails.
+   */
+  MUST_USE_RESULT virtual bool readIntoBatch(ReadBuffer* buffers, size_t count);
+
   /**
    * Makes preceding successful writeFrom() calls durable. Call after all writes
    * in a batch, including a partially failed batch. writeFrom() alone promises

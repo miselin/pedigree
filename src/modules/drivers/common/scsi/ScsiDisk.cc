@@ -538,6 +538,110 @@ bool ScsiDisk::readInto(uint64_t location, void* buffer, size_t length) {
   return transferBufferRange(location, buffer, length, false);
 }
 
+bool ScsiDisk::readIntoBatch(ReadBuffer* buffers, size_t count) {
+  if (count > MaxReadBuffers || (count && !buffers))
+    return false;
+  for (size_t i = 0; i < count; ++i)
+    buffers[i].complete = false;
+  if (!count)
+    return true;
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return false;
+  auto* controller = static_cast<ScsiController*>(m_pParent);
+  OperationBarrier::Lease operation;
+  if (!controller || !controller->acquireDiskOperation(operation))
+    return false;
+
+  const size_t native = getNativeBlockSize();
+  if (!supportsBufferTransfers() || !native || ScsiCachePageBytes % native ||
+      hasShiftedCacheAlignment())
+    return Disk::readIntoBatch(buffers, count);
+
+  uint64_t keys[MaxReadBuffers];
+  uint64_t first = ~uint64_t{0};
+  uint64_t end = 0;
+  for (size_t i = 0; i < count; ++i) {
+    const auto& request = buffers[i];
+    if ((!request.buffer && request.length) || request.location > getSize() ||
+        request.length > getSize() - request.location)
+      return false;
+    // Odd sectors and ranges spanning cache pages retain the ordinary path's
+    // merge rules. File page batches use independent, sector-aligned ranges.
+    const uint64_t key = request.location - request.location % ScsiCachePageBytes;
+    if (!request.length || request.location % native || request.length % native ||
+        request.length > ScsiCachePageBytes - (request.location - key) ||
+        key > ~uint64_t{0} - ScsiCachePageBytes || key > ~uintptr_t{0})
+      return Disk::readIntoBatch(buffers, count);
+    keys[i] = key;
+    if (key < first)
+      first = key;
+    if (key + ScsiCachePageBytes > end)
+      end = key + ScsiCachePageBytes;
+  }
+  if (end - first > ~size_t{0})
+    return Disk::readIntoBatch(buffers, count);
+
+  for (size_t attempt = 0; attempt < 8; ++attempt) {
+    uint64_t retryKey = 0;
+    bool retry = false;
+    {
+      // One admission also covers repeated/sub-page extents without waiting on
+      // another range owned by this same batch. Retain it until DMA is drained.
+      CacheRangeAdmission admission(*this, first, end - first, true);
+      if (hasShiftedCacheAlignment())
+        return false;
+      ReadBuffer pending[MaxReadBuffers];
+      size_t indices[MaxReadBuffers];
+      size_t nPending = 0;
+      for (size_t i = 0; i < count; ++i) {
+        if (buffers[i].complete)
+          continue;
+        uintptr_t page = 0;
+        if (!m_Cache.lookupStable(keys[i], page)) {
+          retryKey = keys[i];
+          retry = true;
+          break;
+        }
+        if (page) {
+          CachePageGuard guard(m_Cache, keys[i]);
+          MemoryCopy(buffers[i].buffer,
+                     reinterpret_cast<void*>(page + buffers[i].location - keys[i]),
+                     buffers[i].length);
+          buffers[i].complete = true;
+        } else {
+          indices[nPending] = i;
+          pending[nPending++] = buffers[i];
+        }
+      }
+      if (!retry) {
+        const bool success = !nPending || transferReadBuffers(pending, nPending);
+        for (size_t i = 0; i < nPending; ++i)
+          buffers[indices[i]].complete = pending[i].complete;
+        return success;
+      }
+    }
+    // Writeback callbacks may themselves acquire range admission.
+    uintptr_t page = 0;
+    if (attempt == 7 || !m_Cache.lookupStable(retryKey, page, true))
+      return false;
+    if (page)
+      m_Cache.release(retryKey);
+  }
+  return false;
+}
+
+bool ScsiDisk::transferReadBuffers(ReadBuffer* buffers, size_t count) {
+  bool success = true;
+  for (size_t i = 0; i < count; ++i) {
+    auto& request = buffers[i];
+    request.complete = transferBuffer(request.location, request.buffer, request.length, false);
+    success &= request.complete;
+  }
+  return success;
+}
+
 bool ScsiDisk::writeFrom(uint64_t location, const void* buffer, size_t length) {
 #if CRIPPLE_HDD
   return !length && location <= getSize();

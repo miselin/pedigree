@@ -290,6 +290,94 @@ bool Ext2File::readPage(uint64_t location, uintptr_t destination) {
   return transferBlocksLocked(m_State, location, destination, length, false);
 }
 
+bool Ext2File::readPages(ReadPage* pages, size_t count) {
+  if (count > MaxReadPages || (count && !pages)) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
+  for (size_t i = 0; i < count; ++i)
+    pages[i].complete = false;
+  if (!count)
+    return true;
+  LockGuard<Mutex> guard(m_State->writebackLock);
+  Disk* disk = m_pExt2Fs->m_pDisk;
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const size_t blockSize = m_pExt2Fs->m_BlockSize;
+  if (!disk || !blockSize || pageSize % blockSize || !m_State->allocationValid) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
+
+  // Resolve mapping blocks before data transport. In particular, a later page's
+  // mapping failure must not prevent the demanded page from being populated.
+  for (size_t i = 0; i < count; ++i) {
+    if (!pages[i].buffer || pages[i].offset % pageSize || pages[i].offset >= m_nSize)
+      continue;
+    ByteSet(reinterpret_cast<void*>(pages[i].buffer), 0, pageSize);
+    const size_t remaining = m_nSize - pages[i].offset;
+    const size_t length = remaining < pageSize ? remaining : pageSize;
+    bool mapped = true;
+    for (size_t offset = 0; offset < length; offset += blockSize) {
+      const size_t block = (pages[i].offset + offset) / blockSize;
+      if (block >= m_Blocks.count() || !ensureBlockLoaded(block)) {
+        mapped = false;
+        break;
+      }
+    }
+    pages[i].complete = mapped;
+  }
+
+  Disk::ReadBuffer requests[Disk::MaxReadBuffers] = {};
+  size_t owners[Disk::MaxReadBuffers] = {};
+  size_t requestCount = 0;
+  auto transfer = [&] {
+    if (!requestCount)
+      return;
+    const bool allRead = disk->readIntoBatch(requests, requestCount);
+    (void)allRead;
+    for (size_t i = 0; i < requestCount; ++i)
+      pages[owners[i]].complete = requests[i].complete && pages[owners[i]].complete;
+    requestCount = 0;
+  };
+  for (size_t i = 0; i < count; ++i) {
+    if (!pages[i].complete)
+      continue;
+    const size_t remaining = m_nSize - pages[i].offset;
+    const size_t length = remaining < pageSize ? remaining : pageSize;
+    for (size_t offset = 0; offset < length;) {
+      const size_t block = (pages[i].offset + offset) / blockSize;
+      const uint32_t physical = m_Blocks[block];
+      size_t amount = length - offset < blockSize ? length - offset : blockSize;
+      if (!physical) {
+        offset += amount;
+        continue;
+      }
+      while (amount % blockSize == 0 && amount < length - offset) {
+        const size_t next = block + amount / blockSize;
+        if (next >= m_Blocks.count() || m_Blocks[next] == ~uint32_t{0} ||
+            static_cast<uint64_t>(m_Blocks[next]) !=
+                static_cast<uint64_t>(physical) + amount / blockSize)
+          break;
+        const size_t available = length - offset - amount;
+        amount += available < blockSize ? available : blockSize;
+      }
+      requests[requestCount] = {static_cast<uint64_t>(physical) * blockSize,
+                                reinterpret_cast<void*>(pages[i].buffer + offset), amount, false};
+      owners[requestCount++] = i;
+      if (requestCount == Disk::MaxReadBuffers)
+        transfer();
+      offset += amount;
+    }
+  }
+  transfer();
+  bool succeeded = true;
+  for (size_t i = 0; i < count; ++i)
+    succeeded = pages[i].complete && succeeded;
+  if (!succeeded)
+    SYSCALL_ERROR(IoError);
+  return succeeded;
+}
+
 void Ext2File::writeBlock(uint64_t location, uintptr_t addr) {
   if (useFillCache()) {
     writeBlocks(location, addr, getBlockSize());

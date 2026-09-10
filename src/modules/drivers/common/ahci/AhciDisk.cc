@@ -158,6 +158,24 @@ size_t AhciDisk::validPageLength(uint64_t location) const {
   return remaining < pageBytes ? static_cast<size_t>(remaining) : pageBytes;
 }
 
+bool AhciDisk::transferReadBuffers(Disk::ReadBuffer* buffers, size_t count) {
+  if (count > Disk::MaxReadBuffers || (count && !buffers))
+    return false;
+  for (size_t i = 0; i < count; ++i)
+    buffers[i].complete = false;
+  if (!count)
+    return true;
+  if (!m_Initialised)
+    return false;
+  for (size_t i = 0; i < count; ++i) {
+    if (!buffers[i].buffer || !buffers[i].length || buffers[i].length > TargetInfo::getPageSize() ||
+        buffers[i].location >= m_Bytes || buffers[i].length > m_Bytes - buffers[i].location ||
+        buffers[i].location % m_SectorBytes || buffers[i].length % m_SectorBytes)
+      return false;
+  }
+  return m_Controller->readBatch(m_Port, buffers, count);
+}
+
 uint64_t AhciDisk::doRead(uint64_t location) {
   const size_t bytes = getCacheFillLength(location);
   if (!m_Initialised || !bytes)

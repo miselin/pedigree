@@ -247,6 +247,10 @@ void AhciController::configureDisk(size_t port, size_t sectorBytes, size_t queue
   if (port < 32 && m_Ports[port])
     m_Ports[port]->configureDisk(sectorBytes, queueDepth);
 }
+bool AhciController::readBatch(size_t port, Disk::ReadBuffer* buffers, size_t count) {
+  return port < 32 && m_Ports[port] && m_Ports[port]->readBatch(buffers, count, m_Interrupts);
+}
+
 bool AhciController::flush(size_t port, bool extended) {
   return port < 32 && m_Ports[port] &&
          m_Ports[port]->command(extended ? 0xea : 0xe7, 0, 0, nullptr, 0, false, m_Interrupts);
