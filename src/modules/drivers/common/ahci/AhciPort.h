@@ -32,6 +32,7 @@ class AhciPort {
   bool command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buffer, size_t bytes,
                bool write, bool interrupts, bool interruptProbe = false);
   bool readBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupts);
+  bool writeBatch(Disk::WriteBuffer* buffers, size_t count, bool interrupts);
   size_t interruptCompletions() const;
   size_t maximumOutstanding() const;
   void configureDisk(size_t sectorBytes, size_t queueDepth);
@@ -40,6 +41,7 @@ class AhciPort {
   }
 
  private:
+  bool transferBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupts, bool writing);
   uint32_t read(size_t reg) const;
   void write(size_t reg, uint32_t value);
   void waitForProgress();

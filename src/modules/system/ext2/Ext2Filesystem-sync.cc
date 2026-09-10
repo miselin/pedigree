@@ -5,6 +5,7 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/assert.h"
 
+#include "Ext2File.h"
 #include "Ext2Filesystem.h"
 #include "Ext2Node.h"
 
@@ -73,7 +74,9 @@ Filesystem::SyncStatus Ext2Filesystem::sync() {
     if (!entry.state->allocationValid)
       succeeded = false;
     if (entry.state->cache)
-      succeeded = entry.state->cache->fill.syncAll() && succeeded;
+      succeeded =
+          entry.state->cache->fill.syncAll(Ext2File::sharedFillBatchCallback, entry.state) &&
+          succeeded;
   }
 
   {

@@ -52,6 +52,7 @@ class EXPORTED_PUBLIC AhciDisk final : public ScsiDisk {
   }
   bool transferBuffer(uint64_t location, void* buffer, size_t length, bool writing) override;
   bool transferReadBuffers(Disk::ReadBuffer* buffers, size_t count) override;
+  bool transferWriteBuffers(Disk::WriteBuffer* buffers, size_t count) override;
 
  private:
   friend class AhciController;

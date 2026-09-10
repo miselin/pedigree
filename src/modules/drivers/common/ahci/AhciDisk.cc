@@ -176,6 +176,14 @@ bool AhciDisk::transferReadBuffers(Disk::ReadBuffer* buffers, size_t count) {
   return m_Controller->readBatch(m_Port, buffers, count);
 }
 
+bool AhciDisk::transferWriteBuffers(Disk::WriteBuffer* buffers, size_t count) {
+#if CRIPPLE_HDD
+  return false;
+#else
+  return m_Initialised && m_Controller->writeBatch(m_Port, buffers, count);
+#endif
+}
+
 uint64_t AhciDisk::doRead(uint64_t location) {
   const size_t bytes = getCacheFillLength(location);
   if (!m_Initialised || !bytes)

@@ -102,6 +102,19 @@ class EXPORTED_PUBLIC Disk : public Device {
     bool complete;
   };
   static constexpr size_t MaxReadBuffers = 32;
+  struct WriteBuffer {
+    uint64_t location;
+    const void* buffer;
+    size_t length;
+    bool complete;
+  };
+  static constexpr size_t MaxWriteBuffers = 32;
+  /**
+   * Writes caller-owned buffers, draining all issued I/O before return.
+   * complete reports each fully transferred range, including on partial failure.
+   * Storage must remain valid until return; syncData() supplies durability.
+   */
+  MUST_USE_RESULT virtual bool writeFromBatch(WriteBuffer* buffers, size_t count);
 
   /**
    * Reads up to MaxReadBuffers independent ranges into caller-owned storage.

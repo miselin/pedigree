@@ -112,26 +112,33 @@ def main():
     parser.add_argument("--firmware-vars", type=Path)
     parser.add_argument("--cpus", type=int, choices=(1, 4), default=4)
     parser.add_argument("--mode", choices=("launch", "read-sequential", "read-permuted",
-                                          "mmap-sequential", "mmap-permuted"),
+                                          "mmap-sequential", "mmap-permuted", "sync"),
                         default="launch")
     parser.add_argument("--iterations", type=int, default=3)
     parser.add_argument("--prewarm", action="store_true")
     parser.add_argument("--no-trace", action="store_true",
                         help="Timing control without QEMU NCQ trace logging")
+    parser.add_argument("--write-iops", type=int, default=0,
+                        help="Limit backing writes for queue-depth qualification; 0 disables throttling")
     parser.add_argument("--timeout", type=float, default=240)
     parser.add_argument("--qemu", default="qemu-system-x86_64")
     parser.add_argument("--qemu-img", default="qemu-img")
     args = parser.parse_args()
+    if args.write_iops < 0:
+        parser.error("write-iops must be nonnegative")
     if not 1 <= args.iterations <= 100 or args.timeout <= 0:
         parser.error("iterations must be 1..100 and timeout positive")
+    if args.mode == "sync" and (args.iterations != 1 or args.prewarm):
+        parser.error("the sync fixture requires --iterations 1 and no prewarm")
     expected = ["prewarm"] if args.prewarm else []
-    groups = ("launch", "fork", "exec") if args.mode == "launch" else (args.mode,)
+    groups = (("launch", "fork", "exec") if args.mode == "launch" else
+              ("sync-dirty", "sync-clean", "sync-redirty") if args.mode == "sync" else (args.mode,))
     expected += [f"{group}-{i}" for group in groups for i in range(args.iterations)]
     image = args.image.resolve(strict=True)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     report = {"result": "FAIL", "image": str(image), "cpus": args.cpus,
-              "trace_enabled": not args.no_trace,
+              "trace_enabled": not args.no_trace, "write_iops": args.write_iops,
               "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               "expected_phases": expected, "phases": []}
     process = guest = serial = None
@@ -157,7 +164,8 @@ def main():
         serial_path = output / "serial.sock"
         if len(os.fsencode(serial_path)) >= 100:
             raise ValueError("output path is too long for a portable Unix socket")
-        command += ["-drive", f"file={output}/disk.qcow2,if=ide,format=qcow2",
+        throttle = f",iops_wr={args.write_iops}" if args.write_iops else ""
+        command += ["-drive", f"file={output}/disk.qcow2,if=ide,format=qcow2{throttle}",
                     "-display", "none", "-chardev",
                     f"socket,id=bench,path={serial_path},server=on,wait=off",
                     "-serial", "chardev:bench", "-qmp", "stdio", "-nic", "none",
@@ -212,7 +220,8 @@ def main():
                         current["metric"] = dict(zip(
                             ("first_us", "total_us", "bytes", "checksum"),
                             (int(value) for value in match.groups()[1:])))
-                        current["bytes_kind"] = ("mapped_file_span" if match[1].startswith("mmap-")
+                        current["bytes_kind"] = ("synced_file_span" if args.mode == "sync" else
+                                                 "mapped_file_span" if match[1].startswith("mmap-")
                                                  else "transferred_bytes")
                         if not (0 <= current["metric"]["first_us"] <= current["metric"]["total_us"]):
                             raise RuntimeError("invalid guest timing interval")

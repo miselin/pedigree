@@ -692,3 +692,67 @@ TEST(CacheSync, ConditionalWritesRetryFailedBatchesAndRejectEditingPages) {
   EXPECT_TRUE(cache.evict(Keys[0]));
   EXPECT_EQ(observer.ordinaryWrites, 3U);
 }
+
+namespace {
+struct SyncWaveObserver {
+  Cache* cache;
+  size_t calls = 0, pages = 0;
+  bool fail = false, redirty = false;
+  static bool batch(const Cache::WritebackPage* pages, size_t count, void* context) {
+    auto& self = *static_cast<SyncWaveObserver*>(context);
+    ++self.calls;
+    self.pages += count;
+    EXPECT_LE(count, Cache::MaxWritebackPages);
+    if (self.redirty && count) {
+      self.redirty = false;
+      *reinterpret_cast<unsigned char*>(pages[0].location) ^= 0x42;
+      self.cache->markDirty(pages[0].key);
+    }
+    return !self.fail;
+  }
+};
+}  // namespace
+
+TEST(CacheSync, SnapshotBatchesSkipCleanChecksumPagesAndDetectUnmarkedAliases) {
+  Observer ordinary;
+  Cache cache;
+  cache.setCallback(Observer::callback, &ordinary);
+  SyncWaveObserver wave{&cache};
+  uintptr_t first = 0;
+  for (size_t i = 0; i < Cache::MaxWritebackPages + 1; ++i) {
+    uintptr_t page = publish(cache, i * Page);
+    ASSERT_NE(page, 0U);
+    if (!i)
+      first = page;
+  }
+  ASSERT_TRUE(cache.syncAll(SyncWaveObserver::batch, &wave));
+  EXPECT_EQ(wave.calls, 2U);
+  EXPECT_EQ(wave.pages, Cache::MaxWritebackPages + 1);
+  ASSERT_TRUE(cache.syncAll(SyncWaveObserver::batch, &wave));
+  EXPECT_EQ(wave.calls, 2U);
+  *reinterpret_cast<unsigned char*>(first) ^= 0x11;
+  ASSERT_TRUE(cache.syncAll(SyncWaveObserver::batch, &wave));
+  EXPECT_EQ(wave.pages, Cache::MaxWritebackPages + 2);
+  EXPECT_EQ(ordinary.writes, 0U);
+}
+
+TEST(CacheSync, SnapshotBatchFailureAndNewGenerationRemainRetryable) {
+  Observer ordinary;
+  Cache cache;
+  cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  cache.setCallback(Observer::callback, &ordinary);
+  SyncWaveObserver wave{&cache};
+  ASSERT_NE(publish(cache, 0), 0U);
+  ASSERT_NE(publish(cache, Page), 0U);
+  wave.fail = true;
+  ASSERT_FALSE(cache.syncAll(SyncWaveObserver::batch, &wave));
+  EXPECT_EQ(wave.pages, 2U);
+  wave.fail = false;
+  wave.redirty = true;
+  ASSERT_TRUE(cache.syncAll(SyncWaveObserver::batch, &wave));
+  EXPECT_EQ(wave.pages, 4U);
+  ASSERT_TRUE(cache.syncAll(SyncWaveObserver::batch, &wave));
+  EXPECT_EQ(wave.pages, 5U);
+  ASSERT_TRUE(cache.syncAll(SyncWaveObserver::batch, &wave));
+  EXPECT_EQ(wave.pages, 5U);
+}

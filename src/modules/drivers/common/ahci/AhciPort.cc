@@ -411,6 +411,27 @@ bool AhciPort::command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buf
 }
 
 bool AhciPort::readBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupts) {
+  return transferBatch(buffers, count, interrupts, false);
+}
+
+bool AhciPort::writeBatch(Disk::WriteBuffer* buffers, size_t count, bool interrupts) {
+  static_assert(Disk::MaxWriteBuffers <= Disk::MaxReadBuffers);
+  if (count > Disk::MaxWriteBuffers || (count && !buffers))
+    return false;
+  Disk::ReadBuffer transfers[Disk::MaxWriteBuffers];
+  for (size_t i = 0; i < count; ++i) {
+    buffers[i].complete = false;
+    transfers[i] = {buffers[i].location, const_cast<void*>(buffers[i].buffer), buffers[i].length,
+                    false};
+  }
+  const bool success = transferBatch(transfers, count, interrupts, true);
+  for (size_t i = 0; i < count; ++i)
+    buffers[i].complete = transfers[i].complete;
+  return success;
+}
+
+bool AhciPort::transferBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupts,
+                             bool writing) {
   if (count > Disk::MaxReadBuffers || (count && !buffers))
     return false;
   for (size_t i = 0; i < count; ++i)
@@ -428,8 +449,8 @@ bool AhciPort::readBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupt
     for (size_t i = 0; i < count; ++i) {
       auto& buffer = buffers[i];
       buffer.complete =
-          command(0x25, buffer.location / m_SectorBytes, buffer.length / m_SectorBytes,
-                  buffer.buffer, buffer.length, false, interrupts);
+          command(writing ? 0x35 : 0x25, buffer.location / m_SectorBytes,
+                  buffer.length / m_SectorBytes, buffer.buffer, buffer.length, writing, interrupts);
       if (!buffer.complete)
         return false;
     }
@@ -465,9 +486,9 @@ bool AhciPort::readBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupt
           continue;
         }
         auto& buffer = buffers[next];
-        if (!issueCommand(index, 0x60, buffer.location / m_SectorBytes,
-                          buffer.length / m_SectorBytes, buffer.buffer, buffer.length, false, true,
-                          interrupts)) {
+        if (!issueCommand(index, writing ? 0x61 : 0x60, buffer.location / m_SectorBytes,
+                          buffer.length / m_SectorBytes, buffer.buffer, buffer.length, writing,
+                          true, interrupts)) {
           admitted = false;
           break;
         }
@@ -478,8 +499,8 @@ bool AhciPort::readBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupt
     bool succeeded = admitted;
     for (size_t i = 0; i < issued; ++i) {
       auto& buffer = buffers[first + i];
-      buffer.complete =
-          reapCommand(slots[i], 0x60, buffer.buffer, buffer.length, false, true, interrupts, false);
+      buffer.complete = reapCommand(slots[i], writing ? 0x61 : 0x60, buffer.buffer, buffer.length,
+                                    writing, true, interrupts, false);
       succeeded = buffer.complete && succeeded;
     }
     if (!succeeded)

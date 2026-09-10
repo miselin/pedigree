@@ -1410,6 +1410,10 @@ bool Cache::sync(uintptr_t key, bool async) {
 }
 
 bool Cache::syncAll() {
+  return syncAll(nullptr, nullptr);
+}
+
+bool Cache::syncAll(writeback_batch_t callback, void* metadata) {
 #if THREADS
   TerminationDeferral terminationDeferral;
   OperationBarrier::Lease operation;
@@ -1484,6 +1488,16 @@ bool Cache::syncAll() {
   }
 
   bool succeeded = true;
+  uintptr_t keys[MaxWritebackPages];
+  size_t pending = 0;
+  auto drain = [&] {
+    if (!pending)
+      return;
+    succeeded = syncBatchInternal(keys, pending, callback, metadata, true) && succeeded;
+    for (size_t n = 0; n < pending; ++n)
+      releaseWriteback(keys[n]);
+    pending = 0;
+  };
   for (size_t i = 0; i < entries.count(); ++i) {
     Entry& entry = entries[i];
     // Draining pages cannot be pinned: their retirement waits for pins to
@@ -1531,17 +1545,30 @@ bool Cache::syncAll() {
       }
     }
     if (entry.pinned) {
-      const bool written = writebackPage(entry.key, entry.location, true);
-      succeeded = written && succeeded;
-      releaseWriteback(entry.key);
+      if (callback) {
+        keys[pending++] = entry.key;
+        if (pending == MaxWritebackPages)
+          drain();
+      } else {
+        const bool written = writebackPage(entry.key, entry.location, true);
+        succeeded = written && succeeded;
+        releaseWriteback(entry.key);
+      }
       entry.pinned = false;
     }
   }
+  drain();
   return succeeded;
 }
 
 bool Cache::syncBatch(const uintptr_t* keys, size_t count, writeback_batch_t callback,
                       void* metadata) {
+  return syncBatchInternal(keys, count, callback, metadata, false);
+}
+
+// syncAll owns snapshot pins before retirement can start draining these pages.
+bool Cache::syncBatchInternal(const uintptr_t* keys, size_t count, writeback_batch_t callback,
+                              void* metadata, bool snapshot) {
   if (!ensureUsable("syncBatch") || count > MaxWritebackPages || (count && (!keys || !callback))) {
     return false;
   }
@@ -1581,7 +1608,7 @@ bool Cache::syncBatch(const uintptr_t* keys, size_t count, writeback_batch_t cal
       for (size_t i = 0; i < count; ++i) {
         CachePage* page = m_Pages.lookup(keys[i]);
         if (!page || page->status == CachePage::Editing ||
-            page->evictionState == CachePage::EvictionState::Draining ||
+            (page->evictionState == CachePage::EvictionState::Draining && !snapshot) ||
             page->evictionState == CachePage::EvictionState::Retiring ||
             page->refcnt == ~size_t{0} || page->writebackPins == ~size_t{0}) {
           return false;
@@ -1601,7 +1628,7 @@ bool Cache::syncBatch(const uintptr_t* keys, size_t count, writeback_batch_t cal
         writeCount = 0;
         for (size_t i = 0; i < count; ++i) {
           CachePage* page = pages[i];
-          if (m_DirtyTracking == DirtyTracking::Explicit && !needsWriteback(page))
+          if ((snapshot || m_DirtyTracking == DirtyTracking::Explicit) && !needsWriteback(page))
             continue;
           ++page->refcnt;
           ++page->writebackPins;

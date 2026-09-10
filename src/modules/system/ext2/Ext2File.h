@@ -114,6 +114,7 @@ class Ext2File : public File, public Ext2Node {
   bool m_Initialized = false;
   static bool sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t location,
                                  uintptr_t page, void* state);
+  static bool sharedFillBatchCallback(const Cache::WritebackPage* pages, size_t count, void* state);
   static bool transferBlocksLocked(Ext2InodeState* state, uint64_t location, uintptr_t address,
                                    size_t length, bool write);
 };

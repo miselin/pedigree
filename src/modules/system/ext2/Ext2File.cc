@@ -432,6 +432,50 @@ bool Ext2File::sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t
   return written && durable;
 }
 
+bool Ext2File::sharedFillBatchCallback(const Cache::WritebackPage* pages, size_t count,
+                                       void* context) {
+  auto* state = static_cast<Ext2InodeState*>(context);
+  LockGuard<Mutex> guard(state->writebackLock);
+  if (!count || (state->orphan && !state->files.count() &&
+                 !__atomic_load_n(&state->syncReferences, __ATOMIC_ACQUIRE)))
+    return true;
+  Disk* disk = state->filesystem->m_pDisk;
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  if (!disk || !state->allocationValid)
+    return false;
+  bool succeeded = true;
+  Disk::WriteBuffer buffers[Disk::MaxWriteBuffers];
+  size_t pending = 0;
+  auto drain = [&] {
+    if (pending)
+      succeeded = disk->writeFromBatch(buffers, pending) && succeeded;
+    pending = 0;
+  };
+  for (size_t i = 0; i < count; ++i) {
+    const auto& page = pages[i];
+    if (state->filesystem->m_BlockSize != pageSize || page.key % pageSize ||
+        page.key >= state->size || state->size - page.key < pageSize) {
+      drain();
+      succeeded = transferBlocksLocked(state, page.key, page.location, pageSize, true) && succeeded;
+      continue;
+    }
+    const size_t block = page.key / pageSize;
+    if (block >= state->blocks.count() || state->blocks[block] == ~uint32_t{0}) {
+      succeeded = false;
+      continue;
+    }
+    if (!state->blocks[block])
+      continue;
+    buffers[pending++] = {static_cast<uint64_t>(state->blocks[block]) * pageSize,
+                          reinterpret_cast<const void*>(page.location), pageSize, false};
+    if (pending == Disk::MaxWriteBuffers)
+      drain();
+  }
+  drain();
+  const bool durable = disk->syncData();
+  return succeeded && durable;
+}
+
 bool Ext2File::transferBlocksLocked(Ext2InodeState* state, uint64_t location, uintptr_t addr,
                                     size_t length, bool write) {
   Ext2Filesystem* filesystem = state->filesystem;
@@ -522,29 +566,7 @@ bool Ext2File::syncPages(const uint64_t* offsets, size_t count) {
     }
     // Claim the authoritative file pages before taking the inode lock: a
     // callback already copying one of these pages may need that same lock.
-    return cacheState().fill.syncBatch(
-        keys, count,
-        [](const Cache::WritebackPage* pages, size_t count, void* context) {
-          auto* state = static_cast<Ext2InodeState*>(context);
-          LockGuard<Mutex> guard(state->writebackLock);
-          if (!count || (state->orphan && !state->files.count() &&
-                         !__atomic_load_n(&state->syncReferences, __ATOMIC_ACQUIRE)))
-            return true;
-          Disk* disk = state->filesystem->m_pDisk;
-          const size_t pageSize = PhysicalMemoryManager::getPageSize();
-          if (!disk)
-            return false;
-          bool succeeded = true;
-          for (size_t i = 0; i < count; ++i) {
-            succeeded = transferBlocksLocked(state, pages[i].key, pages[i].location, pageSize, true) &&
-                        succeeded;
-          }
-          // A partially transferred batch still needs its completed writes
-          // drained before any upper page can be reported clean.
-          const bool durable = disk->syncData();
-          return succeeded && durable;
-        },
-        m_State);
+    return cacheState().fill.syncBatch(keys, count, sharedFillBatchCallback, m_State);
   }
 
   LockGuard<Mutex> guard(m_State->writebackLock);

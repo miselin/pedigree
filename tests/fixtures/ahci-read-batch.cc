@@ -14,7 +14,9 @@ struct Disk {
     size_t length;
     bool complete;
   };
+  using WriteBuffer = ReadBuffer;
   static constexpr size_t MaxReadBuffers = 32;
+  static constexpr size_t MaxWriteBuffers = 32;
 };
 struct TargetInfo {
   static constexpr size_t getPageSize() {
@@ -71,6 +73,8 @@ void delay(uint64_t delta) {
 class AhciPort {
  public:
   bool readBatch(Disk::ReadBuffer*, size_t, bool);
+  bool writeBatch(Disk::WriteBuffer*, size_t, bool);
+  bool transferBatch(Disk::ReadBuffer*, size_t, bool, bool);
   void waitForProgress() { Time::delay(Time::Multiplier::Millisecond); }
   bool chooseSlot(bool queued, size_t& index) {
     assert(m_CommandLock.held && queued);
@@ -88,7 +92,7 @@ class AhciPort {
   bool issueCommand(size_t index, uint8_t opcode, uint64_t, uint16_t sectors, void*, size_t bytes,
                     bool writing, bool queued, bool) {
     assert(TerminationDeferral::active && m_CommandLock.held);
-    assert(opcode == 0x60 && !writing && queued && sectors * m_SectorBytes == bytes);
+    assert(opcode == (writing ? 0x61 : 0x60) && queued && sectors * m_SectorBytes == bytes);
     assert(!(owned & (1U << index)) && !(external & (1U << index)));
     if (issued == failIssue) {
       online = false;
@@ -104,7 +108,7 @@ class AhciPort {
   bool reapCommand(size_t index, uint8_t opcode, void* buffer, size_t bytes, bool writing,
                    bool queued, bool, bool probe) {
     assert(TerminationDeferral::active && !m_CommandLock.held);
-    assert(opcode == 0x60 && !writing && queued && !probe);
+    assert(opcode == (writing ? 0x61 : 0x60) && queued && !probe);
     assert(owned & (1U << index));
     if (reaped == failReap)
       online = false;
@@ -112,18 +116,19 @@ class AhciPort {
     owned &= ~(1U << index);
     if (!owned)
       ++waves;
-    if (online)
+    if (online && !writing)
       std::memset(buffer, 0x6b, bytes);
     return online;
   }
   bool command(uint8_t opcode, uint64_t, uint16_t sectors, void* buffer, size_t bytes, bool writing,
                bool) {
     assert(TerminationDeferral::active && !m_CommandLock.held);
-    assert(!m_QueueDepth && opcode == 0x25 && !writing && sectors * m_SectorBytes == bytes);
+    assert(!m_QueueDepth && opcode == (writing ? 0x35 : 0x25) && sectors * m_SectorBytes == bytes);
     ++sequential;
     if (sequential == failSequential)
       return false;
-    std::memset(buffer, 0x6b, bytes);
+    if (!writing)
+      std::memset(buffer, 0x6b, bytes);
     return true;
   }
   void delay() {
@@ -147,6 +152,7 @@ class AhciPort {
 };
 #include "ahci-read-batch.inc"
 
+static bool testWriting;
 struct Fixture {
   explicit Fixture(size_t count = 32) : data(count * 4096), requests(count) {
     for (size_t i = 0; i < count; ++i)
@@ -159,20 +165,21 @@ struct Fixture {
     assert(!port.owned && !TerminationDeferral::active);
   }
   bool run() {
-    return port.readBatch(requests.data(), requests.size(), true);
+    return testWriting ? port.writeBatch(requests.data(), requests.size(), true)
+                       : port.readBatch(requests.data(), requests.size(), true);
   }
   void complete() {
     for (const auto& request : requests) {
       assert(request.complete);
       for (size_t i = 0; i < request.length; ++i)
-        assert(static_cast<uint8_t*>(request.buffer)[i] == 0x6b);
+        assert(static_cast<uint8_t*>(request.buffer)[i] == (testWriting ? 0 : 0x6b));
     }
   }
   AhciPort port;
   std::vector<uint8_t> data;
   std::vector<Disk::ReadBuffer> requests;
 };
-int main() {
+void runCases() {
   {
     Fixture f;
     assert(f.run());
@@ -272,4 +279,10 @@ int main() {
     assert(!f.port.readBatch(f.requests.data(), 33, true));
     assert(f.port.readBatch(nullptr, 0, true));
   }
+}
+
+int main() {
+  runCases();
+  testWriting = true;
+  runCases();
 }

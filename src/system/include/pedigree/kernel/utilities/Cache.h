@@ -485,6 +485,8 @@ class EXPORTED_PUBLIC Cache {
     uintptr_t location;
   };
   using writeback_batch_t = bool (*)(const WritebackPage*, size_t, void*);
+  /** Snapshot dirty pages into bounded durable callbacks, including checksum-tracked aliases. */
+  MUST_USE_RESULT bool syncAll(writeback_batch_t callback, void* metadata);
 
   /**
    * Claims up to MaxWritebackPages distinct resident pages for one durable
@@ -652,6 +654,8 @@ class EXPORTED_PUBLIC Cache {
                                   uint64_t p6, uint64_t p7, uint64_t p8);
 
  private:
+  bool syncBatchInternal(const uintptr_t* keys, size_t count, writeback_batch_t callback,
+                         void* metadata, bool snapshot);
   /** Writes an already pinned page, optionally joining an active callback. */
   bool writebackPage(uintptr_t key, uintptr_t location, bool wait, bool onlyIfDirty = false);
 

@@ -35,6 +35,7 @@ class AhciController : public ScsiController, public IrqHandler {
   EXPORTED_PUBLIC bool readWrite(size_t port, uint64_t lba, uint16_t sectors, void* buffer,
                                  size_t bytes, bool write);
   bool readBatch(size_t port, Disk::ReadBuffer* buffers, size_t count);
+  bool writeBatch(size_t port, Disk::WriteBuffer* buffers, size_t count);
   bool flush(size_t port, bool extended);
   void configureDisk(size_t port, size_t sectorBytes, size_t queueDepth);
   EXPORTED_PUBLIC size_t interruptCompletions() const;

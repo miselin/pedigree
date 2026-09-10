@@ -182,6 +182,20 @@ bool Disk::writeFrom(uint64_t location, const void* buffer, size_t length) {
   return true;
 }
 
+bool Disk::writeFromBatch(WriteBuffer* buffers, size_t count) {
+  if (count > MaxWriteBuffers || (count && !buffers))
+    return false;
+  for (size_t i = 0; i < count; ++i)
+    buffers[i].complete = false;
+  bool succeeded = true;
+  for (size_t i = 0; i < count; ++i) {
+    auto& buffer = buffers[i];
+    buffer.complete = writeFrom(buffer.location, buffer.buffer, buffer.length);
+    succeeded = buffer.complete && succeeded;
+  }
+  return succeeded;
+}
+
 bool Disk::syncData() {
   return true;
 }

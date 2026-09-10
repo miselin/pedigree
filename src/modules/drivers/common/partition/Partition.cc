@@ -74,6 +74,28 @@ bool Partition::writeFrom(uint64_t location, const void* buffer, size_t length) 
   return parent->writeFrom(m_Start + location, buffer, length);
 }
 
+bool Partition::writeFromBatch(WriteBuffer* buffers, size_t count) {
+  if (count > MaxWriteBuffers || (count && !buffers))
+    return false;
+  WriteBuffer translated[MaxWriteBuffers];
+  for (size_t i = 0; i < count; ++i)
+    buffers[i].complete = false;
+  for (size_t i = 0; i < count; ++i) {
+    if (!containsRange(buffers[i].location, buffers[i].length))
+      return false;
+    translated[i] = buffers[i];
+    translated[i].location += m_Start;
+  }
+  auto* parent = static_cast<Disk*>(getParent());
+  if (!parent)
+    return false;
+  ensureAligned(parent);
+  const bool success = parent->writeFromBatch(translated, count);
+  for (size_t i = 0; i < count; ++i)
+    buffers[i].complete = translated[i].complete;
+  return success;
+}
+
 bool Partition::syncData() {
   auto* parent = static_cast<Disk*>(getParent());
   return parent && parent->syncData();

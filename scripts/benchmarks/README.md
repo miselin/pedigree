@@ -266,3 +266,35 @@ Run the focused trace-parser checks with:
 ```sh
 uv run --no-project python scripts/benchmarks/test_launch_latency.py -v
 ```
+
+## Filesystem-wide sync
+
+`sync-latency.c` measures `sync()` on an existing 1 MiB file, followed by an
+immediate clean sync and a sync after rewriting the file. Compile it with the
+Pedigree userspace toolchain (`-D_DEFAULT_SOURCE -std=c11 -O2 -static`). Install it
+as `/usr/bin/init` in a disposable image and create `/sync-bench.bin` offline as
+exactly 1 MiB of byte `0x11`. Keep disk writes enabled. Use the launch runner's
+quiet kernel command line (`--disable-log-to-serial`) and serial setup.
+
+```sh
+uv run --no-project python scripts/benchmarks/run-launch-latency.py \
+  --image /path/to/sync-test.img --output /path/to/sync-results \
+  --firmware-code /path/to/OVMF.fd --cpus 1 --mode sync --iterations 1
+```
+
+The phases are `sync-dirty-0`, `sync-clean-0`, and `sync-redirty-0`. Their `bytes`
+field is the file span, not the bytes actually written: use `block_delta` and
+`trace.write_commands` for payload traffic, `flush_operations` for durability
+barriers, and `trace.maximum_ncq` for observed outstanding requests. Setup reads
+and writes occur outside the measured phases. Background writeback remains active.
+
+Use `--cpus 4` for SMP validation. To qualify queue saturation independently of
+fast host completion, add `--write-iops 1000`; this limits QEMU backing writes and
+must not be mixed into an unthrottled speed comparison. Native admission tests
+also exercise full slots, partial admission, and failure draining.
+
+For persistence, boot again using the completed run's `disk.qcow2` as the new
+image. Require `SYNCBENCH persistence=PASS bytes=1048576` in the second serial
+log: it validates every byte before rewriting the file. `persistence=initial`
+is expected only for the original fixture and is not persistence evidence.
+The runner quits QEMU after completion without a guest-wide shutdown sync.

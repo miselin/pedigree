@@ -756,6 +756,69 @@ bool ScsiDisk::transferBufferRange(uint64_t location, void* buffer, size_t lengt
   return true;
 }
 
+bool ScsiDisk::writeFromBatch(WriteBuffer* buffers, size_t count) {
+  if (count > MaxWriteBuffers || (count && !buffers))
+    return false;
+  for (size_t i = 0; i < count; ++i)
+    buffers[i].complete = false;
+  if (!count)
+    return true;
+#if CRIPPLE_HDD
+  return false;
+#else
+  TerminationDeferral lifetime;
+  DiskUse use;
+  OperationBarrier::Lease operation;
+  auto* controller = static_cast<ScsiController*>(m_pParent);
+  if (!acquireUse(use) || !controller || !controller->acquireDiskOperation(operation))
+    return false;
+  const size_t native = getNativeBlockSize();
+  bool eligible = supportsBufferTransfers() && native && !(ScsiCachePageBytes % native) &&
+                  !hasShiftedCacheAlignment();
+  uint64_t first = ~uint64_t{0}, end = 0;
+  for (size_t i = 0; i < count; ++i) {
+    const auto& b = buffers[i];
+    if (!b.buffer || !b.length || b.location >= getSize() || b.length > getSize() - b.location)
+      return false;
+    eligible &= b.location % ScsiCachePageBytes == 0 && b.length == ScsiCachePageBytes;
+    if (b.location < first)
+      first = b.location;
+    if (b.location + b.length > end)
+      end = b.location + b.length;
+    for (size_t j = 0; j < i; ++j)
+      if (b.location < buffers[j].location + buffers[j].length &&
+          buffers[j].location < b.location + b.length)
+        eligible = false;
+  }
+  if (eligible && end - first <= ~size_t{0}) {
+    CacheRangeAdmission admission(*this, first, end - first, true);
+    eligible = !hasShiftedCacheAlignment();
+    // Existing aliases must be merged by the ordinary path, not bypassed.
+    for (size_t i = 0; eligible && i < count; ++i) {
+      uintptr_t page = 0;
+      eligible = m_Cache.lookupStable(buffers[i].location, page);
+      if (page) {
+        m_Cache.release(buffers[i].location);
+        eligible = false;
+      }
+    }
+    if (eligible)
+      return transferWriteBuffers(buffers, count);
+  }
+  return Disk::writeFromBatch(buffers, count);
+#endif
+}
+
+bool ScsiDisk::transferWriteBuffers(WriteBuffer* buffers, size_t count) {
+  bool success = true;
+  for (size_t i = 0; i < count; ++i) {
+    auto& b = buffers[i];
+    b.complete = transferBuffer(b.location, const_cast<void*>(b.buffer), b.length, true);
+    success = b.complete && success;
+  }
+  return success;
+}
+
 bool ScsiDisk::syncData() {
 #if CRIPPLE_HDD
   return false;
@@ -913,30 +976,37 @@ bool ScsiDisk::syncPages(const uint64_t* locations, size_t count) {
     if (!duplicate)
       keys[pageCount++] = key;
   }
-  struct Batch {
-    ScsiDisk* disk;
-    ScsiController* controller;
-  } batch = {this, controller};
-  return m_Cache.syncBatch(
-      keys, pageCount,
-      [](const Cache::WritebackPage* pages, size_t size, void* context) {
-        auto& batch = *static_cast<Batch*>(context);
-        bool succeeded = true;
-        for (size_t i = 0; i < size; ++i) {
-          const uint64_t written = batch.controller->addRequest(
-              0, RequestQueue::NewRequest, SCSI_REQUEST_WRITE_DIRECT,
-              reinterpret_cast<uint64_t>(batch.disk), pages[i].key, pages[i].location);
-          succeeded = written == batch.disk->getCachePageValidLength(pages[i].key) && succeeded;
-        }
-        // Even a partial failure can have submitted writes. Complete their
-        // barrier before returning, and leave the entire batch retryable.
-        const uint64_t flushed =
-            batch.controller->addRequest(0, RequestQueue::NewRequest, SCSI_REQUEST_SYNC,
-                                         reinterpret_cast<uint64_t>(batch.disk), SyncWholeDevice);
-        return succeeded && flushed != 0;
-      },
-      &batch);
+  return m_Cache.syncBatch(keys, pageCount, syncCacheBatch, this);
 #endif
+}
+
+bool ScsiDisk::syncCacheBatch(const Cache::WritebackPage* pages, size_t count, void* context) {
+  auto* disk = static_cast<ScsiDisk*>(context);
+  bool succeeded = true;
+  for (size_t first = 0; first < count; first += MaxWriteBuffers) {
+    const size_t n = count - first < MaxWriteBuffers ? count - first : MaxWriteBuffers;
+    WriteBuffer buffers[MaxWriteBuffers];
+    for (size_t i = 0; i < n; ++i) {
+      const auto& page = pages[first + i];
+      buffers[i] = {page.key, reinterpret_cast<const void*>(page.location),
+                    disk->getCachePageValidLength(page.key), false};
+    }
+    if (disk->supportsBufferTransfers()) {
+      succeeded = disk->transferWriteBuffers(buffers, n) && succeeded;
+    } else {
+      auto* controller = static_cast<ScsiController*>(disk->m_pParent);
+      for (size_t i = 0; i < n; ++i) {
+        const auto& b = buffers[i];
+        const uint64_t written = controller->addRequest(
+            0, RequestQueue::NewRequest, SCSI_REQUEST_WRITE_DIRECT,
+            reinterpret_cast<uint64_t>(disk), b.location, reinterpret_cast<uintptr_t>(b.buffer));
+        succeeded = written == b.length && succeeded;
+      }
+    }
+  }
+  // A partial wave still needs its successful writes made durable.
+  const bool durable = disk->syncData();
+  return succeeded && durable;
 }
 
 bool ScsiDisk::syncAll() {
@@ -957,7 +1027,7 @@ bool ScsiDisk::syncAll() {
     return false;
   }
 
-  const bool cacheSucceeded = m_Cache.syncAll();
+  const bool cacheSucceeded = m_Cache.syncAll(syncCacheBatch, this);
   // Previously submitted writes may still reside in the device even if the
   // cache is empty, or another page failed during this drain.
   const uint64_t flushed =

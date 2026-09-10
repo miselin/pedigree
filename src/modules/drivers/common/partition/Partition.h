@@ -117,6 +117,7 @@ class Partition : public Disk {
   bool readInto(uint64_t location, void* buffer, size_t length) override;
   bool readIntoBatch(ReadBuffer* buffers, size_t count) override;
   bool writeFrom(uint64_t location, const void* buffer, size_t length) override;
+  bool writeFromBatch(WriteBuffer* buffers, size_t count) override;
   bool syncData() override;
 
   MUST_USE_RESULT virtual bool syncAll() override;
