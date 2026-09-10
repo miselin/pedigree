@@ -2827,8 +2827,9 @@ int posix_chdir(const char* path) {
   ResolvedPath dirLease;
   File* dir = findFilePath(realPath, dirLease);
   if (!dir) {
-    F_NOTICE("Does not exist.");
-    SYSCALL_ERROR(DoesNotExist);
+    F_NOTICE("Path lookup failed.");
+    if (!Processor::information().getCurrentThread()->getErrno())
+      SYSCALL_ERROR(DoesNotExist);
     return -1;
   }
 
