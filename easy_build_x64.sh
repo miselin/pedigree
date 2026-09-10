@@ -61,7 +61,7 @@ echo "Configuring the Pedigree UPdater..."
 $script_dir/setup_pup.py amd64
 $script_dir/run_pup.sh sync
 
-# Needed for libc
+# Needed by the in-tree user applications
 $script_dir/run_pup.sh install ncurses
 
 refresh_cmake_metadata=false
@@ -85,8 +85,7 @@ mkdir -p build && cd build
 cmake -DCMAKE_TOOLCHAIN_FILE=${script_dir}/build-etc/cmake/pedigree_amd64.cmake \
     -DPEDIGREE_TOOLCHAIN_ROOT="$COMPILER_DIR" ..
 
-# Build libc/libm
-make libc
+# CMake has acquired the packaged libc SDK.
 cd ..
 
 # Pull down libtool.
@@ -95,7 +94,7 @@ $script_dir/run_pup.py install libtool
 # Enforce using our libtool.
 export LIBTOOL=$script_dir/../images/local/applications:$PATH
 
-# Build GCC again with access to the newly built libc.
+# Build GCC again with access to the packaged libc SDK.
 # This will create a libstdc++ that can be used by pedigree-apps to build GCC
 # again, this time with a shared libstdc++. pedigree-apps should then build GCC
 # again to build it against the shared libstdc++. Once a working shared

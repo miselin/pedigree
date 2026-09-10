@@ -2,7 +2,7 @@
 
 The self-host build profile is an experimental first step toward working on a
 Pedigree checkout from within Pedigree. It builds the amd64 kernel, dynamic
-modules and initrd, configuration database, musl libc, and in-tree user
+modules and initrd, configuration database, and in-tree user
 applications and libraries. It deliberately does not build an HDD image or
 ISO, and it never installs files into `/boot`. Static-driver builds and
 compiled distribution keymaps are also excluded from this initial profile.
@@ -32,7 +32,6 @@ Once those tools are available, this slice can rebuild:
 - the UEFI-bootable Pedigree kernel;
 - kernel modules and the deterministic initrd containing them;
 - the configuration database;
-- musl libc from a supplied source archive; and
 - the user applications and libraries defined in this checkout.
 
 That is enough to shorten the edit-build-test loop on Pedigree, while compiler
@@ -46,21 +45,17 @@ and package self-bootstrap remain later milestones.
   matching `ar`, `gcc-ar`, `gcc-ranlib`, `ld`, `nm`, `objcopy`, `objdump`,
   `ranlib`, `readelf`, and `strip` tools. The selected toolchain must also
   provide its matching `libgcc` and `libstdc++` runtimes.
-- NASM, Bash, GNU Make, `patch`, and standard POSIX command-line utilities.
-  Python, a separate `sqlite3` command, `tar`, `gzip`, and hashing utilities are
-  not required by `boot-artifacts`; the native build compiles its generators
-  from this checkout.
+- NASM, a POSIX shell, GNU Make, and standard POSIX command-line utilities.
+- PUP and its Python runtime, for acquiring the packaged musl SDK. A separate
+  `sqlite3`, `tar`, `gzip`, or `patch` command is not required by `boot-artifacts`.
 - zlib development headers and library. The native initrd builder links zlib
   directly, so no `gzip` executable is needed.
 - Development headers and libraries needed by the in-tree user applications,
   installed under `/usr`. These currently include libpng, Mesa/OSMesa,
   gettext/libintl, dialog, GLib, Pango, Cairo, FreeType, HarfBuzz, Fontconfig,
   and libffi, plus their dependencies.
-- A local `musl-1.2.6.tar.gz`. Native configuration verifies its expected SHA-256
-  and does not download it.
-
-Python remains useful for host-side regression tests and cross-build image
-packaging, but neither is part of this native artifact profile.
+- Network access for the initial musl PUP download, or a cached copy for an
+  offline build. See [musl SDK](musl-sdk.md).
 
 ## Libc and syscall boundary
 
@@ -110,9 +105,8 @@ cmake -S . -B build-boot \
 cmake --build build-boot --target boot-artifacts
 ```
 
-That reduced cross-build path does not discover Python. Supply
-`PEDIGREE_MUSL_ARCHIVE` as well when the musl archive is not already present
-in the build tree.
+CMake acquires the pinned musl SDK through PUP during configuration. Subsequent
+builds reuse it without a download or libc compilation.
 
 The target tree owns incremental native sub-builds under `build/host-tools`.
 It builds the small configuration-database and initrd generators when they are
@@ -154,11 +148,10 @@ cmake -S . -B build \
 
 ## First build
 
-Transfer the musl archive onto Pedigree, then run from the checkout:
+With PUP installed, run from the checkout:
 
 ```sh
-PEDIGREE_MUSL_ARCHIVE=/path/to/musl-1.2.6.tar.gz \
-    ./easy_build_selfhost.sh
+./easy_build_selfhost.sh
 ```
 
 The default build directory is `build-selfhost`, and the default parallelism is
@@ -193,9 +186,9 @@ With the default build directory, the primary products are:
 - `build-selfhost/src/modules/initrd.manifest` — deterministic initrd contents;
 - `build-selfhost/config.db` — boot configuration database; and
 - `build-selfhost/src/user/` — built user applications and libraries;
-- `build-selfhost/musl/usr/` — package-shaped libc SDK payload; and
-- `build-selfhost/musl/usr/share/pedigree/libc/manifest.json` — libc ABI,
-  layout, toolchain, and source-derivation identity; and
+- `build-selfhost/musl/usr/` — installed libc SDK payload; and
+- `build-selfhost/musl/usr/share/pedigree/libc/package.sha256` — installed
+  package identity; and
 - `build-selfhost/pedigree-c-sdk/usr/` — Pedigree-specific userspace library
   and public headers.
 
@@ -217,11 +210,9 @@ The configuration database follows the same boundary with the in-tree C
 generator. The Python implementations remain regression oracles, not
 base-artifact dependencies.
 
-musl is configured for its installed `/usr` paths and staged without writing
-to the running system. The loader link in the SDK is relative and valid after
-the payload is installed. Temporary `musl/include` and `musl/lib` links retain
-compatibility with compiler installations created before the SDK layout; new
-consumers should use the manifest's `usr/include` and `usr/lib` paths.
+The musl PUP uses installed `/usr` paths and is staged without writing to the
+running system. Its loader symlink is relative and remains valid after the
+payload is copied into an image. SDK consumers use `usr/include` and `usr/lib`.
 
 Pedigree-specific APIs are staged separately from libc. In particular,
 `pedigree_log` is provided by `libpedigree-c` and declared by
@@ -229,11 +220,8 @@ Pedigree-specific APIs are staged separately from libc. In particular,
 `<pedigree/fb.h>`. Neither is patched into musl. This keeps the platform API
 available to native packages without making it part of the libc provider.
 
-This makes musl a package-shaped build product, but it is not yet safe to
-replace on a running system through PUP. Atomic activation, file ownership,
-rollback, and removal of obsolete files need to be defined before libc updates
-become live package operations. The SDK manifest is the compatibility boundary
-for that future installer work.
+Build dependency installation uses a private SDK root. Updating libc on the
+running system is a separate operation; configuring this checkout never does it.
 
 ## Building other packages
 

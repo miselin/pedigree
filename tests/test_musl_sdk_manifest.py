@@ -140,7 +140,7 @@ class MuslSdkManifestTests(unittest.TestCase):
 
     def test_derivation_and_container_keep_the_sdk_package_root(self):
         modules_cmake = (
-            SOURCE_ROOT / "src/modules/CMakeLists.txt"
+            SOURCE_ROOT / "build-etc/cmake/PedigreeHostedMusl.cmake"
         ).read_text(encoding="utf-8")
         dockerfile = (
             SOURCE_ROOT / "build-etc/docker/pedigree-builder.Dockerfile"

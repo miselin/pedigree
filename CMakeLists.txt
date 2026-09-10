@@ -426,12 +426,16 @@ if (NOT PEDIGREE_SELF_HOSTED AND BUILD_TESTING)
         COMMAND ${PYTHON_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/test_musl_startfiles.py -v)
     add_test(
+        NAME musl-package-tests
+        COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/test_musl_package.py -v)
+    add_test(
         NAME pedigree-log-boundary-tests
         COMMAND ${PYTHON_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/test_pedigree_log.py -v)
 endif ()
 
-# Pedigree-ABI code must compile against the libc produced by this build rather
+# Pedigree-ABI code must compile against the selected libc SDK rather
 # than whichever headers happen to be installed with the compiler or running
 # system. Consumers opt into this interface so host-side generators remain on
 # the build host's libc ABI.
