@@ -44,6 +44,7 @@ Ext2File::Ext2File(const String& name, uintptr_t inode_num, Inode* inode, Ext2Fi
     }
     m_State->cache->fill.setDirtyTracking(Cache::DirtyTracking::Explicit);
     m_State->cache->fill.setCallback(sharedFillCallback, m_State);
+    m_State->cache->fill.setBackgroundWriteback(sharedFillBatchCallback);
   }
   {
     LockGuard<Mutex> writebackGuard(m_State->writebackLock);

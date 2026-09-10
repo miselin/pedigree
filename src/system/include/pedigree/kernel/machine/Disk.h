@@ -270,6 +270,10 @@ class EXPORTED_PUBLIC Disk : public Device {
    *         available for a later retry.
    */
   MUST_USE_RESULT virtual bool retireCachePage(uint64_t location);
+
+  /** Zeroes a range in the cache; syncAll supplies durability. A failed call
+   * may have zeroed a prefix. Full cache pages need no old contents read. */
+  MUST_USE_RESULT virtual bool zero(uint64_t location, size_t length);
 };
 
 #endif

@@ -70,6 +70,14 @@ class Partition : public Disk {
     return remaining < view.size() ? view.first(static_cast<size_t>(remaining)) : view;
   }
 
+  bool zero(uint64_t location, size_t length) override {
+    if (!containsRange(location, length))
+      return false;
+    auto* parent = static_cast<Disk*>(getParent());
+    ensureAligned(parent);
+    return parent->zero(m_Start + location, length);
+  }
+
   virtual void write(uint64_t location) override {
     if (!containsCachePage(location))
       return;

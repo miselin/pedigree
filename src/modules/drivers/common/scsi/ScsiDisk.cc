@@ -256,6 +256,7 @@ ScsiDisk::ScsiDisk()
       m_DeviceType(NoDevice) {
   reserveEndpoint();
   m_Cache.setCallback(cacheCallback, this);
+  m_Cache.setBackgroundWriteback(syncCacheBatch);
 }
 
 ScsiDisk::~ScsiDisk() {
@@ -640,6 +641,42 @@ bool ScsiDisk::transferReadBuffers(ReadBuffer* buffers, size_t count) {
     success &= request.complete;
   }
   return success;
+}
+
+bool ScsiDisk::zero(uint64_t location, size_t length) {
+  TerminationDeferral lifetime;
+  DiskUse diskUse;
+  if (!acquireUse(diskUse))
+    return false;
+  auto* controller = static_cast<ScsiController*>(m_pParent);
+  OperationBarrier::Lease operation;
+  if (!controller || !controller->acquireDiskOperation(operation) || location > getSize() ||
+      length > getSize() - location)
+    return false;
+  if (!length)
+    return true;
+  // Legacy read requests can fill larger extents: retain their existing
+  // publication rules instead of leaving a partially populated extent.
+  if (!getNativeBlockSize() || ScsiCachePageBytes % getNativeBlockSize() ||
+      getCacheFillSize() != ScsiCachePageBytes || hasShiftedCacheAlignment() ||
+      location % ScsiCachePageBytes || length % ScsiCachePageBytes)
+    return Disk::zero(location, length);
+  CacheRangeAdmission admission(*this, location, length, true);
+  while (length) {
+    const uintptr_t existing = m_Cache.lookup(location);
+    const uintptr_t page = existing ? existing : m_Cache.insert(location);
+    if (!page)
+      return false;
+    ByteSet(reinterpret_cast<void*>(page), 0, ScsiCachePageBytes);
+    if (!existing)
+      m_Cache.markNoLongerEditing(location);
+    m_Cache.markDirty(location);
+    if (existing)
+      m_Cache.release(location);
+    location += ScsiCachePageBytes;
+    length -= ScsiCachePageBytes;
+  }
+  return true;
 }
 
 bool ScsiDisk::writeFrom(uint64_t location, const void* buffer, size_t length) {

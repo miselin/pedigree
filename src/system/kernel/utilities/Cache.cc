@@ -324,11 +324,14 @@ uint64_t CacheManager::cacheGenerationWatermark() {
 
 uint64_t CacheManager::addCacheRequest(Cache* cache, bool asynchronous,
                                        CacheConstants::CallbackCause cause, uintptr_t key,
-                                       uintptr_t location, bool transferredPin, bool onlyIfDirty) {
+                                       uintptr_t location, bool transferredPin, bool onlyIfDirty,
+                                       bool batch) {
 #if THREADS
   // RequestQueue rejects these contexts before taking payload ownership.
   // In particular, last-reference cancellation can request another eviction.
   if (callbackActiveOnCurrentThread() || m_LifecycleMutex.isOwnedByCurrentThread()) {
+    if (batch)
+      cache->releaseBackgroundWriteback(reinterpret_cast<Cache::BackgroundWriteback*>(key));
     if (transferredPin)
       cache->releaseWriteback(key);
     return 0;
@@ -336,6 +339,8 @@ uint64_t CacheManager::addCacheRequest(Cache* cache, bool asynchronous,
   uint64_t generation = 0;
   OperationBarrier::Lease cacheLease;
   if (!acquireCache(cache, generation, cacheLease)) {
+    if (batch)
+      cache->releaseBackgroundWriteback(reinterpret_cast<Cache::BackgroundWriteback*>(key));
     if (transferredPin) {
       cache->releaseWriteback(key);
     }
@@ -344,6 +349,8 @@ uint64_t CacheManager::addCacheRequest(Cache* cache, bool asynchronous,
 
   CacheRequest* request = new CacheRequest(cache, pedigree_std::move(cacheLease));
   if (!request) {
+    if (batch)
+      cache->releaseBackgroundWriteback(reinterpret_cast<Cache::BackgroundWriteback*>(key));
     if (transferredPin) {
       cache->releaseWriteback(key);
     }
@@ -355,13 +362,15 @@ uint64_t CacheManager::addCacheRequest(Cache* cache, bool asynchronous,
   const uint64_t requestToken = 0;
 #endif
 
+  // p7 selects forced, conditional, or batch writeback. A batch owns its p3 payload.
   if (asynchronous) {
     return addAsyncRequest(1, reinterpret_cast<uint64_t>(cache), cause, key, location,
-                           transferredPin ? 1 : 0, generation, onlyIfDirty ? 1 : 0, requestToken);
+                           transferredPin ? 1 : 0, generation, batch ? 2 : (onlyIfDirty ? 1 : 0),
+                           requestToken);
   }
 
   return addRequest(1, RequestQueue::NewRequest, reinterpret_cast<uint64_t>(cache), cause, key,
-                    location, transferredPin ? 1 : 0, generation, onlyIfDirty ? 1 : 0,
+                    location, transferredPin ? 1 : 0, generation, batch ? 2 : (onlyIfDirty ? 1 : 0),
                     requestToken);
 }
 
@@ -405,11 +414,17 @@ void CacheManager::cancelRequest(const Request& request) {
     FATAL("CacheManager cancelled a request without lifetime ownership");
     return;
   }
+  if (request.p7 == 2)
+    cacheRequest->cache->releaseBackgroundWriteback(
+        reinterpret_cast<Cache::BackgroundWriteback*>(request.p3));
   if (request.p5) {
     cacheRequest->cache->releaseWriteback(request.p3);
   }
   delete cacheRequest;
 #else
+  if (request.p1 && request.p7 == 2)
+    reinterpret_cast<Cache*>(request.p1)
+        ->releaseBackgroundWriteback(reinterpret_cast<Cache::BackgroundWriteback*>(request.p3));
   if (request.p1 && request.p5) {
     Cache* cache = reinterpret_cast<Cache*>(request.p1);
     cache->releaseWriteback(request.p3);
@@ -491,6 +506,7 @@ Cache::Cache(size_t pageConstraints)
       m_ManagerId(0),
       m_ManagerTimerStamp(),
       m_Callback(0),
+      m_BackgroundWriteback(nullptr),
       m_Nanoseconds(0),
       m_WritebackEpoch(0),
       m_CallbackMeta(nullptr),
@@ -1852,6 +1868,15 @@ void Cache::timer(uint64_t delta) {
 
   // Bound interrupt-disabled work to one page, including clean prefixes. A
   // copied key also lets callbacks mutate the tree without invalidating a scan.
+  BackgroundWriteback* batch = nullptr;
+  auto submitBatch = [&] {
+    if (batch) {
+      CacheManager::instance().addCacheRequest(this, true, CacheConstants::WriteBack,
+                                               reinterpret_cast<uintptr_t>(batch), 0, false, true,
+                                               true);
+      batch = nullptr;
+    }
+  };
   uintptr_t nextKey = 0;
   auto& candidates = m_DirtyTracking == DirtyTracking::Explicit ? m_WritebackPages : m_Pages;
   bool finished = false;
@@ -1866,12 +1891,12 @@ void Cache::timer(uint64_t delta) {
     {
       LockGuard<Spinlock> guard(m_Lock);
       if (!m_Callback || m_bInCritical == 1) {
-        return;
+        break;
       }
 
       CachePage* page = nullptr;
       if (!candidates.lowerBound(nextKey, key, page)) {
-        return;
+        break;
       }
       finished = key == ~uintptr_t{0};
       if (!finished) {
@@ -1941,9 +1966,20 @@ void Cache::timer(uint64_t delta) {
       admissionHook(this, key, admissionHookMeta);
     }
 #endif
+    if (m_BackgroundWriteback) {
+      if (!batch)
+        batch = new BackgroundWriteback;
+      if (batch) {
+        batch->keys[batch->count++] = key;
+        if (batch->count == MaxWritebackPages)
+          submitBatch();
+        continue;
+      }
+    }
     CacheManager::instance().addCacheRequest(this, true, CacheConstants::WriteBack, key, location,
                                              true, true);
   }
+  submitBatch();
 }
 
 void Cache::setCallback(Cache::writeback_t newCallback, void* meta) {
@@ -1969,6 +2005,22 @@ void Cache::setCallback(Cache::writeback_t newCallback, void* meta) {
   m_CallbackMeta = meta;
 }
 
+void Cache::setBackgroundWriteback(writeback_batch_t callback) {
+  LockGuard<Spinlock> guard(m_Lock);
+  if (static_cast<size_t>(m_ShutdownState) || !m_Callback || m_Pages.count() ||
+      m_BackgroundWriteback || !callback) {
+    FATAL("Background writeback must be installed before publishing cache pages");
+    return;
+  }
+  m_BackgroundWriteback = callback;
+}
+
+void Cache::releaseBackgroundWriteback(BackgroundWriteback* batch) {
+  for (size_t i = 0; i < batch->count; ++i)
+    releaseWriteback(batch->keys[i]);
+  delete batch;
+}
+
 void Cache::setDirtyTracking(DirtyTracking tracking) {
   if (!ensureUsable("setDirtyTracking"))
     return;
@@ -1990,6 +2042,14 @@ void Cache::setWritebackAdmissionHookForTest(writeback_admission_hook_t hook, vo
 
 uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
                                uint64_t p6, uint64_t p7, uint64_t p8) {
+  if (p7 == 2) {
+    auto* batch = reinterpret_cast<BackgroundWriteback*>(p3);
+    const bool succeeded =
+        syncBatchInternal(batch->keys, batch->count, m_BackgroundWriteback, m_CallbackMeta, true);
+    releaseBackgroundWriteback(batch);
+    return succeeded ? 2 : 0;
+  }
+
   // Eviction request?
   if (static_cast<CacheConstants::CallbackCause>(p2) == CacheConstants::PleaseEvict) {
     evict(p3);

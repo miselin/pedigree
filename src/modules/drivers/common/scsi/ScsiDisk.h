@@ -113,6 +113,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   virtual void flush(uint64_t location);
   virtual bool sync(uint64_t location, bool async);
   MUST_USE_RESULT virtual bool syncAll();
+  bool zero(uint64_t location, size_t length) override;
   bool syncPages(const uint64_t* locations, size_t count) override;
   MUST_USE_RESULT virtual bool retireCachePage(uint64_t location);
   virtual void align(uint64_t location);

@@ -756,3 +756,100 @@ TEST(CacheSync, SnapshotBatchFailureAndNewGenerationRemainRetryable) {
   ASSERT_TRUE(cache.syncAll(SyncWaveObserver::batch, &wave));
   EXPECT_EQ(wave.pages, 5U);
 }
+
+namespace {
+struct BackgroundObserver {
+  Cache* cache;
+  std::vector<size_t> sizes;
+  bool succeed = true;
+  bool mutate = false;
+  size_t single = 0;
+  static bool ordinary(CacheConstants::CallbackCause cause, uintptr_t, uintptr_t, void* context) {
+    if (cause == CacheConstants::WriteBack)
+      ++static_cast<BackgroundObserver*>(context)->single;
+    return true;
+  }
+  static bool batch(const Cache::WritebackPage* pages, size_t count, void* context) {
+    auto& self = *static_cast<BackgroundObserver*>(context);
+    self.sizes.push_back(count);
+    if (self.mutate) {
+      self.mutate = false;
+      self.cache->markDirty(pages[0].key);
+    }
+    return self.succeed;
+  }
+};
+}  // namespace
+
+#if !THREADS
+TEST(CacheSync, BackgroundUsesBoundedBatchesAndSkipsSettledPages) {
+  BackgroundObserver observer{nullptr, {}};
+  Cache cache;
+  observer.cache = &cache;
+  cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  cache.setCallback(BackgroundObserver::ordinary, &observer);
+  cache.setBackgroundWriteback(BackgroundObserver::batch);
+  for (size_t i = 0; i < Cache::MaxWritebackPages + 1; ++i)
+    ASSERT_NE(publish(cache, i * Page), 0U);
+  cache.timer(CACHE_WRITEBACK_PERIOD * 1000000ULL);
+  EXPECT_EQ(observer.sizes, (std::vector<size_t>{Cache::MaxWritebackPages, 1}));
+  EXPECT_EQ(observer.single, 0U);
+  cache.timer(CACHE_WRITEBACK_PERIOD * 1000000ULL);
+  EXPECT_EQ(observer.sizes.size(), 2U);
+}
+
+TEST(CacheSync, BackgroundFailureAndConcurrentMutationRemainDirty) {
+  BackgroundObserver observer{nullptr, {}};
+  Cache cache;
+  observer.cache = &cache;
+  cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  cache.setCallback(BackgroundObserver::ordinary, &observer);
+  cache.setBackgroundWriteback(BackgroundObserver::batch);
+  ASSERT_NE(publish(cache, 0), 0U);
+  ASSERT_NE(publish(cache, Page), 0U);
+  observer.succeed = false;
+  cache.timer(CACHE_WRITEBACK_PERIOD * 1000000ULL);
+  observer.succeed = true;
+  observer.mutate = true;
+  cache.timer(CACHE_WRITEBACK_PERIOD * 1000000ULL);
+  cache.timer(CACHE_WRITEBACK_PERIOD * 1000000ULL);
+  EXPECT_EQ(observer.sizes, (std::vector<size_t>{2, 2, 1}));
+  cache.timer(CACHE_WRITEBACK_PERIOD * 1000000ULL);
+  EXPECT_EQ(observer.sizes.size(), 3U);
+  EXPECT_EQ(observer.single, 0U);
+}
+#endif
+
+namespace {
+class ZeroFallbackDisk : public NoStorageDisk {
+ public:
+  unsigned char bytes[1024];
+  size_t writes = 0, releases = 0;
+  size_t getSize() const override {
+    return sizeof(bytes);
+  }
+  BufferView read(uint64_t offset) override {
+    if (offset % 512 || offset >= sizeof(bytes))
+      return {};
+    return BufferView::fromAddress(reinterpret_cast<uintptr_t>(bytes + offset), 512);
+  }
+  void write(uint64_t) override {
+    ++writes;
+  }
+  void unpin(uint64_t) override {
+    ++releases;
+  }
+};
+}  // namespace
+TEST(CacheSync, DiskZeroFallbackPreservesNeighboursAndBalancesReferences) {
+  ZeroFallbackDisk disk;
+  memset(disk.bytes, 0xa5, sizeof disk.bytes);
+  ASSERT_TRUE(disk.zero(17, 700));
+  for (size_t i = 0; i < sizeof disk.bytes; ++i)
+    EXPECT_EQ(disk.bytes[i], i >= 17 && i < 717 ? 0 : 0xa5);
+  EXPECT_EQ(disk.writes, 2U);
+  EXPECT_EQ(disk.releases, 2U);
+  EXPECT_FALSE(disk.zero(1000, 25));
+  EXPECT_TRUE(disk.zero(1024, 0));
+  EXPECT_EQ(disk.writes, 2U);
+}

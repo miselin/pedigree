@@ -21,6 +21,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -292,15 +293,11 @@ bool Ext2Node::ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize
     if (nozeroblocks) {
       continue;
     }
-    const uintptr_t buffer = m_pExt2Fs->readBlock(block);
-    if (!buffer) {
+    if (!m_pExt2Fs->m_pDisk->zero(static_cast<uint64_t>(block) * blockSize, blockSize)) {
       SYSCALL_ERROR(IoError);
       success = false;
       break;
     }
-    ByteSet(reinterpret_cast<void*>(buffer), 0, blockSize);
-    m_pExt2Fs->writeBlock(block);
-    m_pExt2Fs->unpinBlock(block);
   }
   for (uint32_t block : pendingWrites) {
     m_pExt2Fs->writeBlock(block);
@@ -537,15 +534,11 @@ bool Ext2Node::ensureWritableRange(size_t location, size_t length) {
     if (!block) {
       return false;
     }
-    const uintptr_t buffer = m_pExt2Fs->readBlock(block);
-    if (!buffer) {
+    if (!m_pExt2Fs->m_pDisk->zero(static_cast<uint64_t>(block) * blockSize, blockSize)) {
       m_pExt2Fs->releaseBlock(block, m_InodeNumber);
       SYSCALL_ERROR(IoError);
       return false;
     }
-    ByteSet(reinterpret_cast<void*>(buffer), 0, blockSize);
-    m_pExt2Fs->writeBlock(block);
-    m_pExt2Fs->unpinBlock(block);
     if (!setBlockNumber(index, block)) {
       m_pExt2Fs->releaseBlock(block, m_InodeNumber);
       return false;

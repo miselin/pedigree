@@ -283,3 +283,27 @@ bool Disk::retireCachePage(uint64_t location) {
 size_t Disk::getNativeBlockSize() const {
   return 512;
 }
+
+bool Disk::zero(uint64_t location, size_t length) {
+  if (location > getSize() || length > getSize() - location)
+    return false;
+  while (length) {
+    const uint64_t base = location - location % 512;
+    const size_t within = location - base;
+    auto view = read(base);
+    if (!view)
+      return false;
+    if (within >= view.size()) {
+      unpin(base);
+      return false;
+    }
+    const size_t available = view.size() - within;
+    const size_t amount = length < available ? length : available;
+    ByteSet(reinterpret_cast<void*>(view.address() + within), 0, amount);
+    write(base);
+    unpin(base);
+    location += amount;
+    length -= amount;
+  }
+  return true;
+}

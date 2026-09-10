@@ -144,7 +144,7 @@ class EXPORTED_PUBLIC CacheManager :
   /** Publishes a request which owns the target Cache lifetime. */
   uint64_t addCacheRequest(Cache* cache, bool asynchronous, CacheConstants::CallbackCause cause,
                            uintptr_t key, uintptr_t location = 0, bool transferredPin = false,
-                           bool onlyIfDirty = false);
+                           bool onlyIfDirty = false, bool batch = false);
 
   /**
    * RequestQueue doer - children give us new jobs, and we call out to
@@ -485,6 +485,8 @@ class EXPORTED_PUBLIC Cache {
     uintptr_t location;
   };
   using writeback_batch_t = bool (*)(const WritebackPage*, size_t, void*);
+  /** Optional durable timer callback, installed before pages; shares setCallback metadata. */
+  void setBackgroundWriteback(writeback_batch_t callback);
   /** Snapshot dirty pages into bounded durable callbacks, including checksum-tracked aliases. */
   MUST_USE_RESULT bool syncAll(writeback_batch_t callback, void* metadata);
 
@@ -654,6 +656,11 @@ class EXPORTED_PUBLIC Cache {
                                   uint64_t p6, uint64_t p7, uint64_t p8);
 
  private:
+  struct BackgroundWriteback {
+    size_t count = 0;
+    uintptr_t keys[MaxWritebackPages];
+  };
+  void releaseBackgroundWriteback(BackgroundWriteback* batch);
   bool syncBatchInternal(const uintptr_t* keys, size_t count, writeback_batch_t callback,
                          void* metadata, bool snapshot);
   /** Writes an already pinned page, optionally joining an active callback. */
@@ -699,6 +706,7 @@ class EXPORTED_PUBLIC Cache {
 
   /** Callback to be called in the write-back timer handler. */
   writeback_t m_Callback;
+  writeback_batch_t m_BackgroundWriteback;
 
   /** Timer interface: number of nanoseconds counted so far in the timer
    * handler. */
