@@ -23,6 +23,8 @@ class FramebufferConsole {
     }
     m_Pixels = static_cast<volatile uint32_t*>(pixels);
     m_Stride = pitch / 4;
+    m_Width = width;
+    m_Height = height;
     m_Format = format;
     m_Scale = width / 640 < height / 400 ? width / 640 : height / 400;
     m_Left = (width - 640 * m_Scale) / 2;
@@ -48,25 +50,46 @@ class FramebufferConsole {
     m_Cursor = x < Columns && y < Rows ? y * Columns + x : CellCount;
   }
 
+  void invalidate() {
+    m_FirstFrame = true;
+  }
+
+  void clear() {
+    if (!m_Pixels) {
+      return;
+    }
+    for (size_t y = 0; y < m_Height; ++y) {
+      for (size_t x = 0; x < m_Width; ++x) {
+        m_Pixels[y * m_Stride + x] = 0;
+      }
+    }
+    invalidate();
+  }
+
   void flush() {
     if (!m_Pixels) {
       return;
     }
+    // Firmware or the splash renderer may have painted the framebuffer after
+    // initialise(). The first cell-rendered frame owns the whole display, so
+    // remove those pixels before drawing the logical console.
+    if (m_FirstFrame)
+      clear();
     for (size_t i = 0; i < CellCount; ++i) {
       uint16_t cell = m_Cells[i];
       if (!m_FirstFrame && cell == m_Rendered[i] && i != m_Cursor && i != m_PreviousCursor) {
         continue;
       }
-      const uint8_t* glyph = g_ConsoleFont[cell & 0xff];
+      const uint8_t* glyph = font_data + ((cell & 0xff) * FONT_HEIGHT);
       uint32_t foreground = colour((cell >> 8) & 15);
       uint32_t background = colour((cell >> 12) & 15);
-      size_t left = m_Left + (i % Columns) * 8 * m_Scale;
-      size_t top = m_Top + (i / Columns) * 16 * m_Scale;
-      for (size_t y = 0; y < 16 * m_Scale; ++y) {
-        uint8_t bits = glyph[y / (2 * m_Scale)];
+      size_t left = m_Left + (i % Columns) * FONT_WIDTH * m_Scale;
+      size_t top = m_Top + (i / Columns) * FONT_HEIGHT * m_Scale;
+      for (size_t y = 0; y < FONT_HEIGHT * m_Scale; ++y) {
+        uint8_t bits = glyph[y / m_Scale];
         bool cursor = i == m_Cursor && y >= 14 * m_Scale;
-        for (size_t x = 0; x < 8 * m_Scale; ++x) {
-          bool set = (bits & (1U << (x / m_Scale))) != 0;
+        for (size_t x = 0; x < FONT_WIDTH * m_Scale; ++x) {
+          bool set = (bits & (1U << (FONT_WIDTH - 1 - (x / m_Scale)))) != 0;
           m_Pixels[(top + y) * m_Stride + left + x] = (set != cursor) ? foreground : background;
         }
       }
@@ -87,6 +110,8 @@ class FramebufferConsole {
 
   volatile uint32_t* m_Pixels = nullptr;
   size_t m_Stride = 0;
+  size_t m_Width = 0;
+  size_t m_Height = 0;
   size_t m_Left = 0;
   size_t m_Top = 0;
   size_t m_Scale = 1;

@@ -25,6 +25,19 @@ int main() {
   assert(!console.initialise(pixels + 1, bytes, UINT32_MAX, height, stride * 4, 1));
 
   assert(console.initialise(pixels, bytes, width, height, stride * 4, 1));
+  // The splash renderer can repaint the framebuffer after console setup.
+  for (size_t y = 0; y < height; ++y) {
+    for (size_t x = 0; x < width; ++x) {
+      pixels[y * stride + x] = sentinel;
+    }
+  }
+  console.flush();
+  console.invalidate();
+  console.flush();
+  console.clear();
+  assert(pixels[0] == 0);
+  assert(pixels[(height - 1) * stride + width - 1] == 0);
+  assert(pixels[width] == sentinel);
   console.flush();
   const size_t top = stride, left = 4;
   assert(pixels[0] == 0);

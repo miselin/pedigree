@@ -79,6 +79,10 @@ bool X86Vga::setMode(int mode) {
 }
 
 bool X86Vga::setLargestTextMode() {
+  if (m_Uefi) {
+    LockGuard<Spinlock> guard(m_ConsoleLock);
+    m_Console.invalidate();
+  }
   return true;
 }
 
