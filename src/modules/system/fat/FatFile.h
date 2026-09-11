@@ -75,6 +75,9 @@ class FatFile : public File {
  protected:
   bool useFillCache() const override;
   bool readPage(uint64_t location, uintptr_t destination) override;
+  bool prepareShrink(const ShrinkContext& context,
+                     UniquePointer<PreparedShrink>& prepared) override;
+  bool resizeFile(size_t size) override;
 
  private:
   static bool checkedWriteCallback(CacheConstants::CallbackCause cause, uintptr_t location,

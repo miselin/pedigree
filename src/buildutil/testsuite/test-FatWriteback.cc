@@ -636,3 +636,21 @@ TEST(FatWriteback, FailedTruncateDetachmentRetainsItsWholeChainForRetry) {
   EXPECT_EQ(fixture.filesystem.entry(4), 0U);
   EXPECT_EQ(fixture.filesystem.entry(5), 0U);
 }
+
+TEST(FatWriteback, FileResizeTruncatesThroughVfsResizeHook) {
+  FatFixture fixture(3 * SectorSize, {3, 4, 5});
+
+  ASSERT_TRUE(fixture.file.resize(0));
+  EXPECT_EQ(fixture.file.getSize(), 0U);
+  EXPECT_GE(fixture.filesystem.entry(3), 0xFFF8U);
+  EXPECT_EQ(fixture.filesystem.entry(4), 0U);
+  EXPECT_EQ(fixture.filesystem.entry(5), 0U);
+}
+
+TEST(FatWriteback, FileResizeZeroLengthFileIsANoop) {
+  FatFixture fixture(0, {3});
+
+  EXPECT_TRUE(fixture.file.resize(0));
+  EXPECT_EQ(fixture.file.getSize(), 0U);
+  EXPECT_GE(fixture.filesystem.entry(3), 0xFFF8U);
+}

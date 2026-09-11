@@ -19,8 +19,16 @@
 
 #include "FatFile.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/syscallError.h"
 
 #include "FatFilesystem.h"
+
+namespace {
+class FatShrinkPlan final : public File::PreparedShrink {
+ public:
+  void commit() override {}
+};
+}  // namespace
 
 FatFile::FatFile(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
                  Time::Timestamp creationTime, uintptr_t inode, class Filesystem* pFs, size_t size,
@@ -168,4 +176,39 @@ void FatFile::extend(size_t newSize) {
 void FatFile::extend(size_t newSize, uint64_t location, uint64_t size) {
   // not using the hints at all
   extend(newSize);
+}
+
+bool FatFile::prepareShrink(const ShrinkContext& context,
+                            UniquePointer<PreparedShrink>& prepared) {
+  if (context.newSize != 0) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return false;
+  }
+
+  FatShrinkPlan* plan = new FatShrinkPlan();
+  if (!plan) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+
+  FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
+  if (!filesystem->truncateFile(this)) {
+    delete plan;
+    return false;
+  }
+  prepared = UniquePointer<PreparedShrink>::adopt(plan);
+  return true;
+}
+
+bool FatFile::resizeFile(size_t size) {
+  if (size == getSize())
+    return true;
+  if (size < getSize()) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return false;
+  }
+
+  FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
+  filesystem->extend(this, size);
+  return getSize() == size;
 }

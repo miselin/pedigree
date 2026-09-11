@@ -109,6 +109,7 @@ class FatFilesystem : public Filesystem {
   bool syncFat(bool bLock = true);
   uint8_t* getFatSector(uint32_t sector);
   bool chainExtent(File* file, uint32_t& count, uint32_t& last);
+  bool truncateFile(File* file);
   bool ensureCapacity(File* file, size_t size);
   bool zeroRange(File* file, size_t begin, size_t end);
   bool updateFileMetadata(File* file, size_t size);

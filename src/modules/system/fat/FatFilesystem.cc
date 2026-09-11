@@ -1039,28 +1039,35 @@ String FatFilesystem::convertFilenameFrom(String filename) const {
 }
 
 void FatFilesystem::truncate(File* file) {
+  truncateFile(file);
+}
+
+bool FatFilesystem::truncateFile(File* file) {
   LockGuard<Mutex> guard(m_FileMutationLock);
   uint32_t count = 0, last = 0;
   if (!syncFat() || !chainExtent(file, count, last) || !updateFileMetadata(file, 0)) {
     SYSCALL_ERROR(IoError);
-    return;
+    return false;
   }
   file->setSize(0);
   uint32_t cluster = file->getInode();
   if (!cluster)
-    return;
+    return true;
   uint32_t next = getClusterEntry(cluster);
   if (!next) {
     SYSCALL_ERROR(IoError);
-    return;
+    return false;
   }
   if (!setClusterEntry(cluster, eofValue())) {
     setClusterEntry(cluster, next);
     SYSCALL_ERROR(IoError);
-    return;
+    return false;
   }
-  if (!isEof(next) && !releaseClusterChain(next, false))
+  if (!isEof(next) && !releaseClusterChain(next, false)) {
     SYSCALL_ERROR(IoError);
+    return false;
+  }
+  return true;
 }
 
 void FatFilesystem::extend(File* file, size_t size) {
