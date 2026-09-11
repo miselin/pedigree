@@ -159,14 +159,14 @@ void FatDirectory::setInode(uintptr_t inode) {
       m_bRootDir = true;
 }
 
-bool FatDirectory::addEntry(String filename, File* pFile, size_t type) {
+bool FatDirectory::addEntry(String filename, File* pFile, size_t type, bool publish) {
   FatFilesystem* pFs = static_cast<FatFilesystem*>(m_pFilesystem);
 
 #if SUPERDEBUG
   NOTICE("FatDirectory::addEntry(" << filename << ")");
 #endif
   NameReservation reservation;
-  if (!reserveDirectoryEntry(HashedStringView(pFile->getName()), reservation)) {
+  if (!reserveDirectoryEntry(HashedStringView(filename), reservation)) {
     return false;
   }
   LockGuard<Mutex> guard(m_Lock);
@@ -176,7 +176,7 @@ bool FatDirectory::addEntry(String filename, File* pFile, size_t type) {
     StringView name;
     bool found;
   };
-  const String entryName = pFile->getName();
+  const String entryName = filename;
   ExistingEntryContext existing = {entryName.view(), false};
   auto findExisting = [](void* opaque, const ScannedEntry& entry, uint64_t, uint64_t) -> bool {
     ExistingEntryContext* context = reinterpret_cast<ExistingEntryContext*>(opaque);
@@ -343,8 +343,8 @@ bool FatDirectory::addEntry(String filename, File* pFile, size_t type) {
       }
 
       // The on-disk name can differ for FAT symlinks, so cache the VFS name.
-      const bool special = pFile->getName().compare(".") || pFile->getName().compare("..");
-      if (!special) {
+      const bool special = filename.compare(".") || filename.compare("..");
+      if (publish && !special) {
         const bool published = addCachedDirectoryEntry(reservation, pFile);
         assert(published);
         publishEvent(FileEvents::Created, pFile->getName().view(), pFile->isDirectory());

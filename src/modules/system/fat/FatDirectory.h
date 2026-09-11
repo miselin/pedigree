@@ -51,7 +51,7 @@ class FatDirectory : public Directory {
   void cacheDirectoryContents() override;
 
   /** Adds a directory entry. */
-  virtual bool addEntry(String filename, File* pFile, size_t type);
+  virtual bool addEntry(String filename, File* pFile, size_t type, bool publish = true);
   /** Removes a directory entry. */
   virtual bool removeEntry(const String& filename, File* pFile);
   /** Renames an entry without changing its directory slot or file metadata. */

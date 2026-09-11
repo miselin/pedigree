@@ -1088,11 +1088,36 @@ void FatFilesystem::extend(File* file, size_t size) {
 
 bool FatFilesystem::renameNode(Directory* oldParent, const String& oldName, File* source,
                                Directory* newParent, const String& newName, File* replaced) {
-  if (oldParent != newParent || replaced) {
+  if (replaced || source->isDirectory()) {
     SYSCALL_ERROR(OperationNotSupported);
     return false;
   }
-  return static_cast<FatDirectory*>(oldParent)->renameEntry(oldName, source, newName);
+  FatDirectory* oldDirectory = static_cast<FatDirectory*>(oldParent);
+  FatDirectory* newDirectory = static_cast<FatDirectory*>(newParent);
+  if (oldParent == newParent && oldDirectory->renameEntry(oldName, source, newName))
+    return true;
+
+  const uint32_t oldCluster = source->isSymlink()
+                                  ? static_cast<FatSymlink*>(source)->getDirCluster()
+                                  : static_cast<FatFile*>(source)->getDirCluster();
+  const uint32_t oldOffset = source->isSymlink()
+                                 ? static_cast<FatSymlink*>(source)->getDirOffset()
+                                 : static_cast<FatFile*>(source)->getDirOffset();
+  if (!newDirectory->addEntry(newName, source, source->isDirectory() ? 1 : 0, false))
+    return false;
+
+  if (source->isSymlink()) {
+    static_cast<FatSymlink*>(source)->setDirCluster(oldCluster);
+    static_cast<FatSymlink*>(source)->setDirOffset(oldOffset);
+  } else {
+    static_cast<FatFile*>(source)->setDirCluster(oldCluster);
+    static_cast<FatFile*>(source)->setDirOffset(oldOffset);
+  }
+  if (!oldDirectory->removeEntry(oldName, source)) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
+  return true;
 }
 
 File* FatFilesystem::createFile(File* parentDir, const String& filename, uint32_t mask,
