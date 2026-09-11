@@ -66,6 +66,8 @@ class FatFilesystem : public Filesystem {
   virtual bool createDirectory(File* parent, const String& filename, uint32_t mask);
   virtual bool createSymlink(File* parent, const String& filename, const String& value);
   virtual bool removeNode(File* parent, const String& filename, File* file);
+  virtual bool renameNode(Directory* oldParent, const String& oldName, File* source,
+                          Directory* newParent, const String& newName, File* replaced) override;
 
   FatFilesystem(const FatFilesystem&);
   void operator=(const FatFilesystem&);

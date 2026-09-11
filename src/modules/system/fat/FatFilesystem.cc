@@ -1086,6 +1086,15 @@ void FatFilesystem::extend(File* file, size_t size) {
   file->setSize(size);
 }
 
+bool FatFilesystem::renameNode(Directory* oldParent, const String& oldName, File* source,
+                               Directory* newParent, const String& newName, File* replaced) {
+  if (oldParent != newParent || replaced) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return false;
+  }
+  return static_cast<FatDirectory*>(oldParent)->renameEntry(oldName, source, newName);
+}
+
 File* FatFilesystem::createFile(File* parentDir, const String& filename, uint32_t mask,
                                 bool bDirectory, uint32_t dirClus, bool publish) {
   // Validate input

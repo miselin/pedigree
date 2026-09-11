@@ -500,6 +500,92 @@ bool FatDirectory::removeEntry(const String& namespaceName, File* pFile) {
   return true;
 }
 
+bool FatDirectory::renameEntry(const String& oldName, File* pFile, const String& newName) {
+  FatFilesystem* pFs = static_cast<FatFilesystem*>(m_pFilesystem);
+  uint32_t dirClus;
+  uint32_t dirOffset;
+  if (pFile->isDirectory()) {
+    FatDirectory* fatDir = static_cast<FatDirectory*>(pFile);
+    dirClus = fatDir->getDirCluster();
+    dirOffset = fatDir->getDirOffset();
+  } else if (pFile->isSymlink()) {
+    FatSymlink* fatLink = static_cast<FatSymlink*>(pFile);
+    dirClus = fatLink->getDirCluster();
+    dirOffset = fatLink->getDirOffset();
+  } else {
+    FatFile* fatFile = static_cast<FatFile*>(pFile);
+    dirClus = fatFile->getDirCluster();
+    dirOffset = fatFile->getDirOffset();
+  }
+  if (dirOffset < sizeof(Dir)) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return false;
+  }
+
+  uint16_t characters[LongFilenameStorageCharacters];
+  size_t characterCount = 0;
+  if (!encodeLongFilename(newName, characters, characterCount))
+    return false;
+  const size_t newLongEntries =
+      (characterCount + LongFilenameCharactersPerEntry - 1) / LongFilenameCharactersPerEntry;
+  if (!newLongEntries || newLongEntries > MaxLongFilenameEntries ||
+      newLongEntries * sizeof(Dir) > dirOffset) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return false;
+  }
+
+  LockGuard<Mutex> guard(m_Lock);
+  LockGuard<Mutex> fileGuard(pFs->m_FileMutationLock);
+  uint8_t* buffer = reinterpret_cast<uint8_t*>(pFs->readDirectoryPortion(dirClus));
+  PointerGuard<uint8_t> bufferGuard(buffer, true);
+  if (!buffer)
+    return false;
+
+  Dir* shortEntry = reinterpret_cast<Dir*>(buffer + dirOffset);
+  const uint8_t oldChecksum = shortFilenameChecksum(shortEntry->DIR_Name);
+  size_t oldLongEntries = 0;
+  while (oldLongEntries < MaxLongFilenameEntries &&
+         (oldLongEntries + 1) * sizeof(Dir) <= dirOffset) {
+    DirLongFilename* entry = reinterpret_cast<DirLongFilename*>(
+        buffer + dirOffset - (oldLongEntries + 1) * sizeof(Dir));
+    if ((entry->LDIR_Attr & ATTR_LONG_NAME_MASK) != ATTR_LONG_NAME ||
+        entry->LDIR_Chksum != oldChecksum)
+      break;
+    ++oldLongEntries;
+  }
+  if (oldLongEntries != newLongEntries) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return false;
+  }
+
+  const String shortFilename = pFs->convertFilenameTo(newName);
+  if (shortFilename.length() < 11)
+    return false;
+  uint8_t shortName[11];
+  MemoryCopy(shortName, shortFilename.cstr(), sizeof(shortName));
+  const uint8_t checksum = shortFilenameChecksum(shortName);
+  for (size_t i = 0; i < newLongEntries; ++i) {
+    DirLongFilename* entry = reinterpret_cast<DirLongFilename*>(
+        buffer + dirOffset - (newLongEntries - i) * sizeof(Dir));
+    ByteSet(entry, 0xFF, sizeof(DirLongFilename));
+    const size_t ordinal = newLongEntries - i;
+    entry->LDIR_Ord = ordinal | (i == 0 ? 0x40 : 0);
+    entry->LDIR_Attr = ATTR_LONG_NAME;
+    entry->LDIR_Chksum = checksum;
+    const size_t filenameOffset = (ordinal - 1) * LongFilenameCharactersPerEntry;
+    for (size_t character = 0; character < LongFilenameCharactersPerEntry; ++character) {
+      const size_t index = filenameOffset + character;
+      const uint16_t value = index < characterCount ? characters[index]
+                                                     : index == characterCount ? 0 : 0xFFFF;
+      writeLongFilenameCharacter(reinterpret_cast<uint8_t*>(entry), character, value);
+    }
+  }
+  MemoryCopy(shortEntry->DIR_Name, shortName, sizeof(shortName));
+  if (!pFs->writeDirectoryPortion(dirClus, buffer))
+    return false;
+  return true;
+}
+
 namespace {
 struct LongFilenameState {
   uint16_t characters[LongFilenameStorageCharacters];

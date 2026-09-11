@@ -54,6 +54,8 @@ class FatDirectory : public Directory {
   virtual bool addEntry(String filename, File* pFile, size_t type);
   /** Removes a directory entry. */
   virtual bool removeEntry(const String& filename, File* pFile);
+  /** Renames an entry without changing its directory slot or file metadata. */
+  bool renameEntry(const String& oldName, File* pFile, const String& newName);
 
   /** Updates inode attributes. */
   void fileAttributeChanged() override;
