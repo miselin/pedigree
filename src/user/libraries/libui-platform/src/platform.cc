@@ -1,18 +1,17 @@
 #include "libui/platform.h"
-
 #include "pedigree/native/input/Input.h"
-#include "pedigree_fb.h"
 
 #include <algorithm>
 #include <cerrno>
-#include <fcntl.h>
-#include <poll.h>
-#include <unistd.h>
-
 #include <cstdio>
 #include <deque>
+#include <fcntl.h>
 #include <mutex>
+#include <poll.h>
+#include <unistd.h>
 #include <utility>
+
+#include "pedigree_fb.h"
 
 namespace libui::platform {
 namespace {
@@ -68,9 +67,8 @@ class PedigreeDisplay final : public Display {
     m_info.width = static_cast<int>(m_framebuffer.getWidth());
     m_info.height = static_cast<int>(m_framebuffer.getHeight());
     m_info.stride = static_cast<int>(m_framebuffer.getBytesPerLine());
-    m_info.format = m_framebuffer.getFormat() == CAIRO_FORMAT_ARGB32
-                        ? PixelFormat::CairoArgb32
-                        : PixelFormat::Unknown;
+    m_info.format = m_framebuffer.getFormat() == CAIRO_FORMAT_ARGB32 ? PixelFormat::CairoArgb32
+                                                                     : PixelFormat::Unknown;
 
     if (m_info.width <= 0 || m_info.height <= 0 || m_info.stride <= 0 ||
         m_info.format == PixelFormat::Unknown) {
@@ -97,17 +95,20 @@ class PedigreeDisplay final : public Display {
     m_callbackInstalled = true;
 
     cairo_set_operator(m_context, CAIRO_OPERATOR_SOURCE);
-    cairo_set_source_rgba(m_context, options.clearColor.r / 255.0,
-                          options.clearColor.g / 255.0, options.clearColor.b / 255.0,
-                          options.clearColor.a / 255.0);
+    cairo_set_source_rgba(m_context, options.clearColor.r / 255.0, options.clearColor.g / 255.0,
+                          options.clearColor.b / 255.0, options.clearColor.a / 255.0);
     cairo_paint(m_context);
     cairo_set_operator(m_context, CAIRO_OPERATOR_OVER);
     present();
     return true;
   }
 
-  const DisplayInfo& info() const override { return m_info; }
-  cairo_t* context() const override { return m_context; }
+  const DisplayInfo& info() const override {
+    return m_info;
+  }
+  cairo_t* context() const override {
+    return m_context;
+  }
 
   void present() override {
     if (!m_surface) {
@@ -171,8 +172,8 @@ class PedigreeDisplay final : public Display {
     }
     if (notification.type & Input::RawKey) {
       input::Event event;
-      event.type = notification.data.rawkey.keyUp ? input::Event::Type::KeyUp
-                                                   : input::Event::Type::KeyDown;
+      event.type =
+          notification.data.rawkey.keyUp ? input::Event::Type::KeyUp : input::Event::Type::KeyDown;
       event.scancode = notification.data.rawkey.scancode;
       {
         std::lock_guard<std::mutex> guard(m_inputLock);
@@ -236,8 +237,8 @@ class PedigreeDisplay final : public Display {
       }
 
       input::Event event;
-      event.type = (buttons & mask) ? input::Event::Type::PointerDown
-                                    : input::Event::Type::PointerUp;
+      event.type =
+          (buttons & mask) ? input::Event::Type::PointerDown : input::Event::Type::PointerUp;
       event.x = m_pointerX;
       event.y = m_pointerY;
       event.button = button + 1;
@@ -252,7 +253,7 @@ class PedigreeDisplay final : public Display {
   void signalInput() {
     const unsigned char marker = 1;
     const ssize_t result = write(m_inputPipe[1], &marker, sizeof(marker));
-    (void) result;
+    (void)result;
   }
 
   void drainInputPipe() {
@@ -288,6 +289,8 @@ void inputCallback(Input::InputNotification& notification) {
 
 }  // namespace
 
-std::unique_ptr<Display> createDisplay() { return std::make_unique<PedigreeDisplay>(); }
+std::unique_ptr<Display> createDisplay() {
+  return std::make_unique<PedigreeDisplay>();
+}
 
 }  // namespace libui::platform
