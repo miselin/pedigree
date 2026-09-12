@@ -1163,9 +1163,14 @@ TEST(VFS, ExpectedRemovalCannotDeleteReplacementAndEphemeralSkipsDriverRemoval) 
   SparseMutationFilesystem filesystem;
   SparseMutationDirectory* directory = filesystem.root();
   std::atomic<size_t> staleDestructions(0);
-  File* stale = new SparseTestFile(String("ephemeral"), directory, staleDestructions);
-  File* replacement = new SparseTestFile(String("ephemeral"), directory, staleDestructions);
+  auto staleOwner =
+      std::make_unique<SparseTestFile>(String("ephemeral"), directory, staleDestructions);
+  File* stale = staleOwner.get();
+  auto replacementOwner =
+      std::make_unique<SparseTestFile>(String("ephemeral"), directory, staleDestructions);
+  File* replacement = replacementOwner.get();
   ASSERT_EQ(directory->addEphemeralFile(replacement), Directory::AddStatus::Added);
+  replacementOwner.release();
 
   EXPECT_FALSE(filesystem.remove(directory, stale));
   EXPECT_EQ(filesystem.removeCalls(), 0U);
@@ -1181,7 +1186,7 @@ TEST(VFS, ExpectedRemovalCannotDeleteReplacementAndEphemeralSkipsDriverRemoval) 
   EXPECT_EQ(directory->lookupChild(HashedStringView("ephemeral"), absent),
             Directory::LookupStatus::NotFound);
 
-  delete stale;
+  staleOwner.reset();
   EXPECT_EQ(staleDestructions.load(), 1U);
 }
 
@@ -1571,10 +1576,14 @@ TEST(VFS, FilesystemSyncPinsBackingAndRunsWithoutPublicationLocks) {
 
 TEST(VFS, GlobalSyncAdmitsAllBackendsBeforeIoAndContinuesAfterErrors) {
   VFS vfs;
-  auto* first = new MountTestFilesystem(String("first-sync"));
-  auto* second = new MountTestFilesystem(String("second-sync"));
+  auto firstOwner = std::make_unique<MountTestFilesystem>(String("first-sync"));
+  auto* first = firstOwner.get();
+  auto secondOwner = std::make_unique<MountTestFilesystem>(String("second-sync"));
+  auto* second = secondOwner.get();
   ASSERT_TRUE(vfs.registerFilesystem(first, String("first-sync")).length());
+  firstOwner.release();
   ASSERT_TRUE(vfs.registerFilesystem(second, String("second-sync")).length());
+  secondOwner.release();
   std::vector<int> calls;
   first->syncAction = [&] {
     calls.push_back(1);

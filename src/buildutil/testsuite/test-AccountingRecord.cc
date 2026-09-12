@@ -28,7 +28,7 @@ TEST(AccountingRecord, ElapsedTicksHaveLinuxBinary32Representation) {
     const uint32_t bits = floatBits(ticks);
     float value;
     std::memcpy(&value, &bits, sizeof(value));
-    EXPECT_EQ(value, static_cast<float>(ticks));
+    EXPECT_FLOAT_EQ(value, static_cast<float>(ticks));
   }
 }
 

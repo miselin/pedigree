@@ -71,13 +71,15 @@ tidy_args=(-p "$build_dir")
 case $mode in
     host)
         # LLVM's analyzer does not model the atomic reference-count increment
-        # in one overlapping SharedPointer copy test. That test has its own TU,
-        # analyzed in a second pass with only NewDelete disabled.
-        host_atomic_filter="^${escaped_repo_root}/src/buildutil/testsuite/test-SharedPointerCopy\\.cc$"
-        source_filter="^${escaped_repo_root}/src/buildutil/(?!testsuite/test-SharedPointerCopy\\.cc$).*\\.(c|cc|cpp|cxx)$"
+        # in these SharedPointer copy tests. Each test has its own TU, so they
+        # are analyzed in a second pass with only NewDelete disabled.
+        host_atomic_filter="^${escaped_repo_root}/src/buildutil/testsuite/test-SharedPointer(?:Adopt|Copy)?\\.cc$"
+        source_filter="^${escaped_repo_root}/src/buildutil/(?!testsuite/test-SharedPointer(?:Adopt|Copy)?\\.cc$).*\\.(c|cc|cpp|cxx)$"
         required_sources=(
             "$repo_root/src/buildutil/testsuite/test-String.cc"
             "$repo_root/src/buildutil/testsuite/test-utility.cc"
+            "$repo_root/src/buildutil/testsuite/test-SharedPointer.cc"
+            "$repo_root/src/buildutil/testsuite/test-SharedPointerAdopt.cc"
             "$repo_root/src/buildutil/testsuite/test-SharedPointerCopy.cc"
         )
         ;;

@@ -21,6 +21,7 @@
 
 #include "pedigree/kernel/utilities/ObjectPool.h"
 
+#include <memory>
 #include <new>
 
 #include <gtest/gtest.h>
@@ -125,16 +126,17 @@ bool FalliblePoolValue::fail = false;
 
 TEST(PedigreeObjectPool, FallibleAllocationPreservesReuse) {
   ObjectPool<FalliblePoolValue, 2> pool;
-  FalliblePoolValue* first = pool.tryAllocate();
-  ASSERT_NE(first, nullptr);
-  pool.deallocate(first);
+  std::unique_ptr<FalliblePoolValue> first(pool.tryAllocate());
+  ASSERT_NE(first.get(), nullptr);
+  const uintptr_t firstAddress = reinterpret_cast<uintptr_t>(first.get());
+  pool.deallocate(first.release());
   FalliblePoolValue::fail = true;
-  FalliblePoolValue* reused = pool.tryAllocate();
+  std::unique_ptr<FalliblePoolValue> reused(pool.tryAllocate());
   FalliblePoolValue* failed = pool.tryAllocate();
   FalliblePoolValue::fail = false;
-  EXPECT_EQ(reused, first);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(reused.get()), firstAddress);
   EXPECT_EQ(failed, nullptr);
-  pool.deallocate(reused);
-  EXPECT_EQ(pool.tryAllocate(), first);
-  delete first;
+  pool.deallocate(reused.release());
+  std::unique_ptr<FalliblePoolValue> final(pool.tryAllocate());
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(final.get()), firstAddress);
 }

@@ -119,7 +119,8 @@ TEST(DynamicDirectory, MountedAbsoluteSymlinkUsesNamespaceRoot) {
     ASSERT_NE(file, nullptr);
     ASSERT_TRUE(file->isSymlink());
     char text[128] = {};
-    ASSERT_EQ(Symlink::fromFile(file)->followLink(text, sizeof(text)), targets[i].length());
+    ASSERT_EQ(Symlink::fromFile(file)->followLink(text, sizeof(text)),
+              static_cast<int>(targets[i].length()));
     EXPECT_EQ(String(text, targets[i].length()), targets[i]);
     EXPECT_EQ(Symlink::fromFile(file)->followLinkRetained(followed), expected[i]);
   }

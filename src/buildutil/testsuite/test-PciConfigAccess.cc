@@ -23,6 +23,8 @@ struct Lock {
   }
 };
 struct Ports {
+  explicit Ports(Lock& lock) : lock(lock) {}
+
   Lock& lock;
   std::array<uint8_t, 256> bytes{};
   uint32_t selected = 0;
