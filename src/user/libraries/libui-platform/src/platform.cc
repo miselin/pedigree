@@ -123,7 +123,8 @@ class PedigreeDisplay final : public Display {
   const DisplayInfo& info() const override { return m_info; }
   cairo_t* context() const override { return m_context; }
 
-  void present() override {
+  void present(const DisplayDamage &damage = {}) override {
+    (void) damage;
     if (!m_surface || !m_framebuffer.getFramebuffer()) {
       return;
     }

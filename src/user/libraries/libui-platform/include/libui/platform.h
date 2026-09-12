@@ -22,6 +22,15 @@ struct DisplayInfo {
   PixelFormat format = PixelFormat::Unknown;
 };
 
+struct DisplayDamage {
+  int x = 0;
+  int y = 0;
+  int width = 0;
+  int height = 0;
+
+  bool empty() const { return width <= 0 || height <= 0; }
+};
+
 class Display {
  public:
   virtual ~Display() = default;
@@ -30,9 +39,12 @@ class Display {
   virtual bool open(const DisplayOptions& options) = 0;
   virtual const DisplayInfo& info() const = 0;
   virtual cairo_t* context() const = 0;
-  virtual void present() = 0;
+  // The backend may publish only this scene region; an empty region means
+  // that the scene is unchanged and only transient overlays may move.
+  virtual void present(const DisplayDamage &damage = {}) = 0;
   virtual bool poll(input::Event& event) = 0;
   virtual bool waitForInput(int timeoutMilliseconds) = 0;
+  // The selected cursor is composited during the following present.
   virtual void renderCursor(input::CursorType type) = 0;
   virtual int pointerX() const = 0;
   virtual int pointerY() const = 0;
