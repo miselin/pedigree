@@ -224,7 +224,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
         m_pAcquiredThread(nullptr) {}
 
   /** Copy constructor */
-  PosixSubsystem(PosixSubsystem& s);
+  PosixSubsystem(PosixSubsystem& s, bool clearSignalHandlers = false);
 
   /** Parameterised constructor */
   PosixSubsystem(SubsystemType type)
@@ -744,6 +744,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   virtual void prepareThreadsForExec(Thread* owner);
   virtual void preserveProcessSignalsForThreadExit(Thread* thread);
   virtual void threadExiting(Thread* pThread);
+  void clearChildTid(Thread* thread);
   virtual void threadRemoved(Thread* pThread);
 
   /** Validate and retain the bounded metadata needed to load an executable. */

@@ -219,7 +219,7 @@ ProcessGroup* ProcessGroupManager::findGroup(size_t gid) const {
   return nullptr;
 }
 
-PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
+PosixSubsystem::PosixSubsystem(PosixSubsystem& s, bool clearSignalHandlers)
     : Subsystem(s),
       m_SignalHandlers(),
       m_SignalHandlersLock(),
@@ -253,7 +253,18 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
     if (!value)
       continue;
 
-    SignalHandler* newSig = new SignalHandler(*reinterpret_cast<SignalHandler*>(value));
+    auto* original = reinterpret_cast<SignalHandler*>(value);
+    SignalHandler* newSig;
+    if (clearSignalHandlers && original->type != 2) {
+      newSig = new SignalHandler();
+      newSig->sig = key;
+      newSig->type = 1;
+      newSig->pEvent = new SignalEvent(pedigree_default_signal_handler(key), key, ~0UL, 0, true,
+                                       false, Event::HandlerPrivilege::Kernel,
+                                       SignalEvent::DeliveryDisposition::DefaultAction);
+    } else {
+      newSig = new SignalHandler(*original);
+    }
     m_SignalHandlers.insert(key, newSig);
   }
 
@@ -1883,6 +1894,10 @@ void PosixSubsystem::threadExiting(Thread* pThread) {
   posix_sem_thread_exit(pThread);
   posix_robust_list_exit(pThread);
 
+  clearChildTid(pThread);
+}
+
+void PosixSubsystem::clearChildTid(Thread* pThread) {
   const uintptr_t address = pThread->takeClearChildTid();
   if (!address) {
     return;
@@ -1902,7 +1917,10 @@ void PosixSubsystem::threadExiting(Thread* pThread) {
   // The registration is already consumed. Wake even if the restricted
   // validated store could not reach the word, so no waiter is stranded in the
   // kernel after an invalid registration or concurrent unmap.
-  posix_futex_wake(process, reinterpret_cast<int*>(address), 1);
+  // Process clones can register a word in a shared file mapping. Retain the
+  // private-key fallback used by existing pthread callers.
+  if (!posix_futex_wake(process, reinterpret_cast<int*>(address), 1, false))
+    posix_futex_wake(process, reinterpret_cast<int*>(address), 1);
 }
 
 void PosixSubsystem::threadRemoved(Thread* pThread) {
@@ -2595,7 +2613,10 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   // Wipe out old address space.
   // Earlier failures preserve the registration. From this irreversible
   // point onward its target belongs to the discarded image.
-  pThread->setClearChildTid(0);
+  if (pProcess->isVforkChild())
+    clearChildTid(pThread);
+  else
+    pThread->setClearChildTid(0);
   posix_robust_list_exit(pThread);
   const size_t previousTaskId = pThread->getTaskId();
   execScope.adoptLeaderIdentity();

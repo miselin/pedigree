@@ -119,11 +119,13 @@ class CloneInterruptScope {
   bool m_Previous;
 };
 
-enum class CloneRoute { Process, Thread, Invalid };
+enum class CloneRoute { Process, Vfork, Thread, Invalid };
 
 CloneRoute cloneRoute(unsigned long flags) {
   constexpr unsigned long ExitSignalMask = 0xff;
   constexpr unsigned long SpawnFlags = CLONE_VM | CLONE_VFORK | SIGCHLD;
+  constexpr unsigned long ProcessModifiers =
+      CLONE_NEWUTS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_SETTLS;
   constexpr unsigned long ThreadRequired =
       CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD;
   constexpr unsigned long ThreadAllowed = ThreadRequired | CLONE_SYSVSEM | CLONE_SETTLS |
@@ -140,8 +142,10 @@ CloneRoute cloneRoute(unsigned long flags) {
 
   // Process sharing is limited to vfork's bounded borrow. Other sharing and
   // namespace combinations must not silently receive fork semantics.
-  const unsigned long processFlags = flags & ~CLONE_NEWUTS;
-  if (processFlags == 0 || processFlags == SIGCHLD || processFlags == SpawnFlags) {
+  const unsigned long processFlags = flags & ~ProcessModifiers;
+  if (processFlags == SpawnFlags)
+    return CloneRoute::Vfork;
+  if (processFlags == 0 || processFlags == SIGCHLD) {
     return CloneRoute::Process;
   }
   return CloneRoute::Invalid;
@@ -174,6 +178,8 @@ extern "C" EXPORTED_PUBLIC int posixCloneRouteForTest(unsigned long flags) {
       return 0;
     case CloneRoute::Thread:
       return 1;
+    case CloneRoute::Vfork:
+      return 2;
     case CloneRoute::Invalid:
       return -1;
   }
@@ -325,7 +331,7 @@ SyscallState posix_copy_clone_state(const SyscallState& state) {
 }
 
 long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, int* ptid, int* ctid,
-                 unsigned long newtls, bool linuxAbi) {
+                 unsigned long newtls, bool linuxAbi, bool clearSignalHandlers) {
   SC_NOTICE("clone(" << Hex << flags << ", " << child_stack << ", " << ptid << ", " << ctid << ", "
                      << newtls << ")");
 
@@ -373,7 +379,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
 #endif
 
   const CloneRoute route = cloneRoute(flags);
-  if (route == CloneRoute::Invalid) {
+  if (route == CloneRoute::Invalid || (clearSignalHandlers && route == CloneRoute::Thread)) {
     SYSCALL_ERROR(InvalidArgument);
     SC_NOTICE(" -> EINVAL (unsupported or inconsistent clone flags)");
     return -1;
@@ -383,6 +389,30 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     // the borrowed image when exec or exit wakes the creator.
     SYSCALL_ERROR(InvalidArgument);
     return -1;
+  }
+
+  if (route != CloneRoute::Thread &&
+      (flags & (CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_SETTLS))) {
+    MemoryMapManager& mappings = MemoryMapManager::instance();
+    MemoryMapManager::OperationGuard mappingGuard(mappings);
+    auto writableId = [&](int* address) {
+      const uintptr_t target = reinterpret_cast<uintptr_t>(address);
+      return PosixSubsystem::checkAddress(target, sizeof(int), PosixSubsystem::SafeWrite) &&
+             mappings.faultIn(target, true) && mappings.faultIn(target + sizeof(int) - 1, true);
+    };
+    if (((flags & CLONE_PARENT_SETTID) && !writableId(ptid)) ||
+        ((flags & CLONE_CHILD_SETTID) && !writableId(ctid))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    if ((flags & CLONE_SETTLS) && (newtls >= pParentProcess->getAddressSpace()->getKernelStart()
+#if X64
+                                   || newtls >= 0x0000800000000000ULL
+#endif
+                                   )) {
+      SYSCALL_ERROR(NotEnoughPermissions);
+      return -1;
+    }
   }
 
   PosixSubsystem* creatorSubsystem = getSubsystem();
@@ -537,7 +567,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   }
 
   SharedPointer<Process::VforkCompletion> vforkCompletion;
-  const bool borrowAddressSpace = flags & CLONE_VFORK;
+  const bool borrowAddressSpace = route == CloneRoute::Vfork;
   if (borrowAddressSpace) {
     vforkCompletion =
         SharedPointer<Process::VforkCompletion>::tryAdopt(new Process::VforkCompletion);
@@ -547,8 +577,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     }
   }
 
-  // No child stack means CoW the existing one, but if one is specified we
-  // should use it instead!
+  // A vfork caller may borrow its current stack; clone wrappers supply one.
   if (child_stack) {
     clonedState.setStackPointer(reinterpret_cast<uintptr_t>(child_stack));
   }
@@ -589,7 +618,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
       return -1;
     }
 
-    pSubsystem = new PosixSubsystem(*pParentSubsystem);
+    pSubsystem = new PosixSubsystem(*pParentSubsystem, clearSignalHandlers);
     if (!pSubsystem || !pSubsystem->namespaceContext() ||
         !pSubsystem->namespaceContext()->valid()) {
       if (pSubsystem)
@@ -671,6 +700,15 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     }
   }
 
+  if (flags & CLONE_PARENT_SETTID) {
+    const int childId = static_cast<int>(pProcess->getId());
+    if (!PosixSubsystem::copyToUser(ptid, &childId, sizeof(childId))) {
+      delete pProcess;
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+  }
+
   pSubsystem->traceContext().setCreator(creatorTask);
   if (pSubsystem->traceContext().prepareTask(preparedTrace) != TraceStatus::Success) {
     delete pProcess;
@@ -700,10 +738,11 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
       pThread->getUnwindState() != Thread::TerminateThread)
     FATAL("fork trace task publication failed");
   pThread->setName("posix clone() forked thread");
+  if (flags & CLONE_SETTLS)
+    pThread->setTlsBase(newtls);
   pThread->detach();
   if (flags & CLONE_CHILD_CLEARTID) {
-    // The child has its own address space, so its exit hook can perform
-    // the Linux clear-child-TID write without shared-VM semantics.
+    // The exit hook clears this before releasing a borrowed vfork image.
     pThread->setClearChildTid(reinterpret_cast<uintptr_t>(ctid));
   }
 

@@ -35,6 +35,7 @@
 
 #include "PosixSyscallManager.h"
 #include "clock-adjust-syscalls.h"
+#include "clone3-syscalls.h"
 #include "console-syscalls.h"
 #include "epoll-syscalls.h"
 #include "eventfd-syscalls.h"
@@ -870,6 +871,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_clone(state, p1, reinterpret_cast<void*>(p2), reinterpret_cast<int*>(p3),
                          reinterpret_cast<int*>(p4), p5, linuxAbi);
     }
+    case POSIX_CLONE3:
+      return posix_clone3(state, reinterpret_cast<const LinuxCloneArgs*>(p1), p2);
     case POSIX_PAUSE:
       return posix_pause();
     case POSIX_GETDENTS64:

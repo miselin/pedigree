@@ -1045,6 +1045,7 @@ pedigree_module(posix "" "pedigree-vterm-kernel"
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/posix-timer-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/signal-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/system-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/clone3-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/credential-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/process-vm-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/uts-namespace.cc

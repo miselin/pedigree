@@ -44,7 +44,7 @@ uintptr_t posix_brk(uintptr_t theBreak);
 long posix_sbrk(int delta);
 SyscallState posix_copy_clone_state(const SyscallState& state);
 long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, int* ptid, int* ctid,
-                 unsigned long newtls, bool linuxAbi = false);
+                 unsigned long newtls, bool linuxAbi = false, bool clearSignalHandlers = false);
 int posix_fork(SyscallState& state);
 int posix_vfork(SyscallState& state);
 int posix_execve(const char* name, const char** argv, const char** env, SyscallState& state);

@@ -21,8 +21,12 @@ bool runHostedCloneRoutingRegressions(Process*) {
                                      CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED;
 
   const bool passed =
-      posixCloneRouteForTest(spawnFlags) == 0 && posixCloneRouteForTest(pthreadFlags) == 1 &&
+      posixCloneRouteForTest(spawnFlags) == 2 && posixCloneRouteForTest(pthreadFlags) == 1 &&
+      posixCloneRouteForTest(spawnFlags | CLONE_NEWUTS) == 2 &&
+      posixCloneRouteForTest(spawnFlags | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID |
+                             CLONE_CHILD_CLEARTID | CLONE_SETTLS) == 2 &&
       posixCloneRouteForTest(0) == 0 && posixCloneRouteForTest(SIGCHLD) == 0 &&
+      posixCloneRouteForTest(SIGCHLD | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID) == 0 &&
       posixCloneRouteForTest(CLONE_NEWUTS | SIGCHLD) == 0 &&
       posixCloneRouteForTest(CLONE_NEWUTS | CLONE_NEWNS | SIGCHLD) == -1 &&
       posixCloneRouteForTest(CLONE_NEWUTS | pthreadFlags) == -1 &&
@@ -30,12 +34,14 @@ bool runHostedCloneRoutingRegressions(Process*) {
       posixCloneRouteForTest(CLONE_VM | CLONE_THREAD) == -1 &&
       posixCloneRouteForTest(CLONE_VM | CLONE_SIGHAND | CLONE_THREAD) == -1 &&
       posixCloneRouteForTest(CLONE_SIGHAND) == -1 &&
+      posixCloneRouteForTest(CLONE_VFORK | SIGCHLD) == -1 &&
+      posixCloneRouteForTest(spawnFlags | CLONE_FILES) == -1 &&
       posixCloneRouteForTest(CLONE_FILES | SIGCHLD) == -1 &&
       posixCloneRouteForTest(CLONE_PARENT | SIGCHLD) == -1;
   if (!passed) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL clone-process-routing: "
-        "process-shaped clone and pthread clone no longer take distinct paths");
+        "fork, vfork, and pthread clone no longer take distinct paths");
     return false;
   }
 

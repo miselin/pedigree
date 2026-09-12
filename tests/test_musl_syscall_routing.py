@@ -120,6 +120,30 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             with self.subTest(symbol=symbol):
                 self.assertIn(f"--disassemble={symbol}", build_script)
 
+    def test_linux_clone3_is_mapped_and_dispatched(self):
+        mappings = (
+            ROOT
+            / "src/modules/subsys/posix/syscalls/linuxSyscallMappings-amd64.h"
+        ).read_text(encoding="utf-8")
+        numbers = (
+            ROOT / "src/modules/subsys/posix/syscalls/posixSyscallNumbers.h"
+        ).read_text(encoding="utf-8")
+        manager = (
+            ROOT / "src/modules/subsys/posix/PosixSyscallManager.cc"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(clone3, 435, POSIX_CLONE3)",
+            mappings,
+        )
+        self.assertIn("#define POSIX_CLONE3 413", numbers)
+        self.assertIn('#include "clone3-syscalls.h"', manager)
+        self.assertRegex(
+            manager,
+            r"case POSIX_CLONE3:\s+return posix_clone3\(state, "
+            r"reinterpret_cast<const LinuxCloneArgs\*>\(p1\), p2\);",
+        )
+
     def test_linux_epoll_syscalls_are_mapped(self):
         mappings = (
             ROOT
