@@ -51,6 +51,36 @@ class Vga;
 
 Pc Pc::m_Instance;
 
+#if X64
+namespace {
+constexpr uint32_t Ia32TscAux = 0xC0000103;
+constexpr uint32_t RdtscpFeature = 1u << 27;
+
+bool supportsRdtscp() {
+  uint32_t maxLeaf, unusedEax, unusedEbx, unusedEcx, unusedEdx;
+  Processor::cpuid(0x80000000, 0, maxLeaf, unusedEbx, unusedEcx, unusedEdx);
+  if (maxLeaf < 0x80000001) {
+    return false;
+  }
+
+  Processor::cpuid(0x80000001, 0, unusedEax, unusedEbx, unusedEcx, unusedEdx);
+  return (unusedEdx & RdtscpFeature) != 0;
+}
+
+void initialiseVdsoCpuId() {
+  if (!supportsRdtscp()) {
+    return;
+  }
+
+  const size_t processor = Processor::index();
+  if (processor >= Processor::getCount()) {
+    return;
+  }
+  Processor::writeMachineSpecificRegister(Ia32TscAux, static_cast<uint32_t>(processor));
+}
+}
+#endif
+
 #if MULTIPROCESSOR
 namespace {
 bool reportProcessorControlResult(LocalApic::ProcessorControlResult result, const char* operation) {
@@ -227,6 +257,9 @@ void Pc::initialise() {
   m_SMBios->initialise();
 #endif
 
+#if X64
+  initialiseVdsoCpuId();
+#endif
   m_bInitialised = true;
 }
 
@@ -258,6 +291,7 @@ void Pc::initialiseProcessor() {
   // AP startup calls this before creating its scheduler and enabling
   // interrupts, so no migratable work can observe an unanchored local TSC.
   Rtc::instance().initialiseProcessorClock();
+  initialiseVdsoCpuId();
 }
 #endif
 

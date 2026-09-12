@@ -26,6 +26,7 @@
 #include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/process/InfoBlock.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -79,6 +80,17 @@ bool InfoBlockManager::initialise() {
   m_pInfoBlock->now = Time::getTimeNanoseconds();
   m_pInfoBlock->now_s = Time::getTime();
   m_pInfoBlock->monotonic = Time::getTicks();
+
+#if X64 && !HOSTED
+  uint32_t maxLeaf, eax, ebx, ecx, edx;
+  Processor::cpuid(0x80000000, 0, maxLeaf, ebx, ecx, edx);
+  if (maxLeaf >= 0x80000001) {
+    Processor::cpuid(0x80000001, 0, eax, ebx, ecx, edx);
+    if (edx & (1u << 27)) {
+      m_pInfoBlock->vdso_features |= INFO_BLOCK_VDSO_GETCPU_RDTSCP;
+    }
+  }
+#endif
 
   // Register ourselves with the main timer.
   __atomic_store_n(&m_bInitialised, true, __ATOMIC_RELEASE);

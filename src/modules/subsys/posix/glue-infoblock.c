@@ -82,6 +82,21 @@ int __vdso_gettimeofday(struct timeval* tv, void* tz) {
 
 int __vdso_getcpu(unsigned* cpu, unsigned* node, struct getcpu_cache* cache) {
 #if X64
+  if (infoBlock->vdso_features & INFO_BLOCK_VDSO_GETCPU_RDTSCP) {
+    unsigned ignored_low, ignored_high, aux;
+    __asm__ volatile("rdtscp"
+                     : "=a"(ignored_low), "=d"(ignored_high), "=c"(aux)
+                     :
+                     : "memory");
+    if (cpu) {
+      *cpu = aux;
+    }
+    if (node) {
+      *node = 0;
+    }
+    return 0;
+  }
+
   // The shared info block cannot identify the calling task's current CPU.
   long result = 309;
   __asm__ volatile("syscall"

@@ -31,6 +31,8 @@
 
 #endif
 
+#define INFO_BLOCK_VDSO_GETCPU_RDTSCP (1u << 0)
+
 struct InfoBlock {
   /// Current timestamp in nanoseconds since the UNIX epoch.
   uint64_t now;
@@ -49,6 +51,9 @@ struct InfoBlock {
 
   /// Monotonic tick count in nanoseconds.
   uint64_t monotonic;
+
+  /// CPU-local vDSO capabilities published by the kernel.
+  uint32_t vdso_features;
 };
 
 #ifdef __cplusplus
