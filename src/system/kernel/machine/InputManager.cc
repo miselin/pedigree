@@ -203,11 +203,10 @@ void InputManager::putNotification(InputNotification* note) {
         queued->data.pointy.relx += note->data.pointy.relx;
         queued->data.pointy.rely += note->data.pointy.rely;
         queued->data.pointy.relz += note->data.pointy.relz;
-        for (size_t i = 0; i < 64; ++i) {
-          if (note->data.pointy.buttons[i]) {
-            queued->data.pointy.buttons[i] = true;
-          }
-        }
+        // Coalescing must preserve the newest button bitmap; ORing it would
+        // make a release disappear behind an earlier press.
+        for (size_t i = 0; i < 64; ++i)
+          queued->data.pointy.buttons[i] = note->data.pointy.buttons[i];
         merged = true;
         break;
       }
