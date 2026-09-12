@@ -152,7 +152,7 @@ jobs:
     uses: ./.github/workflows/builder-image.yml
 
   cross-build:
-    name: cross-compiled kernel and ISO
+    name: cross-compiled kernel and UEFI image
     needs:
       - clang-format
       - buildutil-tests
@@ -220,17 +220,18 @@ jobs:
                 -DPEDIGREE_BUILD_USER_DIR=OFF \
                 -DPEDIGREE_WARNINGS=ON
               cmake --build build/cross \
-                --target livecd hddimage \
+                --target uefi-image \
                 --parallel
 
               clang-tidy --version
               scripts/clang-tidy.sh cross build/cross -j 2 -quiet -hide-progress
 
               ctest --test-dir build/cross --output-on-failure --no-tests=error
-              test -s build/cross/pedigree.iso
-              test -s build/cross/hdd.img
-              test -s build/cross/src/system/kernel/kernel-mini64
+              test -s build/cross/pedigree-uefi.img
+              test -s build/cross/pedigree-uefi-root.img
+              test -s build/cross/src/system/kernel/kernel
               test -s build/cross/src/modules/initrd.tar
+              test -s build/cross/src/modules/initrd.tar.uncomp
             '
 
       - name: Upload cross-build artifacts
@@ -239,7 +240,8 @@ jobs:
           name: pedigree-cross-build-${{ github.sha }}
           if-no-files-found: error
           path: |
-            build/cross/pedigree.iso
-            build/cross/hdd.img
-            build/cross/src/system/kernel/kernel-mini64
+            build/cross/pedigree-uefi.img
+            build/cross/pedigree-uefi-root.img
+            build/cross/PEDIGREE-BOOTX64.EFI
+            build/cross/src/system/kernel/kernel
             build/cross/src/modules/initrd.tar
