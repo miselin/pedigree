@@ -1,0 +1,137 @@
+syntax = "proto3";
+
+package libui.protocol.wire;
+
+option optimize_for = LITE_RUNTIME;
+
+enum WindowSizeMode {
+  WINDOW_SIZE_MODE_OUTER = 0;
+  WINDOW_SIZE_MODE_CLIENT = 1;
+}
+
+enum ResultCode {
+  RESULT_OK = 0;
+  RESULT_INVALID_WINDOW = 1;
+  RESULT_INVALID_BUFFER = 2;
+  RESULT_INVALID_GENERATION = 3;
+  RESULT_INVALID_SIZE = 4;
+  RESULT_BUSY = 5;
+}
+
+enum PointerInputType {
+  POINTER_MOVE = 0;
+  POINTER_DOWN = 1;
+  POINTER_UP = 2;
+}
+
+message CreateWindowRequest {
+  WindowSizeMode size_mode = 1;
+  sint32 x = 2;
+  sint32 y = 3;
+  sint32 width = 4;
+  sint32 height = 5;
+  uint32 style_flags = 6;
+  uint32 background = 7;
+  string title = 8;
+  uint32 transient_for = 9;
+}
+
+message CreateWindowReply {
+  uint32 window_id = 1;
+  sint32 outer_x = 2;
+  sint32 outer_y = 3;
+  sint32 outer_width = 4;
+  sint32 outer_height = 5;
+  sint32 client_width = 6;
+  sint32 client_height = 7;
+}
+
+message DestroyWindowRequest {
+  uint32 window_id = 1;
+}
+
+message ResizeWindowRequest {
+  uint32 window_id = 1;
+  WindowSizeMode size_mode = 2;
+  sint32 width = 3;
+  sint32 height = 4;
+}
+
+message BufferDescriptor {
+  uint32 window_id = 1;
+  uint32 buffer_id = 2;
+  uint64 generation = 3;
+  sint32 width = 4;
+  sint32 height = 5;
+  sint32 stride = 6;
+  bytes handle = 7;
+  uint32 format = 8;
+  uint64 byte_size = 9;
+}
+
+message PresentRequest {
+  uint32 window_id = 1;
+  uint32 buffer_id = 2;
+  uint64 generation = 3;
+}
+
+message ReleaseBufferRequest {
+  uint32 window_id = 1;
+  uint32 buffer_id = 2;
+  uint64 generation = 3;
+}
+
+message ResultReply {
+  ResultCode result = 1;
+}
+
+message ConfigureEvent {
+  uint32 window_id = 1;
+  sint32 outer_x = 2;
+  sint32 outer_y = 3;
+  sint32 outer_width = 4;
+  sint32 outer_height = 5;
+  sint32 client_width = 6;
+  sint32 client_height = 7;
+}
+
+message CloseEvent {
+  uint32 window_id = 1;
+}
+
+message PopupDismissEvent {
+  uint32 window_id = 1;
+}
+
+message GenerationRetiredEvent {
+  uint32 window_id = 1;
+  uint64 generation = 2;
+}
+
+message PointerInput {
+  PointerInputType type = 1;
+  uint32 button_bitmap = 2;
+  sint32 x = 3;
+  sint32 y = 4;
+  uint32 button = 5;
+}
+
+message KeyInput {
+  bool is_down = 1;
+  uint32 scancode = 2;
+  sint32 keycode = 3;
+  uint32 modifiers = 4;
+}
+
+message TextInput {
+  string text = 1;
+}
+
+message InputEvent {
+  uint32 window_id = 1;
+  oneof payload {
+    PointerInput pointer = 2;
+    KeyInput key = 3;
+    TextInput text = 4;
+  }
+}

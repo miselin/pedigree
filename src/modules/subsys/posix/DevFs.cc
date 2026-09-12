@@ -460,6 +460,7 @@ int FramebufferFile::command(const size_t command, void* buffer) {
         arg->depth = m_nDepth;
         arg->bytes_per_pixel = pFramebuffer->getBytesPerPixel();
         arg->format = pFramebuffer->getFormat();
+        arg->bytes_per_line = pFramebuffer->getBytesPerLine();
       }
       if (!PosixSubsystem::copyToUser(buffer, &value, sizeof(value))) {
         SYSCALL_ERROR(BadAddress);

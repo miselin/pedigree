@@ -74,6 +74,9 @@ class Framebuffer {
   size_t getHeight() const {
     return m_Height;
   }
+  size_t getBytesPerLine() const {
+    return m_BytesPerLine;
+  }
 
  private:
   int mapMode(const pedigree_fb_mode& mode);
@@ -85,6 +88,7 @@ class Framebuffer {
 
   size_t m_Width;
   size_t m_Height;
+  size_t m_BytesPerLine;
 
 #ifdef TARGET_LINUX
   SDL_Surface* m_pScreen;

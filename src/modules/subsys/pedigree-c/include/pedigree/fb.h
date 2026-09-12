@@ -45,6 +45,9 @@ typedef struct {
   size_t depth;
   size_t bytes_per_pixel;
   uint32_t format;
+  // Bytes between the starts of consecutive scanlines. GOP framebuffers may
+  // include padding after the visible pixels in each scanline.
+  size_t bytes_per_line;
 } pedigree_fb_mode;
 
 typedef struct {

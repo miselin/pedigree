@@ -37,6 +37,7 @@ Framebuffer::Framebuffer()
       m_Format(),
       m_Width(0),
       m_Height(0),
+      m_BytesPerLine(0),
       m_Fb(-1),
       m_bStoredMode(false),
       m_StoredMode() {}
@@ -120,7 +121,12 @@ int Framebuffer::mapMode(const pedigree_fb_mode& set_mode) {
     return EXIT_FAILURE;
   }
 
-  int stride = cairo_format_stride_for_width(m_Format, set_mode.width);
+  const size_t minimumStride = cairo_format_stride_for_width(m_Format, set_mode.width);
+  const size_t stride = set_mode.bytes_per_line ? set_mode.bytes_per_line : minimumStride;
+  if (stride < minimumStride || set_mode.height > SIZE_MAX / stride) {
+    pedigree_log(LOG_CRIT, "libfb: invalid framebuffer stride");
+    return EXIT_FAILURE;
+  }
 
   // Map the framebuffer in to our address space.
   pedigree_log(LOG_INFO, "Mapping /dev/fb in (sz=%zx)...", stride * set_mode.height);
@@ -136,6 +142,7 @@ int Framebuffer::mapMode(const pedigree_fb_mode& set_mode) {
   }
 
   m_FramebufferSize = stride * set_mode.height;
+  m_BytesPerLine = stride;
 
   return 0;
 }

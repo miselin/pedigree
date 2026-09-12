@@ -107,6 +107,187 @@ endfunction()
 # libraries
 
 pedigree_lib(fb "pedigree-c-user" ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libfb/src/fb.cc)
+add_library(libui-core INTERFACE)
+target_include_directories(libui-core INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui-core/include)
+target_compile_features(libui-core INTERFACE cxx_std_17)
+set(PEDIGREE_PROTOBUF_PREFIX
+    "${CMAKE_SOURCE_DIR}/images/local/usr" CACHE PATH
+    "Prefix containing the Pedigree protobuf and Abseil PUP installations")
+set(PEDIGREE_BUILD_LIBUI_PROTOCOL_DEFAULT OFF)
+if (EXISTS
+    "${PEDIGREE_PROTOBUF_PREFIX}/lib/cmake/protobuf/protobuf-config.cmake")
+    set(PEDIGREE_BUILD_LIBUI_PROTOCOL_DEFAULT ON)
+endif ()
+option(PEDIGREE_BUILD_LIBUI_PROTOCOL
+    "Build the protobuf-backed libui protocol for the new window manager"
+    ${PEDIGREE_BUILD_LIBUI_PROTOCOL_DEFAULT})
+option(PEDIGREE_PROTOBUF_ALLOW_GENERATOR_MISMATCH
+    "Allow host protoc to generate code for a nearby target protobuf runtime"
+    ON)
+if (PEDIGREE_BUILD_LIBUI_PROTOCOL)
+    if (NOT EXISTS
+        "${PEDIGREE_PROTOBUF_PREFIX}/lib/cmake/protobuf/protobuf-config.cmake")
+        message(FATAL_ERROR
+            "Pedigree protobuf PUP is not installed under '"
+            "${PEDIGREE_PROTOBUF_PREFIX}'. Extract the matching protobuf and "
+            "Abseil PUPs into images/local, or set PEDIGREE_PROTOBUF_PREFIX.")
+    endif ()
+    list(PREPEND CMAKE_PREFIX_PATH ${PEDIGREE_PROTOBUF_PREFIX})
+    # Pedigree exposes pthread entry points from libc; it does not provide
+    # the host-style libpthreads name that FindThreads may probe first.
+    if (NOT TARGET Threads::Threads)
+        add_library(Threads::Threads INTERFACE IMPORTED)
+    endif ()
+    find_package(Protobuf CONFIG REQUIRED)
+    set(PEDIGREE_PROTOC_EXECUTABLE "" CACHE FILEPATH
+        "Host protoc executable used to generate target sources")
+    if (NOT PEDIGREE_PROTOC_EXECUTABLE)
+        find_program(PEDIGREE_PROTOC_EXECUTABLE protoc
+            PATHS /opt/homebrew/bin /usr/local/bin /usr/bin
+            NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+    endif ()
+
+    set(PEDIGREE_LIBUI_PROTOCOL_GENERATED_DIR
+        ${CMAKE_CURRENT_BINARY_DIR}/libraries/libui-protocol/generated)
+    set(PEDIGREE_LIBUI_PROTOCOL_GENERATED_HEADER
+        ${PEDIGREE_LIBUI_PROTOCOL_GENERATED_DIR}/protocol.pb.h)
+    set(PEDIGREE_LIBUI_PROTOCOL_GENERATED_SOURCE
+        ${PEDIGREE_LIBUI_PROTOCOL_GENERATED_DIR}/protocol.pb.cc)
+    set(PEDIGREE_LIBUI_PROTOCOL_GENERATOR_COMMANDS)
+    if (PEDIGREE_PROTOBUF_ALLOW_GENERATOR_MISMATCH)
+        list(APPEND PEDIGREE_LIBUI_PROTOCOL_GENERATOR_COMMANDS
+            COMMAND ${CMAKE_COMMAND}
+                    -DHEADER=${PEDIGREE_LIBUI_PROTOCOL_GENERATED_HEADER}
+                    -P ${CMAKE_SOURCE_DIR}/scripts/allow-protobuf-version-mismatch.cmake)
+        message(WARNING
+            "libui protocol is allowing a host/target protobuf generator "
+            "version mismatch; keep the generated code limited to the "
+            "target runtime's supported API")
+    endif ()
+    add_custom_command(
+        OUTPUT ${PEDIGREE_LIBUI_PROTOCOL_GENERATED_HEADER}
+               ${PEDIGREE_LIBUI_PROTOCOL_GENERATED_SOURCE}
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+                ${PEDIGREE_LIBUI_PROTOCOL_GENERATED_DIR}
+        COMMAND ${PEDIGREE_PROTOC_EXECUTABLE}
+                --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui-protocol
+                --cpp_out=${PEDIGREE_LIBUI_PROTOCOL_GENERATED_DIR}
+                ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui-protocol/protocol.proto
+        ${PEDIGREE_LIBUI_PROTOCOL_GENERATOR_COMMANDS}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui-protocol/protocol.proto
+        VERBATIM)
+
+    pedigree_lib(ui-protocol
+        "libui-core;protobuf::libprotobuf-lite;stdc++"
+        ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui-protocol/src/protocol.cc
+        ${PEDIGREE_LIBUI_PROTOCOL_GENERATED_HEADER}
+        ${PEDIGREE_LIBUI_PROTOCOL_GENERATED_SOURCE})
+    target_compile_features(libui-protocol PUBLIC cxx_std_17)
+    target_include_directories(libui-protocol PUBLIC
+        ${PEDIGREE_LIBUI_PROTOCOL_GENERATED_DIR}
+        ${PEDIGREE_PROTOBUF_PREFIX}/include)
+    target_link_libraries(libui-protocol PUBLIC libui-core)
+endif ()
+pedigree_lib(ui-platform "libui-core;native-user;libfb;cairo;stdc++"
+    ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui-platform/src/platform.cc)
+target_include_directories(libui-platform PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libfb/include
+    ${CMAKE_SOURCE_DIR}/src/modules/subsys/pedigree-c/include)
+target_compile_features(libui-platform PUBLIC cxx_std_17)
+target_link_libraries(libui-platform PUBLIC libui-core)
+pedigree_lib(ui-buffer "libui-core;native-user;stdc++"
+    ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui-buffer/src/buffer.cc)
+target_compile_features(libui-buffer PUBLIC cxx_std_17)
+target_link_libraries(libui-buffer PUBLIC libui-core)
+pedigree_lib(ui-transport "libui-core;stdc++"
+    ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui-transport/src/transport.cc)
+target_compile_features(libui-transport PUBLIC cxx_std_17)
+target_link_libraries(libui-transport PUBLIC libui-core)
+
+set(PEDIGREE_WINMAN_SOURCE_DIR "" CACHE PATH
+    "Out-of-tree pedigree-winman source directory")
+set(_PEDIGREE_BUILD_EXTERNAL_WINMAN_DEFAULT OFF)
+if (PEDIGREE_WINMAN_SOURCE_DIR)
+    set(_PEDIGREE_BUILD_EXTERNAL_WINMAN_DEFAULT ON)
+endif ()
+option(PEDIGREE_BUILD_EXTERNAL_WINMAN
+    "Build the new window manager from PEDIGREE_WINMAN_SOURCE_DIR"
+    ${_PEDIGREE_BUILD_EXTERNAL_WINMAN_DEFAULT})
+
+set(PANGO_LIBS
+    "pangocairo-1.0;pangoft2-1.0;pango-1.0;harfbuzz;fontconfig;gobject-2.0;glib-2.0;ffi")
+
+if (PEDIGREE_BUILD_EXTERNAL_WINMAN)
+    if (NOT IS_ABSOLUTE "${PEDIGREE_WINMAN_SOURCE_DIR}" OR
+        NOT IS_DIRECTORY "${PEDIGREE_WINMAN_SOURCE_DIR}")
+        message(FATAL_ERROR
+            "PEDIGREE_WINMAN_SOURCE_DIR must be an existing absolute directory")
+    endif ()
+    if (NOT TARGET libui-protocol)
+        message(FATAL_ERROR
+            "PEDIGREE_BUILD_EXTERNAL_WINMAN requires libui-protocol; install "
+            "the protobuf PUP closure or disable the external window manager")
+    endif ()
+
+    set(_PEDIGREE_WINMAN_ROOT "${PEDIGREE_WINMAN_SOURCE_DIR}")
+
+    pedigree_lib(ui-theme "libui-core;cairo"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-theme/src/decoration.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-theme/src/theme.cc")
+    target_include_directories(libui-theme PUBLIC
+        "${_PEDIGREE_WINMAN_ROOT}/libui-theme/include")
+    target_compile_features(libui-theme PUBLIC cxx_std_17)
+    target_link_libraries(libui-theme PUBLIC libui-core)
+
+    pedigree_lib(ui-widget
+        "libui-theme;cairo;${PANGO_LIBS};pedigree-vterm;stdc++"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/internal.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/widget.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/container.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/control.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/button.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/label.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/textbox.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/terminal.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/menu.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/scrollbar.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/layout.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/menubar.cc")
+    target_include_directories(libui-widget
+        PUBLIC "${_PEDIGREE_WINMAN_ROOT}/libui-widget/include"
+        PRIVATE "${_PEDIGREE_WINMAN_ROOT}/libui-widget/internal")
+    target_compile_features(libui-widget PUBLIC cxx_std_17)
+    target_link_libraries(libui-widget PUBLIC libui-theme)
+
+    pedigree_lib(ui-client
+        "libui-protocol;libui-transport;libui-widget;libui-buffer;cairo;stdc++"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-client/src/client.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/libui-client/src/popup.cc")
+    target_include_directories(libui-client PUBLIC
+        "${_PEDIGREE_WINMAN_ROOT}/libui-client/include")
+    target_compile_features(libui-client PUBLIC cxx_std_17)
+    target_link_libraries(libui-client PUBLIC libui-protocol libui-transport libui-widget
+        libui-buffer)
+
+    pedigree_app(winman-external ON ON OFF
+        "libui-client;libui-platform;libui-protocol;libui-transport;libui-widget;libui-theme;libui-buffer;cairo;${PANGO_LIBS};freetype;stdc++"
+        "${_PEDIGREE_WINMAN_ROOT}/src/compositor.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/src/compositor-client.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/src/demo-process.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/src/desktop.cc"
+        ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman-external/main.cc)
+    target_include_directories(app-winman-external PRIVATE
+        "${_PEDIGREE_WINMAN_ROOT}/src")
+
+    pedigree_app(winman-external-notepad ON ON OFF
+        "libui-client;libui-protocol;libui-transport;libui-widget;libui-theme;libui-buffer;cairo;${PANGO_LIBS};freetype;stdc++"
+        "${_PEDIGREE_WINMAN_ROOT}/src/demo-app.cc"
+        "${_PEDIGREE_WINMAN_ROOT}/src/notepad_app.cc")
+    target_include_directories(app-winman-external-notepad PRIVATE
+        "${_PEDIGREE_WINMAN_ROOT}/src")
+endif ()
+
 pedigree_lib(tui "libui;pedigree-c-user;pedigree-vterm"
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/environment.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/Font.cc
@@ -122,8 +303,6 @@ pedigree_lib(ui "native-user"
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui/src/Window.cc)
 
 # apps
-
-set(PANGO_LIBS "pangocairo-1.0;pangoft2-1.0;pango-1.0;harfbuzz;fontconfig;gobject-2.0;glib-2.0;ffi")
 
 pedigree_app(TUI ON ON OFF "libui;libtui;cairo;${PANGO_LIBS};freetype;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/TUI/main.cc)
 pedigree_app(apptest ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/apptest/main.cc)
@@ -423,6 +602,8 @@ pedigree_app(winman ON ON OFF "libui;libfb;png;cairo;${PANGO_LIBS};freetype;stdc
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/objects.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/util.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/winman.cc)
+pedigree_app(winman-gop-smoke ON ON OFF "libui-platform;cairo;stdc++"
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman-gop-smoke/main.cc)
 pedigree_app(which ON OFF OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/which/main.cc)
 
 if (PEDIGREE_BUILD_KEYMAPS)
