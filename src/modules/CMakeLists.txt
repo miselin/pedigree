@@ -944,7 +944,10 @@ add_library(vdso SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/glue-infoblock.c
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vdso.ld)
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
-    target_compile_options(vdso PRIVATE "-mcmodel=small")
+    target_compile_options(vdso PRIVATE
+        "${_PEDIGREE_TARGET_OPTIMIZATION}"
+        "-fno-asynchronous-unwind-tables"
+        "-mcmodel=small")
 endif ()
 target_link_libraries(vdso PRIVATE gcc
     "-Wl,--soname,linux-vdso.so.1" "-Wl,--hash-style=both" "-Wl,-Bsymbolic"

@@ -59,8 +59,9 @@ int __vdso_clock_gettime(clockid_t clock_id, struct timespec* tp) {
     return -EINVAL;
   }
 
-  tp->tv_sec = now / 1000000000U;
-  tp->tv_nsec = now % 1000000000U;
+  const uint64_t seconds = now / 1000000000U;
+  tp->tv_sec = seconds;
+  tp->tv_nsec = now - seconds * 1000000000U;
 
   return 0;
 }
@@ -69,8 +70,9 @@ int __vdso_gettimeofday(struct timeval* tv, void* tz) {
   if (tv) {
     // 'now' is in nanoseconds.
     uint64_t now = infoBlock->now;
-    tv->tv_sec = now / 1000000000U;
-    tv->tv_usec = (now % 1000000000U) / 1000U;
+    const uint64_t seconds = now / 1000000000U;
+    tv->tv_sec = seconds;
+    tv->tv_usec = (now - seconds * 1000000000U) / 1000U;
   }
 
   /// \todo use tz
@@ -96,11 +98,12 @@ int __vdso_getcpu(unsigned* cpu, unsigned* node, struct getcpu_cache* cache) {
 }
 
 time_t __vdso_time(time_t* tloc) {
+  const time_t now = infoBlock->now_s;
   if (tloc) {
-    *tloc = infoBlock->now_s;
+    *tloc = now;
   }
 
-  return infoBlock->now_s;
+  return now;
 }
 
 __asm__(".symver __vdso_clock_gettime,__vdso_clock_gettime@LINUX_2.6");
