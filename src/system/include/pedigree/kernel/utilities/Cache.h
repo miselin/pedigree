@@ -88,6 +88,14 @@ class EXPORTED_PUBLIC CacheManager :
 
   void initialise();
 
+  /**
+   * Stops background work and flushes dirty pages for terminal system shutdown.
+   * External cache users must already be quiesced; backend callbacks must remain
+   * usable. Retained owners and their page loans keep their storage and registry
+   * alive. This does not relax the ordinary destructor's empty-registry contract.
+   */
+  MUST_USE_RESULT bool shutdown();
+
   void registerCache(Cache* pCache);
   void unregisterCache(Cache* pCache);
 
@@ -103,6 +111,8 @@ class EXPORTED_PUBLIC CacheManager :
 #endif
 
  private:
+  void stopPeriodicWork();
+
   struct TimerStamp {
     uint64_t elapsed = 0;
     uint64_t wraps = 0;
@@ -186,6 +196,8 @@ class EXPORTED_PUBLIC CacheManager :
   bool m_bActive;
 
   Timer* m_pTimer;
+  /** 0 running, 1 terminal drain, 2 completed, 3 writeback failure. */
+  Atomic<size_t> m_TerminalState;
 };
 
 /** Provides an abstraction of a data cache. */
@@ -661,6 +673,7 @@ class EXPORTED_PUBLIC Cache {
     uintptr_t keys[MaxWritebackPages];
   };
   void releaseBackgroundWriteback(BackgroundWriteback* batch);
+  bool syncAllInternal(writeback_batch_t callback, void* metadata, bool onlyIfDirty);
   bool syncBatchInternal(const uintptr_t* keys, size_t count, writeback_batch_t callback,
                          void* metadata, bool snapshot);
   /** Writes an already pinned page, optionally joining an active callback. */

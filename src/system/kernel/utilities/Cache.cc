@@ -75,10 +75,30 @@ CacheManager::CacheManager()
       m_bTrimRequested(false),
 #endif
       m_bActive(false),
-      m_pTimer(nullptr) {
+      m_pTimer(nullptr),
+      m_TerminalState(0) {
 }
 
 CacheManager::~CacheManager() {
+  stopPeriodicWork();
+
+#if THREADS
+  {
+    LockGuard<Mutex> guard(m_CachesLock);
+    if (m_Caches.begin() != m_Caches.end()) {
+      FATAL("CacheManager destroyed while Cache objects remain registered");
+    }
+  }
+#else
+  if (m_Caches.begin() != m_Caches.end()) {
+    FATAL("CacheManager destroyed while Cache objects remain registered");
+  }
+#endif
+
+  RequestQueue::destroy();
+}
+
+void CacheManager::stopPeriodicWork() {
 #if !STANDALONE_CACHE
   if (m_pTimer) {
     if (!m_pTimer->unregisterHandler(this)) {
@@ -101,21 +121,72 @@ CacheManager::~CacheManager() {
 #else
   m_bActive = false;
 #endif
+}
+
+bool CacheManager::shutdown() {
+  const size_t state = m_TerminalState;
+  if (state >= 2)
+    return state == 2;
+  if (!m_TerminalState.compareAndSwap(0, 1)) {
+    FATAL("Concurrent CacheManager terminal shutdown is not permitted");
+    return false;
+  }
+  TerminationDeferral lifetime;
+  stopPeriodicWork();
+  // Cancel queued writebacks and join active callbacks before flushing directly.
+  // Lower storage queues and interrupts still service those synchronous writes.
+  RequestQueue::destroy();
 
 #if THREADS
-  {
-    LockGuard<Mutex> guard(m_CachesLock);
-    if (m_Caches.begin() != m_Caches.end()) {
-      FATAL("CacheManager destroyed while Cache objects remain registered");
-    }
-  }
+  const uint64_t maximumId = cacheGenerationWatermark();
 #else
-  if (m_Caches.begin() != m_Caches.end()) {
-    FATAL("CacheManager destroyed while Cache objects remain registered");
-  }
+  const uint64_t maximumId = m_NextCacheId - 1;
 #endif
-
-  RequestQueue::destroy();
+  size_t remainingPasses = 0;
+  {
+#if THREADS
+    LockGuard<Mutex> guard(m_CachesLock);
+#endif
+    remainingPasses = m_Caches.count() + 1;
+  }
+  while (remainingPasses--) {
+    bool succeeded = true;
+    bool dirty = false;
+    for (size_t scan = 0; scan < 2; ++scan) {
+      uint64_t afterId = 0;
+      Cache* cache = nullptr;
+      uint64_t cacheId = 0;
+      while (true) {
+#if THREADS
+        OperationBarrier::Lease lease;
+        if (!acquireNextCache(afterId, maximumId, cache, cacheId, lease))
+#else
+        if (!findNextCache(afterId, maximumId, cache, cacheId))
+#endif
+          break;
+        afterId = cacheId;
+        if (!scan) {
+          succeeded = cache->syncAllInternal(nullptr, nullptr, true) && succeeded;
+        } else {
+          LockGuard<Spinlock> guard(cache->m_Lock);
+          if (cache->m_Callback) {
+            for (auto page = cache->m_Pages.begin(); page != cache->m_Pages.end(); ++page)
+              dirty |= page.value()->status == Cache::CachePage::Editing ||
+                       cache->needsWriteback(page.value());
+          }
+        }
+      }
+    }
+    if (!succeeded || !dirty) {
+      m_TerminalState = succeeded ? 2 : 3;
+      return succeeded;
+    }
+    // An upper cache can dirty a lower cache already visited in this pass.
+    // A finite dependency chain settles within one pass per retained cache.
+  }
+  ERROR("CacheManager: terminal writeback did not settle");
+  m_TerminalState = 3;
+  return false;
 }
 
 void CacheManager::initialise() {
@@ -148,6 +219,9 @@ void CacheManager::registerCache(Cache* pCache) {
 #if THREADS
   LockGuard<Mutex> guard(m_CachesLock);
 #endif
+  if (static_cast<size_t>(m_TerminalState)) {
+    FATAL("Cache registered after terminal CacheManager shutdown began");
+  }
   if (!m_NextCacheId) {
     FATAL("CacheManager exhausted its stable cache identity space");
   }
@@ -180,6 +254,8 @@ void CacheManager::unregisterCache(Cache* pCache) {
 }
 
 bool CacheManager::trimAll(size_t count) {
+  if (static_cast<size_t>(m_TerminalState))
+    return false;
   size_t totalEvicted = 0;
 #if THREADS
   uint64_t afterId = 0;
@@ -214,6 +290,8 @@ bool CacheManager::trimAll(size_t count) {
 }
 
 void CacheManager::timer(uint64_t delta) {
+  if (static_cast<size_t>(m_TerminalState))
+    return;
 #if THREADS
   auto guard = m_TrimWaiters.acquire();
 #endif
@@ -326,6 +404,13 @@ uint64_t CacheManager::addCacheRequest(Cache* cache, bool asynchronous,
                                        CacheConstants::CallbackCause cause, uintptr_t key,
                                        uintptr_t location, bool transferredPin, bool onlyIfDirty,
                                        bool batch) {
+  if (static_cast<size_t>(m_TerminalState)) {
+    if (batch)
+      cache->releaseBackgroundWriteback(reinterpret_cast<Cache::BackgroundWriteback*>(key));
+    if (transferredPin)
+      cache->releaseWriteback(key);
+    return 0;
+  }
 #if THREADS
   // RequestQueue rejects these contexts before taking payload ownership.
   // In particular, last-reference cancellation can request another eviction.
@@ -1430,6 +1515,10 @@ bool Cache::syncAll() {
 }
 
 bool Cache::syncAll(writeback_batch_t callback, void* metadata) {
+  return syncAllInternal(callback, metadata, false);
+}
+
+bool Cache::syncAllInternal(writeback_batch_t callback, void* metadata, bool onlyIfDirty) {
 #if THREADS
   TerminationDeferral terminationDeferral;
   OperationBarrier::Lease operation;
@@ -1566,7 +1655,7 @@ bool Cache::syncAll(writeback_batch_t callback, void* metadata) {
         if (pending == MaxWritebackPages)
           drain();
       } else {
-        const bool written = writebackPage(entry.key, entry.location, true);
+        const bool written = writebackPage(entry.key, entry.location, true, onlyIfDirty);
         succeeded = written && succeeded;
         releaseWriteback(entry.key);
       }

@@ -163,6 +163,90 @@ TEST(CacheManagerScan, DelayedCacheSaturatesElapsedAndRejectsAnOlderScanStamp) {
   manager.timer(ManagerPeriod);
   EXPECT_EQ(delayed.deltas, (std::vector<uint64_t>{~uint64_t{0}, ManagerPeriod}));
 }
+
+class CacheManagerShutdown : public ::testing::Test {
+ protected:
+  void TearDown() override {
+    // Each test's retained owners are destroyed before the ordinary manager.
+    CacheManager::destroyInstance();
+  }
+};
+
+TEST_F(CacheManagerShutdown, FlushesDirtyPagesWithoutRevokingRetainedLoans) {
+  Observer observer;
+  Cache cache;
+  cache.setCallback(Observer::callback, &observer);
+  const uintptr_t page = publish(cache, 0);
+  ASSERT_NE(page, 0U);
+  ASSERT_TRUE(cache.pin(0));
+  Cache ram;
+  ASSERT_NE(publish(ram, 0), 0U);
+  CacheManager& manager = CacheManager::instance();
+  EXPECT_TRUE(manager.shutdown());
+  EXPECT_EQ(observer.writes, 1U);
+  EXPECT_TRUE(cache.exists(0, Page));
+  EXPECT_EQ(*reinterpret_cast<unsigned char*>(page), 0x57);
+  EXPECT_TRUE(ram.exists(0, Page));
+  EXPECT_TRUE(manager.shutdown());
+  EXPECT_EQ(observer.writes, 1U);
+  EXPECT_FALSE(cache.sync(0, true));
+  cache.release(0);
+}
+
+TEST_F(CacheManagerShutdown, SkipsCleanChecksumPagesAndStopsTimerAdmission) {
+  Observer observer;
+  observer.failedKey = 0;
+  ManagerTimerProbe cache;
+  cache.setCallback(Observer::callback, &observer);
+  ASSERT_NE(cache.insert(0), 0U);
+  cache.markNoLongerEditing(0);
+  cache.triggerChecksum(0);
+  CacheManager& manager = CacheManager::instance();
+  EXPECT_TRUE(manager.shutdown());
+  EXPECT_EQ(observer.writes, 0U);
+  manager.timer(ManagerPeriod);
+  EXPECT_TRUE(cache.deltas.empty());
+  EXPECT_FALSE(manager.trimAll());
+  observer.failedKey = ~uintptr_t{0};
+}
+
+TEST_F(CacheManagerShutdown, ReportsFailureAndStillFlushesOtherRetainedCaches) {
+  Observer failed, successful;
+  failed.failedKey = 0;
+  Cache first, second;
+  first.setCallback(Observer::callback, &failed);
+  second.setCallback(Observer::callback, &successful);
+  ASSERT_NE(publish(first, 0), 0U);
+  ASSERT_NE(publish(second, 0), 0U);
+  CacheManager& manager = CacheManager::instance();
+  EXPECT_FALSE(manager.shutdown());
+  EXPECT_EQ(failed.writes, 1U);
+  EXPECT_EQ(successful.writes, 1U);
+  EXPECT_TRUE(first.exists(0, Page));
+  EXPECT_FALSE(manager.shutdown());
+  EXPECT_EQ(failed.writes, 1U);
+  failed.failedKey = ~uintptr_t{0};
+  EXPECT_TRUE(first.syncAll());
+}
+
+TEST_F(CacheManagerShutdown, FlushesLowerCacheDirtiedByALaterOwner) {
+  Observer lowerObserver;
+  Cache lower, upper;
+  lower.setCallback(Observer::callback, &lowerObserver);
+  ASSERT_NE(lower.insert(0), 0U);
+  lower.markNoLongerEditing(0);
+  lower.triggerChecksum(0);
+  upper.setCallback(
+      [](CacheConstants::CallbackCause cause, uintptr_t, uintptr_t, void* context) {
+        if (cause == CacheConstants::WriteBack)
+          static_cast<Cache*>(context)->markDirty(0);
+        return true;
+      },
+      &lower);
+  ASSERT_NE(publish(upper, 0), 0U);
+  EXPECT_TRUE(CacheManager::instance().shutdown());
+  EXPECT_EQ(lowerObserver.writes, 1U);
+}
 #endif
 
 TEST(CacheSync, DrainsEveryPageAndRetainsFailureForRetry) {

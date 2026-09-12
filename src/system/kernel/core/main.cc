@@ -539,9 +539,16 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
   // No need for user input anymore.
   InputManager::instance().shutdown();
 
-  // Module teardown has retired device caches. Drain the cache timer and
-  // workers while the platform timer registry is still available.
+  // Pinned modules can retain caches and page loans through the final handoff.
+  // Their backends must remain available for this last synchronous writeback.
+#if HOSTED
   CacheManager::destroyInstance();
+#else
+  if (!CacheManager::instance().shutdown()) {
+    FATAL("Shutdown aborted: retained cache writeback failed");
+  }
+  NOTICE("CacheManager: terminal cache writeback complete");
+#endif
 
   // The shared info block remains live until userspace and module teardown
   // finish, but its callback must retire before the platform timer does.
