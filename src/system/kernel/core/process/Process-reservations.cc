@@ -14,6 +14,8 @@ struct ReservationRange {
 }  // namespace
 
 bool Process::snapshotUserReservations(UserReservationSnapshot& result) {
+  if (m_pVforkOwner)
+    return m_pVforkOwner->snapshotUserReservations(result);
   UniqueArray<ReservationRange> ranges;
   size_t capacity = 0, normalCount = 0, dynamicCount = 0;
   uint64_t generation = 0;
@@ -71,6 +73,8 @@ bool Process::snapshotUserReservations(UserReservationSnapshot& result) {
 
 bool Process::commitUserReservations(uint64_t expectedGeneration,
                                      UserReservationSnapshot& replacement) {
+  if (m_pVforkOwner)
+    return m_pVforkOwner->commitUserReservations(expectedGeneration, replacement);
   LockGuard<Spinlock> guard(m_UserReservationLock);
   if (m_UserReservationGeneration != expectedGeneration) {
     return false;
@@ -83,6 +87,8 @@ bool Process::commitUserReservations(uint64_t expectedGeneration,
 }
 
 bool Process::allocateUserRange(UserRegion region, size_t length, uintptr_t& address) {
+  if (m_pVforkOwner)
+    return m_pVforkOwner->allocateUserRange(region, length, address);
   if (!length) {
     return false;
   }
@@ -112,6 +118,8 @@ bool Process::allocateUserRange(UserRegion region, size_t length, uintptr_t& add
 }
 
 bool Process::allocateSpecificUserRange(UserRegion region, uintptr_t address, size_t length) {
+  if (m_pVforkOwner)
+    return m_pVforkOwner->allocateSpecificUserRange(region, address, length);
   if (!length || length > ~uintptr_t{0} - address) {
     return false;
   }
@@ -139,6 +147,10 @@ bool Process::allocateSpecificUserRange(UserRegion region, uintptr_t address, si
 }
 
 void Process::freeUserRange(UserRegion region, uintptr_t address, size_t length) {
+  if (m_pVforkOwner) {
+    m_pVforkOwner->freeUserRange(region, address, length);
+    return;
+  }
   if (!length) {
     return;
   }
@@ -171,6 +183,7 @@ void Process::freeUserRange(UserRegion region, uintptr_t address, size_t length)
 }
 
 void Process::resetUserReservations() {
+  assert(!m_pVforkOwner);
   for (;;) {
     UserReservationSnapshot snapshot;
     {

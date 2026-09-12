@@ -89,13 +89,7 @@ PEDIGREE_LINUX_AMD64_SYSCALL(setsockopt, 54, POSIX_SETSOCKOPT)
 PEDIGREE_LINUX_AMD64_SYSCALL(getsockopt, 55, POSIX_GETSOCKOPT)
 PEDIGREE_LINUX_AMD64_SYSCALL(clone, 56, POSIX_CLONE)
 PEDIGREE_LINUX_AMD64_SYSCALL(fork, 57, POSIX_FORK)
-/*
- * TODO: implement Linux's shared-address-space, parent-blocking vfork
- * contract. Keeping its raw syscall on the existing fork path preserves the
- * safe behavior of musl's generic fallback while allowing the stock x86_64
- * trampoline to be used.
- */
-PEDIGREE_LINUX_AMD64_SYSCALL(vfork, 58, POSIX_FORK)
+PEDIGREE_LINUX_AMD64_SYSCALL(vfork, 58, POSIX_VFORK)
 PEDIGREE_LINUX_AMD64_SYSCALL(execve, 59, POSIX_EXECVE)
 PEDIGREE_LINUX_AMD64_SYSCALL(exit, 60, POSIX_EXIT)
 PEDIGREE_LINUX_AMD64_SYSCALL(wait4, 61, POSIX_WAITPID)

@@ -231,6 +231,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_sbrk(p1);
     case POSIX_FORK:
       return posix_fork(state);
+    case POSIX_VFORK:
+      return posix_vfork(state);
     case POSIX_EXECVE:
       return posix_execve(reinterpret_cast<const char*>(p1), reinterpret_cast<const char**>(p2),
                           reinterpret_cast<const char**>(p3), state);

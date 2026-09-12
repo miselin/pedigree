@@ -332,6 +332,27 @@ class EXPORTED_PUBLIC Process {
     return m_pAddressSpace;
   }
 
+  class EXPORTED_PUBLIC VforkCompletion {
+   public:
+    void wait();
+    void complete();
+
+   private:
+    WaitQueue m_Waiters;
+    bool m_Complete = false;
+  };
+
+  /** The waiting creator keeps this owner and its image alive until detach. */
+  Process* addressSpaceOwner() {
+    return m_pVforkOwner ? m_pVforkOwner : this;
+  }
+  bool isVforkChild() const {
+    return m_pVforkOwner != nullptr;
+  }
+  void borrowVforkAddressSpace(Process& parent, const SharedPointer<VforkCompletion>& completion);
+  /** Caller holds the mapping operation guard and has retired user-memory hooks. */
+  void releaseVforkAddressSpace();
+
   /** Sets the exit status of the process. */
   void setExitStatus(int code) {
     m_ExitStatus = code;
@@ -666,7 +687,8 @@ class EXPORTED_PUBLIC Process {
 
   Process(DeferredPublication);
   Process(DeferredPublication, Process* pParent, bool bCopyOnWrite = true,
-          FilesystemContextMode filesystemContext = FilesystemContextMode::Inherit);
+          FilesystemContextMode filesystemContext = FilesystemContextMode::Inherit,
+          bool emptyAddressSpace = false);
 
   /** Makes a completely constructed Process visible to enumeration. */
   void publish();
@@ -741,6 +763,9 @@ class EXPORTED_PUBLIC Process {
    * Our virtual address space.
    */
   VirtualAddressSpace* m_pAddressSpace;
+  VirtualAddressSpace* m_pVforkPrivateAddressSpace = nullptr;
+  Process* m_pVforkOwner = nullptr;
+  SharedPointer<VforkCompletion> m_VforkCompletion;
   /** Terminal process exit status. */
   int m_ExitStatus;
   /** Protects only the owner slots; provider calls run after unlocking. */

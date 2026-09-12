@@ -55,13 +55,13 @@ class PosixSyscallTranslationTests(unittest.TestCase):
         self.assertEqual(len(mapping), 286)
         self.assertEqual(
             hashlib.sha256(serialized.encode()).hexdigest(),
-            "c248fb9f0ee743664b94ac0cdec501c1685e24bb05ef18985adb4dd0ca960f35",
+            "a95fc0c0d67a9a5aada75cc93a7dbcb6ae2cbca3034cd526f5def60831799b94",
         )
         self.assertEqual(len({name for name, _, _ in mapping}), len(mapping))
         self.assertEqual(len({number for _, number, _ in mapping}), len(mapping))
 
-    def test_vfork_keeps_the_existing_safe_fork_behavior(self):
-        self.assertIn(("vfork", 58, "POSIX_FORK"), load_mapping())
+    def test_vfork_has_a_distinct_shared_vm_route(self):
+        self.assertIn(("vfork", 58, "POSIX_VFORK"), load_mapping())
 
     def test_getrusage_uses_the_existing_resource_accounting_handler(self):
         self.assertIn(("getrusage", 98, "POSIX_GETRUSAGE"), load_mapping())

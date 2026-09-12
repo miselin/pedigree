@@ -332,6 +332,16 @@ bool PosixSubsystem::publishUserImage(VirtualAddressSpace& space) {
 }
 
 PosixSubsystem::~PosixSubsystem() {
+  {
+    MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+    if (m_pProcess && m_pProcess->isVforkChild()) {
+      // Published children detach at exec/exit while their user hooks live.
+      // Construction rollback reaches here before creating the child Thread.
+      assert(m_pProcess->getNumThreads() == 0);
+      invalidateUserImage();
+      m_pProcess->releaseVforkAddressSpace();
+    }
+  }
   m_TraceContext.close();
   if (m_Namespaces)
     m_Namespaces->close();
@@ -801,6 +811,11 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
   posix_timer_process_exit(pProcess);
   invalidateUserImage();
   pThread->notifySubsystemExit();
+
+  {
+    MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+    pProcess->releaseVforkAddressSpace();
+  }
 
   delete pProcess->getLinker();
 
@@ -2602,6 +2617,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     // clean user-return gate runs only after their remaining cleanup.
     if (m_CallbackSchedulingDomain == CallbackSchedulingDomain::LegacySignals)
       m_CallbackSchedulingDomain = CallbackSchedulingDomain::Unrestricted;
+    pProcess->releaseVforkAddressSpace();
     MemoryMapManager::instance().unmapAll();
     delete oldLinker;
 

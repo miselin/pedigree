@@ -40,12 +40,14 @@ X64VirtualAddressSpace X64VirtualAddressSpace::m_KernelSpace(
     reinterpret_cast<uintptr_t>(&pml4) - reinterpret_cast<uintptr_t>(KERNEL_VIRTUAL_ADDRESS),
     KERNEL_VIRTUAL_STACK);
 
-static void trackPages(ssize_t v, ssize_t p, ssize_t s) {
+static void trackPages(VirtualAddressSpace& space, ssize_t v, ssize_t p, ssize_t s) {
   // Track, if we can.
   Thread* pThread = Processor::information().getCurrentThread();
   if (pThread) {
     Process* pProcess = pThread->getParent();
     if (pProcess) {
+      if (pProcess->getAddressSpace() == &space)
+        pProcess = pProcess->addressSpaceOwner();
       pProcess->trackPages(v, p, s);
     }
   }
@@ -260,7 +262,7 @@ bool X64VirtualAddressSpace::mapUnlocked(physical_uintptr_t physAddress, void* v
   // Map the page
   *pageTableEntry = physAddress | Flags;
 
-  trackPages(1, 0, 0);
+  trackPages(*this, 1, 0, 0);
 
   // We don't need the lock to propagate the PDPT.
   if (locked) {
@@ -625,7 +627,7 @@ bool X64VirtualAddressSpace::unmapUnlocked(void* virtualAddress, X64MappingMutat
   // Unmap the page
   *pageTableEntry = 0;
 
-  trackPages(-1, 0, 0);
+  trackPages(*this, -1, 0, 0);
 
   // Detach empty paging structures before the invalidation, but retain their
   // storage until every processor has discarded both translations and
@@ -849,7 +851,7 @@ void X64VirtualAddressSpace::revertToKernelAddressSpace() {
               (flags & (PAGE_SHARED | PAGE_SWAPPED | PAGE_BORROWED)) == 0;
 
           // Free the page.
-          trackPages(-1, 0, 0);
+          trackPages(*this, -1, 0, 0);
           *ptEntry = 0;
           if (!invalidateMapping(virtualAddress, mutation)) {
             mutation.panicInvalidationFailure();

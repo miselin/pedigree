@@ -137,8 +137,7 @@ CloneRoute cloneRoute(unsigned long flags) {
     return CloneRoute::Thread;
   }
 
-  // The private-CoW process path can faithfully provide fork-like clone and
-  // musl's pipe-synchronised posix_spawn trampoline. Other sharing and
+  // Process sharing is limited to vfork's bounded borrow. Other sharing and
   // namespace combinations must not silently receive fork semantics.
   const unsigned long processFlags = flags & ~CLONE_NEWUTS;
   if (processFlags == 0 || processFlags == SIGCHLD || processFlags == SpawnFlags) {
@@ -347,11 +346,6 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   if (flags & CLONE_PARENT) {
     SC_NOTICE(" -> CLONE_PARENT is not yet supported!");
   }
-  if (flags & CLONE_VFORK) {
-    // Halts parent until child ruins execve() or exit(), just like vfork.
-    // We should support this properly.
-    SC_NOTICE(" -> CLONE_VFORK is not yet supported!");
-  }
 #if 0
     if (flags & CLONE_VM) SC_NOTICE("\t\t-> CLONE_VM");
     if (flags & CLONE_FS) SC_NOTICE("\t\t-> CLONE_FS");
@@ -381,6 +375,12 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   if (route == CloneRoute::Invalid) {
     SYSCALL_ERROR(InvalidArgument);
     SC_NOTICE(" -> EINVAL (unsupported or inconsistent clone flags)");
+    return -1;
+  }
+  if (route == CloneRoute::Thread && pParentProcess->isVforkChild()) {
+    // Detach is owned by the sole child thread; it cannot strand peers in
+    // the borrowed image when exec or exit wakes the creator.
+    SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
 
@@ -535,11 +535,15 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     return threadId;
   }
 
-  if (flags & CLONE_VM) {
-    // Pedigree cannot safely share one address space between distinct
-    // processes yet. A private CoW child preserves process identity for
-    // posix_spawn without exposing the parent to the child's exec or exit.
-    SC_NOTICE(" -> normalizing process CLONE_VM to a private address space");
+  SharedPointer<Process::VforkCompletion> vforkCompletion;
+  const bool borrowAddressSpace = flags & CLONE_VFORK;
+  if (borrowAddressSpace) {
+    vforkCompletion =
+        SharedPointer<Process::VforkCompletion>::tryAdopt(new Process::VforkCompletion);
+    if (!vforkCompletion) {
+      SYSCALL_ERROR(OutOfMemory);
+      return -1;
+    }
   }
 
   // No child stack means CoW the existing one, but if one is specified we
@@ -573,8 +577,9 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   {
     // PTEs, raw allocation inventory, and managed metadata describe one snapshot.
     MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
-    pProcess = new PosixProcess(pParentProcess, true, Process::FilesystemContextMode::Deferred);
-    if (!pProcess || !pProcess->jobControlReady()) {
+    pProcess = new PosixProcess(pParentProcess, true, Process::FilesystemContextMode::Deferred,
+                                borrowAddressSpace);
+    if (!pProcess || !pProcess->getAddressSpace() || !pProcess->jobControlReady()) {
       delete pProcess;
       for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; sig++)
         Processor::information().getCurrentThread()->inhibitEvent(sig, false);
@@ -622,7 +627,9 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
       pProcess->setLinker(newLinker);
     }
 
-    if (!MemoryMapManager::instance().clone(pProcess)) {
+    if (borrowAddressSpace) {
+      pProcess->borrowVforkAddressSpace(*pParentProcess, vforkCompletion);
+    } else if (!MemoryMapManager::instance().clone(pProcess)) {
       delete pProcess;
       for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; ++sig)
         Processor::information().getCurrentThread()->inhibitEvent(sig, false);
@@ -702,20 +709,28 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   // Finish publishing the child-side POSIX state before it can execute.
   pedigree_copy_posix_thread(Processor::information().getCurrentThread(), pParentSubsystem, pThread,
                              pSubsystem);
+  const size_t childId = pProcess->getId();
+  Uninterruptible parentEvents;
   pProcess->publish();
   if (!pThread->start()) {
     FATAL("fork(): delayed child thread could not be started.");
   }
+  if (vforkCompletion)
+    vforkCompletion->wait();
 
   // Parent returns child ID.
-  SC_NOTICE(" -> " << pProcess->getId() << " [new process]");
-  return pProcess->getId();
+  SC_NOTICE(" -> " << childId << " [new process]");
+  return childId;
 }
 
 int posix_fork(SyscallState& state) {
   SC_NOTICE("fork");
 
   return posix_clone(state, 0, 0, 0, 0, 0);
+}
+
+int posix_vfork(SyscallState& state) {
+  return posix_clone(state, CLONE_VM | CLONE_VFORK | SIGCHLD, nullptr, nullptr, nullptr, 0, true);
 }
 
 int posix_execve(const char* name, const char** argv, const char** env, SyscallState& state) {

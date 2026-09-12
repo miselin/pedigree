@@ -213,7 +213,10 @@ class X64PreparedPageRemap final : public VirtualAddressSpace::PreparedPageRemap
     m_RetiredCount = 0;
     Thread* thread = Processor::information().getCurrentThread();
     if (thread && thread->getParent()) {
-      thread->getParent()->trackPages(-static_cast<ssize_t>(removedPages), 0, 0);
+      Process* process = thread->getParent();
+      if (process->getAddressSpace() == &m_Space)
+        process = process->addressSpaceOwner();
+      process->trackPages(-static_cast<ssize_t>(removedPages), 0, 0);
     }
     return Status::Success;
   }

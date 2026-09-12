@@ -424,5 +424,6 @@
 #define POSIX_STATX 409
 #define POSIX_FCHMODAT2 410
 #define POSIX_MKNODAT 411
+#define POSIX_VFORK 412
 
 #endif

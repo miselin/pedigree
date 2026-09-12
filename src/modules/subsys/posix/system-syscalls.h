@@ -46,6 +46,7 @@ SyscallState posix_copy_clone_state(const SyscallState& state);
 long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, int* ptid, int* ctid,
                  unsigned long newtls, bool linuxAbi = false);
 int posix_fork(SyscallState& state);
+int posix_vfork(SyscallState& state);
 int posix_execve(const char* name, const char** argv, const char** env, SyscallState& state);
 int posix_getpid();
 int posix_getppid();

@@ -249,7 +249,7 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
              : static_cast<MemoryMappedObject*>(new AnonymousMemoryMap(destination, length, perms));
     if (!plan.inserted)
       return nullptr;
-    plan.inserted->m_OwnerProcess = process;
+    plan.inserted->m_OwnerProcess = process->addressSpaceOwner();
     plan.inserted->m_OwnsMappings = false;
     plan.inserted->m_LockMode = mode;
     plan.staged.pushBack(plan.inserted);

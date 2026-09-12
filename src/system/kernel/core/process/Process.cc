@@ -468,7 +468,7 @@ Process::Process(Process* pParent, bool bCopyOnWrite)
 }
 
 Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
-                 FilesystemContextMode filesystemContext)
+                 FilesystemContextMode filesystemContext, bool emptyAddressSpace)
     : m_Threads(),
       m_NextTid(0),
       m_Id(Scheduler::instance().reserveProcessId()),
@@ -551,7 +551,10 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
   m_Metadata.sharedPages = pParent->getSharedPageCount();
   m_Metadata.startTime = Time::getTimeNanoseconds();
 
-  m_pAddressSpace = pParent->m_pAddressSpace->clone(bCopyOnWrite);
+  m_pAddressSpace = emptyAddressSpace ? VirtualAddressSpace::create()
+                                      : pParent->m_pAddressSpace->clone(bCopyOnWrite);
+  if (emptyAddressSpace && m_pAddressSpace)
+    resetUserReservations();
   str = pParent->str;
 
   // Annotate the temporary description.
@@ -560,6 +563,52 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
   } else {
     str += "<F>";  // F for forked.
   }
+}
+
+void Process::VforkCompletion::wait() {
+  Uninterruptible events;
+  TerminationDeferral termination;
+  for (;;) {
+    auto guard = m_Waiters.acquire();
+    if (m_Complete)
+      return;
+    const auto reason = guard.waitForCompletion(WaitQueue::Channel(), Thread::ProcessWait,
+                                                reinterpret_cast<uintptr_t>(this));
+    (void)reason;
+  }
+}
+
+void Process::VforkCompletion::complete() {
+  auto guard = m_Waiters.acquire();
+  m_Complete = true;
+  guard.wakeAll();
+}
+
+void Process::borrowVforkAddressSpace(Process& parent,
+                                      const SharedPointer<VforkCompletion>& completion) {
+  assert(!m_bPublished && !m_pVforkOwner && m_pAddressSpace && completion);
+  m_pVforkPrivateAddressSpace = m_pAddressSpace;
+  m_pVforkOwner = parent.addressSpaceOwner();
+  m_pAddressSpace = parent.getAddressSpace();
+  m_VforkCompletion = completion;
+}
+
+void Process::releaseVforkAddressSpace() {
+  if (!m_pVforkOwner)
+    return;
+  const bool interrupts = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  m_pAddressSpace = m_pVforkPrivateAddressSpace;
+  m_pVforkPrivateAddressSpace = nullptr;
+  m_pVforkOwner = nullptr;
+  Thread* current = Processor::information().getCurrentThread();
+  if (current && current->getParent() == this)
+    Processor::switchAddressSpace(*m_pAddressSpace);
+  Processor::setInterrupts(interrupts);
+  // The child can be reaped before its creator runs, so the waiter owns an
+  // independent reference. No CPU may still execute this child in the old VM.
+  auto completion = pedigree_std::move(m_VforkCompletion);
+  completion->complete();
 }
 
 FilesystemContextRef Process::acquireFilesystemContext() const {
@@ -927,9 +976,11 @@ Process::~Process() {
   bool bInterrupts = Processor::getInterrupts();
   Processor::setInterrupts(false);
 
-  Processor::switchAddressSpace(*m_pAddressSpace);
-  m_pAddressSpace->revertToKernelAddressSpace();
-  Processor::switchAddressSpace(VAddressSpace);
+  if (m_pAddressSpace) {
+    Processor::switchAddressSpace(*m_pAddressSpace);
+    m_pAddressSpace->revertToKernelAddressSpace();
+    Processor::switchAddressSpace(VAddressSpace);
+  }
 
   delete m_pAddressSpace;
 

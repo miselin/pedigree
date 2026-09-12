@@ -100,7 +100,7 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             mappings,
         )
         self.assertIn(
-            "PEDIGREE_LINUX_AMD64_SYSCALL(vfork, 58, POSIX_FORK)",
+            "PEDIGREE_LINUX_AMD64_SYSCALL(vfork, 58, POSIX_VFORK)",
             mappings,
         )
         self.assertIn(
