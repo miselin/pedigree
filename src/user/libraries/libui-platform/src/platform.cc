@@ -1,11 +1,12 @@
 #include "libui/platform.h"
-#include "libui/cursor.h"
 
 #include "pedigree/native/input/Input.h"
 #include "pedigree_fb.h"
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdint>
+#include <cstring>
 #include <fcntl.h>
 #include <poll.h>
 #include <unistd.h>
@@ -86,17 +87,19 @@ class PedigreeDisplay final : public Display {
       return false;
     }
 
-    m_surface = cairo_image_surface_create_for_data(
-        static_cast<unsigned char*>(m_framebuffer.getFramebuffer()), m_framebuffer.getFormat(),
-        m_info.width, m_info.height, m_info.stride);
+    m_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, m_info.width, m_info.height);
     if (cairo_surface_status(m_surface) != CAIRO_STATUS_SUCCESS) {
       return false;
     }
+    m_offscreenStride = cairo_image_surface_get_stride(m_surface);
 
     m_context = cairo_create(m_surface);
     if (cairo_status(m_context) != CAIRO_STATUS_SUCCESS) {
       return false;
     }
+
+    m_pointerX = m_info.width / 2;
+    m_pointerY = m_info.height / 2;
 
     if (m_inputStream < 0) {
       {
@@ -121,10 +124,18 @@ class PedigreeDisplay final : public Display {
   cairo_t* context() const override { return m_context; }
 
   void present() override {
-    if (!m_surface) {
+    if (!m_surface || !m_framebuffer.getFramebuffer()) {
       return;
     }
+
     cairo_surface_flush(m_surface);
+    const auto* source = cairo_image_surface_get_data(m_surface);
+    auto* target = static_cast<std::uint8_t*>(m_framebuffer.getFramebuffer());
+    const std::size_t rowBytes = static_cast<std::size_t>(m_info.width) * 4;
+    for (int y = 0; y < m_info.height; ++y) {
+      std::memcpy(target + static_cast<std::size_t>(y) * m_info.stride,
+                  source + static_cast<std::size_t>(y) * m_offscreenStride, rowBytes);
+    }
     m_framebuffer.flush(0, 0, m_framebuffer.getWidth(), m_framebuffer.getHeight());
   }
 
@@ -170,35 +181,7 @@ class PedigreeDisplay final : public Display {
     return ::poll(&descriptor, 1, timeoutMilliseconds) > 0;
   }
 
-  void renderCursor(input::CursorType type) override {
-    const CursorBitmap *bitmap = cursorBitmap(type);
-    if (bitmap == nullptr) {
-      bitmap = cursorBitmap(input::CursorType::Arrow);
-    }
-    if (bitmap == nullptr || bitmap->pixels.empty() || m_context == nullptr) {
-      return;
-    }
-
-    auto *pixels = reinterpret_cast<unsigned char *>(
-        const_cast<std::uint32_t *>(bitmap->pixels.data()));
-    cairo_surface_t *cursorSurface = cairo_image_surface_create_for_data(
-        pixels, CAIRO_FORMAT_ARGB32, bitmap->width, bitmap->height,
-        bitmap->width * static_cast<int>(sizeof(std::uint32_t)));
-    if (cairo_surface_status(cursorSurface) != CAIRO_STATUS_SUCCESS) {
-      cairo_surface_destroy(cursorSurface);
-      return;
-    }
-
-    const int x = pointerX() - bitmap->hotspotX;
-    const int y = pointerY() - bitmap->hotspotY;
-    cairo_save(m_context);
-    cairo_set_antialias(m_context, CAIRO_ANTIALIAS_NONE);
-    cairo_set_source_surface(m_context, cursorSurface, x, y);
-    cairo_pattern_set_filter(cairo_get_source(m_context), CAIRO_FILTER_NEAREST);
-    cairo_paint(m_context);
-    cairo_restore(m_context);
-    cairo_surface_destroy(cursorSurface);
-  }
+  void renderCursor(input::CursorType) override {}
   int pointerX() const override {
     std::lock_guard<std::mutex> guard(m_inputLock);
     return m_pointerX;
@@ -266,7 +249,8 @@ class PedigreeDisplay final : public Display {
     const int oldY = m_pointerY;
     m_pointerX = std::clamp(m_pointerX + static_cast<int>(notification.data.pointy.relx), 0,
                             m_info.width - 1);
-    m_pointerY = std::clamp(m_pointerY + static_cast<int>(notification.data.pointy.rely), 0,
+    // PS/2 reports positive Y as movement toward the top of the screen.
+    m_pointerY = std::clamp(m_pointerY - static_cast<int>(notification.data.pointy.rely), 0,
                             m_info.height - 1);
 
     std::uint32_t buttons = 0;
@@ -327,6 +311,7 @@ class PedigreeDisplay final : public Display {
   DisplayInfo m_info;
   cairo_surface_t* m_surface = nullptr;
   cairo_t* m_context = nullptr;
+  int m_offscreenStride = 0;
   int m_inputStream = -1;
   int m_inputPipe[2] = {-1, -1};
   mutable std::mutex m_inputLock;

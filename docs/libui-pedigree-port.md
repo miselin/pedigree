@@ -84,18 +84,19 @@ cmake --build build --target uefi-image -j2
 
 Stop the smoke app with `Ctrl-C` in the host terminal.
 
-## Out-of-tree window-manager trial
+## Out-of-tree window-manager build
 
-The complete hosted compositor/client/widget implementation can be compiled
-against the Pedigree target libraries without copying it into this repository.
-Point the build at the separate checkout and run the target trial with:
+The complete compositor/client/widget implementation lives in the separate
+`pedigree-winman` checkout. It consumes this repository's cross-toolchain and
+target libraries, then installs its own binaries, font, and init script into
+the ignored `images/local` overlay:
 
 ```sh
-PEDIGREE_WINMAN_SOURCE_DIR=/Users/miselin/src/pedigree-winman \
-scripts/run-winman-external-qemu.sh
+cd /Users/miselin/src/pedigree-winman
+PEDIGREE_ROOT=/Users/miselin/src/pedigree tools/build-pedigree.sh
 ```
 
-The trial builds the out-of-tree compositor and Notepad client, temporarily
-starts the compositor instead of `ttyterm`, and restores the image source
-overlay afterward. The target terminal client is intentionally not included
-yet because its hosted PTY implementation is not available on Pedigree.
+The target build and its generated sources remain in the window-manager
+checkout. Pedigree only provides the SDK artifacts and snapshots the staged
+files into the UEFI image. Stop any QEMU instance using the image before
+rebuilding it.
