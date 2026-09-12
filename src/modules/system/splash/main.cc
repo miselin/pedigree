@@ -66,7 +66,7 @@ static size_t g_LogW, g_LogH;
 static GraphicsService::GraphicsParameters g_GraphicsParams;
 
 static size_t g_Previous = 0;
-static bool g_LogMode = false;
+static bool g_LogMode = true;
 
 static bool g_NoGraphics = false;
 
@@ -191,10 +191,8 @@ class StreamingScreenLogger : public Log::LogCallback {
   /// printString is used directly as well as in this callback object,
   /// therefore we simply redirect to it.
   void callback(const LogCord& cord, bool = true) {
-    EMIT_IF(DEBUGGER) {
-      if (g_LogMode) {
-        printString(cord);
-      }
+    if (g_LogMode) {
+      printString(cord);
     }
   }
 };
@@ -244,9 +242,6 @@ static void progress(const char* text) {
 
   // Calculate percentage.
   if (g_BootProgressTotal == 0)
-    return;
-
-  if (g_LogMode && (g_LogH == g_Height))
     return;
 
   if (g_NoGraphics) {
@@ -610,7 +605,7 @@ static bool handleSplash() {
 
 static bool init() {
   g_NoGraphics = false;
-  g_LogMode = false;
+  g_LogMode = true;
   char* cmdline = g_pBootstrapInfo->getCommandLine();
   if (cmdline) {
     Vector<String> cmds = String(cmdline).tokenise(' ');
@@ -619,7 +614,9 @@ static bool init() {
       if (cmd == String("nosplash")) {
         g_NoGraphics = true;
         break;
-      } else if (cmd == String("splash=logs")) {
+      } else if (cmd == String("splash=image")) {
+        g_LogMode = false;
+      } else if (cmd == String("splash=log") || cmd == String("splash=logs")) {
         g_LogMode = true;
       }
     }

@@ -152,6 +152,10 @@ From now on, you can simply run `scons` to build Pedigree.
 Boot from `build/pedigree.iso`, with an attached disk for `build/hdd.img`, to
 run Pedigree.
 
+The graphical boot screen shows kernel logs by default. Add `splash=image` to
+the kernel command line to show the image instead. `splash=log` explicitly
+selects logs; omitting the option has the same effect.
+
 You can also specify `createvmdk=1` and/or `createvdi=1` to create VMDK or VDI
 disk images for your emulator. These options require `qemu-img`.
 
