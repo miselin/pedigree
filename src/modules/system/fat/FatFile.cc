@@ -23,30 +23,71 @@
 
 #include "FatFilesystem.h"
 
-namespace {
-class FatShrinkPlan final : public File::PreparedShrink {
- public:
-  void commit() override {}
-};
-}  // namespace
-
 FatFile::FatFile(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
                  Time::Timestamp creationTime, uintptr_t inode, class Filesystem* pFs, size_t size,
                  uint32_t dirClus, uint32_t dirOffset, File* pParent)
     : File(name, accessedTime, modifiedTime, creationTime, inode, pFs, size, pParent),
-      m_DirClus(dirClus),
-      m_DirOffset(dirOffset),
-      m_MetadataDirty(false) {
-  cacheState().fill.setDirtyTracking(Cache::DirtyTracking::Explicit);
-  cacheState().fill.setCallback(checkedWriteCallback, this);
-
-  // No permissions on FAT - set all to RWX.
-  setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OW |
-                 FILE_OX);
+      m_State(static_cast<FatFilesystem*>(pFs)->acquireFileState(
+          this, inode, size, dirClus, dirOffset, accessedTime, modifiedTime, creationTime)),
+      m_DirClus(m_State->directoryCluster),
+      m_DirOffset(m_State->directoryOffset),
+      m_MetadataDirty(m_State->metadataDirty),
+      m_TrimPending(m_State->trimPending),
+      m_RetiredClusters(m_State->retiredClusters) {
+  {
+    LockGuard<Mutex> registry(static_cast<FatFilesystem*>(pFs)->m_StateLock);
+    m_NextAlias = m_State->aliases;
+    m_State->aliases = this;
+  }
+  copyStateAttributes();
+  File::setInode(m_State->inode);
+  File::setSize(m_State->size);
+  setPermissionsOnly(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OW |
+                     FILE_OX);
 }
 
+FatFile::FatFile(State& state)
+    : File(String(), state.accessed, state.modified, state.changed, state.inode, state.filesystem,
+           state.size, nullptr),
+      m_State(&state),
+      m_Proxy(true),
+      m_DirClus(state.directoryCluster),
+      m_DirOffset(state.directoryOffset),
+      m_MetadataDirty(state.metadataDirty),
+      m_TrimPending(state.trimPending),
+      m_RetiredClusters(state.retiredClusters) {}
+
 FatFile::~FatFile() {
-  cacheState().fill.shutdown();
+  if (!m_Proxy)
+    m_State->filesystem->releaseFileState(this);
+}
+
+File::CacheState& FatFile::cacheState() {
+  return m_State->cache;
+}
+Mutex& FatFile::dataMutationLock() {
+  return m_State->dataLock;
+}
+Mutex& FatFile::writeSerializationLock() {
+  return m_State->writeLock;
+}
+size_t& FatFile::physicalPageLoans() {
+  return m_State->pageLoans;
+}
+size_t FatFile::getSize() {
+  return m_State->size;
+}
+uintptr_t FatFile::futexIdentity() {
+  return reinterpret_cast<uintptr_t>(m_State);
+}
+
+void FatFile::setInode(uintptr_t inode) {
+  LockGuard<Mutex> registry(m_State->filesystem->m_StateLock);
+  m_State->inode = inode;
+  m_State->chainRevision = 0;
+  File::setInode(inode);
+  for (FatFile* alias = m_State->aliases; alias; alias = alias->m_NextAlias)
+    alias->File::setInode(inode);
 }
 
 uintptr_t FatFile::readBlock(uint64_t location) {
@@ -108,30 +149,45 @@ void FatFile::writeBlock(uint64_t location, uintptr_t addr) {
 
 bool FatFile::checkedWriteCallback(CacheConstants::CallbackCause cause, uintptr_t location,
                                    uintptr_t page, void* meta) {
-  FatFile* file = static_cast<FatFile*>(meta);
+  State* state = static_cast<State*>(meta);
+  if (cause == CacheConstants::Eviction) {
+    FatFile file(*state);
+    return File::fillCacheCallback(cause, location, page, &file);
+  }
   if (cause != CacheConstants::WriteBack)
-    return File::fillCacheCallback(cause, location, page, static_cast<File*>(file));
-
-  const size_t size = file->getSize();
-  if (location >= size)
     return true;
-  const size_t remaining = size - location;
-  const size_t length = remaining < file->getBlockSize() ? remaining : file->getBlockSize();
-  FatFilesystem* filesystem = static_cast<FatFilesystem*>(file->m_pFilesystem);
-  return filesystem->write(file, location, length, page) == length;
+  Cache::WritebackPage entry{location, page};
+  return state->filesystem->writeCachedPages(*state, &entry, 1);
+}
+
+bool FatFile::checkedBatchCallback(const Cache::WritebackPage* pages, size_t count, void* meta) {
+  State* state = static_cast<State*>(meta);
+  return state->filesystem->writeCachedPages(*state, pages, count);
 }
 
 bool FatFile::sync() {
-  const bool dataSucceeded = File::sync();
-  FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
-  return filesystem->syncFileMetadata(this) && dataSucceeded;
+  LockGuard<Mutex> data(m_State->dataLock);
+  const bool succeeded = cacheState().fill.syncAll(checkedBatchCallback, m_State);
+  return m_State->filesystem->syncFileMetadata(this) && succeeded;
 }
 
 bool FatFile::sync(size_t offset, bool async) {
   offset -= offset % getBlockSize();
-  const bool dataSucceeded = cacheState().fill.sync(offset, async);
-  FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
-  return filesystem->syncFileMetadata(this) && dataSucceeded;
+  if (async)
+    return cacheState().fill.sync(offset, true);
+  const uintptr_t key = offset;
+  const bool succeeded = cacheState().fill.syncBatch(&key, 1, checkedBatchCallback, m_State);
+  return m_State->filesystem->syncFileMetadata(this) && succeeded;
+}
+
+bool FatFile::syncPages(const uint64_t* offsets, size_t count) {
+  if (count > Cache::MaxWritebackPages || (count && !offsets))
+    return false;
+  uintptr_t keys[Cache::MaxWritebackPages];
+  for (size_t i = 0; i < count; ++i)
+    keys[i] = offsets[i] - offsets[i] % getBlockSize();
+  const bool succeeded = cacheState().fill.syncBatch(keys, count, checkedBatchCallback, m_State);
+  return m_State->filesystem->syncFileMetadata(this) && succeeded;
 }
 
 File::Attributes FatFile::getAttributes() const {
@@ -140,6 +196,10 @@ File::Attributes FatFile::getAttributes() const {
   FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
   LockGuard<Mutex> guard(filesystem->m_FileMutationLock);
   Attributes attributes = File::getAttributes();
+  attributes.accessed = m_State->accessed;
+  attributes.modified = m_State->modified;
+  attributes.changed = m_State->changed;
+  attributes.inode = m_State->identifier;
   attributes.blocks = filesystem->allocatedBlocks(file);
   return attributes;
 }
@@ -152,62 +212,9 @@ void FatFile::unpinBlock(uint64_t location) {
   cacheState().fill.release(location - location % getBlockSize());
 }
 
-void FatFile::extend(size_t newSize) {
-  FatFilesystem* pFs = static_cast<FatFilesystem*>(m_pFilesystem);
-
-  const size_t oldSize = getSize();
-  pFs->extend(this, newSize);
-  const size_t size = getSize();
-  const size_t pageSize = getBlockSize();
-  const size_t within = oldSize % pageSize;
-  if (size > oldSize && within) {
-    const size_t pageOffset = oldSize - within;
-    const uintptr_t page = cacheState().fill.lookup(pageOffset);
-    if (page) {
-      // Writable mappings can have changed padding beyond the previous EOF.
-      const size_t amount = size - oldSize < pageSize - within ? size - oldSize : pageSize - within;
-      ByteSet(reinterpret_cast<void*>(page + within), 0, amount);
-      cacheState().fill.markDirty(pageOffset);
-      cacheState().fill.release(pageOffset);
-    }
-  }
-}
-
-void FatFile::extend(size_t newSize, uint64_t location, uint64_t size) {
-  // not using the hints at all
-  extend(newSize);
-}
-
-bool FatFile::prepareShrink(const ShrinkContext& context, UniquePointer<PreparedShrink>& prepared) {
-  if (context.newSize != 0) {
-    SYSCALL_ERROR(OperationNotSupported);
-    return false;
-  }
-
-  FatShrinkPlan* plan = new FatShrinkPlan();
-  if (!plan) {
-    SYSCALL_ERROR(OutOfMemory);
-    return false;
-  }
-
-  FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
-  if (!filesystem->truncateFile(this)) {
-    delete plan;
-    return false;
-  }
-  prepared = UniquePointer<PreparedShrink>::adopt(plan);
-  return true;
-}
-
-bool FatFile::resizeFile(size_t size) {
-  if (size == getSize())
-    return true;
-  if (size < getSize()) {
-    SYSCALL_ERROR(OperationNotSupported);
-    return false;
-  }
-
-  FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
-  filesystem->extend(this, size);
-  return getSize() == size;
+void FatFile::copyStateAttributes() {
+  LockGuard<Mutex> metadata(m_MetadataLock);
+  m_AccessedTime = m_State->accessed;
+  m_ModifiedTime = m_State->modified;
+  m_CreationTime = m_State->changed;
 }

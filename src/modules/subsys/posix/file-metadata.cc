@@ -77,7 +77,7 @@ bool posix_stat_file(const char* name, File* pFile, struct stat* st) {
     st->st_dev = PosixBlock::encode(PosixBlock::MountedMajor, mount.id());
   }
   F_NOTICE("    -> " << st->st_dev);
-  st->st_ino = pFile->getInode();
+  st->st_ino = attributes.inode ? attributes.inode : pFile->getInode();
   F_NOTICE("    -> " << st->st_ino);
   st->st_mode = mode;
   st->st_nlink = attributes.links;

@@ -55,8 +55,10 @@ void writeLongFilenameCharacter(uint8_t* entry, size_t character, uint16_t value
   entry[offset + 1] = value >> 8;
 }
 
-bool encodeLongFilename(const String& filename, uint16_t* characters, size_t& characterCount) {
+bool encodeLongFilename(const String& filename, uint16_t* characters, size_t& characterCount,
+                        bool& tooLong) {
   characterCount = 0;
+  tooLong = false;
   for (size_t i = 0; i < filename.length();) {
     const uint8_t first = static_cast<uint8_t>(filename[i]);
     uint32_t character = 0;
@@ -93,12 +95,16 @@ bool encodeLongFilename(const String& filename, uint16_t* characters, size_t& ch
     }
 
     if (character <= 0xFFFF) {
-      if (characterCount >= MaxLongFilenameCharacters)
+      if (characterCount >= MaxLongFilenameCharacters) {
+        tooLong = true;
         return false;
+      }
       characters[characterCount++] = character;
     } else {
-      if ((characterCount + 2) > MaxLongFilenameCharacters)
+      if ((characterCount + 2) > MaxLongFilenameCharacters) {
+        tooLong = true;
         return false;
+      }
       character -= 0x10000;
       characters[characterCount++] = 0xD800 | (character >> 10);
       characters[characterCount++] = 0xDC00 | (character & 0x3FF);
@@ -111,11 +117,11 @@ bool encodeLongFilename(const String& filename, uint16_t* characters, size_t& ch
 
 FatDirectory::FatDirectory(String name, uintptr_t inode_num, FatFilesystem* pFs, File* pParent,
                            FatFileInfo& info, uint32_t dirClus, uint32_t dirOffset)
-    : Directory(name, LITTLE_TO_HOST32(info.accessedTime), LITTLE_TO_HOST32(info.modifiedTime),
-                LITTLE_TO_HOST32(info.creationTime), inode_num, static_cast<Filesystem*>(pFs),
-                LITTLE_TO_HOST32(0), pParent),
+    : Directory(name, info.accessedTime, info.modifiedTime, info.creationTime, inode_num,
+                static_cast<Filesystem*>(pFs), 0, pParent),
       m_DirClus(dirClus),
       m_DirOffset(dirOffset),
+      m_Unlinked(false),
       m_Type(FAT16),
       m_BlockSize(0),
       m_bRootDir(false),
@@ -123,17 +129,75 @@ FatDirectory::FatDirectory(String name, uintptr_t inode_num, FatFilesystem* pFs,
       m_DirBlockSize(0) {
   uint32_t permissions = 0777;  /// \todo Permissions
 
-  setPermissions(permissions);
-  setUid(LITTLE_TO_HOST16(0));  /// \todo Ownership of files
-  setGid(LITTLE_TO_HOST16(0));
+  setPermissionsOnly(permissions);
+  setUidOnly(0);
+  setGidOnly(0);
 
   m_BlockSize = pFs->m_BlockSize;
   m_Type = pFs->m_Type;
 
   setInode(inode_num);
+  pFs->registerNode(this);
 }
 
-FatDirectory::~FatDirectory() {}
+bool FatDirectory::encodeEntrySet(const String& filename, const Dir& metadata,
+                                  Vector<Dir>& entries) {
+  const bool special = filename == "." || filename == "..";
+  uint16_t characters[LongFilenameStorageCharacters];
+  size_t count = 0;
+  bool tooLong = false;
+  for (size_t i = 0; i < filename.length(); ++i) {
+    const uint8_t character = filename[i];
+    if (character < 0x20 || character == '"' || character == '*' || character == '/' ||
+        character == ':' || character == '<' || character == '>' || character == '?' ||
+        character == '\\' || character == '|') {
+      SYSCALL_ERROR(InvalidArgument);
+      return false;
+    }
+  }
+  if (!special &&
+      (!filename.length() || !encodeLongFilename(filename, characters, count, tooLong))) {
+    syscallError(tooLong ? Error::NameTooLong : Error::InvalidArgument);
+    return false;
+  }
+  const size_t longCount =
+      special ? 0 : (count + LongFilenameCharactersPerEntry - 1) / LongFilenameCharactersPerEntry;
+  FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
+  const String shortName = filesystem->convertFilenameTo(filename);
+  if (shortName.length() < 11) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  const uint8_t checksum =
+      shortFilenameChecksum(reinterpret_cast<const uint8_t*>(shortName.cstr()));
+  for (size_t i = 0; i < longCount; ++i) {
+    Dir raw;
+    ByteSet(&raw, 0xFF, sizeof(raw));
+    DirLongFilename* entry = reinterpret_cast<DirLongFilename*>(&raw);
+    const size_t ordinal = longCount - i;
+    entry->LDIR_Ord = ordinal | (i == 0 ? 0x40 : 0);
+    entry->LDIR_Attr = ATTR_LONG_NAME;
+    entry->LDIR_Type = 0;
+    entry->LDIR_Chksum = checksum;
+    entry->LDIR_FstClusLO = 0;
+    for (size_t character = 0; character < LongFilenameCharactersPerEntry; ++character) {
+      const size_t index = (ordinal - 1) * LongFilenameCharactersPerEntry + character;
+      writeLongFilenameCharacter(reinterpret_cast<uint8_t*>(entry), character,
+                                 index < count    ? characters[index]
+                                 : index == count ? 0
+                                                  : 0xFFFF);
+    }
+    entries.pushBack(raw);
+  }
+  Dir shortEntry = metadata;
+  MemoryCopy(shortEntry.DIR_Name, shortName.cstr(), 11);
+  entries.pushBack(shortEntry);
+  return true;
+}
+
+FatDirectory::~FatDirectory() {
+  static_cast<FatFilesystem*>(m_pFilesystem)->releaseNode(this);
+}
 
 File::Attributes FatDirectory::getAttributes() const {
   FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
@@ -157,434 +221,6 @@ void FatDirectory::setInode(uintptr_t inode) {
   } else if (pFs->m_Type == FAT32)
     if (clus == pFs->m_Superblock32.BPB_RootClus)
       m_bRootDir = true;
-}
-
-bool FatDirectory::addEntry(String filename, File* pFile, size_t type, bool publish) {
-  FatFilesystem* pFs = static_cast<FatFilesystem*>(m_pFilesystem);
-
-#if SUPERDEBUG
-  NOTICE("FatDirectory::addEntry(" << filename << ")");
-#endif
-  NameReservation reservation;
-  if (!reserveDirectoryEntry(HashedStringView(filename), reservation)) {
-    return false;
-  }
-  LockGuard<Mutex> guard(m_Lock);
-  LockGuard<Mutex> fileGuard(pFs->m_FileMutationLock);
-
-  struct ExistingEntryContext {
-    StringView name;
-    bool found;
-  };
-  const String entryName = filename;
-  ExistingEntryContext existing = {entryName.view(), false};
-  auto findExisting = [](void* opaque, const ScannedEntry& entry, uint64_t, uint64_t) -> bool {
-    ExistingEntryContext* context = reinterpret_cast<ExistingEntryContext*>(opaque);
-    if (entry.name == context->name) {
-      context->found = true;
-      return false;
-    }
-    return true;
-  };
-  uint64_t scanCookie = 0;
-  const ReadStatus scanStatus = scanDirectory(scanCookie, findExisting, &existing);
-  if (existing.found || scanStatus == ReadStatus::IoError)
-    return false;
-
-  // grab the first cluster of the parent directory
-  uint32_t clus = m_Inode;
-  uint8_t* buffer = reinterpret_cast<uint8_t*>(pFs->readDirectoryPortion(clus));
-  PointerGuard<uint8_t> bufferGuard(buffer, true);
-  if (!buffer)
-    return false;
-  const size_t firstPortionSize = clus == 0 && m_Type != FAT32 ? m_DirBlockSize : m_BlockSize;
-
-  // how many long filename entries does the filename require?
-  size_t numRequired = 1;  // need *at least* one for the short filename entry
-  size_t numLongEntries = 0;
-  uint16_t longFilenameCharacters[LongFilenameStorageCharacters];
-  size_t longFilenameCharacterCount = 0;
-
-  // Dot and DotDot entries?
-  if (!StringCompareN(static_cast<const char*>(filename), ".", filename.length()) ||
-      !StringCompareN(static_cast<const char*>(filename), "..", filename.length())) {
-    // Only one entry required for the dot/dotdot entries, all else get
-    // a free long filename entry.
-  } else {
-    if (!encodeLongFilename(filename, longFilenameCharacters, longFilenameCharacterCount))
-      return false;
-    numLongEntries = (longFilenameCharacterCount + LongFilenameCharactersPerEntry - 1) /
-                     LongFilenameCharactersPerEntry;
-    if (numLongEntries > MaxLongFilenameEntries)
-      return false;
-    numRequired += numLongEntries;
-  }
-
-  const String shortFilename = pFs->convertFilenameTo(filename);
-  if (shortFilename.length() < 11)
-    return false;
-  uint8_t shortName[11];
-  MemoryCopy(shortName, shortFilename.cstr(), sizeof(shortName));
-  const uint8_t checksum = shortFilenameChecksum(shortName);
-
-  // find the first free element
-  bool spaceFound = false;
-  size_t offset = 0;
-  size_t consecutiveFree = 0;
-  while (true) {
-    // Look for space in the directory
-    /// \todo Some (sets of) entries will need to cross a cluster boundary
-    while (!spaceFound) {
-      consecutiveFree = 0;
-      const size_t portionSize = clus == 0 && m_Type != FAT32 ? firstPortionSize : m_BlockSize;
-      for (offset = 0; offset < portionSize; offset += sizeof(Dir)) {
-        if (buffer[offset] == 0 || buffer[offset] == 0xE5) {
-          consecutiveFree++;
-        } else
-          consecutiveFree = 0;
-
-        if (consecutiveFree == numRequired) {
-          spaceFound = true;
-          break;
-        }
-      }
-
-      // If space was found, quit
-      if (spaceFound)
-        break;
-
-      // Root Directory check:
-      // If no space found for our file, and if not FAT32, the root
-      // directory is not resizeable so we have to fail
-      if (m_Type != FAT32 && clus == 0)
-        return false;
-
-      // check the next cluster, add a new cluster if needed
-      uint32_t prev = clus;
-      clus = pFs->getClusterEntry(clus);
-      if (!clus)
-        return false;
-
-      if (pFs->isEof(clus)) {
-        uint32_t newClus = pFs->findFreeCluster();
-        if (!newClus)
-          return false;
-
-        if (!pFs->setClusterEntry(prev, newClus))
-          return false;
-
-        clus = newClus;
-      }
-
-      if (!pFs->readCluster(clus, reinterpret_cast<uintptr_t>(buffer)))
-        return false;
-    }
-
-    {
-      // long filename entries first
-      if (numLongEntries) {
-        size_t currOffset = offset - (numLongEntries * sizeof(Dir));
-        for (size_t i = 0; i < numLongEntries; ++i) {
-          // grab a pointer to the data
-          DirLongFilename* lfn = reinterpret_cast<DirLongFilename*>(&buffer[currOffset]);
-          ByteSet(lfn, 0xFF, sizeof(DirLongFilename));
-
-          const size_t ordinal = numLongEntries - i;
-          lfn->LDIR_Ord = ordinal | (i == 0 ? 0x40 : 0);
-          lfn->LDIR_Attr = ATTR_LONG_NAME;
-          lfn->LDIR_Type = 0;
-          lfn->LDIR_Chksum = checksum;
-          lfn->LDIR_FstClusLO = 0;
-
-          const size_t filenameOffset = (ordinal - 1) * LongFilenameCharactersPerEntry;
-          for (size_t character = 0; character < LongFilenameCharactersPerEntry; ++character) {
-            const size_t index = filenameOffset + character;
-            uint16_t value = 0xFFFF;
-            if (index < longFilenameCharacterCount)
-              value = longFilenameCharacters[index];
-            else if (index == longFilenameCharacterCount)
-              value = 0;
-            writeLongFilenameCharacter(reinterpret_cast<uint8_t*>(lfn), character, value);
-          }
-
-          currOffset += sizeof(Dir);
-        }
-      }
-
-      // get a Dir struct for it so we can manipulate the data
-      Dir* ent = reinterpret_cast<Dir*>(&buffer[offset]);
-      ByteSet(ent, 0, sizeof(Dir));
-      ent->DIR_Attr = type ? ATTR_DIRECTORY : 0;
-
-      MemoryCopy(ent->DIR_Name, shortName, sizeof(shortName));
-      ent->DIR_FstClusLO = pFile->getInode() & 0xFFFF;
-      ent->DIR_FstClusHI = (pFile->getInode() >> 16) & 0xFFFF;
-      ent->DIR_FileSize = HOST_TO_LITTLE32(pFile->getSize());
-      /// \todo Fill in other fields (eg, timestamps)
-
-      if (!pFs->writeDirectoryPortion(clus, buffer))
-        return false;
-
-      if (pFile->isDirectory()) {
-        FatDirectory* fatDir = static_cast<FatDirectory*>(pFile);
-
-        fatDir->setDirCluster(clus);
-        fatDir->setDirOffset(offset);
-      } else if (pFile->isSymlink()) {
-        FatSymlink* fatLink = static_cast<FatSymlink*>(pFile);
-
-        fatLink->setDirCluster(clus);
-        fatLink->setDirOffset(offset);
-      } else {
-        FatFile* fatFile = static_cast<FatFile*>(pFile);
-
-        fatFile->setDirCluster(clus);
-        fatFile->setDirOffset(offset);
-      }
-
-      // The on-disk name can differ for FAT symlinks, so cache the VFS name.
-      const bool special = filename.compare(".") || filename.compare("..");
-      if (publish && !special) {
-        const bool published = addCachedDirectoryEntry(reservation, pFile);
-        assert(published);
-        publishEvent(FileEvents::Created, pFile->getName().view(), pFile->isDirectory());
-        reservation.complete(LookupStatus::Found);
-      }
-
-#if SUPERDEBUG
-      NOTICE("  -> FatFilesystem::addEntry(" << filename << ") is successful");
-#endif
-
-      return true;
-    }
-  }
-#if SUPERDEBUG
-  NOTICE("  -> FatFilesystem::addEntry(" << filename << ") is not successful");
-#endif
-
-  return false;
-}
-
-bool FatDirectory::removeEntry(const String& namespaceName, File* pFile) {
-  FatFilesystem* pFs = static_cast<FatFilesystem*>(m_pFilesystem);
-  FatDirectory* fatDir = static_cast<FatDirectory*>(pFile);
-  FatFile* fatFile = static_cast<FatFile*>(pFile);
-  FatSymlink* fatLink = static_cast<FatSymlink*>(pFile);
-  String filename = namespaceName;
-  const String real_filename(namespaceName);
-
-  // Adjust filename if we must.
-  if (pFile->isSymlink())
-    filename += symlinkSuffix();
-
-  uint32_t dirClus, dirOffset;
-  if (pFile->isDirectory()) {
-    dirClus = fatDir->getDirCluster();
-    dirOffset = fatDir->getDirOffset();
-  } else if (pFile->isSymlink()) {
-    dirClus = fatLink->getDirCluster();
-    dirOffset = fatLink->getDirOffset();
-  } else {
-    dirClus = fatFile->getDirCluster();
-    dirOffset = fatFile->getDirOffset();
-  }
-
-  LockGuard<Mutex> guard(m_Lock);
-  LockGuard<Mutex> fileGuard(pFs->m_FileMutationLock);
-
-  struct RemovalIdentity {
-    StringView name;
-    uint32_t directoryCluster;
-    uint32_t directoryOffset;
-    uintptr_t inode;
-    bool matched;
-  } identity = {real_filename.view(), dirClus, dirOffset, pFile->getInode(), false};
-  auto matchIdentity = [](void* opaque, const ScannedEntry& entry, uint64_t, uint64_t) -> bool {
-    RemovalIdentity* identity = reinterpret_cast<RemovalIdentity*>(opaque);
-    if (entry.name != identity->name) {
-      return true;
-    }
-    const uintptr_t inode =
-        LITTLE_TO_HOST16(entry.entry.DIR_FstClusLO) |
-        (static_cast<uintptr_t>(LITTLE_TO_HOST16(entry.entry.DIR_FstClusHI)) << 16);
-    identity->matched = entry.directoryCluster == identity->directoryCluster &&
-                        entry.directoryOffset == identity->directoryOffset &&
-                        inode == identity->inode;
-    return false;
-  };
-  uint64_t cookie = 0;
-  const ReadStatus identityStatus = scanDirectory(cookie, matchIdentity, &identity);
-  if (!identity.matched) {
-    if (identityStatus == ReadStatus::IoError) {
-      SYSCALL_ERROR(IoError);
-    } else {
-      SYSCALL_ERROR(DoesNotExist);
-    }
-    return false;
-  }
-
-  // First byte = 0xE5 means the file's been deleted.
-  Dir* dir = pFs->getDirectoryEntry(dirClus, dirOffset);
-  PointerGuard<Dir> dirGuard(dir);
-  if (!dir)
-    return false;
-  const uint8_t lfnChecksum = shortFilenameChecksum(dir->DIR_Name);
-  dir->DIR_Name[0] = 0xE5;
-
-  // The short entry is the namespace commit point. Once it is deleted, stale
-  // or partially corrupt LFN metadata must not make unlink report that the
-  // still-cached name survived.
-  if (!pFs->writeDirectoryEntry(dir, dirClus, dirOffset))
-    return false;
-  invalidateDirectoryEntry(HashedStringView(real_filename));
-
-  // Check that we can actually use the previous directory entry!
-  if (dirOffset >= sizeof(Dir)) {
-    // The main entry is fixed, but there may be one or more long filename
-    // entries for this file...
-    uint16_t longFilenameCharacters[LongFilenameStorageCharacters];
-    size_t longFilenameCharacterCount = 0;
-    if (!encodeLongFilename(filename, longFilenameCharacters, longFilenameCharacterCount)) {
-      ERROR("Unable to identify FAT LFN entries after deleting the short entry");
-      return true;
-    }
-    const size_t numLfnEntries = (longFilenameCharacterCount + LongFilenameCharactersPerEntry - 1) /
-                                 LongFilenameCharactersPerEntry;
-
-    // Grab the first entry behind this one - check that it is in fact a LFN
-    // entry
-    Dir* dir_prev = pFs->getDirectoryEntry(dirClus, dirOffset - sizeof(Dir));
-    PointerGuard<Dir> prevGuard(dir_prev);
-    if (!dir_prev) {
-      ERROR("Unable to inspect FAT LFN entries after deleting the short entry");
-      return true;
-    }
-
-    if ((dir_prev->DIR_Attr & ATTR_LONG_NAME_MASK) == ATTR_LONG_NAME) {
-      // Previous entry is a long filename entry, so delete each entry
-      // This goes backwards up the list of LFN entries - if it finds an
-      // entry that does *not* match a standard LFN entry it'll dump a
-      // warning and break out.
-      for (size_t ent = 0; ent < numLfnEntries; ent++) {
-        uint32_t bytesBack = sizeof(Dir) * (ent + 1);
-        if (bytesBack > dirOffset) {
-          /// \todo Save the previous cluster in FatFile too
-          ERROR("LFN set crosses a cluster boundary!");
-          break;
-        }
-
-        uint32_t newOffset = dirOffset - bytesBack;
-        Dir* lfn = pFs->getDirectoryEntry(dirClus, newOffset);
-        PointerGuard<Dir> lfnGuard(lfn);
-        const uint8_t expectedOrdinal = static_cast<uint8_t>(ent + 1);
-        const uint8_t expectedFlags =
-            static_cast<uint8_t>(expectedOrdinal | ((ent + 1 == numLfnEntries) ? 0x40 : 0));
-        const DirLongFilename* longEntry = reinterpret_cast<const DirLongFilename*>(lfn);
-        if ((!lfn) || ((lfn->DIR_Attr & ATTR_LONG_NAME_MASK) != ATTR_LONG_NAME) ||
-            longEntry->LDIR_Ord != expectedFlags || longEntry->LDIR_Chksum != lfnChecksum ||
-            longEntry->LDIR_Type || longEntry->LDIR_FstClusLO) {
-          ERROR("Invalid FAT LFN chain left behind after deleting the short entry");
-          break;
-        }
-
-        lfn->DIR_Name[0] = 0xE5;
-
-        if (!pFs->writeDirectoryEntry(lfn, dirClus, newOffset)) {
-          ERROR("Unable to reclaim a FAT LFN entry after deleting the short entry");
-          break;
-        }
-      }
-    }
-  }
-
-  return true;
-}
-
-bool FatDirectory::renameEntry(const String& oldName, File* pFile, const String& newName) {
-  FatFilesystem* pFs = static_cast<FatFilesystem*>(m_pFilesystem);
-  uint32_t dirClus;
-  uint32_t dirOffset;
-  if (pFile->isDirectory()) {
-    FatDirectory* fatDir = static_cast<FatDirectory*>(pFile);
-    dirClus = fatDir->getDirCluster();
-    dirOffset = fatDir->getDirOffset();
-  } else if (pFile->isSymlink()) {
-    FatSymlink* fatLink = static_cast<FatSymlink*>(pFile);
-    dirClus = fatLink->getDirCluster();
-    dirOffset = fatLink->getDirOffset();
-  } else {
-    FatFile* fatFile = static_cast<FatFile*>(pFile);
-    dirClus = fatFile->getDirCluster();
-    dirOffset = fatFile->getDirOffset();
-  }
-  if (dirOffset < sizeof(Dir)) {
-    SYSCALL_ERROR(OperationNotSupported);
-    return false;
-  }
-
-  uint16_t characters[LongFilenameStorageCharacters];
-  size_t characterCount = 0;
-  if (!encodeLongFilename(newName, characters, characterCount))
-    return false;
-  const size_t newLongEntries =
-      (characterCount + LongFilenameCharactersPerEntry - 1) / LongFilenameCharactersPerEntry;
-  if (!newLongEntries || newLongEntries > MaxLongFilenameEntries ||
-      newLongEntries * sizeof(Dir) > dirOffset) {
-    SYSCALL_ERROR(OperationNotSupported);
-    return false;
-  }
-
-  LockGuard<Mutex> guard(m_Lock);
-  LockGuard<Mutex> fileGuard(pFs->m_FileMutationLock);
-  uint8_t* buffer = reinterpret_cast<uint8_t*>(pFs->readDirectoryPortion(dirClus));
-  PointerGuard<uint8_t> bufferGuard(buffer, true);
-  if (!buffer)
-    return false;
-
-  Dir* shortEntry = reinterpret_cast<Dir*>(buffer + dirOffset);
-  const uint8_t oldChecksum = shortFilenameChecksum(shortEntry->DIR_Name);
-  size_t oldLongEntries = 0;
-  while (oldLongEntries < MaxLongFilenameEntries &&
-         (oldLongEntries + 1) * sizeof(Dir) <= dirOffset) {
-    DirLongFilename* entry =
-        reinterpret_cast<DirLongFilename*>(buffer + dirOffset - (oldLongEntries + 1) * sizeof(Dir));
-    if ((entry->LDIR_Attr & ATTR_LONG_NAME_MASK) != ATTR_LONG_NAME ||
-        entry->LDIR_Chksum != oldChecksum)
-      break;
-    ++oldLongEntries;
-  }
-  if (oldLongEntries != newLongEntries) {
-    SYSCALL_ERROR(OperationNotSupported);
-    return false;
-  }
-
-  const String shortFilename = pFs->convertFilenameTo(newName);
-  if (shortFilename.length() < 11)
-    return false;
-  uint8_t shortName[11];
-  MemoryCopy(shortName, shortFilename.cstr(), sizeof(shortName));
-  const uint8_t checksum = shortFilenameChecksum(shortName);
-  for (size_t i = 0; i < newLongEntries; ++i) {
-    DirLongFilename* entry =
-        reinterpret_cast<DirLongFilename*>(buffer + dirOffset - (newLongEntries - i) * sizeof(Dir));
-    ByteSet(entry, 0xFF, sizeof(DirLongFilename));
-    const size_t ordinal = newLongEntries - i;
-    entry->LDIR_Ord = ordinal | (i == 0 ? 0x40 : 0);
-    entry->LDIR_Attr = ATTR_LONG_NAME;
-    entry->LDIR_Chksum = checksum;
-    const size_t filenameOffset = (ordinal - 1) * LongFilenameCharactersPerEntry;
-    for (size_t character = 0; character < LongFilenameCharactersPerEntry; ++character) {
-      const size_t index = filenameOffset + character;
-      const uint16_t value = index < characterCount    ? characters[index]
-                             : index == characterCount ? 0
-                                                       : 0xFFFF;
-      writeLongFilenameCharacter(reinterpret_cast<uint8_t*>(entry), character, value);
-    }
-  }
-  MemoryCopy(shortEntry->DIR_Name, shortName, sizeof(shortName));
-  if (!pFs->writeDirectoryPortion(dirClus, buffer))
-    return false;
-  return true;
 }
 
 namespace {
@@ -833,7 +469,9 @@ File* FatDirectory::materialize(const ScannedEntry& scanned) {
                                (static_cast<uint32_t>(LITTLE_TO_HOST16(entry.DIR_FstClusHI)) << 16);
   const Time::Timestamp writeTime = pFs->getUnixTimestamp(entry.DIR_WrtTime, entry.DIR_WrtDate);
   const Time::Timestamp accessTime = pFs->getUnixTimestamp(0, entry.DIR_LstAccDate);
-  const Time::Timestamp creationTime = pFs->getUnixTimestamp(entry.DIR_CrtTime, entry.DIR_CrtDate);
+  Time::Timestamp creationTime = pFs->getUnixTimestamp(entry.DIR_CrtTime, entry.DIR_CrtDate);
+  if (creationTime && entry.DIR_CrtTimeTenth >= 100 && entry.DIR_CrtTimeTenth < 200)
+    ++creationTime;
 
   if (scanned.type == EntryType::Directory) {
     FatFileInfo info;
@@ -875,6 +513,7 @@ Directory::LookupStatus FatDirectory::resolveChild(const StringView& name, File*
   ReadStatus status;
   {
     LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Mutex> fileGuard(static_cast<FatFilesystem*>(m_pFilesystem)->m_FileMutationLock);
     if (isDetached())
       return LookupStatus::NotFound;
     status = scanDirectory(cookie, emitter, &context);
@@ -907,6 +546,7 @@ Directory::LookupStatus FatDirectory::resolveChildAt(uint64_t cookie, const Stri
 
   {
     LockGuard<Mutex> guard(m_Lock);
+    LockGuard<Mutex> fileGuard(static_cast<FatFilesystem*>(m_pFilesystem)->m_FileMutationLock);
     if (isDetached())
       return LookupStatus::NotFound;
     scanDirectory(cookie, emitter, &context);
@@ -929,14 +569,17 @@ Directory::ReadStatus FatDirectory::readDirectory(uint64_t& cookie, DirectoryEnt
   struct Context {
     DirectoryEntryEmitter emitter;
     void* context;
-  } adapter = {emitter, context};
+    FatFilesystem* filesystem;
+  } adapter = {emitter, context, static_cast<FatFilesystem*>(m_pFilesystem)};
 
   auto scanEmitter = [](void* opaque, const ScannedEntry& entry, uint64_t currentCookie,
                         uint64_t nextCookie) -> bool {
     Context* context = reinterpret_cast<Context*>(opaque);
-    const uint32_t inode =
-        LITTLE_TO_HOST16(entry.entry.DIR_FstClusLO) |
-        (static_cast<uint32_t>(LITTLE_TO_HOST16(entry.entry.DIR_FstClusHI)) << 16);
+    const uintptr_t inode =
+        entry.type == EntryType::Regular
+            ? context->filesystem->fileIdentifier(entry.directoryCluster, entry.directoryOffset)
+            : LITTLE_TO_HOST16(entry.entry.DIR_FstClusLO) |
+                  (static_cast<uint32_t>(LITTLE_TO_HOST16(entry.entry.DIR_FstClusHI)) << 16);
     DirectoryEntryView view = {entry.name.view(), inode, entry.type, currentCookie, nextCookie};
     return context->emitter(context->context, view);
   };
@@ -946,5 +589,3 @@ Directory::ReadStatus FatDirectory::readDirectory(uint64_t& cookie, DirectoryEnt
     return ReadStatus::Complete;
   return scanDirectory(cookie, scanEmitter, &adapter);
 }
-
-void FatDirectory::fileAttributeChanged() {}

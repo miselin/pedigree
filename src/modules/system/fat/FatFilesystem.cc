@@ -82,6 +82,13 @@ FatFilesystem::FatFilesystem()
 FatFilesystem::~FatFilesystem() {
   if (m_pRoot)
     delete m_pRoot;
+  drainFileStates();
+  {
+    LockGuard<Mutex> guard(m_FileMutationLock);
+    if (!syncPendingAttributes())
+      ERROR("FAT: pending attributes remain during unmount");
+    clearPendingAttributes();
+  }
   if (m_pFatCache)
     delete[] m_pFatCache;
 }
@@ -373,20 +380,9 @@ uint64_t FatFilesystem::read(File* pFile, uint64_t location, uint64_t size, uint
 
   uint64_t bytesRead = 0;
   uint64_t currOffset = firstOffset;
-  while (clusOffset) {
-    clus = getClusterEntry(clus);
-    if (clus == 0 || isEof(clus)) {
-      WARNING("FAT: CLUSTER FAIL - " << clus << ", cluster offset = " << clusOffset
-                                     << ".");  // <-- This is where the installer + lodisk is
-                                               // failing.
-      String fullPath;
-      pFile->getFullPath(fullPath);
-      WARNING("    -> file: " << fullPath);
-      WARNING("    -> size: " << pFile->getSize());
-      return 0;  // can't do it
-    }
-    clusOffset--;
-  }
+  clus = fileClusterAt(pFile, clusOffset);
+  if (!clus)
+    return 0;
 
   // buffers
   uint8_t* tmpBuffer = new uint8_t[m_BlockSize];
@@ -499,13 +495,10 @@ uint64_t FatFilesystem::write(File* file, uint64_t location, uint64_t size, uint
     SYSCALL_ERROR(IoError);
     return 0;
   }
-  uint32_t cluster = file->getInode();
-  for (uint64_t skip = location / m_BlockSize; skip; --skip) {
-    cluster = getClusterEntry(cluster);
-    if (cluster < 2 || cluster >= m_ClusterCount + 2 || isEof(cluster)) {
-      SYSCALL_ERROR(IoError);
-      return 0;
-    }
+  uint32_t cluster = fileClusterAt(file, location / m_BlockSize);
+  if (!cluster) {
+    SYSCALL_ERROR(IoError);
+    return 0;
   }
 
   uint8_t* temporary = new uint8_t[m_BlockSize];
@@ -537,30 +530,12 @@ uint64_t FatFilesystem::write(File* file, uint64_t location, uint64_t size, uint
     return 0;
   }
   if (newSize != oldSize)
-    file->setSize(newSize);
+    publishSize(file, newSize);
   if (written != size)
     SYSCALL_ERROR(IoError);
   return written;
 }
 
-bool FatFilesystem::chainExtent(File* file, uint32_t& count, uint32_t& last) {
-  count = 0;
-  last = 0;
-  uint32_t cluster = file->getInode();
-  while (cluster) {
-    if (cluster < 2 || cluster >= m_ClusterCount + 2 || count >= m_ClusterCount)
-      return false;
-    const uint32_t next = getClusterEntry(cluster);
-    if (!next)
-      return false;
-    ++count;
-    last = cluster;
-    if (isEof(next))
-      return true;
-    cluster = next;
-  }
-  return true;
-}
 
 uint64_t FatFilesystem::allocatedBlocks(File* file) {
   if (!file->getInode() && file->isDirectory() && m_Type != FAT32)
@@ -580,27 +555,60 @@ bool FatFilesystem::ensureCapacity(File* file, size_t size) {
   if (!chainExtent(file, count, last))
     return false;
   const uint32_t required = size / m_BlockSize + (size % m_BlockSize != 0);
+  if (count >= required)
+    return true;
+  FatFile::State* state =
+      !file->isDirectory() && !file->isSymlink() ? static_cast<FatFile*>(file)->m_State : nullptr;
+  if (state && !state->clusters.tryReserve(required)) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+#if THREADS || defined(STANDALONE_MUTEXES)
+  LockGuard<Mutex> allocation(m_AllocationLock);
+#endif
+  if (!syncFat(false))
+    return false;
+  bool complete = true;
   while (count < required) {
-    bool reserved = false;
-    const uint32_t cluster = findFreeCluster(&reserved);
-    if (!cluster)
-      return false;
-    bool linked = true;
-    if (last)
-      linked = setClusterEntry(last, cluster);
-    else
-      file->setInode(cluster);
+    uint32_t found = 0;
+    const uint32_t first =
+        m_FreeClusterHint >= 2 && m_FreeClusterHint < m_ClusterCount + 2 ? m_FreeClusterHint : 2;
+    for (uint32_t scanned = 0; scanned < m_ClusterCount; ++scanned) {
+      const uint32_t cluster = 2 + (first - 2 + scanned) % m_ClusterCount;
+      if (!getClusterEntry(cluster, false)) {
+        found = cluster;
+        break;
+      }
+    }
+    if (!found || !setClusterEntry(found, eofValue(), false, false)) {
+      complete = false;
+      break;
+    }
+    if (last && !setClusterEntry(last, found, false, false)) {
+      setClusterEntry(found, 0, false, false);
+      complete = false;
+      break;
+    }
+    if (!last)
+      file->setInode(found);
+    if (state) {
+      state->clusters.pushBack(found);
+      state->chainRevision = __atomic_load_n(&m_ChainRevision, __ATOMIC_ACQUIRE);
+    }
+    last = found;
+    m_FreeClusterHint = found + 1;
+    ++count;
     if (!file->isDirectory() && !file->isSymlink())
       static_cast<FatFile*>(file)->m_MetadataDirty = true;
-    if (!reserved || !linked)
-      return false;
-    last = cluster;
-    ++count;
   }
-  return true;
+  // Keep every reservation reachable in memory after a failed device flush.
+  // The logical size is published only after zeroing and directory persistence.
+  return syncFat(false) && complete;
 }
 
 bool FatFilesystem::updateFileMetadata(File* file, size_t size) {
+  if (isNodeUnlinked(file))
+    return true;
   uint32_t directoryCluster = 0, directoryOffset = 0;
   FatFile* regular = nullptr;
   if (file->isDirectory()) {
@@ -620,10 +628,12 @@ bool FatFilesystem::updateFileMetadata(File* file, size_t size) {
   Dir* entry = getDirectoryEntry(directoryCluster, directoryOffset);
   if (!entry)
     return false;
+  writeEntryAttributes(file, entry);
   // Absolute values make retry safe even if a failed flush updated the disk cache.
   entry->DIR_FileSize = HOST_TO_LITTLE32(size);
-  entry->DIR_FstClusLO = HOST_TO_LITTLE16(file->getInode() & 0xFFFF);
-  entry->DIR_FstClusHI = HOST_TO_LITTLE16((file->getInode() >> 16) & 0xFFFF);
+  const uintptr_t cluster = regular && !size ? 0 : file->getInode();
+  entry->DIR_FstClusLO = HOST_TO_LITTLE16(cluster & 0xFFFF);
+  entry->DIR_FstClusHI = HOST_TO_LITTLE16((cluster >> 16) & 0xFFFF);
   const bool succeeded = writeDirectoryEntry(entry, directoryCluster, directoryOffset);
   delete entry;
   if (regular && succeeded)
@@ -634,38 +644,52 @@ bool FatFilesystem::updateFileMetadata(File* file, size_t size) {
 bool FatFilesystem::zeroRange(File* file, size_t begin, size_t end) {
   if (begin >= end)
     return true;
-  uint32_t cluster = file->getInode();
-  for (size_t skip = begin / m_BlockSize; skip; --skip)
-    cluster = getClusterEntry(cluster);
-  uint8_t* temporary = new uint8_t[m_BlockSize];
+  uint32_t cluster = fileClusterAt(file, begin / m_BlockSize);
+  uint8_t* zeroes = new uint8_t[m_BlockSize];
+  ByteSet(zeroes, 0, m_BlockSize);
+  Disk::WriteBuffer requests[Disk::MaxWriteBuffers];
+  size_t pending = 0;
   bool succeeded = true;
+  auto drain = [&] {
+    if (pending)
+      succeeded = m_pDisk->writeFromBatch(requests, pending) && succeeded;
+    pending = 0;
+  };
   while (begin < end) {
+    if (cluster < 2 || cluster >= m_ClusterCount + 2 || isEof(cluster)) {
+      succeeded = false;
+      break;
+    }
     const size_t offset = begin % m_BlockSize;
-    const size_t length = pedigree_std::min(m_BlockSize - offset, end - begin);
-    if (cluster < 2 || cluster >= m_ClusterCount + 2 || isEof(cluster) ||
-        !readCluster(cluster, reinterpret_cast<uintptr_t>(temporary))) {
-      succeeded = false;
-      break;
-    }
-    ByteSet(temporary + offset, 0, length);
-    if (!writeCluster(cluster, reinterpret_cast<uintptr_t>(temporary))) {
-      succeeded = false;
-      break;
-    }
+    const size_t length = pedigree_std::min(size_t(m_BlockSize - offset), end - begin);
+    requests[pending++] = {
+        uint64_t(getSectorNumber(cluster)) * m_Superblock.BPB_BytsPerSec + offset, zeroes, length,
+        false};
+    if (pending == Disk::MaxWriteBuffers)
+      drain();
     begin += length;
     if (begin < end)
       cluster = getClusterEntry(cluster);
   }
-  delete[] temporary;
-  return succeeded;
+  drain();
+  const bool durable = m_pDisk->syncData();
+  delete[] zeroes;
+  return succeeded && durable;
 }
 
 bool FatFilesystem::syncFileMetadata(File* file) {
   LockGuard<Mutex> guard(m_FileMutationLock);
+  if (m_bReadOnly)
+    return !m_IoFailed;
   if (!syncFat())
     return false;
   FatFile* regular = static_cast<FatFile*>(file);
-  return !regular->m_MetadataDirty || updateFileMetadata(file, file->getSize());
+  regular->copyStateAttributes();
+  if (isNodeUnlinked(file))
+    return trimFileAllocation(regular) && m_pDisk->syncData();
+  if (regular->m_MetadataDirty && !updateFileMetadata(file, file->getSize()))
+    return false;
+  return trimFileAllocation(regular) && m_pDisk->syncData();
 }
 
 void* FatFilesystem::readDirectoryPortion(uint32_t clus) const {
@@ -756,8 +780,6 @@ bool FatFilesystem::writeDirectoryEntry(Dir* dir, uint32_t clus, uint32_t offset
   return success;
 }
 
-void FatFilesystem::fileAttributeChanged(File* pFile) {}
-
 void FatFilesystem::cacheDirectoryContents(File* pFile) {}
 
 bool FatFilesystem::readCluster(uint32_t block, uintptr_t buffer) const {
@@ -797,32 +819,12 @@ bool FatFilesystem::writeCluster(uint32_t block, uintptr_t buffer) {
 }
 
 bool FatFilesystem::writeSectorBlock(uint32_t sec, size_t size, uintptr_t buffer) {
-  if (!buffer) {
+  if (!buffer || !m_pDisk)
     return false;
-  }
-
-  size_t off = 0;
-  while (size) {
-    const uint64_t diskLocation =
-        static_cast<uint64_t>(m_Superblock.BPB_BytsPerSec) * static_cast<uint64_t>(sec) + off;
-    const BufferView diskBuffer = m_pDisk->read(diskLocation);
-    if (!diskBuffer || diskBuffer.empty()) {
-      if (diskBuffer) {
-        m_pDisk->unpin(diskLocation);
-      }
-      return false;
-    }
-    const size_t sz = size > diskBuffer.size() ? diskBuffer.size() : size;
-    MemoryCopy(diskBuffer.data(), reinterpret_cast<void*>(buffer), sz);
-    const bool succeeded = m_pDisk->sync(diskLocation, false);
-    m_pDisk->unpin(diskLocation);
-    if (!succeeded)
-      return false;
-    buffer += sz;
-    size -= sz;
-    off += sz;
-  }
-  return true;
+  const bool written = m_pDisk->writeFrom(uint64_t(sec) * m_Superblock.BPB_BytsPerSec,
+                                          reinterpret_cast<void*>(buffer), size);
+  const bool durable = m_pDisk->syncData();
+  return written && durable;
 }
 
 uint32_t FatFilesystem::getSectorNumber(uint32_t cluster) const {
@@ -866,7 +868,7 @@ uint32_t FatFilesystem::getClusterEntry(uint32_t cluster, bool bLock) {
   return entry & (m_Type == FAT16 ? 0xFFFF : 0x0FFFFFFF);
 }
 
-bool FatFilesystem::setClusterEntry(uint32_t cluster, uint32_t value, bool bLock) {
+bool FatFilesystem::setClusterEntry(uint32_t cluster, uint32_t value, bool bLock, bool persist) {
   if (cluster < 2 || cluster >= m_ClusterCount + 2 || !m_Superblock.BPB_BytsPerSec)
     return false;
 #if THREADS || defined(STANDALONE_MUTEXES)
@@ -893,36 +895,56 @@ bool FatFilesystem::setClusterEntry(uint32_t cluster, uint32_t value, bool bLock
                         : (original & 0xF000) | (value & 0x0FFF);
   else if (m_Type == FAT32)
     value = (original & 0xF0000000) | (value & 0x0FFFFFFF);
+  if (original != value)
+    __atomic_add_fetch(&m_ChainRevision, uint64_t(1), __ATOMIC_RELEASE);
   for (size_t byte = 0; byte < length; ++byte) {
     *bytes[byte] = static_cast<uint8_t>(value >> (8 * byte));
     m_DirtyFatSectors.insert((offset + byte) / m_Superblock.BPB_BytsPerSec, true);
   }
   m_FatLock.release();
-  return syncFat(false);
+  return !persist || syncFat(false);
 }
 
 bool FatFilesystem::syncFat(bool bLock) {
 #if THREADS || defined(STANDALONE_MUTEXES)
   LockGuard<Mutex> guard(m_AllocationLock, bLock);
 #endif
-  m_FatLock.acquire();
-  while (m_DirtyFatSectors.count()) {
-    const uint32_t sector = m_DirtyFatSectors.begin().key();
+  LockGuard<UnlikelyLock> fat(m_FatLock);
+  if (!m_DirtyFatSectors.count())
+    return true;
+  if (!invalidateFsInfoHints())
+    return false;
+  const uint32_t sectorsPerFat =
+      m_Type == FAT32 ? m_Superblock32.BPB_FATSz32 : m_Superblock.BPB_FATSz16;
+  const size_t copies = m_Superblock.BPB_NumFATs ? m_Superblock.BPB_NumFATs : 1;
+  Disk::WriteBuffer requests[Disk::MaxWriteBuffers];
+  size_t pending = 0;
+  bool succeeded = true;
+  auto drain = [&] {
+    if (pending)
+      succeeded = m_pDisk->writeFromBatch(requests, pending) && succeeded;
+    pending = 0;
+  };
+  for (auto it = m_DirtyFatSectors.begin(); it != m_DirtyFatSectors.end(); ++it) {
+    const uint32_t sector = it.key();
     const uintptr_t bytes = m_FatCache.lookup(sector);
-    bool succeeded = bytes != 0;
-    const uint32_t sectorsPerFat =
-        m_Type == FAT32 ? m_Superblock32.BPB_FATSz32 : m_Superblock.BPB_FATSz16;
-    const size_t copies = m_Superblock.BPB_NumFATs ? m_Superblock.BPB_NumFATs : 1;
-    for (size_t copy = 0; succeeded && copy < copies; ++copy)
-      succeeded = writeSectorBlock(m_FatSector + sector + copy * sectorsPerFat,
-                                   m_Superblock.BPB_BytsPerSec, bytes);
-    if (!succeeded) {
-      m_FatLock.release();
-      return false;
+    if (!bytes) {
+      succeeded = false;
+      continue;
     }
-    m_DirtyFatSectors.remove(sector);
+    for (size_t copy = 0; copy < copies; ++copy) {
+      requests[pending++] = {
+          uint64_t(m_FatSector + sector + copy * sectorsPerFat) * m_Superblock.BPB_BytsPerSec,
+          reinterpret_cast<void*>(bytes), m_Superblock.BPB_BytsPerSec, false};
+      if (pending == Disk::MaxWriteBuffers)
+        drain();
+    }
   }
-  m_FatLock.release();
+  drain();
+  const bool durable = m_pDisk->syncData();
+  if (!succeeded || !durable)
+    return false;
+  m_DirtyFatSectors.clear();
   return true;
 }
 
@@ -1038,98 +1060,21 @@ String FatFilesystem::convertFilenameFrom(String filename) const {
   return String(static_cast<const char*>(ret));
 }
 
-void FatFilesystem::truncate(File* file) {
-  truncateFile(file);
-}
-
-bool FatFilesystem::truncateFile(File* file) {
-  LockGuard<Mutex> guard(m_FileMutationLock);
-  uint32_t count = 0, last = 0;
-  if (!syncFat() || !chainExtent(file, count, last) || !updateFileMetadata(file, 0)) {
-    SYSCALL_ERROR(IoError);
-    return false;
-  }
-  file->setSize(0);
-  uint32_t cluster = file->getInode();
-  if (!cluster)
-    return true;
-  uint32_t next = getClusterEntry(cluster);
-  if (!next) {
-    SYSCALL_ERROR(IoError);
-    return false;
-  }
-  if (!setClusterEntry(cluster, eofValue())) {
-    setClusterEntry(cluster, next);
-    SYSCALL_ERROR(IoError);
-    return false;
-  }
-  if (!isEof(next) && !releaseClusterChain(next, false)) {
-    SYSCALL_ERROR(IoError);
-    return false;
-  }
-  return true;
-}
-
-void FatFilesystem::extend(File* file, size_t size) {
-  LockGuard<Mutex> guard(m_FileMutationLock);
-  if (file->getSize() >= size)
-    return;
-  if (m_bReadOnly) {
-    SYSCALL_ERROR(ReadOnlyFilesystem);
-    return;
-  }
-  if (!syncFat() || !ensureCapacity(file, size) || !zeroRange(file, file->getSize(), size) ||
-      !updateFileMetadata(file, size)) {
-    SYSCALL_ERROR(IoError);
-    return;
-  }
-  file->setSize(size);
-}
-
-bool FatFilesystem::renameNode(Directory* oldParent, const String& oldName, File* source,
-                               Directory* newParent, const String& newName, File* replaced) {
-  if (replaced || source->isDirectory()) {
-    SYSCALL_ERROR(OperationNotSupported);
-    return false;
-  }
-  FatDirectory* oldDirectory = static_cast<FatDirectory*>(oldParent);
-  FatDirectory* newDirectory = static_cast<FatDirectory*>(newParent);
-  if (oldParent == newParent && oldDirectory->renameEntry(oldName, source, newName))
-    return true;
-
-  const uint32_t oldCluster = source->isSymlink()
-                                  ? static_cast<FatSymlink*>(source)->getDirCluster()
-                                  : static_cast<FatFile*>(source)->getDirCluster();
-  const uint32_t oldOffset = source->isSymlink() ? static_cast<FatSymlink*>(source)->getDirOffset()
-                                                 : static_cast<FatFile*>(source)->getDirOffset();
-  if (!newDirectory->addEntry(newName, source, source->isDirectory() ? 1 : 0, false))
-    return false;
-
-  if (source->isSymlink()) {
-    static_cast<FatSymlink*>(source)->setDirCluster(oldCluster);
-    static_cast<FatSymlink*>(source)->setDirOffset(oldOffset);
-  } else {
-    static_cast<FatFile*>(source)->setDirCluster(oldCluster);
-    static_cast<FatFile*>(source)->setDirOffset(oldOffset);
-  }
-  if (!oldDirectory->removeEntry(oldName, source)) {
-    SYSCALL_ERROR(IoError);
-    return false;
-  }
-  return true;
-}
-
 File* FatFilesystem::createFile(File* parentDir, const String& filename, uint32_t mask,
                                 bool bDirectory, uint32_t dirClus, bool publish) {
+  if (m_bReadOnly) {
+    SYSCALL_ERROR(ReadOnlyFilesystem);
+    return 0;
+  }
   // Validate input
   if (!parentDir->isDirectory()) {
     return 0;
   }
 
   FatFileInfo info;
-  info.creationTime = 0;
-  info.modifiedTime = 0;
-  info.accessedTime = 0;
+  info.creationTime = Time::getTime();
+  info.modifiedTime = info.creationTime;
+  info.accessedTime = info.creationTime;
 
   // Directory or File?
   // Note that new files in FAT always have a zero cluster, but new
@@ -1156,23 +1101,18 @@ File* FatFilesystem::createFile(File* parentDir, const String& filename, uint32_
     } while (!isEof(clus));
     delete[] buffer;
   } else {
-    // Deviation from the spec here: Because the 'inode' is used for fstat,
-    // we can't leave it at zero or else all newly created files without
-    // data will look the same!
-    uint32_t clus = findFreeCluster();
-    if (!clus)
-      return nullptr;
-    pFile = new FatFile(filename, 0, 0, 0, clus, this, 0,
-                        0xdeadbeef,  // Sentinel values that'll throw an error if they're
-                                     // used
-                        0xbeefdead,  // before being set to correct values.
-                        parentDir);
+    pFile =
+        new FatFile(filename, info.accessedTime, info.modifiedTime, info.creationTime, 0, this, 0,
+                    0xdeadbeef,  // Sentinel values that'll throw an error if they're
+                                 // used
+                    0xbeefdead,  // before being set to correct values.
+                    parentDir);
   }
 
   if (publish) {
     FatDirectory* parent = static_cast<FatDirectory*>(Directory::fromFile(parentDir));
     if (!parent->addEntry(filename, pFile, (bDirectory ? 1 : 0))) {
-      if (!bDirectory)
+      if (!bDirectory && !m_bReadOnly)
         releaseClusterChain(pFile->getInode());
       delete pFile;
       return 0;
@@ -1188,6 +1128,10 @@ bool FatFilesystem::createFile(File* parent, const String& filename, uint32_t ma
 }
 
 bool FatFilesystem::createDirectory(File* parent, const String& filename, uint32_t mask) {
+  if (m_bReadOnly) {
+    SYSCALL_ERROR(ReadOnlyFilesystem);
+    return false;
+  }
   // Allocate a cluster for the directory itself
   uint32_t clus = findFreeCluster();
   if (!clus)
@@ -1204,14 +1148,16 @@ bool FatFilesystem::createDirectory(File* parent, const String& filename, uint32
   FatDirectory dot(String("."), clus, this, f, info);
   FatDirectory dotdot(String(".."), parent->getInode(), this, f, info);
   if (!fatDir->addEntry(String("."), &dot, 1) || !fatDir->addEntry(String(".."), &dotdot, 1)) {
-    releaseClusterChain(clus);
+    if (!m_bReadOnly)
+      releaseClusterChain(clus);
     delete f;
     return false;
   }
 
   FatDirectory* fatParent = static_cast<FatDirectory*>(Directory::fromFile(parent));
   if (!fatParent->addEntry(filename, f, 1)) {
-    releaseClusterChain(clus);
+    if (!m_bReadOnly)
+      releaseClusterChain(clus);
     delete f;
     return false;
   }
@@ -1220,15 +1166,19 @@ bool FatFilesystem::createDirectory(File* parent, const String& filename, uint32
 }
 
 bool FatFilesystem::createSymlink(File* parent, const String& filename, const String& value) {
+  if (m_bReadOnly) {
+    SYSCALL_ERROR(ReadOnlyFilesystem);
+    return 0;
+  }
   // Validate input
   if (!parent->isDirectory()) {
     return false;
   }
 
   FatFileInfo info;
-  info.creationTime = 0;
-  info.modifiedTime = 0;
-  info.accessedTime = 0;
+  info.creationTime = Time::getTime();
+  info.modifiedTime = info.creationTime;
+  info.accessedTime = info.creationTime;
 
   // Deviation from the spec here: Because the 'inode' is used for fstat,
   // we can't leave it at zero or else all newly created files without
@@ -1236,17 +1186,18 @@ bool FatFilesystem::createSymlink(File* parent, const String& filename, const St
   uint32_t clus = findFreeCluster();
   if (!clus)
     return false;
-  File* pFile =
-      new FatSymlink(filename, 0, 0, 0, clus, this, value.length(),
-                     0xdeadbeef,  // Sentinel values that'll throw an error if they're used
-                     0xbeefdead,  // before being set to correct values.
-                     parent);
+  File* pFile = new FatSymlink(
+      filename, info.accessedTime, info.modifiedTime, info.creationTime, clus, this, value.length(),
+      0xdeadbeef,  // Sentinel values that'll throw an error if they're used
+      0xbeefdead,  // before being set to correct values.
+      parent);
 
   // The unpublished node has no directory entry to update. Publish its final
   // size with the name only after the target data has reached the disk.
   if (value.length() && write(pFile, 0, value.length(),
                               reinterpret_cast<uintptr_t>(value.cstr())) != value.length()) {
-    releaseClusterChain(clus);
+    if (!m_bReadOnly)
+      releaseClusterChain(clus);
     delete pFile;
     return false;
   }
@@ -1256,7 +1207,8 @@ bool FatFilesystem::createSymlink(File* parent, const String& filename, const St
 
   FatDirectory* fatParent = static_cast<FatDirectory*>(Directory::fromFile(parent));
   if (!fatParent->addEntry(symlinkFilename, pFile, 0)) {
-    releaseClusterChain(clus);
+    if (!m_bReadOnly)
+      releaseClusterChain(clus);
     delete pFile;
     return false;
   }
@@ -1295,13 +1247,17 @@ bool FatFilesystem::releaseClusterChain(uint32_t clus, bool lockFile) {
   clus = first;
   while (visited--) {
     const uint32_t next = getClusterEntry(clus, false);
-    succeeded = setClusterEntry(clus, 0, false) && succeeded;
+    succeeded = setClusterEntry(clus, 0, false, false) && succeeded;
     clus = next;
   }
-  return succeeded;
+  return syncFat(false) && succeeded;
 }
 
 bool FatFilesystem::removeNode(File* parent, const String& filename, File* file) {
+  if (m_bReadOnly) {
+    SYSCALL_ERROR(ReadOnlyFilesystem);
+    return false;
+  }
   FatDirectory* parentDir = static_cast<FatDirectory*>(Directory::fromFile(parent));
 
   if (file->isDirectory()) {
@@ -1326,17 +1282,11 @@ bool FatFilesystem::removeNode(File* parent, const String& filename, File* file)
     if (child->isDetached() || !parentDir->removeEntry(filename, file))
       return false;
     child->markDetached();
-    if (!releaseClusterChain(file->getInode())) {
-      ERROR("FAT directory was unlinked, but its cluster chain could not be fully reclaimed");
-    }
     return true;
   }
 
   if (!parentDir->removeEntry(filename, file))
     return false;
-  if (!releaseClusterChain(file->getInode())) {
-    ERROR("FAT file was unlinked, but its cluster chain could not be fully reclaimed");
-  }
   return true;
 }
 

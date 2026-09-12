@@ -30,8 +30,9 @@ FatSymlink::FatSymlink(String name, Time::Timestamp accessedTime, Time::Timestam
       m_DirClus(dirClus),
       m_DirOffset(dirOffset) {
   // No permissions on FAT - set all to RWX.
-  setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OW |
-                 FILE_OX);
+  setPermissionsOnly(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OW |
+                     FILE_OX);
+  static_cast<FatFilesystem*>(pFs)->registerNode(this);
 }
 
 uint64_t FatSymlink::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
@@ -60,4 +61,8 @@ uint64_t FatSymlink::writeBytewise(uint64_t location, uint64_t size, uintptr_t b
   initialise(true);
 
   return ret;
+}
+
+FatSymlink::~FatSymlink() {
+  static_cast<FatFilesystem*>(m_pFilesystem)->releaseNode(this);
 }

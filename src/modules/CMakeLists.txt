@@ -332,6 +332,15 @@ pedigree_module(fat "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatDirectory.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatFile.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatFilesystem.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatFilesystem-node-state.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatFilesystem-chain.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatFilesystem-fsinfo.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatFilesystem-state.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatFilesystem-writeback.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatFilesystem-resize.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatFilesystem-namespace.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatFilesystem-attributes.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatFile-resize.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatSymlink.cc
     ${FAT_REGRESSION_SOURCES})
 

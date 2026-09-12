@@ -25,8 +25,11 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 #include "modules/system/vfs/File.h"
+
+class FatFilesystem;
 
 /** A File is a file, a directory or a symlink. */
 class FatFile : public File {
@@ -39,6 +42,43 @@ class FatFile : public File {
   File& operator=(const File&);
 
  public:
+  struct State {
+    explicit State(FatFilesystem* owner);
+    ~State();
+    FatFilesystem* filesystem;
+    CacheState cache;
+    Mutex dataLock;
+    Mutex writeLock;
+    size_t pageLoans = 0;
+    Time::Timestamp accessed = 0;
+    Time::Timestamp modified = 0;
+    Time::Timestamp changed = 0;
+    size_t size = 0;
+    uintptr_t inode = 0;
+    uintptr_t identifier = 0;
+    uint32_t directoryCluster = 0;
+    uint32_t directoryOffset = 0;
+    bool metadataDirty = false;
+    bool trimPending = false;
+    bool unlinked = false;
+    bool registered = false;
+    bool retiring = false;
+    size_t syncReferences = 0;
+    FatFile* aliases = nullptr;
+    State* next = nullptr;
+    Vector<uint32_t> retiredClusters;
+    Vector<uint32_t> clusters;
+    uint64_t chainRevision = 0;
+  };
+
+  void truncate() override;
+  size_t getSize() override;
+  void setInode(uintptr_t inode) override;
+  uint64_t maximumFileSize() const override;
+  uintptr_t futexIdentity() override;
+  void fileAttributeChanged() override;
+  bool syncPages(const uint64_t* offsets, size_t count) override;
+
   /** Constructor, should be called only by a Filesystem. */
   FatFile(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
           Time::Timestamp creationTime, uintptr_t inode, class Filesystem* pFs, size_t size,
@@ -73,6 +113,10 @@ class FatFile : public File {
   void unpinBlock(uint64_t location) override;
 
  protected:
+  CacheState& cacheState() override;
+  Mutex& dataMutationLock() override;
+  Mutex& writeSerializationLock() override;
+  size_t& physicalPageLoans() override;
   bool useFillCache() const override;
   bool readPage(uint64_t location, uintptr_t destination) override;
   bool prepareShrink(const ShrinkContext& context,
@@ -80,12 +124,20 @@ class FatFile : public File {
   bool resizeFile(size_t size) override;
 
  private:
+  void copyStateAttributes();
+  explicit FatFile(State& state);
+  static bool checkedBatchCallback(const Cache::WritebackPage*, size_t, void*);
   static bool checkedWriteCallback(CacheConstants::CallbackCause cause, uintptr_t location,
                                    uintptr_t page, void* meta);
 
-  uint32_t m_DirClus;
-  uint32_t m_DirOffset;
-  bool m_MetadataDirty;
+  State* m_State;
+  FatFile* m_NextAlias = nullptr;
+  bool m_Proxy = false;
+  uint32_t& m_DirClus;
+  uint32_t& m_DirOffset;
+  bool& m_MetadataDirty;
+  bool& m_TrimPending;
+  Vector<uint32_t>& m_RetiredClusters;
 };
 
 #endif

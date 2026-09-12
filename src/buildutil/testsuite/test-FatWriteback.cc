@@ -102,6 +102,12 @@ class FatDisk final : public Disk {
     return LITTLE_TO_HOST32(entry->DIR_FileSize);
   }
 
+  uint32_t storedCluster() const {
+    const Dir* entry = reinterpret_cast<const Dir*>(stored.data() + DirectoryLocation);
+    return (uint32_t(LITTLE_TO_HOST16(entry->DIR_FstClusHI)) << 16) |
+           LITTLE_TO_HOST16(entry->DIR_FstClusLO);
+  }
+
   std::vector<uint8_t> bytes;
   std::vector<uint8_t> stored;
   std::vector<uint64_t> writes;
@@ -491,7 +497,7 @@ TEST(FatMetadata, CountsAllocatedChainsIncludingEmptyFilesAndOddFat16Entries) {
   EXPECT_TRUE(fixture.filesystem.setEntry(3, 0xFFF8));
   EXPECT_EQ(fixture.filesystem.entry(4), 0xFFF8U);
   EXPECT_EQ(fixture.file.getAttributes().blocks, 1U);
-  FatFile empty(String("empty"), 0, 0, 0, 0, &fixture.filesystem, 0, 2);
+  FatFile empty(String("empty"), 0, 0, 0, 0, &fixture.filesystem, 0, 2, sizeof(Dir));
   EXPECT_EQ(empty.getAttributes().blocks, 0U);
   FatFileInfo info = {};
   FatDirectory root(String("root"), 0, &fixture.filesystem, nullptr, info);
@@ -632,7 +638,10 @@ TEST(FatWriteback, FailedTruncateDetachmentRetainsItsWholeChainForRetry) {
   fixture.disk.failedSync = UINT64_MAX;
   fixture.filesystem.truncate(&fixture.file);
   EXPECT_TRUE(fixture.file.sync());
-  EXPECT_EQ(fixture.file.getAttributes().blocks, 1U);
+  EXPECT_EQ(fixture.file.getAttributes().blocks, 0U);
+  EXPECT_EQ(fixture.disk.storedSize(), 0U);
+  EXPECT_EQ(fixture.disk.storedCluster(), 0U);
+  EXPECT_EQ(fixture.filesystem.entry(3), 0U);
   EXPECT_EQ(fixture.filesystem.entry(4), 0U);
   EXPECT_EQ(fixture.filesystem.entry(5), 0U);
 }
@@ -642,7 +651,11 @@ TEST(FatWriteback, FileResizeTruncatesThroughVfsResizeHook) {
 
   ASSERT_TRUE(fixture.file.resize(0));
   EXPECT_EQ(fixture.file.getSize(), 0U);
-  EXPECT_GE(fixture.filesystem.entry(3), 0xFFF8U);
+  ASSERT_TRUE(fixture.file.sync());
+  EXPECT_EQ(fixture.file.getAttributes().blocks, 0U);
+  EXPECT_EQ(fixture.disk.storedSize(), 0U);
+  EXPECT_EQ(fixture.disk.storedCluster(), 0U);
+  EXPECT_EQ(fixture.filesystem.entry(3), 0U);
   EXPECT_EQ(fixture.filesystem.entry(4), 0U);
   EXPECT_EQ(fixture.filesystem.entry(5), 0U);
 }

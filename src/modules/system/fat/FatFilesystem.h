@@ -42,32 +42,34 @@ class FatFilesystem : public Filesystem {
  public:
   FatFilesystem();
 
-  virtual ~FatFilesystem();
+  ~FatFilesystem() override;
 
   //
   // Filesystem interface.
   //
 
-  virtual bool initialise(Disk* pDisk);
+  bool initialise(Disk* pDisk) override;
   static Filesystem* probe(Disk* pDisk);
-  virtual File* getRoot() const;
-  virtual const String& getVolumeLabel() const;
-  virtual uint64_t read(File* pFile, uint64_t location, uint64_t size, uintptr_t buffer,
-                        bool bCanBlock = true);
-  virtual uint64_t write(File* pFile, uint64_t location, uint64_t size, uintptr_t buffer,
-                         bool bCanBlock = true);
-  virtual void truncate(File* pFile);
-  virtual void fileAttributeChanged(File* pFile);
-  virtual void cacheDirectoryContents(File* pFile);
-  virtual void extend(File* pFile, size_t size);
+  File* getRoot() const override;
+  const String& getVolumeLabel() const override;
+  bool getUuid(String&) const override;
+  SyncStatus sync() override;
+  uint64_t read(File* pFile, uint64_t location, uint64_t size, uintptr_t buffer,
+                bool bCanBlock = true);
+  uint64_t write(File* pFile, uint64_t location, uint64_t size, uintptr_t buffer,
+                 bool bCanBlock = true);
+  void truncate(File* pFile);
+  void fileAttributeChanged(File* pFile);
+  void cacheDirectoryContents(File* pFile);
+  void extend(File* pFile, size_t size);
 
  protected:
-  virtual bool createFile(File* parent, const String& filename, uint32_t mask);
-  virtual bool createDirectory(File* parent, const String& filename, uint32_t mask);
-  virtual bool createSymlink(File* parent, const String& filename, const String& value);
-  virtual bool removeNode(File* parent, const String& filename, File* file);
-  virtual bool renameNode(Directory* oldParent, const String& oldName, File* source,
-                          Directory* newParent, const String& newName, File* replaced) override;
+  bool createFile(File* parent, const String& filename, uint32_t mask) override;
+  bool createDirectory(File* parent, const String& filename, uint32_t mask) override;
+  bool createSymlink(File* parent, const String& filename, const String& value) override;
+  bool removeNode(File* parent, const String& filename, File* file) override;
+  bool renameNode(Directory* oldParent, const String& oldName, File* source, Directory* newParent,
+                  const String& newName, File* replaced) override;
 
   FatFilesystem(const FatFilesystem&);
   void operator=(const FatFilesystem&);
@@ -97,7 +99,7 @@ class FatFilesystem : public Filesystem {
 
   /** Sets a cluster entry - bLock determines if this should enforce locking
    * internally or allow the caller to ensure the FAT is locked. */
-  bool setClusterEntry(uint32_t cluster, uint32_t value, bool bLock = true);
+  bool setClusterEntry(uint32_t cluster, uint32_t value, bool bLock = true, bool persist = true);
 
   /** Converts a string to 8.3 format */
   String convertFilenameTo(String filename) const;
@@ -109,9 +111,63 @@ class FatFilesystem : public Filesystem {
   uint32_t findFreeCluster(bool* persisted = nullptr);
 
   bool syncFat(bool bLock = true);
+  bool invalidateFsInfoHints();
+  bool m_FsInfoInvalidated = false;
   uint8_t* getFatSector(uint32_t sector);
   bool chainExtent(File* file, uint32_t& count, uint32_t& last);
+  uint32_t fileClusterAt(File*, size_t);
+  uint64_t m_ChainRevision = 1;
   bool truncateFile(File* file);
+  class ShrinkPlan;
+  bool prepareFileShrink(FatFile*, size_t, UniquePointer<File::PreparedShrink>&);
+  bool trimFileAllocation(FatFile*);
+  void publishSize(File*, size_t);
+  void unlinkNode(File*);
+  void retireNode(File*);
+  void moveNode(File*, uint32_t, uint32_t);
+  bool isNodeUnlinked(File*) const;
+  void writeEntryAttributes(File*, Dir*, bool creating = false);
+  void encodeEntryAttributes(const File::Attributes&, Dir*, bool creating = false);
+  bool syncNodeAttributes(File*);
+  bool syncNode(File*);
+  struct PendingAttributes {
+    uint64_t slot;
+    File::Attributes attributes;
+    PendingAttributes* next = nullptr;
+  };
+  PendingAttributes* m_PendingAttributes = nullptr;
+  bool writePendingAttributes(const PendingAttributes&);
+  // Pending-attribute helpers require m_FileMutationLock.
+  bool syncPendingAttributes();
+  void movePendingAttributes(uint32_t oldCluster, uint32_t oldOffset, uint32_t newCluster,
+                             uint32_t newOffset);
+  void discardPendingAttributes(uint32_t cluster, uint32_t offset);
+  void clearPendingAttributes();
+  FatFile::State* acquireFileState(FatFile*, uintptr_t, size_t, uint32_t, uint32_t, Time::Timestamp,
+                                   Time::Timestamp, Time::Timestamp);
+  void releaseFileState(FatFile*);
+  uintptr_t fileIdentifier(uint32_t cluster, uint32_t offset);
+  uintptr_t fileIdentifierLocked(uint64_t slot);
+  bool writeCachedPages(FatFile::State&, const Cache::WritebackPage*, size_t);
+  void drainFileStates();
+  struct NodeState {
+    uintptr_t inode = 0;
+    uint32_t directoryCluster = 0, directoryOffset = 0;
+    bool unlinked = false;
+    Vector<File*> aliases;
+  };
+  Tree<uintptr_t, NodeState*> m_NodeStates;
+  Tree<File*, NodeState*> m_NodeAliases;
+  void registerNode(File*);
+  void releaseNode(File*);
+  void moveNonFileNode(File*, uint32_t, uint32_t);
+  void unlinkNonFileNode(File*);
+  Mutex m_StateLock;
+  Tree<uint64_t, FatFile::State*> m_FileStates;
+  Tree<uint64_t, uintptr_t> m_FileIdentifiers;
+  uintptr_t m_NextFileIdentifier = 0x10000000;
+  FatFile::State* m_StateList = nullptr;
+  bool m_IoFailed = false;
   bool ensureCapacity(File* file, size_t size);
   bool zeroRange(File* file, size_t begin, size_t end);
   bool updateFileMetadata(File* file, size_t size);
@@ -160,60 +216,9 @@ class FatFilesystem : public Filesystem {
     return 0;
   }
 
-  /** Gets a UNIX timestamp from a FAT date/time */
-  Time::Timestamp getUnixTimestamp(uint16_t time, uint16_t date) const {
-    // struct version of the passed parameters
-    Timestamp* sTime = reinterpret_cast<Timestamp*>(&time);
-    Date* sDate = reinterpret_cast<Date*>(&date);
-
-    // Sanity check.
-    if (!(sTime->secCount + sTime->minutes + sTime->hours))
-      if (!(sDate->day + sDate->month + sDate->years))
-        return 0;
-
-    // grab the time information
-    uint32_t seconds = sTime->secCount * 2;
-    uint32_t minutes = sTime->minutes;
-    uint32_t hours = sTime->hours;
-
-    // grab the date information
-    uint32_t day = sDate->day ? sDate->day - 1 : 0;
-    uint32_t month = sDate->month;
-    uint32_t years = sDate->years + 10;  // FAT timestamps start at 1980
-
-    /** This should actually work for practically any year. */
-    uint32_t realYear = years + 1970;
-    uint32_t leapDays = ((realYear / 4) - (realYear / 100) + (realYear / 400));
-    leapDays -= ((1980 / 4) - (1980 / 100) + (1980 / 400));
-
-    // Cumulative days as the year progresses. Added to the current day's
-    // month to get the proper offset into the year. The leap days are added
-    // to this as well to give the proper final answer.
-    static uint16_t cumulativeDays[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365};
-    uint32_t cumulDays = cumulativeDays[month ? month - 1 : 0];
-
-    Time::Timestamp ret = 0;
-
-    // add the time
-    ret += seconds;
-    ret += minutes * 60;
-    ret += hours * 60 * 60;
-
-    // and finally the date
-    ret += day * 24 * 60 * 60;
-    ret += cumulDays * 24 * 60 * 60;
-    ret += leapDays * 24 * 60 * 60;
-    ret += years * 365 * 24 * 60 * 60;
-
-    // completed
-    return ret;
-  }
-
-  /** Gets a FAT date from a UNIX timestamp */
-  uint16_t getFatDate(Time::Timestamp timestamp) const {
-    /** \todo Write */
-    return 0;
-  }
+  Time::Timestamp getUnixTimestamp(uint16_t time, uint16_t date) const;
+  uint16_t getFatDate(Time::Timestamp timestamp) const;
+  uint16_t getFatTime(Time::Timestamp timestamp) const;
 
   /** Our superblocks */
   Superblock m_Superblock;

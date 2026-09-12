@@ -54,11 +54,13 @@ class FatDirectory : public Directory {
   virtual bool addEntry(String filename, File* pFile, size_t type, bool publish = true);
   /** Removes a directory entry. */
   virtual bool removeEntry(const String& filename, File* pFile);
-  /** Renames an entry without changing its directory slot or file metadata. */
-  bool renameEntry(const String& oldName, File* pFile, const String& newName);
 
   /** Updates inode attributes. */
   void fileAttributeChanged() override;
+  bool sync() override;
+  bool sync(size_t, bool) override {
+    return sync();
+  }
   Attributes getAttributes() const override;
 
   /** Set the internal cluster (in the case of FAT) */
@@ -83,6 +85,9 @@ class FatDirectory : public Directory {
   }
 
  private:
+  class NamespaceEdit;
+  bool encodeEntrySet(const String& filename, const Dir& metadata, Vector<Dir>& entries);
+
   struct ScannedEntry {
     String name;
     Dir entry;
@@ -102,6 +107,7 @@ class FatDirectory : public Directory {
 
   uint32_t m_DirClus;
   uint32_t m_DirOffset;
+  bool m_Unlinked;
 
   FatType m_Type;
   uintptr_t m_BlockSize;

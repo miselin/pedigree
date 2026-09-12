@@ -109,12 +109,6 @@ static Device* probeDisk(Device* diskDevice) {
     return diskDevice;
   }
 
-  // Once the selected root volume has been found, leave the remaining
-  // partitions alone. In particular, the ESP is not a second root candidate.
-  if (bRootMounted) {
-    return diskDevice;
-  }
-
   Disk* pDisk = static_cast<Disk*>(diskDevice);
   String stableName;
   Filesystem* pFs = nullptr;
@@ -122,7 +116,7 @@ static Device* probeDisk(Device* diskDevice) {
     // For mount message
     bool didMountAsRoot = false;
 
-    if (isRootFilesystem(pFs)) {
+    if (!bRootMounted && isRootFilesystem(pFs)) {
       NOTICE("Mounted " << stableName << " successfully as root.");
       VFS::instance().setRootFilesystem(pFs);
       bRootMounted = didMountAsRoot = true;
@@ -162,8 +156,8 @@ static bool init() {
   VFS::instance().registerFilesystem(pRuntimeFs, String("runtime"));
   g_MountedFilesystems.pushBack(pRuntimeFs);
 
-  // Probe filesystems until the selected root is found. The UEFI ESP is
-  // intentionally left unmounted once root has been established.
+  // Root selection must not hide later partitions, such as the UEFI ESP.
+  // The first matching root wins; other filesystems remain available in /media.
   Device::foreach (probeDisk);
 
   if (VFS::instance().getFilesystemAt(String("/media/raw")) == 0) {

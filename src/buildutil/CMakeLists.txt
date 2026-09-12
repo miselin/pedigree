@@ -220,6 +220,15 @@ add_library(ramfs
 
 add_library(fat
     ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatFilesystem.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatFilesystem-node-state.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatFilesystem-chain.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatFilesystem-fsinfo.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatFilesystem-state.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatFilesystem-writeback.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatFilesystem-resize.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatFilesystem-namespace.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatFilesystem-attributes.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatFile-resize.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatFile.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatDirectory.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/fat/FatSymlink.cc
@@ -328,6 +337,12 @@ set(TESTSUITE_SRCS
     testsuite/test-FanotifyQueue.cc
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/fanotify-queue.cc
     testsuite/test-FatWriteback.cc
+    testsuite/test-FatResize.cc
+    testsuite/test-FatNamespace.cc
+    testsuite/test-FatAttributes.cc
+    testsuite/test-FatState.cc
+    testsuite/test-FatBatch.cc
+    testsuite/test-FatFsInfo.cc
     testsuite/test-FileMetadata.cc
     testsuite/test-MemoryExtendedAttributes.cc
     testsuite/test-Tree.cc

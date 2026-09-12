@@ -220,6 +220,8 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
     size_t size = 0;
     size_t links = 1;
     uint64_t blocks = 0;
+    // Filesystems with mutable storage identifiers may supply a stable public inode.
+    uint64_t inode = 0;
   };
 
   enum AttributeMask : uint32_t {

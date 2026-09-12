@@ -36,12 +36,19 @@ class File;
  * and its contents will be considered the target of the link.
  */
 class FatSymlink : public Symlink {
+  friend class FatFilesystem;
+
  public:
   FatSymlink(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
              Time::Timestamp creationTime, uintptr_t inode, class Filesystem* pFs, size_t size,
              uint32_t dirClus = 0, uint32_t dirOffset = 0, File* pParent = 0);
-  virtual ~FatSymlink() {}
-  virtual Attributes getAttributes() const;
+  ~FatSymlink() override;
+  void fileAttributeChanged() override;
+  bool sync() override;
+  bool sync(size_t, bool) override {
+    return sync();
+  }
+  Attributes getAttributes() const override;
   uint32_t getDirCluster() {
     return m_DirClus;
   }
@@ -60,15 +67,16 @@ class FatSymlink : public Symlink {
    *      which case the data can be found by calling getPhysicalPage.
    *  \param[in] bCanBlock Whether or not the File can block when reading
    */
-  virtual uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
-                                bool bCanBlock = true);
+  uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                        bool bCanBlock = true) override;
   /** Writes to the file.
    *  \param[in] bCanBlock Whether or not the File can block when reading
    */
-  virtual uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
-                                 bool bCanBlock = true);
+  uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                         bool bCanBlock = true) override;
 
  private:
+  bool m_Unlinked = false;
   uint32_t m_DirClus;
   uint32_t m_DirOffset;
 };
