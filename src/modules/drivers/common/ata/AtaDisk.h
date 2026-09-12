@@ -92,6 +92,7 @@ class AtaDisk : public ScsiDisk {
   AtaDisk(class AtaController* pDev, bool isMaster, IoBase* commandRegs, IoBase* controlRegs,
           BusMasterIde* busMaster = 0);
   virtual ~AtaDisk();
+  void shutdownDeviceCache() override;
 
   virtual void getName(String& str) {
     str.assign(m_pName);

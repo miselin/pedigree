@@ -340,3 +340,46 @@ bool VfsMountView::detachBackingForShutdown(Filesystem* backing) {
   }
   return true;
 }
+
+bool VfsMountView::shutdown(Vector<Filesystem*>& ownedBackings) {
+  VfsAttachmentRow* retired;
+  {
+    VFS::NamespaceMutation writer(m_Vfs);
+    LockGuard<Mutex> guard(m_State->graph);
+    if (m_State->contexts || m_State->anonymousPaths) {
+      SYSCALL_ERROR(DeviceBusy);
+      return false;
+    }
+    size_t ownedCount = 0;
+    for (auto* row = m_State->attachments; row; row = row->next) {
+      if (row->attachment->paths) {
+        SYSCALL_ERROR(DeviceBusy);
+        return false;
+      }
+      if (row->attachment->owningRegistry)
+        ++ownedCount;
+    }
+    if (!ownedBackings.tryReserve(ownedBackings.count() + ownedCount)) {
+      SYSCALL_ERROR(OutOfMemory);
+      return false;
+    }
+    for (auto* row = m_State->attachments; row; row = row->next) {
+      if (row->attachment->owningRegistry) {
+        ownedBackings.pushBack(row->attachment->backing.filesystem());
+        // The terminal owner must check sync before deleting this backend.
+        // Clearing the shared attachment also handles multiple bind rows.
+        row->attachment->owningRegistry = nullptr;
+      }
+    }
+    retired = m_State->attachments;
+    m_State->attachments = nullptr;
+    m_State->rootId = 0;
+    ++m_State->topology;
+  }
+  while (retired) {
+    auto* next = retired->next;
+    delete retired;
+    retired = next;
+  }
+  return true;
+}

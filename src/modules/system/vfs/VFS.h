@@ -76,6 +76,8 @@ class EXPORTED_PUBLIC VFS {
   /** Odd while a namespace writer owns admission; readers never hold it for I/O. */
   uint64_t namespaceGeneration() const;
   VfsMountView* mountView() const;
+  /** Terminal-only: detach a drained namespace and return attachment-owned backends. */
+  bool shutdownMountView(Vector<Filesystem*>& ownedBackings);
   bool initialiseMountView();
 
   static Module::UnloadAdmission unloadAdmission(bool terminal);
@@ -225,7 +227,9 @@ class EXPORTED_PUBLIC VFS {
    * canDelete is false, ownership always remains external. Live FilesystemPins
    * reject unregistration without changing publication or closing admission.
    */
-  bool unregisterFilesystem(Filesystem* pFs, bool canDelete = true);
+  // Terminal failures after admission closes leave the unregistered backend
+  // alive for diagnosis; callers must halt instead of resuming filesystem use.
+  bool unregisterFilesystem(Filesystem* pFs, bool canDelete = true, bool terminal = false);
   /** Surrenders an attachment-owned registration. Existing admissions drain
       asynchronously; the last release deletes the backend outside VFS locks. */
   bool retireOwnedFilesystem(Filesystem* filesystem);

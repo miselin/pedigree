@@ -226,6 +226,10 @@ bool FatFilesystem::initialise(Disk* pDisk) {
   }
   cacheVolumeLabel();
 
+  // FAT16/32 entry 1 records clean shutdown and absence of previous I/O errors.
+  const uint32_t cleanMask = m_Type == FAT16 ? 0xc000 : 0x0c000000;
+  m_MountedClean = m_Type == FAT12 || (getClusterEntry(1) & cleanMask) == cleanMask;
+
   return true;
 }
 

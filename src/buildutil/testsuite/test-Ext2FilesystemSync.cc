@@ -72,6 +72,11 @@ class Ext2FilesystemSyncTestPeer {
   static size_t pendingAttributes(Ext2Filesystem& fs) {
     return fs.m_AttributeWriteCount;
   }
+
+  static bool beginWritableMount(Ext2Filesystem& fs, uint16_t state = EXT2_STATE_CLEAN) {
+    fs.m_pSuperblock->s_state = HOST_TO_LITTLE16(state);
+    return fs.beginWritableMount();
+  }
 };
 
 namespace {
@@ -245,6 +250,85 @@ struct Fixture {
   SyncDisk disk;
   Ext2Filesystem fs;
 };
+
+TEST(Ext2FilesystemShutdown, WritableMountClearsCleanStateAndShutdownCommitsItLast) {
+  Fixture fixture;
+  ASSERT_TRUE(Ext2FilesystemSyncTestPeer::beginWritableMount(fixture.fs));
+  auto& stored = *reinterpret_cast<Superblock*>(fixture.disk.persisted.data() + 1024);
+  EXPECT_EQ(LITTLE_TO_HOST16(stored.s_state), 0U);
+  auto file = fixture.file();
+  Ext2FilesystemSyncTestPeer::dirty(fixture.fs, 3, 0x6d);
+  fixture.disk.failedSync = 16 * BlockSize;
+  file.reset();
+  fixture.disk.failedSync = ~uint64_t(0);
+  EXPECT_EQ(fixture.fs.shutdown(), Status::Success);
+  EXPECT_EQ(fixture.disk.persisted[16 * BlockSize], 0x6d);
+  EXPECT_EQ(LITTLE_TO_HOST16(stored.s_state), EXT2_STATE_CLEAN);
+  const size_t completed = fixture.disk.allCalls;
+  EXPECT_EQ(fixture.fs.shutdown(), Status::Success);
+  EXPECT_EQ(fixture.disk.allCalls, completed);
+}
+
+TEST(Ext2FilesystemShutdown, FailedDataFlushNeverCommitsCleanState) {
+  Fixture fixture;
+  ASSERT_TRUE(Ext2FilesystemSyncTestPeer::beginWritableMount(fixture.fs));
+  auto file = fixture.file();
+  Ext2FilesystemSyncTestPeer::dirty(fixture.fs, 3, 0x71);
+  fixture.disk.failedSync = 16 * BlockSize;
+  file.reset();
+  EXPECT_EQ(fixture.fs.shutdown(), Status::IoError);
+  const auto* stored = reinterpret_cast<const Superblock*>(fixture.disk.persisted.data() + 1024);
+  EXPECT_EQ(LITTLE_TO_HOST16(stored->s_state), 0U);
+  fixture.disk.failedSync = ~uint64_t(0);
+  EXPECT_EQ(fixture.fs.shutdown(), Status::Success);
+}
+
+TEST(Ext2FilesystemShutdown, FailedHardwareFlushNeverCommitsCleanState) {
+  Fixture fixture;
+  ASSERT_TRUE(Ext2FilesystemSyncTestPeer::beginWritableMount(fixture.fs));
+  fixture.disk.failedHardwareFlush = true;
+  EXPECT_EQ(fixture.fs.shutdown(), Status::IoError);
+  const auto* stored = reinterpret_cast<const Superblock*>(fixture.disk.persisted.data() + 1024);
+  EXPECT_EQ(LITTLE_TO_HOST16(stored->s_state), 0U);
+}
+
+TEST(Ext2FilesystemShutdown, PreviouslyUncheckedAndErrorMarkedVolumesStayUnchecked) {
+  for (uint16_t initial : {uint16_t(0), uint16_t(EXT2_STATE_CLEAN | EXT2_STATE_UNCLEAN)}) {
+    Fixture fixture;
+    ASSERT_TRUE(Ext2FilesystemSyncTestPeer::beginWritableMount(fixture.fs, initial));
+    EXPECT_EQ(fixture.fs.shutdown(), Status::IoError);
+    const auto* stored = reinterpret_cast<const Superblock*>(fixture.disk.persisted.data() + 1024);
+    EXPECT_EQ(LITTLE_TO_HOST16(stored->s_state), initial & ~EXT2_STATE_CLEAN);
+  }
+}
+
+TEST(Ext2FilesystemShutdown, FailedCleanMarkerWriteReturnsFailure) {
+  Fixture fixture;
+  ASSERT_TRUE(Ext2FilesystemSyncTestPeer::beginWritableMount(fixture.fs));
+  fixture.disk.failedSync = 1024;
+  EXPECT_EQ(fixture.fs.shutdown(), Status::IoError);
+  const auto* stored = reinterpret_cast<const Superblock*>(fixture.disk.persisted.data() + 1024);
+  EXPECT_EQ(LITTLE_TO_HOST16(stored->s_state), 0U);
+}
+
+TEST(Ext2FilesystemShutdown, UnsupportedFeaturesDoNotChangeTheMountState) {
+  for (size_t feature = 0; feature < 3; ++feature) {
+    Fixture fixture;
+    auto* super = reinterpret_cast<Superblock*>(fixture.disk.bytes.data() + 1024);
+    super->s_state = HOST_TO_LITTLE16(EXT2_STATE_CLEAN);
+    if (feature == 0)
+      super->s_feature_compat = HOST_TO_LITTLE32(0x4);
+    else if (feature == 1)
+      super->s_feature_incompat = HOST_TO_LITTLE32(0x40);
+    else
+      super->s_feature_ro_compat = HOST_TO_LITTLE32(0x8);
+    fixture.disk.persisted = fixture.disk.bytes;
+    EXPECT_FALSE(Ext2FilesystemSyncTestPeer::beginWritableMount(fixture.fs));
+    EXPECT_EQ(LITTLE_TO_HOST16(super->s_state), EXT2_STATE_CLEAN);
+    EXPECT_TRUE(fixture.disk.writes.empty());
+    EXPECT_TRUE(fixture.disk.syncs.empty());
+  }
+}
 
 TEST(Ext2FilesystemSync, FlushesSharedPagesAfterLastFileAliasCloses) {
   Fixture fixture;

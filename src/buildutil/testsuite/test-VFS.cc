@@ -86,6 +86,11 @@ class MountTestDisk final : public Disk {
 class MountTestFilesystem final : public Filesystem {
  public:
   std::function<SyncStatus()> syncAction;
+  std::function<SyncStatus()> shutdownAction;
+
+  SyncStatus shutdown() override {
+    return shutdownAction ? shutdownAction() : Filesystem::shutdown();
+  }
 
   SyncStatus sync() override {
     return syncAction ? syncAction() : Filesystem::sync();
@@ -1552,6 +1557,79 @@ TEST(VFS, FilesystemPinsRejectRemovalWithoutClosingAdmission) {
   EXPECT_EQ(destroyed.load(), 1U);
   EXPECT_FALSE(identity.pin(pin));
   EXPECT_FALSE(vfs.pinFilesystem(filesystem, pin));
+}
+
+TEST(VFS, TerminalUnmountWaitsForOperationsBeforeCheckedShutdown) {
+  VFS vfs;
+  std::atomic<size_t> destroyed{0}, syncs{0};
+  auto* filesystem = new MountTestFilesystem(String("terminal"), nullptr, &destroyed);
+  ASSERT_TRUE(vfs.registerFilesystem(filesystem, String("terminal")).length());
+  VFS::MountOperation operation;
+  ASSERT_TRUE(vfs.acquireMount(filesystem, operation));
+  auto identity = operation.identity();
+  filesystem->shutdownAction = [&] {
+    EXPECT_EQ(operation.filesystem(), nullptr);
+    Vector<VFS::MountSnapshot> mounts;
+    vfs.getMounts(mounts);
+    EXPECT_EQ(mounts.count(), 0U);
+    ++syncs;
+    return Filesystem::SyncStatus::Success;
+  };
+  std::atomic<bool> result{false};
+  std::thread remover([&] { result.store(vfs.unregisterFilesystem(filesystem, true, true)); });
+  bool closed = false;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (std::chrono::steady_clock::now() < deadline) {
+    VFS::MountOperation probe;
+    if (!identity.acquire(probe)) {
+      closed = true;
+      break;
+    }
+    std::this_thread::yield();
+  }
+  EXPECT_TRUE(closed);
+  EXPECT_EQ(syncs.load(), 0U);
+  EXPECT_EQ(destroyed.load(), 0U);
+  operation.reset();
+  remover.join();
+  EXPECT_TRUE(result.load());
+  EXPECT_EQ(syncs.load(), 1U);
+  EXPECT_EQ(destroyed.load(), 1U);
+}
+
+TEST(VFS, TerminalUnmountRefusesPinsAndPreservesFailedBackend) {
+  VFS vfs;
+  std::atomic<size_t> destroyed{0};
+  auto* filesystem = new MountTestFilesystem(String("terminal-failure"), nullptr, &destroyed);
+  ASSERT_TRUE(vfs.registerFilesystem(filesystem, String("terminal-failure")).length());
+  VFS::FilesystemPin pin;
+  ASSERT_TRUE(vfs.pinFilesystem(filesystem, pin));
+  size_t calls = 0;
+  filesystem->shutdownAction = [&] {
+    ++calls;
+    return Filesystem::SyncStatus::IoError;
+  };
+  EXPECT_FALSE(vfs.unregisterFilesystem(filesystem, true, true));
+  EXPECT_EQ(calls, 0U);
+  EXPECT_EQ(vfs.getFilesystemAt(String("/media/terminal-failure")), filesystem);
+  pin.reset();
+  EXPECT_FALSE(vfs.unregisterFilesystem(filesystem, true, true));
+  EXPECT_EQ(calls, 1U);
+  EXPECT_EQ(destroyed.load(), 0U);
+  VFS::MountOperation operation;
+  EXPECT_FALSE(vfs.acquireMount(filesystem, operation));
+  delete filesystem;
+}
+
+TEST(VFS, TerminalUnmountRequiresPersistentBackendSupport) {
+  VFS vfs;
+  MountTestDisk disk;
+  auto* filesystem = new MountTestFilesystem(String("unsupported-terminal"));
+  ASSERT_TRUE(filesystem->initialise(&disk));
+  filesystem->syncAction = [] { return Filesystem::SyncStatus::Success; };
+  ASSERT_TRUE(vfs.registerFilesystem(filesystem, String("unsupported-terminal")).length());
+  EXPECT_FALSE(vfs.unregisterFilesystem(filesystem, true, true));
+  delete filesystem;
 }
 
 TEST(VFS, FilesystemSyncPinsBackingAndRunsWithoutPublicationLocks) {

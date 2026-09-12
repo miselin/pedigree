@@ -288,17 +288,23 @@ QuotaStatus Ext2Filesystem::quotaControl(const QuotaRequest& request, QuotaRespo
   return QuotaStatus::Unsupported;
 }
 
-void Ext2Filesystem::closeQuotaFiles() {
+bool Ext2Filesystem::closeQuotaFiles(bool discardOnFailure) {
   LockGuard<Mutex> control(m_QuotaControlLock);
+  bool succeeded = true;
   const QuotaType types[] = {QuotaType::User, QuotaType::Group};
   for (auto type : types) {
     const size_t index = static_cast<size_t>(type);
     if (!m_QuotaFiles[index])
       continue;
-    if (flushQuotaLocked(type) != QuotaStatus::Success)
+    if (flushQuotaLocked(type) != QuotaStatus::Success) {
+      succeeded = false;
       ERROR("Ext2: quota writeback failed at filesystem teardown");
+      if (!discardOnFailure)
+        continue;
+    }
     m_QuotaFiles[index]->endQuota(type, false);
     delete m_QuotaFiles[index];
     m_QuotaFiles[index] = nullptr;
   }
+  return succeeded;
 }

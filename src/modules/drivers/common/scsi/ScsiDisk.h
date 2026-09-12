@@ -99,6 +99,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
 
   /** Drains cache callbacks while the disk/controller state is still live. */
   void shutdownCache();
+  virtual void shutdownDeviceCache();
   bool hasNoCacheLoans();
 
   bool initialise(class ScsiController* pController, size_t nUnit);

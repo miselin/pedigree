@@ -50,6 +50,7 @@ class DiskImage : public Disk {
   virtual void write(uint64_t location);
   virtual void flush(uint64_t location);
   virtual bool sync(uint64_t location, bool async);
+  virtual bool syncAll();
 
   virtual size_t getSize() const;
 

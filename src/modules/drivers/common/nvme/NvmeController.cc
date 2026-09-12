@@ -314,12 +314,6 @@ void NvmeController::shutdown() {
     return;
   shutdownDiskCaches();
   RequestQueue::destroy();
-#if !CRIPPLE_HDD
-  for (size_t i = 0; i < getNumChildren(); ++i) {
-    if (!static_cast<NvmeDisk*>(getChild(i))->doSync(ScsiDisk::SyncWholeDevice))
-      ERROR("NVMe: final namespace cache flush failed");
-  }
-#endif
   m_Commands.closeAndWait();
   {
     LockGuard<Mutex> irqLock(m_IrqLock);
@@ -340,7 +334,7 @@ void NvmeController::shutdown() {
     while ((m_Registers->read32(Status) & 12U) != 8U && Time::getTicks() < deadline)
       Time::delay(Time::Multiplier::Millisecond);
     if ((m_Registers->read32(Status) & 12U) != 8U)
-      WARNING("NVMe: orderly shutdown notification timed out");
+      panic("NVMe: orderly shutdown notification timed out");
   }
   if (m_DmaInstalled && !disable())
     panic("NVMe: cannot stop DMA during shutdown");

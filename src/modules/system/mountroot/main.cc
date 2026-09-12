@@ -22,6 +22,7 @@
 #include "pedigree/kernel/core/BootIO.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/StaticString.h"
@@ -221,6 +222,13 @@ static bool isLiveDiskFilesystem(Filesystem* filesystem) {
 static void destroy() {
   NOTICE("Unmounting all filesystems...");
 
+  Vector<Filesystem*> ownedBackings;
+  if (!VFS::instance().shutdownMountView(ownedBackings)) {
+    panic("mountroot could not drain the filesystem namespace");
+  }
+  for (auto* filesystem : ownedBackings)
+    g_MountedFilesystems.pushBack(filesystem);
+
   List<Filesystem*> liveDiskFilesystems;
   List<Filesystem*> backingFilesystems;
 
@@ -237,22 +245,25 @@ static void destroy() {
   while (liveDiskFilesystems.count()) {
     Filesystem* filesystem = liveDiskFilesystems.popFront();
     NOTICE("Unmounting " << filesystem->getVolumeLabel() << " [" << Hex << filesystem << "]...");
-    VFS::instance().unregisterFilesystem(filesystem);
+    if (!VFS::instance().unregisterFilesystem(filesystem, true, true)) {
+      panic("mountroot could not cleanly unmount a live-disk filesystem");
+    }
     NOTICE("unmount done");
   }
 
   if (g_pLiveDisk) {
     Device::foreach (removeLiveDisk);
     if (g_pLiveDisk) {
-      FATAL("mountroot could not retire its live-disk device");
-      return;
+      panic("mountroot could not retire its live-disk device");
     }
   }
 
   while (backingFilesystems.count()) {
     Filesystem* filesystem = backingFilesystems.popFront();
     NOTICE("Unmounting " << filesystem->getVolumeLabel() << " [" << Hex << filesystem << "]...");
-    VFS::instance().unregisterFilesystem(filesystem);
+    if (!VFS::instance().unregisterFilesystem(filesystem, true, true)) {
+      panic("mountroot could not cleanly unmount a backing filesystem");
+    }
     NOTICE("unmount done");
   }
 

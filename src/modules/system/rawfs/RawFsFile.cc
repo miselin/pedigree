@@ -20,6 +20,7 @@
 #include "RawFsFile.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -33,7 +34,7 @@ RawFsFile::RawFsFile(String name, RawFs* pFs, File* pParent, Disk* pDisk)
       m_pDisk(pDisk),
       m_PageCache(),
       m_PageCacheLock() {
-  m_PageCache.setCallback(writeCallback, this);
+  m_PageCache.setCallback(cacheCallback, this);
 
   // Owned by root:root
   setUid(0);
@@ -48,7 +49,39 @@ RawFsFile::RawFsFile(String name, RawFs* pFs, File* pParent, Disk* pDisk)
 }
 
 RawFsFile::~RawFsFile() {
-  m_PageCache.shutdown();
+  if (!shutdown())
+    panic("rawfs: file cache shutdown failed; unwritten data remains");
+}
+
+bool RawFsFile::sync() {
+  return m_PageCache.syncAll();
+}
+
+bool RawFsFile::sync(size_t offset, bool async) {
+  if (offset >= getSize())
+    return false;
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  return m_PageCache.sync(offset - offset % pageSize, async);
+}
+
+bool RawFsFile::shutdown() {
+  return m_PageCache.shutdown();
+}
+
+bool RawFsFile::cacheCallback(CacheConstants::CallbackCause cause, uintptr_t location,
+                              uintptr_t page, void* context) {
+  auto* file = static_cast<RawFsFile*>(context);
+  if (cause == CacheConstants::Eviction)
+    return File::writeCallback(cause, location, page, context);
+  if (cause != CacheConstants::WriteBack || !page || location >= file->getSize())
+    return false;
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const size_t length = min(pageSize, static_cast<size_t>(file->getSize() - location));
+  const bool written =
+      file->m_pDisk->writeFrom(location, reinterpret_cast<const void*>(page), length);
+  // Successful partial writes still need a device barrier when another write failed.
+  const bool durable = file->m_pDisk->syncData();
+  return written && durable;
 }
 
 size_t RawFsFile::getBlockSize() const {
@@ -119,25 +152,13 @@ void RawFsFile::writeBlock(uint64_t location, uintptr_t address) {
   const size_t validLength =
       pageSize < (getSize() - pageLocation) ? pageSize : (getSize() - pageLocation);
 
-  size_t copied = 0;
-  while (copied < validLength) {
-    const uint64_t diskLocation = pageLocation + copied;
-    const BufferView destination = m_pDisk->read(diskLocation);
-    if (!destination) {
-      return;
-    }
-
-    const size_t remaining = validLength - copied;
-    const size_t chunk = destination.size() < remaining ? destination.size() : remaining;
-    if (!chunk) {
-      m_pDisk->unpin(diskLocation);
-      return;
-    }
-    MemoryCopy(destination.data(), reinterpret_cast<const void*>(address + copied), chunk);
-    m_pDisk->write(diskLocation);
-    m_pDisk->unpin(diskLocation);
-    copied += chunk;
-  }
+  const uintptr_t page = readBlock(pageLocation);
+  if (!page)
+    return;
+  if (page != address)
+    MemoryCopy(reinterpret_cast<void*>(page), reinterpret_cast<const void*>(address), validLength);
+  m_PageCache.markDirty(pageLocation);
+  m_PageCache.release(pageLocation);
 }
 
 bool RawFsFile::pinBlock(uint64_t location) {

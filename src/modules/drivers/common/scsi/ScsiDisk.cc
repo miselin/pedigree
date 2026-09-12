@@ -24,6 +24,7 @@
 #include "pedigree/kernel/ServiceFeatures.h"
 #include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/TargetInfo.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
@@ -261,11 +262,23 @@ ScsiDisk::ScsiDisk()
 
 ScsiDisk::~ScsiDisk() {
   retireEndpoint();
-  m_Cache.shutdown();
+  shutdownCache();
 }
 
 void ScsiDisk::shutdownCache() {
-  m_Cache.shutdown();
+  if (!m_Cache.shutdown())
+    panic("SCSI: cache shutdown failed; unwritten data remains");
+}
+
+void ScsiDisk::shutdownDeviceCache() {
+#if !CRIPPLE_HDD
+  // Paging and direct writes can outlive every page in the software cache.
+  // Controller admission is closed, but its worker still accepts this barrier.
+  auto* controller = static_cast<ScsiController*>(m_pParent);
+  if (!controller || !controller->addRequest(0, RequestQueue::NewRequest, SCSI_REQUEST_SYNC,
+                                             reinterpret_cast<uint64_t>(this), SyncWholeDevice))
+    panic("SCSI: shutdown aborted after final device cache flush failure");
+#endif
 }
 
 bool ScsiDisk::initialise(ScsiController* pController, size_t nUnit) {

@@ -176,12 +176,16 @@ void FatFilesystem::retireNode(File* file) {
   LockGuard<Mutex> guard(m_FileMutationLock);
   if (!file->isDirectory() && !file->isSymlink()) {
     auto* regular = static_cast<FatFile*>(file);
-    for (uint32_t cluster : regular->m_RetiredClusters)
-      setClusterEntry(cluster, 0);
+    for (uint32_t cluster : regular->m_RetiredClusters) {
+      if (!setClusterEntry(cluster, 0))
+        m_IoFailed = true;
+    }
     regular->m_RetiredClusters.clear();
   }
-  if (!releaseClusterChain(file->getInode(), false))
+  if (!releaseClusterChain(file->getInode(), false)) {
+    m_IoFailed = true;
     ERROR("FAT: orphan allocation reclamation needs a FAT retry");
+  }
 }
 
 Filesystem::SyncStatus FatFilesystem::sync() {
@@ -215,18 +219,45 @@ Filesystem::SyncStatus FatFilesystem::sync() {
   return succeeded ? SyncStatus::Success : SyncStatus::IoError;
 }
 
-void FatFilesystem::drainFileStates() {
+Filesystem::SyncStatus FatFilesystem::shutdown() {
+  TerminationDeferral lifetime;
+  if (m_ShutdownComplete)
+    return SyncStatus::Success;
+  auto status = sync();
+  if (status != SyncStatus::Success)
+    return status;
+  delete m_pRoot;
+  m_pRoot = nullptr;
+  if (!drainFileStates(true))
+    return SyncStatus::IoError;
+  // Closing aliases may release orphan clusters or queue directory attributes.
+  status = sync();
+  if (status != SyncStatus::Success || m_IoFailed || !m_MountedClean)
+    return status == SyncStatus::Success ? SyncStatus::IoError : status;
+  m_ShutdownComplete = true;
+  return SyncStatus::Success;
+}
+
+bool FatFilesystem::drainFileStates(bool checked) {
+  bool succeeded = true;
   while (m_StateList) {
     auto* state = m_StateList;
-    m_StateList = state->next;
+    if (checked && state->aliases)
+      return false;
     if (!state->retiring && m_pDisk) {
       FatFile file(*state);
-      if (!state->cache.fill.syncAll(FatFile::checkedBatchCallback, state))
+      if (!state->cache.fill.syncAll(FatFile::checkedBatchCallback, state)) {
+        succeeded = false;
         ERROR("FAT: dirty pages remain during unmount");
-      syncFileMetadata(&file);
+      }
+      succeeded = syncFileMetadata(&file) && succeeded;
     }
+    if (checked && (!succeeded || !state->cache.fill.shutdown()))
+      return false;
+    m_StateList = state->next;
     delete state;
   }
   m_FileStates.clear();
   m_FileIdentifiers.clear();
+  return succeeded;
 }

@@ -19,6 +19,7 @@
 
 #include "ScsiController.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/utilities/new"
 
@@ -57,7 +58,7 @@ void ScsiController::shutdownDiskCaches() {
   m_DiskOperations.closeAndWait();
 
   if (!RequestQueue::drain()) {
-    FATAL("SCSI controller could not drain work before cache shutdown");
+    panic("SCSI controller could not drain work before cache shutdown");
   }
 
   for (size_t i = 0; i < getNumChildren(); ++i) {
@@ -65,8 +66,11 @@ void ScsiController::shutdownDiskCaches() {
   }
 
   if (!RequestQueue::drain()) {
-    FATAL("SCSI controller cache shutdown left queued work behind");
+    panic("SCSI controller cache shutdown left queued work behind");
   }
+
+  for (size_t i = 0; i < getNumChildren(); ++i)
+    static_cast<ScsiDisk*>(getChild(i))->shutdownDeviceCache();
 }
 
 void ScsiController::searchDisks() {

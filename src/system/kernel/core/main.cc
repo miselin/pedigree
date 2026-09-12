@@ -518,7 +518,9 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
   NOTICE("Resetting...");
 
   // Clean up all loaded modules (unmounts filesystems and the like).
-  KernelElf::instance().unloadModules();
+  if (!KernelElf::instance().unloadModules()) {
+    panic("Shutdown aborted: module quiesce failed");
+  }
 
   EMIT_IF(STATIC_DRIVERS) {
     extern uintptr_t start_module_dtors;
@@ -549,7 +551,7 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
   CacheManager::destroyInstance();
 #else
   if (!CacheManager::instance().shutdown()) {
-    FATAL("Shutdown aborted: retained cache writeback failed");
+    panic("Shutdown aborted: retained cache writeback failed");
   }
   NOTICE("CacheManager: terminal cache writeback complete");
 #endif
@@ -557,7 +559,7 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
   // The shared info block remains live until userspace and module teardown
   // finish, but its callback must retire before the platform timer does.
   if (!InfoBlockManager::instance().shutdown()) {
-    FATAL("InfoBlockManager could not drain its timer callback");
+    panic("Shutdown aborted: info block timer callback did not drain");
   }
 #if PEDIGREE_CONCURRENCY_SMOKE_TESTS
   NOTICE("QEMU-CONCURRENCY-TEST: PASS infoblock-timer-drain");
@@ -631,13 +633,13 @@ void system_reboot(Machine::ShutdownType type) {
 
   Subsystem* currentSubsystem = currentProcess->getSubsystem();
   if (!currentSubsystem) {
-    FATAL("System reboot requires a userspace shutdown coordinator");
+    panic("System reboot requires a userspace shutdown coordinator");
   }
 
   // Concurrent requests must not change the selected terminal action.
   if (!g_ShutdownCoordinator.compareAndSwap(false, true)) {
     currentSubsystem->exit(0);
-    FATAL("Concurrent shutdown caller returned from process exit");
+    panic("Concurrent shutdown caller returned from process exit");
   }
 
   // The caller may still be a shell child. Its parent, orphan exit path,
@@ -647,7 +649,7 @@ void system_reboot(Machine::ShutdownType type) {
   // Exit can block while main starts teardown and retires its idle role.
   // Use ordinary scheduling instead of reserving a later handoff to that role.
   currentSubsystem->exit(0);
-  FATAL("Shutdown coordinator returned from process exit");
+  panic("Shutdown coordinator returned from process exit");
 }
 
 const char* SlamRecovery::getMemoryPressureDescription() {

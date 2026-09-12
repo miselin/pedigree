@@ -19,6 +19,16 @@ uint64_t VFS::namespaceGeneration() const {
 VfsMountView* VFS::mountView() const {
   return __atomic_load_n(&m_MountView, __ATOMIC_ACQUIRE);
 }
+bool VFS::shutdownMountView(Vector<Filesystem*>& ownedBackings) {
+  auto* view = mountView();
+  if (!view)
+    return true;
+  if (!view->shutdown(ownedBackings))
+    return false;
+  __atomic_store_n(&m_MountView, static_cast<VfsMountView*>(nullptr), __ATOMIC_RELEASE);
+  delete view;
+  return true;
+}
 bool VFS::initialiseMountView() {
   if (mountView())
     return true;

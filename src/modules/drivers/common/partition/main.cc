@@ -22,6 +22,8 @@
 #include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -34,6 +36,7 @@
 
 static Service* pService = 0;
 static ServiceFeatures* pFeatures = 0;
+static OperationBarrier g_ProbeOperations;
 
 static bool probeDevice(Disk* pDev) {
   if (pDev->getSpecificType() == String("partition"))
@@ -79,6 +82,10 @@ static Device* checkNode(Device* pDev) {
 }
 
 bool PartitionService::serve(ServiceFeatures::Type type, void* pData, size_t dataLen) {
+  OperationBarrier::Lease operation;
+  if (!g_ProbeOperations.tryAcquire(operation))
+    return false;
+
   // Correct type?
   if (pFeatures->provides(type)) {
     // We only provide Touch services
@@ -110,15 +117,33 @@ static bool entry() {
   return true;
 }
 
+static Device* removePartition(Device* device) {
+  if (device->getSpecificType() != String("partition"))
+    return device;
+
+#if !HOSTED
+  // Mounted filesystems and paging retain the physical endpoint. Closing it
+  // before deletion also excludes new users until the backing driver exits.
+  Disk* physical = static_cast<Disk*>(device)->physicalDisk();
+  if (!physical || !physical->tryCloseEndpoint())
+    panic("Partition shutdown blocked by a live disk owner");
+#endif
+
+  // Device::foreach removes the child and deletes it under the tree lock.
+  return nullptr;
+}
+
 static void exit() {
   ServiceManager::instance().removeService(String("partition"));
+  g_ProbeOperations.closeAndWait();
+  Device::foreach (removePartition);
   delete pService;
   delete pFeatures;
 }
 
 #if HOSTED
-MODULE_INFO("partition", &entry, &exit, "diskimage");
+MODULE_INFO_RUNTIME_PINNED("partition", &entry, &exit, "diskimage");
 #else
-MODULE_INFO("partition", &entry, &exit);
-MODULE_OPTIONAL_DEPENDS("ata", "ahci", "nvme");
+MODULE_INFO_RUNTIME_PINNED("partition", &entry, &exit);
+MODULE_OPTIONAL_DEPENDS("ata", "ahci", "nvme", "usb-mass-storage");
 #endif

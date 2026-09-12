@@ -22,6 +22,7 @@
 #include "pedigree/kernel/processor/types.h"
 
 #include "RawFs.h"
+#include "RawFsFile.h"
 #include "modules/system/vfs/File.h"
 
 class Filesystem;
@@ -42,4 +43,30 @@ void RawFsDir::removeRecursive() {
   /// \todo Leaky.
   NOTICE("rawfs: removing '" << getName() << "'");
   /// \todo do this
+}
+
+bool RawFsDir::syncFiles(bool terminal) {
+  struct Context {
+    RawFsDir* directory;
+    bool terminal;
+    bool succeeded;
+  } context = {this, terminal, true};
+  auto syncChild = [](void* opaque, const DirectoryEntryView& entry) -> bool {
+    auto* context = static_cast<Context*>(opaque);
+    ChildLease child;
+    if (context->directory->lookupChild(HashedStringView(entry.name), child) !=
+        LookupStatus::Found) {
+      context->succeeded = false;
+      return true;
+    }
+    const bool synced = child.get()->isDirectory()
+                            ? static_cast<RawFsDir*>(child.get())->syncFiles(context->terminal)
+                        : context->terminal ? static_cast<RawFsFile*>(child.get())->shutdown()
+                                            : child.get()->sync();
+    context->succeeded = synced && context->succeeded;
+    return true;
+  };
+  uint64_t cookie = 2;  // Skip the synthetic self and parent entries.
+  const ReadStatus result = enumerate(cookie, syncChild, &context);
+  return result == ReadStatus::Complete && context.succeeded;
 }

@@ -46,6 +46,7 @@ class RawFsDir : public Directory {
   void addEntry(File* pEntry);
 
   void removeRecursive();
+  bool syncFiles(bool terminal);
 };
 
 #endif

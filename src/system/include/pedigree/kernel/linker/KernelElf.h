@@ -203,8 +203,11 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
   static void failRuntimeProtectionForTest(size_t operationsBeforeFailure);
 #endif
 
-  /** Unloads all loaded modules. */
-  void unloadModules();
+  /** Unloads modules; false forbids the final platform shutdown handoff. */
+  MUST_USE_RESULT bool unloadModules();
+  bool isShuttingDown() const {
+    return __atomic_load_n(&m_ModuleShutdown, __ATOMIC_ACQUIRE);
+  }
 
   /**
    * Registers one terminal quiesce callback owned by the module whose entry
@@ -215,7 +218,8 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
 
   /** Called outside the module lock after exclusive unload claim. Refusal
    * must reopen any resource admission the hook closed. Ready must retain
-   * closed admission through exit; terminal refusal preserves mapped code. */
+   * closed admission through exit. Busy aborts terminal shutdown; KeepMapped
+   * permits safe retention without invoking exit. */
   bool registerUnloadAdmission(ModuleEntry ownerEntry, Module::UnloadAdmissionHook hook);
 
   /** Removes a terminal callback only when both its owner and function match. */

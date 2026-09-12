@@ -20,6 +20,7 @@
 #include "RawFs.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/new"
 
@@ -40,8 +41,18 @@ RawFs::RawFs() : m_pRoot(0) {
 }
 
 RawFs::~RawFs() {
+  if (shutdown() != SyncStatus::Success)
+    panic("rawfs: filesystem shutdown failed");
   if (m_pRoot)
     delete m_pRoot;
+}
+
+Filesystem::SyncStatus RawFs::sync() {
+  return m_pRoot->syncFiles(false) ? SyncStatus::Success : SyncStatus::IoError;
+}
+
+Filesystem::SyncStatus RawFs::shutdown() {
+  return m_pRoot->syncFiles(true) ? SyncStatus::Success : SyncStatus::IoError;
 }
 
 File* RawFs::getRoot() const {
@@ -102,9 +113,10 @@ static bool init() {
 
 static void destroy() {
   if (!VFS::instance().removeMountCallback(&rescanTree)) {
-    FATAL("rawfs mount callback was not registered during unload");
+    panic("rawfs mount callback was not registered during unload");
   }
-  VFS::instance().unregisterFilesystem(g_pRawFs);
+  if (!VFS::instance().unregisterFilesystem(g_pRawFs, true, true))
+    panic("rawfs: filesystem retirement failed");
   g_pRawFs = nullptr;
 }
 

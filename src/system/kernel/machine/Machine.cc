@@ -19,6 +19,8 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Serial.h"
+#include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 Machine::~Machine() {}
@@ -26,6 +28,36 @@ Machine::~Machine() {}
 void Machine::finalShutdown(ShutdownType type) {
   if (type == ShutdownType::Restart)
     Processor::reset();
+}
+
+void Machine::displayShutdownMessage(const char* message) {
+  if (!message)
+    return;
+  Vga* console = getNumVga() ? getVga(0) : nullptr;
+  if (console) {
+    console->setLargestTextMode();
+    uint16_t* cells = *console;
+    const size_t rows = console->getNumRows();
+    const size_t cols = console->getNumCols();
+    if (cells && rows && cols) {
+      for (size_t i = 0; i < rows * cols; ++i)
+        cells[i] = 0x0f20;
+      size_t length = 0;
+      while (length < cols && message[length])
+        ++length;
+      const size_t start = (rows / 2) * cols + (cols - length) / 2;
+      for (size_t i = 0; i < length; ++i)
+        cells[start + i] = 0x0f00 | static_cast<uint8_t>(message[i]);
+      console->moveCursor(cols, rows);
+      console->flush();
+    }
+  }
+  // Logging and graphics service callbacks may already have been unloaded.
+  Serial* serial = getNumSerial() ? getSerial(0) : nullptr;
+  if (serial) {
+    serial->write_str(message);
+    serial->write_str("\r\n");
+  }
 }
 
 bool Machine::quiesceAllOtherProcessors() {

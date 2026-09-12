@@ -1207,10 +1207,6 @@ int posix_reboot(uint32_t magic1, uint32_t magic2, uint32_t command) {
       type = Machine::ShutdownType::Halt;
       break;
     case 0x4321fedc:
-      if (!Machine::instance().supportsPowerOff()) {
-        SYSCALL_ERROR(OperationNotSupported);
-        return -1;
-      }
       type = Machine::ShutdownType::PowerOff;
       break;
     default:

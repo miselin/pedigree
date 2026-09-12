@@ -25,6 +25,7 @@
 #include "pedigree/kernel/debugger/LocalIO.h"
 #include "pedigree/kernel/debugger/SerialIO.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
+#include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Serial.h"
@@ -120,6 +121,7 @@ void panic(const char* msg) {
 #endif
 
   const bool terminalTlbFailure = Processor::tlbInvalidationTerminal();
+  const bool terminalShutdown = KernelElf::instance().isShuttingDown();
   Processor::setInterrupts(false);
 
   // Graphics providers may already have been unloaded during shutdown.
@@ -145,10 +147,24 @@ void panic(const char* msg) {
   } else {
     processorsStopped = Machine::instance().stopAllOtherProcessors();
   }
-  if (!processorsStopped && !terminalTlbFailure) {
+  if (!processorsStopped && !terminalTlbFailure && !terminalShutdown) {
     ERROR_NOLOCK("panic: not all other processors stopped");
   }
 #endif
+
+  if (terminalShutdown && !terminalTlbFailure) {
+    // Module-backed graphics and debugger providers may already be unmapped.
+    // Keep the failure visible without turning it into a fault or a reset.
+    constexpr char failure[] = "Shutdown failed. Filesystems may be unclean.";
+    if (processorsStopped) {
+      Machine::instance().displayShutdownMessage(failure);
+    } else if (Machine::instance().getNumSerial()) {
+      Machine::instance().getSerial(0)->write_str(failure);
+      Machine::instance().getSerial(0)->write_str("\r\n");
+    }
+    while (true)
+      Processor::halt();
+  }
 
   if (terminalTlbFailure) {
     // Arbitrarily halted peers may own allocator, log, graphics, or input

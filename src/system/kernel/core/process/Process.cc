@@ -633,6 +633,16 @@ bool Process::filesystemContextReady() const {
   return m_bFilesystemContextReady;
 }
 
+void Process::releaseFilesystemContext() {
+  FilesystemContextOwner retired;
+  {
+    LockGuard<Mutex> guard(m_FilesystemContextLock);
+    retired = pedigree_std::move(m_FilesystemContext);
+    m_bFilesystemContextReady = false;
+  }
+  retired.reset();
+}
+
 namespace {
 class CoreControllingTerminal : public Process::ControllingTerminal {
  public:
@@ -964,12 +974,7 @@ Process::~Process() {
   if (m_pSubsystem)
     delete m_pSubsystem;
 
-  FilesystemContextOwner retiredFilesystemContext;
-  {
-    LockGuard<Mutex> guard(m_FilesystemContextLock);
-    retiredFilesystemContext = pedigree_std::move(m_FilesystemContext);
-  }
-  retiredFilesystemContext.reset();
+  releaseFilesystemContext();
 
   VirtualAddressSpace& VAddressSpace = Processor::information().getVirtualAddressSpace();
 

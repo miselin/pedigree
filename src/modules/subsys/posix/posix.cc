@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -117,7 +118,7 @@ void drainPosixProcesses(TerminalDrainStats& stats) {
       if (!reservation) {
         const Process::ProcessState currentState = process->getState();
         if (currentState == Process::Active || currentState == Process::Suspended) {
-          FATAL("POSIX shutdown could not reserve its active terminal exit owner");
+          panic("POSIX shutdown could not reserve its active terminal exit owner");
         }
         ++stats.zombies;
       } else {
@@ -129,7 +130,7 @@ void drainPosixProcesses(TerminalDrainStats& stats) {
 
         PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
         if (!subsystem) {
-          FATAL("POSIX shutdown found a process without its subsystem");
+          panic("POSIX shutdown found a process without its subsystem");
         }
         Thread* ownerIdentity =
             new Thread(process.get(), terminalProcessExit, subsystem, nullptr, false, true, true);
@@ -138,10 +139,10 @@ void drainPosixProcesses(TerminalDrainStats& stats) {
 
         Process::ThreadLease owner;
         if (!process->acquireThread(owner, ownerIdentity)) {
-          FATAL("POSIX shutdown lost its reserved terminal exit owner");
+          panic("POSIX shutdown lost its reserved terminal exit owner");
         }
         if (!owner->start()) {
-          FATAL("POSIX shutdown could not start its reserved terminal exit owner");
+          panic("POSIX shutdown could not start its reserved terminal exit owner");
         }
         ++stats.syntheticOwners;
         owner.reset();
@@ -151,7 +152,7 @@ void drainPosixProcesses(TerminalDrainStats& stats) {
     }
 
     if (!process->waitUntilTerminationReapableForTerminalCoordinator()) {
-      FATAL("POSIX shutdown attempted to reap its own exit owner");
+      panic("POSIX shutdown attempted to reap its own exit owner");
     }
 
     Process* processIdentity = process.get();
@@ -166,14 +167,14 @@ void drainPosixProcesses(TerminalDrainStats& stats) {
     // is the completion barrier that keeps POSIX text mapped until every
     // IntervalTimer and PosixSubsystem destructor has returned.
     if (!ZombieQueue::instance().drain()) {
-      FATAL("POSIX shutdown could not drain process destruction");
+      panic("POSIX shutdown could not drain process destruction");
     }
   }
 
   // Also covers a POSIX reaper which removed its process before the final
   // enumeration pass but is still running the derived destructor.
   if (!ZombieQueue::instance().drain()) {
-    FATAL("POSIX shutdown could not complete its final process drain");
+    panic("POSIX shutdown could not complete its final process drain");
   }
 }
 }  // namespace
@@ -225,9 +226,11 @@ static bool terminalQuiesce() {
   auto& maps = MemoryMapManager::instance();
   if (maps.swapSnapshot().active) {
     const auto swapStatus = maps.deactivateSwap(SwapStore::instance().endpointId());
-    if (swapStatus != SwapStatus::Success)
+    if (swapStatus != SwapStatus::Success) {
       WARNING("POSIX shutdown could not drain swap; storage retained (status "
               << static_cast<size_t>(swapStatus) << ")");
+      return false;
+    }
   }
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   NOTICE("HOSTED-POSIX-SHUTDOWN: PHASE final-process-drain-complete");
@@ -235,6 +238,11 @@ static bool terminalQuiesce() {
 #endif
 
   posix_stop_accounting();
+#if THREADS
+  // Process 0 survives the terminal halt; its bootstrap root would otherwise
+  // keep the mount namespace and storage alive past filesystem shutdown.
+  Processor::information().getCurrentThread()->getParent()->releaseFilesystemContext();
+#endif
   if (auto* view = VFS::instance().mountView()) {
     // A surviving attachment path keeps both its backend and this module mapped.
     Filesystem* backings[] = {g_pUnixFilesystem, g_pProcFs, g_pDevFs, g_pRunFilesystem};
@@ -386,32 +394,32 @@ static bool init() {
 static void destroy() {
   if (g_PosixTerminalLifetime == PosixTerminalLifetimeState::HookOwned) {
     if (!KernelElf::instance().unregisterTerminalQuiesce(&init, &terminalQuiesce)) {
-      FATAL("POSIX terminal quiesce ownership could not be released safely.");
+      panic("POSIX terminal quiesce ownership could not be released safely.");
     }
     // Retain HookOwned across unregister: this module lifetime still owns all
     // live POSIX processes and must perform the same terminal drain itself.
     if (!terminalQuiesce()) {
-      FATAL("POSIX syscall handlers could not be retired safely.");
+      panic("POSIX syscall handlers could not be retired safely.");
     }
   } else if (g_PosixTerminalLifetime == PosixTerminalLifetimeState::Unowned) {
     // Failed or duplicate initialisation never acquired global POSIX lifetime
     // ownership and therefore must not terminate another module's processes.
     if (!retireUnownedSyscallRegistrations(g_PosixSyscallManager)) {
-      FATAL("Partial POSIX syscall handlers could not be retired safely.");
+      panic("Partial POSIX syscall handlers could not be retired safely.");
     }
   }
 
-  if (g_pProcFs) {
-    VFS::instance().unregisterFilesystem(g_pProcFs, false);
+  if (g_pProcFs && !VFS::instance().unregisterFilesystem(g_pProcFs, false)) {
+    panic("POSIX shutdown could not retire procfs");
   }
-  if (g_pDevFs) {
-    VFS::instance().unregisterFilesystem(g_pDevFs, false);
+  if (g_pDevFs && !VFS::instance().unregisterFilesystem(g_pDevFs, false)) {
+    panic("POSIX shutdown could not retire devfs");
   }
-  if (g_pUnixFilesystem) {
-    VFS::instance().unregisterFilesystem(g_pUnixFilesystem, false);
+  if (g_pUnixFilesystem && !VFS::instance().unregisterFilesystem(g_pUnixFilesystem, false)) {
+    panic("POSIX shutdown could not retire unixfs");
   }
-  if (g_pRunFilesystem) {
-    VFS::instance().unregisterFilesystem(g_pRunFilesystem, false);
+  if (g_pRunFilesystem && !VFS::instance().unregisterFilesystem(g_pRunFilesystem, false)) {
+    panic("POSIX shutdown could not retire runfs");
   }
 
   delete g_pRunFilesystem;

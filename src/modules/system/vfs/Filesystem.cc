@@ -45,6 +45,11 @@ Filesystem::SyncStatus Filesystem::sync() {
   return m_bReadOnly ? SyncStatus::Success : SyncStatus::Unsupported;
 }
 
+Filesystem::SyncStatus Filesystem::shutdown() {
+  // Persistent writable backends must explicitly certify their teardown path.
+  return m_bReadOnly || !m_pDisk ? sync() : SyncStatus::Unsupported;
+}
+
 FileHandleStatus Filesystem::encodeFileHandle(File&, FileHandle& handle) {
   handle = FileHandle();
   return FileHandleStatus::Unsupported;

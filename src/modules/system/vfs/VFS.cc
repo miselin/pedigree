@@ -522,7 +522,7 @@ String VFS::registerFilesystemLocked(Filesystem* pFs, const String& preferredSta
   return info->stableName;
 }
 
-bool VFS::unregisterFilesystem(Filesystem* pFs, bool canDelete) {
+bool VFS::unregisterFilesystem(Filesystem* pFs, bool canDelete, bool terminal) {
 #if THREADS
   TerminationDeferral teardownDeferral;
 #endif
@@ -561,6 +561,10 @@ bool VFS::unregisterFilesystem(Filesystem* pFs, bool canDelete) {
 
   info->state->retire();
   delete info;
+  if (terminal && pFs->shutdown() != Filesystem::SyncStatus::Success) {
+    ERROR("Filesystem shutdown failed: " << pFs->getVolumeLabel());
+    return false;
+  }
   if (canDelete) {
     delete pFs;
   }

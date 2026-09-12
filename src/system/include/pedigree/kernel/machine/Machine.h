@@ -52,6 +52,9 @@ class EXPORTED_PUBLIC Machine {
   /** Runs after all workers, devices and other processors have stopped. */
   virtual void finalShutdown(ShutdownType type);
 
+  /** Uses retained console providers after other display writers have stopped. */
+  void displayShutdownMessage(const char* message);
+
   /**
    * Initialises the machine.
    */

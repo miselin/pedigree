@@ -34,13 +34,18 @@
 
 extern BootstrapStruct_t* g_pBootstrapInfo;
 
+#ifndef USE_FILE_IO
 #define USE_FILE_IO 0
+#endif
 
 #if defined(TESTSUITE)
 extern int diskImageMsync(void* address, size_t length, int flags);
+extern int diskImageFsync(int fd);
 #define DISKIMAGE_MSYNC diskImageMsync
+#define DISKIMAGE_FSYNC diskImageFsync
 #else
 #define DISKIMAGE_MSYNC msync
+#define DISKIMAGE_FSYNC fsync
 #endif
 
 namespace {
@@ -139,7 +144,17 @@ bool DiskImage::initialise() {
   m_HostPageSize = static_cast<size_t>(hostPageSize);
 
 #if USE_FILE_IO
-  m_pBuffer = (void*)new char[m_nSize];
+  m_pBuffer = new (std::nothrow) char[m_nSize];
+  if (!m_pBuffer || fread(m_pBuffer, 1, m_nSize, m_pFile) != m_nSize) {
+    delete[] static_cast<char*>(m_pBuffer);
+    m_pBuffer = nullptr;
+    fclose(m_pFile);
+    m_pFile = nullptr;
+    m_FileNo = -1;
+    m_nSize = 0;
+    m_HostPageSize = 0;
+    return false;
+  }
 #elif HAS_ADDRESS_SANITIZER
   m_BufferMap.clear();
 #else
@@ -198,12 +213,7 @@ BufferView DiskImage::read(uint64_t location) {
 
   uint64_t off = location & 0xFFF;
 #if USE_FILE_IO
-  location &= ~0xFFF;
-  fseek(m_pFile, location, SEEK_SET);
-  ssize_t x = fread(adjust_pointer(m_pBuffer, location), 4096, 1, m_pFile);
-  if (!x)
-    return BufferView();
-  return BufferView::fromAddress(reinterpret_cast<uintptr_t>(m_pBuffer) + location + off,
+  return BufferView::fromAddress(reinterpret_cast<uintptr_t>(m_pBuffer) + location,
                                  getBlockSize() - off);
 #elif HAS_ADDRESS_SANITIZER
   auto it = m_BufferMap.find(pageLocation);
@@ -271,6 +281,36 @@ bool DiskImage::sync(uint64_t location, bool async) {
   return writeback(location, async ? MS_ASYNC : MS_SYNC);
 }
 
+bool DiskImage::syncAll() {
+  if (!m_pFile || m_FileNo < 0 || !m_nSize)
+    return false;
+  bool succeeded = true;
+#if USE_FILE_IO
+  // Reads retain mutable addresses, so the complete resident image is authoritative.
+  succeeded = m_pBuffer && fseek(m_pFile, 0, SEEK_SET) == 0 &&
+              fwrite(m_pBuffer, 1, m_nSize, m_pFile) == m_nSize;
+#elif HAS_ADDRESS_SANITIZER
+  for (const auto& entry : m_BufferMap) {
+    const BufferMapping& mapping = entry.second;
+    if (DISKIMAGE_MSYNC(mapping.base, mapping.length, MS_SYNC) != 0)
+      succeeded = false;
+  }
+#else
+  succeeded = m_pBuffer && DISKIMAGE_MSYNC(m_pBuffer, m_nSize, MS_SYNC) == 0;
+#endif
+  if (fflush(m_pFile) != 0)
+    succeeded = false;
+  if (DISKIMAGE_FSYNC(m_FileNo) != 0)
+    succeeded = false;
+#if !HAS_ADDRESS_SANITIZER
+  if (succeeded && m_pDirtyPages) {
+    std::memset(m_pDirtyPages, 0, m_DirtyPageTotal);
+    m_DirtyPageCount = 0;
+  }
+#endif
+  return succeeded;
+}
+
 #if !HAS_ADDRESS_SANITIZER
 void DiskImage::flushDirtyPages(int flags) {
   if (!m_pDirtyPages || !m_DirtyPageCount) {
@@ -320,7 +360,7 @@ bool DiskImage::writeback(uint64_t location, int flags) {
       fwrite(adjust_pointer(m_pBuffer, location), 4096, 1, m_pFile) != 1) {
     return false;
   }
-  return flags != MS_SYNC || (fflush(m_pFile) == 0 && fsync(m_FileNo) == 0);
+  return flags != MS_SYNC || (fflush(m_pFile) == 0 && DISKIMAGE_FSYNC(m_FileNo) == 0);
 #elif HAS_ADDRESS_SANITIZER
   auto it = m_BufferMap.find(pageLocation);
   if (it != m_BufferMap.end()) {

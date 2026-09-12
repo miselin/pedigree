@@ -170,7 +170,8 @@ bool Ext2Filesystem::initialise(Disk* pDisk) {
   }
 
   // Clean?
-  if (LITTLE_TO_HOST16(m_pSuperblock->s_state) != EXT2_STATE_CLEAN) {
+  m_MountState = LITTLE_TO_HOST16(m_pSuperblock->s_state);
+  if (m_MountState != EXT2_STATE_CLEAN) {
     WARNING("Ext2: filesystem on device " << devName << " is not clean.");
   }
 
@@ -291,7 +292,7 @@ bool Ext2Filesystem::initialise(Disk* pDisk) {
     m_VolumeLabel.assign(buffer);
   }
 
-  return true;
+  return m_bReadOnly || beginWritableMount();
 }
 
 Filesystem* Ext2Filesystem::probe(Disk* pDisk) {
@@ -1169,8 +1170,10 @@ bool Ext2Filesystem::releaseInode(uint32_t inodeNumber, Ext2Node* retiringNode) 
 
 void Ext2Filesystem::retireInodeLocked(uint32_t inodeNumber, Ext2Node* retiringNode) {
   Inode* pInode = getInode(inodeNumber);
-  if (!pInode)
+  if (!pInode) {
+    m_TeardownFailed = true;
     return;
+  }
   const uint32_t inodeIndex = inodeNumber - 1;  // Inode zero is undefined, so it's not used.
 
   uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
@@ -1185,6 +1188,7 @@ void Ext2Filesystem::retireInodeLocked(uint32_t inodeNumber, Ext2Node* retiringN
       !ensureFreeInodeBitmapLoaded(group) ||
       (attributes.block && reserveAttributeWritesLocked(12) != XattrStatus::Success)) {
     ERROR("Ext2: retaining an orphan inode whose attributes could not be retired");
+    m_TeardownFailed = true;
     return;
   }
   {
@@ -1193,6 +1197,7 @@ void Ext2Filesystem::retireInodeLocked(uint32_t inodeNumber, Ext2Node* retiringN
     // finishes zeroing it.
     if (retiringNode && !retiringNode->wipe(true)) {
       ERROR("Ext2: retaining an orphan inode whose blocks could not be retired");
+      m_TeardownFailed = true;
       return;
     }
 
@@ -1209,6 +1214,7 @@ void Ext2Filesystem::retireInodeLocked(uint32_t inodeNumber, Ext2Node* retiringN
     pInode->i_dtime = HOST_TO_LITTLE32(getUnixTimestamp());
 
     if (!ensureFreeInodeBitmapLoaded(group)) {
+      m_TeardownFailed = true;
       return;
     }
 

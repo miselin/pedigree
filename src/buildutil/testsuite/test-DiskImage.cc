@@ -45,6 +45,8 @@ struct MsyncCall {
 
 std::vector<MsyncCall> g_MsyncCalls;
 bool g_FailMsync = false;
+bool g_FailFsync = false;
+size_t g_FsyncCalls = 0;
 
 uint8_t patternAt(size_t offset) {
   return static_cast<uint8_t>((offset / kBlockSize) * 37 + (offset % 251));
@@ -66,6 +68,8 @@ class DiskImageTest : public ::testing::Test {
  protected:
   void SetUp() override {
     g_FailMsync = false;
+    g_FailFsync = false;
+    g_FsyncCalls = 0;
     char path[] = "/tmp/pedigree-diskimage-XXXXXX";
     const int fd = mkstemp(path);
     ASSERT_GE(fd, 0);
@@ -84,6 +88,7 @@ class DiskImageTest : public ::testing::Test {
 
   void TearDown() override {
     g_FailMsync = false;
+    g_FailFsync = false;
     if (!m_Path.empty()) {
       unlink(m_Path.c_str());
     }
@@ -113,6 +118,15 @@ int diskImageMsync(void* address, size_t length, int flags) {
   g_MsyncCalls.push_back({reinterpret_cast<uintptr_t>(address), length, flags, result});
   errno = savedErrno;
   return result;
+}
+
+int diskImageFsync(int fd) {
+  ++g_FsyncCalls;
+  if (g_FailFsync) {
+    errno = EIO;
+    return -1;
+  }
+  return ::fsync(fd);
 }
 
 TEST_F(DiskImageTest, ReadsOnlyCompleteLogicalBlocks) {
@@ -245,6 +259,85 @@ TEST_F(DiskImageTest, CheckedSyncRejectsIncompleteOrAbsentBacking) {
   ASSERT_TRUE(image.initialise());
   EXPECT_FALSE(image.sync(3 * kBlockSize, false));
   EXPECT_FALSE(image.sync(kImageSize, true));
+}
+
+TEST_F(DiskImageTest, WholeImageSyncPersistsMultipleBlocksAndPreservesTail) {
+  DiskImage image(m_Path.c_str());
+  ASSERT_TRUE(image.initialise());
+  const auto first = image.read(137);
+  const auto second = image.read(2 * kBlockSize + 511);
+  ASSERT_TRUE(first);
+  ASSERT_TRUE(second);
+  first[0] = 0xa7;
+  second[0] = 0x7a;
+  image.write(137);
+  g_MsyncCalls.clear();
+  g_FsyncCalls = 0;
+  EXPECT_TRUE(image.syncAll());
+  EXPECT_EQ(g_FsyncCalls, 1U);
+  for (const auto& call : g_MsyncCalls) {
+    EXPECT_EQ(call.flags, MS_SYNC);
+    EXPECT_EQ(call.result, 0);
+  }
+  EXPECT_EQ(readByte(137), 0xa7);
+  EXPECT_EQ(readByte(2 * kBlockSize + 511), 0x7a);
+  EXPECT_EQ(readByte(kImageSize - 1), patternAt(kImageSize - 1));
+}
+
+#if !defined(USE_FILE_IO) || !USE_FILE_IO
+TEST_F(DiskImageTest, WholeImageSyncReportsMappingFailureAndRetriesEveryMapping) {
+  DiskImage image(m_Path.c_str());
+  ASSERT_TRUE(image.initialise());
+  const auto first = image.read(0);
+  const auto second = image.read(2 * kBlockSize);
+  ASSERT_TRUE(first);
+  ASSERT_TRUE(second);
+  first[0] = 0xb1;
+  second[0] = 0x1b;
+  g_MsyncCalls.clear();
+  g_FailMsync = true;
+  EXPECT_FALSE(image.syncAll());
+#if HAS_ADDRESS_SANITIZER
+  EXPECT_EQ(g_MsyncCalls.size(), 2U);
+#else
+  EXPECT_EQ(g_MsyncCalls.size(), 1U);
+#endif
+  EXPECT_EQ(g_FsyncCalls, 1U);
+  g_FailMsync = false;
+  EXPECT_TRUE(image.syncAll());
+  EXPECT_EQ(g_FsyncCalls, 2U);
+  EXPECT_EQ(readByte(0), 0xb1);
+  EXPECT_EQ(readByte(2 * kBlockSize), 0x1b);
+}
+#endif
+
+TEST_F(DiskImageTest, WholeImageSyncReportsDeviceFlushFailureAndAllowsRetry) {
+  DiskImage image(m_Path.c_str());
+  ASSERT_TRUE(image.initialise());
+  const auto data = image.read(kBlockSize);
+  ASSERT_TRUE(data);
+  data[0] = 0x6e;
+  g_FailFsync = true;
+  EXPECT_FALSE(image.syncAll());
+  EXPECT_EQ(errno, EIO);
+  EXPECT_EQ(data[0], 0x6e);
+  g_FailFsync = false;
+  EXPECT_TRUE(image.syncAll());
+  EXPECT_EQ(readByte(kBlockSize), 0x6e);
+  EXPECT_EQ(g_FsyncCalls, 2U);
+}
+
+TEST_F(DiskImageTest, WholeImageSyncChecksDeviceEvenWithoutCachedReads) {
+  DiskImage image(m_Path.c_str());
+  EXPECT_FALSE(image.syncAll());
+  EXPECT_EQ(g_FsyncCalls, 0U);
+  ASSERT_TRUE(image.initialise());
+  g_FailFsync = true;
+  EXPECT_FALSE(image.syncAll());
+  EXPECT_EQ(g_FsyncCalls, 1U);
+  g_FailFsync = false;
+  EXPECT_TRUE(image.syncAll());
+  EXPECT_EQ(g_FsyncCalls, 2U);
 }
 
 #if !HAS_ADDRESS_SANITIZER

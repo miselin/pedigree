@@ -378,6 +378,26 @@ TEST(FatNamespace, NonregularAliasSurvivesUnlinkUntilItsLastReferenceCloses) {
   }
 }
 
+TEST(FatShutdown, FailedNonregularOrphanReclamationPreventsCleanCompletion) {
+  for (bool symlink : {false, true}) {
+    NamespaceDisk disk;
+    NamespaceFilesystem fs(disk);
+    auto* root = static_cast<FatDirectory*>(fs.getRoot());
+    if (symlink)
+      ASSERT_TRUE(fs.createSymlink(StringView("held"), String("destination"), root));
+    else
+      ASSERT_TRUE(fs.createDirectory(StringView("held"), 0700, root));
+    Directory::ChildLease survivor;
+    ASSERT_EQ(lookup(root, "held", survivor), Directory::LookupStatus::Found);
+    ASSERT_TRUE(fs.remove(StringView("held"), root));
+    disk.failedSync = Sector;
+    disk.persistentFailure = true;
+    survivor.reset();
+    disk.failedSync = UINT64_MAX;
+    EXPECT_EQ(fs.shutdown(), Filesystem::SyncStatus::IoError);
+  }
+}
+
 TEST(FatNamespace, RejectsNonemptyReplacementAndDescendantMove) {
   NamespaceDisk disk;
   NamespaceFilesystem fs(disk);

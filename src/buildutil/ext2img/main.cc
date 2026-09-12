@@ -441,8 +441,14 @@ bool unmount() {
     return false;
   }
 
-  VFS::instance().setRootFilesystem(nullptr);
-  VFS::instance().unregisterFilesystem(pFs);
+  if (!VFS::instance().setRootFilesystem(nullptr)) {
+    std::cerr << "Failed to detach the ext2 root filesystem." << std::endl;
+    return false;
+  }
+  if (!VFS::instance().unregisterFilesystem(pFs, true, true)) {
+    std::cerr << "Failed to cleanly unmount the ext2 filesystem." << std::endl;
+    return false;
+  }
 
   return true;
 }
@@ -494,8 +500,10 @@ int imageChecksums(const char* image, size_t part = 0) {
   }
 
   struct UnmountGuard {
+    bool active = true;
     ~UnmountGuard() {
-      unmount();
+      if (active)
+        unmount();
     }
   } unmountGuard;
 
@@ -585,7 +593,8 @@ int imageChecksums(const char* image, size_t part = 0) {
   std::cerr << "ext2img was built without any support for sha256." << std::endl;
 #endif
 
-  return 1;
+  unmountGuard.active = false;
+  return unmount() ? 1 : 0;
 }
 
 int handleImage(const char* image, std::vector<Command>& cmdlist, size_t part = 0) {

@@ -78,8 +78,10 @@ void FatFilesystem::releaseNode(File* file) {
   }
 
   // Reclamation uses only the saved allocation identity after alias removal.
-  if (retired->unlinked && !m_bReadOnly && !releaseClusterChain(retired->inode, false))
+  if (retired->unlinked && !m_bReadOnly && !releaseClusterChain(retired->inode, false)) {
+    m_IoFailed = true;
     ERROR("FAT: orphan node allocation reclamation needs a FAT retry");
+  }
   delete retired;
 }
 

@@ -236,6 +236,12 @@ AtaDisk::~AtaDisk() {
   releasePagingStorage();
 }
 
+void AtaDisk::shutdownDeviceCache() {
+  // Packet writes are rejected by this driver, including its paging path.
+  if (m_AtaDiskType == NotPacket)
+    ScsiDisk::shutdownDeviceCache();
+}
+
 void AtaDisk::maskInterrupts() {
   if (m_ControlRegs) {
     // nIEN prevents fresh device IRQs after the controller queue drains.

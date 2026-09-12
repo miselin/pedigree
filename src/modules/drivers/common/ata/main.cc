@@ -190,14 +190,14 @@ static Device* probeDisk(Device* pDev) {
   return pDev;
 }
 
-static Module::UnloadAdmission admitUnload(bool terminal) {
+static Module::UnloadAdmission admitUnload(bool) {
   for (auto* controller : g_Controllers) {
     if (controller && !controller->prepareDiskRemoval()) {
       for (auto* rollback : g_Controllers) {
         if (rollback)
           rollback->cancelDiskRemoval();
       }
-      return terminal ? Module::UnloadAdmission::KeepMapped : Module::UnloadAdmission::Busy;
+      return Module::UnloadAdmission::Busy;
     }
   }
   return Module::UnloadAdmission::Ready;

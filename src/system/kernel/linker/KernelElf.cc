@@ -794,12 +794,15 @@ bool KernelElf::completeUnloadAttempt(Module* module, ModuleUnloadClaim claim, b
       break;
   }
 
-  if (runLifecycle && module->unloadAdmission &&
-      module->unloadAdmission(terminal) != Module::UnloadAdmission::Ready) {
+  const auto admission = runLifecycle && module->unloadAdmission ? module->unloadAdmission(terminal)
+                                                                 : Module::UnloadAdmission::Ready;
+  if (admission != Module::UnloadAdmission::Ready) {
     lockModules();
     module->status = wasFailed ? Module::Failed : Module::Active;
     if (terminal)
       module->unloadable = false;
+    if (terminal && admission == Module::UnloadAdmission::Busy)
+      m_ModuleShutdownStatus = ShutdownFailed;
     m_UnloadingModule = nullptr;
     unlockModules();
     if (terminal)
@@ -1071,37 +1074,37 @@ bool KernelElf::unregisterTerminalQuiesce(ModuleEntry ownerEntry, TerminalQuiesc
   return true;
 }
 
-void KernelElf::unloadModules() {
+bool KernelElf::unloadModules() {
   while (true) {
     bool waiting = false;
     bool failed = false;
 
     lockModules();
     if (m_ModuleShutdownStatus == ShutdownOpen) {
-      m_ModuleShutdown = true;
+      __atomic_store_n(&m_ModuleShutdown, true, __ATOMIC_RELEASE);
       m_ModuleShutdownStatus = ShutdownRunning;
       unlockModules();
       break;
     }
     if (m_ModuleShutdownStatus == ShutdownComplete) {
       unlockModules();
-      return;
+      return true;
     }
     failed = m_ModuleShutdownStatus == ShutdownFailed;
     waiting = m_ModuleShutdownStatus == ShutdownRunning;
     unlockModules();
 
     if (failed) {
-      FATAL("KERNELELF: Module shutdown previously failed");
-      return;
+      ERROR("KERNELELF: Module shutdown previously failed");
+      return false;
     }
     if (waiting) {
 #if THREADS
       Scheduler::instance().yield();
       continue;
 #else
-      FATAL("KERNELELF: Concurrent module shutdown without scheduler support");
-      return;
+      ERROR("KERNELELF: Concurrent module shutdown without scheduler support");
+      return false;
 #endif
     }
   }
@@ -1140,8 +1143,8 @@ void KernelElf::unloadModules() {
       lockModules();
       m_ModuleShutdownStatus = ShutdownFailed;
       unlockModules();
-      FATAL("KERNELELF: Terminal module quiesce failed; refusing to unload modules");
-      return;
+      ERROR("KERNELELF: Terminal module quiesce failed; refusing to unload modules");
+      return false;
     }
     if (hook) {
       const bool quiesced = hook();
@@ -1152,8 +1155,8 @@ void KernelElf::unloadModules() {
         lockModules();
         m_ModuleShutdownStatus = ShutdownFailed;
         unlockModules();
-        FATAL("KERNELELF: Terminal module quiesce failed; refusing to unload modules");
-        return;
+        ERROR("KERNELELF: Terminal module quiesce failed; refusing to unload modules");
+        return false;
       }
       break;
     }
@@ -1166,8 +1169,8 @@ void KernelElf::unloadModules() {
     lockModules();
     m_ModuleShutdownStatus = ShutdownFailed;
     unlockModules();
-    FATAL("KERNELELF: Terminal quiesce encountered an in-flight module operation");
-    return;
+    ERROR("KERNELELF: Terminal quiesce encountered an in-flight module operation");
+    return false;
 #endif
   }
 
@@ -1198,7 +1201,16 @@ void KernelElf::unloadModules() {
     unlockModules();
 
     if (candidate && claim == UnloadClaimed) {
-      completeUnloadAttempt(candidate, claim, wasFailed, runLifecycle, false, false, true);
+      const bool completed =
+          completeUnloadAttempt(candidate, claim, wasFailed, runLifecycle, false, false, true);
+      lockModules();
+      const bool failed =
+          m_ModuleShutdownStatus == ShutdownFailed || (!completed && candidate->unloadable);
+      if (failed)
+        m_ModuleShutdownStatus = ShutdownFailed;
+      unlockModules();
+      if (failed)
+        return false;
       continue;
     }
     if (waiting || (candidate && claim == UnloadBusy)) {
@@ -1209,8 +1221,8 @@ void KernelElf::unloadModules() {
       lockModules();
       m_ModuleShutdownStatus = ShutdownFailed;
       unlockModules();
-      FATAL("KERNELELF: Module shutdown encountered an in-flight module operation");
-      return;
+      ERROR("KERNELELF: Module shutdown encountered an in-flight module operation");
+      return false;
 #endif
     }
     break;
@@ -1218,6 +1230,16 @@ void KernelElf::unloadModules() {
 
   for (auto module : m_Modules) {
     if (!module->unloadComplete && module->status != Module::Unloaded) {
+      // A live dependency can prevent a resource-owning module's admission
+      // hook from running at all. It must not bypass terminal quiescence.
+      if (module->unloadable && module->unloadAdmission &&
+          module->unloadAdmission(true) != Module::UnloadAdmission::KeepMapped) {
+        ERROR("KERNELELF: Shutdown blocked by retained resources in " << module->name);
+        lockModules();
+        m_ModuleShutdownStatus = ShutdownFailed;
+        unlockModules();
+        return false;
+      }
       if (!module->unloadable) {
         WARNING("KERNELELF: Leaving permanently pinned module " << module->name
                                                                 << " mapped at shutdown");
@@ -1235,6 +1257,7 @@ void KernelElf::unloadModules() {
   m_Modules.clear();
   m_ModuleShutdownStatus = ShutdownComplete;
   unlockModules();
+  return true;
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

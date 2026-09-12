@@ -105,6 +105,29 @@ class MountViewTest : public testing::Test {
 };
 }  // namespace
 
+TEST_F(MountViewTest, TerminalShutdownDrainsOwnersBeforeReturningOwnedBackends) {
+  auto* filesystem = fresh();
+  ASSERT_NE(filesystem, nullptr);
+  ASSERT_TRUE(view->attach(context.reference(), covered, filesystem,
+                           VfsMountView::BackingOwnership::Attachment));
+  Vector<Filesystem*> owned;
+  EXPECT_FALSE(vfs.shutdownMountView(owned));
+  EXPECT_EQ(owned.count(), 0U);
+  context.reset();
+  EXPECT_FALSE(vfs.shutdownMountView(owned));
+  covered.reset();
+  ASSERT_TRUE(vfs.shutdownMountView(owned));
+  EXPECT_EQ(vfs.mountView(), nullptr);
+  ASSERT_EQ(owned.count(), 1U);
+  EXPECT_EQ(owned[0], filesystem);
+  EXPECT_EQ(destroyed.load(), 0U);
+  EXPECT_TRUE(vfs.unregisterFilesystem(filesystem, true, true));
+  EXPECT_TRUE(vfs.unregisterFilesystem(root, true, true));
+  EXPECT_EQ(destroyed.load(), 1U);
+  root = nullptr;
+  view = nullptr;
+}
+
 TEST_F(MountViewTest, RepeatedNormalUnmountRetiresOwnedRegistration) {
   uint32_t previous = 0;
   for (size_t i = 0; i < 32; ++i) {

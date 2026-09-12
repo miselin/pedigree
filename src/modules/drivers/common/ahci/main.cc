@@ -34,12 +34,12 @@ void collect(Device* device) {
   candidates.pushBack(device);
 }
 
-Module::UnloadAdmission admitUnload(bool terminal) {
+Module::UnloadAdmission admitUnload(bool) {
   for (auto* controller : controllers) {
     if (!controller->prepareDiskRemoval()) {
       for (auto* rollback : controllers)
         rollback->cancelDiskRemoval();
-      return terminal ? Module::UnloadAdmission::KeepMapped : Module::UnloadAdmission::Busy;
+      return Module::UnloadAdmission::Busy;
     }
   }
   return Module::UnloadAdmission::Ready;

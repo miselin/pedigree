@@ -78,6 +78,14 @@ class FatDisk final : public Disk {
     return true;
   }
 
+  bool syncAll() override {
+    ++allCalls;
+    if (failedAll)
+      return false;
+    stored = bytes;
+    return true;
+  }
+
   bool pin(uint64_t location) override {
     if (location >= DiskSize)
       return false;
@@ -116,6 +124,8 @@ class FatDisk final : public Disk {
   uint64_t failedSync = UINT64_MAX;
   int references = 0;
   size_t reads = 0;
+  size_t allCalls = 0;
+  bool failedAll = false;
 };
 
 class FatHarness final : public FatFilesystem {
@@ -239,6 +249,50 @@ TEST(FatWriteback, InitialisationPublishesUsableRootAndVolumeLabel) {
   ASSERT_EQ(child.get()->read(0, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
   EXPECT_EQ(value, 0x6B);
   EXPECT_EQ(disk.references, 0);
+}
+
+TEST(FatShutdown, RetainedDirtyDataDrainsBeforeTerminalSuccess) {
+  FatDisk disk;
+  FatHarness filesystem;
+  filesystem.configure(disk);
+  filesystem.chain(disk, {3}, SectorSize);
+  const uint8_t source = 0x5d;
+  {
+    FatFile file(String("shutdown"), 0, 0, 0, 3, &filesystem, SectorSize, 2);
+    FatWritebackTestPeer::forceFill(file, true);
+    ASSERT_EQ(file.write(17, 1, reinterpret_cast<uintptr_t>(&source)), 1U);
+    disk.failedSync = FileLocation;
+  }
+  EXPECT_EQ(filesystem.shutdown(), Filesystem::SyncStatus::IoError);
+  disk.failedSync = UINT64_MAX;
+  EXPECT_EQ(filesystem.shutdown(), Filesystem::SyncStatus::Success);
+  EXPECT_EQ(disk.stored[FileLocation + 17], source);
+  const size_t completed = disk.allCalls;
+  EXPECT_EQ(filesystem.shutdown(), Filesystem::SyncStatus::Success);
+  EXPECT_EQ(disk.allCalls, completed);
+}
+
+TEST(FatShutdown, EmptyFilesystemStillChecksDeviceFlush) {
+  FatDisk disk;
+  FatHarness filesystem;
+  filesystem.configure(disk);
+  disk.failedAll = true;
+  EXPECT_EQ(filesystem.shutdown(), Filesystem::SyncStatus::IoError);
+  EXPECT_EQ(disk.allCalls, 1U);
+  disk.failedAll = false;
+  EXPECT_EQ(filesystem.shutdown(), Filesystem::SyncStatus::Success);
+}
+
+TEST(FatShutdown, LiveAliasPreventsTerminalCompletion) {
+  FatDisk disk;
+  FatHarness filesystem;
+  filesystem.configure(disk);
+  filesystem.chain(disk, {3}, SectorSize);
+  {
+    FatFile file(String("live"), 0, 0, 0, 3, &filesystem, SectorSize, 2);
+    EXPECT_EQ(filesystem.shutdown(), Filesystem::SyncStatus::IoError);
+  }
+  EXPECT_EQ(filesystem.shutdown(), Filesystem::SyncStatus::Success);
 }
 
 TEST(FatWriteback, FailedCacheWritebackRetainsPageAndRetries) {

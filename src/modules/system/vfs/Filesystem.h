@@ -103,6 +103,8 @@ class EXPORTED_PUBLIC Filesystem {
 
   /** Completes data, metadata and device writeback for changes made before entry. */
   virtual SyncStatus sync();
+  /** After all users drain, finish teardown writes before backend destruction. */
+  virtual SyncStatus shutdown();
   virtual QuotaStatus quotaControl(const QuotaRequest&, QuotaResponse&, File* quotaFile = nullptr);
 
   /** Creates a file on the filesystem - fails if the file's parent directory

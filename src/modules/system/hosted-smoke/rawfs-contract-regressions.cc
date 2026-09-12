@@ -5,12 +5,14 @@
  * purpose with or without fee is hereby granted.
  */
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "modules/system/rawfs/RawFs.h"
+#include "modules/system/rawfs/RawFsDir.h"
 #include "modules/system/rawfs/RawFsFile.h"
 
 namespace {
@@ -23,6 +25,10 @@ class TrackingDisk final : public Disk {
   TrackingDisk()
       : m_ReadCount(0),
         m_UnpinCount(0),
+        m_WriteCount(0),
+        m_SyncCount(0),
+        m_WriteSuccess(1),
+        m_SyncSuccess(1),
         m_DataAllocation(new uint8_t[DataSize + PageSize - 1]),
         m_Data(reinterpret_cast<uint8_t*>(
             (reinterpret_cast<uintptr_t>(m_DataAllocation) + PageSize - 1) & ~(PageSize - 1))),
@@ -68,6 +74,19 @@ class TrackingDisk final : public Disk {
 
   size_t getSize() const override {
     return DataSize;
+  }
+
+  bool writeFrom(uint64_t location, const void* buffer, size_t length) override {
+    ++m_WriteCount;
+    if (!m_WriteSuccess || !buffer || location > DataSize || length > DataSize - location)
+      return false;
+    MemoryCopy(m_Data + location, buffer, length);
+    return true;
+  }
+
+  bool syncData() override {
+    ++m_SyncCount;
+    return m_SyncSuccess;
   }
 
   size_t getBlockSize() const override {
@@ -120,6 +139,10 @@ class TrackingDisk final : public Disk {
 
   size_t m_ReadCount;
   size_t m_UnpinCount;
+  Atomic<size_t> m_WriteCount;
+  Atomic<size_t> m_SyncCount;
+  Atomic<size_t> m_WriteSuccess;
+  Atomic<size_t> m_SyncSuccess;
   uint64_t m_ReadLocations[8];
   uint64_t m_UnpinLocations[8];
 
@@ -282,9 +305,42 @@ bool rawFsTerminalPage() {
   }
   return passed;
 }
+
+bool rawFsCheckedWriteback() {
+  TrackingDisk disk;
+  RawFs filesystem;
+  auto* root = static_cast<RawFsDir*>(filesystem.getRoot());
+  auto* directory = new RawFsDir(String("nested"), &filesystem, root);
+  root->addEntry(directory);
+  auto* file = new RawFsFile(String("raw-disk"), &filesystem, directory, &disk);
+  directory->addEntry(file);
+  constexpr uint64_t location = 2 * TrackingDisk::PageSize;
+  uint8_t replacement[512];
+  ByteSet(replacement, 0x6d, sizeof(replacement));
+  disk.m_WriteSuccess = 0;
+  const bool accepted =
+      file->write(location, sizeof(replacement), reinterpret_cast<uintptr_t>(replacement)) ==
+      sizeof(replacement);
+  const bool writeFailed = filesystem.sync() == Filesystem::SyncStatus::IoError;
+  disk.m_WriteSuccess = 1;
+  disk.m_SyncSuccess = 0;
+  const bool flushFailed = filesystem.sync() == Filesystem::SyncStatus::IoError;
+  disk.m_SyncSuccess = 1;
+  const bool recovered = filesystem.sync() == Filesystem::SyncStatus::Success;
+  const bool durable = !MemoryCompare(disk.data() + location, replacement, sizeof(replacement));
+  const bool closed = filesystem.shutdown() == Filesystem::SyncStatus::Success &&
+                      filesystem.shutdown() == Filesystem::SyncStatus::Success;
+  const bool passed = accepted && writeFailed && flushFailed && recovered && durable && closed &&
+                      disk.m_WriteCount && disk.m_SyncCount && disk.balanced();
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS rawfs-checked-writeback");
+  else
+    ERROR("HOSTED-WAIT-TEST: FAIL rawfs-checked-writeback: write/flush failure or retry was lost");
+  return passed;
+}
 }  // namespace
 
 EXPORTED_PUBLIC bool runHostedRawFsContractRegressions() {
   return rawFsNativePageOwnership() && rawFsParentAlignmentIsolation() &&
-         filePastEofDoesNotRead() && rawFsTerminalPage();
+         filePastEofDoesNotRead() && rawFsTerminalPage() && rawFsCheckedWriteback();
 }

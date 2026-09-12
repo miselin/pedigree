@@ -10,9 +10,15 @@
 | `shutdown -r now` | Flush storage and restart |
 | `halt` | Flush storage and halt; power remains on |
 
-Power commands require root. Poweroff reports an error when firmware requires
-ACPI sleep methods that Pedigree cannot execute. Reboot has additional hardware
-reset fallbacks.
+Power commands require root. They stop userspace, flush pending writes, and
+cleanly unmount filesystems before the final power action. If the firmware cannot
+switch the machine off, the screen displays **It is now safe to power off** and
+the machine halts. You can then use the power button. `halt` reaches the same
+screen without asking the firmware to switch off.
+
+The safe message is withheld if storage teardown fails or a volume was already
+unclean when mounted; shutdown does not repair filesystem damage. Reboot has
+additional hardware reset fallbacks.
 
 `/proc/meminfo` and `/proc/net/interfaces` expose the status reports as text.
 The network link flag is the driver's reported state. Used memory includes

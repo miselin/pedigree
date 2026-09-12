@@ -428,6 +428,7 @@ class EXPORTED_PUBLIC Process {
   /** Install into an empty slot; failure leaves the staged owner untouched. */
   MUST_USE_RESULT bool installFilesystemContext(FilesystemContextOwner&& context);
   bool filesystemContextReady() const;
+  void releaseFilesystemContext();
 
   class EXPORTED_PUBLIC ControllingTerminal {
    public:

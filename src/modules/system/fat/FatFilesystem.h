@@ -54,6 +54,7 @@ class FatFilesystem : public Filesystem {
   const String& getVolumeLabel() const override;
   bool getUuid(String&) const override;
   SyncStatus sync() override;
+  SyncStatus shutdown() override;
   uint64_t read(File* pFile, uint64_t location, uint64_t size, uintptr_t buffer,
                 bool bCanBlock = true);
   uint64_t write(File* pFile, uint64_t location, uint64_t size, uintptr_t buffer,
@@ -149,7 +150,7 @@ class FatFilesystem : public Filesystem {
   uintptr_t fileIdentifier(uint32_t cluster, uint32_t offset);
   uintptr_t fileIdentifierLocked(uint64_t slot);
   bool writeCachedPages(FatFile::State&, const Cache::WritebackPage*, size_t);
-  void drainFileStates();
+  bool drainFileStates(bool checked = false);
   struct NodeState {
     uintptr_t inode = 0;
     uint32_t directoryCluster = 0, directoryOffset = 0;
@@ -168,6 +169,8 @@ class FatFilesystem : public Filesystem {
   uintptr_t m_NextFileIdentifier = 0x10000000;
   FatFile::State* m_StateList = nullptr;
   bool m_IoFailed = false;
+  bool m_ShutdownComplete = false;
+  bool m_MountedClean = true;
   bool ensureCapacity(File* file, size_t size);
   bool zeroRange(File* file, size_t begin, size_t end);
   bool updateFileMetadata(File* file, size_t size);

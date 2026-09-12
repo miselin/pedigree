@@ -74,6 +74,7 @@ class Ext2Filesystem : public Filesystem {
   virtual FileHandleStatus decodeFileHandle(const FileHandle&, RetainedFile&);
   virtual FileHandleStatus fileHandleFsid(FileSystemId&);
   virtual SyncStatus sync();
+  virtual SyncStatus shutdown();
   virtual QuotaStatus quotaControl(const QuotaRequest&, QuotaResponse&, File* quotaFile = nullptr);
 
  protected:
@@ -93,7 +94,8 @@ class Ext2Filesystem : public Filesystem {
   QuotaStatus scanQuotaInodesLocked();
   QuotaStatus flushQuotaLocked(QuotaType type);
   QuotaStatus flushQuotas();
-  void closeQuotaFiles();
+  bool closeQuotaFiles(bool discardOnFailure = true);
+  bool beginWritableMount();
   bool isQuotaFile(uint32_t inode);
   Ext2QuotaLedger m_Quota;
   Mutex m_QuotaControlLock;
@@ -191,6 +193,9 @@ class Ext2Filesystem : public Filesystem {
 
   /** Our superblock. */
   Superblock* m_pSuperblock;
+  uint16_t m_MountState = 0;
+  bool m_ShutdownComplete = false;
+  bool m_TeardownFailed = false;
 
   /** Group descriptors, in a tree because each GroupDesc* may be in a
    * different block. */

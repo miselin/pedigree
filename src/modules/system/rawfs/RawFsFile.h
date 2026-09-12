@@ -39,6 +39,9 @@ class RawFsFile : public File {
   /** Constructor, should only be called by RawFs. */
   RawFsFile(String name, class RawFs* pFs, File* pParent, Disk* pDisk);
   ~RawFsFile();
+  virtual bool sync();
+  virtual bool sync(size_t offset, bool async);
+  bool shutdown();
 
   virtual uintptr_t readBlock(uint64_t location);
   virtual void writeBlock(uint64_t location, uintptr_t address);
@@ -50,6 +53,8 @@ class RawFsFile : public File {
   virtual void fileAttributeChanged() {}
 
  private:
+  static bool cacheCallback(CacheConstants::CallbackCause cause, uintptr_t location, uintptr_t page,
+                            void* context);
   Disk* m_pDisk;
   Cache m_PageCache;
   Mutex m_PageCacheLock;

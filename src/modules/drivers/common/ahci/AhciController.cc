@@ -272,14 +272,6 @@ void AhciController::shutdown() {
   // Cache writeback and queued requests still need both hardware and interrupts.
   shutdownDiskCaches();
   RequestQueue::destroy();
-#if !CRIPPLE_HDD
-  // Previously evicted pages can still reside in the drive's volatile cache.
-  for (size_t i = 0; i < getNumChildren(); ++i) {
-    auto* disk = static_cast<AhciDisk*>(getChild(i));
-    if (!disk->doSync(ScsiDisk::SyncWholeDevice))
-      ERROR("AHCI: final cache flush failed on port " << disk->port());
-  }
-#endif
   {
     LockGuard<Mutex> irqLock(m_IrqLock);
     m_Stopping = true;

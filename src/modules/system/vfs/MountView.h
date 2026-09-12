@@ -51,6 +51,7 @@ class EXPORTED_PUBLIC VfsMountView {
               Filesystem* backing, BackingOwnership ownership = BackingOwnership::External);
   bool detach(const FilesystemContextRef& context, const String& target, bool lazy);
   bool detachBackingForShutdown(Filesystem* backing);
+  bool shutdown(Vector<Filesystem*>& ownedBackings);
   bool pivot(const FilesystemContextRef& context, const String& newRoot, const String& putOld);
   uint64_t attachmentId(const FilesystemPathRef& path) const;
   bool isMountpoint(File* node) const;

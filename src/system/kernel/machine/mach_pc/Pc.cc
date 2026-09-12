@@ -96,7 +96,7 @@ void Pc::finalShutdown(ShutdownType type) {
 #if ACPI
     Acpi::instance().powerOff();
 #endif
-    ERROR_NOLOCK("Power off failed; the machine is halted and may be switched off manually");
+    ERROR_NOLOCK("Power off failed; the machine is halted");
   } else if (type == ShutdownType::Restart) {
     NOTICE_NOLOCK("Rebooting...");
 #if ACPI
@@ -117,8 +117,10 @@ void Pc::finalShutdown(ShutdownType type) {
     Processor::reset();
     ERROR_NOLOCK("Reset failed; the machine is halted");
   } else {
-    NOTICE_NOLOCK("System halted; it is safe to switch off the machine");
+    NOTICE_NOLOCK("System halted");
   }
+
+  displayShutdownMessage("It is now safe to power off");
 }
 
 void Pc::initialise() {
@@ -240,7 +242,7 @@ void Pc::deinitialise() {
     Pit::instance().uninitialise();
   }
   if (!Pic::instance().shutdownThreaded()) {
-    FATAL("Pc: threaded IRQ workers did not stop");
+    panic("Shutdown aborted: threaded IRQ workers did not stop");
   }
   m_bInitialised = false;
 }
