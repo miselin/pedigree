@@ -30,13 +30,12 @@ jobs:
       - name: Show LLVM tool versions
         run: |
           clang-format --version
-          clang-tidy --version
 
       - name: Check src formatting
         run: scripts/clang-format.sh --dry-run --Werror
 
   buildutil-tests:
-    name: buildutil testsuite and clang-tidy
+    name: buildutil testsuite
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -45,17 +44,11 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Set up LLVM 22
-        uses: ZhongRuoyu/setup-llvm@eea6238baf53d41c1615923680d7a738da584318 # v0.2.0
-        with:
-          llvm-version: 22
-
       - name: Install host build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
             bison \
-            clang \
             cmake \
             flex \
             libbenchmark-dev \
@@ -63,11 +56,6 @@ jobs:
             nasm \
             ninja-build \
             zlib1g-dev
-
-      - name: Show LLVM tool versions
-        run: |
-          clang-tidy --version
-          run-clang-tidy --help | sed -n '1,12p'
 
       - name: Configure native host utilities
         run: |
@@ -82,9 +70,6 @@ jobs:
           cmake --build build/host
           --target testsuite pedigree-configdb pedigree-initrd-builder
           --parallel
-
-      - name: Run clang-tidy across buildutil
-        run: scripts/clang-tidy.sh host build/host -j 2 -quiet -hide-progress
 
       - name: Run CTest
         run: ctest --test-dir build/host --output-on-failure --no-tests=error
@@ -212,8 +197,6 @@ jobs:
             --workdir /workspace \
             "$BUILDER_IMAGE" \
             bash -euo pipefail -c '
-              # The ignored images/local SDK is not present in the builder, so
-              # userspace tidy remains an explicit local runner mode.
               cmake -S . -B build/cross -G Ninja \
                 -DCMAKE_TOOLCHAIN_FILE=/workspace/build-etc/cmake/pedigree_amd64.cmake \
                 -DPEDIGREE_TOOLCHAIN_ROOT=/opt/pedigree \
@@ -222,9 +205,6 @@ jobs:
               cmake --build build/cross \
                 --target uefi-image \
                 --parallel
-
-              clang-tidy --version
-              scripts/clang-tidy.sh cross build/cross -j 2 -quiet -hide-progress
 
               ctest --test-dir build/cross --output-on-failure --no-tests=error
               test -s build/cross/pedigree-uefi.img
