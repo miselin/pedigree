@@ -90,6 +90,7 @@ RUN apt-get update \
         clang-format-${LLVM_VERSION} \
         clang-tidy-${LLVM_VERSION} \
         cmake \
+        dosfstools \
         e2fsprogs \
         flex \
         git \
