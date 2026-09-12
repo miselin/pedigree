@@ -185,6 +185,8 @@ pedigree_app(power-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/power-contract-test/main.c)
 pedigree_app(vfork-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/vfork-contract-test/main.c)
+pedigree_app(vfork-benchmark ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/vfork-benchmark/main.c)
 pedigree_app(event-descriptor-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/event-descriptor-contract-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/event-descriptor-contract-test/signalfd.c
