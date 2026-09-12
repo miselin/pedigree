@@ -1,4 +1,5 @@
 #include "libui/platform.h"
+#include "libui/cursor.h"
 
 #include "pedigree/native/input/Input.h"
 #include "pedigree_fb.h"
@@ -169,7 +170,35 @@ class PedigreeDisplay final : public Display {
     return ::poll(&descriptor, 1, timeoutMilliseconds) > 0;
   }
 
-  void renderCursor(input::CursorType) override {}
+  void renderCursor(input::CursorType type) override {
+    const CursorBitmap *bitmap = cursorBitmap(type);
+    if (bitmap == nullptr) {
+      bitmap = cursorBitmap(input::CursorType::Arrow);
+    }
+    if (bitmap == nullptr || bitmap->pixels.empty() || m_context == nullptr) {
+      return;
+    }
+
+    auto *pixels = reinterpret_cast<unsigned char *>(
+        const_cast<std::uint32_t *>(bitmap->pixels.data()));
+    cairo_surface_t *cursorSurface = cairo_image_surface_create_for_data(
+        pixels, CAIRO_FORMAT_ARGB32, bitmap->width, bitmap->height,
+        bitmap->width * static_cast<int>(sizeof(std::uint32_t)));
+    if (cairo_surface_status(cursorSurface) != CAIRO_STATUS_SUCCESS) {
+      cairo_surface_destroy(cursorSurface);
+      return;
+    }
+
+    const int x = pointerX() - bitmap->hotspotX;
+    const int y = pointerY() - bitmap->hotspotY;
+    cairo_save(m_context);
+    cairo_set_antialias(m_context, CAIRO_ANTIALIAS_NONE);
+    cairo_set_source_surface(m_context, cursorSurface, x, y);
+    cairo_pattern_set_filter(cairo_get_source(m_context), CAIRO_FILTER_NEAREST);
+    cairo_paint(m_context);
+    cairo_restore(m_context);
+    cairo_surface_destroy(cursorSurface);
+  }
   int pointerX() const override {
     std::lock_guard<std::mutex> guard(m_inputLock);
     return m_pointerX;

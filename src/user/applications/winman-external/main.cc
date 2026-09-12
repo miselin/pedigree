@@ -3,8 +3,10 @@
 
 #include "libui/decoration.h"
 
+#include <fontconfig/fontconfig.h>
 #include <pedigree/log.h>
 
+#include <cstdlib>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -13,10 +15,23 @@ namespace {
 
 constexpr const char *SocketPath = "/run/pedigree-winman.sock";
 constexpr const char *NotepadPath = "/usr/bin/winman-external-notepad";
+constexpr const char *BundledFontPath = "/usr/share/fonts/ms-sans-serif-1.ttf";
+
+void registerBundledFont() {
+  setenv("PANGOCAIRO_BACKEND", "fontconfig", 1);
+  const bool registered =
+      FcConfigAppFontAddFile(nullptr, reinterpret_cast<const FcChar8 *>(BundledFontPath)) &&
+      FcConfigBuildFonts(nullptr);
+  if (!registered) {
+    pedigree_log(LOG_WARNING, "winman: unable to register bundled font '%s'",
+                 BundledFontPath);
+  }
+}
 
 }  // namespace
 
 int main() {
+  registerBundledFont();
   std::vector<pid_t> children;
   const std::string socketPath = SocketPath;
 
