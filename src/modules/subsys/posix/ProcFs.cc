@@ -44,10 +44,11 @@ MeminfoFile::MeminfoFile(size_t inode, Filesystem* pParentFS, File* pParent)
       m_UpdateWake(0),
       m_Contents(),
       m_Lock() {
-  setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR);
+  setPermissionsOnly(FILE_UR | FILE_GR | FILE_OR);
   setUidOnly(0);
   setGidOnly(0);
 
+  updateContents();
   m_bRunning = true;
   m_pUpdateThread = new Thread(Processor::information().getCurrentThread()->getParent(), run, this);
   m_pUpdateThread->setName("MeminfoFile updater thread");
@@ -73,12 +74,7 @@ int MeminfoFile::run(void* p) {
 
 void MeminfoFile::updateThread() {
   while (m_bRunning) {
-    m_Lock.acquire();
-    uint64_t freeKb = (g_FreePages * TargetInfo::getPageSize()) / 1024;
-    uint64_t allocKb = (g_AllocedPages * TargetInfo::getPageSize()) / 1024;
-    m_Contents.Format("MemTotal: %ld kB\nMemFree: %ld kB\nMemAvailable: %ld kB\n", freeKb + allocKb,
-                      freeKb, freeKb);
-    m_Lock.release();
+    updateContents();
 
     if (!m_UpdateWake.acquire(1, 1, 0) &&
         Processor::information().getCurrentThread()->getUnwindState() != Thread::Continue) {
@@ -89,20 +85,28 @@ void MeminfoFile::updateThread() {
   NOTICE("MeminfoFile::updateThread completed");
 }
 
+void MeminfoFile::updateContents() {
+  LockGuard<Mutex> guard(m_Lock);
+  const uint64_t freeKb = (g_FreePages * TargetInfo::getPageSize()) / 1024;
+  const uint64_t allocKb = (g_AllocedPages * TargetInfo::getPageSize()) / 1024;
+  // Reclaimable cache memory is not measured by these page counters.
+  m_Contents.Format("MemTotal: %lu kB\nMemFree: %lu kB\n", freeKb + allocKb, freeKb);
+}
+
 uint64_t MeminfoFile::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                    bool bCanBlock) {
   LockGuard<Mutex> guard(m_Lock);
 
   if (location >= m_Contents.length()) {
     return 0;  // EOF
-  } else if ((location + size) > m_Contents.length()) {
+  } else if (size > m_Contents.length() - location) {
     size = m_Contents.length() - location;
   }
 
   char* destination = reinterpret_cast<char*>(buffer);
   const char* source = static_cast<const char*>(m_Contents);
 
-  StringCopy(destination, source);
+  MemoryCopy(destination, source + location, size);
 
   return size;
 }
@@ -366,6 +370,7 @@ bool ProcFs::initialise(Disk* pDisk) {
   m_pRoot->addEntry(mounts->getName(), mounts);
 
   initialiseResolverFile();
+  initialiseNetworkFile();
 
   UptimeFile* uptime = new UptimeFile(getNextInode(), this, m_pRoot);
   m_pRoot->addEntry(uptime->getName(), uptime);

@@ -26,6 +26,7 @@
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -1103,65 +1104,57 @@ mode_t posix_umask(mode_t mask) {
 }
 
 int posix_linux_syslog(int type, char* buf, int len) {
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), len,
-                                    PosixSubsystem::SafeRead)) {
-    SC_NOTICE("linux_syslog -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
-  SC_NOTICE("linux_syslog");
-
-  if (len > 512)
-    len = 512;
-
   switch (type) {
     case 0:
-      SC_NOTICE(" -> close log");
-      return 0;
-
     case 1:
-      SC_NOTICE(" -> open log");
       return 0;
-
-    case 2:
-      /// \todo expose kernel log via this interface
-      // NOTE: blocking call...
-      SC_NOTICE(" -> read log");
-      Processor::information().getCurrentThread()->waitForEvent();
-      return 0;
-
     case 3:
-      /// \todo expose kernel log via this interface
-      SC_NOTICE(" -> read up to last 4k");
-      return 0;
-
+      break;
+    case 10:
+      return static_cast<int>(Log::textCapacity());
+    case 2:
     case 4:
-      /// \todo expose kernel log via this interface
-      SC_NOTICE(" -> read and clear last 4k");
-      return 0;
-
     case 5:
-      SC_NOTICE(" -> clear");
-      return 0;
-
     case 6:
-      SC_NOTICE(" -> disable write to console");
-      return 0;
-
     case 7:
-      SC_NOTICE(" -> enable write to console");
-      return 0;
-
     case 8:
-      SC_NOTICE(" -> set console write level");
-      return 0;
-
+    case 9:
+      SYSCALL_ERROR(Unimplemented);
+      return -1;
     default:
-      SC_NOTICE(" -> unknown!");
       SYSCALL_ERROR(InvalidArgument);
       return -1;
   }
+
+  if (len < 0) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  if (!len)
+    return 0;
+  const size_t capacity = static_cast<size_t>(len) < Log::textCapacity() ? static_cast<size_t>(len)
+                                                                         : Log::textCapacity();
+  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), capacity,
+                                    PosixSubsystem::SafeWrite)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+
+  // User memory may fault: never copy to it while holding the log spinlock.
+  TerminationDeferral lifetime;
+  char* snapshot = new char[capacity];
+  if (!snapshot) {
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
+  const size_t copied = Log::instance().copyText(snapshot, capacity);
+  const bool valid = PosixSubsystem::copyToUser(buf, snapshot, copied);
+  delete[] snapshot;
+  if (!valid) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  return static_cast<int>(copied);
 }
 
 int posix_syslog(const char* msg, int prio) {

@@ -440,6 +440,38 @@ const Log::DynamicLogEntry& Log::getDynamicEntry(size_t n) const {
   return m_StaticLog[0];
 }
 
+size_t Log::copyText(char* buffer, size_t capacity) {
+  if (!capacity)
+    return 0;
+
+  LockGuard<Spinlock> guard(m_Lock);
+  size_t length = 0;
+  for (size_t i = 0; i < m_StaticEntries; ++i)
+    length += getStaticEntry(i).str.length() + 4;
+
+  // Linux READ_ALL keeps the newest bytes when the caller's buffer is short.
+  size_t skip = length > capacity ? length - capacity : 0;
+  size_t copied = 0;
+  for (size_t i = 0; i < m_StaticEntries; ++i) {
+    const auto& entry = getStaticEntry(i);
+    static const char levels[] = {'7', '5', '4', '3', '2'};
+    const char prefix[] = {'<', levels[entry.severity], '>'};
+    const char* parts[] = {prefix, static_cast<const char*>(entry.str), "\n"};
+    const size_t lengths[] = {sizeof(prefix), entry.str.length(), 1};
+    for (size_t part = 0; part < 3; ++part) {
+      if (skip >= lengths[part]) {
+        skip -= lengths[part];
+        continue;
+      }
+      const size_t bytes = lengths[part] - skip;
+      MemoryCopy(buffer + copied, parts[part] + skip, bytes);
+      copied += bytes;
+      skip = 0;
+    }
+  }
+  return copied;
+}
+
 bool Log::echoToSerial() {
   return m_EchoToSerial;
 }

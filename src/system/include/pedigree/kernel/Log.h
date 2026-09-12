@@ -304,6 +304,13 @@ class Log {
   /** Returns the (n - getStaticEntryCount())'th dynamic log entry */
   const DynamicLogEntry& getDynamicEntry(size_t n) const;
 
+  /** Copies the newest log text without consuming entries or invoking callbacks. */
+  EXPORTED_PUBLIC size_t copyText(char* buffer, size_t capacity);
+
+  static constexpr size_t textCapacity() {
+    return LOG_ENTRIES * (LOG_LENGTH + 4);
+  }
+
   bool echoToSerial();
 
   const LogEntry& getLatestEntry() const;

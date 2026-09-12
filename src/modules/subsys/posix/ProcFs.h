@@ -54,6 +54,8 @@ class MeminfoFile : public File {
   void updateThread();
 
  private:
+  void updateContents();
+
   Thread* m_pUpdateThread;
   Atomic<bool> m_bRunning;
   Semaphore m_UpdateWake;
@@ -214,6 +216,7 @@ class ProcFs : public Filesystem {
 
   bool initialiseNamespaceLinks();
   void initialiseResolverFile();
+  void initialiseNetworkFile();
   ProcFsDirectory* createProcessDirectory(PosixProcess* process);
 
   ProcFsDirectory* m_pRoot;

@@ -173,6 +173,11 @@ pedigree_app(signal-timer-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-timer-contract-test/raw-clock.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../buildutil/vdsotest/parse_vdso.c)
 pedigree_app(reboot ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/reboot/main.c)
+pedigree_app(netconfig ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/netconfig/main.cc)
+pedigree_app(free ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/free/main.c)
+pedigree_app(dmesg ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/dmesg/main.c)
+pedigree_app(system-status-contract-test ON OFF ON ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/system-status-contract-test/main.c)
 pedigree_app(vfork-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/vfork-contract-test/main.c)
 pedigree_app(event-descriptor-contract-test ON OFF OFF ""
