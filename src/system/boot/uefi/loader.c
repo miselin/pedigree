@@ -38,7 +38,7 @@ struct efi_boot_services {
   void* free_pages;
   void* get_memory_map;
   void* allocate_pool;
-  void* free_pool;
+  efi_free_pool_t free_pool;
   uint8_t before_handle_protocol[9 * 8];
   efi_handle_protocol_t handle_protocol;
   void* reserved_after_handle_protocol;
@@ -238,25 +238,100 @@ static const efi_guid_t smbios_guid = {
     0xeb9d2d31, 0x2d88, 0x11d3, {0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d}};
 static const efi_guid_t graphics_output_guid = {
     0x9042a9de, 0x23dc, 0x4a38, {0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a}};
+static const efi_guid_t edid_active_guid = {
+    0xbd8c1056, 0x9f36, 0x44ec, {0x92, 0xa8, 0xa6, 0x33, 0x7f, 0x81, 0x79, 0x86}};
+static const efi_guid_t device_path_guid = {
+    0x09576e91, 0x6d3f, 0x11d2, {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}};
 static const efi_char16_t current_prefix[] = L"\\EFI\\PEDIGREE\\current\\";
 static const efi_char16_t known_good_prefix[] = L"\\EFI\\PEDIGREE\\known-good\\";
 static const efi_char16_t removable_prefix[] = L"\\EFI\\BOOT\\";
 
 static efi_system_table_t* g_system_table;
 
+static efi_edid_active_t* framebuffer_edid(efi_handle_t graphics_handle) {
+  efi_boot_services_t* services = g_system_table->boot_services;
+  efi_edid_active_t* edid = 0;
+  if (services->handle_protocol(graphics_handle, (efi_guid_t*)&edid_active_guid, (void**)&edid) ==
+          EFI_SUCCESS &&
+      edid)
+    return edid;
+  // EDID may be attached to an output child below the framebuffer's GOP handle.
+  efi_handle_t* outputs = 0;
+  uint64_t count = 0;
+  edid = 0;
+  if (services->locate_handle_buffer(EFI_LOCATE_BY_PROTOCOL, (efi_guid_t*)&edid_active_guid, 0,
+                                     &count, &outputs) == EFI_SUCCESS &&
+      outputs) {
+    for (uint64_t i = 0; i < count && !edid; ++i) {
+      void* path = 0;
+      efi_handle_t owner = 0;
+      if (services->handle_protocol(outputs[i], (efi_guid_t*)&device_path_guid, &path) !=
+              EFI_SUCCESS ||
+          !path ||
+          services->locate_device_path((efi_guid_t*)&graphics_output_guid, &path, &owner) !=
+              EFI_SUCCESS ||
+          owner != graphics_handle)
+        continue;
+      if (services->handle_protocol(outputs[i], (efi_guid_t*)&edid_active_guid, (void**)&edid) !=
+          EFI_SUCCESS)
+        edid = 0;
+    }
+  }
+  if (outputs)
+    services->free_pool(outputs);
+  return edid;
+}
+
 static void prepare_framebuffer(bootstrap_info_t* info) {
   efi_boot_services_t* services = g_system_table->boot_services;
-  efi_graphics_output_t* graphics = 0;
+  efi_graphics_output_t* console = 0;
   boot_framebuffer_t framebuffer;
-  efi_status_t status = services->handle_protocol(
-      g_system_table->console_out_handle, (efi_guid_t*)&graphics_output_guid, (void**)&graphics);
-  if (status != EFI_SUCCESS || !decode_framebuffer(graphics, &framebuffer)) {
-    graphics = 0;
-    status = services->locate_protocol((efi_guid_t*)&graphics_output_guid, 0, (void**)&graphics);
-    if (status != EFI_SUCCESS || !decode_framebuffer(graphics, &framebuffer))
-      return;
+  if (services->handle_protocol(g_system_table->console_out_handle,
+                                (efi_guid_t*)&graphics_output_guid,
+                                (void**)&console) != EFI_SUCCESS)
+    console = 0;
+  const uint64_t console_address = console && console->mode ? console->mode->framebuffer : 0;
+  efi_handle_t* handles = 0;
+  uint64_t count = 0;
+  int selected = 0;
+  if (services->locate_handle_buffer(EFI_LOCATE_BY_PROTOCOL, (efi_guid_t*)&graphics_output_guid, 0,
+                                     &count, &handles) == EFI_SUCCESS &&
+      handles) {
+    // Console splitters can retain stale mode descriptions. Prefer a hardware
+    // GOP, first matching the console, then an active display with EDID.
+    for (unsigned pass = 0; pass < 3 && !selected; ++pass) {
+      for (uint64_t i = 0; i < count && !selected; ++i) {
+        efi_graphics_output_t* graphics = 0;
+        void* path = 0;
+        if (services->handle_protocol(handles[i], (efi_guid_t*)&device_path_guid, &path) !=
+                EFI_SUCCESS ||
+            !path ||
+            services->handle_protocol(handles[i], (efi_guid_t*)&graphics_output_guid,
+                                      (void**)&graphics) != EFI_SUCCESS ||
+            !graphics)
+          continue;
+        efi_edid_active_t* edid = framebuffer_edid(handles[i]);
+        uint32_t width, height;
+        const int associated =
+            handles[i] == g_system_table->console_out_handle ||
+            (console_address && graphics->mode && graphics->mode->framebuffer == console_address);
+        unsigned priority = 2;
+        if (associated)
+          priority = 0;
+        else if (preferred_framebuffer_size(edid, &width, &height))
+          priority = 1;
+        if (priority == pass)
+          selected = select_framebuffer_mode(graphics, services->free_pool, edid, &framebuffer);
+      }
+    }
   }
-  // Keep the firmware's current mode; no graphics protocol remains callable after exit.
+  if (handles)
+    services->free_pool(handles);
+  if (!selected &&
+      !select_framebuffer_mode(console, services->free_pool,
+                               framebuffer_edid(g_system_table->console_out_handle), &framebuffer))
+    return;
+  // No console output or mode changes may follow this handoff before firmware exit.
   info->framebuffer = framebuffer.address;
   info->framebuffer_width = framebuffer.width;
   info->framebuffer_height = framebuffer.height;
