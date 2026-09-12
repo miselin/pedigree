@@ -47,6 +47,9 @@ class PedigreeDisplay final : public Display {
     if (m_inputPipe[1] >= 0) {
       close(m_inputPipe[1]);
     }
+    if (m_inputStream >= 0) {
+      close(m_inputStream);
+    }
   }
 
   bool initialise() override {
@@ -54,13 +57,18 @@ class PedigreeDisplay final : public Display {
       return false;
     }
 
-    if (pipe(m_inputPipe) != 0) {
-      return false;
+    m_inputStream = Input::openEventStream();
+    if (m_inputStream < 0) {
+      if (pipe(m_inputPipe) != 0) {
+        return false;
+      }
+      setNonBlocking(m_inputPipe[0]);
+      setNonBlocking(m_inputPipe[1]);
+      setCloseOnExec(m_inputPipe[0]);
+      setCloseOnExec(m_inputPipe[1]);
+    } else {
+      setCloseOnExec(m_inputStream);
     }
-    setNonBlocking(m_inputPipe[0]);
-    setNonBlocking(m_inputPipe[1]);
-    setCloseOnExec(m_inputPipe[0]);
-    setCloseOnExec(m_inputPipe[1]);
     return true;
   }
 
@@ -89,12 +97,14 @@ class PedigreeDisplay final : public Display {
       return false;
     }
 
-    {
-      std::lock_guard<std::mutex> guard(g_displayLock);
-      g_display = this;
+    if (m_inputStream < 0) {
+      {
+        std::lock_guard<std::mutex> guard(g_displayLock);
+        g_display = this;
+      }
+      Input::installCallback(Input::RawKey | Input::Mouse, inputCallback);
+      m_callbackInstalled = true;
     }
-    Input::installCallback(Input::RawKey | Input::Mouse, inputCallback);
-    m_callbackInstalled = true;
 
     cairo_set_operator(m_context, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(m_context, options.clearColor.r / 255.0,
@@ -118,25 +128,29 @@ class PedigreeDisplay final : public Display {
   }
 
   bool poll(input::Event& event) override {
+    if (popEvent(event)) {
+      return true;
+    }
+
+    if (m_inputStream >= 0) {
+      while (true) {
+        Input::InputNotification notification;
+        if (Input::readEvent(m_inputStream, notification) !=
+            static_cast<ssize_t>(sizeof(notification))) {
+          return false;
+        }
+        enqueue(notification, false);
+        if (popEvent(event)) {
+          return true;
+        }
+      }
+    }
+
     // Input callbacks may be delivered around syscalls, so pipe I/O must not
     // happen while the event state is locked.
-    bool hasEvents = false;
-    {
-      std::lock_guard<std::mutex> guard(m_inputLock);
-      hasEvents = !m_events.empty();
-    }
-    if (!hasEvents) {
-      drainInputPipe();
-    }
-
-    {
-      std::lock_guard<std::mutex> guard(m_inputLock);
-      if (m_events.empty()) {
-        return false;
-      }
-
-      event = std::move(m_events.front());
-      m_events.pop_front();
+    drainInputPipe();
+    if (!popEvent(event)) {
+      return false;
     }
     consumeInputMarker();
     return true;
@@ -150,7 +164,8 @@ class PedigreeDisplay final : public Display {
       }
     }
 
-    pollfd descriptor = {m_inputPipe[0], POLLIN, 0};
+    const int descriptorFd = m_inputStream >= 0 ? m_inputStream : m_inputPipe[0];
+    pollfd descriptor = {descriptorFd, POLLIN, 0};
     return ::poll(&descriptor, 1, timeoutMilliseconds) > 0;
   }
 
@@ -164,7 +179,7 @@ class PedigreeDisplay final : public Display {
     return m_pointerY;
   }
 
-  void enqueue(const Input::InputNotification& notification) {
+  void enqueue(const Input::InputNotification& notification, bool signalWakeup) {
     std::size_t wakeups = 0;
     if (notification.type & Input::Mouse) {
       wakeups += enqueueMouse(notification);
@@ -181,9 +196,22 @@ class PedigreeDisplay final : public Display {
       ++wakeups;
     }
 
-    for (std::size_t i = 0; i < wakeups; ++i) {
-      signalInput();
+    if (signalWakeup) {
+      for (std::size_t i = 0; i < wakeups; ++i) {
+        signalInput();
+      }
     }
+  }
+
+  bool popEvent(input::Event& event) {
+    std::lock_guard<std::mutex> guard(m_inputLock);
+    if (m_events.empty()) {
+      return false;
+    }
+
+    event = std::move(m_events.front());
+    m_events.pop_front();
+    return true;
   }
 
  private:
@@ -270,6 +298,7 @@ class PedigreeDisplay final : public Display {
   DisplayInfo m_info;
   cairo_surface_t* m_surface = nullptr;
   cairo_t* m_context = nullptr;
+  int m_inputStream = -1;
   int m_inputPipe[2] = {-1, -1};
   mutable std::mutex m_inputLock;
   std::deque<input::Event> m_events;
@@ -282,7 +311,7 @@ class PedigreeDisplay final : public Display {
 void inputCallback(Input::InputNotification& notification) {
   std::lock_guard<std::mutex> displayGuard(g_displayLock);
   if (g_display) {
-    g_display->enqueue(notification);
+    g_display->enqueue(notification, true);
   }
 }
 

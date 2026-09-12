@@ -20,6 +20,8 @@
 #include "pedigree/native/input/Input.h"
 
 #include <cstdio>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "modules/subsys/pedigree-c/pedigree-syscalls.h"
 
@@ -42,6 +44,21 @@ void Input::installCallback(CallbackType type, callback_t cb) {
 
 void Input::removeCallback(callback_t cb) {
   pedigree_input_remove_callback(reinterpret_cast<void*>(cb));
+}
+
+int Input::openEventStream() {
+  return ::open("/dev/input", O_RDONLY | O_NONBLOCK);
+}
+
+ssize_t Input::readEvent(int fd, InputNotification& notification) {
+  const ssize_t result = ::read(fd, &notification, sizeof(notification));
+  if (result >= 0 && result != static_cast<ssize_t>(sizeof(notification))) {
+    notification = {};
+  }
+  if (result >= 0) {
+    notification.meta = nullptr;
+  }
+  return result;
 }
 
 void Input::inhibitEvents() {

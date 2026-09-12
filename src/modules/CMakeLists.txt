@@ -969,6 +969,7 @@ add_custom_target(vdso-header DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/vdso.h)
 pedigree_module(posix "" "pedigree-vterm"
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/console-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/DevFs.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/InputFile.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/DevFs-block.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/TerminalControl.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/terminal-syscalls.cc

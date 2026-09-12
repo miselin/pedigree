@@ -20,6 +20,7 @@
 #include "DevFs.h"
 
 #include "DevFs-block.h"
+#include "InputFile.h"
 #include "PosixSubsystem.h"
 #include "descriptor-path.h"
 #include "modules/system/vfs/Pipe.h"
@@ -704,6 +705,14 @@ bool DevFs::initialise(Disk* pDisk) {
 
   RtcFile* rtc = new RtcFile(getNextInode(), this, m_pRoot);
   m_pRoot->addEntry(rtc->getName(), rtc);
+
+  InputFile* pInput = new InputFile(String("input"), getNextInode(), this, m_pRoot);
+  if (pInput && pInput->initialise()) {
+    m_pRoot->addEntry(pInput->getName(), pInput);
+  } else {
+    revertInode();
+    delete pInput;
+  }
 
   EMIT_IF(X86_COMMON) {
     PsAuxFile* pPsAux = new PsAuxFile(String("psaux"), getNextInode(), this, m_pRoot);
