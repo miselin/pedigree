@@ -23,6 +23,7 @@ import sqlite3
 import stat
 import sys
 import tarfile
+import tempfile
 import traceback
 import urllib.error
 import urllib.request
@@ -73,10 +74,16 @@ class TarEntry(object):
 
             return
 
-        with open(self.name, "wb") as f:
-            f.write(self.data)
-
-        os.chmod(self.name, self.mode)
+        fd, temporary = tempfile.mkstemp(prefix=".pup-", dir=os.path.dirname(self.name))
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(self.data)
+            os.chmod(temporary, self.mode)
+            # Preserve the inode still mapped by a running executable.
+            os.replace(temporary, self.name)
+        finally:
+            if os.path.lexists(temporary):
+                os.unlink(temporary)
 
 def do_extract(arg):
     try:

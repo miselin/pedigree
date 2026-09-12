@@ -165,9 +165,66 @@ static int contracts(void) {
   return 0;
 }
 
+static int executable_upgrade(void) {
+  char directory[] = "/tmp/exec-upgrade-XXXXXX";
+  CHECK(mkdtemp(directory));
+  char image[PATH_MAX], replacement[PATH_MAX];
+  snprintf(image, sizeof(image), "%s/image", directory);
+  snprintf(replacement, sizeof(replacement), "%s/replacement", directory);
+  CHECK(copy_image(image) == 0);
+  int ready[2], resume[2];
+  CHECK(pipe(ready) == 0 && pipe(resume) == 0);
+  pid_t child = fork();
+  CHECK(child >= 0);
+  if (!child) {
+    close(ready[0]);
+    close(resume[1]);
+    char ready_fd[32], resume_fd[32];
+    snprintf(ready_fd, sizeof(ready_fd), "%d", ready[1]);
+    snprintf(resume_fd, sizeof(resume_fd), "%d", resume[0]);
+    execl(image, image, "--upgrade-child", ready_fd, resume_fd, NULL);
+    _exit(80);
+  }
+  close(ready[1]);
+  close(resume[0]);
+  char byte;
+  CHECK(read(ready[0], &byte, 1) == 1);
+  int old = open(image, O_RDONLY);
+  struct stat before, after;
+  CHECK(old >= 0 && fstat(old, &before) == 0);
+  int staged = open(replacement, O_CREAT | O_EXCL | O_WRONLY, 0700);
+  static const char script[] = "#!/bin/sh\nexit 23\n";
+  CHECK(staged >= 0 && write(staged, script, sizeof(script) - 1) == sizeof(script) - 1);
+  CHECK(close(staged) == 0 && rename(replacement, image) == 0);
+  CHECK(stat(image, &after) == 0 && before.st_ino != after.st_ino);
+  char magic[4];
+  CHECK(read(old, magic, sizeof(magic)) == sizeof(magic) && !memcmp(magic, "\177ELF", 4));
+  CHECK(close(old) == 0 && write(resume[1], "x", 1) == 1);
+  int status;
+  CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 42);
+  close(ready[0]);
+  close(resume[1]);
+  child = fork();
+  CHECK(child >= 0);
+  if (!child) {
+    execl(image, image, NULL);
+    _exit(80);
+  }
+  CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 23);
+  CHECK(unlink(image) == 0 && rmdir(directory) == 0);
+  puts("EXECUTABLE-UPGRADE: PASS");
+  return 0;
+}
+
 int main(int argc, char** argv) {
   setvbuf(stdout, NULL, _IONBF, 0);
   alarm(30);
+  if (argc == 4 && !strcmp(argv[1], "--upgrade-child")) {
+    int ready = atoi(argv[2]), resume = atoi(argv[3]);
+    char byte;
+    CHECK(write(ready, "x", 1) == 1 && read(resume, &byte, 1) == 1);
+    return 42;
+  }
   if (argc >= 2 && !strcmp(argv[1], "--elf-child")) {
     CHECK(argc == 4);
     int fd = atoi(argv[2]);
@@ -189,6 +246,7 @@ int main(int argc, char** argv) {
   }
   CHECK(realpath(argv[0], self));
   CHECK(contracts() == 0);
+  CHECK(executable_upgrade() == 0);
   puts("EXECVEAT-CONTRACT: PASS");
   return 0;
 }
