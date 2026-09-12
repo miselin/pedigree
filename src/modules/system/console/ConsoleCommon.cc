@@ -72,6 +72,13 @@ ConsoleIoState::ConsoleIoState()
       physicalWake(0, true),
       m_Revoked(false) {}
 
+ConsoleIoState::~ConsoleIoState() {
+  // Unused consoles and unpublished replacements never pass through hangup.
+  // Epoch users retain a shared owner until their operation lease is released.
+  closeAdmission();
+  cancelAndDrain();
+}
+
 bool ConsoleIoState::revoked() const {
   return __atomic_load_n(&m_Revoked, __ATOMIC_ACQUIRE);
 }

@@ -60,6 +60,7 @@ class EXPORTED_PUBLIC ConsoleControlState {
 class EXPORTED_PUBLIC ConsoleIoState {
  public:
   ConsoleIoState();
+  ~ConsoleIoState();
   bool revoked() const;
   void closeAdmission();
   void cancelAndDrain();
