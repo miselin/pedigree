@@ -5,10 +5,10 @@
  * purpose with or without fee is hereby granted.
  */
 
-#include <gtest/gtest.h>
-
 #include "pedigree/kernel/process/Readiness.h"
 #include "pedigree/kernel/utilities/Vector.h"
+
+#include <gtest/gtest.h>
 
 namespace {
 class TestReadinessObserver final : public ReadinessObserver {
@@ -29,8 +29,8 @@ class TestReadinessSource final : public ReadinessSource {
 
 TEST(Readiness, FiltersAndRemovesExactSubscriptions) {
   TestReadinessSource source;
-  auto *readObserver = new TestReadinessObserver;
-  auto *writeObserver = new TestReadinessObserver;
+  auto* readObserver = new TestReadinessObserver;
+  auto* writeObserver = new TestReadinessObserver;
   SharedPointer<ReadinessObserver> readBase(readObserver);
   SharedPointer<ReadinessObserver> writeBase(writeObserver);
   ReadinessSubscription readSubscription;
@@ -53,7 +53,7 @@ TEST(Readiness, FiltersAndRemovesExactSubscriptions) {
 
 TEST(Readiness, TerminalStateIsAlwaysReported) {
   TestReadinessSource source;
-  auto *observer = new TestReadinessObserver;
+  auto* observer = new TestReadinessObserver;
   SharedPointer<ReadinessObserver> base(observer);
   ReadinessSubscription subscription;
 
@@ -70,7 +70,7 @@ TEST(Readiness, TerminalStateIsAlwaysReported) {
 
 TEST(Readiness, MoveTransfersRegistrationOwnership) {
   TestReadinessSource source;
-  auto *observer = new TestReadinessObserver;
+  auto* observer = new TestReadinessObserver;
   SharedPointer<ReadinessObserver> base(observer);
   ReadinessSubscription first;
 

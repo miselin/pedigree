@@ -1,11 +1,10 @@
 #include "VtermWidget.h"
 
-#include <algorithm>
-#include <cstring>
-
 #include <Font.h>
 #include <Terminal.h>
 #include <Widget.h>
+#include <algorithm>
+#include <cstring>
 #include <tui.h>
 
 #include "environment.h"
@@ -19,8 +18,8 @@ constexpr uint8_t RenderStrike = 1 << 4;
 constexpr size_t MaxScrollback = 2000;
 
 bool intersectsOrTouches(const VTermRect& a, const VTermRect& b) {
-  return a.start_row <= b.end_row && b.start_row <= a.end_row &&
-         a.start_col <= b.end_col && b.start_col <= a.end_col;
+  return a.start_row <= b.end_row && b.start_row <= a.end_row && a.start_col <= b.end_col &&
+         b.start_col <= a.end_col;
 }
 }  // namespace
 
@@ -55,9 +54,9 @@ Vterm::Vterm(PedigreeGraphics::Framebuffer* framebuffer, size_t width, size_t he
   m_State = vterm_obtain_state(m_Vterm);
 
   static const VTermScreenCallbacks callbacks = {
-      damageCallback, moveRectCallback, moveCursorCallback, setTermPropCallback,
-      bellCallback, resizeCallback, scrollbackPushCallback, scrollbackPopCallback,
-      scrollbackClearCallback};
+      damageCallback,         moveRectCallback,      moveCursorCallback,
+      setTermPropCallback,    bellCallback,          resizeCallback,
+      scrollbackPushCallback, scrollbackPopCallback, scrollbackClearCallback};
   vterm_screen_set_callbacks(m_Screen, &callbacks, this);
   vterm_screen_enable_reflow(m_Screen, true);
   vterm_screen_enable_altscreen(m_Screen, true);
@@ -245,8 +244,7 @@ int Vterm::resizeCallback(int rows, int cols, void* user) {
   terminal->m_Rows = static_cast<size_t>(std::max(1, rows));
   terminal->m_Cols = static_cast<size_t>(std::max(1, cols));
   terminal->m_Cells.resize(terminal->m_Rows * terminal->m_Cols);
-  std::memset(terminal->m_Cells.data(), 0,
-              terminal->m_Cells.size() * sizeof(terminal->m_Cells[0]));
+  std::memset(terminal->m_Cells.data(), 0, terminal->m_Cells.size() * sizeof(terminal->m_Cells[0]));
   return 1;
 }
 
@@ -331,8 +329,7 @@ bool Vterm::blitMovedRect(VTermRect dest, VTermRect src) {
   cairo_save(m_Cairo);
   cairo_push_group(m_Cairo);
   cairo_set_operator(m_Cairo, CAIRO_OPERATOR_SOURCE);
-  cairo_set_source_surface(m_Cairo, m_CairoSurface, destinationX - sourceX,
-                           destinationY - sourceY);
+  cairo_set_source_surface(m_Cairo, m_CairoSurface, destinationX - sourceX, destinationY - sourceY);
   cairo_rectangle(m_Cairo, destinationX, destinationY, width, height);
   cairo_fill(m_Cairo);
   cairo_pop_group_to_source(m_Cairo);
@@ -369,9 +366,8 @@ void Vterm::renderCell(DirtyRectangle& rect, int row, int col, bool cursor) {
   Font* font = (flags & RenderBold) ? m_BoldFont : m_NormalFont;
   size_t x = m_OffsetLeft + static_cast<size_t>(col) * m_NormalFont->getWidth();
   size_t y = m_OffsetTop + static_cast<size_t>(row) * m_NormalFont->getHeight();
-  font->render(m_Framebuffer, glyph, x, y, foreground, background, true,
-               (flags & RenderBold) != 0, (flags & RenderItalic) != 0,
-               (flags & RenderUnderline) != 0);
+  font->render(m_Framebuffer, glyph, x, y, foreground, background, true, (flags & RenderBold) != 0,
+               (flags & RenderItalic) != 0, (flags & RenderUnderline) != 0);
   if (cursor && !m_CursorFilled && m_Cairo) {
     cairo_save(m_Cairo);
     cairo_set_operator(m_Cairo, CAIRO_OPERATOR_SOURCE);

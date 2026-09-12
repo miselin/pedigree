@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MUSL = ROOT / "src/modules/subsys/posix/musl"
+HOSTED_MUSL_CMAKE = ROOT / "build-etc/cmake/PedigreeHostedMusl.cmake"
 
 
 class MuslSyscallRoutingTests(unittest.TestCase):
@@ -72,10 +73,10 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             hosted_branch,
         )
 
-        modules_cmake = (ROOT / "src/modules/CMakeLists.txt").read_text(
+        hosted_musl_cmake = HOSTED_MUSL_CMAKE.read_text(
             encoding="utf-8"
         )
-        hosted_inputs = modules_cmake.split(
+        hosted_inputs = hosted_musl_cmake.split(
             "list(APPEND PEDIGREE_MUSL_PORT_INPUTS", 1
         )[1].split("else ()", 1)[0]
         self.assertIn("processor/Syscalls.h", hosted_inputs)
@@ -476,10 +477,8 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         self.assertIn("copyPollReventsToUser(fds, snapshot, nfds)", helper)
 
     def test_bundled_musl_ppoll_uses_the_five_argument_raw_abi(self):
-        modules_cmake = (
-            ROOT / "src/modules/CMakeLists.txt"
-        ).read_text(encoding="utf-8")
-        self.assertIn('set(MUSL_VERSION "1.2.6")', modules_cmake)
+        hosted_musl_cmake = HOSTED_MUSL_CMAKE.read_text(encoding="utf-8")
+        self.assertIn('set(MUSL_VERSION "1.2.6")', hosted_musl_cmake)
 
         source_path = (
             ROOT
@@ -606,10 +605,8 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         self.assertIn("temporaryMask &= ~UnblockableSignals", mask_import)
 
     def test_bundled_musl_pselect_uses_the_six_argument_argpack(self):
-        modules_cmake = (
-            ROOT / "src/modules/CMakeLists.txt"
-        ).read_text(encoding="utf-8")
-        self.assertIn('set(MUSL_VERSION "1.2.6")', modules_cmake)
+        hosted_musl_cmake = HOSTED_MUSL_CMAKE.read_text(encoding="utf-8")
+        self.assertIn('set(MUSL_VERSION "1.2.6")', hosted_musl_cmake)
 
         source_path = (
             ROOT
@@ -1004,15 +1001,15 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         self.assertNotIn("PEDIGREE_CONFIG_INCLUDE_DIR", x64_branch)
         self.assertNotIn("-DX64", x64_branch)
 
-        modules_cmake = (ROOT / "src/modules/CMakeLists.txt").read_text(
+        hosted_musl_cmake = HOSTED_MUSL_CMAKE.read_text(
             encoding="utf-8"
         )
 
         self.assertIn(
             "PEDIGREE_CONFIG_INCLUDE_DIR=${PEDIGREE_MUSL_CONFIG_DIR}",
-            modules_cmake,
+            hosted_musl_cmake,
         )
-        self.assertNotIn("${CMAKE_BINARY_DIR}/config.h", modules_cmake)
+        self.assertNotIn("${CMAKE_BINARY_DIR}/config.h", hosted_musl_cmake)
 
         config = (MUSL / "config.h.in").read_text(encoding="utf-8")
         self.assertIn("#define HOSTED @PEDIGREE_MUSL_CONFIG_HOSTED@", config)

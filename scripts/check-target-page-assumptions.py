@@ -94,6 +94,7 @@ ALLOWED = {
         "src/modules/system/ext2/Ext2Filesystem.cc",
         "uint32_t mask = LITTLE_TO_HOST16(inode->i_mode) & 0x0FFF;",
     ),
+    ("src/system/kernel/utilities/Cache.cc", "m_PageFilter(4096, 4),"),
 }
 
 

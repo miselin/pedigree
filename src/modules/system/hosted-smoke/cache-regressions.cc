@@ -1358,8 +1358,8 @@ int publishTimerWriteback(void* parameter) {
 
 bool timerWritebackCoalescing(bool failFirst, bool mutateDuringWriteback) {
   const char* test = failFirst ? "cache-timer-pending-failure"
-                              : (mutateDuringWriteback ? "cache-timer-pending-mutation"
-                                                       : "cache-timer-pending-success");
+                               : (mutateDuringWriteback ? "cache-timer-pending-mutation"
+                                                        : "cache-timer-pending-success");
   TimerWritebackContext context;
   context.failFirst = failFirst;
   context.key = 0xCA7F800;
@@ -1381,8 +1381,8 @@ bool timerWritebackCoalescing(bool failFirst, bool mutateDuringWriteback) {
   // callback, including checksum publication and writeback-pin retirement.
   Cache fence;
   fence.startAtomic();
-  fence.setCallback(
-      [](CacheConstants::CallbackCause, uintptr_t, uintptr_t, void*) { return true; }, nullptr);
+  fence.setCallback([](CacheConstants::CallbackCause, uintptr_t, uintptr_t, void*) { return true; },
+                    nullptr);
   const uintptr_t fencePage = fence.insert(0);
   if (!checkNamed(fencePage != 0, test, "could not create the worker fence")) {
     cache.setWritebackAdmissionHookForTest(nullptr, nullptr);
@@ -1513,8 +1513,8 @@ bool explicitWritebackThreading(bool redirty) {
                            redirty ? ExplicitCacheCall::Redirty : ExplicitCacheCall::Lookup);
   Thread* peer = new Thread(Scheduler::instance().getKernelProcess(), explicitCacheWorker, &second,
                             nullptr, false, true);
-  peer->setName(String(redirty ? "hosted Cache concurrent explicit mutation"
-                               : "hosted Cache stable lookup"));
+  peer->setName(
+      String(redirty ? "hosted Cache concurrent explicit mutation" : "hosted Cache stable lookup"));
   const bool concurrentPhase = redirty
                                    ? second.done.acquire(1, 2)
                                    : waitUntilQueuedAt(peer, Thread::CallbackDrain, context.key);
@@ -1589,6 +1589,7 @@ bool runHostedCacheRegressions() {
   return callbackLifetime() && queuedRequestLifetime() && emptyAndReuse() &&
          retirementPublication() && failedPublicationDiscard() && retirePrepublicationWriteback() &&
          runHostedCacheDiscardRegressions() && retireWritebackContract() && rangeExistence() &&
-         strictRangeGeometry() && runHostedCacheSyncRegressions() && runHostedCacheTimerRegressions() &&
-         explicitWritebackThreading(false) && explicitWritebackThreading(true);
+         strictRangeGeometry() && runHostedCacheSyncRegressions() &&
+         runHostedCacheTimerRegressions() && explicitWritebackThreading(false) &&
+         explicitWritebackThreading(true);
 }

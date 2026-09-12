@@ -97,7 +97,7 @@ Font::~Font() {
 
 size_t Font::render(PedigreeGraphics::Framebuffer* pFb, uint32_t c, size_t x, size_t y, uint32_t f,
                     uint32_t b, bool bBack, bool bBold, bool bItalic, bool bUnderline) {
-  (void) pFb;
+  (void)pFb;
   // Cache the character, if not already.
   const char* convertOut = precache(c);
   if (!convertOut) {
@@ -190,8 +190,8 @@ size_t Font::render(const char* s, size_t x, size_t y, uint32_t f, uint32_t b, b
         bitmap.data(), CAIRO_FORMAT_A8, glyph->bitmap.width, glyph->bitmap.rows, cairoStride);
     cairo_set_source_rgba(m_FontLibraries->m_Cairo, ((f >> 16) & 0xFF) / 256.0,
                           ((f >> 8) & 0xFF) / 256.0, (f & 0xFF) / 256.0, 1.0);
-    cairo_mask_surface(m_FontLibraries->m_Cairo, mask,
-                       x + glyph->bitmap_left, y + m_Baseline - glyph->bitmap_top);
+    cairo_mask_surface(m_FontLibraries->m_Cairo, mask, x + glyph->bitmap_left,
+                       y + m_Baseline - glyph->bitmap_top);
     cairo_surface_destroy(mask);
   }
 

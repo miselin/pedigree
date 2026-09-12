@@ -248,9 +248,9 @@ TEST_P(Ext2DirectorySyncFailure, CreateReportsBackendFailureAndRetriesThroughFil
 }
 
 INSTANTIATE_TEST_CASE_P(DataAndMetadata, Ext2DirectorySyncFailure,
-                         testing::Values(kRootBlock* kBlockSize, kChildTable* kBlockSize,
-                                         131 * kBlockSize, 4 * kBlockSize, 3 * kBlockSize,
-                                         2 * kBlockSize, kBlockSize, 1024ULL));
+                        testing::Values(kRootBlock* kBlockSize, kChildTable* kBlockSize,
+                                        131 * kBlockSize, 4 * kBlockSize, 3 * kBlockSize,
+                                        2 * kBlockSize, kBlockSize, 1024ULL));
 
 TEST(Ext2DirectorySync, ReplacementRenameAndUnlinkPersistChildRetirementAcrossGroups) {
   DirectorySyncDisk disk;
@@ -371,7 +371,8 @@ TEST(Ext2DirectorySync, NamespaceSyncSkipsUnloadedInodeTableBlocks) {
     EXPECT_EQ(disk.durableEntry(2, "created"), inodesPerGroup + 1);
     EXPECT_TRUE(disk.durableInodeAllocated(inodesPerGroup + 1));
   }
-  EXPECT_TRUE(std::all_of(disk.pins.begin(), disk.pins.end(), [](size_t pins) { return pins == 0; }));
+  EXPECT_TRUE(
+      std::all_of(disk.pins.begin(), disk.pins.end(), [](size_t pins) { return pins == 0; }));
 }
 
 TEST(Ext2DirectorySync, LoadedMetadataUsesBoundedBatchesWithoutDroppingDependencies) {

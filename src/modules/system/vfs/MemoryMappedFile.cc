@@ -419,12 +419,10 @@ physical_uintptr_t MemoryMappedFile::getBackingPage(size_t fileOffset, size_t ma
   if (phys == ~0UL) {
     // Grow only when faults consume the preceding window. A jump starts small
     // to avoid reading large unused portions of executables and random mappings.
-    m_ReadAheadPages = fileOffset == m_ReadAheadEnd
-                           ? (m_ReadAheadPages < 32 ? m_ReadAheadPages * 2 : 32)
-                           : 4;
-    const size_t window = mappingBytes < m_ReadAheadPages * pageSz
-                              ? mappingBytes
-                              : m_ReadAheadPages * pageSz;
+    m_ReadAheadPages =
+        fileOffset == m_ReadAheadEnd ? (m_ReadAheadPages < 32 ? m_ReadAheadPages * 2 : 32) : 4;
+    const size_t window =
+        mappingBytes < m_ReadAheadPages * pageSz ? mappingBytes : m_ReadAheadPages * pageSz;
     auto* thread = Processor::information().getCurrentThread();
     const size_t previousError = thread ? thread->getErrno() : 0;
     const size_t actual = pBacking->populateRange(fileOffset, window);
@@ -921,7 +919,8 @@ size_t MemoryMapManager::removeAndRelease(uintptr_t base, size_t length, VmStatu
     return 0;
   auto& space = Processor::information().getVirtualAddressSpace();
   if (space.runtimeMappingPages(base, length)) {
-    if (status) *status = VmStatus::Unsupported;
+    if (status)
+      *status = VmStatus::Unsupported;
     return 0;
   }
   UniquePointer<PreparedMemoryLock> raw;

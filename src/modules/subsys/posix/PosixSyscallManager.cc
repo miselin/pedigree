@@ -62,26 +62,26 @@
 #include "poll-syscalls.h"
 #include "posix-timer-syscalls.h"
 #include "posixSyscallNumbers.h"
-#include "process-vm-syscalls.h"
 #include "process-accounting.h"
-#include "quota-syscalls.h"
+#include "process-vm-syscalls.h"
 #include "pthread-syscalls.h"
 #include "ptrace-syscalls.h"
 #include "queued-signal.h"
+#include "quota-syscalls.h"
 #include "recvmmsg-syscalls.h"
 #include "scheduling-syscalls.h"
 #include "select-syscalls.h"
 #include "signal-syscalls.h"
 #include "signalfd-syscalls.h"
-#include "syscalls/translate.h"
 #include "swap-syscalls.h"
+#include "syscalls/translate.h"
 #include "system-information-syscalls.h"
 #include "system-syscalls.h"
 #include "sysv-message-syscalls.h"
 #include "sysv-semaphore-syscalls.h"
 #include "sysv-shm-syscalls.h"
-#include "timerfd-syscalls.h"
 #include "terminal-syscalls.h"
+#include "timerfd-syscalls.h"
 #include "transfer-syscalls.h"
 #include "vm-syscalls.h"
 #include "wait-syscalls.h"
@@ -313,8 +313,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_READAHEAD:
       return posix_readahead(static_cast<int>(p1), static_cast<off_t>(p2), p3);
     case POSIX_FADVISE64:
-      return posix_fadvise64(static_cast<int>(p1), static_cast<off_t>(p2),
-                             static_cast<off_t>(p3), static_cast<int>(p4));
+      return posix_fadvise64(static_cast<int>(p1), static_cast<off_t>(p2), static_cast<off_t>(p3),
+                             static_cast<int>(p4));
     case POSIX_SYNC_FILE_RANGE:
       return posix_sync_file_range(static_cast<int>(p1), static_cast<off_t>(p2),
                                    static_cast<off_t>(p3), static_cast<unsigned>(p4));

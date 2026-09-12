@@ -184,7 +184,7 @@ TEST(Iso9660Pages, FailedProducerFillIsUnpublishedAndRetriesWithoutLosingThePref
   ASSERT_EQ(file.read(Page, Page, reinterpret_cast<uintptr_t>(output.data() + Page)), Page);
   EXPECT_TRUE(std::equal(output.begin(), output.end(), disk.bytes.begin() + DataOffset));
   EXPECT_TRUE(file.cached(Page));
-  EXPECT_EQ(disk.producerReads.size(), 3U);
+  EXPECT_EQ(disk.producerReads.size(), 4U);
   EXPECT_TRUE(disk.legacyReads.empty());
 }
 

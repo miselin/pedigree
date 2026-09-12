@@ -7,6 +7,7 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Pointers.h"
+
 #include "process-vm-syscalls.h"
 #if PEDIGREE_PROCESS_MEMORY_TESTS
 #include "pedigree/kernel/utilities/assert.h"

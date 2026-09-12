@@ -1100,9 +1100,8 @@ bool FatFilesystem::renameNode(Directory* oldParent, const String& oldName, File
   const uint32_t oldCluster = source->isSymlink()
                                   ? static_cast<FatSymlink*>(source)->getDirCluster()
                                   : static_cast<FatFile*>(source)->getDirCluster();
-  const uint32_t oldOffset = source->isSymlink()
-                                 ? static_cast<FatSymlink*>(source)->getDirOffset()
-                                 : static_cast<FatFile*>(source)->getDirOffset();
+  const uint32_t oldOffset = source->isSymlink() ? static_cast<FatSymlink*>(source)->getDirOffset()
+                                                 : static_cast<FatFile*>(source)->getDirOffset();
   if (!newDirectory->addEntry(newName, source, source->isDirectory() ? 1 : 0, false))
     return false;
 

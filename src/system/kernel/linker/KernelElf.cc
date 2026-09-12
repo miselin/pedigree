@@ -116,9 +116,8 @@ bool KernelElf::initialise(const BootstrapStruct_t& pBootstrap) {
     for (size_t i = 1; i < pBootstrap.getSectionHeaderCount(); i++) {
       uintptr_t shdr_addr =
           pBootstrap.getSectionHeaders() + i * pBootstrap.getSectionHeaderEntrySize();
-      KernelElfSectionHeader_t* pSh = m_AdditionalSectionHeaders
-                                         ->convertPhysicalPointer<KernelElfSectionHeader_t>(
-                                             shdr_addr);
+      KernelElfSectionHeader_t* pSh =
+          m_AdditionalSectionHeaders->convertPhysicalPointer<KernelElfSectionHeader_t>(shdr_addr);
 
       if ((pSh->flags & SHF_ALLOC) != SHF_ALLOC) {
         if (pSh->addr <= start) {
@@ -1321,8 +1320,8 @@ bool KernelElf::moduleExecutionWaitsForUnloadForTest() {
   bool wasFailed = false;
   bool runLifecycle = false;
   kernelElf.lockModules();
-  const ModuleUnloadClaim claim = kernelElf.claimModuleUnloadLocked(
-      &unloading, true, false, false, wasFailed, runLifecycle);
+  const ModuleUnloadClaim claim =
+      kernelElf.claimModuleUnloadLocked(&unloading, true, false, false, wasFailed, runLifecycle);
   if (claim != UnloadClaimed) {
     kernelElf.unlockModules();
     return false;

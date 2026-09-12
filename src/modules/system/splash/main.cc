@@ -575,7 +575,8 @@ static bool handleSplash() {
 
       EMIT_IF(DEBUGGER) {
         // Draw a border around the log area
-        centerStringAt("< Kernel Log >", g_LogW / 2, g_LogBoxY - 2 - (FONT_HEIGHT / 2) - FONT_HEIGHT);
+        centerStringAt("< Kernel Log >", g_LogW / 2,
+                       g_LogBoxY - 2 - (FONT_HEIGHT / 2) - FONT_HEIGHT);
         centerStringAt(
             "(you can push ESCAPE to view the kernel log, and again to make the "
             "log fill the screen)",

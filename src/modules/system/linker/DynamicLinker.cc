@@ -114,7 +114,7 @@ namespace {
 physical_uintptr_t (*g_DemandPageAllocationHook)() = nullptr;
 void (*g_DemandPageReadyHook)(uintptr_t) = nullptr;
 void (*g_DemandPageFreeHook)(physical_uintptr_t) = nullptr;
-}
+}  // namespace
 #endif
 
 namespace {

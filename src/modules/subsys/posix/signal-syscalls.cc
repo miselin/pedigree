@@ -126,41 +126,41 @@ static void suspendForDefaultSignal(int) {
 }
 
 static _sig_func_ptr default_sig_handlers[PosixSubsystem::SignalDispositionCount] = {
-    sigign,     // 0
-    sighup,     // SIGHUP
-    sigint,     // SIGINT
-    sigquit,    // SIGQUIT
-    sigill,     // SIGILL
-    sigtrap,    // SIGTRAP
-    sigabrt,    // SIGABRT
-    sigbus,     // SIGBUS
-    sigfpe,     // SIGFPE
-    sigkill,    // SIGKILL
-    sigusr1,    // SIGUSR1
-    sigsegv,    // SIGSEGV
-    sigusr2,    // SIGUSR2
-    sigpipe,    // SIGPIPE
-    sigalrm,    // SIGALRM
-    sigterm,    // SIGTERM
-    sigstkflt,  // SIGSTKFLT
-    sigchld,    // SIGCHLD
-    sigcont,    // SIGCONT
+    sigign,                   // 0
+    sighup,                   // SIGHUP
+    sigint,                   // SIGINT
+    sigquit,                  // SIGQUIT
+    sigill,                   // SIGILL
+    sigtrap,                  // SIGTRAP
+    sigabrt,                  // SIGABRT
+    sigbus,                   // SIGBUS
+    sigfpe,                   // SIGFPE
+    sigkill,                  // SIGKILL
+    sigusr1,                  // SIGUSR1
+    sigsegv,                  // SIGSEGV
+    sigusr2,                  // SIGUSR2
+    sigpipe,                  // SIGPIPE
+    sigalrm,                  // SIGALRM
+    sigterm,                  // SIGTERM
+    sigstkflt,                // SIGSTKFLT
+    sigchld,                  // SIGCHLD
+    sigcont,                  // SIGCONT
     suspendForDefaultSignal,  // SIGSTOP
     suspendForDefaultSignal,  // SIGTSTP
     suspendForDefaultSignal,  // SIGTTIN
     suspendForDefaultSignal,  // SIGTTOU
-    sigurg,     // SIGURG
-    sigxcpu,    // SIGXCPU
-    sigxfsz,    // SIGXFSZ
-    sigvtalrm,  // SIGVTALRM
-    sigprof,    // SIGPROF
-    sigign,     // SIGWINCH
-    sigio,      // SIGIO/SIGPOLL
-    sigpwr,     // SIGPWR
-    sigsys,     // SIGSYS
-    sigtimer,   // musl SIGTIMER
-    sigcancel,  // musl SIGCANCEL
-    sigsynccall,  // musl SIGSYNCCALL
+    sigurg,                   // SIGURG
+    sigxcpu,                  // SIGXCPU
+    sigxfsz,                  // SIGXFSZ
+    sigvtalrm,                // SIGVTALRM
+    sigprof,                  // SIGPROF
+    sigign,                   // SIGWINCH
+    sigio,                    // SIGIO/SIGPOLL
+    sigpwr,                   // SIGPWR
+    sigsys,                   // SIGSYS
+    sigtimer,                 // musl SIGTIMER
+    sigcancel,                // musl SIGCANCEL
+    sigsynccall,              // musl SIGSYNCCALL
 };
 
 static void realtimeDefault(int) {

@@ -37,6 +37,7 @@ function(pedigree_add_nested_host_tools)
     if (NOT PEDIGREE_BUILD_HOST_C_COMPILER)
         find_program(PEDIGREE_BUILD_HOST_C_COMPILER
             NAMES cc clang gcc
+            NO_CACHE
             NO_CMAKE_FIND_ROOT_PATH REQUIRED)
     endif ()
 
@@ -78,6 +79,7 @@ function(pedigree_add_nested_host_tools)
         NOT PEDIGREE_BUILD_HOST_CXX_COMPILER)
         find_program(PEDIGREE_BUILD_HOST_CXX_COMPILER
             NAMES c++ clang++ g++
+            NO_CACHE
             NO_CMAKE_FIND_ROOT_PATH REQUIRED)
     endif ()
 

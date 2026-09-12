@@ -2649,9 +2649,8 @@ bool runHostedWaitRegressions() {
       runHostedPipeRegressions() && runHostedUsbSyncOwnershipRegression() &&
       runHostedUsbInterruptOwnershipRegression() && runHostedUsbContainerOwnershipRegression() &&
       runHostedUsbEndpointHaltRegressions() && runHostedUsbBotRegressions() &&
-      runHostedHidReportRegressions() &&
-      runHostedScsiWriteRegressions() && UsbPnP::runHostedRegistrationRegression() &&
-      Ipc::runHostedIpcInterruptionRegression() &&
+      runHostedHidReportRegressions() && runHostedScsiWriteRegressions() &&
+      UsbPnP::runHostedRegistrationRegression() && Ipc::runHostedIpcInterruptionRegression() &&
 #endif
       runHostedTimerRegressions(g_ImmediateWaiter) &&
       runHostedPrimitiveRegressions(g_ImmediateWaiter) &&

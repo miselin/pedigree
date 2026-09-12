@@ -168,9 +168,9 @@ bool eventHandlerPrivilege() {
   SignalEvent userEvent(reinterpret_cast<uintptr_t>(&hostedSignalHandler), HostedSignalNumber, ~0UL,
                         0, true, false, Event::HandlerPrivilege::User);
   Event* delivery = userEvent.cloneForDelivery();
-  SignalEvent alternateEvent(
-      reinterpret_cast<uintptr_t>(&hostedSignalHandler), HostedSignalNumber, ~0UL, 0, true, false,
-      Event::HandlerPrivilege::User, SignalEvent::DeliveryDisposition::CaughtHandler, true);
+  SignalEvent alternateEvent(reinterpret_cast<uintptr_t>(&hostedSignalHandler), HostedSignalNumber,
+                             ~0UL, 0, true, false, Event::HandlerPrivilege::User,
+                             SignalEvent::DeliveryDisposition::CaughtHandler, true);
   Event* alternateDelivery = alternateEvent.cloneForDelivery();
 
   const bool passed =
@@ -215,19 +215,17 @@ bool pendingSignalRunsAtSyscallReturn(Thread* thread) {
   const bool queued = thread->sendEvent(&event);
 
   SyscallState state = {};
-  const bool terminalWhileBlocked =
-      thread->getScheduler()->serviceUserReturnWork(state);
+  const bool terminalWhileBlocked = thread->getScheduler()->serviceUserReturnWork(state);
   const bool stayedPending = thread->hasEvent(&event) && g_SignalHandlerCalls == 0;
 
   thread->setSignalMask(originalMask & ~SignalBit);
-  const bool terminalAfterUnblock =
-      thread->getScheduler()->serviceUserReturnWork(state);
+  const bool terminalAfterUnblock = thread->getScheduler()->serviceUserReturnWork(state);
   const bool delivered = !thread->hasEvent(&event) && g_SignalHandlerCalls == 1;
 
   thread->setSignalMask(originalMask);
   const bool passed =
-      check(queued && !terminalWhileBlocked && stayedPending && !terminalAfterUnblock && delivered &&
-                thread->getStateLevel() == originalLevel,
+      check(queued && !terminalWhileBlocked && stayedPending && !terminalAfterUnblock &&
+                delivered && thread->getStateLevel() == originalLevel,
             "a newly unblocked signal did not run at the syscall return boundary");
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS " << Test);

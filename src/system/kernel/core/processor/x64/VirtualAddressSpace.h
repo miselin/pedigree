@@ -116,7 +116,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
   virtual bool tryReadUser32(uintptr_t address, uint32_t& value);
   virtual bool tryReadUserPointer(uintptr_t address, uintptr_t& value);
   virtual bool tryCompareExchangeUser32(uintptr_t address, uint32_t& expected, uint32_t desired,
-                                         bool& exchanged);
+                                        bool& exchanged);
   virtual void setFlags(void* virtualAddress, size_t newFlags);
   MUST_USE_RESULT bool trySetFlags(void* virtualAddress, size_t newFlags) override;
   virtual void unmap(void* virtualAddress);

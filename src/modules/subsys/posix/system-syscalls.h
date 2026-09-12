@@ -125,7 +125,7 @@ int posix_getresuid(uid_t* ruid, uid_t* euid, uid_t* suid);
 int posix_getresgid(gid_t* rgid, gid_t* egid, gid_t* sgid);
 
 int posix_get_robust_list(int pid, struct robust_list_head** head_ptr, size_t* len_ptr,
-                        bool linuxAbi = false);
+                          bool linuxAbi = false);
 int posix_set_robust_list(struct robust_list_head* head, size_t len, bool linuxAbi = false);
 
 int posix_ioperm(unsigned long from, unsigned long num, int turn_on);

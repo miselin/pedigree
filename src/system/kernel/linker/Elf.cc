@@ -1088,8 +1088,8 @@ const char* Elf::lookupSymbol(uintptr_t addr, uintptr_t* startAddr, T* symbolTab
 
     // Address diagnostics include private functions without exporting them to
     // the name-based linker. Undefined imports cannot describe this image.
-    if (!pSymbol->shndx || pSymbol->shndx >= 0xff00 ||
-        ST_BIND(pSymbol->info) > STB_WEAK || pSymbol->value > ~uintptr_t{0} - m_LoadBase) {
+    if (!pSymbol->shndx || pSymbol->shndx >= 0xff00 || ST_BIND(pSymbol->info) > STB_WEAK ||
+        pSymbol->value > ~uintptr_t{0} - m_LoadBase) {
       ++pSymbol;
       continue;
     }

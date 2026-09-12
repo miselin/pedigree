@@ -171,8 +171,7 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
       FATAL("Mutex acquisition must request exactly one item");
     }
     if (state == currentMutexOwner()) {
-      ERROR_NOLOCK("Recursive mutex " << Hex << reinterpret_cast<uintptr_t>(this)
-                                      << " caller "
+      ERROR_NOLOCK("Recursive mutex " << Hex << reinterpret_cast<uintptr_t>(this) << " caller "
                                       << reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
 #if X86_COMMON && !defined(PEDIGREE_BUILDUTILS)
       // The debugger may itself need locks or mappings; preserve the original

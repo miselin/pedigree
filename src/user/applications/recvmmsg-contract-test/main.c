@@ -5,18 +5,18 @@
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
 
 #include <sys/epoll.h>
 #include <sys/socket.h>
-#include <sys/un.h>
 #include <sys/syscall.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 
 #define CHECK(expression)                                                             \
@@ -50,7 +50,7 @@ static int datagram_pair(int sockets[2]) {
     memcpy(addresses[i].sun_path, path, strlen(path) + 1);
     sockets[i] = socket(AF_UNIX, SOCK_DGRAM, 0);
     if (sockets[i] < 0 || bind(sockets[i], (struct sockaddr*)&addresses[i],
-                            offsetof(struct sockaddr_un, sun_path) + strlen(path) + 1))
+                               offsetof(struct sockaddr_un, sun_path) + strlen(path) + 1))
       goto fail;
   }
   for (int i = 0; i < 2; ++i) {
@@ -61,14 +61,14 @@ static int datagram_pair(int sockets[2]) {
   }
   return 0;
 fail: {
-    const int error = errno;
-    if (sockets[0] >= 0)
-      close(sockets[0]);
-    if (sockets[1] >= 0)
-      close(sockets[1]);
-    errno = error;
-    return -1;
-  }
+  const int error = errno;
+  if (sockets[0] >= 0)
+    close(sockets[0]);
+  if (sockets[1] >= 0)
+    close(sockets[1]);
+  errno = error;
+  return -1;
+}
 }
 
 static volatile sig_atomic_t signalled;

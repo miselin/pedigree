@@ -20,12 +20,13 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
-#include "pedigree/kernel/machine/Machine.h"
-#include "Pic.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/machine/PciConfigAccess.h"
 #include "pedigree/kernel/processor/IoPort.h"
+
+#include "Pic.h"
 
 namespace {
 IoPort configSpace("PCI config space");

@@ -31,8 +31,8 @@
 
 #include "Directory.h"
 #include "File.h"
-#include "MountView.h"
 #include "MemoryMappedFile.h"
+#include "MountView.h"
 
 #ifndef VFS_STANDALONE
 #include "pedigree/kernel/process/Process.h"

@@ -314,10 +314,9 @@ const String& Ext2Filesystem::getVolumeLabel() const {
 
 bool Ext2Filesystem::getUuid(String& uuid) const {
   const uint8_t* value = reinterpret_cast<const uint8_t*>(m_pSuperblock->s_uuid);
-  uuid.Format("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-              value[0], value[1], value[2], value[3], value[4], value[5], value[6], value[7],
-              value[8], value[9], value[10], value[11], value[12], value[13], value[14],
-              value[15]);
+  uuid.Format("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x", value[0],
+              value[1], value[2], value[3], value[4], value[5], value[6], value[7], value[8],
+              value[9], value[10], value[11], value[12], value[13], value[14], value[15]);
   return true;
 }
 
@@ -797,8 +796,7 @@ bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNames
       for (size_t i = 0; i < m_pInodeBitmaps[group].count(); ++i) {
         submitMetadata(inodeBitmap + i);
       }
-      if (loadedInodeTable || m_pBlockBitmaps[group].count() ||
-          m_pInodeBitmaps[group].count()) {
+      if (loadedInodeTable || m_pBlockBitmaps[group].count() || m_pInodeBitmaps[group].count()) {
         const uint32_t descriptorBlock = firstBlock + 1 + (group * sizeof(GroupDesc)) / m_BlockSize;
         submitMetadata(descriptorBlock);
       }
@@ -1291,7 +1289,8 @@ void Ext2Filesystem::writeInode(uint32_t inode) {
   const uint32_t group = inode / inodesPerGroup;
   const size_t blockNum =
       (static_cast<uint64_t>(inode % inodesPerGroup) * m_InodeSize) / m_BlockSize;
-  const uint32_t diskBlock = LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table) + blockNum;
+  const uint32_t diskBlock =
+      LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table) + blockNum;
   writeBlock(diskBlock);
 }
 

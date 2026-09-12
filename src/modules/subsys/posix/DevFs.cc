@@ -409,9 +409,9 @@ int FramebufferFile::command(const size_t command, void* buffer) {
         }
 
         if (bSuccess) {
-          NOTICE("FramebufferFile: "
-                 << (m_pGraphicsParameters->providerResult.bTextModes ? "set text mode"
-                                                                      : "retained fixed mode"));
+          NOTICE("FramebufferFile: " << (m_pGraphicsParameters->providerResult.bTextModes
+                                             ? "set text mode"
+                                             : "retained fixed mode"));
           return 0;
         } else {
           return -1;
@@ -575,9 +575,8 @@ bool DevFs::initialise(Disk* pDisk) {
   m_pRoot->addEntry(pZero->getName(), pZero);
 
   if (Machine::instance().getNumSerial()) {
-    SerialFile* pSerial =
-        new SerialFile(String("ttyS0"), getNextInode(), this, m_pRoot,
-                       Machine::instance().getSerial(0));
+    SerialFile* pSerial = new SerialFile(String("ttyS0"), getNextInode(), this, m_pRoot,
+                                         Machine::instance().getSerial(0));
     m_pRoot->addEntry(pSerial->getName(), pSerial);
   }
 

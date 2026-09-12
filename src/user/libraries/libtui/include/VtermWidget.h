@@ -1,16 +1,15 @@
 #ifndef PEDIGREE_TUI_VTERM_WIDGET_H
 #define PEDIGREE_TUI_VTERM_WIDGET_H
 
+#include "pedigree/native/graphics/Graphics.h"
+
 #include <stddef.h>
 #include <stdint.h>
-
 #include <string>
 #include <vector>
-
-#include <cairo/cairo.h>
 #include <vterm.h>
 
-#include "pedigree/native/graphics/Graphics.h"
+#include <cairo/cairo.h>
 
 class DirtyRectangle;
 class Font;
@@ -20,9 +19,9 @@ class Widget;
 
 class Vterm {
  public:
-  Vterm(PedigreeGraphics::Framebuffer* framebuffer, size_t width, size_t height,
-        size_t offsetLeft, size_t offsetTop, Terminal* terminal, Widget* widget, Tui* tui,
-        Font* normalFont, Font* boldFont);
+  Vterm(PedigreeGraphics::Framebuffer* framebuffer, size_t width, size_t height, size_t offsetLeft,
+        size_t offsetTop, Terminal* terminal, Widget* widget, Tui* tui, Font* normalFont,
+        Font* boldFont);
   ~Vterm();
 
   void write(const char* bytes, size_t length, DirtyRectangle& rect);

@@ -489,8 +489,9 @@ int checkedSyncWorker(void* parameter) {
   manager.removeAndRelease(address, 2 * pageSize);
   manager.unmapAll();
   if (passed) {
-    NOTICE("VM-OWNERSHIP-TEST: PASS checked-msync range=ENOMEM range-io=0 failure=EIO "
-           "attempted=2 retry=2");
+    NOTICE(
+        "VM-OWNERSHIP-TEST: PASS checked-msync range=ENOMEM range-io=0 failure=EIO "
+        "attempted=2 retry=2");
   }
   return 0;
 }

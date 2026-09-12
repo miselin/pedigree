@@ -21,8 +21,9 @@
 
 #include "pedigree/kernel/utilities/ObjectPool.h"
 
-#include <gtest/gtest.h>
 #include <new>
+
+#include <gtest/gtest.h>
 
 TEST(PedigreeObjectPool, EmptyPoolAllocation) {
   ObjectPool<int> x;

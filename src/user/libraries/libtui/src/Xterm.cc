@@ -1550,8 +1550,8 @@ void Xterm::Window::renderAll(DirtyRectangle& rect, Xterm::Window* pPrevious) {
       if (!pPrevious) {
         // The surface is cleared before the first redraw. Avoid asking the
         // font rasterizer to process thousands of default blank cells.
-        if (current.utf32 == ' ' && current.fore == g_DefaultFg &&
-            current.back == g_DefaultBg && current.flags == 0) {
+        if (current.utf32 == ' ' && current.fore == g_DefaultFg && current.back == g_DefaultBg &&
+            current.flags == 0) {
           continue;
         }
         render(rect, 0, x, y);

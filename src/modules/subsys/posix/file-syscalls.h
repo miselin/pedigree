@@ -126,7 +126,6 @@ int posix_readlinkat(int dirfd, const char* pathname, char* buf, size_t bufsiz);
 int posix_fchmodat(int dirfd, const char* pathname, mode_t mode, int flags);
 int posix_faccessat(int dirfd, const char* pathname, int mode, int flags);
 
-
 int posix_mknod(const char* pathname, mode_t mode, dev_t dev);
 
 int posix_statfs(const char* path, struct statfs* buf);

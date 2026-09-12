@@ -113,7 +113,7 @@ TEST(DynamicDirectory, MountedAbsoluteSymlinkUsesNamespaceRoot) {
   const char* names[] = {"absolute-root", "absolute-mount", "relative"};
   for (size_t i = 0; i < 3; ++i) {
     ASSERT_TRUE(static_cast<Filesystem&>(source).createSymlink(StringView(names[i]), targets[i],
-                                                              source.getRoot()));
+                                                               source.getRoot()));
     Directory::ChildLease link, followed;
     File* file = source.findRetained(StringView(names[i]), link, source.getRoot());
     ASSERT_NE(file, nullptr);
@@ -136,8 +136,8 @@ TEST(DynamicDirectory, MountedAbsoluteSymlinkUsesNamespaceRoot) {
             source.find(StringView("target "), source.getRoot()));
   ASSERT_TRUE(api.createSymlink(StringView("replaced"), String("neighbor"), source.getRoot()));
   source.setProcessOwnership(true);
-  ASSERT_TRUE(api.rename(StringView("spaced"), source.getRoot(), StringView("replaced"),
-                         source.getRoot()));
+  ASSERT_TRUE(
+      api.rename(StringView("spaced"), source.getRoot(), StringView("replaced"), source.getRoot()));
   EXPECT_EQ(source.find(StringView("spaced"), source.getRoot()), nullptr);
   EXPECT_EQ(source.find(StringView("replaced"), source.getRoot()), file);
   ASSERT_TRUE(api.remove(StringView("replaced"), source.getRoot()));

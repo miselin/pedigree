@@ -248,9 +248,8 @@ const char* KernelElf::runtimeLookupSymbolLocked(uintptr_t addr, uintptr_t* star
     for (size_t i = 1; slot.plan.symbol(i, symbol, false); ++i) {
       // Diagnostics use the retained full table, independently of exports.
       const unsigned type = ST_TYPE(symbol.info);
-      if (!symbol.shndx || symbol.shndx >= 0xff00 ||
-          (type != STT_FUNC && type != STT_NOTYPE) || ST_BIND(symbol.info) > STB_WEAK ||
-          symbol.value > ~uintptr_t{0} - slot.base ||
+      if (!symbol.shndx || symbol.shndx >= 0xff00 || (type != STT_FUNC && type != STT_NOTYPE) ||
+          ST_BIND(symbol.info) > STB_WEAK || symbol.value > ~uintptr_t{0} - slot.base ||
           !slot.plan.contains(symbol.value, symbol.size ? symbol.size : 1, PF_R | PF_X)) {
         continue;
       }

@@ -30,7 +30,6 @@ class FileEventTarget {
     return (mask & m_Interest) != 0;
   }
 
-
   bool admit() {
     return m_Notifications.tryEnter();
   }

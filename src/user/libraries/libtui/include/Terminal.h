@@ -20,14 +20,12 @@
 #ifndef TERMINAL_H
 #define TERMINAL_H
 
-#include <syslog.h>
-
-#include "environment.h"
-
-#include "VtermWidget.h"
-
 #include "pedigree/native/graphics/Graphics.h"
 
+#include <syslog.h>
+
+#include "VtermWidget.h"
+#include "environment.h"
 #include <cairo/cairo.h>
 
 /** A Terminal owns the PTY and the terminal screen adapter. */

@@ -181,13 +181,11 @@ bool TextIO::initialise(bool bClear) {
 
       m_bInitialised = true;
       m_ScrollStart = 0;
-      m_ScrollEnd = m_pVga->getNumRows() > BACKBUFFER_ROWS
-                         ? BACKBUFFER_ROWS - 1
-                         : m_pVga->getNumRows() - 1;
+      m_ScrollEnd =
+          m_pVga->getNumRows() > BACKBUFFER_ROWS ? BACKBUFFER_ROWS - 1 : m_pVga->getNumRows() - 1;
       m_LeftMargin = 0;
-      m_RightMargin = m_pVga->getNumCols() > BACKBUFFER_STRIDE
-                          ? BACKBUFFER_STRIDE
-                          : m_pVga->getNumCols();
+      m_RightMargin =
+          m_pVga->getNumCols() > BACKBUFFER_STRIDE ? BACKBUFFER_STRIDE : m_pVga->getNumCols();
 
       m_CurrentModes = AnsiVt52 | CharacterSetG0;
 
@@ -240,9 +238,8 @@ void TextIO::initialiseVterm() {
   m_pVtermState = vterm_obtain_state(m_pVterm);
 
   static const VTermScreenCallbacks callbacks = {
-      vtermDamage, vtermMoveRect, vtermMoveCursor, vtermSetTermProp,
-      vtermBell, vtermResize, vtermScrollbackPush, vtermScrollbackPop,
-      vtermScrollbackClear};
+      vtermDamage, vtermMoveRect,       vtermMoveCursor,    vtermSetTermProp,    vtermBell,
+      vtermResize, vtermScrollbackPush, vtermScrollbackPop, vtermScrollbackClear};
   vterm_screen_set_callbacks(m_pVtermScreen, &callbacks, this);
   vterm_screen_enable_reflow(m_pVtermScreen, true);
   vterm_screen_enable_altscreen(m_pVtermScreen, true);
@@ -309,8 +306,7 @@ void TextIO::markVtermRect(VTermRect rect) {
 }
 
 void TextIO::markVtermCell(VTermPos pos) {
-  if (pos.row >= 0 && pos.row < BACKBUFFER_ROWS && pos.col >= 0 &&
-      pos.col < BACKBUFFER_STRIDE)
+  if (pos.row >= 0 && pos.row < BACKBUFFER_ROWS && pos.col >= 0 && pos.col < BACKBUFFER_STRIDE)
     m_VtermDirty[pos.row * BACKBUFFER_STRIDE + pos.col] = 1;
 }
 
@@ -323,10 +319,9 @@ TextIO::VgaColour TextIO::vtermColour(VTermColor colour, bool foreground) const 
     vterm_screen_convert_color_to_rgb(m_pVtermScreen, &colour);
 
   static const uint8_t palette[16][3] = {
-      {0, 0, 0},       {0, 0, 170},     {0, 170, 0},   {0, 170, 170},
-      {170, 0, 0},     {170, 0, 170},   {170, 85, 0},  {170, 170, 170},
-      {85, 85, 85},    {85, 85, 255},   {85, 255, 85}, {85, 255, 255},
-      {255, 85, 85},   {255, 85, 255},  {255, 255, 85}, {255, 255, 255}};
+      {0, 0, 0},     {0, 0, 170},     {0, 170, 0},    {0, 170, 170},  {170, 0, 0},   {170, 0, 170},
+      {170, 85, 0},  {170, 170, 170}, {85, 85, 85},   {85, 85, 255},  {85, 255, 85}, {85, 255, 255},
+      {255, 85, 85}, {255, 85, 255},  {255, 255, 85}, {255, 255, 255}};
 
   uint8_t red = colour.rgb.red, green = colour.rgb.green, blue = colour.rgb.blue;
   unsigned bestDistance = ~0U;
@@ -391,8 +386,7 @@ int TextIO::popVtermScrollback(VTermScreenCell* cells, int cols) {
     destination.chars[0] = source.character;
     destination.width = 1;
     destination.fg.type = VTERM_COLOR_INDEXED;
-    static const uint8_t vtermPalette[16] = {
-        0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15};
+    static const uint8_t vtermPalette[16] = {0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15};
     destination.fg.indexed.idx = vtermPalette[source.fore & 0x0F];
     destination.bg.type = VTERM_COLOR_INDEXED;
     destination.bg.indexed.idx = vtermPalette[source.back & 0x0F];
@@ -2140,7 +2134,8 @@ void TextIO::handleInput(InputManager::InputNotification& in) {
     }
 
     uint8_t buf = in.data.rawkey.scancode | (in.data.rawkey.keyUp ? 0x80 : 0);
-    if (m_OutBuffer.writeAvailable(reinterpret_cast<char*>(&buf), sizeof(buf), true) != sizeof(buf)) {
+    if (m_OutBuffer.writeAvailable(reinterpret_cast<char*>(&buf), sizeof(buf), true) !=
+        sizeof(buf)) {
       WARNING("TextIO: input buffer is full or closed, dropping keypress");
       return;
     }

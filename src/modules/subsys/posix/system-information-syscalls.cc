@@ -6,11 +6,11 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/time/Time.h"
-#include "system-information-syscalls.h"
 
 #include "PosixSubsystem.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "system-information-abi.h"
+#include "system-information-syscalls.h"
 
 int posix_sysinfo(void* information) {
   PosixSystemInformation::Record snapshot;

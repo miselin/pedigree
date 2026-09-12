@@ -34,19 +34,15 @@
           "classification": "lexical-migration-debt"
         },
         "src/modules/drivers/common/usb-mass-storage/UsbMassStorageDevice.cc": {
-          "expected": 5,
-          "classification": "lexical-migration-debt"
-        },
-        "src/modules/subsys/posix/file-syscalls.cc": {
           "expected": 2,
           "classification": "lexical-migration-debt"
         },
         "src/modules/system/fat/FatDirectory.cc": {
-          "expected": 5,
+          "expected": 6,
           "classification": "lexical-migration-debt"
         },
         "src/modules/system/usb/UsbDevice.cc": {
-          "expected": 3,
+          "expected": 4,
           "classification": "lexical-migration-debt"
         }
       }
@@ -93,8 +89,33 @@
           "classification": "thread-publication"
         },
         "src/modules/subsys/posix/system-syscalls.cc": {
-          "expected": 2,
+          "expected": 4,
           "classification": "thread-publication"
+        },
+        "src/modules/subsys/posix/mount-view-syscalls.cc": {
+          "expected": 1,
+          "classification": "non-thread-api",
+          "owner": "MountView namespace detach"
+        },
+        "src/modules/system/module-runtime-tests/main.cc": {
+          "expected": 1,
+          "classification": "module-thread-publication",
+          "owner": "Runtime module lifecycle fixture worker"
+        },
+        "src/modules/system/swap-vm-tests/main.cc": {
+          "expected": 1,
+          "classification": "module-thread-publication",
+          "owner": "Swap VM fixture worker"
+        },
+        "src/modules/system/vfs/PipeBuffer-transfer.cc": {
+          "expected": 2,
+          "classification": "async-transfer",
+          "owner": "ActiveOperation reservation publication"
+        },
+        "src/system/kernel/core/process/PerProcessorScheduler.cc": {
+          "expected": 2,
+          "classification": "kernel-admitted-wrapper",
+          "owner": "Hosted deferred-thread lifecycle fixtures"
         },
         "src/modules/system/preload/main.cc": {
           "expected": 1,

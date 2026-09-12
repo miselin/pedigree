@@ -740,8 +740,7 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack, Thread::EventSe
     Thread::AlternateSignalStack& alternate = pThread->m_AlternateSignalStack;
     if (alternate.enabled && !alternate.inUse && alternate.base &&
         alternate.size <= (~static_cast<uintptr_t>(0) - alternate.base)) {
-      alternateStackTop =
-          (alternate.base + alternate.size) & ~static_cast<uintptr_t>(0xF);
+      alternateStackTop = (alternate.base + alternate.size) & ~static_cast<uintptr_t>(0xF);
       alternateStackCandidate = true;
     }
   }

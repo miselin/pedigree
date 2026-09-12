@@ -1,7 +1,8 @@
 /* Copyright (c) 2026, Pedigree Developers. */
-#include "MountView-internal.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/syscallError.h"
+
+#include "MountView-internal.h"
 #if THREADS && !defined(STANDALONE_MUTEXES)
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -23,7 +24,9 @@ VfsNodeReference& VfsNodeReference::operator=(VfsNodeReference&& other) noexcept
   }
   return *this;
 }
-VfsNodeReference::~VfsNodeReference() { reset(); }
+VfsNodeReference::~VfsNodeReference() {
+  reset();
+}
 void VfsNodeReference::reset() {
 #if THREADS && !defined(STANDALONE_MUTEXES)
   TerminationDeferral lifetime;
@@ -64,8 +67,7 @@ VfsAttachment::~VfsAttachment() {
   backing.reset();
 }
 
-VfsPath::VfsPath(VfsMountView& owner, const VfsAttachmentRef& mounted,
-                 VfsNodeReference&& retained)
+VfsPath::VfsPath(VfsMountView& owner, const VfsAttachmentRef& mounted, VfsNodeReference&& retained)
     : kind(Kind::Mounted), view(owner), attachment(mounted), file(pedigree_std::move(retained)) {
   attachment->paths += 1;
 }
@@ -94,7 +96,9 @@ VfsPath::~VfsPath() {
 }
 
 VfsMountView::VfsMountView(VFS& vfs) : m_State(new State(*this)), m_Vfs(vfs) {}
-VfsMountView::~VfsMountView() { delete m_State; }
+VfsMountView::~VfsMountView() {
+  delete m_State;
+}
 VfsMountView::State::~State() {
   if (contexts || anonymousPaths)
     FATAL("Mount view destroyed with retained filesystem owners");
@@ -117,13 +121,15 @@ VfsAttachmentRow* VfsMountView::State::find(uint64_t id) const {
 }
 VfsAttachmentRow* VfsMountView::State::at(const VfsPath& path) const {
   for (auto* row = attachments; row; row = row->next)
-    if (row->parent.get() == path.attachment.get() && row->covered && row->covered->get() == path.node())
+    if (row->parent.get() == path.attachment.get() && row->covered &&
+        row->covered->get() == path.node())
       return row;
   return nullptr;
 }
 VfsPath* VfsMountView::State::nodePath(const FilesystemPathRef& reference) const {
   auto* result = reference && reference->provider() == &view
-                     ? static_cast<VfsPath*>(reference.get()) : nullptr;
+                     ? static_cast<VfsPath*>(reference.get())
+                     : nullptr;
   return result && &result->view == &view ? result : nullptr;
 }
 VfsPath* VfsMountView::State::path(const FilesystemPathRef& reference) const {
@@ -146,7 +152,7 @@ bool VfsMountView::State::contains(const FilesystemPathRef& reference) const {
   return false;
 }
 bool VfsMountView::State::context(const FilesystemContextRef& reference,
-                                 VfsFilesystemContext*& result) const {
+                                  VfsFilesystemContext*& result) const {
   for (auto* row = contexts; row; row = row->next) {
     if (row->context.get() == reference.get()) {
       result = static_cast<VfsFilesystemContext*>(reference.get());
@@ -156,14 +162,14 @@ bool VfsMountView::State::context(const FilesystemContextRef& reference,
   return false;
 }
 bool VfsMountView::State::makePath(const VfsAttachmentRef& attachment, File* node,
-                                  FilesystemPathRef& result) {
+                                   FilesystemPathRef& result) {
   VfsNodeReference retained;
   if (!attachment || !retained.retain(node, attachment->backing.filesystem())) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
-  auto path = FilesystemPathRef::tryAdopt(
-      new VfsPath(view, attachment, pedigree_std::move(retained)));
+  auto path =
+      FilesystemPathRef::tryAdopt(new VfsPath(view, attachment, pedigree_std::move(retained)));
   if (!path) {
     SYSCALL_ERROR(OutOfMemory);
     return false;
@@ -232,7 +238,7 @@ bool VfsMountView::createBootContext(FilesystemContextOwner& result) {
   return m_State && m_State->createContext(nullptr, result);
 }
 bool VfsMountView::State::createContext(const VfsFilesystemContext* parent,
-                                       FilesystemContextOwner& result) {
+                                        FilesystemContextOwner& result) {
 #if THREADS && !defined(STANDALONE_MUTEXES)
   TerminationDeferral lifetime;
 #endif
@@ -330,8 +336,7 @@ void VfsFilesystemContext::retireProcessOwner() {
   delete retired;
 }
 
-bool VfsMountView::changeCwd(const FilesystemContextRef& context,
-                            const FilesystemPathRef& path) {
+bool VfsMountView::changeCwd(const FilesystemContextRef& context, const FilesystemPathRef& path) {
   if (!m_State->path(path) || !path->node()->isDirectory()) {
     SYSCALL_ERROR(NotADirectory);
     return false;
@@ -353,8 +358,7 @@ bool VfsMountView::changeCwd(const FilesystemContextRef& context,
   }
   return true;
 }
-bool VfsMountView::changeRoot(const FilesystemContextRef& context,
-                             const FilesystemPathRef& path) {
+bool VfsMountView::changeRoot(const FilesystemContextRef& context, const FilesystemPathRef& path) {
   if (!m_State->path(path) || !path->node()->isDirectory()) {
     SYSCALL_ERROR(NotADirectory);
     return false;
@@ -384,8 +388,7 @@ bool VfsMountView::samePath(const FilesystemPathRef& a, const FilesystemPathRef&
   auto* first = m_State ? m_State->nodePath(a) : nullptr;
   auto* second = m_State ? m_State->nodePath(b) : nullptr;
   return first && second && first->kind == second->kind &&
-         first->attachment.get() == second->attachment.get() &&
-         first->node() == second->node();
+         first->attachment.get() == second->attachment.get() && first->node() == second->node();
 }
 bool VfsMountView::anonymousPath(File* node, FilesystemPathRef& result) {
   VfsNodeReference retained;
@@ -402,7 +405,7 @@ bool VfsMountView::anonymousPath(File* node, FilesystemPathRef& result) {
   return true;
 }
 bool VfsMountView::pathForNode(const FilesystemPathRef& sameAttachment, File* node,
-                              FilesystemPathRef& result) {
+                               FilesystemPathRef& result) {
   auto* path = m_State ? m_State->path(sameAttachment) : nullptr;
   if (!path) {
     SYSCALL_ERROR(InvalidArgument);

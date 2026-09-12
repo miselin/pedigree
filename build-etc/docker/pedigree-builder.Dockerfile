@@ -48,6 +48,7 @@ RUN cmake -S . -B build/toolchain -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE=/src/build-etc/cmake/pedigree_amd64.cmake \
         -DPEDIGREE_TOOLCHAIN_ROOT=/opt/pedigree \
         -DPEDIGREE_BUILD_USER_DIR=OFF \
+        -DPEDIGREE_BUILD_UEFI=OFF \
         -DPEDIGREE_WITH_INIT=OFF \
         -DPEDIGREE_WARNINGS=ON \
     && cmake --build build/toolchain \

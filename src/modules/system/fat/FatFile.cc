@@ -178,8 +178,7 @@ void FatFile::extend(size_t newSize, uint64_t location, uint64_t size) {
   extend(newSize);
 }
 
-bool FatFile::prepareShrink(const ShrinkContext& context,
-                            UniquePointer<PreparedShrink>& prepared) {
+bool FatFile::prepareShrink(const ShrinkContext& context, UniquePointer<PreparedShrink>& prepared) {
   if (context.newSize != 0) {
     SYSCALL_ERROR(OperationNotSupported);
     return false;

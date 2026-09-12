@@ -24,8 +24,7 @@ class UefiFramebuffer final : public Framebuffer {
 
   bool initialise(const BootstrapStruct_t::FramebufferInfo& info) {
     if (!info.address || !info.width || !info.height ||
-        info.pitch < static_cast<uint64_t>(info.width) * 4 ||
-        info.format > 1) {
+        info.pitch < static_cast<uint64_t>(info.width) * 4 || info.format > 1) {
       return false;
     }
 

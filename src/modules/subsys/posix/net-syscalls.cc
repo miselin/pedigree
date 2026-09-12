@@ -578,7 +578,6 @@ int posix_socketpair(int domain, int type, int protocol, int sv[2]) {
   FileDescriptor* fA = new FileDescriptor;
   FileDescriptor* fB = new FileDescriptor;
 
-
   fA->setNetworkImpl(SharedPointer<NetworkSyscalls>(syscallsA));
   fB->setNetworkImpl(SharedPointer<NetworkSyscalls>(syscallsB));
 
@@ -644,7 +643,6 @@ ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags) {
   }
 
   N_NOTICE("send(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ")");
-
 
   DescriptorLease f;
   acquireDescriptor(sock, f);
@@ -719,7 +717,6 @@ ssize_t posix_sendto(int sock, const void* buff, size_t bufflen, int flags,
   N_NOTICE("sendto(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ", " << address
                      << ", " << addrlen << ")");
 
-
   DescriptorLease f;
   acquireDescriptor(sock, f);
   if (!isSaneSocket(f)) {
@@ -751,7 +748,6 @@ ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags) {
   DescriptorLease f;
   acquireDescriptor(sock, f);
   ssize_t n = posix_recv_descriptor(f, buff, bufflen, flags);
-
 
   N_NOTICE(" -> " << n);
   return n;
@@ -875,7 +871,6 @@ ssize_t posix_recvfrom(int sock, void* buff, size_t bufflen, int flags,
       return -1;
     }
   }
-
 
   N_NOTICE(" -> " << n);
   return n;

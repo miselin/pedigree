@@ -26,6 +26,9 @@ class CMakeToolchainTests(unittest.TestCase):
             ROOT / "scripts", target_is_directory=True
         )
         (source / "src").symlink_to(ROOT / "src", target_is_directory=True)
+        (source / "external").symlink_to(
+            ROOT / "external", target_is_directory=True
+        )
 
         cmake_lists = (ROOT / "CMakeLists.txt").read_text()
         validation_end = "    add_subdirectory(src/modules)\n"
@@ -52,6 +55,7 @@ class CMakeToolchainTests(unittest.TestCase):
             "-DPEDIGREE_BUILD_KEYMAPS=OFF",
             "-DPEDIGREE_BUILD_TRANSLATIONS=OFF",
             "-DPEDIGREE_BUILD_USER_DIR=OFF",
+            "-DPEDIGREE_BUILD_UEFI=OFF",
             "-DPEDIGREE_REGENERATE_KEYMAP_SOURCES=OFF",
             *extra_arguments,
         ]

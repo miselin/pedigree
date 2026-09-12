@@ -33,8 +33,7 @@ class ModulesCommand : public DebuggerCommand, public Scrollable {
                DebuggerIO* screen);
   const NormalStaticString getString();
 
-  const char* getLine1(size_t index, DebuggerIO::Colour& colour,
-                       DebuggerIO::Colour& bgColour);
+  const char* getLine1(size_t index, DebuggerIO::Colour& colour, DebuggerIO::Colour& bgColour);
   const char* getLine2(size_t index, size_t& colOffset, DebuggerIO::Colour& colour,
                        DebuggerIO::Colour& bgColour);
   size_t getLineCount();

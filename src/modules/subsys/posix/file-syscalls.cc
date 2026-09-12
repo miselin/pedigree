@@ -777,7 +777,8 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
       } else if (ConsoleManager::instance().isConsole(pFd->getFile())) {
         amount = pFd->writeFile(0, requested, reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
       } else {
-        amount = writeGuard.write(0, requested, reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
+        amount =
+            writeGuard.write(0, requested, reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
       }
       const bool signalInterrupted =
           pThread->getInterruptionReason() == Thread::InterruptedBySignal;
@@ -4068,8 +4069,9 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
   }
 
   // Permissions were OK.
-  if ((flags & O_TRUNC) && !file->isDirectory() && !file->isBlockDevice() && !file->isPipe() && !file->isFifo() &&
-      file->getFilesystem() != g_pDevFs && !ConsoleManager::instance().isConsole(file)) {
+  if ((flags & O_TRUNC) && !file->isDirectory() && !file->isBlockDevice() && !file->isPipe() &&
+      !file->isFifo() && file->getFilesystem() != g_pDevFs &&
+      !ConsoleManager::instance().isConsole(file)) {
     F_NOTICE("  -> {O_TRUNC}");
     if (!file->resize(0)) {
       pSubsystem->freeFd(fd);

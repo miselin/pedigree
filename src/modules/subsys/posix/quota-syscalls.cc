@@ -5,13 +5,13 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/syscallError.h"
-#include "quota-syscalls.h"
 
 #include <fcntl.h>
 
 #include "DevFs-block.h"
 #include "file-handle-syscalls.h"
 #include "modules/system/vfs/Quota.h"
+#include "quota-syscalls.h"
 
 namespace {
 constexpr uint32_t Sync = 0x800001, Enable = 0x800002, Disable = 0x800003;

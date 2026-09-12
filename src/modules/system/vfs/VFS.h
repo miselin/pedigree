@@ -27,8 +27,9 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #endif
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/FilesystemContext.h"
 #include "pedigree/kernel/process/FilesystemCredentials.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
@@ -41,7 +42,6 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "Filesystem.h"
-#include "pedigree/kernel/process/FilesystemContext.h"
 
 class Process;
 class Disk;
@@ -62,7 +62,9 @@ class EXPORTED_PUBLIC VFS {
     explicit NamespaceMutation(VFS& vfs);
     ~NamespaceMutation();
     uint64_t generation() const;
-    bool protects(const VFS& vfs) const { return &m_Vfs == &vfs; }
+    bool protects(const VFS& vfs) const {
+      return &m_Vfs == &vfs;
+    }
 
    private:
     NamespaceMutation(const NamespaceMutation&) = delete;

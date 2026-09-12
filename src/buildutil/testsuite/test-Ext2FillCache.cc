@@ -468,8 +468,11 @@ TEST_P(Ext2FillCacheWriteback, FailedShrinkBitmapReadPreservesVisibleInodeAndDat
   EXPECT_EQ(fixture.file->getSize(), 2 * kNativePageSize);
   EXPECT_EQ(fixture.inode->i_size, before.i_size);
   EXPECT_EQ(fixture.inode->i_blocks, before.i_blocks);
-  EXPECT_TRUE(std::equal(std::begin(fixture.inode->i_block), std::end(fixture.inode->i_block),
-                         std::begin(before.i_block)));
+  for (size_t i = 0; i < 15; ++i) {
+    const uint32_t actualBlock = fixture.inode->i_block[i];
+    const uint32_t expectedBlock = before.i_block[i];
+    EXPECT_EQ(actualBlock, expectedBlock);
+  }
   EXPECT_EQ(fixture.address(0), prefixAddress);
   EXPECT_EQ(fixture.address(kNativePageSize), suffixAddress);
   EXPECT_EQ(fixture.bytes(0), prefix);

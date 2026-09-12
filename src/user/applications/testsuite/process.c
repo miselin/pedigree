@@ -525,8 +525,8 @@ static void test_resource_compatibility(void) {
       limit.rlim_cur != 0 || limit.rlim_max != saved_memlock.rlim_max)
     fail();
   if (syscall(SYS_setrlimit, RLIMIT_MEMLOCK, &saved_memlock) ||
-      syscall(SYS_getrlimit, RLIMIT_MEMLOCK, &limit) ||
-      limit.rlim_cur != saved_memlock.rlim_cur || limit.rlim_max != saved_memlock.rlim_max)
+      syscall(SYS_getrlimit, RLIMIT_MEMLOCK, &limit) || limit.rlim_cur != saved_memlock.rlim_cur ||
+      limit.rlim_max != saved_memlock.rlim_max)
     fail();
 
   if (syscall(SYS_membarrier, 0, 0, 0) != 0)

@@ -546,8 +546,8 @@ bool FatDirectory::renameEntry(const String& oldName, File* pFile, const String&
   size_t oldLongEntries = 0;
   while (oldLongEntries < MaxLongFilenameEntries &&
          (oldLongEntries + 1) * sizeof(Dir) <= dirOffset) {
-    DirLongFilename* entry = reinterpret_cast<DirLongFilename*>(
-        buffer + dirOffset - (oldLongEntries + 1) * sizeof(Dir));
+    DirLongFilename* entry =
+        reinterpret_cast<DirLongFilename*>(buffer + dirOffset - (oldLongEntries + 1) * sizeof(Dir));
     if ((entry->LDIR_Attr & ATTR_LONG_NAME_MASK) != ATTR_LONG_NAME ||
         entry->LDIR_Chksum != oldChecksum)
       break;
@@ -565,8 +565,8 @@ bool FatDirectory::renameEntry(const String& oldName, File* pFile, const String&
   MemoryCopy(shortName, shortFilename.cstr(), sizeof(shortName));
   const uint8_t checksum = shortFilenameChecksum(shortName);
   for (size_t i = 0; i < newLongEntries; ++i) {
-    DirLongFilename* entry = reinterpret_cast<DirLongFilename*>(
-        buffer + dirOffset - (newLongEntries - i) * sizeof(Dir));
+    DirLongFilename* entry =
+        reinterpret_cast<DirLongFilename*>(buffer + dirOffset - (newLongEntries - i) * sizeof(Dir));
     ByteSet(entry, 0xFF, sizeof(DirLongFilename));
     const size_t ordinal = newLongEntries - i;
     entry->LDIR_Ord = ordinal | (i == 0 ? 0x40 : 0);
@@ -575,8 +575,9 @@ bool FatDirectory::renameEntry(const String& oldName, File* pFile, const String&
     const size_t filenameOffset = (ordinal - 1) * LongFilenameCharactersPerEntry;
     for (size_t character = 0; character < LongFilenameCharactersPerEntry; ++character) {
       const size_t index = filenameOffset + character;
-      const uint16_t value = index < characterCount ? characters[index]
-                                                     : index == characterCount ? 0 : 0xFFFF;
+      const uint16_t value = index < characterCount    ? characters[index]
+                             : index == characterCount ? 0
+                                                       : 0xFFFF;
       writeLongFilenameCharacter(reinterpret_cast<uint8_t*>(entry), character, value);
     }
   }
