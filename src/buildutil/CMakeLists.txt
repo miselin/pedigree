@@ -420,7 +420,9 @@ if (PEDIGREE_COVERAGE)
 endif ()
 
 # ASAN testsuite
-if (HAVE_ASAN)
+# Keep the extra target opt-in: clang-tidy analyzes every compile-database
+# entry, even when the target is not built.
+if (PEDIGREE_BUILDUTILS_ASAN AND HAVE_ASAN)
     add_executable(testsuite-asan ${TESTSUITE_SRCS})
     target_link_libraries(testsuite-asan PRIVATE
         debugger ext2 fat iso9660 partition ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
