@@ -27,6 +27,7 @@
 #include "pedigree/kernel/graphics/GraphicsService.h"
 #include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
@@ -120,6 +121,17 @@ void panic(const char* msg) {
 
   const bool terminalTlbFailure = Processor::tlbInvalidationTerminal();
   Processor::setInterrupts(false);
+
+  // Graphics providers may already have been unloaded during shutdown.
+  // Preserve the initiating failure before touching those services.
+  if (Machine::instance().getNumSerial()) {
+    Serial* serial = Machine::instance().getSerial(0);
+    if (serial) {
+      serial->write_str("PANIC: ");
+      serial->write_str(msg);
+      serial->write_str("\r\n");
+    }
+  }
 
   bool processorsStopped = true;
 #if MULTIPROCESSOR
