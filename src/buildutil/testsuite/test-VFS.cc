@@ -1598,8 +1598,7 @@ TEST(VFS, GlobalSyncAdmitsAllBackendsBeforeIoAndContinuesAfterErrors) {
   const auto result = vfs.syncAll();
   ASSERT_EQ(calls.size(), 2U);
   EXPECT_NE(calls[0], calls[1]);
-  EXPECT_EQ(result,
-            calls[0] == 1 ? Filesystem::SyncStatus::IoError : Filesystem::SyncStatus::Unsupported);
+  EXPECT_EQ(result, Filesystem::SyncStatus::IoError);
   EXPECT_TRUE(vfs.unregisterFilesystem(first));
   EXPECT_TRUE(vfs.unregisterFilesystem(second));
   EXPECT_EQ(vfs.syncAll(), Filesystem::SyncStatus::Success);
