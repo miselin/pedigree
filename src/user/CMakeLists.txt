@@ -232,6 +232,57 @@ if (PEDIGREE_BUILD_EXTERNAL_WINMAN)
 
     set(_PEDIGREE_WINMAN_ROOT "${PEDIGREE_WINMAN_SOURCE_DIR}")
 
+    # The external CMake build owns this list for hosted builds. Keep the
+    # target-side bridge explicit because it does not evaluate that project.
+    set(_PEDIGREE_WINMAN_ASSETS
+        "${_PEDIGREE_WINMAN_ROOT}/fonts/sserife.fon"
+        "${_PEDIGREE_WINMAN_ROOT}/fonts/sseriff.fon"
+        "${_PEDIGREE_WINMAN_ROOT}/fonts/vgafix.fon"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/arrow.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/arrows_cardinals.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/arrows_horiz.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/arrows_ne_sw.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/arrows_nw_se.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/arrows_vert.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/beam.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/busy.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/deny.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/finger.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/help.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/pen.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/point_cd.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/up.cur"
+        "${_PEDIGREE_WINMAN_ROOT}/assets/cursors/xhair.cur")
+    set(_PEDIGREE_WINMAN_ASSET_DIR
+        "${CMAKE_CURRENT_BINARY_DIR}/libraries/libui-assets/generated")
+    set(_PEDIGREE_WINMAN_ASSET_SOURCE
+        "${_PEDIGREE_WINMAN_ASSET_DIR}/embedded_assets.cc")
+    set(_PEDIGREE_WINMAN_ASSET_HEADER
+        "${_PEDIGREE_WINMAN_ASSET_DIR}/embedded_assets.h")
+    add_custom_command(
+        OUTPUT ${_PEDIGREE_WINMAN_ASSET_SOURCE} ${_PEDIGREE_WINMAN_ASSET_HEADER}
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+                "${_PEDIGREE_WINMAN_ASSET_DIR}"
+        COMMAND ${PYTHON_EXECUTABLE}
+                "${_PEDIGREE_WINMAN_ROOT}/tools/embed_binary_assets.py"
+                --output-dir "${_PEDIGREE_WINMAN_ASSET_DIR}"
+                ${_PEDIGREE_WINMAN_ASSETS}
+        DEPENDS "${_PEDIGREE_WINMAN_ROOT}/tools/embed_binary_assets.py"
+                ${_PEDIGREE_WINMAN_ASSETS}
+        VERBATIM)
+    pedigree_lib(ui-assets "stdc++" ${_PEDIGREE_WINMAN_ASSET_SOURCE})
+    target_include_directories(libui-assets PUBLIC
+        "${_PEDIGREE_WINMAN_ASSET_DIR}")
+    target_compile_features(libui-assets PUBLIC cxx_std_17)
+
+    target_sources(libui-platform PRIVATE
+        "${_PEDIGREE_WINMAN_ROOT}/libui-platform/src/cursors.cc")
+    target_include_directories(libui-platform PUBLIC
+        "${_PEDIGREE_WINMAN_ROOT}/libui-platform/include")
+    target_include_directories(libui-platform PRIVATE
+        "${_PEDIGREE_WINMAN_ASSET_DIR}")
+    target_link_libraries(libui-platform PRIVATE libui-assets)
+
     pedigree_lib(ui-theme "libui-core;cairo"
         "${_PEDIGREE_WINMAN_ROOT}/libui-theme/src/decoration.cc"
         "${_PEDIGREE_WINMAN_ROOT}/libui-theme/src/theme.cc")
@@ -241,7 +292,7 @@ if (PEDIGREE_BUILD_EXTERNAL_WINMAN)
     target_link_libraries(libui-theme PUBLIC libui-core)
 
     pedigree_lib(ui-widget
-        "libui-theme;cairo;${PANGO_LIBS};pedigree-vterm;stdc++"
+        "libui-theme;libui-assets;cairo;${PANGO_LIBS};pedigree-vterm;stdc++"
         "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/internal.cc"
         "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/widget.cc"
         "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/container.cc"
@@ -256,7 +307,8 @@ if (PEDIGREE_BUILD_EXTERNAL_WINMAN)
         "${_PEDIGREE_WINMAN_ROOT}/libui-widget/src/menubar.cc")
     target_include_directories(libui-widget
         PUBLIC "${_PEDIGREE_WINMAN_ROOT}/libui-widget/include"
-        PRIVATE "${_PEDIGREE_WINMAN_ROOT}/libui-widget/internal")
+        PRIVATE "${_PEDIGREE_WINMAN_ROOT}/libui-widget/internal"
+                "${_PEDIGREE_WINMAN_ASSET_DIR}")
     target_compile_features(libui-widget PUBLIC cxx_std_17)
     target_link_libraries(libui-widget PUBLIC libui-theme)
 
