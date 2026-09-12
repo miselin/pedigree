@@ -170,7 +170,7 @@ void InputManager::mouseUpdate(ssize_t relX, ssize_t relY, ssize_t relZ, uint32_
   note->data.pointy.rely = relY;
   note->data.pointy.relz = relZ;
   for (size_t i = 0; i < 64; i++)
-    note->data.pointy.buttons[i] = buttonBitmap & (1 << i);
+    note->data.pointy.buttons[i] = static_cast<uint64_t>(buttonBitmap) & (uint64_t{1} << i);
 
   putNotification(note);
 }
@@ -182,7 +182,7 @@ void InputManager::joystickUpdate(ssize_t relX, ssize_t relY, ssize_t relZ, uint
   note->data.pointy.rely = relY;
   note->data.pointy.relz = relZ;
   for (size_t i = 0; i < 64; i++)
-    note->data.pointy.buttons[i] = buttonBitmap & (1 << i);
+    note->data.pointy.buttons[i] = static_cast<uint64_t>(buttonBitmap) & (uint64_t{1} << i);
 
   putNotification(note);
 }
