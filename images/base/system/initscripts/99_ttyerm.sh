@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ -e /dev/fb ]; then
-    /usr/bin/gfxcon || /usr/bin/ttyterm
+    /usr/bin/ttyterm || /usr/bin/gfxcon
 else
     /usr/bin/ttyterm
 fi

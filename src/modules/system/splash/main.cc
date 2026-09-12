@@ -528,10 +528,10 @@ static bool handleSplash() {
     // For each character row
     for (size_t row = 0; row < FONT_HEIGHT; row++) {
       // For each character row bit
-      for (size_t col = 0; col <= FONT_WIDTH; col++) {
+      for (size_t col = 0; col < FONT_WIDTH; col++) {
         // Is this bit set?
         size_t fontRow = (character * FONT_HEIGHT) + row;
-        if (font_data[fontRow] & (1 << (FONT_WIDTH - col))) {
+        if (font_data[fontRow] & (1 << (FONT_WIDTH - 1 - col))) {
           // x: col
           // y: fontRow
           size_t bytesPerPixel = 3;

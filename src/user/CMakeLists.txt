@@ -107,14 +107,13 @@ endfunction()
 # libraries
 
 pedigree_lib(fb "pedigree-c-user" ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libfb/src/fb.cc)
-pedigree_lib(tui "libui;pedigree-c-user"
+pedigree_lib(tui "libui;pedigree-c-user;pedigree-vterm"
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/environment.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/Font.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/Png.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/Terminal.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/tui.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/Xterm.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/Xterm-colours.cc)
+    ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/VtermWidget.cc)
 pedigree_lib(ui "native-user"
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui/src/protocol.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui/src/ShapeWidget.cc

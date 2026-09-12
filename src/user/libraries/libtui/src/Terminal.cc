@@ -43,16 +43,13 @@ Terminal::Terminal(char* pName, size_t nWidth, size_t nHeight, size_t offsetLeft
                    class Font* pNormalFont, class Font* pBoldFont)
     : m_pBuffer(0),
       m_pFramebuffer(0),
-      m_pXterm(0),
+      m_pVterm(0),
       m_Len(0),
-      m_WriteBufferLen(0),
       m_bHasPendingRequest(false),
       m_PendingRequestSz(0),
       m_Pid(0),
       m_OffsetLeft(offsetLeft),
-      m_OffsetTop(offsetTop),
-      m_Cancel(0),
-      m_WriteInProgress(0) {
+      m_OffsetTop(offsetTop) {
   cairo_save(pCairo);
   cairo_set_operator(pCairo, CAIRO_OPERATOR_SOURCE);
 
@@ -66,23 +63,8 @@ Terminal::Terminal(char* pName, size_t nWidth, size_t nHeight, size_t offsetLeft
   strncpy(m_pName, pName, 256);
   m_pName[255] = 0;
 
-#ifndef NEW_XTERM
-  m_pXterm = new Xterm(0, nWidth, nHeight, m_OffsetLeft, m_OffsetTop, this, pWidget, pTui,
+  m_pVterm = new Vterm(0, nWidth, nHeight, m_OffsetLeft, m_OffsetTop, this, pWidget, pTui,
                        pNormalFont, pBoldFont);
-#else
-  Display::ScreenMode mode;
-  mode.width = nWidth - 1;
-  mode.height = nHeight - offsetTop - 1;
-  mode.pf.mRed = 0xFF;
-  mode.pf.mGreen = 0xFF;
-  mode.pf.mBlue = 0xFF;
-  mode.pf.pRed = 16;
-  mode.pf.pGreen = 8;
-  mode.pf.pBlue = 0;
-  mode.pf.nBpp = 24;
-  mode.pf.nPitch = nWidth * 3;
-  m_pXterm = new Vt100(mode, reinterpret_cast<uint8_t*>(m_pBuffer) + nWidth * offsetTop);
-#endif
 }
 
 bool Terminal::initialise() {
@@ -102,8 +84,8 @@ bool Terminal::initialise() {
 
   struct winsize ptySize;
   memset(&ptySize, 0, sizeof(ptySize));
-  ptySize.ws_row = m_pXterm->getRows();
-  ptySize.ws_col = m_pXterm->getCols();
+  ptySize.ws_row = m_pVterm->getRows();
+  ptySize.ws_col = m_pVterm->getCols();
   ioctl(m_MasterPty, TIOCSWINSZ, &ptySize);
 
   // Fire up a shell session.
@@ -111,8 +93,10 @@ bool Terminal::initialise() {
   if (pid == -1) {
     pedigree_log(LOG_INFO, "TUI: Couldn't fork: %s", strerror(errno));
     DirtyRectangle rect;
-    write("Couldn't fork: ", rect);
-    write(strerror(errno), rect);
+    const char* message = "Couldn't fork: ";
+    write(message, strlen(message), rect);
+    const char* error = strerror(errno);
+    write(error, strlen(error), rect);
     redrawAll(rect);
     return false;
   } else if (pid == 0) {
@@ -142,8 +126,8 @@ bool Terminal::initialise() {
     // Set ourselves as the terminal's foreground process group.
     tcsetpgrp(1, getpgrp());
 
-    // We emulate an xterm, so ensure that's set in the environment.
-    setenv("TERM", "xterm", 1);
+    // libvterm implements the xterm 256-colour control set exposed here.
+    setenv("TERM", "xterm-256color", 1);
 
     // Get current user's shell.
     struct passwd* pw = getpwuid(getuid());
@@ -182,12 +166,13 @@ bool Terminal::initialise() {
     pedigree_log(LOG_ALERT, "error: %s", strerror(errno));
 
     DirtyRectangle rect;
-    write("Couldn't load shell for this terminal... ", rect);
-    write(strerror(errno), rect);
-    write(
-        "\r\n\r\nYour installation of Pedigree may not be complete, or you "
-        "may have hit a bug.",
-        rect);
+    const char* message = "Couldn't load shell for this terminal... ";
+    write(message, strlen(message), rect);
+    const char* error = strerror(errno);
+    write(error, strlen(error), rect);
+    message =
+        "\r\n\r\nYour installation of Pedigree may not be complete, or you may have hit a bug.";
+    write(message, strlen(message), rect);
     redrawAll(rect);
 
     exit(1);
@@ -207,7 +192,7 @@ Terminal::~Terminal() {
     waitpid(m_Pid, 0, 0);
   }
 
-  delete m_pXterm;
+  delete m_pVterm;
 }
 
 bool Terminal::isAlive() {
@@ -223,17 +208,17 @@ bool Terminal::isAlive() {
 }
 
 void Terminal::renewBuffer(size_t nWidth, size_t nHeight) {
-  m_pXterm->resize(nWidth, nHeight, 0);
+  m_pVterm->resize(nWidth, nHeight, 0);
 
   /// \todo Send SIGWINCH in console layer.
   struct winsize ptySize;
-  ptySize.ws_row = m_pXterm->getRows();
-  ptySize.ws_col = m_pXterm->getCols();
+  ptySize.ws_row = m_pVterm->getRows();
+  ptySize.ws_col = m_pVterm->getCols();
   ioctl(m_MasterPty, TIOCSWINSZ, &ptySize);
 }
 
 void Terminal::processKey(uint64_t key) {
-  m_pXterm->processKey(key);
+  m_pVterm->processKey(key);
 }
 
 char Terminal::getFromQueue() {
@@ -251,78 +236,16 @@ void Terminal::clearQueue() {
   m_Len = 0;
 }
 
-void Terminal::write(const char* pStr, DirtyRectangle& rect) {
-  m_pXterm->hideCursor(rect);
+void Terminal::write(const char* pStr, size_t length, DirtyRectangle& rect) {
+  m_pVterm->hideCursor(rect);
+  m_pVterm->write(pStr, length, rect);
+  m_pVterm->showCursor(rect);
+}
 
-  bool bWasAlreadyRunning = m_WriteInProgress;
-  m_WriteInProgress = true;
-  // pedigree_log(LOG_NOTICE, "Beginning write...");
-  while (!m_Cancel && (*pStr || m_WriteBufferLen)) {
-    // Fill the buffer.
-    while (*pStr && !m_Cancel) {
-      if (m_WriteBufferLen < 4)
-        m_pWriteBuffer[m_WriteBufferLen++] = *pStr++;
-      else
-        break;
-    }
-    if (m_Cancel)  // Check break point from above loop
-      break;
-    // Begin UTF-8 -> UTF-32 conversion.
-    /// \todo Add some checking - every successive byte should start with
-    /// 0b10.
-    uint32_t utf32;
-    size_t nBytes;
-    if ((m_pWriteBuffer[0] & 0x80) == 0x00) {
-      utf32 = static_cast<uint32_t>(m_pWriteBuffer[0]);
-      nBytes = 1;
-    } else if ((m_pWriteBuffer[0] & 0xE0) == 0xC0) {
-      if (m_WriteBufferLen < 2)
-        return;
-      utf32 = ((static_cast<uint32_t>(m_pWriteBuffer[0]) & 0x1F) << 6) |
-              (static_cast<uint32_t>(m_pWriteBuffer[1]) & 0x3F);
-      nBytes = 2;
-    } else if ((m_pWriteBuffer[0] & 0xF0) == 0xE0) {
-      if (m_WriteBufferLen < 3)
-        return;
-      utf32 = ((static_cast<uint32_t>(m_pWriteBuffer[0]) & 0x0F) << 12) |
-              ((static_cast<uint32_t>(m_pWriteBuffer[1]) & 0x3F) << 6) |
-              (static_cast<uint32_t>(m_pWriteBuffer[2]) & 0x3F);
-      nBytes = 3;
-    } else if ((m_pWriteBuffer[0] & 0xF8) == 0xF0) {
-      if (m_WriteBufferLen < 4)
-        return;
-      utf32 = ((static_cast<uint32_t>(m_pWriteBuffer[0]) & 0x0F) << 18) |
-              ((static_cast<uint32_t>(m_pWriteBuffer[1]) & 0x3F) << 12) |
-              ((static_cast<uint32_t>(m_pWriteBuffer[2]) & 0x3F) << 6) |
-              (static_cast<uint32_t>(m_pWriteBuffer[3]) & 0x3F);
-      nBytes = 4;
-    } else {
-      m_WriteBufferLen = 0;
-      continue;
-    }
-
-    memmove(m_pWriteBuffer, &m_pWriteBuffer[nBytes], 4 - nBytes);
-    m_WriteBufferLen -= nBytes;
-
-// End UTF-8 -> UTF-32 conversion.
-#ifndef NEW_XTERM
-    m_pXterm->write(utf32, rect);
-#else
-    rect.point(m_OffsetLeft, m_OffsetTop);
-    rect.point(m_pXterm->getCols() * 8 + m_OffsetLeft, m_pXterm->getRows() * 16 + m_OffsetTop);
-    m_pXterm->write(static_cast<uint8_t>(utf32 & 0xFF));
-#endif
-  }
-  // pedigree_log(LOG_NOTICE, "Completed write [%scancelled]...", m_Cancel ? "" : "not
-  // ");
-
-  if (!bWasAlreadyRunning) {
-    if (m_Cancel)
-      m_Cancel = 0;
-    m_WriteInProgress = false;
-  }
-
-  m_pXterm->showCursor(rect);
+void Terminal::sendInput(const char* bytes, size_t length) {
+  for (size_t i = 0; i < length; ++i)
+    addToQueue(bytes[i]);
+  addToQueue(0, true);
 }
 
 void Terminal::addToQueue(char c, bool bFlush) {

@@ -661,8 +661,10 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
         add_custom_target(embedconfigdb ALL DEPENDS ${CMAKE_BINARY_DIR}/embedconfigdb.c)
     endif ()
 
+    add_subdirectory(external/libvterm)
     add_subdirectory(src/modules)
     add_subdirectory(src/system/kernel)
+    target_link_libraries(kernel PRIVATE pedigree-vterm)
     if (PEDIGREE_BUILD_TRANSLATIONS)
         find_package(Gettext REQUIRED)
         add_subdirectory(src/po)
@@ -751,15 +753,20 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             endif ()
 
             set(UEFI_GRUB ${CMAKE_CURRENT_BINARY_DIR}/GRUBX64.EFI)
-            add_custom_command(OUTPUT ${UEFI_GRUB}
+            set(UEFI_GRUB_CONFIG ${CMAKE_CURRENT_BINARY_DIR}/grub.cfg)
+            add_custom_command(OUTPUT ${UEFI_GRUB} ${UEFI_GRUB_CONFIG}
                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_grub_uefi.py
                 --grub-mkstandalone ${PEDIGREE_UEFI_GRUB_MKSTANDALONE}
-                --config ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi.cfg
+                --stub-config ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi-stub.cfg
                 --output ${UEFI_GRUB}
+                COMMAND ${CMAKE_COMMAND} -E copy
+                    ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi.cfg ${UEFI_GRUB_CONFIG}
                 DEPENDS ${CMAKE_SOURCE_DIR}/scripts/create_grub_uefi.py
-                    ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi.cfg)
-            add_custom_target(uefi-grub DEPENDS ${UEFI_GRUB})
+                    ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi.cfg
+                    ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi-stub.cfg)
+            add_custom_target(uefi-grub DEPENDS ${UEFI_GRUB} ${UEFI_GRUB_CONFIG})
             list(APPEND UEFI_GRUB_ARGUMENT --grub ${UEFI_GRUB})
+            list(APPEND UEFI_GRUB_ARGUMENT --grub-config ${UEFI_GRUB_CONFIG})
             list(APPEND UEFI_BOOT_DEPENDENCIES uefi-grub ${UEFI_GRUB})
         endif ()
 
@@ -808,8 +815,9 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             ${CMAKE_BINARY_DIR}/src/system/kernel/kernel
             ${CMAKE_BINARY_DIR}/src/modules/initrd.tar.uncomp
             ${CMAKE_CURRENT_BINARY_DIR}/config.db
-            ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py
-            ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi.cfg)
+                ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py
+                ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi.cfg
+                ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi-stub.cfg)
         add_custom_target(uefi-image ALL DEPENDS ${UEFI_IMAGE})
     endif ()
 

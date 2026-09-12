@@ -132,7 +132,9 @@ class UefiDisplay final : public Display {
   }
 
   bool setScreenMode(size_t modeId) override {
-    return modeId == m_Mode.id;
+    // There is no VGA text mode to switch to after ExitBootServices(). Keep
+    // the firmware-selected GOP mode when clients request text mode.
+    return modeId == 0 || modeId == m_Mode.id;
   }
 
   bool setScreenMode(size_t width, size_t height, size_t bpp) override {

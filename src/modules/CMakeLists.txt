@@ -291,7 +291,7 @@ pedigree_module(confignics "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/confignics/main.cc)
 add_dependencies(confignics lwip)
 
-pedigree_module(console "" ""
+pedigree_module(console "" "pedigree-vterm"
     ${CMAKE_CURRENT_SOURCE_DIR}/system/console/Console.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/console/ConsoleCommon.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/console/ConsoleMaster.cc
@@ -469,7 +469,7 @@ endif ()
 
 if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     PEDIGREE_CONCURRENCY_SMOKE_TESTS)
-    pedigree_module(concurrency-smoke "" ""
+    pedigree_module(concurrency-smoke "" "pedigree-vterm"
         ${CMAKE_CURRENT_SOURCE_DIR}/system/concurrency-smoke/main.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/concurrency-smoke/memory-region-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/concurrency-smoke/slam-regressions.cc
@@ -957,7 +957,7 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/vdso.h
     VERBATIM)
 add_custom_target(vdso-header DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/vdso.h)
 
-pedigree_module(posix "" ""
+pedigree_module(posix "" "pedigree-vterm"
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/console-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/DevFs.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/DevFs-block.cc

@@ -31,6 +31,8 @@
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/String.h"
 
+#include <vterm.h>
+
 #include "modules/system/vfs/File.h"
 
 class Filesystem;
@@ -45,8 +47,8 @@ class Vga;
 #define BLINK_OFF_PERIOD (BLINK_ON_PERIOD / 2)
 
 /**
- * Provides exceptionally simple VT100 emulation to the Vga class, if
- * one exists. Note that this is NOT xterm emulation.
+ * Provides terminal emulation to the Vga class, if one exists. The parser is
+ * shared with the userspace terminal widget through libvterm.
  */
 class EXPORTED_PUBLIC TextIO : public File {
  private:
@@ -122,7 +124,7 @@ class EXPORTED_PUBLIC TextIO : public File {
   bool initialise(bool bClear = true);
 
   /**
-   * Write a string to the screen, handling any VT100 control sequences
+   * Write bytes to the screen, handling terminal control sequences
    * embedded in the string along the way.
    * \param str The string to write.
    */
@@ -212,6 +214,27 @@ class EXPORTED_PUBLIC TextIO : public File {
    */
   void flip(bool timer = false, bool hideState = false);
 
+  void initialiseVterm();
+  void destroyVterm();
+  void syncVtermRect(VTermRect rect);
+  void syncVtermCell(VTermPos pos);
+  void markVtermRect(VTermRect rect);
+  void markVtermCell(VTermPos pos);
+  void storeVtermScrollback(const VTermScreenCell* cells, int cols);
+  int popVtermScrollback(VTermScreenCell* cells, int cols);
+  VgaColour vtermColour(VTermColor colour, bool foreground) const;
+
+  static void vtermOutput(const char* bytes, size_t length, void* user);
+  static int vtermDamage(VTermRect rect, void* user);
+  static int vtermMoveRect(VTermRect dest, VTermRect src, void* user);
+  static int vtermMoveCursor(VTermPos pos, VTermPos oldPos, int visible, void* user);
+  static int vtermSetTermProp(VTermProp prop, VTermValue* value, void* user);
+  static int vtermBell(void* user);
+  static int vtermResize(int rows, int cols, void* user);
+  static int vtermScrollbackPush(int cols, const VTermScreenCell* cells, void* user);
+  static int vtermScrollbackPop(int cols, VTermScreenCell* cells, void* user);
+  static int vtermScrollbackClear(void* user);
+
   /** Translate given UTF32 codepoint to an ASCII character for display. */
   uint8_t translate(uint32_t codepoint);
 
@@ -224,6 +247,10 @@ class EXPORTED_PUBLIC TextIO : public File {
     /** Used for blink and maybe privacy mode? Renders an empty cell. */
     bool hidden;
   } VgaCell;
+
+  void copyVtermCell(const VTermScreenCell& source, VgaCell& destination);
+
+  static const size_t VTERM_SCROLLBACK_LINES = 64;
 
   Atomic<bool> m_bInitialised;
   bool m_bControlSeq;
@@ -246,6 +273,13 @@ class EXPORTED_PUBLIC TextIO : public File {
   uint16_t* m_pFramebuffer;
   VgaCell* m_pBackbuffer;
   Vga* m_pVga;
+
+  VTerm* m_pVterm;
+  VTermScreen* m_pVtermScreen;
+  VTermState* m_pVtermState;
+  uint8_t m_VtermDirty[BACKBUFFER_STRIDE * BACKBUFFER_ROWS];
+  VgaCell m_VtermScrollback[VTERM_SCROLLBACK_LINES][BACKBUFFER_STRIDE];
+  size_t m_VtermScrollbackLines;
 
   char m_TabStops[BACKBUFFER_STRIDE];
 

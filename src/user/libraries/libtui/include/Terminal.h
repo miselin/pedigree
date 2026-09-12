@@ -24,21 +24,15 @@
 
 #include "environment.h"
 
-#ifndef NEW_XTERM
-#include "Xterm.h"
-#else
-#include "Vt100.h"
-#endif
+#include "VtermWidget.h"
 
 #include "pedigree/native/graphics/Graphics.h"
 
 #include <cairo/cairo.h>
 
-/** A Terminal is a wrapper around an Xterm class - it provides UTF-8 <->
-    UTF-32 conversion and input queueing. */
+/** A Terminal owns the PTY and the terminal screen adapter. */
 class Terminal {
  public:
-  friend class Xterm;
   Terminal(char* pName, size_t nWidth, size_t nHeight, size_t offsetLeft, size_t offsetTop,
            rgb_t* pBackground, cairo_t* pCairo, class Widget* pWidget, class Tui* pTui,
            class Font* pNormalFont, class Font* pBoldFont);
@@ -54,6 +48,8 @@ class Terminal {
 
   /** Adds a 64-bit keycode from the Keyboard class. */
   void processKey(uint64_t key);
+
+  void sendInput(const char* bytes, size_t length);
 
   /** Wipes out the queue for this terminal. */
   void clearQueue();
@@ -72,8 +68,8 @@ class Terminal {
     return m_MasterPty;
   }
 
-  /** Writes the given UTF-8 sequence to the Xterm. */
-  void write(const char* pStr, DirtyRectangle& rect);
+  /** Writes the given byte sequence to the terminal emulator. */
+  void write(const char* pStr, size_t length, DirtyRectangle& rect);
 
   void setHasPendingRequest(bool b, size_t sz) {
     m_bHasPendingRequest = b;
@@ -90,14 +86,14 @@ class Terminal {
   void setActive(bool b, DirtyRectangle& rect);
 
   size_t getRows() {
-    return m_pXterm->getRows();
+    return m_pVterm->getRows();
   }
   size_t getCols() {
-    return m_pXterm->getCols();
+    return m_pVterm->getCols();
   }
 
   void redrawAll(DirtyRectangle& rect) {
-    m_pXterm->renderAll(rect);
+    m_pVterm->renderAll(rect);
   }
 
   void refresh() {
@@ -115,30 +111,23 @@ class Terminal {
   }
 
   void showCursor(DirtyRectangle& rect) {
-    m_pXterm->showCursor(rect);
+    m_pVterm->showCursor(rect);
   }
 
   void hideCursor(DirtyRectangle& rect) {
-    m_pXterm->hideCursor(rect);
+    m_pVterm->hideCursor(rect);
   }
 
   void setCursorStyle(bool bFilled = true) {
-    m_pXterm->setCursorStyle(bFilled);
-  }
-
-  /** Cancels the current write operation (used by SIGINT handling) */
-  void cancel() {
-    if (m_WriteInProgress) {
-      m_Cancel = 1;
-    }
+    m_pVterm->setCursorStyle(bFilled);
   }
 
   void setCairo(cairo_t* pCairo, cairo_surface_t* pSurface) {
-    m_pXterm->setCairo(pCairo, pSurface);
+    m_pVterm->setCairo(pCairo, pSurface);
   }
 
   void setFonts(Font* pNormalFont, Font* pBoldFont) {
-    m_pXterm->setFonts(pNormalFont, pBoldFont);
+    m_pVterm->setFonts(pNormalFont, pBoldFont);
   }
 
  private:
@@ -150,19 +139,12 @@ class Terminal {
   rgb_t* m_pBuffer;
 
   PedigreeGraphics::Framebuffer* m_pFramebuffer;
-#ifndef NEW_XTERM
-  Xterm* m_pXterm;
-#else
-  Vt100* m_pXterm;
-#endif
+  Vterm* m_pVterm;
 
   char m_pName[256];
 
   char m_pQueue[256];
   size_t m_Len;
-
-  char m_pWriteBuffer[4];
-  size_t m_WriteBufferLen;
 
   bool m_bHasPendingRequest;
   size_t m_PendingRequestSz;
@@ -172,9 +154,6 @@ class Terminal {
   int m_MasterPty;
 
   size_t m_OffsetLeft, m_OffsetTop;
-
-  volatile char m_Cancel;
-  volatile bool m_WriteInProgress;
 };
 
 #endif

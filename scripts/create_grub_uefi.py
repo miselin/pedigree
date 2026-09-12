@@ -11,7 +11,7 @@ from pathlib import Path
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--grub-mkstandalone", required=True, type=Path)
-    parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument("--stub-config", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
@@ -24,8 +24,10 @@ def main() -> int:
             "-o",
             str(args.output),
             "--modules",
-            "part_gpt part_msdos fat search search_fs_file chain normal",
-            f"boot/grub/grub.cfg={args.config}",
+            "all_video video gfxterm font part_gpt part_msdos fat search search_fs_file chain normal",
+            "--fonts",
+            "unicode",
+            f"boot/grub/grub.cfg={args.stub_config}",
         ],
         check=True,
     )

@@ -61,6 +61,10 @@ def create_esp(path: Path, args: argparse.Namespace, root_uuid: str, temp_dir: P
     run([args.mmd, *mtools, "::EFI/PEDIGREE"])
     bootloader = args.grub if args.grub else args.efi
     run([args.mcopy, *mtools, str(bootloader), "::EFI/BOOT/BOOTX64.EFI"])
+    if args.grub:
+        if not args.grub_config:
+            raise ValueError("--grub-config is required with --grub")
+        run([args.mcopy, *mtools, str(args.grub_config), "::EFI/PEDIGREE/grub.cfg"])
     cmdline = temp_dir / "cmdline"
     cmdline.write_text(f"root=UUID={root_uuid} splash=logs")
     install_variant(args, mtools, "current", cmdline)
@@ -111,6 +115,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--grub", type=Path)
+    parser.add_argument("--grub-config", type=Path)
     parser.add_argument("--efi", type=Path, required=True)
     parser.add_argument("--kernel", type=Path, required=True)
     parser.add_argument("--initrd", type=Path, required=True)

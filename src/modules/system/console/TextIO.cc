@@ -75,6 +75,12 @@ TextIO::TextIO(String str, size_t inode, Filesystem* pParentFS, File* pParent)
       m_pFramebuffer(0),
       m_pBackbuffer(0),
       m_pVga(0),
+      m_pVterm(0),
+      m_pVtermScreen(0),
+      m_pVtermState(0),
+      m_VtermDirty(),
+      m_VtermScrollback(),
+      m_VtermScrollbackLines(0),
       m_TabStops(),
       m_OutBuffer(TEXTIO_BUFFER_SIZE),
       m_G0('B'),
@@ -121,6 +127,10 @@ TextIO::~TextIO() {
   m_FlipWake.release();
   m_FlipThread.join();
 
+  {
+    LockGuard<Mutex> guard(m_Lock);
+    destroyVterm();
+  }
   m_pBackbuffer = 0;
   m_Backbuffer.free();
 }
@@ -171,11 +181,17 @@ bool TextIO::initialise(bool bClear) {
 
       m_bInitialised = true;
       m_ScrollStart = 0;
-      m_ScrollEnd = m_pVga->getNumRows() - 1;
+      m_ScrollEnd = m_pVga->getNumRows() > BACKBUFFER_ROWS
+                         ? BACKBUFFER_ROWS - 1
+                         : m_pVga->getNumRows() - 1;
       m_LeftMargin = 0;
-      m_RightMargin = m_pVga->getNumCols();
+      m_RightMargin = m_pVga->getNumCols() > BACKBUFFER_STRIDE
+                          ? BACKBUFFER_STRIDE
+                          : m_pVga->getNumCols();
 
       m_CurrentModes = AnsiVt52 | CharacterSetG0;
+
+      initialiseVterm();
 
       // Set default tab stops.
       for (size_t i = 0; i < BACKBUFFER_STRIDE; i += 8)
@@ -201,6 +217,285 @@ bool TextIO::initialise(bool bClear) {
   return m_bInitialised;
 }
 
+void TextIO::initialiseVterm() {
+  destroyVterm();
+
+  size_t rows = m_pVga->getNumRows();
+  size_t cols = m_pVga->getNumCols();
+  if (rows > BACKBUFFER_ROWS)
+    rows = BACKBUFFER_ROWS;
+  if (cols > BACKBUFFER_STRIDE)
+    cols = BACKBUFFER_STRIDE;
+  if (!rows || !cols)
+    return;
+
+  m_pVterm = vterm_new(static_cast<int>(rows), static_cast<int>(cols));
+  if (!m_pVterm) {
+    ERROR("TextIO: failed to allocate libvterm state");
+    return;
+  }
+
+  vterm_set_utf8(m_pVterm, 1);
+  m_pVtermScreen = vterm_obtain_screen(m_pVterm);
+  m_pVtermState = vterm_obtain_state(m_pVterm);
+
+  static const VTermScreenCallbacks callbacks = {
+      vtermDamage, vtermMoveRect, vtermMoveCursor, vtermSetTermProp,
+      vtermBell, vtermResize, vtermScrollbackPush, vtermScrollbackPop,
+      vtermScrollbackClear};
+  vterm_screen_set_callbacks(m_pVtermScreen, &callbacks, this);
+  vterm_screen_enable_reflow(m_pVtermScreen, true);
+  vterm_screen_enable_altscreen(m_pVtermScreen, true);
+  vterm_screen_set_damage_merge(m_pVtermScreen, VTERM_DAMAGE_SCROLL);
+  vterm_output_set_callback(m_pVterm, vtermOutput, this);
+  vterm_screen_reset(m_pVtermScreen, 1);
+
+  m_VtermScrollbackLines = 0;
+  ByteSet(m_VtermDirty, 1, sizeof(m_VtermDirty));
+  syncVtermRect({0, static_cast<int>(rows), 0, static_cast<int>(cols)});
+}
+
+void TextIO::destroyVterm() {
+  if (m_pVterm)
+    vterm_free(m_pVterm);
+  m_pVterm = 0;
+  m_pVtermScreen = 0;
+  m_pVtermState = 0;
+  m_VtermScrollbackLines = 0;
+}
+
+void TextIO::syncVtermRect(VTermRect rect) {
+  if (!m_pVtermScreen || !m_pBackbuffer)
+    return;
+
+  if (rect.start_row < 0)
+    rect.start_row = 0;
+  if (rect.start_col < 0)
+    rect.start_col = 0;
+  if (rect.end_row > BACKBUFFER_ROWS)
+    rect.end_row = BACKBUFFER_ROWS;
+  if (rect.end_col > BACKBUFFER_STRIDE)
+    rect.end_col = BACKBUFFER_STRIDE;
+
+  for (int row = rect.start_row; row < rect.end_row; ++row) {
+    for (int col = rect.start_col; col < rect.end_col; ++col) {
+      VTermPos pos = {row, col};
+      VTermScreenCell cell;
+      if (vterm_screen_get_cell(m_pVtermScreen, pos, &cell)) {
+        copyVtermCell(cell, m_pBackbuffer[row * BACKBUFFER_STRIDE + col]);
+        markVtermCell(pos);
+      }
+    }
+  }
+}
+
+void TextIO::syncVtermCell(VTermPos pos) {
+  syncVtermRect({pos.row, pos.row + 1, pos.col, pos.col + 1});
+}
+
+void TextIO::markVtermRect(VTermRect rect) {
+  if (rect.start_row < 0)
+    rect.start_row = 0;
+  if (rect.start_col < 0)
+    rect.start_col = 0;
+  if (rect.end_row > BACKBUFFER_ROWS)
+    rect.end_row = BACKBUFFER_ROWS;
+  if (rect.end_col > BACKBUFFER_STRIDE)
+    rect.end_col = BACKBUFFER_STRIDE;
+
+  for (int row = rect.start_row; row < rect.end_row; ++row)
+    for (int col = rect.start_col; col < rect.end_col; ++col)
+      m_VtermDirty[row * BACKBUFFER_STRIDE + col] = 1;
+}
+
+void TextIO::markVtermCell(VTermPos pos) {
+  if (pos.row >= 0 && pos.row < BACKBUFFER_ROWS && pos.col >= 0 &&
+      pos.col < BACKBUFFER_STRIDE)
+    m_VtermDirty[pos.row * BACKBUFFER_STRIDE + pos.col] = 1;
+}
+
+TextIO::VgaColour TextIO::vtermColour(VTermColor colour, bool foreground) const {
+  if ((foreground && VTERM_COLOR_IS_DEFAULT_FG(&colour)) ||
+      (!foreground && VTERM_COLOR_IS_DEFAULT_BG(&colour)))
+    return foreground ? LightGrey : Black;
+
+  if (m_pVtermScreen)
+    vterm_screen_convert_color_to_rgb(m_pVtermScreen, &colour);
+
+  static const uint8_t palette[16][3] = {
+      {0, 0, 0},       {0, 0, 170},     {0, 170, 0},   {0, 170, 170},
+      {170, 0, 0},     {170, 0, 170},   {170, 85, 0},  {170, 170, 170},
+      {85, 85, 85},    {85, 85, 255},   {85, 255, 85}, {85, 255, 255},
+      {255, 85, 85},   {255, 85, 255},  {255, 255, 85}, {255, 255, 255}};
+
+  uint8_t red = colour.rgb.red, green = colour.rgb.green, blue = colour.rgb.blue;
+  unsigned bestDistance = ~0U;
+  size_t best = 0;
+  for (size_t i = 0; i < 16; ++i) {
+    int dr = static_cast<int>(red) - palette[i][0];
+    int dg = static_cast<int>(green) - palette[i][1];
+    int db = static_cast<int>(blue) - palette[i][2];
+    unsigned distance = static_cast<unsigned>(dr * dr + dg * dg + db * db);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = i;
+    }
+  }
+  return static_cast<VgaColour>(best);
+}
+
+void TextIO::copyVtermCell(const VTermScreenCell& source, VgaCell& destination) {
+  destination.character = source.chars[0] ? translate(source.chars[0]) : ' ';
+  destination.fore = vtermColour(source.fg, true);
+  destination.back = vtermColour(source.bg, false);
+  destination.flags = 0;
+  if (source.attrs.bold)
+    destination.flags |= Bright;
+  if (source.attrs.blink)
+    destination.flags |= Blink;
+  if (source.attrs.reverse)
+    destination.flags |= Inverse;
+  destination.hidden = source.attrs.conceal;
+}
+
+void TextIO::storeVtermScrollback(const VTermScreenCell* cells, int cols) {
+  if (!cells || cols <= 0)
+    return;
+
+  if (m_VtermScrollbackLines < VTERM_SCROLLBACK_LINES)
+    ++m_VtermScrollbackLines;
+  else
+    MemoryCopy(m_VtermScrollback[0], m_VtermScrollback[1],
+               (VTERM_SCROLLBACK_LINES - 1) * sizeof(m_VtermScrollback[0]));
+
+  VgaCell* line = m_VtermScrollback[m_VtermScrollbackLines - 1];
+  ByteSet(line, 0, sizeof(m_VtermScrollback[0]));
+  size_t count = static_cast<size_t>(cols);
+  if (count > BACKBUFFER_STRIDE)
+    count = BACKBUFFER_STRIDE;
+  for (size_t col = 0; col < count; ++col)
+    copyVtermCell(cells[col], line[col]);
+}
+
+int TextIO::popVtermScrollback(VTermScreenCell* cells, int cols) {
+  if (!cells || cols <= 0 || !m_VtermScrollbackLines)
+    return 0;
+
+  size_t count = static_cast<size_t>(cols);
+  if (count > BACKBUFFER_STRIDE)
+    count = BACKBUFFER_STRIDE;
+  for (size_t col = 0; col < count; ++col) {
+    VgaCell& source = m_VtermScrollback[m_VtermScrollbackLines - 1][col];
+    VTermScreenCell& destination = cells[col];
+    ByteSet(&destination, 0, sizeof(destination));
+    destination.chars[0] = source.character;
+    destination.width = 1;
+    destination.fg.type = VTERM_COLOR_INDEXED;
+    static const uint8_t vtermPalette[16] = {
+        0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15};
+    destination.fg.indexed.idx = vtermPalette[source.fore & 0x0F];
+    destination.bg.type = VTERM_COLOR_INDEXED;
+    destination.bg.indexed.idx = vtermPalette[source.back & 0x0F];
+    destination.attrs.bold = (source.flags & Bright) != 0;
+    destination.attrs.blink = (source.flags & Blink) != 0;
+    destination.attrs.reverse = (source.flags & Inverse) != 0;
+    destination.attrs.conceal = source.hidden;
+  }
+  --m_VtermScrollbackLines;
+  return 1;
+}
+
+void TextIO::vtermOutput(const char* bytes, size_t length, void* user) {
+  TextIO* console = static_cast<TextIO*>(user);
+  if (console->m_OutBuffer.writeAvailable(bytes, length, true) != length)
+    WARNING("TextIO: output buffer is full or closed, dropping terminal response");
+}
+
+int TextIO::vtermDamage(VTermRect rect, void* user) {
+  TextIO* console = static_cast<TextIO*>(user);
+  console->syncVtermRect(rect);
+  return 1;
+}
+
+int TextIO::vtermMoveRect(VTermRect dest, VTermRect src, void* user) {
+  TextIO* console = static_cast<TextIO*>(user);
+  if (!console->m_pBackbuffer)
+    return 0;
+  int rows = dest.end_row - dest.start_row;
+  int cols = dest.end_col - dest.start_col;
+  if (rows <= 0 || cols <= 0 || src.end_row - src.start_row != rows ||
+      src.end_col - src.start_col != cols)
+    return 0;
+
+  int rowStep = dest.start_row > src.start_row ? -1 : 1;
+  for (int i = 0; i < rows; ++i) {
+    int row = rowStep > 0 ? i : rows - 1 - i;
+    for (int j = 0; j < cols; ++j) {
+      int sourceCol = src.start_col + j;
+      int destCol = dest.start_col + j;
+      if (dest.start_col > src.start_col) {
+        sourceCol = src.end_col - 1 - j;
+        destCol = dest.end_col - 1 - j;
+      }
+      VTermPos source = {src.start_row + row, sourceCol};
+      VTermPos target = {dest.start_row + row, destCol};
+      if (source.row >= 0 && source.row < BACKBUFFER_ROWS && source.col >= 0 &&
+          source.col < BACKBUFFER_STRIDE && target.row >= 0 && target.row < BACKBUFFER_ROWS &&
+          target.col >= 0 && target.col < BACKBUFFER_STRIDE)
+        console->m_pBackbuffer[target.row * BACKBUFFER_STRIDE + target.col] =
+            console->m_pBackbuffer[source.row * BACKBUFFER_STRIDE + source.col];
+    }
+  }
+  console->markVtermRect(dest);
+  return 1;
+}
+
+int TextIO::vtermMoveCursor(VTermPos pos, VTermPos oldPos, int visible, void* user) {
+  TextIO* console = static_cast<TextIO*>(user);
+  console->m_CursorX = pos.col;
+  console->m_CursorY = pos.row;
+  console->markVtermCell(oldPos);
+  console->markVtermCell(pos);
+  if (console->m_pVga && console->isPrimary())
+    console->m_pVga->moveCursor(pos.col, pos.row);
+  return 1;
+}
+
+int TextIO::vtermSetTermProp(VTermProp prop, VTermValue* value, void* user) {
+  TextIO* console = static_cast<TextIO*>(user);
+  if (prop == VTERM_PROP_REVERSE && value && value->boolean)
+    console->m_CurrentModes |= Screen;
+  else if (prop == VTERM_PROP_REVERSE)
+    console->m_CurrentModes &= ~Screen;
+  return 1;
+}
+
+int TextIO::vtermBell(void*) {
+  return 1;
+}
+
+int TextIO::vtermResize(int rows, int cols, void* user) {
+  TextIO* console = static_cast<TextIO*>(user);
+  if (rows < 1 || cols < 1)
+    return 0;
+  console->markVtermRect({0, rows, 0, cols});
+  return 1;
+}
+
+int TextIO::vtermScrollbackPush(int cols, const VTermScreenCell* cells, void* user) {
+  static_cast<TextIO*>(user)->storeVtermScrollback(cells, cols);
+  return 1;
+}
+
+int TextIO::vtermScrollbackPop(int cols, VTermScreenCell* cells, void* user) {
+  return static_cast<TextIO*>(user)->popVtermScrollback(cells, cols);
+}
+
+int TextIO::vtermScrollbackClear(void* user) {
+  static_cast<TextIO*>(user)->m_VtermScrollbackLines = 0;
+  return 1;
+}
+
 void TextIO::writeStr(const char* s, size_t len) {
   if (!m_bInitialised) {
     FATAL("TextIO misused: successfully call initialise() first.");
@@ -212,6 +507,28 @@ void TextIO::writeStr(const char* s, size_t len) {
   }
 
   m_bActive = true;
+
+  bool usedVterm = false;
+  {
+    LockGuard<Mutex> guard(m_Lock);
+    if (!m_bInitialised)
+      return;
+
+    if (m_pVterm) {
+      vterm_input_write(m_pVterm, s, len);
+      vterm_screen_flush_damage(m_pVtermScreen);
+      usedVterm = true;
+    }
+  }
+
+  if (usedVterm) {
+    if (isPrimary() && m_pVga)
+      m_pVga->moveCursor(m_CursorX, m_CursorY);
+    flip();
+    if (m_OutBuffer.canRead(false))
+      dataChanged();
+    return;
+  }
 
   const char* orig = s;
   while ((*s) && (len--)) {
@@ -1443,10 +1760,19 @@ void TextIO::flip(bool timer, bool hideState) {
 
   size_t numRows = m_pVga->getNumRows();
   size_t numCols = m_pVga->getNumCols();
+  if (numRows > BACKBUFFER_ROWS)
+    numRows = BACKBUFFER_ROWS;
+  if (numCols > BACKBUFFER_STRIDE)
+    numCols = BACKBUFFER_STRIDE;
 
   for (size_t y = 0; y < numRows; ++y) {
     for (size_t x = 0; x < numCols; ++x) {
+      size_t dirtyIndex = (y * BACKBUFFER_STRIDE) + x;
       VgaCell* pCell = &m_pBackbuffer[(y * BACKBUFFER_STRIDE) + x];
+      if (m_pVterm && !timer && !m_VtermDirty[dirtyIndex])
+        continue;
+      if (timer && !(pCell->flags & Blink))
+        continue;
       if (timer) {
         if (pCell->flags & Blink)
           pCell->hidden = hideState;
@@ -1478,6 +1804,8 @@ void TextIO::flip(bool timer, bool hideState) {
 
       uint16_t front = (pCell->hidden ? ' ' : pCell->character) | (attrib << 8);
       m_pFramebuffer[(y * numCols) + x] = front;
+      if (m_pVterm)
+        m_VtermDirty[dirtyIndex] = 0;
     }
   }
   m_pVga->flush();

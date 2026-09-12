@@ -276,8 +276,7 @@ void Tui::run() {
         // Something to read.
         ssize_t len = read(fd, buffer, maxBuffSz);
         if (len > 0) {
-          buffer[len] = 0;
-          m_LocalData->pTerminal->write(buffer, dirtyRect);
+          m_LocalData->pTerminal->write(buffer, static_cast<size_t>(len), dirtyRect);
           bShouldRedraw = true;
         }
       }
