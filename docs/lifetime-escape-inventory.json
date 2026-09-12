@@ -38,7 +38,7 @@
           "classification": "lexical-migration-debt"
         },
         "src/modules/system/fat/FatDirectory.cc": {
-          "expected": 6,
+          "expected": 1,
           "classification": "lexical-migration-debt"
         },
         "src/modules/system/usb/UsbDevice.cc": {
