@@ -536,7 +536,6 @@ uint64_t FatFilesystem::write(File* file, uint64_t location, uint64_t size, uint
   return written;
 }
 
-
 uint64_t FatFilesystem::allocatedBlocks(File* file) {
   if (!file->getInode() && file->isDirectory() && m_Type != FAT32)
     return (uint64_t(m_RootDirCount) * m_Superblock.BPB_BytsPerSec + 511) / 512;
