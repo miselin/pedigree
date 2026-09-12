@@ -1349,6 +1349,17 @@ void PerProcessorScheduler::publishReadyFromWait(Thread* pThread) {
 }
 
 Thread* PerProcessorScheduler::selectNext(Thread* current) {
+  // Keep selecting the idle owner until it retires that role itself. A tick
+  // can preempt its first resumed turn before it observes the shutdown flag.
+  if (__atomic_load_n(&m_IdleWakeRequested, __ATOMIC_ACQUIRE)) {
+    Thread* idle = __atomic_load_n(&m_pIdleThread, __ATOMIC_ACQUIRE);
+    if (idle) {
+      if (idle == current)
+        return nullptr;
+      idle->m_Lock.acquire();
+      return idle;
+    }
+  }
   while (Thread* candidate = m_pSchedulingAlgorithm->getNext(current)) {
     candidate->m_Lock.acquire();
     if (candidate->getScheduler() == this && candidate->m_Status == Thread::Ready &&
@@ -1832,6 +1843,13 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
 }
 #endif
 
+void PerProcessorScheduler::requestIdleThreadWakeup() {
+  __atomic_store_n(&m_IdleWakeRequested, true, __ATOMIC_RELEASE);
+  prompt();
+}
+
 void PerProcessorScheduler::setIdle(Thread* pThread) {
   __atomic_store_n(&m_pIdleThread, pThread, __ATOMIC_RELEASE);
+  if (!pThread)
+    __atomic_store_n(&m_IdleWakeRequested, false, __ATOMIC_RELEASE);
 }

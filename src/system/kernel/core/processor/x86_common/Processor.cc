@@ -454,9 +454,12 @@ void ProcessorBase::pause() {
 }
 
 void ProcessorBase::reset() {
-  // Load null IDT for now
-  size_t zero = 0x0;
-  asm volatile("lidt %0; int $3" ::"m"(zero));
+  // The IDTR operand is ten bytes on x64, not sizeof(size_t).
+  struct {
+    uint16_t limit;
+    uintptr_t base;
+  } PACKED emptyIdt = {0, 0};
+  asm volatile("cli; lidt %0; int $3" : : "m"(emptyIdt) : "memory");
 }
 
 void ProcessorBase::haltUntilInterrupt() {

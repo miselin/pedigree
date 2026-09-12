@@ -1069,17 +1069,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_PRCTL:
       return posix_prctl(p1, p2, p3, p4, p5);
     case POSIX_REBOOT:
-      if (linuxAbi) {
-        // Linux also uses reboot(2) to configure Ctrl-Alt-Del. The
-        // compatibility layer has no separate kernel policy to set,
-        // but must not turn that request into a real reboot.
-        static const uintptr_t LINUX_REBOOT_CMD_CAD_OFF = 0x00000000;
-        static const uintptr_t LINUX_REBOOT_CMD_CAD_ON = 0x89ABCDEF;
-        if (p3 == LINUX_REBOOT_CMD_CAD_OFF || p3 == LINUX_REBOOT_CMD_CAD_ON) {
-          return 0;
-        }
-      }
-      return pedigree_reboot();
+      return linuxAbi ? posix_reboot(p1, p2, p3) : pedigree_reboot();
     case POSIX_GETRANDOM:
       return posix_getrandom(reinterpret_cast<void*>(p1), static_cast<size_t>(p2),
                              static_cast<unsigned int>(p3));

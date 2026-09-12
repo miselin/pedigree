@@ -145,6 +145,8 @@ BootstrapStruct_t* g_pBootstrapInfo;
 
 /** Do we need to shutdown? */
 static Atomic<bool> g_NeedsShutdown(false);
+static Machine::ShutdownType g_ShutdownType = Machine::ShutdownType::Halt;
+static Atomic<bool> g_ShutdownCoordinator(false);
 
 #if HOSTED && PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS
 extern bool runHostedIrqClosureRegressions();
@@ -491,8 +493,10 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
     Processor::setInterrupts(true);
     Processor::haltUntilInterrupt();
 
-    // Give up our timeslice (needed especially for no-tick scheduling)
-    Scheduler::instance().yield();
+    // A shutdown wake can resume this halt before the next predicate check.
+    // Do not yield back to a busy ready queue before retiring the idle role.
+    if (!g_NeedsShutdown)
+      Scheduler::instance().yield();
   }
 
   EMIT_IF(THREADS) {
@@ -602,6 +606,8 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
   TRACE("kernel main() terminating");
 
 #if !HOSTED
+  Machine::instance().finalShutdown(g_ShutdownType);
+
   // The boot entry lives in the discarded init mapping, so bare-metal cannot
   // return after terminal shutdown.
   while (true)
@@ -611,11 +617,15 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
 
 void EXPORTED_PUBLIC system_reset();
 void system_reset() {
-  // Close out the main thread.
+  // Close out the main thread even when user work keeps the CPU busy.
   g_NeedsShutdown = true;
+  EMIT_IF(THREADS) {
+    if (auto* scheduler = Scheduler::instance().getBootstrapProcessorScheduler())
+      scheduler->requestIdleThreadWakeup();
+  }
 }
 
-void system_reboot() {
+void system_reboot(Machine::ShutdownType type) {
   WARNING("System shutting down...");
   Process* currentProcess = Processor::information().getCurrentThread()->getParent();
 
@@ -624,18 +634,18 @@ void system_reboot() {
     FATAL("System reboot requires a userspace shutdown coordinator");
   }
 
-  // The reaper owns the Process before its final Thread leaves the stack.
-  // Keeping the kernel Process registered preserves the final parent/adopter
-  // topology until off-stack completion is published.
-  {
-    Process::ReaperClaim shutdownReaper = currentProcess->tryClaimReaper();
-    if (!shutdownReaper) {
-      FATAL("Shutdown coordinator Process already has a reaper");
-    }
-    shutdownReaper.publish();
+  // Concurrent requests must not change the selected terminal action.
+  if (!g_ShutdownCoordinator.compareAndSwap(false, true)) {
+    currentSubsystem->exit(0);
+    FATAL("Concurrent shutdown caller returned from process exit");
   }
+
+  // The caller may still be a shell child. Its parent, orphan exit path,
+  // or terminal process drain claims the reaper after ordinary termination.
+  g_ShutdownType = type;
   system_reset();
-  Processor::information().getScheduler().requestCurrentThreadExitToIdle();
+  // Exit can block while main starts teardown and retires its idle role.
+  // Use ordinary scheduling instead of reserving a later handoff to that role.
   currentSubsystem->exit(0);
   FATAL("Shutdown coordinator returned from process exit");
 }

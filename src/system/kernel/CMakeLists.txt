@@ -179,6 +179,7 @@ if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
     set(MACHINE_SRCS
         # /machine/mach_pc/
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Acpi.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/AcpiPower.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Apic.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Bios.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/IoApic.cc

@@ -190,6 +190,7 @@ void Acpi::initialise() {
 
   // Parse the FACP
   parseFixedACPIDescriptionTable();
+  initialisePowerManagement();
 
 #if APIC
   // If we have an Multiple APIC Description Table parse it

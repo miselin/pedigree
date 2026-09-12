@@ -21,6 +21,7 @@
 #define KERNEL_PROCESSOR_SYSCALLMANAGER_H
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/process/DeferredScope.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/Syscalls.h"
@@ -120,7 +121,7 @@ class SyscallManager {
   EXPORTED_PUBLIC bool requestEventStatePop();
   EXPORTED_PUBLIC bool requestStateRestore(const ProcessorState& state);
   EXPORTED_PUBLIC bool requestUserJump(uintptr_t instructionPointer, uintptr_t stackPointer);
-  EXPORTED_PUBLIC bool requestReboot();
+  EXPORTED_PUBLIC bool requestReboot(Machine::ShutdownType type = Machine::ShutdownType::Restart);
 
   /** Calls a syscall. */
   virtual uintptr_t syscall(Service_t service, uintptr_t function, uintptr_t p1 = 0,

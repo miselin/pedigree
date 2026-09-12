@@ -160,6 +160,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   /** Commits terminal state after architecture return-tail cleanup is done. */
   void commitUserReturnTerminalState();
 
+  /** Wakes the idle owner until it retires its role for terminal shutdown. */
+  void requestIdleThreadWakeup();
+
   void setIdle(Thread* pThread);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -276,6 +279,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   static int processorAddThread(void* instance);
 
   Thread* m_pIdleThread;
+  bool m_IdleWakeRequested = false;
 };
 
 #endif

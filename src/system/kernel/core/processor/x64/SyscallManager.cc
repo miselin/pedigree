@@ -36,7 +36,7 @@ X64SyscallManager X64SyscallManager::m_Instance;
 
 #define TIME_SYSCALLS 0
 
-extern void system_reboot();
+extern void system_reboot(Machine::ShutdownType type);
 
 namespace {
 class SyscallReturnScope {
@@ -113,6 +113,7 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
   bool commitThreadExit = false;
   bool exitCurrentProcess = false;
   bool rebootSystem = false;
+  Machine::ShutdownType shutdownType = Machine::ShutdownType::Halt;
   bool userReturnTerminal = false;
   bool interruptedWithoutProgress = false;
   int processExitCode = 0;
@@ -276,6 +277,7 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
         }
         case RebootSystem:
           rebootSystem = true;
+          shutdownType = static_cast<Machine::ShutdownType>(action.value);
           break;
         case NoPostSyscallAction: {
           SyscallReturnScope returnScope(interruptedWithoutProgress ? &originalState : nullptr);
@@ -321,7 +323,7 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     Processor::setInterrupts(false);
     Processor::information().getCurrentThread()->abandonAllStates();
     Processor::setInterrupts(true);
-    system_reboot();
+    system_reboot(shutdownType);
     return;
   }
   if (exitCurrentProcess) {

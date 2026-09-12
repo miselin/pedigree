@@ -1183,16 +1183,58 @@ int posix_syslog(const char* msg, int prio) {
   return 0;
 }
 
-EXPORTED_PUBLIC int pedigree_reboot() {
+int posix_reboot(uint32_t magic1, uint32_t magic2, uint32_t command) {
   if (Processor::information().getCurrentThread()->getParent()->getEffectiveUserId() != 0) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }
+  if (magic1 != 0xfee1dead ||
+      (magic2 != 672274793 && magic2 != 85072278 && magic2 != 369367448 && magic2 != 537993216)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
 
-  if (!SyscallManager::instance().requestReboot()) {
-    FATAL("Reboot was not dispatched.");
+  Machine::ShutdownType type;
+  switch (command) {
+    case 0x00000000:  // CAD_OFF
+    case 0x89abcdef:  // CAD_ON
+      // There is no kernel Ctrl-Alt-Del policy to change.
+      return 0;
+    case 0x01234567:
+      type = Machine::ShutdownType::Restart;
+      break;
+    case 0xcdef0123:
+      type = Machine::ShutdownType::Halt;
+      break;
+    case 0x4321fedc:
+      if (!Machine::instance().supportsPowerOff()) {
+        SYSCALL_ERROR(OperationNotSupported);
+        return -1;
+      }
+      type = Machine::ShutdownType::PowerOff;
+      break;
+    default:
+      // RESTART2, suspend and kexec require contracts we do not implement.
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+  }
+
+  // Catch known writeback failures before committing to terminal teardown.
+  // Module shutdown closes writers and performs the final cache drains.
+  const auto status = VFS::instance().syncAll();
+  if (status == Filesystem::SyncStatus::IoError || status == Filesystem::SyncStatus::NoMemory) {
+    syscallError(status == Filesystem::SyncStatus::IoError ? Error::IoError : Error::OutOfMemory);
+    return -1;
+  }
+  if (!SyscallManager::instance().requestReboot(type)) {
+    SYSCALL_ERROR(DeviceBusy);
+    return -1;
   }
   return 0;
+}
+
+EXPORTED_PUBLIC int pedigree_reboot() {
+  return posix_reboot(0xfee1dead, 672274793, 0x01234567);
 }
 
 int posix_prctl(int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {

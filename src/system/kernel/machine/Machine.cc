@@ -19,8 +19,14 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/processor/Processor.h"
 
 Machine::~Machine() {}
+
+void Machine::finalShutdown(ShutdownType type) {
+  if (type == ShutdownType::Restart)
+    Processor::reset();
+}
 
 bool Machine::quiesceAllOtherProcessors() {
   EMIT_IF(MULTIPROCESSOR) {

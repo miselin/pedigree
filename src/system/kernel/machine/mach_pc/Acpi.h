@@ -46,6 +46,10 @@ class Acpi {
    *\note the first MB of RAM must be identity mapped */
   void initialise() INITIALISATION_ONLY;
 
+  bool supportsPowerOff() const;
+  void powerOff();
+  void reset();
+
   uint8_t getRtcCenturyIndex() const {
     return m_bValid ? m_pFacp->cmosCenturyIndex : 0;
   }
@@ -173,6 +177,7 @@ class Acpi {
   } PACKED;
 
   void parseFixedACPIDescriptionTable() INITIALISATION_ONLY;
+  void initialisePowerManagement() INITIALISATION_ONLY;
 #if APIC
   void parseMultipleApicDescriptionTable() INITIALISATION_ONLY;
 #endif
@@ -186,6 +191,11 @@ class Acpi {
   MemoryRegion m_AcpiMemoryRegion;
   SystemDescriptionTableHeader* m_pRsdt;
   FixedACPIDescriptionTable* m_pFacp;
+  bool m_PowerOffValid = false;
+  uint8_t m_SleepTypeA = 0;
+  uint8_t m_SleepTypeB = 0;
+  uint16_t m_ResetPort = 0;
+  uint8_t m_ResetValue = 0;
 
 #if APIC
   SystemDescriptionTableHeader* m_pApic;

@@ -42,7 +42,15 @@ class EXPORTED_PUBLIC Machine {
   friend void system_reset();
 
  public:
+  enum class ShutdownType { Restart, Halt, PowerOff };
+
   static Machine& instance();
+
+  virtual bool supportsPowerOff() const {
+    return false;
+  }
+  /** Runs after all workers, devices and other processors have stopped. */
+  virtual void finalShutdown(ShutdownType type);
 
   /**
    * Initialises the machine.

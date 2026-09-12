@@ -444,8 +444,8 @@ bool SyscallManager::requestUserJump(uintptr_t instructionPointer, uintptr_t sta
   return requestPostSyscallAction(JumpToUserspace, 0, &state);
 }
 
-bool SyscallManager::requestReboot() {
-  return requestPostSyscallAction(RebootSystem, 0);
+bool SyscallManager::requestReboot(Machine::ShutdownType type) {
+  return requestPostSyscallAction(RebootSystem, static_cast<intptr_t>(type));
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

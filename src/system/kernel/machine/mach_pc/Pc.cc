@@ -82,6 +82,45 @@ bool reportProcessorControlResult(LocalApic::ProcessorControlResult result, cons
 }  // namespace
 #endif
 
+bool Pc::supportsPowerOff() const {
+#if ACPI
+  return Acpi::instance().supportsPowerOff();
+#else
+  return false;
+#endif
+}
+
+void Pc::finalShutdown(ShutdownType type) {
+  if (type == ShutdownType::PowerOff) {
+    NOTICE_NOLOCK("Powering off...");
+#if ACPI
+    Acpi::instance().powerOff();
+#endif
+    ERROR_NOLOCK("Power off failed; the machine is halted and may be switched off manually");
+  } else if (type == ShutdownType::Restart) {
+    NOTICE_NOLOCK("Rebooting...");
+#if ACPI
+    Acpi::instance().reset();
+#endif
+    // The controller is already quiesced, so terminal reset can access it
+    // without acquiring the keyboard driver's retired locks.
+    for (size_t i = 0; i < 100000; ++i) {
+      uint8_t status;
+      asm volatile("inb %1, %0" : "=a"(status) : "Nd"(uint16_t(0x64)));
+      if (!(status & 2)) {
+        asm volatile("outb %0, %1" : : "a"(uint8_t(0xfe)), "Nd"(uint16_t(0x64)));
+        break;
+      }
+    }
+    for (size_t i = 0; i < 100000; ++i)
+      asm volatile("pause");
+    Processor::reset();
+    ERROR_NOLOCK("Reset failed; the machine is halted");
+  } else {
+    NOTICE_NOLOCK("System halted; it is safe to switch off the machine");
+  }
+}
+
 void Pc::initialise() {
   // Initialise Vga
   if (m_Vga->initialise() == false)

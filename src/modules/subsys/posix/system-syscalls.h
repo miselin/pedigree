@@ -99,6 +99,7 @@ int posix_syslog(const char* msg, int prio);
 int pedigree_login(int uid);
 
 int pedigree_reboot();
+int posix_reboot(uint32_t magic1, uint32_t magic2, uint32_t command);
 
 int posix_uname(struct utsname* n);
 

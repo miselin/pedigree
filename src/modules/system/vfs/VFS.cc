@@ -858,7 +858,9 @@ Filesystem::SyncStatus VFS::syncAll() {
                            : status == Filesystem::SyncStatus::NoMemory  ? "out of memory"
                                                                          : "I/O error";
       ERROR("VFS::syncAll: filesystem " << Dec << pin.state->id << " sync failed: " << reason);
-      if (firstError == Filesystem::SyncStatus::Success)
+      if (firstError == Filesystem::SyncStatus::Success ||
+          (firstError == Filesystem::SyncStatus::Unsupported &&
+           status != Filesystem::SyncStatus::Unsupported))
         firstError = status;
     }
   }

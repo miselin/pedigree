@@ -18,13 +18,36 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 
 #include <sys/reboot.h>
 
-int main(void) {
-  // printf("Rebooting Pedigree...\n");
-  if (reboot(0) != 0) {
-    perror("reboot failed");
+static int usage(const char* program) {
+  fprintf(stderr, "Usage: %s [-r|-h|-P] [now]\n", program);
+  return 1;
+}
+
+int main(int argc, char** argv) {
+  const char* program = strrchr(argv[0], '/');
+  program = program ? program + 1 : argv[0];
+  int command = !strcmp(program, "reboot") ? RB_AUTOBOOT
+                : !strcmp(program, "halt") ? RB_HALT_SYSTEM
+                                           : RB_POWER_OFF;
+  int selected = 0;
+  for (int i = 1; i < argc; ++i) {
+    if (!strcmp(argv[i], "now") && i == argc - 1)
+      continue;
+    if (selected++)
+      return usage(program);
+    if (!strcmp(argv[i], "-r"))
+      command = RB_AUTOBOOT;
+    else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "-P"))
+      command = RB_POWER_OFF;
+    else
+      return usage(program);
   }
+  // The kernel checks permission and flushes storage before terminal teardown.
+  if (reboot(command) < 0)
+    perror(program);
   return 1;
 }

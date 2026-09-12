@@ -31,7 +31,7 @@
 
 HostedSyscallManager HostedSyscallManager::m_Instance;
 
-extern void system_reboot();
+extern void system_reboot(Machine::ShutdownType type);
 
 SyscallManager& SyscallManager::instance() {
   return HostedSyscallManager::instance();
@@ -46,6 +46,7 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
   bool commitThreadExit = false;
   bool exitCurrentProcess = false;
   bool rebootSystem = false;
+  Machine::ShutdownType shutdownType = Machine::ShutdownType::Halt;
   bool userReturnTerminal = false;
   int processExitCode = 0;
   Subsystem::ExitCause processExitCause = Subsystem::ExitCause::Normal;
@@ -135,6 +136,7 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
                               action.state.getStackPointer());
         case RebootSystem:
           rebootSystem = true;
+          shutdownType = static_cast<Machine::ShutdownType>(action.value);
           break;
         case NoPostSyscallAction:
           if (fromUserspace) {
@@ -166,7 +168,7 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
     Processor::setInterrupts(false);
     Processor::information().getCurrentThread()->abandonAllStates();
     Processor::setInterrupts(true);
-    system_reboot();
+    system_reboot(shutdownType);
     return;
   }
   if (exitCurrentProcess) {

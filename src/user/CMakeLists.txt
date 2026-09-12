@@ -178,6 +178,11 @@ pedigree_app(free ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/free/ma
 pedigree_app(dmesg ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/dmesg/main.c)
 pedigree_app(system-status-contract-test ON OFF ON ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/system-status-contract-test/main.c)
+pedigree_app(shutdown ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/reboot/main.c)
+pedigree_app(poweroff ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/reboot/main.c)
+pedigree_app(halt ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/reboot/main.c)
+pedigree_app(power-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/power-contract-test/main.c)
 pedigree_app(vfork-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/vfork-contract-test/main.c)
 pedigree_app(event-descriptor-contract-test ON OFF OFF ""
