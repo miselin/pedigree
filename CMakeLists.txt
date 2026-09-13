@@ -731,6 +731,7 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             -o ${UEFI_LOADER_OBJECT}
             DEPENDS ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/loader.c
                     ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/exit_boot_services.h
+                    ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/load_options.h
                     ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/framebuffer.h)
         add_custom_command(OUTPUT ${UEFI_LOADER}
             COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/uefi_pe.py

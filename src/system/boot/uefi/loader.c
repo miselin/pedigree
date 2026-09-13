@@ -10,6 +10,7 @@
 
 #include "exit_boot_services.h"
 #include "framebuffer.h"
+#include "load_options.h"
 
 typedef uint16_t efi_char16_t;
 typedef struct efi_guid {
@@ -354,42 +355,9 @@ static void copy(void* destination, const void* source, uint64_t size) {
     *d++ = *s++;
 }
 
-static int load_option_matches(efi_loaded_image_t* loaded_image, const char* option) {
-  if (!loaded_image || !loaded_image->load_options || !loaded_image->load_options_size)
-    return 0;
-
-  const uint8_t* value = (const uint8_t*)loaded_image->load_options;
-  uint64_t option_length = 0;
-  while (option[option_length])
-    ++option_length;
-  if (loaded_image->load_options_size >= option_length * 2 &&
-      loaded_image->load_options_size % 2 == 0) {
-    int utf16 = 1;
-    for (uint64_t i = 1; i < loaded_image->load_options_size; i += 2) {
-      if (value[i])
-        utf16 = 0;
-    }
-    if (utf16) {
-      const efi_char16_t* wide_value = (const efi_char16_t*)value;
-      for (uint64_t i = 0; i < option_length; ++i) {
-        if (wide_value[i] != (efi_char16_t)option[i])
-          return 0;
-      }
-      return 1;
-    }
-  }
-
-  if (loaded_image->load_options_size < option_length)
-    return 0;
-  for (uint64_t i = 0; i < option_length; ++i) {
-    if (value[i] != (uint8_t)option[i])
-      return 0;
-  }
-  return 1;
-}
-
-static int build_artifact_path(efi_loaded_image_t* loaded_image, const efi_char16_t* name,
-                               efi_char16_t* path, uint64_t path_capacity) {
+static int build_artifact_path(efi_loaded_image_t* loaded_image, const uefi_load_options_t* options,
+                               const efi_char16_t* name, efi_char16_t* path,
+                               uint64_t path_capacity) {
   const efi_char16_t* prefix = current_prefix;
   uint64_t prefix_length = sizeof(current_prefix) / sizeof(current_prefix[0]) - 1;
   efi_char16_t* file_path = 0;
@@ -435,10 +403,10 @@ static int build_artifact_path(efi_loaded_image_t* loaded_image, const efi_char1
     }
   }
 
-  if (load_option_matches(loaded_image, "known-good")) {
+  if (options->directory == UEFI_BOOT_DIRECTORY_KNOWN_GOOD) {
     prefix = known_good_prefix;
     prefix_length = sizeof(known_good_prefix) / sizeof(known_good_prefix[0]) - 1;
-  } else if (load_option_matches(loaded_image, "current")) {
+  } else if (options->directory == UEFI_BOOT_DIRECTORY_CURRENT) {
     prefix = current_prefix;
     prefix_length = sizeof(current_prefix) / sizeof(current_prefix[0]) - 1;
   }
@@ -587,6 +555,12 @@ efi_status_t efi_main(efi_handle_t image, efi_system_table_t* system_table) {
     return 1;
   }
 
+  uefi_load_options_t options;
+  if (!parse_load_options(loaded_image->load_options, loaded_image->load_options_size, &options)) {
+    print((efi_char16_t*)L"UEFI: invalid load options\r\n");
+    return 1;
+  }
+
   static const efi_char16_t kernel_name[] = L"kernel";
   static const efi_char16_t initrd_name[] = L"initrd.tar";
   static const efi_char16_t config_name[] = L"config.db";
@@ -595,10 +569,10 @@ efi_status_t efi_main(efi_handle_t image, efi_system_table_t* system_table) {
   efi_char16_t initrd_path[256];
   efi_char16_t config_path[256];
   efi_char16_t cmdline_path[256];
-  if (!build_artifact_path(loaded_image, kernel_name, kernel_path, 256) ||
-      !build_artifact_path(loaded_image, initrd_name, initrd_path, 256) ||
-      !build_artifact_path(loaded_image, config_name, config_path, 256) ||
-      !build_artifact_path(loaded_image, cmdline_name, cmdline_path, 256)) {
+  if (!build_artifact_path(loaded_image, &options, kernel_name, kernel_path, 256) ||
+      !build_artifact_path(loaded_image, &options, initrd_name, initrd_path, 256) ||
+      !build_artifact_path(loaded_image, &options, config_name, config_path, 256) ||
+      !build_artifact_path(loaded_image, &options, cmdline_name, cmdline_path, 256)) {
     print((efi_char16_t*)L"UEFI: loader path is too long\r\n");
     return 1;
   }
@@ -619,6 +593,15 @@ efi_status_t efi_main(efi_handle_t image, efi_system_table_t* system_table) {
   if (!kernel_file || !initrd || !config || !cmdline) {
     print((efi_char16_t*)L"UEFI: file read failed\r\n");
     return 1;
+  }
+  if (options.arguments_length) {
+    char* combined = (char*)allocate_pages(UEFI_COMMAND_LINE_CAPACITY, 0xffffffffULL);
+    if (!combined || !append_load_options(cmdline, cmdline_length, &options, combined,
+                                          UEFI_COMMAND_LINE_CAPACITY)) {
+      print((efi_char16_t*)L"UEFI: invalid combined command line\r\n");
+      return 1;
+    }
+    cmdline = (uint8_t*)combined;
   }
   elf64_header_t* header = (elf64_header_t*)kernel_file;
   if (kernel_length < sizeof(*header) || header->ident[0] != 0x7f || header->ident[1] != 'E' ||

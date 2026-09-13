@@ -175,6 +175,19 @@ The `current`/`known-good` argument selects the matching artifact directory;
 the kernel root option belongs in that directory's `cmdline` file. Keep the
 loader, kernel, initrd, configuration database and command line together.
 
+Arguments after the directory selector are appended to its `cmdline` contents.
+For example, `chainloader ($esp)/EFI/PEDIGREE/current/BOOTX64.EFI current intelgfx=off`
+retains the saved root UUID and other options while disabling the Intel graphics
+module. Use `current intelgfx=on` to allow that module to probe when it is included
+in the initrd. Keep the graphics toggle in the GRUB menu only: appending `on` does
+not remove an existing `intelgfx=off` from the saved command line. A selector
+without additional arguments keeps the saved command line unchanged.
+
+The loader accepts printable ASCII options or their UTF-16LE representation,
+normalizes tabs to spaces, and rejects malformed or oversized inputs. Options
+are limited to 1023 decoded characters; the combined kernel command line is
+limited to 4095 characters.
+
 ## Included tools and source
 
 The filesystem includes curl, Git, Dropbear (`ssh`, `scp` and server tools),
