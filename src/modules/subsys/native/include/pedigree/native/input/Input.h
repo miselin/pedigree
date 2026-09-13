@@ -74,7 +74,8 @@ EXPORTED_PUBLIC void installCallback(CallbackType type, callback_t cb);
 /// Removes a given callback
 EXPORTED_PUBLIC void removeCallback(callback_t cb);
 
-/// Opens an independent, pollable stream of raw keyboard and mouse events.
+/// Opens an independent, pollable stream of raw and logical keyboard plus mouse
+/// events.
 /// The stream is non-blocking; use poll/select before readEvent when needed.
 EXPORTED_PUBLIC int openEventStream();
 

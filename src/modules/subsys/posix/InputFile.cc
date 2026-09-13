@@ -22,7 +22,8 @@
 #include "pedigree/kernel/LockGuard.h"
 
 namespace {
-constexpr InputManager::CallbackType InputStreamFilter = InputManager::Mouse | InputManager::RawKey;
+constexpr InputManager::CallbackType InputStreamFilter =
+    InputManager::Mouse | InputManager::RawKey | InputManager::Key;
 constexpr size_t InputBufferRecords = 128;
 }  // namespace
 
