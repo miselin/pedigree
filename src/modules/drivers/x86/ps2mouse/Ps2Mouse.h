@@ -20,7 +20,6 @@
 #ifndef _PS2_MOUSE_H
 #define _PS2_MOUSE_H
 
-#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/process/OwnedThread.h"
@@ -29,6 +28,7 @@
 #include "pedigree/kernel/utilities/String.h"
 
 #include "Ps2MouseCallbackRegistry.h"
+#include "Ps2MousePacket.h"
 
 class Ps2Controller;
 
@@ -77,14 +77,7 @@ class Ps2Mouse : public Device {
 
   void updateSubscribers(const void* buffer, size_t len);
 
-  /// Mouse data buffer
-  uint8_t m_Buffer[3];
-
-  /// Index into the data buffer
-  size_t m_BufferIndex;
-
-  /// Lock for the mouse data buffer
-  Spinlock m_BufferLock;
+  Ps2MousePacketDecoder m_PacketDecoder;
 
   /// IRQ wait semaphore
   Semaphore m_IrqWait;

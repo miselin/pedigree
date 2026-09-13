@@ -40,6 +40,7 @@ bool runHostedPayloadPageRegressions();
 bool runHostedPrimitiveRegressions(Thread* thread);
 bool runHostedRingBufferRegressions();
 bool runHostedProcessExitRegressions();
+bool runHostedPs2MousePacketRegressions();
 bool runHostedSignalInterruptionRegressions(Thread* thread);
 bool runHostedTimerRegressions(Thread* thread);
 #if PEDIGREE_HOSTED_CORE_SMOKE
@@ -2636,7 +2637,7 @@ bool runHostedWaitRegressions() {
 #if !PEDIGREE_HOSTED_CORE_SMOKE
       runHostedLogRegressions() &&
 #endif
-      runHostedProcessExitRegressions() &&
+      runHostedProcessExitRegressions() && runHostedPs2MousePacketRegressions() &&
 #if !PEDIGREE_HOSTED_CORE_SMOKE
       runHostedPs2MouseRegressions() &&
 #endif

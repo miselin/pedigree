@@ -30,13 +30,7 @@
 class Process;
 
 Ps2Mouse::Ps2Mouse(Device* pDev)
-    : m_pController(0),
-      m_Buffer(),
-      m_BufferIndex(0),
-      m_BufferLock(),
-      m_IrqWait(0),
-      m_ReaderThread(),
-      m_Callbacks() {
+    : m_pController(0), m_PacketDecoder(), m_IrqWait(0), m_ReaderThread(), m_Callbacks() {
   setSpecificType(String("ps2-mouse"));
 }
 
@@ -121,31 +115,9 @@ void Ps2Mouse::readerThread() {
 
     updateSubscribers(&byte, 1);
 
-    if (byte == 0xFA || byte == 0xFE) {
-      // ignore for now
-      continue;
-    }
-
-    ssize_t xrel = 0;
-    ssize_t yrel = 0;
-    uint32_t buttons = 0;
-    bool needUpdate = false;
-    {
-      m_BufferLock.acquire();
-      m_Buffer[m_BufferIndex++] = byte;
-      needUpdate = m_BufferIndex == 3;
-      if (needUpdate) {
-        xrel = static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[1]));
-        yrel = static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[2]));
-        buttons = static_cast<uint32_t>(m_Buffer[0]) & 0x3;
-        m_BufferIndex = 0;
-      }
-      m_BufferLock.release();
-    }
-
-    // lock no longer taken, safe to send the update
-    if (needUpdate) {
-      InputManager::instance().mouseUpdate(xrel, yrel, 0, buttons);
+    Ps2MousePacket packet = {};
+    if (m_PacketDecoder.feed(byte, packet)) {
+      InputManager::instance().mouseUpdate(packet.relativeX, packet.relativeY, 0, packet.buttons);
     }
   }
 }
