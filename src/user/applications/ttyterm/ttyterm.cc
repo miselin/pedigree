@@ -55,9 +55,6 @@ int g_MasterPty;
 #define FIRST_PROGRAM "/usr/bin/login"
 #endif
 
-// Pedigree function, defined in glue.c
-extern int login(int uid, char* password);
-
 // SIGINT handler
 void sigint(int sig) {
   // Ignore, but don't log (running program)

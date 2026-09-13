@@ -270,13 +270,16 @@ void TerminalControl::processTerminated(PosixProcess& process) {
       auto* console = static_cast<ConsoleFile*>(file);
       auto slot = console->controlState();
       auto* control = static_cast<TerminalControl*>(slot.get());
+      // A PTY master must be able to drain output after its session leader exits.
+      const bool preservePtyData = console->isPtySlave();
       if (control && control->active() && control->m_Session == process.getId() &&
-          console->beginRevocation(retired)) {
+          (preservePtyData || console->beginRevocation(retired))) {
         session = control->m_Session;
         foreground = __atomic_load_n(&control->m_Foreground, __ATOMIC_ACQUIRE);
         control->invalidate();
         console->setControlState(SharedPointer<ConsoleControlState>());
-        revoking = console;
+        if (!preservePtyData)
+          revoking = console;
       }
     }
     process.setCttyContext(SharedPointer<Process::ControllingTerminal>());

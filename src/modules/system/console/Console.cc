@@ -95,6 +95,7 @@ ConsoleFile* ConsoleManager::getConsoleFile(RequestQueue* pBackend) {
 }
 
 bool ConsoleManager::lockConsole(File* file) {
+  LockGuard<Spinlock> guard(m_Lock);
   if (!isConsole(file))
     return false;
 
@@ -113,6 +114,7 @@ bool ConsoleManager::lockConsole(File* file) {
 }
 
 void ConsoleManager::unlockConsole(File* file) {
+  LockGuard<Spinlock> guard(m_Lock);
   if (!isConsole(file))
     return;
 
@@ -126,6 +128,27 @@ void ConsoleManager::unlockConsole(File* file) {
   if (pConsole->pLocker != pProcess)
     return;
   pConsole->bLocked = false;
+}
+
+bool ConsoleManager::setPtyLock(File* file, bool locked) {
+  LockGuard<Spinlock> guard(m_Lock);
+  if (!isConsole(file) || !isMasterConsole(file) || !static_cast<ConsoleFile*>(file)->isPtyMaster())
+    return false;
+
+  ConsoleMasterFile* pConsole = static_cast<ConsoleMasterFile*>(file);
+  pConsole->bSlaveLocked = locked;
+  return true;
+}
+
+bool ConsoleManager::isPtySlaveLocked(File* file) {
+  LockGuard<Spinlock> guard(m_Lock);
+  if (!isConsole(file) || !static_cast<ConsoleFile*>(file)->isPtySlave())
+    return false;
+
+  ConsoleFile* other = static_cast<ConsoleFile*>(file)->m_pOther;
+  if (!other || !other->isMaster())
+    return false;
+  return static_cast<ConsoleMasterFile*>(other)->bSlaveLocked;
 }
 
 bool ConsoleManager::isConsole(File* file) {

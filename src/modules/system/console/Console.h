@@ -102,6 +102,14 @@ class EXPORTED_PUBLIC ConsoleFile : public File {
 
   virtual bool isMaster() = 0;
 
+  bool isPtySlave() {
+    return !isMaster() && getParent() != nullptr;
+  }
+
+  bool isPtyMaster() {
+    return isMaster() && m_pOther != nullptr && m_pOther->getParent() != nullptr;
+  }
+
   virtual bool isSeekable() const {
     return false;
   }
@@ -199,6 +207,9 @@ class EXPORTED_PUBLIC ConsoleMasterFile : public ConsoleFile {
   /// Who holds the lock on the console? (ie, same process can 'lock'
   /// twice...)
   Process* pLocker;
+
+  /// Whether the corresponding UNIX 98 slave rejects new opens.
+  bool bSlaveLocked;
 
   virtual bool isMaster() {
     return true;
@@ -317,6 +328,12 @@ class EXPORTED_PUBLIC ConsoleManager : public Filesystem {
 
   /// Release a console master locked as above.
   void unlockConsole(File* file);
+
+  /// Set the UNIX 98 PTY slave lock associated with a master.
+  bool setPtyLock(File* file, bool locked);
+
+  /// Returns whether a PTY slave is currently locked.
+  bool isPtySlaveLocked(File* file);
 
   /// Create a new console - /dev/ptyXY -> /dev/ttyXY, where X is @c and Y is
   /// @i.

@@ -36,6 +36,7 @@ extern void test_fs_persistence_contracts(const char* base, int write_phase);
 extern void test_fs();
 extern void test_dup3(void);
 extern void test_epoll_pty(void);
+extern void test_pty_contracts(void);
 extern int exec_shebang_child(int argc, char* argv[]);
 extern void test_exec_shebang(const char* program);
 extern int process_exec_signal_child(void);
@@ -118,6 +119,10 @@ int main(int argc, char* argv[]) {
     test_epoll_pty();
     return 0;
   }
+  if (argc == 2 && !strcmp(argv[1], "--pty-contracts")) {
+    test_pty_contracts();
+    return 0;
+  }
   if (argc == 2 && !strcmp(argv[1], "--mmap")) {
     test_mmap();
     return 0;
@@ -151,6 +156,7 @@ int main(int argc, char* argv[]) {
   test_process(argv[0]);
   test_dup3();
   test_epoll_pty();
+  test_pty_contracts();
   test_scm_rights();
   test_scm_rights_stream();
   test_unix_stream_interruption();

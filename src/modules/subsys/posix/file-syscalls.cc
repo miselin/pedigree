@@ -2729,6 +2729,24 @@ int posix_ioctl(int fd, size_t command, void* buf) {
       }
     }
 
+    case TIOCSPTLCK: {
+      if (ConsoleManager::instance().isConsole(f->getFile()) &&
+          ConsoleManager::instance().isMasterConsole(f->getFile())) {
+        int locked = 0;
+        if (!copyIoctlInput(buf, locked)) {
+          return -1;
+        }
+        if (locked != 0 && locked != 1) {
+          SYSCALL_ERROR(InvalidArgument);
+          return -1;
+        }
+        F_NOTICE(" -> TIOCSPTLCK " << locked);
+        return ConsoleManager::instance().setPtyLock(f->getFile(), locked != 0) ? 0 : -1;
+      }
+      SYSCALL_ERROR(NotAConsole);
+      return -1;
+    }
+
     // VT_OPENQRY
     case 0x5600: {
       F_NOTICE(" -> VT_OPENQRY (stubbed)");
@@ -4014,6 +4032,13 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
   }
 
   // Handle side effects.
+  if (ConsoleManager::instance().isPtySlaveLocked(file)) {
+    F_NOTICE("  -> PTY slave is locked");
+    SYSCALL_ERROR(IoError);
+    pSubsystem->freeFd(fd);
+    return -1;
+  }
+
   File* newFile = file->open();
   if (!newFile) {
     pSubsystem->freeFd(fd);

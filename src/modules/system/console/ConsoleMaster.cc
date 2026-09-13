@@ -26,7 +26,10 @@
 class Filesystem;
 
 ConsoleMasterFile::ConsoleMasterFile(size_t consoleNumber, String consoleName, Filesystem* pFs)
-    : ConsoleFile(consoleNumber, consoleName, pFs), bLocked(false), pLocker(0) {}
+    : ConsoleFile(consoleNumber, consoleName, pFs),
+      bLocked(false),
+      pLocker(0),
+      bSlaveLocked(false) {}
 
 uint64_t ConsoleMasterFile::readIo(ConsoleIoState& state, uint64_t size, uintptr_t buffer,
                                    bool bCanBlock) {
@@ -51,19 +54,13 @@ uint64_t ConsoleMasterFile::readIo(ConsoleIoState& state, uint64_t size, uintptr
 
   uint64_t totalBytes = 0;
   while (totalBytes < size) {
-    // Check for no longer able to read as needed.
-    if ((size / 2) == 0) {
-      break;
-    }
-
     // We assume that the worst-case buffer might be read, which contains
     // 100% newlines that would expand to carriage return + newline.
-    // Eventually we'll reach a point where we can't halve size and then
-    // we just return what's been read so far (assuming there's still
-    // content in the buffer by that stage).
-    // Note: the integer division will floor() which is intentional.
+    // Once one byte remains, consume it directly; the line discipline keeps
+    // the result bounded by the caller's buffer in that case.
+    const uint64_t readSize = size > 1 ? size / 2 : 1;
     uint64_t nBytes =
-        state.output.read(reinterpret_cast<char*>(buffer + totalBytes), size / 2, bCanBlock);
+        state.output.read(reinterpret_cast<char*>(buffer + totalBytes), readSize, bCanBlock);
     if (!nBytes) {
       break;
     }

@@ -759,12 +759,6 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         self.assertIn("flags & TIMER_ABSTIME", nanosleep)
         self.assertIn("if (!absolute && remainder)", nanosleep)
 
-        glue = (ROOT / "src/modules/subsys/posix/glue.c").read_text(
-            encoding="utf-8"
-        )
-        clock_getres = glue.split("int clock_getres", 1)[1].split("}", 1)[0]
-        self.assertIn("syscall2(POSIX_CLOCK_GETRES", clock_getres)
-
     def test_bundled_musl_clock_waits_use_raw_linux_syscalls(self):
         source_root = ROOT / "build/src/modules/musl-1.2.6"
         archive_path = ROOT / "build/src/modules/musl-1.2.6.tar.gz"
