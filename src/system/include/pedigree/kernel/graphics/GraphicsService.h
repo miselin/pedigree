@@ -56,6 +56,9 @@ class GraphicsService : public Service {
     /// with x86's int 10h thing. If this is false, the driver should
     /// handle "mode zero" as a "disable the video device" mode.
     bool bTextModes;
+
+    /// Firmware scanout is a fallback once a native driver owns the display.
+    bool bFirmwareFallback = false;
   };
 
   struct GraphicsParameters {

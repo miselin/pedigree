@@ -145,8 +145,12 @@ GraphicsService::ProviderPair GraphicsService::determineBestProvider() {
     DEBUG_LOG("GraphicsService: provider with display name '"
               << name << "' got " << points << " points (" << textPoints << " text points)");
 
-    // Is this the new best?
-    if (points > bestPoints) {
+    // Native ownership supersedes inherited scanout even without acceleration.
+    const bool preferredClass =
+        result.bestBase && result.bestBase->bFirmwareFallback && !pProvider->bFirmwareFallback;
+    const bool sameClass =
+        !result.bestBase || result.bestBase->bFirmwareFallback == pProvider->bFirmwareFallback;
+    if (preferredClass || (sameClass && points > bestPoints)) {
       bestPoints = points;
       result.bestBase = pProvider;
 

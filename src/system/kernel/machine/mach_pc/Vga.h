@@ -148,6 +148,7 @@ class X86Vga : public Vga {
    */
   virtual void moveCursor(size_t nX, size_t nY);
   virtual void flush();
+  bool setFramebuffer(Framebuffer* framebuffer) override;
 
   bool initialise();
 
@@ -210,6 +211,7 @@ class X86Vga : public Vga {
   bool m_Uefi = false;
   Spinlock m_ConsoleLock{false, true};
   FramebufferConsole m_Console;
+  Framebuffer* m_pConsoleFramebuffer = nullptr;
 };
 
 #endif

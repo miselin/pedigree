@@ -1442,14 +1442,14 @@ bool KernelElf::moduleDependenciesSatisfiedLocked(Module* module) const {
       for (auto mod : m_Modules) {
         if (!mod->isUnloaded() && !StringCompare(mod->name.cstr(), depname)) {
           exists = true;
-          attempted = mod->wasAttempted();
+          attempted = mod->wasAttempted() && !mod->isExecuting() && !mod->isUnloading();
           break;
         }
       }
 
       if (exists) {
         if (!attempted) {
-          // optional dependency hasn't yet been tried
+          // Consumers need a completed probe, including a failed probe's cleanup.
           return false;
         }
       }

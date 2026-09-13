@@ -191,6 +191,7 @@ bool entry() {
   g_pProvider->maxTextHeight = 0;
   g_pProvider->bHardwareAccel = false;
   g_pProvider->bTextModes = false;
+  g_pProvider->bFirmwareFallback = true;
 
   ServiceFeatures* features = ServiceManager::instance().enumerateOperations(String("graphics"));
   Service* service = ServiceManager::instance().getService(String("graphics"));

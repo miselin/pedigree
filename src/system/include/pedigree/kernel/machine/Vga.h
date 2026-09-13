@@ -22,6 +22,8 @@
 
 #include "pedigree/kernel/processor/types.h"
 
+class Framebuffer;
+
 /**
  * Vga device abstraction.
  */
@@ -123,6 +125,12 @@ class Vga {
 
   // Memory-backed consoles need an explicit presentation after direct cell writes.
   virtual void flush() {}
+
+  // The provider and its mapped pixels must remain valid for the kernel lifetime.
+  // Console presentation calls redraw with interrupts disabled; it must not wait.
+  virtual bool setFramebuffer(Framebuffer*) {
+    return false;
+  }
 
   virtual operator uint16_t*() const = 0;
 };

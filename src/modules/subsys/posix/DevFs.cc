@@ -391,8 +391,16 @@ int FramebufferFile::command(const size_t command, void* buffer) {
         bool bSuccess = false;
         if (!m_pGraphicsParameters->providerResult.bTextModes) {
           bSuccess = pDisplay->setScreenMode(0);
-          if (bSuccess && Machine::instance().getNumVga())
-            Machine::instance().getVga(0)->setLargestTextMode();
+          if (bSuccess) {
+            // Native drivers may restore a larger graphics mode for this request.
+            setSize(pFramebuffer->getHeight() * pFramebuffer->getBytesPerLine());
+            Display::ScreenMode currentMode;
+            if (pDisplay->getCurrentScreenMode(currentMode))
+              m_nDepth = currentMode.pf.nBpp;
+            m_bTextMode = false;
+            if (Machine::instance().getNumVga())
+              Machine::instance().getVga(0)->setLargestTextMode();
+          }
         } else {
           // Set via VGA method.
           if (Machine::instance().getNumVga()) {
@@ -412,7 +420,7 @@ int FramebufferFile::command(const size_t command, void* buffer) {
         if (bSuccess) {
           NOTICE("FramebufferFile: " << (m_pGraphicsParameters->providerResult.bTextModes
                                              ? "set text mode"
-                                             : "retained fixed mode"));
+                                             : "restored graphics mode"));
           return 0;
         } else {
           return -1;

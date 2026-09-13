@@ -435,4 +435,4 @@ static void destroy() {
 MODULE_INFO_RUNTIME_PINNED("posix", &init, &destroy, "console", "network-stack", "mountroot",
                            "ramfs", "lwip");
 // DevFs mouse nodes need the registration code until their destructors finish.
-MODULE_OPTIONAL_DEPENDS("ps2mouse");
+MODULE_OPTIONAL_DEPENDS("ps2mouse", "gfx-deps");

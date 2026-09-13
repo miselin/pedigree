@@ -20,6 +20,7 @@
 #include "Vga.h"
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/machine/Framebuffer.h"
 #include "pedigree/kernel/machine/x86_common/Bios.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
@@ -170,6 +171,8 @@ void X86Vga::moveCursor(size_t nX, size_t nY) {
     LockGuard<Spinlock> guard(m_ConsoleLock);
     m_Console.moveCursor(nX, nY);
     m_Console.flush();
+    if (m_pConsoleFramebuffer)
+      m_pConsoleFramebuffer->redraw();
     return;
   }
   if (!m_RegisterPort)
@@ -187,7 +190,34 @@ void X86Vga::flush() {
   if (m_Uefi) {
     LockGuard<Spinlock> guard(m_ConsoleLock);
     m_Console.flush();
+    if (m_pConsoleFramebuffer)
+      m_pConsoleFramebuffer->redraw();
   }
+}
+
+bool X86Vga::setFramebuffer(Framebuffer* framebuffer) {
+  if (!m_Uefi || !framebuffer || framebuffer->getParent() || framebuffer->getBytesPerPixel() != 4 ||
+      framebuffer->getWidth() > UINT32_MAX || framebuffer->getHeight() > UINT32_MAX ||
+      (framebuffer->getFormat() != Graphics::Bits32_Rgb &&
+       framebuffer->getFormat() != Graphics::Bits32_Bgr)) {
+    return false;
+  }
+
+  const size_t pitch = framebuffer->getBytesPerLine();
+  if (pitch && framebuffer->getHeight() > SIZE_MAX / pitch)
+    return false;
+
+  LockGuard<Spinlock> guard(m_ConsoleLock);
+  if (!m_Console.initialise(framebuffer->getRawBuffer(), pitch * framebuffer->getHeight(),
+                            framebuffer->getWidth(), framebuffer->getHeight(), pitch,
+                            framebuffer->getFormat() == Graphics::Bits32_Rgb ? 1 : 0)) {
+    return false;
+  }
+
+  m_pConsoleFramebuffer = framebuffer;
+  m_Console.flush();
+  m_pConsoleFramebuffer->redraw();
+  return true;
 }
 
 bool X86Vga::initialise() {
