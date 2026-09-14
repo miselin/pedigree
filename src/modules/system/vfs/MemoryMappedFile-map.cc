@@ -197,31 +197,42 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     auto rawStatus = space.rawUserMemory().prepareReplacement(destination, length, raw);
     if (rawStatus != MemoryLockStatus::Success)
       return nullptr;
-    MappingPlan plan;
-    if (!plan.staged.tryReserve(objects->count() * 2 + 1) ||
-        !plan.retired.tryReserve(objects->count()))
-      return nullptr;
-    plan.replacement = new MmObjectList;
-    if (!plan.replacement)
-      return nullptr;
-    size_t removedPages = 0;
+    bool overlaps = false;
     for (auto* object : *objects) {
       const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
-      if (destination >= end || object->address() >= destination + length) {
-        if (!plan.replacement->tryPushBack(object))
-          return nullptr;
-        continue;
+      if (destination < end && object->address() < destination + length) {
+        overlaps = true;
+        break;
       }
-      if (placement != Placement::FixedReplace)
+    }
+    MappingPlan plan;
+    if (!plan.staged.tryReserve(overlaps ? objects->count() * 2 + 1 : 1))
+      return nullptr;
+    size_t removedPages = 0;
+    if (overlaps) {
+      if (!plan.retired.tryReserve(objects->count()))
         return nullptr;
-      const uintptr_t first = object->address() > destination ? object->address() : destination;
-      const uintptr_t last = end < destination + length ? end : destination + length;
-      if (object->m_LockMode != MemoryLockMode::None)
-        removedPages += (last - first) / pageSize;
-      plan.retired.pushBack(object);
-      if (!plan.appendSlice(object, object->address(), first) ||
-          !plan.appendSlice(object, last, end))
+      plan.replacement = new MmObjectList;
+      if (!plan.replacement)
         return nullptr;
+      for (auto* object : *objects) {
+        const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
+        if (destination >= end || object->address() >= destination + length) {
+          if (!plan.replacement->tryPushBack(object))
+            return nullptr;
+          continue;
+        }
+        if (placement != Placement::FixedReplace)
+          return nullptr;
+        const uintptr_t first = object->address() > destination ? object->address() : destination;
+        const uintptr_t last = end < destination + length ? end : destination + length;
+        if (object->m_LockMode != MemoryLockMode::None)
+          removedPages += (last - first) / pageSize;
+        plan.retired.pushBack(object);
+        if (!plan.appendSlice(object, object->address(), first) ||
+            !plan.appendSlice(object, last, end))
+          return nullptr;
+      }
     }
     auto charge = account ? account->charge() : MemoryLockCharge{};
     if (account) {
@@ -258,10 +269,19 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
         *status = MapStatus::TextBusy;
       return nullptr;
     }
-    if (!plan.replacement->tryPushBack(plan.inserted) || plan.replacement->count() > MaximumObjects)
+    auto* publication = overlaps ? plan.replacement : objects;
+    if (publication->count() >= MaximumObjects || !publication->tryPushBack(plan.inserted))
       return nullptr;
-    if (!process->commitUserReservations(snapshot.generation, snapshot))
+    if (!process->commitUserReservations(snapshot.generation, snapshot)) {
+      // The operation gate excludes other executions; the allocation-free
+      // reservation commit cannot reenter this registry. Undo the provisional
+      // append before destroying the staged object.
+      if (!overlaps) {
+        [[maybe_unused]] auto* removed = objects->popBack();
+        assert(removed == plan.inserted);
+      }
       continue;
+    }
     // Every recoverable preparation failure precedes retirement. Latest PTEs
     // are detached by each owner, preserving independent stale CoW cache loans.
     for (auto* object : plan.retired) {
@@ -274,13 +294,14 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     raw.get()->commit();
     for (auto* object : plan.staged)
       object->m_OwnsMappings = true;
-    {
+    if (overlaps) {
       LockGuard<Spinlock> guard(m_Lock);
       m_MmObjectLists.insert(&space, plan.replacement);
     }
     plan.replacement = nullptr;
     plan.committed = true;
-    delete objects;
+    if (overlaps)
+      delete objects;
     if (account)
       account->publish(charge, account->futureMode());
     address = destination;
@@ -314,9 +335,45 @@ size_t MemoryMapManager::removeInternal(uintptr_t base, size_t length, bool rele
   }
   if (status)
     *status = VmStatus::NoMemory;
+  if (objects->count() > 4096)
+    return 0;
+  bool needsSlices = false;
+  for (auto* object : *objects) {
+    const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
+    if (object->address() < base + length && base < end &&
+        (object->address() < base || end > base + length)) {
+      needsSlices = true;
+      break;
+    }
+  }
+  if (!needsSlices) {
+    size_t affected = 0, removedPages = 0;
+    auto* process = Processor::information().getCurrentThread()->getParent();
+    for (auto it = objects->begin(); it != objects->end();) {
+      auto* object = *it;
+      const uintptr_t first = object->address();
+      const uintptr_t end = (first + object->length() + mask) & ~mask;
+      if (first >= base + length || end <= base) {
+        ++it;
+        continue;
+      }
+      if (object->m_LockMode != MemoryLockMode::None)
+        removedPages += (end - first) / pageSize;
+      object->discardRange(space, first, end - first);
+      object->m_OwnsMappings = false;
+      if (releaseReservations)
+        releaseReservation(process, space, first, end - first);
+      it = objects->erase(it);
+      delete object;
+      ++affected;
+    }
+    retireLockedPages(space, removedPages);
+    if (status)
+      *status = VmStatus::Success;
+    return affected;
+  }
   MappingPlan plan;
-  if (objects->count() > 4096 || !plan.staged.tryReserve(objects->count() * 2) ||
-      !plan.retired.tryReserve(objects->count()))
+  if (!plan.staged.tryReserve(objects->count() * 2) || !plan.retired.tryReserve(objects->count()))
     return 0;
   plan.replacement = new MmObjectList;
   if (!plan.replacement)
