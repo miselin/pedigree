@@ -381,8 +381,10 @@ void Framebuffer::swBlit(Graphics::Buffer* pBuffer, size_t srcx, size_t srcy, si
 
   void* pSrc = reinterpret_cast<void*>(pBuffer->base);
 
-  // Blit across the width of the screen? How handy!
-  if (UNLIKELY((srcx == destx) && (srcx == 0) && (width == m_nWidth))) {
+  // A full-width source can still be tightly packed while scanout has padding.
+  // Copy rows separately unless both buffers have the same packed stride.
+  if (UNLIKELY((srcx == 0) && (destx == 0) && (width * destBytesPerPixel == bytesPerLine) &&
+               (sourceBytesPerLine == bytesPerLine))) {
     size_t sourceBufferOffset = (srcy * sourceBytesPerLine);
     size_t frameBufferOffset = (desty * bytesPerLine);
 
