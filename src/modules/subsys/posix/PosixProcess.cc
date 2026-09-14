@@ -44,7 +44,7 @@ PosixProcess::PosixProcess()
       m_Credentials(),
       m_bRegistered(false) {
   initializeJobControl(nullptr);
-  enableTimeAccountingReports();
+  enableTimeAccountingReports(0);
 }
 
 /** Copy constructor. */
@@ -65,7 +65,7 @@ PosixProcess::PosixProcess(Process* pParent, bool bCopyOnWrite,
       m_Credentials(),
       m_bRegistered(false) {
   initializeJobControl(pParent);
-  enableTimeAccountingReports();
+  enableTimeAccountingReports(0);
 
   if (pParent->getType() == Posix) {
     PosixProcess* pPosixParent = static_cast<PosixProcess*>(pParent);
@@ -224,7 +224,7 @@ void IntervalTimer::setTimerValue(Time::Timestamp value, Time::Timestamp* prevVa
       *prevValue = m_Value;
     }
     m_Value = value;
-    m_Armed = m_Value > 0;
+    setArmedLocked(m_Value > 0);
   }
   if (needsSignal) {
     signal();
@@ -250,7 +250,7 @@ void IntervalTimer::setIntervalAndValue(Time::Timestamp interval, Time::Timestam
 
     m_Interval = interval;
     m_Value = value;
-    m_Armed = m_Value > 0;
+    setArmedLocked(m_Value > 0);
   }
   if (needsSignal) {
     signal();
@@ -267,7 +267,7 @@ void IntervalTimer::disarm() {
   }
   m_Value = 0;
   m_Interval = 0;
-  m_Armed = false;
+  setArmedLocked(false);
 }
 
 void IntervalTimer::getIntervalAndValue(Time::Timestamp& interval, Time::Timestamp& value) {
@@ -317,9 +317,19 @@ bool IntervalTimer::advanceCpuTimeLocked(Time::Timestamp absoluteTotal) {
       PosixIntervalTimerState::consumeAbsolute(m_Value, m_Interval, m_Armed, m_LastCpuTotal,
                                                absoluteTotal);
   m_Value = result.timer.value;
-  m_Armed = result.timer.armed;
+  setArmedLocked(result.timer.armed);
   m_LastCpuTotal = result.baseline;
   return result.timer.expired;
+}
+
+void IntervalTimer::setArmedLocked(bool armed) {
+  if (m_Armed == armed) {
+    return;
+  }
+  m_Armed = armed;
+  if (m_Mode != Hardware) {
+    m_Process->setTimeAccountingReportInterest(size_t(1) << m_Mode, armed);
+  }
 }
 
 Time::Timestamp IntervalTimer::getInterval() const {

@@ -455,6 +455,7 @@ Process::Process(DeferredPublication)
       m_DeferredTimeAccounting(),
       m_TimeAccountingReports(),
       m_bTimeAccountingReportsEnabled(false),
+      m_TimeAccountingReportInterest(0),
       m_bSharedAddressSpace(false) {
   resetCounts();
   m_Metadata.startTime = Time::getTimeNanoseconds();
@@ -521,6 +522,7 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
       m_DeferredTimeAccounting(),
       m_TimeAccountingReports(),
       m_bTimeAccountingReportsEnabled(false),
+      m_TimeAccountingReportInterest(0),
       m_bSharedAddressSpace(!bCopyOnWrite) {
   UserReservationSnapshot inheritedReservations;
   if (!pParent->snapshotUserReservations(inheritedReservations)) {
@@ -703,8 +705,22 @@ bool Process::setCtty(File* file) {
   return true;
 }
 
-void Process::enableTimeAccountingReports() {
+void Process::enableTimeAccountingReports(size_t initialInterest) {
+  __atomic_store_n(&m_TimeAccountingReportInterest, initialInterest, __ATOMIC_RELEASE);
   __atomic_store_n(&m_bTimeAccountingReportsEnabled, true, __ATOMIC_RELEASE);
+}
+
+void Process::setTimeAccountingReportInterest(size_t interest, bool enabled) {
+  const size_t previous =
+      enabled ? __atomic_fetch_or(&m_TimeAccountingReportInterest, interest, __ATOMIC_ACQ_REL)
+              : __atomic_fetch_and(&m_TimeAccountingReportInterest, ~interest, __ATOMIC_ACQ_REL);
+  // Catch CPU time published between a timer's baseline snapshot and arming,
+  // even if no later mode transition publishes another batch.
+  if (enabled && interest && !previous &&
+      __atomic_load_n(&m_bTimeAccountingReportsEnabled, __ATOMIC_ACQUIRE) &&
+      m_DeferredTimeAccounting.publish(1)) {
+    Processor::information().getScheduler().publishDeferredTimeAccounting();
+  }
 }
 
 void Process::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
@@ -730,7 +746,8 @@ void Process::accountReapedChild(const Process* child, Time::Timestamp& user,
 }
 
 void Process::publishTimeAccountingBatch(Time::Timestamp user, Time::Timestamp system) {
-  if (!__atomic_load_n(&m_bTimeAccountingReportsEnabled, __ATOMIC_ACQUIRE)) {
+  if (!__atomic_load_n(&m_bTimeAccountingReportsEnabled, __ATOMIC_ACQUIRE) ||
+      !__atomic_load_n(&m_TimeAccountingReportInterest, __ATOMIC_ACQUIRE)) {
     return;
   }
 

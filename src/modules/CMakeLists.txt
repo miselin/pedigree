@@ -356,6 +356,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         pedigree_module(hosted-core-smoke "" ""
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/core-main.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/elf-validation-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/accounting-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ata-pio-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/buffer-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/cache-regressions.cc
@@ -396,6 +397,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     pedigree_module(hosted-smoke "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/main.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/elf-validation-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/accounting-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ata-pio-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/buffer-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/cache-regressions.cc

@@ -98,6 +98,7 @@ class IntervalTimer : public TimerHandler {
 
   Time::Timestamp absoluteCpuTotal() const;
   bool advanceCpuTimeLocked(Time::Timestamp absoluteTotal);
+  void setArmedLocked(bool armed);
   void signal();
 
   PosixProcess* m_Process;
@@ -112,6 +113,7 @@ class IntervalTimer : public TimerHandler {
 
 class EXPORTED_PUBLIC PosixProcess : public Process {
   friend class ProcessGroup;
+  friend class IntervalTimer;
 
  public:
   /** Defines what status this Process has within its group */

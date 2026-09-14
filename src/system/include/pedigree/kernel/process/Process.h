@@ -599,6 +599,13 @@ class EXPORTED_PUBLIC Process {
 
   /** Closes worker admission exactly as process teardown does. */
   void closeTimeAccountingForHostedTest();
+
+  bool timeAccountingPendingForHostedTest() const {
+    return m_DeferredTimeAccounting.pending();
+  }
+  size_t timeAccountingInterestForHostedTest() const {
+    return __atomic_load_n(&m_TimeAccountingReportInterest, __ATOMIC_ACQUIRE);
+  }
 #endif
 
   void trackHeap(ssize_t nBytes) {
@@ -711,7 +718,10 @@ class EXPORTED_PUBLIC Process {
   void prepareForDestruction();
 
   /** Enables deferred timer reporting for a derived process type. */
-  void enableTimeAccountingReports();
+  void enableTimeAccountingReports(size_t initialInterest = ~size_t(0));
+
+  /** Changes independently owned report-interest bits without losing pending work. */
+  void setTimeAccountingReportInterest(size_t interest, bool enabled);
 
  private:
   void finishTermination(bool abandonStack, bool notifyParent) NORETURN;
@@ -1001,6 +1011,8 @@ class EXPORTED_PUBLIC Process {
 
   /** Stock kernel processes do not need timer-report worker publications. */
   bool m_bTimeAccountingReportsEnabled;
+
+  size_t m_TimeAccountingReportInterest;
 
   /** Is our address space shared with the parent? */
   bool m_bSharedAddressSpace;

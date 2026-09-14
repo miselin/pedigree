@@ -371,6 +371,7 @@ pedigree_app(signal-timer-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-timer-contract-test/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-timer-contract-test/signals.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-timer-contract-test/timers.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-timer-contract-test/cpu-itimers.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-timer-contract-test/clock.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/signal-timer-contract-test/raw-clock.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../buildutil/vdsotest/parse_vdso.c)

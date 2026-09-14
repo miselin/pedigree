@@ -494,13 +494,14 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
   // This will also get the lock for the returned thread.
   Thread* pNextThread = selectNext(pCurrentThread);
   if (pNextThread == 0) {
-    // No other thread in the scheduler - take a round trip through the
-    // idle thread before we schedule back to the yielding thread.
-    // In most cases a thread is yielding either because it needs to
-    // sleep to wait for something or because it has no work currently,
-    // so simply switching back to it makes no sense (and causes us to
-    // spin tightly rather than halting for an interrupt or other event)
-    if (m_pIdleThread == 0) {
+    // A tick or yield does not make a runnable thread idle. Predicate-backed
+    // workers must still leave the CPU when their work has been consumed.
+    if (nextStatus == Thread::Ready && pCurrentThread != m_pIdleThread &&
+        !pCurrentThread->m_ReadyPublicationPending &&
+        (!pCurrentThread->m_SchedulerReadyPredicate ||
+         pCurrentThread->m_SchedulerReadyPredicate(pCurrentThread->m_SchedulerReadyContext))) {
+      pNextThread = pCurrentThread;
+    } else if (m_pIdleThread == 0) {
       // The scheduler is still bootstrapping, so spinning is the only
       // available fallback.
       pCurrentThread->getLock().release();
@@ -513,12 +514,15 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
     }
   }
 
-  // The idle fallback can select an already-running idle thread. Saving and
-  // restoring the same hosted context does not yield and can strand the
-  // add-thread worker indefinitely, so treat that selection as a no-op.
+  // Saving and restoring the same hosted context does not yield and can
+  // strand the add-thread worker, so return directly when current stays on CPU.
   if (pNextThread == pCurrentThread) {
+    const bool waitOwnsEventDispatch = pCurrentThread->hasActiveWaitUnlocked();
     pCurrentThread->getLock().release();
     Processor::setInterrupts(bWasInterrupts);
+    if (dispatchEvents && !waitOwnsEventDispatch) {
+      Processor::information().getScheduler().checkEventState(0);
+    }
     return;
   }
 
@@ -1373,6 +1377,7 @@ Thread* PerProcessorScheduler::selectNext(Thread* current) {
 void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
   (void)delta;
   (void)state;
+  Scheduler::instance().requestLoadAverageSample();
   // Hard IRQ publication only changes an atomic work predicate. Consume the
   // reschedule request at the scheduler interrupt, where a context switch is
   // already required and no arbitrary device IRQ frame is suspended.
@@ -1635,6 +1640,26 @@ void PerProcessorScheduler::commitUserReturnTerminalState() {
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 namespace {
+struct HostedRunnableCurrentContext {
+  HostedRunnableCurrentContext(Thread* current, Thread* idleOwner)
+      : driver(current), idle(idleOwner), idleWhileRunnable(0) {}
+
+  Thread* driver;
+  Thread* idle;
+  Atomic<size_t> idleWhileRunnable;
+};
+
+HostedRunnableCurrentContext* g_HostedRunnableCurrentContext = nullptr;
+
+void observeHostedRunnableCurrent(ProcessorBase::HostedContextSwitchStage stage) {
+  auto* context = __atomic_load_n(&g_HostedRunnableCurrentContext, __ATOMIC_ACQUIRE);
+  if (context && stage == ProcessorBase::HostedContextSwitchStage::SwitchStateReturnedMasked &&
+      Processor::information().getCurrentThread() == context->idle &&
+      context->driver->getStatus() == Thread::Ready) {
+    context->idleWhileRunnable += 1;
+  }
+}
+
 struct HostedNewThreadContext {
   Atomic<size_t> calls;
   Atomic<size_t> cleanups;
@@ -1701,6 +1726,30 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
 
   Process* kernelProcess = Processor::information().getCurrentThread()->getParent();
   bool passed = true;
+
+  HostedRunnableCurrentContext runnableContext(Processor::information().getCurrentThread(),
+                                               m_pIdleThread);
+  if (!check(runnableContext.idle && runnableContext.idle != runnableContext.driver,
+             "runnable-current regression requires an ordinary thread and an idle owner")) {
+    return false;
+  }
+  __atomic_store_n(&g_HostedRunnableCurrentContext, &runnableContext, __ATOMIC_RELEASE);
+  Processor::setHostedContextSwitchHook(observeHostedRunnableCurrent);
+  for (size_t attempt = 0; attempt < 256; ++attempt) {
+    Scheduler::instance().yield();
+  }
+  Processor::setHostedContextSwitchHook(nullptr);
+  __atomic_store_n(&g_HostedRunnableCurrentContext,
+                   static_cast<HostedRunnableCurrentContext*>(nullptr), __ATOMIC_RELEASE);
+  const bool runnablePassed =
+      check(!runnableContext.idleWhileRunnable && Processor::getInterrupts() &&
+                Processor::information().getCurrentThread() == runnableContext.driver &&
+                runnableContext.driver->getStatus() == Thread::Running,
+            "scheduler entered idle while the yielding thread remained runnable");
+  passed &= runnablePassed;
+  if (runnablePassed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS scheduler-runnable-current-keeps-cpu");
+  }
 
   HostedNewThreadContext reapContext;
   const size_t reapBaseline = m_nDeferredThreadReapCompletions.value();
