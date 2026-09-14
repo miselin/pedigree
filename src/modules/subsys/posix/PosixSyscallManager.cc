@@ -906,7 +906,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_readlinkat(p1, reinterpret_cast<const char*>(p2), reinterpret_cast<char*>(p3),
                               p4);
     case POSIX_FCHMODAT:
-      return posix_fchmodat(p1, reinterpret_cast<const char*>(p2), p3, p4);
+      return posix_fchmodat(p1, reinterpret_cast<const char*>(p2), p3, linuxAbi ? 0 : p4);
     case POSIX_FACCESSAT:
       return posix_faccessat(p1, reinterpret_cast<const char*>(p2), p3, 0);
     case POSIX_FACCESSAT2:

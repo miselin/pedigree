@@ -30,7 +30,8 @@
   } while (0)
 
 _Static_assert(SYS_truncate == 76 && SYS_lchown == 94 && SYS_mknodat == 259 &&
-                   SYS_utimensat == 280 && SYS_statx == 332 && SYS_fchmodat2 == 452,
+                   SYS_fchmodat == 268 && SYS_utimensat == 280 && SYS_statx == 332 &&
+                   SYS_fchmodat2 == 452,
                "Linux amd64 metadata routes");
 _Static_assert(sizeof(struct statx) == 256, "statx output ABI");
 
@@ -67,6 +68,8 @@ static int truncate_cases(int directory, const char* absolute) {
 
 static int mode_cases(int directory, int object, int link, const char* absolute) {
   struct stat st;
+  CHECK(syscall(SYS_fchmodat, directory, "data", 0620, 0x40000000) == 0);
+  CHECK(fstat(object, &st) == 0 && (st.st_mode & 07777) == 0620);
   CHECK(syscall(SYS_fchmodat2, directory, "data", 0640, 0) == 0);
   CHECK(fchmodat(directory, "data", 0604, AT_SYMLINK_NOFOLLOW) == 0);
   CHECK(fstat(object, &st) == 0 && (st.st_mode & 07777) == 0604);
