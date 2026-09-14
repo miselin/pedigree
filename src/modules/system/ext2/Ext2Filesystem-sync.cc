@@ -35,7 +35,7 @@ Filesystem::SyncStatus Ext2Filesystem::shutdown() {
   if (m_ShutdownComplete)
     return SyncStatus::Success;
   if (m_bReadOnly)
-    return m_MountState == EXT2_STATE_CLEAN ? sync() : SyncStatus::IoError;
+    return sync();
   if (!m_pDisk || !m_pSuperblock || !m_BlockSize)
     return SyncStatus::IoError;
 
@@ -61,12 +61,19 @@ Filesystem::SyncStatus Ext2Filesystem::shutdown() {
   for (auto it = m_InodeStates.begin(); it != m_InodeStates.end(); ++it)
     delete it.value();
   m_InodeStates.clear();
-  if (!m_pDisk->syncAll() || m_TeardownFailed || m_MountState != EXT2_STATE_CLEAN)
+  if (!m_pDisk->syncAll() || m_TeardownFailed)
     return SyncStatus::IoError;
   // This driver cannot certify journal recovery or unknown incompatible formats.
   if (checkOptionalFeature(0x4) || checkRequiredFeature(~size_t(0x2)) ||
       checkReadOnlyFeature(~size_t(0x3)))
     return SyncStatus::Unsupported;
+
+  // Draining this mount's writes cannot certify pre-existing filesystem damage.
+  // Leave the unchecked marker in place, but do not prevent an orderly shutdown.
+  if (m_MountState != EXT2_STATE_CLEAN) {
+    m_ShutdownComplete = true;
+    return SyncStatus::Success;
+  }
 
   m_pSuperblock->s_state = HOST_TO_LITTLE16(m_MountState);
   m_pDisk->write(1024ULL);

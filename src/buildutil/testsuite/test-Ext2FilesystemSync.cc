@@ -77,6 +77,12 @@ class Ext2FilesystemSyncTestPeer {
     fs.m_pSuperblock->s_state = HOST_TO_LITTLE16(state);
     return fs.beginWritableMount();
   }
+
+  static void readOnlyMount(Ext2Filesystem& fs, uint16_t state) {
+    fs.m_bReadOnly = true;
+    fs.m_MountState = state;
+    fs.m_pSuperblock->s_state = HOST_TO_LITTLE16(state);
+  }
 };
 
 namespace {
@@ -296,10 +302,49 @@ TEST(Ext2FilesystemShutdown, PreviouslyUncheckedAndErrorMarkedVolumesStayUncheck
   for (uint16_t initial : {uint16_t(0), uint16_t(EXT2_STATE_CLEAN | EXT2_STATE_UNCLEAN)}) {
     Fixture fixture;
     ASSERT_TRUE(Ext2FilesystemSyncTestPeer::beginWritableMount(fixture.fs, initial));
-    EXPECT_EQ(fixture.fs.shutdown(), Status::IoError);
+    auto file = fixture.file();
+    Ext2FilesystemSyncTestPeer::dirty(fixture.fs, 3, 0x7a);
+    file.reset();
+    EXPECT_EQ(fixture.fs.shutdown(), Status::Success);
+    EXPECT_EQ(fixture.disk.persisted[16 * BlockSize], 0x7a);
     const auto* stored = reinterpret_cast<const Superblock*>(fixture.disk.persisted.data() + 1024);
     EXPECT_EQ(LITTLE_TO_HOST16(stored->s_state), initial & ~EXT2_STATE_CLEAN);
+    const size_t completed = fixture.disk.allCalls;
+    EXPECT_EQ(fixture.fs.shutdown(), Status::Success);
+    EXPECT_EQ(fixture.disk.allCalls, completed);
   }
+}
+
+TEST(Ext2FilesystemShutdown, UncheckedVolumeStillReportsWritebackFailures) {
+  for (bool hardwareFailure : {false, true}) {
+    Fixture fixture;
+    ASSERT_TRUE(Ext2FilesystemSyncTestPeer::beginWritableMount(fixture.fs, 0));
+    auto file = fixture.file();
+    Ext2FilesystemSyncTestPeer::dirty(fixture.fs, 3, 0x7b);
+    if (hardwareFailure)
+      fixture.disk.failedHardwareFlush = true;
+    else
+      fixture.disk.failedSync = 16 * BlockSize;
+    file.reset();
+    EXPECT_EQ(fixture.fs.shutdown(), Status::IoError);
+    fixture.disk.failedHardwareFlush = false;
+    fixture.disk.failedSync = ~uint64_t(0);
+    EXPECT_EQ(fixture.fs.shutdown(), Status::Success);
+    EXPECT_EQ(fixture.disk.persisted[16 * BlockSize], 0x7b);
+    const auto* stored = reinterpret_cast<const Superblock*>(fixture.disk.persisted.data() + 1024);
+    EXPECT_EQ(LITTLE_TO_HOST16(stored->s_state), 0U);
+  }
+}
+
+TEST(Ext2FilesystemShutdown, ReadOnlyUncheckedVolumeDoesNotBlockShutdownOrWrite) {
+  Fixture fixture;
+  Ext2FilesystemSyncTestPeer::readOnlyMount(fixture.fs, EXT2_STATE_UNCLEAN);
+  fixture.disk.persisted = fixture.disk.bytes;
+  EXPECT_EQ(fixture.fs.shutdown(), Status::Success);
+  EXPECT_TRUE(fixture.disk.writes.empty());
+  EXPECT_EQ(fixture.disk.allCalls, 0U);
+  EXPECT_TRUE(fixture.disk.syncs.empty());
+  EXPECT_EQ(fixture.disk.bytes, fixture.disk.persisted);
 }
 
 TEST(Ext2FilesystemShutdown, FailedCleanMarkerWriteReturnsFailure) {
