@@ -205,6 +205,25 @@ pedigree_lib(ui-transport "libui-core;stdc++"
 target_compile_features(libui-transport PUBLIC cxx_std_17)
 target_link_libraries(libui-transport PUBLIC libui-core)
 
+set(PEDIGREE_WINMAN_SOURCE_DIR
+    "${CMAKE_SOURCE_DIR}/../pedigree-winman" CACHE PATH
+    "Out-of-tree pedigree-winman source directory")
+set(_PEDIGREE_EXTERNAL_WINMAN_AVAILABLE OFF)
+if (EXISTS "${PEDIGREE_WINMAN_SOURCE_DIR}/CMakeLists.txt" AND
+    EXISTS "${PEDIGREE_WINMAN_SOURCE_DIR}/libui-client/include/libui/client.h" AND
+    EXISTS "${PEDIGREE_WINMAN_SOURCE_DIR}/tools/build-pedigree.sh")
+    set(_PEDIGREE_EXTERNAL_WINMAN_AVAILABLE ON)
+endif ()
+set(_PEDIGREE_BUILD_EXTERNAL_WINMAN_DEFAULT OFF)
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64" AND NOT PEDIGREE_SELF_HOSTED)
+    set(_PEDIGREE_BUILD_EXTERNAL_WINMAN_DEFAULT ON)
+endif ()
+option(PEDIGREE_BUILD_EXTERNAL_WINMAN
+    "Build the out-of-tree window manager and its Pedigree clients"
+    ${_PEDIGREE_BUILD_EXTERNAL_WINMAN_DEFAULT})
+option(PEDIGREE_BUILD_LEGACY_WINMAN
+    "Build the deprecated in-tree window manager and TUI client" OFF)
+
 set(PANGO_LIBS
     "pangocairo-1.0;pangoft2-1.0;pango-1.0;harfbuzz;fontconfig;gobject-2.0;glib-2.0;ffi")
 
@@ -222,15 +241,99 @@ pedigree_lib(ui "native-user"
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui/src/Widget.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui/src/Window.cc)
 
+# Windowed applications are built with the matching client stack in the
+# out-of-tree pedigree-winman build. Keeping that build separate prevents the
+# duplicated protocol snapshots in these repositories from drifting at link
+# time.
+string(SHA256 _PEDIGREE_EXTERNAL_WINMAN_ID
+    "${PEDIGREE_WINMAN_SOURCE_DIR}|${PEDIGREE_IMAGESDIR}")
+string(SUBSTRING "${_PEDIGREE_EXTERNAL_WINMAN_ID}" 0 12
+    _PEDIGREE_EXTERNAL_WINMAN_ID)
+set(_PEDIGREE_EXTERNAL_WINMAN_INSTALL_STAMP
+    "${CMAKE_CURRENT_BINARY_DIR}/external-winman-install-${_PEDIGREE_EXTERNAL_WINMAN_ID}.stamp")
+set(_PEDIGREE_EXTERNAL_WINMAN_DISABLED_STAMP
+    "${CMAKE_CURRENT_BINARY_DIR}/external-winman-disabled-${_PEDIGREE_EXTERNAL_WINMAN_ID}.stamp")
+set(_PEDIGREE_EXTERNAL_WINMAN_STAGED_FILES
+    "${PEDIGREE_IMAGESDIR}/applications/winman-external"
+    "${PEDIGREE_IMAGESDIR}/applications/winman-external-notepad"
+    "${PEDIGREE_IMAGESDIR}/applications/winman-external-terminal"
+    "${PEDIGREE_IMAGESDIR}/applications/winman-external-widgets"
+    "${PEDIGREE_IMAGESDIR}/applications/winman-external-painter"
+    "${PEDIGREE_IMAGESDIR}/applications/gears"
+    "${PEDIGREE_IMAGESDIR}/applications/uitest"
+    "${PEDIGREE_IMAGESDIR}/fonts/ms-sans-serif-1.ttf"
+    "${PEDIGREE_IMAGESDIR}/initscripts/98_winman_external.sh")
+
+set(_PEDIGREE_BUILD_EXTERNAL_WINMAN_ENABLED OFF)
+set(_PEDIGREE_MANAGES_EXTERNAL_WINMAN_STAGE OFF)
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64" AND NOT PEDIGREE_SELF_HOSTED)
+    set(_PEDIGREE_MANAGES_EXTERNAL_WINMAN_STAGE ON)
+endif ()
+if (PEDIGREE_BUILD_EXTERNAL_WINMAN AND
+    _PEDIGREE_EXTERNAL_WINMAN_AVAILABLE AND
+    _PEDIGREE_MANAGES_EXTERNAL_WINMAN_STAGE)
+    set(_PEDIGREE_BUILD_EXTERNAL_WINMAN_ENABLED ON)
+elseif (PEDIGREE_BUILD_EXTERNAL_WINMAN AND
+        NOT _PEDIGREE_EXTERNAL_WINMAN_AVAILABLE)
+    message(STATUS
+        "pedigree-winman checkout is unavailable; windowed applications "
+        "will not be built")
+elseif (PEDIGREE_BUILD_EXTERNAL_WINMAN)
+    message(STATUS
+        "The out-of-tree window manager build is only available for the "
+        "cross-compiled amd64 target; windowed applications will not be built")
+endif ()
+
+if (_PEDIGREE_BUILD_EXTERNAL_WINMAN_ENABLED)
+    string(SHA256 _PEDIGREE_EXTERNAL_WINMAN_SOURCE_HASH
+        "${PEDIGREE_WINMAN_SOURCE_DIR}")
+    string(SUBSTRING "${_PEDIGREE_EXTERNAL_WINMAN_SOURCE_HASH}" 0 12
+        _PEDIGREE_EXTERNAL_WINMAN_SOURCE_HASH)
+    set(_PEDIGREE_EXTERNAL_WINMAN_BUILD_DIR
+        "${CMAKE_BINARY_DIR}/pedigree-winman-${_PEDIGREE_EXTERNAL_WINMAN_SOURCE_HASH}")
+    add_custom_target(external-winman
+        COMMAND ${CMAKE_COMMAND}
+            "-DPEDIGREE_EXTERNAL_WINMAN_SOURCE_DIR=${PEDIGREE_WINMAN_SOURCE_DIR}"
+            "-DPEDIGREE_EXTERNAL_WINMAN_BUILD_DIR=${_PEDIGREE_EXTERNAL_WINMAN_BUILD_DIR}"
+            "-DPEDIGREE_EXTERNAL_WINMAN_STAGE_DIR=${PEDIGREE_IMAGESDIR}"
+            "-DPEDIGREE_EXTERNAL_WINMAN_INSTALL_STAMP=${_PEDIGREE_EXTERNAL_WINMAN_INSTALL_STAMP}"
+            "-DPEDIGREE_EXTERNAL_WINMAN_DISABLED_STAMP=${_PEDIGREE_EXTERNAL_WINMAN_DISABLED_STAMP}"
+            "-DPEDIGREE_EXTERNAL_WINMAN_EXPECTED_OUTPUTS=${_PEDIGREE_EXTERNAL_WINMAN_STAGED_FILES}"
+            "-DPEDIGREE_ROOT=${CMAKE_SOURCE_DIR}"
+            "-DPEDIGREE_BUILD_DIR=${CMAKE_BINARY_DIR}"
+            -P "${CMAKE_SOURCE_DIR}/build-etc/cmake/BuildExternalWinman.cmake"
+        BYPRODUCTS "${_PEDIGREE_EXTERNAL_WINMAN_INSTALL_STAMP}"
+        DEPENDS
+            libc native-user pedigree-c-user libfb pedigree-vterm
+            "${CMAKE_SOURCE_DIR}/build-etc/cmake/BuildExternalWinman.cmake"
+        USES_TERMINAL
+        VERBATIM)
+    list(APPEND PEDIGREE_APPS_TARGETS
+        external-winman "${_PEDIGREE_EXTERNAL_WINMAN_INSTALL_STAMP}")
+elseif (_PEDIGREE_MANAGES_EXTERNAL_WINMAN_STAGE)
+    add_custom_target(external-winman-disabled
+        COMMAND ${CMAKE_COMMAND}
+            "-DPEDIGREE_EXTERNAL_WINMAN_EXPECTED_OUTPUTS=${_PEDIGREE_EXTERNAL_WINMAN_STAGED_FILES}"
+            "-DPEDIGREE_EXTERNAL_WINMAN_INSTALL_STAMP=${_PEDIGREE_EXTERNAL_WINMAN_INSTALL_STAMP}"
+            "-DPEDIGREE_EXTERNAL_WINMAN_DISABLED_STAMP=${_PEDIGREE_EXTERNAL_WINMAN_DISABLED_STAMP}"
+            -P "${CMAKE_SOURCE_DIR}/build-etc/cmake/CleanExternalWinman.cmake"
+        BYPRODUCTS "${_PEDIGREE_EXTERNAL_WINMAN_DISABLED_STAMP}"
+        DEPENDS "${CMAKE_SOURCE_DIR}/build-etc/cmake/CleanExternalWinman.cmake"
+        VERBATIM)
+    list(APPEND PEDIGREE_APPS_TARGETS
+        external-winman-disabled "${_PEDIGREE_EXTERNAL_WINMAN_DISABLED_STAMP}")
+endif ()
+
 # apps
 
-pedigree_app(TUI ON ON OFF "libui;libtui;cairo;${PANGO_LIBS};freetype;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/TUI/main.cc)
+if (PEDIGREE_BUILD_LEGACY_WINMAN)
+    pedigree_app(TUI ON ON OFF "libui;libtui;cairo;${PANGO_LIBS};freetype;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/TUI/main.cc)
+endif ()
 pedigree_app(apptest ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/apptest/main.cc)
 pedigree_app(config ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/config/main.cc)
 pedigree_app(crashtest ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/crashtest/main.c)
 pedigree_app(display ON OFF OFF-mode "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/display-mode/main.c)
 # pedigree_app(fire ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/fire/fire.c)
-pedigree_app(gears ON ON OFF "libui;OSMesa;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/gears/gears.cc)
 pedigree_app(gfxcon ON ON OFF "libui;libfb;libtui;cairo;${PANGO_LIBS};freetype;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/gfxcon/main.cc)
 pedigree_app(init ON OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/init/main.c)
 pedigree_app(inotify-test ON OFF OFF ""
@@ -528,12 +631,13 @@ pedigree_app(testsuite ON OFF OFF ""
 pedigree_app(thread-test ON OFF OFF "pedigree-c-user;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/thread-test/main.cc)
 pedigree_app(tour ON OFF OFF "intl;dialog;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/tour/main.cc)
 pedigree_app(ttyterm ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ttyterm/ttyterm.cc)
-pedigree_app(uitest ON ON OFF "libui;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/uitest/main.cc)
-pedigree_app(winman ON ON OFF "libui;libfb;png;cairo;${PANGO_LIBS};freetype;stdc++"
-    ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/Png.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/objects.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/util.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/winman.cc)
+if (PEDIGREE_BUILD_LEGACY_WINMAN)
+    pedigree_app(winman ON ON OFF "libui;libfb;png;cairo;${PANGO_LIBS};freetype;stdc++"
+        ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/Png.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/objects.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/util.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/winman.cc)
+endif ()
 pedigree_app(winman-gop-smoke ON ON OFF "libui-platform;cairo;stdc++"
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman-gop-smoke/main.cc)
 pedigree_app(which ON OFF OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/which/main.cc)

@@ -17,91 +17,105 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/native/graphics/Graphics.h"
-#include "pedigree/native/types.h"
+#include <cerrno>
+#include <cstdio>
+#include <optional>
+#include <poll.h>
 
-#include <Widget.h>
-#include <iostream>
+#include "demo-app.h"
+#include "libui/types.h"
 
-using namespace PedigreeGraphics;
+int main(int argc, char** argv) {
+  const std::optional<demo::Options> options = demo::parseOptions(argc, argv);
+  if (!options)
+    return 2;
 
-class TestWidget : public Widget {
- public:
-  TestWidget(uint32_t rgb) : Widget(), m_Rgb(rgb) {};
-  virtual ~TestWidget() {}
+  libui::client::Client client = libui::client::Client::connect(options->socketPath);
+  if (!client.valid()) {
+    std::fprintf(stderr, "uitest could not connect to compositor\n");
+    return 1;
+  }
 
-  virtual bool render(Rect& rt, Rect& dirty) {
-    std::cout << "uitest: rendering widget." << std::endl;
+  demo::Options redOptions = *options;
+  redOptions.title = "UI Test A";
+  redOptions.background = libui::packColor({255, 0, 0, 255});
+  std::optional<libui::client::Window> redResult = demo::createWindow(client, redOptions);
+  if (!redResult) {
+    std::fprintf(stderr, "uitest could not create red window\n");
+    return 1;
+  }
 
-    void* pFramebuffer = getRawFramebuffer();
-    uint32_t* buffer = (uint32_t*)pFramebuffer;
-    for (size_t y = 0; y < rt.getH(); ++y) {
-      for (size_t x = 0; x < rt.getW(); ++x)
-        buffer[y * rt.getW() + x] = m_Rgb;
+  demo::Options greenOptions = *options;
+  greenOptions.title = "UI Test B";
+  greenOptions.x += 40;
+  greenOptions.y += 40;
+  greenOptions.background = libui::packColor({0, 255, 0, 255});
+  std::optional<libui::client::Window> greenResult = demo::createWindow(client, greenOptions);
+  if (!greenResult) {
+    std::fprintf(stderr, "uitest could not create green window\n");
+    return 1;
+  }
+
+  libui::client::Window& redWindow = redResult.value();
+  libui::client::Window& greenWindow = greenResult.value();
+  bool redClosed = false;
+  bool greenClosed = false;
+
+  redWindow.setWindowProc([&redClosed](libui::client::Window&, const libui::client::Event& event) {
+    if (event.type() == libui::client::Event::Type::Close) {
+      redClosed = true;
+      return true;
+    }
+    return false;
+  });
+  greenWindow.setWindowProc(
+      [&greenClosed](libui::client::Window&, const libui::client::Event& event) {
+        if (event.type() == libui::client::Event::Type::Close) {
+          greenClosed = true;
+          return true;
+        }
+        return false;
+      });
+
+  auto dispatchPending = [&] {
+    for (;;) {
+      bool progressed = false;
+      if (client.dispatch(redWindow, false, false))
+        progressed = true;
+      if (client.dispatch(greenWindow, false, false))
+        progressed = true;
+      if (!progressed || !client.hasPendingMessages())
+        break;
+    }
+  };
+
+  if (!client.setNonBlocking(true) || !client.paint(redWindow) || !client.paint(greenWindow))
+    return 1;
+
+  while ((!redClosed || !greenClosed) && client.valid()) {
+    if ((!redClosed && !client.paintDirty(redWindow)) ||
+        (!greenClosed && !client.paintDirty(greenWindow)))
+      return 1;
+
+    if (client.hasPendingMessages()) {
+      dispatchPending();
+      continue;
     }
 
-    dirty.update(0, 0, rt.getW(), rt.getH());
-
-    return true;
+    pollfd descriptor{client.descriptor(), POLLIN, 0};
+    const int result = ::poll(&descriptor, 1, 50);
+    if (result < 0) {
+      if (errno == EINTR)
+        continue;
+      break;
+    }
+    if (result == 0)
+      continue;
+    if (descriptor.revents & (POLLHUP | POLLERR | POLLNVAL))
+      break;
+    if (descriptor.revents & POLLIN)
+      dispatchPending();
   }
 
- private:
-  uint32_t m_Rgb;
-};
-
-volatile bool bRun = true;
-
-bool callback(WidgetMessages message, size_t msgSize, const void* msgData) {
-  std::cout << "uitest: callback for '" << static_cast<int>(message) << "'." << std::endl;
-
-  if (message == Terminate) {
-    bRun = false;
-  }
-
-  return true;
-}
-
-int main(int argc, char* argv[]) {
-  std::cout << "uitest: starting up" << std::endl;
-
-  Rect rt(20, 20, 20, 20);
-
-  Widget* pWidgetA = new TestWidget(createRgb(0xFF, 0, 0));
-  if (!pWidgetA->construct("uitest.A", "UI Test A", callback, rt)) {
-    std::cerr << "uitest: widget A construction failed" << std::endl;
-    delete pWidgetA;
-    return 1;
-  }
-
-  Widget* pWidgetB = new TestWidget(createRgb(0, 0xFF, 0));
-  if (!pWidgetB->construct("uitest.B", "UI Test B", callback, rt)) {
-    std::cerr << "uitest: widget B construction failed" << std::endl;
-    delete pWidgetA;
-    delete pWidgetB;
-    return 1;
-  }
-
-  std::cout << "uitest: widgets created (handles are " << pWidgetA->getHandle() << ", "
-            << pWidgetB->getHandle() << ")." << std::endl;
-
-  pWidgetA->visibility(true);
-  pWidgetB->visibility(true);
-
-  std::cout << "Widgets are visible!" << std::endl;
-
-  Rect dirtyA, dirtyB;
-  pWidgetA->render(rt, dirtyA);
-  pWidgetB->render(rt, dirtyB);
-  pWidgetA->redraw(dirtyA);
-  pWidgetB->redraw(dirtyB);
-
-  // Main loop
-  while (bRun) {
-    Widget::checkForEvents();
-  }
-
-  delete pWidgetB;
-  delete pWidgetA;
-
-  return 0;
+  return (redClosed && greenClosed) ? 0 : 1;
 }

@@ -58,10 +58,12 @@ the C++ API, not a general protobuf compatibility guarantee; use matching
 versions when they are available by setting
 `-DPEDIGREE_PROTOBUF_ALLOW_GENERATOR_MISMATCH=OFF`.
 
-The next porting slice is to add the compositor and client libraries on top of
-these boundaries. Until then, the old `libui` and `winman` targets remain in
-the build only so unrelated existing applications continue to compile; they
-are not the compatibility API for the new stack.
+The compositor and client/widget libraries remain in the separate
+`pedigree-winman` checkout so their protocol, widgets, and client API move as a
+single versioned unit. The in-tree `gears` and `uitest` sources are compiled by
+that external target build. Its terminal client supersedes the old in-tree
+`TUI` application. The deprecated `winman` and `TUI` targets are available only
+with `-DPEDIGREE_BUILD_LEGACY_WINMAN=ON`.
 
 ## GOP smoke boot
 
@@ -87,16 +89,26 @@ Stop the smoke app with `Ctrl-C` in the host terminal.
 ## Out-of-tree window-manager build
 
 The complete compositor/client/widget implementation lives in the separate
-`pedigree-winman` checkout. It consumes this repository's cross-toolchain and
-target libraries, then installs its own binaries, font, and init script into
-the ignored `images/local` overlay:
+`pedigree-winman` checkout. A normal amd64 build discovers an adjacent checkout
+and builds it after the Pedigree target libraries, installing the compositor,
+clients, font, and init script into the ignored `images/local` overlay. Set
+`PEDIGREE_WINMAN_SOURCE_DIR` when the checkout lives elsewhere, or disable the
+integration with `-DPEDIGREE_BUILD_EXTERNAL_WINMAN=OFF`. Existing build trees
+retain an explicitly selected ON/OFF value in their CMake cache.
+
+If the checkout is absent, the external window manager and windowed clients are
+simply omitted. The direct-framebuffer `gfxcon` fallback and the new-platform
+`winman-gop-smoke` diagnostic remain in the Pedigree build.
+
+The external build can also be run directly:
 
 ```sh
 cd /Users/miselin/src/pedigree-winman
 PEDIGREE_ROOT=/Users/miselin/src/pedigree tools/build-pedigree.sh
 ```
 
-The target build and its generated sources remain in the window-manager
-checkout. Pedigree only provides the SDK artifacts and snapshots the staged
-files into the UEFI image. Stop any QEMU instance using the image before
-rebuilding it.
+When invoked directly, the target build and generated sources remain in the
+window-manager checkout. The integrated target uses a path-specific directory
+under the Pedigree build tree instead. In both cases Pedigree provides the SDK
+artifacts and snapshots the staged files into the UEFI image. Stop any QEMU
+instance using the image before rebuilding it.

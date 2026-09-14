@@ -51,26 +51,22 @@
 // Simplified, courtesy of Kevin Lange.
 
 #define _USE_MATH_DEFINES
-#include <stdlib.h>
-#include <stdio.h>
+#include <cstdint>
 #include <math.h>
+#include <optional>
 #include <sched.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
 #include <pedigree/log.h>
 #include <sys/time.h>
 
 #include <GL/gl.h>
 #include <GL/osmesa.h>
 
-#include "pedigree/native/graphics/Graphics.h"
-#include <Widget.h>
-
-class Gears;
-
-Gears *g_pGears = NULL;
-
-bool g_bRunning = false;
+#include "demo-app.h"
 
 static GLfloat view_rotx = 20.0, view_roty = 30.0, view_rotz = 0.0;
 static GLint gear1, gear2, gear3;
@@ -312,192 +308,170 @@ init(void)
     glEnable(GL_NORMALIZE);
 }
 
+class Gears {
+ public:
+  explicit Gears(std::uint32_t background)
+      : m_Context(OSMesaCreateContext(OSMESA_BGRA, NULL)),
+        m_Background(libui::unpackColor(background)) {}
 
-class Gears : public Widget
-{
-    public:
-        Gears() : Widget(), fb(NULL), m_bGlInit(false), m_bContextValid(false), m_nWidth(0), m_nHeight(0)
-        {};
-        virtual ~Gears()
-        {}
+  ~Gears() {
+    if (m_Context) {
+      OSMesaDestroyContext(m_Context);
+    }
+  }
 
-        bool initOpenGL()
-        {
-            gl_ctx = OSMesaCreateContext(OSMESA_BGRA, NULL);
+  bool valid() const {
+    return m_Context != NULL;
+  }
 
-            m_bGlInit = true;
+  bool render(libui::client::PaintContext& paint) {
+    cairo_surface_t* surface = cairo_get_target(paint.cairo());
+    if (!surface || cairo_surface_get_type(surface) != CAIRO_SURFACE_TYPE_IMAGE ||
+        cairo_image_surface_get_format(surface) != CAIRO_FORMAT_ARGB32) {
+      fprintf(stderr, "gears requires an ARGB32 image surface.\n");
+      return false;
+    }
 
-            if(m_nWidth)
-            {
-                glResize(m_nWidth, m_nHeight);
-            }
+    const int width = cairo_image_surface_get_width(surface);
+    const int height = cairo_image_surface_get_height(surface);
+    const int stride = cairo_image_surface_get_stride(surface);
+    if (width <= 0 || height <= 0 || stride <= 0 ||
+        (stride % static_cast<int>(sizeof(std::uint32_t))) != 0) {
+      fprintf(stderr, "gears received an invalid image surface.\n");
+      return false;
+    }
 
-            return true;
-        }
+    cairo_surface_flush(surface);
+    unsigned char* framebuffer = cairo_image_surface_get_data(surface);
+    if (!framebuffer ||
+        !OSMesaMakeCurrent(m_Context, framebuffer, GL_UNSIGNED_BYTE, width, height)) {
+      fprintf(stderr, "OSMesaMakeCurrent failed.\n");
+      return false;
+    }
 
-        void deinitOpenGL()
-        {
-            OSMesaDestroyContext(gl_ctx);
-        }
+    // Cairo image rows can include padding beyond the visible width.
+    OSMesaPixelStore(OSMESA_ROW_LENGTH, stride / static_cast<int>(sizeof(std::uint32_t)));
+    OSMesaPixelStore(OSMESA_Y_UP, 0);
 
-        void reposition(PedigreeGraphics::Rect newrt)
-        {
-            m_nWidth = newrt.getW();
-            m_nHeight = newrt.getH();
-            glResize(newrt.getW(), newrt.getH());
-        }
+    if (width != m_Width || height != m_Height) {
+      reshape(width, height);
+      m_Width = width;
+      m_Height = height;
+    }
+    if (!m_Initialized) {
+      glClearColor(static_cast<GLfloat>(m_Background.r) / 255.0F,
+                   static_cast<GLfloat>(m_Background.g) / 255.0F,
+                   static_cast<GLfloat>(m_Background.b) / 255.0F,
+                   static_cast<GLfloat>(m_Background.a) / 255.0F);
+      init();
+      m_Initialized = true;
+    }
 
-        virtual bool render(PedigreeGraphics::Rect &rt, PedigreeGraphics::Rect &dirty)
-        {
-            if(!(m_bGlInit && m_bContextValid && fb))
-            {
-                return false;
-            }
+    angle += 0.2;
+    draw();
+    glFinish();
+    cairo_surface_mark_dirty(surface);
+    return true;
+  }
 
-            // Render frame.
-            angle += 0.2;
-            draw();
+  bool keyDown(int keycode) {
+    switch (keycode) {
+      case 'a':
+      case 'A':
+        view_roty += 5.0;
+        return true;
+      case 'd':
+      case 'D':
+        view_roty -= 5.0;
+        return true;
+      case 'w':
+      case 'W':
+        view_rotx += 5.0;
+        return true;
+      case 's':
+      case 'S':
+        view_rotx -= 5.0;
+        return true;
+      default:
+        return false;
+    }
+  }
 
-            dirty.update(0, 0, m_nWidth, m_nHeight);
-
-            return true;
-        }
-
-    private:
-
-        bool glResize(size_t w, size_t h)
-        {
-            if(!m_bGlInit)
-            {
-                return false;
-            }
-
-            fb = (uint8_t*) getRawFramebuffer();
-            if(!fb)
-            {
-                m_bContextValid = false;
-                fprintf(stderr, "Couldn't get a framebuffer to use.\n");
-                return false;
-            }
-
-            if(!OSMesaMakeCurrent(gl_ctx, fb, GL_UNSIGNED_BYTE, w, h))
-            {
-                m_bContextValid = false;
-                fprintf(stderr, "OSMesaMakeCurrent failed.\n");
-                return false;
-            }
-
-            // Don't render upside down.
-            OSMesaPixelStore(OSMESA_Y_UP, 0);
-
-            reshape(w, h);
-
-            m_bContextValid = true;
-
-            return true;
-        }
-
-        uint8_t *fb;
-
-        bool m_bGlInit;
-        bool m_bContextValid;
-
-        OSMesaContext gl_ctx;
-
-        size_t m_nWidth, m_nHeight;
+ private:
+  OSMesaContext m_Context;
+  libui::Color m_Background;
+  bool m_Initialized = false;
+  int m_Width = 0;
+  int m_Height = 0;
 };
 
-bool callback(WidgetMessages message, size_t msgSize, const void *msgData)
-{
-    switch(message)
-    {
-        case RepaintNeeded:
-            {
-                PedigreeGraphics::Rect rt, dirty;
-                if(g_pGears->render(rt, dirty))
-                {
-                    g_pGears->redraw(dirty);
-                }
-            }
-            break;
-        case Reposition:
-            {
-                const PedigreeGraphics::Rect *rt = reinterpret_cast<const PedigreeGraphics::Rect*>(msgData);
-                g_pGears->reposition(*rt);
-            }
-            break;
-        case KeyUp:
-            {
-                const uint64_t *key = reinterpret_cast<const uint64_t*>(msgData);
-                pedigree_log(LOG_INFO, "gears: keypress %u '%c'", (uint32_t) *key, (char) (*key & 0xFF));
+int main(int argc, char** argv) {
+  const std::optional<demo::Options> options = demo::parseOptions(argc, argv);
+  if (!options) {
+    return 2;
+  }
 
-                // What do we have?
-                /// \todo don't do this this is silly.
-                char realChar = *key & 0xFF;
-                if(realChar == 'a')
-                {
-                    view_roty += 5.0;
-                }
-                else if(realChar == 'd')
-                {
-                    view_roty -= 5.0;
-                }
-                else if(realChar == 'w')
-                {
-                    view_rotx += 5.0;
-                }
-                else if(realChar == 's')
-                {
-                    view_rotx -= 5.0;
-                }
-            }
-            break;
-        case Terminate:
-            g_bRunning = false;
-            break;
-        default:
-            pedigree_log(LOG_INFO, "gears: unhandled callback");
+  libui::client::Client client = libui::client::Client::connect(options->socketPath);
+  if (!client.valid()) {
+    fprintf(stderr, "gears could not connect to compositor.\n");
+    return 1;
+  }
+
+  std::optional<libui::client::Window> createResult = demo::createWindow(client, *options);
+  if (!createResult) {
+    fprintf(stderr, "gears could not create a window.\n");
+    return 1;
+  }
+
+  Gears gears(options->background);
+  if (!gears.valid()) {
+    fprintf(stderr, "gears could not create an OSMesa context.\n");
+    return 1;
+  }
+
+  libui::client::Window& window = createResult.value();
+  bool closed = false;
+  bool renderFailed = false;
+  window.setWindowProc([&gears, &closed, &renderFailed](libui::client::Window& window,
+                                                        const libui::client::Event& event) {
+    if (event.type() == libui::client::Event::Type::Close) {
+      closed = true;
+      return true;
     }
-    return true;
-}
-
-int main (int argc, char ** argv) {
-    PedigreeGraphics::Rect rt(30, 30, 500, 500);
-
-    char endpoint[256];
-    sprintf(endpoint, "gears.%d", getpid());
-
-    g_pGears = new Gears();
-    if(!g_pGears->construct(endpoint, "OSMesa 3D Gears", callback, rt)) {
-        pedigree_log(LOG_ERR, "gears: not able to construct widget");
-        delete g_pGears;
-        return 1;
+    if (event.type() == libui::client::Event::Type::Key) {
+      const libui::client::KeyEvent* key = event.get<libui::client::KeyEvent>();
+      return key && key->isDown && gears.keyDown(key->keycode);
     }
-    pedigree_log(LOG_INFO, "gears: widget constructed");
+    if (event.type() == libui::client::Event::Type::Paint) {
+      libui::client::PaintContext* paint = window.back();
+      if (!paint || !gears.render(*paint)) {
+        renderFailed = true;
+        closed = true;
+      }
+      return true;
+    }
+    return false;
+  });
 
-    g_pGears->initOpenGL();
+  if (!client.setNonBlocking(true)) {
+    return 1;
+  }
 
-    pedigree_log(LOG_INFO, "gears: reshaping");
-
-    init();
-
-    pedigree_log(LOG_INFO, "gears: entering main loop");
-
-    g_bRunning = true;
-    while (g_bRunning) {
-        Widget::checkForEvents(true);
-
-        // Cheat a bit, render every frame.
-        callback(RepaintNeeded, 0, 0);
-
-        // Display our FPS - nice way to see how vbe performs...
-        fps();
+  constexpr int MaxEventsPerFrame = 64;
+  while (!closed && client.valid()) {
+    for (int count = 0; count < MaxEventsPerFrame && !closed; ++count) {
+      if (!client.dispatch(window, false, false)) {
+        break;
+      }
     }
 
-    g_pGears->deinitOpenGL();
-    g_pGears->destroy();
+    if (!closed && !client.paint(window)) {
+      renderFailed = true;
+      break;
+    }
+    fps();
+    sched_yield();
+  }
 
-    delete g_pGears;
-
-    return 0;
+  return (renderFailed || (!closed && !client.valid())) ? 1 : 0;
 }
