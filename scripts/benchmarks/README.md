@@ -1,5 +1,8 @@
 # I/O latency benchmark
 
+For native GCC compilation timing, kernel profiles, and comparison heatmaps,
+see the [compilation latency guide](compile-latency.md).
+
 Compile `io-latency.c` with the Pedigree userspace toolchain and install the binary as
 `/io-latency` in a bootable test image. The image must provide root/root console
 login, Bash, and `ls`; GNU nano is measured when installed. Use a build with
