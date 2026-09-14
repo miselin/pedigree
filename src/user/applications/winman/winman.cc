@@ -925,9 +925,9 @@ int main(int argc, char* argv[]) {
   }
 #endif
 
-  // Can we set the graphics mode we want?
-  /// \todo Read from a config file!
-  result = pFramebuffer->enterMode(1024, 768, 32);
+  // UEFI GOP supplies the display mode. Do not try to replace it with a
+  // hard-coded mode that may not exist on the machine.
+  result = pFramebuffer->useCurrentMode();
   if (result != 0)
     return result;
 
@@ -938,7 +938,7 @@ int main(int argc, char* argv[]) {
 
   cairo_format_t format = pFramebuffer->getFormat();
 
-  int stride = cairo_format_stride_for_width(format, g_nWidth);
+  size_t stride = pFramebuffer->getBytesPerLine();
 
   void* framebufferVirt = pFramebuffer->getFramebuffer();
 
