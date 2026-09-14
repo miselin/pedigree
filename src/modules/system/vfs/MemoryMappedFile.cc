@@ -1374,7 +1374,7 @@ MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t a
     return FaultResolution::Unhandled;
   if (selected->beyondBackingEnd(pageAddress))
     return FaultResolution::BackingFault;
-  if (!handleTrap(address, write, wasPresent, execute))
+  if (!handleTrap(address, write, wasPresent, execute, selected))
     return FaultResolution::Unhandled;
   void* page = reinterpret_cast<void*>(pageAddress);
   if (!space.isMapped(page))
@@ -1443,8 +1443,8 @@ bool MemoryMapManager::trapForHostedTest(uintptr_t address, bool bIsWrite, bool 
 }
 #endif
 
-bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent,
-                                  bool execute) {
+bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent, bool execute,
+                                  MemoryMappedObject* selected) {
   // Can't take an event while we're trapping, as the event would otherwise
   // be in a minefield (can't touch *any* trap pages in userspace).
   Uninterruptible while_trapping;
@@ -1460,44 +1460,46 @@ bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPre
   size_t pageSz = PhysicalMemoryManager::getPageSize();
   const uintptr_t pageAddress = address & ~(pageSz - 1);
 
-  m_Lock.acquire();
+  MemoryMappedObject* pObject = selected;
+  if (!pObject) {
+    m_Lock.acquire();
 #ifdef DEBUG_MMOBJECTS
-  NOTICE_NOLOCK("trap: got lock");
+    NOTICE_NOLOCK("trap: got lock");
 #endif
 
-  MmObjectList* pMmObjectList = m_MmObjectLists.lookup(&va);
-  if (!pMmObjectList) {
+    MmObjectList* pMmObjectList = m_MmObjectLists.lookup(&va);
+    if (!pMmObjectList) {
+      m_Lock.release();
+      return false;
+    }
+
+#ifdef DEBUG_MMOBJECTS
+    NOTICE_NOLOCK("trap: lookup complete " << reinterpret_cast<uintptr_t>(pMmObjectList));
+#endif
+
+    for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin();
+         it != pMmObjectList->end(); it++) {
+      MemoryMappedObject* candidate = *it;
+#ifdef DEBUG_MMOBJECTS
+      NOTICE_NOLOCK("mmobj=" << reinterpret_cast<uintptr_t>(candidate));
+      if (!candidate) {
+        NOTICE_NOLOCK("bad mmobj, should create a real #PF and backtrace");
+        break;
+      }
+#endif
+
+      // Passing in a page-aligned address means we handle the case where
+      // a mapping ends midway through a page and a trap happens after this.
+      // Because we map in terms of pages, but store unaligned 'actual'
+      // lengths (for proper page zeroing etc), this is necessary.
+      if (candidate->matches(pageAddress)) {
+        pObject = candidate;
+        break;
+      }
+    }
+
     m_Lock.release();
-    return false;
   }
-
-#ifdef DEBUG_MMOBJECTS
-  NOTICE_NOLOCK("trap: lookup complete " << reinterpret_cast<uintptr_t>(pMmObjectList));
-#endif
-
-  MemoryMappedObject* pObject = nullptr;
-  for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin(); it != pMmObjectList->end();
-       it++) {
-    MemoryMappedObject* candidate = *it;
-#ifdef DEBUG_MMOBJECTS
-    NOTICE_NOLOCK("mmobj=" << reinterpret_cast<uintptr_t>(candidate));
-    if (!candidate) {
-      NOTICE_NOLOCK("bad mmobj, should create a real #PF and backtrace");
-      break;
-    }
-#endif
-
-    // Passing in a page-aligned address means we handle the case where
-    // a mapping ends midway through a page and a trap happens after this.
-    // Because we map in terms of pages, but store unaligned 'actual'
-    // lengths (for proper page zeroing etc), this is necessary.
-    if (candidate->matches(pageAddress)) {
-      pObject = candidate;
-      break;
-    }
-  }
-
-  m_Lock.release();
   if (!pObject) {
 #ifdef DEBUG_MMOBJECTS
     ERROR("MemoryMapManager::trap() could not find an object for " << address);

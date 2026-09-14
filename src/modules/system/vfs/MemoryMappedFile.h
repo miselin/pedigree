@@ -859,7 +859,8 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
                         VmStatus* status = nullptr);
   void releaseReservation(Process* process, VirtualAddressSpace& addressSpace, uintptr_t base,
                           size_t length);
-  bool handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent, bool execute = false);
+  bool handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent, bool execute = false,
+                  MemoryMappedObject* selected = nullptr);
 
   enum Ops {
     Sync,
