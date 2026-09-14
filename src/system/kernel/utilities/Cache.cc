@@ -292,6 +292,17 @@ bool CacheManager::trimAll(size_t count) {
 void CacheManager::timer(uint64_t delta) {
   if (static_cast<size_t>(m_TerminalState))
     return;
+  bool memoryPressure = false;
+#if THREADS
+  // Keep the pressure check at timer cadence without waking an idle worker.
+  // Sample before taking the waiter lock, as physical allocators can trim caches.
+  memoryPressure =
+      PhysicalMemoryManager::instance().freePageCount() <= MemoryPressureManager::getLowWatermark();
+#endif
+  timerTick(delta, memoryPressure);
+}
+
+void CacheManager::timerTick(uint64_t delta, bool memoryPressure) {
 #if THREADS
   auto guard = m_TrimWaiters.acquire();
 #endif
@@ -299,11 +310,13 @@ void CacheManager::timer(uint64_t delta) {
   const uint64_t maximum = ~static_cast<uint64_t>(0);
   m_TrimDelta = delta > (maximum - m_TrimDelta) ? maximum : m_TrimDelta + delta;
 #if THREADS
-  // Pressure checks retain their tick cadence. Only writeback enumeration is
-  // coalesced; the pending predicate survives a wake with no sleeping worker.
-  m_bTrimRequested = true;
-  guard.wakeOne(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
+  if (!m_bTrimRequested && (memoryPressure || m_TrimDelta >= CACHE_WRITEBACK_PERIOD * 1000000ULL)) {
+    // A running worker consumes this predicate before it can sleep again.
+    m_bTrimRequested = true;
+    guard.wakeOne(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
+  }
 #else
+  (void)memoryPressure;
   TimerStamp stamp;
   if (!takeTimerStamp(stamp))
     return;

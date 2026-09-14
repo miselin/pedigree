@@ -69,6 +69,7 @@ class EXPORTED_PUBLIC CacheManager :
 #endif
     public RequestQueue {
   friend class Cache;
+  friend class CacheManagerTestPeer;
 
  public:
   CacheManager();
@@ -112,6 +113,7 @@ class EXPORTED_PUBLIC CacheManager :
 
  private:
   void stopPeriodicWork();
+  void timerTick(uint64_t delta, bool memoryPressure);
 
   struct TimerStamp {
     uint64_t elapsed = 0;
