@@ -7,10 +7,11 @@
 #include "../../src/system/boot/uefi/framebuffer.h"
 
 static efi_graphics_mode_info_t available[4], active;
-static unsigned query_fail, short_info, set_fail, wrong_size, calls[4], allocations;
+static unsigned query_fail, short_info, set_fail, wrong_size, calls[4], allocations, queries;
 
 static uint64_t query_mode(efi_graphics_output_t* graphics, uint32_t number, uint64_t* size,
                            efi_graphics_mode_info_t** info) {
+  ++queries;
   assert(number < graphics->mode->max_mode);
   if (query_fail & (1U << number))
     return 1;
@@ -97,32 +98,53 @@ static void mode_selection_contracts(void) {
   assert(result.width == 1366 && result.height == 768 && result.pitch == 1408 * 4 &&
          result.address == 0xd0000000 && !allocations);
 
-  // Even the reported current mode must be explicitly applied before handoff.
+  // Keep a usable current mode even when EDID or a larger mode would outrank it.
+  const unsigned previous_queries = queries;
+  assert(select_framebuffer_mode(&graphics, free_pool, 0, &result));
+  assert(mode.mode == 1 && calls[1] == 1 && result.width == 1366);
   active = available[0];
+  mode.mode = 0;
+  assert(select_framebuffer_mode(&graphics, free_pool, &edid, &result));
+  assert(mode.mode == 0 && !calls[0] && calls[1] == 1 && result.width == 800);
+  assert(queries == previous_queries && !allocations);
+  efi_graphics_output_t current_only = {.mode = &mode};
+  assert(select_framebuffer_mode(&current_only, 0, &edid, &result));
+  assert(result.width == 800 && result.pitch == 832 * 4);
+
+  // Invalid current metadata still triggers normal mode negotiation.
+  mode.framebuffer_size = 1;
   assert(select_framebuffer_mode(&graphics, free_pool, &edid, &result));
   assert(mode.mode == 1 && calls[1] == 2 && result.width == 1366);
+  mode.info = 0;
   assert(select_framebuffer_mode(&graphics, free_pool, 0, &result));
   assert(mode.mode == 2 && result.width == 1920 && !calls[3]);
   ++bytes[127];
+  mode.info = 0;
   assert(select_framebuffer_mode(&graphics, free_pool, &edid, &result) && mode.mode == 2);
   checksum_edid(bytes);
 
   set_fail = 1U << 2;
+  mode.info = 0;
   assert(select_framebuffer_mode(&graphics, free_pool, 0, &result) && mode.mode == 1);
   set_fail = 0;
   wrong_size = 1U << 2;
+  mode.info = 0;
   assert(select_framebuffer_mode(&graphics, free_pool, 0, &result) && mode.mode == 1);
   wrong_size = 0;
   query_fail = 1U << 2;
   short_info = 1U << 1;
+  mode.info = 0;
   assert(select_framebuffer_mode(&graphics, free_pool, &edid, &result) && mode.mode == 0);
   query_fail = short_info = 0;
   available[1].width = 1280;
+  mode.info = 0;
   assert(select_framebuffer_mode(&graphics, free_pool, &edid, &result) && mode.mode == 2);
   set_fail = 0xf;
+  mode.info = 0;
   assert(!select_framebuffer_mode(&graphics, free_pool, &edid, &result));
   assert(!allocations);
   graphics.set_mode = 0;
+  mode.info = 0;
   assert(!select_framebuffer_mode(&graphics, free_pool, &edid, &result));
 }
 

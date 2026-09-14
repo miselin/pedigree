@@ -115,6 +115,10 @@ static int preferred_framebuffer_size(const efi_edid_active_t* edid, uint32_t* w
 
 static int select_framebuffer_mode(efi_graphics_output_t* graphics, efi_free_pool_t free_pool,
                                    const efi_edid_active_t* edid, boot_framebuffer_t* output) {
+  // A boot manager may have deliberately selected this mode. Only negotiate
+  // another mode when the current GOP cannot provide a usable framebuffer.
+  if (decode_framebuffer(graphics, output))
+    return 1;
   if (!graphics || !graphics->mode || !graphics->query_mode || !graphics->set_mode || !free_pool)
     return 0;
   uint32_t preferred_width = 0, preferred_height = 0;
@@ -155,8 +159,6 @@ static int select_framebuffer_mode(efi_graphics_output_t* graphics, efi_free_poo
     }
     if (best_preferred < 0)
       return 0;
-    // Apply even an apparently current mode: GRUB may have changed the hardware
-    // through another interface while this GOP retained its previous metadata.
     if (!graphics->set_mode(graphics, best_mode) && graphics->mode &&
         graphics->mode->mode == best_mode && decode_framebuffer(graphics, output) &&
         output->width == best_width && output->height == best_height)
