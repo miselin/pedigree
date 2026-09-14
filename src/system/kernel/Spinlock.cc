@@ -40,7 +40,6 @@ Spinlock::Spinlock(bool bLocked, bool bAvoidTracking) : Spinlock() {
 }
 
 bool Spinlock::acquire(bool recurse, bool safe) {
-  Thread* pThread = Processor::information().getCurrentThread();
   bool reentered = false;
 
   // Save the current irq status.
@@ -59,7 +58,10 @@ bool Spinlock::acquire(bool recurse, bool safe) {
   if (bInterrupts)
     Processor::setInterrupts(false);
 
-  const ProcessorId processorId = Processor::id();
+  // Resolve thread and CPU identity together after preemption is disabled.
+  auto& information = Processor::information();
+  Thread* pThread = information.getCurrentThread();
+  const ProcessorId processorId = Processor::m_Initialised < 2 ? 0 : information.processorId();
 
   if (m_Magic != 0xdeadbaba) {
     uintptr_t myra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
@@ -98,7 +100,7 @@ bool Spinlock::acquire(bool recurse, bool safe) {
 #if TRACK_LOCKS
     if (!m_bAvoidTracking) {
       g_LocksCommand.clearFatal();
-      if (!g_LocksCommand.checkState(this)) {
+      if (!g_LocksCommand.checkState(this, processorId)) {
         uintptr_t myra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
         FATAL_NOLOCK("Spinlock: LocksCommand failed a state check [return=" << Hex << myra << "].");
       }
@@ -177,7 +179,8 @@ void Spinlock::trackRelease() const {
 #if TRACK_LOCKS
   if (!m_bAvoidTracking) {
     g_LocksCommand.clearFatal();
-    if (!g_LocksCommand.lockReleased(this)) {
+    const size_t processorId = m_OwnedProcessor == ~size_t(0) ? ~0U : m_OwnedProcessor;
+    if (!g_LocksCommand.lockReleased(this, processorId)) {
       uintptr_t myra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
       FATAL_NOLOCK("Spinlock: LocksCommand disallows this release [return=" << Hex << myra << "].");
     }
@@ -207,13 +210,14 @@ void Spinlock::exit(uintptr_t ra) {
     }
   }
 
+  // Track the release just before we actually release the lock to avoid an
+  // immediate reschedule screwing with the tracking. Retain the acquisition
+  // CPU until its tracking entry has been retired, including cross-CPU releases.
+  trackRelease();
+
   m_pOwner = 0;
   m_bOwned = false;
   m_OwnedProcessor = ~0;
-
-  // Track the release just before we actually release the lock to avoid an
-  // immediate reschedule screwing with the tracking.
-  trackRelease();
 
   if (m_Atom.compareAndSwap(false, true) == false) {
     /// \note When we hit this breakpoint, we're not able to backtrace as
