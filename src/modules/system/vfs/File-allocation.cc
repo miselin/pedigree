@@ -28,6 +28,10 @@ bool File::allocateRange(size_t offset, size_t length, bool keepSize) {
     SYSCALL_ERROR(ReadOnlyFilesystem);
     return false;
   }
+  if (cacheState().executableMappings) {
+    SYSCALL_ERROR(TextFileBusy);
+    return false;
+  }
   const size_t oldSize = getSize();
   const size_t end = offset + length;
   const size_t newSize = keepSize || end < oldSize ? oldSize : end;

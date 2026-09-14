@@ -253,6 +253,11 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     plan.inserted->m_OwnsMappings = false;
     plan.inserted->m_LockMode = mode;
     plan.staged.pushBack(plan.inserted);
+    if (file && !static_cast<MemoryMappedFile*>(plan.inserted)->m_UseAdmitted) {
+      if (status)
+        *status = MapStatus::TextBusy;
+      return nullptr;
+    }
     if (!plan.replacement->tryPushBack(plan.inserted) || plan.replacement->count() > MaximumObjects)
       return nullptr;
     if (!process->commitUserReservations(snapshot.generation, snapshot))

@@ -304,6 +304,11 @@ uint64_t File::writeUnlocked(uint64_t location, uint64_t size, uintptr_t buffer,
     return writeBytewise(location, size, buffer, bCanBlock);
   }
 
+  if (cacheState().executableMappings) {
+    SYSCALL_ERROR(TextFileBusy);
+    return 0;
+  }
+
   const size_t filesystemBlockSize = getBlockSize();
   const size_t blockSize =
       useFillCache() ? PhysicalMemoryManager::getPageSize() : filesystemBlockSize;
@@ -1027,6 +1032,34 @@ bool File::allowMapping(bool, bool, bool&) {
   return true;
 }
 
+bool File::acquireMappingUse(bool executable, bool sharedWrite) {
+  LockGuard<Mutex> guard(dataMutationLock());
+  CacheState& state = cacheState();
+  if ((executable && (sharedWrite || state.sharedWriteMappings)) ||
+      (sharedWrite && state.executableMappings)) {
+    SYSCALL_ERROR(TextFileBusy);
+    return false;
+  }
+  if (executable)
+    ++state.executableMappings;
+  if (sharedWrite)
+    ++state.sharedWriteMappings;
+  return true;
+}
+
+void File::releaseMappingUse(bool executable, bool sharedWrite) {
+  LockGuard<Mutex> guard(dataMutationLock());
+  CacheState& state = cacheState();
+  if (executable) {
+    assert(state.executableMappings);
+    --state.executableMappings;
+  }
+  if (sharedWrite) {
+    assert(state.sharedWriteMappings);
+    --state.sharedWriteMappings;
+  }
+}
+
 bool File::allowResize(size_t, size_t) {
   return true;
 }
@@ -1044,6 +1077,10 @@ bool File::resize(size_t size) {
   LockGuard<Mutex> guard(dataMutationLock());
   if (m_pFilesystem && m_pFilesystem->isReadOnly()) {
     SYSCALL_ERROR(ReadOnlyFilesystem);
+    return false;
+  }
+  if (cacheState().executableMappings) {
+    SYSCALL_ERROR(TextFileBusy);
     return false;
   }
   const size_t oldSize = getSize();

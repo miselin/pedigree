@@ -175,14 +175,17 @@ MemoryMappedFile::MemoryMappedFile(uintptr_t address, size_t length, size_t offs
                                    bool bCopyOnWrite, MemoryMappedObject::Permissions perms,
                                    MemoryMappedObject::Permissions maximumPerms,
                                    const SharedPointer<MappingAttachment>& attachment,
-                                   const FileMappingOrigin& origin)
+                                   const FileMappingOrigin& origin, bool executableUse)
     : MemoryMappedObject(address, bCopyOnWrite, length, perms, maximumPerms),
       m_pBacking(backing),
       m_Offset(offset),
       m_Mappings(),
       m_Origin(origin),
       m_Lock(),
-      m_bVfsLease(backing && VFS::instance().retainTrackedFile(backing)) {
+      m_bVfsLease(backing && VFS::instance().retainTrackedFile(backing)),
+      m_ExecutableUse(executableUse || (bCopyOnWrite && (perms & Exec))),
+      m_SharedWriteUse(!bCopyOnWrite && (maximumPerms & Write)),
+      m_UseAdmitted(backing && backing->acquireMappingUse(m_ExecutableUse, m_SharedWriteUse)) {
   assert(m_pBacking);
   m_Attachment = attachment;
 }
@@ -191,6 +194,8 @@ MemoryMappedFile::~MemoryMappedFile() {
   TerminationDeferral lifetime;
   if (m_OwnsMappings)
     unmap();
+  if (m_UseAdmitted)
+    m_pBacking->releaseMappingUse(m_ExecutableUse, m_SharedWriteUse);
   if (m_bVfsLease) {
     m_bVfsLease = false;
     VFS::instance().untrackFile(m_pBacking);
@@ -204,7 +209,8 @@ MemoryMappedObject* MemoryMappedFile::clone() {
 
   MemoryMappedFile* pResult =
       new MemoryMappedFile(m_Address, m_Length, m_Offset, m_pBacking, m_bCopyOnWrite, m_Permissions,
-                           m_MaximumPermissions, m_Attachment, m_Origin);
+                           m_MaximumPermissions, m_Attachment, m_Origin, m_ExecutableUse);
+  assert(pResult->m_UseAdmitted);
   pResult->m_OwnerProcess = m_OwnerProcess;
   pResult->m_Mappings = m_Mappings;
 
@@ -242,9 +248,10 @@ MemoryMappedObject* MemoryMappedFile::split(uintptr_t at) {
   m_Length = at - m_Address;
 
   // New object.
-  MemoryMappedFile* pResult = new MemoryMappedFile(at, oldLength - m_Length, m_Offset + m_Length,
-                                                   m_pBacking, m_bCopyOnWrite, m_Permissions,
-                                                   m_MaximumPermissions, m_Attachment, m_Origin);
+  MemoryMappedFile* pResult = new MemoryMappedFile(
+      at, oldLength - m_Length, m_Offset + m_Length, m_pBacking, m_bCopyOnWrite, m_Permissions,
+      m_MaximumPermissions, m_Attachment, m_Origin, m_ExecutableUse);
+  assert(pResult->m_UseAdmitted);
 
   pResult->m_OwnerProcess = m_OwnerProcess;
   pResult->m_LockMode = m_LockMode;
@@ -316,6 +323,13 @@ bool MemoryMappedFile::remove(size_t length) {
 
 void MemoryMappedFile::setPermissions(MemoryMappedObject::Permissions perms) {
   TerminationDeferral terminationDeferral;
+  if (m_bCopyOnWrite && (perms & Exec) && !m_ExecutableUse) {
+    // The manager preflights every backing while holding its operation gate,
+    // so no shared-write mapping can appear before this permission commit.
+    const bool admitted = m_pBacking->acquireMappingUse(true, false);
+    assert(admitted);
+    m_ExecutableUse = true;
+  }
   LockGuard<Mutex> guard(m_Lock);
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
   for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it) {
@@ -1069,6 +1083,18 @@ size_t MemoryMapManager::setPermissions(uintptr_t base, size_t length,
         *status = ProtectStatus::AccessDenied;
       }
       return 0;
+    }
+    if (object->address() < end && objectEnd > base && object->m_bCopyOnWrite &&
+        (perms & MemoryMappedObject::Exec)) {
+      File* backing = object->backingFile();
+      if (backing) {
+        if (!backing->acquireMappingUse(true, false)) {
+          if (status)
+            *status = ProtectStatus::TextBusy;
+          return 0;
+        }
+        backing->releaseMappingUse(true, false);
+      }
     }
   }
 

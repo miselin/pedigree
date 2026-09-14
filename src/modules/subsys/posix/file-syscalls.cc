@@ -3283,6 +3283,8 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
         SYSCALL_ERROR(FileExists);
       } else if (mapStatus == MemoryMapManager::MapStatus::PolicyDenied) {
         SYSCALL_ERROR(NotEnoughPermissions);
+      } else if (mapStatus == MemoryMapManager::MapStatus::TextBusy) {
+        SYSCALL_ERROR(TextFileBusy);
       } else if (mapStatus == MemoryMapManager::MapStatus::LockLimit) {
         SYSCALL_ERROR(NoMoreProcesses);
       } else {
@@ -3359,6 +3361,8 @@ int posix_mprotect(void* p, size_t len, int prot) {
       SYSCALL_ERROR(PermissionDenied);
     } else if (status == MemoryMapManager::ProtectStatus::Unsupported) {
       SYSCALL_ERROR(OperationNotSupported);
+    } else if (status == MemoryMapManager::ProtectStatus::TextBusy) {
+      SYSCALL_ERROR(TextFileBusy);
     } else {
       SYSCALL_ERROR(OutOfMemory);
     }

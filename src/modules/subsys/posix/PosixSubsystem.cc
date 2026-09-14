@@ -85,6 +85,10 @@ extern void pedigree_init_sigret();
 extern void pedigree_init_pthreads();
 
 struct PosixSubsystem::ExecutableImage {
+  ~ExecutableImage() {
+    if (file)
+      file->releaseMappingUse(true, false);
+  }
   FilesystemPathRef openingPath;
   File* file = nullptr;
   size_t fileSize = 0;
@@ -1944,6 +1948,9 @@ bool PosixSubsystem::checkAccess(const DescriptorLease& pFileDescriptor, bool bR
 }
 
 bool PosixSubsystem::prepareExecutable(File* pFile, ExecutableImage& image, bool isInterpreter) {
+  // Keep validation and all PT_LOAD segments on the same immutable contents.
+  if (!pFile->acquireMappingUse(true, false))
+    return false;
   image.file = pFile;
   image.fileSize = pFile->getSize();
 

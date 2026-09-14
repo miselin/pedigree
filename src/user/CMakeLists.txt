@@ -406,6 +406,17 @@ pedigree_app(pivot-root-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/pivot-root-contract-test/main.c)
 pedigree_app(execveat-contract-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/execveat-contract-test/main.c)
+pedigree_app(executable-file-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/executable-file-contract-test/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/executable-file-contract-test/mappings.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/executable-file-contract-test/library.c)
+foreach (version 1 2)
+    pedigree_lib(executable-file-fixture-v${version} ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/applications/executable-file-contract-test/fixture.c)
+    target_compile_definitions(libexecutable-file-fixture-v${version}
+        PRIVATE FIXTURE_VERSION=${version})
+    add_dependencies(app-executable-file-contract-test libexecutable-file-fixture-v${version})
+endforeach ()
 if (TARGET init-module-contract-fixture)
     pedigree_app(init-module-contract-test ON OFF OFF ""
         ${CMAKE_CURRENT_SOURCE_DIR}/applications/init-module-contract-test/main.c)

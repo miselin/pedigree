@@ -19,9 +19,9 @@ MemoryMappedObject* MemoryMappedFile::stageSlice(uintptr_t source, size_t source
                                                  uintptr_t destination, size_t destinationLength) {
   if (!backingRangeValid(source, destinationLength))
     return nullptr;
-  auto* result = new MemoryMappedFile(destination, destinationLength,
-                                      m_Offset + (source - m_Address), m_pBacking, m_bCopyOnWrite,
-                                      m_Permissions, m_MaximumPermissions, m_Attachment, m_Origin);
+  auto* result = new MemoryMappedFile(
+      destination, destinationLength, m_Offset + (source - m_Address), m_pBacking, m_bCopyOnWrite,
+      m_Permissions, m_MaximumPermissions, m_Attachment, m_Origin, m_ExecutableUse);
   if (!result)
     return nullptr;
   result->m_OwnerProcess = m_OwnerProcess;

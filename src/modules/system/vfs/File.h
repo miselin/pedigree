@@ -313,6 +313,10 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /** Admit a new mapping and restrict its later write upgrades if needed. */
   virtual bool allowMapping(bool shared, bool writeRequested, bool& mayWrite);
 
+  /** Exclude backing mutations while executable bytes can still be faulted in. */
+  bool acquireMappingUse(bool executable, bool sharedWrite);
+  void releaseMappingUse(bool executable, bool sharedWrite);
+
   uintptr_t getInode() const;
   virtual void setInode(uintptr_t inode);
 
@@ -623,6 +627,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
     Mutex indexLock;
     Cache fill;
     Mutex fillLock;
+    // Aliases share these counts and serialize admission with data mutation.
+    size_t executableMappings = 0;
+    size_t sharedWriteMappings = 0;
   };
 
  protected:

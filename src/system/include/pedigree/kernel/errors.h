@@ -49,6 +49,7 @@ enum PosixError {
   TooManyOpenFiles = 23,       // ENFILE
   ProcessFileLimit = 24,       // EMFILE
   NotAConsole = 25,            // ENOTTY
+  TextFileBusy = 26,           // ETXTBSY
   FileTooLarge = 27,           // EFBIG
   NoSpaceLeftOnDevice = 28,    // ENOSPC
   IllegalSeek = 29,            // ESPIPE  (??)

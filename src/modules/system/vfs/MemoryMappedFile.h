@@ -446,7 +446,7 @@ class MemoryMappedFile : public MemoryMappedObject {
       uintptr_t address, size_t length, size_t offset, File* backing, bool bCopyOnWrite,
       Permissions perms, Permissions maximumPerms = Read | Write | Exec,
       const SharedPointer<MappingAttachment>& attachment = SharedPointer<MappingAttachment>(),
-      const FileMappingOrigin& origin = {});
+      const FileMappingOrigin& origin = {}, bool executableUse = false);
 
   virtual ~MemoryMappedFile() override;
 
@@ -544,6 +544,9 @@ class MemoryMappedFile : public MemoryMappedObject {
 
   /** Whether this mapping retained an established VFS File owner. */
   bool m_bVfsLease;
+  bool m_ExecutableUse;
+  bool m_SharedWriteUse;
+  bool m_UseAdmitted;
 };
 
 /**
@@ -566,6 +569,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
     NoMemory,
     AddressInUse,
     PolicyDenied,
+    TextBusy,
     LockLimit,
   };
 
@@ -692,7 +696,15 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
    *
    * \return number of objects affected by this call.
    */
-  enum class ProtectStatus { Success, Unmapped, AccessDenied, InvalidRange, Unsupported, NoMemory };
+  enum class ProtectStatus {
+    Success,
+    Unmapped,
+    AccessDenied,
+    InvalidRange,
+    Unsupported,
+    NoMemory,
+    TextBusy
+  };
 
   size_t setPermissions(uintptr_t base, size_t length, MemoryMappedObject::Permissions perms,
                         ProtectStatus* status = nullptr);
