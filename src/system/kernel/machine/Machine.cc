@@ -30,12 +30,14 @@ Machine::ShutdownPhase shutdownPhase = Machine::ShutdownPhase::NotStarted;
 }
 
 void Machine::setShutdownPhase(ShutdownPhase phase) {
-  __atomic_store_n(&shutdownPhase, phase, __ATOMIC_RELAXED);
+  __atomic_store(&shutdownPhase, &phase, __ATOMIC_RELAXED);
 }
 
 const char* Machine::shutdownPhaseName() {
   // Module callers publish an enum, never a pointer into unloadable text.
-  switch (__atomic_load_n(&shutdownPhase, __ATOMIC_RELAXED)) {
+  ShutdownPhase phase;
+  __atomic_load(&shutdownPhase, &phase, __ATOMIC_RELAXED);
+  switch (phase) {
     case ShutdownPhase::NotStarted:
       return "not started";
     case ShutdownPhase::Requested:
