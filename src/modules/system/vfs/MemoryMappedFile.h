@@ -426,8 +426,8 @@ class EXPORTED_PUBLIC AnonymousMemoryMap : public MemoryMappedObject {
 
   void unmapUnlocked();
 
-  /** List of existing virtual addresses we've mapped in. */
-  List<Page> m_Mappings;
+  // Faults must not scan every previously populated page in a large mapping.
+  Tree<uintptr_t, Page> m_Mappings;
 };
 
 /**

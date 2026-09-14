@@ -203,6 +203,21 @@ class EXPORTED_PUBLIC Tree {
     return 0;
   }
 
+  /** Returns a mutable value, or nullptr if the key is absent. Insertions and
+   * rotations preserve the pointer; removing its key or clearing the tree does not. */
+  E* find(const K& key) {
+    Node* n = root;
+    while (n) {
+      if (n->key == key)
+        return &n->element;
+      if (n->key > key)
+        n = n->leftChild;
+      else
+        n = n->rightChild;
+    }
+    return nullptr;
+  }
+
   /** Attempts to find an element with the given key.
    *\return a reference to the element found. */
   const E& lookupRef(const K& key, const E& failed = E()) const {

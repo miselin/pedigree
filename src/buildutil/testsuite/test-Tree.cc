@@ -352,6 +352,33 @@ TEST(PedigreeTree, FallibleInsertionMovesOwnership) {
   EXPECT_EQ(tree.count(), 0U);
 }
 
+TEST(PedigreeTree, MutableValueSurvivesRotationsAndUnrelatedRemoval) {
+  struct Value {
+    int content = 0;
+  };
+  Tree<int, Value> tree;
+  EXPECT_EQ(tree.find(32), nullptr);
+  ASSERT_TRUE(tree.tryInsert(32, Value{123}));
+  Value* retained = tree.find(32);
+  ASSERT_NE(retained, nullptr);
+  for (int i = 0; i < 128; ++i)
+    if (i != 32)
+      ASSERT_TRUE(tree.tryInsert(i, Value{i}));
+  EXPECT_EQ(tree.find(32), retained);
+  retained->content = 456;
+  for (int i = 0; i < 128; i += 2)
+    if (i != 32)
+      tree.remove(i);
+  ASSERT_EQ(tree.find(32), retained);
+  EXPECT_EQ(tree.find(32)->content, 456);
+  EXPECT_EQ(tree.find(30), nullptr);
+  EXPECT_EQ(tree.find(31)->content, 31);
+  tree.remove(32);
+  EXPECT_EQ(tree.find(32), nullptr);
+  tree.clear();
+  EXPECT_EQ(tree.find(31), nullptr);
+}
+
 TEST(PedigreeTree, EmptyIteratorEqualityIsSymmetric) {
   Tree<int, int> tree;
   Tree<int, int>::Iterator initial;
