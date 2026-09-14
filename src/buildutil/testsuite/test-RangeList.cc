@@ -341,3 +341,74 @@ TEST(PedigreeRangeList, ReusesExhaustedStorageWithoutAllocation) {
   EXPECT_EQ(address, 0x7000U);
   EXPECT_FALSE(ranges.allocateWithoutAllocation(1, address));
 }
+
+template <bool Reversed>
+static void checkFragmentedSnapshots(bool preferUsed) {
+  using Ranges = RangeList<int64_t, Reversed>;
+  Ranges ranges(preferUsed);
+  constexpr size_t count = 256;
+  for (size_t i = 0; i < count; ++i) {
+    ASSERT_TRUE(ranges.tryFree(i * 256 + 64, 128, false));
+  }
+  Ranges snapshot(ranges);
+
+  // Splitting crosses storage growth boundaries while preserving both sides
+  // and the allocation decisions in a previously captured snapshot.
+  for (size_t i = 0; i < count; ++i) {
+    ASSERT_TRUE(ranges.allocateSpecific(i * 256 + 96, 32));
+  }
+  ASSERT_EQ(ranges.size(), count * 2);
+  Ranges replacement(!preferUsed);
+  replacement = ranges;
+  ranges.clear();
+  ASSERT_TRUE(ranges.tryFree(0x100000, 64));
+  ranges.swap(replacement);
+  replacement.clear();
+  EXPECT_EQ(ranges.size(), count * 2);
+
+  for (size_t i = 0; i < count; ++i) {
+    EXPECT_FALSE(ranges.allocateSpecificWithoutAllocation(i * 256 + 96, 32));
+    EXPECT_TRUE(ranges.allocateSpecific(i * 256 + 64, 32));
+    EXPECT_TRUE(ranges.allocateSpecific(i * 256 + 128, 64));
+    EXPECT_TRUE(snapshot.allocateSpecific(i * 256 + 64, 128));
+  }
+  EXPECT_EQ(ranges.size(), 0U);
+  EXPECT_EQ(snapshot.size(), 0U);
+  EXPECT_EQ(replacement.size(), 0U);
+
+  ASSERT_TRUE(ranges.tryFree(0, 64));
+  ASSERT_TRUE(ranges.tryFree(256, 64));
+  int64_t address = -1;
+  ASSERT_TRUE(ranges.allocate(16, address));
+  EXPECT_EQ(address, (preferUsed ? 256 : 0) + (Reversed ? 48 : 0));
+}
+
+TEST(PedigreeRangeList, FragmentedSnapshotsSurviveGrowthSplitSwapAndClear) {
+  checkFragmentedSnapshots<false>(false);
+  checkFragmentedSnapshots<false>(true);
+  checkFragmentedSnapshots<true>(false);
+  checkFragmentedSnapshots<true>(true);
+}
+
+TEST(PedigreeRangeList, MissingReusableEntryDoesNotAlterReservations) {
+  RangeList<int64_t> ranges;
+  ASSERT_TRUE(ranges.tryFree(0, 64));
+  ASSERT_TRUE(ranges.tryFree(256, 64));
+  ASSERT_TRUE(ranges.allocateSpecific(256, 64));
+
+  // Spare vector capacity is not an exhausted entry available to the
+  // allocation-free operations.
+  EXPECT_FALSE(ranges.allocateSpecificWithoutAllocation(16, 16));
+  EXPECT_FALSE(ranges.freeWithoutAllocation(512, 64));
+  EXPECT_EQ(ranges.size(), 1U);
+  EXPECT_EQ(rangeAt(ranges, 0), RangeList<int64_t>::Range(0, 64));
+  int64_t address = -1;
+  EXPECT_FALSE(ranges.allocateWithoutAllocation(65, address));
+  EXPECT_EQ(address, -1);
+  EXPECT_FALSE(ranges.allocateSpecificWithoutAllocation(0, 0));
+  EXPECT_EQ(rangeAt(ranges, 0), RangeList<int64_t>::Range(0, 64));
+
+  ASSERT_TRUE(ranges.allocateWithoutAllocation(64, address));
+  ASSERT_TRUE(ranges.freeWithoutAllocation(512, 64));
+  EXPECT_EQ(rangeAt(ranges, 0), RangeList<int64_t>::Range(512, 64));
+}

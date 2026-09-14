@@ -43,8 +43,7 @@ class EXPORTED_PUBLIC RangeList {
    *\param[in] Length length of the range */
   RangeList(T Address, T Length, bool XXX, bool preferUsed = false)
       : m_List(), m_bPreferUsed(preferUsed) {
-    Range* range = new Range(Address, Length);
-    m_List.pushBack(range);
+    m_List.pushBack(Range(Address, Length));
   }
   /** Destructor frees the list */
   ~RangeList();
@@ -54,6 +53,7 @@ class EXPORTED_PUBLIC RangeList {
 
   /** Structure of one range */
   struct Range {
+    Range() = default;
     /** Construct a Range */
     Range(T Address, T Length) : address(Address), length(Length) {}
 
@@ -74,7 +74,7 @@ class EXPORTED_PUBLIC RangeList {
    * with an existing one */
   void free(T address, T length, bool merge = true);
   bool tryFree(T address, T length, bool merge = true);
-  /** Retain exhausted nodes as reusable storage; these never allocate or delete. */
+  /** Retain exhausted entries as reusable storage; these never allocate. */
   bool freeWithoutAllocation(T address, T length);
   bool allocateWithoutAllocation(T length, T& address);
   bool allocateSpecificWithoutAllocation(T address, T length);
@@ -91,7 +91,7 @@ class EXPORTED_PUBLIC RangeList {
    *\return true, if successfully allocated, false otherwise */
   bool allocateSpecific(T address, T length);
   void clear();
-  /** Exchange range ownership without allocating or freeing nodes. */
+  /** Exchange range storage without allocating or freeing it. */
   void swap(RangeList& other) noexcept {
     m_List.swap(other.m_List);
     const bool preferUsed = m_bPreferUsed;
@@ -115,7 +115,7 @@ class EXPORTED_PUBLIC RangeList {
 
  private:
   /** List of ranges */
-  Vector<Range*> m_List;
+  Vector<Range> m_List;
 
   /** Should we prefer previously-used ranges where possible? */
   bool m_bPreferUsed;
@@ -133,8 +133,7 @@ template <typename T, bool Reversed>
 RangeList<T, Reversed>::RangeList(const RangeList<T, Reversed>& other)
     : m_List(), m_bPreferUsed(other.m_bPreferUsed) {
   for (ConstIterator it = other.m_List.begin(); it != other.m_List.end(); ++it) {
-    Range* pRange = new Range((*it)->address, (*it)->length);
-    m_List.pushBack(pRange);
+    m_List.pushBack(*it);
   }
 }
 
@@ -148,8 +147,7 @@ RangeList<T, Reversed>& RangeList<T, Reversed>::operator=(const RangeList& other
   m_bPreferUsed = other.m_bPreferUsed;
 
   for (ConstIterator it = other.m_List.begin(); it != other.m_List.end(); ++it) {
-    Range* pRange = new Range((*it)->address, (*it)->length);
-    m_List.pushBack(pRange);
+    m_List.pushBack(*it);
   }
 
   return *this;
@@ -165,17 +163,17 @@ void RangeList<T, Reversed>::free(T address, T length, bool merge) {
     bool needsNew = true;
     for (; cur != end; ++cur) {
       // Region ends at our freed address.
-      if (((*cur)->address + (*cur)->length) == address) {
+      if ((cur->address + cur->length) == address) {
         // Update - all done.
-        (*cur)->length += length;
+        cur->length += length;
         needsNew = false;
         break;
       }
       // Region starts after our address.
-      else if ((*cur)->address == (address + length)) {
+      else if (cur->address == (address + length)) {
         // Expand.
-        (*cur)->address -= length;
-        (*cur)->length += length;
+        cur->address -= length;
+        cur->length += length;
         needsNew = false;
         break;
       }
@@ -190,7 +188,7 @@ void RangeList<T, Reversed>::free(T address, T length, bool merge) {
   // Add the range back to our list, but in such a way that it is allocated
   // last rather than first (if another allocation of the same length comes
   // later).
-  Range* range = new Range(address, length);
+  Range range(address, length);
 
   // Decide which side of the list to push to. If we prefer used ranges over
   // fresh ranges, we want to invert the push decision.
@@ -217,10 +215,7 @@ bool RangeList<T, Reversed>::tryFree(T address, T length, bool merge) {
   if (!m_List.tryReserve(m_List.count() + 1)) {
     return false;
   }
-  Range* range = new Range(address, length);
-  if (!range) {
-    return false;
-  }
+  Range range(address, length);
   if (Reversed != m_bPreferUsed) {
     m_List.pushFront(range);
   } else {
@@ -236,7 +231,7 @@ bool RangeList<T, Reversed>::freeWithoutAllocation(T address, T length) {
   }
   size_t empty = m_List.count();
   for (size_t i = 0; i < m_List.count(); ++i) {
-    Range* range = m_List[i];
+    Range* range = &m_List[i];
     if (!range->length) {
       empty = i;
     } else if (range->address + range->length == address) {
@@ -251,10 +246,8 @@ bool RangeList<T, Reversed>::freeWithoutAllocation(T address, T length) {
   if (empty == m_List.count()) {
     return false;
   }
-  Range* range = m_List[empty];
   m_List.erase(empty);
-  range->address = address;
-  range->length = length;
+  Range range(address, length);
   if (Reversed != m_bPreferUsed) {
     m_List.pushFront(range);
   } else {
@@ -269,7 +262,7 @@ bool RangeList<T, Reversed>::allocateWithoutAllocation(T length, T& address) {
     return false;
   }
   for (size_t i = 0; i < m_List.count(); ++i) {
-    Range* range = m_List[Reversed ? m_List.count() - 1 - i : i];
+    Range* range = &m_List[Reversed ? m_List.count() - 1 - i : i];
     if (range->length < length) {
       continue;
     }
@@ -289,7 +282,7 @@ bool RangeList<T, Reversed>::allocateSpecificWithoutAllocation(T address, T leng
     return false;
   }
   for (size_t i = 0; i < m_List.count(); ++i) {
-    Range* range = m_List[i];
+    Range* range = &m_List[i];
     if (address < range->address || address - range->address > range->length ||
         length > range->length - (address - range->address)) {
       continue;
@@ -299,8 +292,8 @@ bool RangeList<T, Reversed>::allocateSpecificWithoutAllocation(T address, T leng
     if (prefix && suffix) {
       Range* spare = nullptr;
       for (size_t j = 0; j < m_List.count(); ++j) {
-        if (!m_List[j]->length) {
-          spare = m_List[j];
+        if (!m_List[j].length) {
+          spare = &m_List[j];
           break;
         }
       }
@@ -326,28 +319,26 @@ bool RangeList<T, Reversed>::allocate(T length, T& address) {
   bool bSuccess = false;
 
   for (int i = 0; i < 2; ++i) {
-    auto it = Reversed ? m_List.rbegin() : m_List.begin();
-    auto end = Reversed ? m_List.rend() : m_List.end();
-
-    for (; it != end; ++it) {
-      if ((*it)->length < length) {
+    for (size_t j = 0; j < m_List.count(); ++j) {
+      const size_t index = Reversed ? m_List.count() - 1 - j : j;
+      Range& range = m_List[index];
+      if (range.length < length) {
         continue;
       }
 
       if (Reversed) {
         // Big enough. Cut into the END of this range.
-        T offset = (*it)->length - length;
-        address = (*it)->address + offset;
+        T offset = range.length - length;
+        address = range.address + offset;
       } else {
-        address = (*it)->address;
-        (*it)->address += length;
+        address = range.address;
+        range.address += length;
       }
-      (*it)->length -= length;
+      range.length -= length;
 
       // Remove if the entry no longer exists.
-      if (!(*it)->length) {
-        delete (*it);
-        m_List.erase(it);
+      if (!range.length) {
+        m_List.erase(index);
       }
 
       bSuccess = true;
@@ -372,46 +363,41 @@ template <typename T, bool Reversed>
 bool RangeList<T, Reversed>::allocateSpecific(T address, T length) {
   bool bSuccess = false;
   for (int i = 0; i < 2; ++i) {
-    for (Iterator cur = m_List.begin(); cur != m_List.end(); ++cur) {
+    for (size_t j = 0; j < m_List.count(); ++j) {
+      Range* cur = &m_List[j];
       // Precise match.
-      if ((*cur)->address == address && (*cur)->length == length) {
-        delete *cur;
-        m_List.erase(cur);
+      if (cur->address == address && cur->length == length) {
+        m_List.erase(j);
         bSuccess = true;
         break;
       }
 
       // Match at end.
-      else if (address > (*cur)->address &&
-               ((*cur)->address + (*cur)->length) == (address + length)) {
-        (*cur)->length -= length;
+      else if (address > cur->address && (cur->address + cur->length) == (address + length)) {
+        cur->length -= length;
         bSuccess = true;
         break;
       }
 
       // Match at start.
-      else if ((*cur)->address == address && (*cur)->length > length) {
-        (*cur)->address += length;
-        (*cur)->length -= length;
+      else if (cur->address == address && cur->length > length) {
+        cur->address += length;
+        cur->length -= length;
         bSuccess = true;
         break;
       }
 
       // Match within.
-      else if (address > (*cur)->address &&
-               ((*cur)->address + (*cur)->length) > (address + length)) {
+      else if (address > cur->address && (cur->address + cur->length) > (address + length)) {
         // Need to split the range.
-        const T suffix = (*cur)->address + (*cur)->length - address - length;
-        Range* original = *cur;
+        const T suffix = cur->address + cur->length - address - length;
+        const T prefix = address - cur->address;
         if (!m_List.tryReserve(m_List.count() + 1)) {
           return false;
         }
-        Range* newRange = new Range(address + length, suffix);
-        if (!newRange) {
-          return false;
-        }
-        original->length = address - original->address;
-        m_List.pushBack(newRange);
+        // Growing the value buffer can move the original range.
+        m_List[j].length = prefix;
+        m_List.pushBack(Range(address + length, suffix));
         bSuccess = true;
         break;
       }
@@ -435,7 +421,7 @@ bool RangeList<T, Reversed>::getRange(size_t index, Range& range) const {
   if (index >= m_List.count())
     return false;
 
-  range = Range(*m_List[index]);
+  range = m_List[index];
   return true;
 }
 
@@ -446,9 +432,6 @@ RangeList<T, Reversed>::~RangeList() {
 
 template <typename T, bool Reversed>
 void RangeList<T, Reversed>::clear() {
-  for (size_t i = 0; i < m_List.count(); ++i) {
-    delete m_List[i];
-  }
   m_List.clear();
 }
 
@@ -461,9 +444,9 @@ void RangeList<T, Reversed>::sweep() {
   // Storage order preserves allocation preferences; adjacent addresses need
   // not be neighboring entries. Keep the first entry's position when merging.
   for (size_t i = 0; i < m_List.count(); ++i) {
-    Range* cur = m_List[i];
     for (size_t j = i + 1; j < m_List.count();) {
-      Range* next = m_List[j];
+      Range* cur = &m_List[i];
+      Range* next = &m_List[j];
       if (cur->address + cur->length == next->address) {
         cur->length += next->length;
       } else if (next->address + next->length == cur->address) {
@@ -473,7 +456,6 @@ void RangeList<T, Reversed>::sweep() {
         ++j;
         continue;
       }
-      delete next;
       m_List.erase(j);
       // The enlarged range can now reach an entry we passed earlier.
       j = i + 1;
@@ -484,7 +466,7 @@ void RangeList<T, Reversed>::sweep() {
 template <typename T, bool Reversed>
 void RangeList<T, Reversed>::dump(void (*emit_line)(const char* s)) const {
   for (size_t i = 0; i < m_List.count(); ++i) {
-    const Range* range = m_List[i];
+    const Range* range = &m_List[i];
 
     HugeStaticString str;
     str.append("range ");
