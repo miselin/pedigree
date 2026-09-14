@@ -1197,18 +1197,21 @@ bool MemoryMapManager::allows(uintptr_t base, size_t length,
     return false;
   }
 
+  const size_t pageMask = PhysicalMemoryManager::getPageSize() - 1;
   uintptr_t cursor = base;
   while (cursor < end) {
     uintptr_t coveredUntil = cursor;
     for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin();
          it != pMmObjectList->end(); ++it) {
       MemoryMappedObject* pObject = *it;
-      const size_t pageMask = PhysicalMemoryManager::getPageSize() - 1;
       uintptr_t objectEnd = (pObject->address() + pObject->length() + pageMask) & ~pageMask;
       if (cursor >= pObject->address() && cursor < objectEnd &&
           (pObject->permissions() & permissions) == permissions) {
         if (objectEnd > coveredUntil) {
           coveredUntil = objectEnd;
+        }
+        if (coveredUntil >= end) {
+          return true;
         }
       }
     }

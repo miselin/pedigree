@@ -73,6 +73,28 @@ bool runHostedUsercopyRegressions(Process* process) {
                                     !PosixSubsystem::copyToUser(nullptr, source, 1) &&
                                     !PosixSubsystem::copyToUser(userBuffer, nullptr, 1);
 
+  auto& manager = MemoryMapManager::instance();
+  bool mappingCoverage = manager.allows(address, mappingLength,
+                                        MemoryMappedObject::Read | MemoryMappedObject::Write |
+                                            MemoryMappedObject::Exec) &&
+                         manager.allows(reinterpret_cast<uintptr_t>(userBuffer), sizeof(source),
+                                        MemoryMappedObject::Read | MemoryMappedObject::Write);
+  mappingCoverage =
+      manager.setPermissions(address + pageSize, pageSize, MemoryMappedObject::Read) == 1 &&
+      manager.allows(address, mappingLength, MemoryMappedObject::Read) &&
+      !manager.allows(address, mappingLength, MemoryMappedObject::Write) &&
+      manager.allows(address, pageSize, MemoryMappedObject::Write) &&
+      manager.allows(address + pageSize, pageSize, MemoryMappedObject::Read) &&
+      !manager.allows(address + pageSize, pageSize, MemoryMappedObject::Write) && mappingCoverage;
+  mappingCoverage =
+      manager.setPermissions(address + pageSize, pageSize, MemoryMappedObject::None) == 1 &&
+      !manager.allows(address + pageSize, pageSize, MemoryMappedObject::Read) &&
+      manager.allows(address + pageSize, pageSize, MemoryMappedObject::None) && mappingCoverage;
+  mappingCoverage = manager.setPermissions(address, mappingLength,
+                                           MemoryMappedObject::Read | MemoryMappedObject::Write |
+                                               MemoryMappedObject::Exec) == 2 &&
+                    mappingCoverage;
+
   Thread* currentThread = Processor::information().getCurrentThread();
   const uint64_t originalMask = currentThread->getSignalMask();
   const uint64_t requestedMask = (static_cast<uint64_t>(1) << (SIGUSR1 - 1)) |
@@ -118,10 +140,10 @@ bool runHostedUsercopyRegressions(Process* process) {
       !PosixSubsystem::checkUserBuffer(address, maximum, 2, PosixSubsystem::SafeRead,
                                        &checkedExtent) &&
       !checkedExtent;
+  const size_t reducedPermissionObjects =
+      manager.setPermissions(address, mappingLength, MemoryMappedObject::Read);
   const bool reducedPermissionsRejected =
-      MemoryMapManager::instance().setPermissions(address, mappingLength,
-                                                  MemoryMappedObject::Read) == 1 &&
-      !PosixSubsystem::copyToUser(userBuffer, source, 1) &&
+      reducedPermissionObjects == 2 && !PosixSubsystem::copyToUser(userBuffer, source, 1) &&
       PosixSubsystem::copyFromUser(result, userBuffer, 1) &&
       !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(userBuffer), 1,
                                     PosixSubsystem::SafeExecute);
@@ -144,6 +166,9 @@ bool runHostedUsercopyRegressions(Process* process) {
   currentThread->getAlternateSignalStack() = originalStack;
 
   const size_t removed = MemoryMapManager::instance().remove(address + pageSize, pageSize);
+  const bool holeCoverage = !manager.allows(address, mappingLength, MemoryMappedObject::Read) &&
+                            manager.allows(address, pageSize, MemoryMappedObject::Read) &&
+                            !manager.allows(address + pageSize, pageSize, MemoryMappedObject::Read);
   const bool incompleteRangeRejected =
       removed == 1 && !PosixSubsystem::copyFromUser(result, userBuffer, sizeof(result));
   currentThread->setErrno(0);
@@ -165,13 +190,13 @@ bool runHostedUsercopyRegressions(Process* process) {
   MemoryMapManager::instance().remove(address, pageSize);
   process->freeUserRange(Process::UserRegion::Normal, address, mappingLength);
 
-  const bool passed = overflowRejected && zeroExtentAccepted && roundTrip && stringSnapshot &&
-                      executableUserAccepted && kernelPointerRejected && nullPointersRejected &&
-                      signalMaskSnapshots && alternateStackSnapshots && arrayRangeAccepted &&
-                      checkedExtent == 0 && overflowRangeRejected && reducedPermissionsRejected &&
-                      signalMaskReadOnlyOutputRejected && alternateStackReadOnlyOutputRejected &&
-                      incompleteRangeRejected && signalMaskIncompleteRangeRejected &&
-                      alternateStackIncompleteRangeRejected;
+  const bool passed =
+      overflowRejected && zeroExtentAccepted && roundTrip && stringSnapshot &&
+      executableUserAccepted && kernelPointerRejected && nullPointersRejected && mappingCoverage &&
+      signalMaskSnapshots && alternateStackSnapshots && arrayRangeAccepted && checkedExtent == 0 &&
+      overflowRangeRejected && reducedPermissionsRejected && signalMaskReadOnlyOutputRejected &&
+      alternateStackReadOnlyOutputRejected && holeCoverage && incompleteRangeRejected &&
+      signalMaskIncompleteRangeRejected && alternateStackIncompleteRangeRejected;
   if (!passed) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL usercopy: overflow, range, permission, or copy contract "
