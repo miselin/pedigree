@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -205,12 +206,14 @@ static bool terminalQuiesce() {
 
 #if THREADS
   TerminalDrainStats stats;
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Userspace);
   drainPosixProcesses(stats);
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   NOTICE("HOSTED-POSIX-SHUTDOWN: PHASE initial-process-drain-complete");
 #endif
 #endif
 
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Syscalls);
   if (!g_PosixSyscallManager.finishShutdown()) {
     return false;
   }
@@ -222,6 +225,7 @@ static bool terminalQuiesce() {
 #if THREADS
   // An already-admitted fork or clone can publish after the first empty
   // scheduler scan. Handler retirement closes that final publication window.
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Userspace);
   drainPosixProcesses(stats);
   auto& maps = MemoryMapManager::instance();
   if (maps.swapSnapshot().active) {
@@ -237,6 +241,7 @@ static bool terminalQuiesce() {
 #endif
 #endif
 
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Filesystems);
   posix_stop_accounting();
 #if THREADS
   // Process 0 survives the terminal halt; its bootstrap root would otherwise

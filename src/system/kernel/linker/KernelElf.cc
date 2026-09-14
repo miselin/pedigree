@@ -22,6 +22,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/linker/SymbolTable.h"
+#include "pedigree/kernel/machine/Machine.h"
 #if THREADS
 #include "pedigree/kernel/process/Scheduler.h"
 #endif
@@ -1174,6 +1175,7 @@ bool KernelElf::unloadModules() {
 #endif
   }
 
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Modules);
   while (true) {
     Module* candidate = nullptr;
     ModuleUnloadClaim claim = UnloadBusy;

@@ -518,6 +518,7 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
   NOTICE("Resetting...");
 
   // Clean up all loaded modules (unmounts filesystems and the like).
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Userspace);
   if (!KernelElf::instance().unloadModules()) {
     panic("Shutdown aborted: module quiesce failed");
   }
@@ -539,14 +540,17 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
     // Module exits may publish mandatory deferred destruction. Keep the
     // worker alive through every exit, then join it before lower-level
     // scheduler and interrupt teardown begins.
+    Machine::setShutdownPhase(Machine::ShutdownPhase::Destructors);
     ZombieQueue::instance().destroy();
   }
 
   // No need for user input anymore.
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Input);
   InputManager::instance().shutdown();
 
   // Pinned modules can retain caches and page loans through the final handoff.
   // Their backends must remain available for this last synchronous writeback.
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Caches);
 #if HOSTED
   CacheManager::destroyInstance();
 #else
@@ -558,6 +562,7 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
 
   // The shared info block remains live until userspace and module teardown
   // finish, but its callback must retire before the platform timer does.
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Timers);
   if (!InfoBlockManager::instance().shutdown()) {
     panic("Shutdown aborted: info block timer callback did not drain");
   }
@@ -567,11 +572,13 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
 
   // Stop active platform services while their worker/callback drains can
   // still schedule.
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Devices);
   Machine::instance().deinitialise();
 
   // Teardown above joins module, input, keyboard, and threaded-IRQ workers.
   // Keep every scheduler CPU available until those drains have completed;
   // once the remaining work is strictly local, retire the APs permanently.
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Processors);
   EMIT_IF(MULTIPROCESSOR) {
     if (!Machine::instance().stopAllOtherProcessors()) {
       ERROR_NOLOCK("Shutdown aborted: not all other processors stopped");
@@ -589,6 +596,7 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
 
   // Shut down the pieces created by Processor before hosted global destruction
   // or the bare-metal terminal handoff.
+  Machine::setShutdownPhase(Machine::ShutdownPhase::ProcessorCleanup);
   Processor::deinitialise();
 
 #if HOSTED
@@ -608,6 +616,7 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
   TRACE("kernel main() terminating");
 
 #if !HOSTED
+  Machine::setShutdownPhase(Machine::ShutdownPhase::FinalAction);
   Machine::instance().finalShutdown(g_ShutdownType);
 
   // The boot entry lives in the discarded init mapping, so bare-metal cannot
@@ -645,6 +654,7 @@ void system_reboot(Machine::ShutdownType type) {
   // The caller may still be a shell child. Its parent, orphan exit path,
   // or terminal process drain claims the reaper after ordinary termination.
   g_ShutdownType = type;
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Requested);
   system_reset();
   // Exit can block while main starts teardown and retires its idle role.
   // Use ordinary scheduling instead of reserving a later handoff to that role.

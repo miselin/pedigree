@@ -25,6 +25,49 @@
 
 Machine::~Machine() {}
 
+namespace {
+Machine::ShutdownPhase shutdownPhase = Machine::ShutdownPhase::NotStarted;
+}
+
+void Machine::setShutdownPhase(ShutdownPhase phase) {
+  __atomic_store_n(&shutdownPhase, phase, __ATOMIC_RELAXED);
+}
+
+const char* Machine::shutdownPhaseName() {
+  // Module callers publish an enum, never a pointer into unloadable text.
+  switch (__atomic_load_n(&shutdownPhase, __ATOMIC_RELAXED)) {
+    case ShutdownPhase::NotStarted:
+      return "not started";
+    case ShutdownPhase::Requested:
+      return "shutdown request";
+    case ShutdownPhase::Userspace:
+      return "terminating userspace";
+    case ShutdownPhase::Syscalls:
+      return "draining system calls";
+    case ShutdownPhase::Filesystems:
+      return "detaching filesystems";
+    case ShutdownPhase::Modules:
+      return "unloading modules";
+    case ShutdownPhase::Destructors:
+      return "draining deferred destruction";
+    case ShutdownPhase::Input:
+      return "stopping input";
+    case ShutdownPhase::Caches:
+      return "flushing caches";
+    case ShutdownPhase::Timers:
+      return "stopping info block timer";
+    case ShutdownPhase::Devices:
+      return "stopping platform devices";
+    case ShutdownPhase::Processors:
+      return "stopping other processors";
+    case ShutdownPhase::ProcessorCleanup:
+      return "releasing processor services";
+    case ShutdownPhase::FinalAction:
+      return "final power/reset action";
+  }
+  return "unknown";
+}
+
 void Machine::finalShutdown(ShutdownType type) {
   if (type == ShutdownType::Restart)
     Processor::reset();
@@ -42,12 +85,31 @@ void Machine::displayShutdownMessage(const char* message) {
     if (cells && rows && cols) {
       for (size_t i = 0; i < rows * cols; ++i)
         cells[i] = 0x0f20;
-      size_t length = 0;
-      while (length < cols && message[length])
-        ++length;
-      const size_t start = (rows / 2) * cols + (cols - length) / 2;
-      for (size_t i = 0; i < length; ++i)
-        cells[start + i] = 0x0f00 | static_cast<uint8_t>(message[i]);
+      auto lineLength = [cols](const char* text) {
+        size_t length = 0;
+        while (length < cols && text[length] && text[length] != '\n')
+          ++length;
+        return length;
+      };
+      size_t lines = 0;
+      const char* text = message;
+      while (*text && lines < rows) {
+        text += lineLength(text);
+        if (*text == '\n')
+          ++text;
+        ++lines;
+      }
+      text = message;
+      const size_t firstRow = (rows - lines) / 2;
+      for (size_t line = 0; line < lines; ++line) {
+        const size_t length = lineLength(text);
+        const size_t start = (firstRow + line) * cols + (cols - length) / 2;
+        for (size_t i = 0; i < length; ++i)
+          cells[start + i] = 0x0f00 | static_cast<uint8_t>(text[i]);
+        text += length;
+        if (*text == '\n')
+          ++text;
+      }
       console->moveCursor(cols, rows);
       console->flush();
     }

@@ -124,6 +124,14 @@ void panic(const char* msg) {
   const bool terminalShutdown = KernelElf::instance().isShuttingDown();
   Processor::setInterrupts(false);
 
+  HugeStaticString shutdownFailure;
+  if (terminalShutdown && !terminalTlbFailure) {
+    shutdownFailure.append("Shutdown failed. Filesystems may be unclean.\nPhase: ");
+    shutdownFailure.append(Machine::shutdownPhaseName());
+    shutdownFailure.append("\nReason: ");
+    shutdownFailure.append(msg);
+  }
+
   // Graphics providers may already have been unloaded during shutdown.
   // Preserve the initiating failure before touching those services.
   if (Machine::instance().getNumSerial()) {
@@ -155,11 +163,10 @@ void panic(const char* msg) {
   if (terminalShutdown && !terminalTlbFailure) {
     // Module-backed graphics and debugger providers may already be unmapped.
     // Keep the failure visible without turning it into a fault or a reset.
-    constexpr char failure[] = "Shutdown failed. Filesystems may be unclean.";
     if (processorsStopped) {
-      Machine::instance().displayShutdownMessage(failure);
+      Machine::instance().displayShutdownMessage(shutdownFailure);
     } else if (Machine::instance().getNumSerial()) {
-      Machine::instance().getSerial(0)->write_str(failure);
+      Machine::instance().getSerial(0)->write_str(shutdownFailure);
       Machine::instance().getSerial(0)->write_str("\r\n");
     }
     while (true)

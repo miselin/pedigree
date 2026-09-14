@@ -43,6 +43,25 @@ class EXPORTED_PUBLIC Machine {
 
  public:
   enum class ShutdownType { Restart, Halt, PowerOff };
+  enum class ShutdownPhase {
+    NotStarted,
+    Requested,
+    Userspace,
+    Syscalls,
+    Filesystems,
+    Modules,
+    Destructors,
+    Input,
+    Caches,
+    Timers,
+    Devices,
+    Processors,
+    ProcessorCleanup,
+    FinalAction,
+  };
+
+  static void setShutdownPhase(ShutdownPhase phase);
+  static const char* shutdownPhaseName();
 
   static Machine& instance();
 
