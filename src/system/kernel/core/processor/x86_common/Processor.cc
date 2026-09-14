@@ -322,7 +322,8 @@ void X86CommonProcessor::cpuid(uint32_t inEax, uint32_t inEcx, uint32_t& eax, ui
 
 #if MULTIPROCESSOR && X64
 namespace {
-size_t currentProcessorIndexFromTss(const Vector<ProcessorInformation*>& processors) {
+ALWAYS_INLINE inline ProcessorInformation* currentProcessorInformationFromTss(
+    const Vector<ProcessorInformation*>& processors, size_t* processorIndex = nullptr) {
   uint16_t selector;
   asm volatile("str %0" : "=r"(selector));
 
@@ -331,12 +332,17 @@ size_t currentProcessorIndexFromTss(const Vector<ProcessorInformation*>& process
   // use the APIC fallback. The BSP loads its TSS before m_Initialised reaches 2.
   constexpr uint16_t firstTssSelector = 7 << 3;
   if (selector < firstTssSelector || ((selector - firstTssSelector) & 0xF))
-    return processors.count();
+    return nullptr;
 
   const size_t index = (selector - firstTssSelector) >> 4;
-  if (index >= processors.count() || processors[index]->getTssSelector() != selector)
-    return processors.count();
-  return index;
+  if (index >= processors.count())
+    return nullptr;
+  ProcessorInformation* information = processors[index];
+  if (information->getTssSelector() != selector)
+    return nullptr;
+  if (processorIndex)
+    *processorIndex = index;
+  return information;
 }
 }  // namespace
 #endif
@@ -351,9 +357,8 @@ ProcessorId ProcessorBase::id() {
     return 0;
 
 #if X64
-  const size_t index = currentProcessorIndexFromTss(m_ProcessorInformation);
-  if (index < m_ProcessorInformation.count())
-    return m_ProcessorInformation[index]->m_ProcessorId;
+  if (auto* information = currentProcessorInformationFromTss(m_ProcessorInformation))
+    return information->m_ProcessorId;
 #endif
 
   uint8_t apicId = pc.getLocalApic().getId();
@@ -376,8 +381,8 @@ size_t ProcessorBase::index() {
     return 0;
 
 #if X64
-  const size_t index = currentProcessorIndexFromTss(m_ProcessorInformation);
-  if (index < m_ProcessorInformation.count())
+  size_t index;
+  if (currentProcessorInformationFromTss(m_ProcessorInformation, &index))
     return index;
 #endif
 
@@ -405,9 +410,8 @@ ProcessorInformation& ProcessorBase::information() {
     return m_SafeBspProcessorInformation;
 
 #if X64
-  const size_t index = currentProcessorIndexFromTss(m_ProcessorInformation);
-  if (index < m_ProcessorInformation.count())
-    return *m_ProcessorInformation[index];
+  if (auto* information = currentProcessorInformationFromTss(m_ProcessorInformation))
+    return *information;
 #endif
 
   uint8_t apicId = pc.getLocalApic().getId();
