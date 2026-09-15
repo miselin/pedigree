@@ -60,6 +60,11 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
     }
 
     const size_t serviceNumber = syscallState.getSyscallService();
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+    if (fromUserspace && serviceNumber == linuxCompat) {
+      tracker.attributeSyscall(syscallState.getSyscallNumber());
+    }
+#endif
     bool handled = false;
     PostSyscallAction action;
     if (LIKELY(serviceNumber < serviceEnd)) {

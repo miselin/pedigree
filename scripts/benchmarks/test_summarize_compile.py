@@ -60,6 +60,25 @@ class ActivityDiagnosticsTest(unittest.TestCase):
         self.assertEqual(user_entry["capture_tsc_buckets"][7], 4)
         self.assertEqual(user_entry["empty_tsc_samples"], 8)
 
+    def test_syscall_timing_is_sorted_and_accounted(self):
+        metric = {
+            "system_us": 1000,
+            "syscall_timing_calls": 5,
+            "syscall_timing_kernel_ns": 400000,
+            "sc0_calls": 4,
+            "sc0_kernel_ns": 100000,
+            "sc9_calls": 1,
+            "sc9_kernel_ns": 300000,
+        }
+
+        timing = SUMMARY.syscall_timing(metric)
+
+        self.assertEqual(timing["calls"], 5)
+        self.assertEqual(timing["kernel_ns"], 400000)
+        self.assertEqual(timing["system_percent"], 40)
+        self.assertEqual([entry["name"] for entry in timing["entries"]], ["mmap", "read"])
+        self.assertEqual(timing["entries"][0]["kernel_ns_per_call"], 300000)
+
 
 if __name__ == "__main__":
     unittest.main()

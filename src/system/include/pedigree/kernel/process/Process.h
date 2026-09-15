@@ -276,6 +276,43 @@ class EXPORTED_PUBLIC Process {
   }
 #endif
 
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  static constexpr size_t SyscallTimingRawSlotCount = 512;
+  static constexpr size_t SyscallTimingOverflowSlot = SyscallTimingRawSlotCount;
+  static constexpr size_t SyscallTimingSlotCount = SyscallTimingRawSlotCount + 1;
+
+  struct SyscallTimingEntry {
+    uint64_t calls;
+    uint64_t kernelNanoseconds;
+  };
+
+  static size_t syscallTimingSlot(size_t rawNumber) {
+    return rawNumber < SyscallTimingRawSlotCount ? rawNumber : SyscallTimingOverflowSlot;
+  }
+
+  void setBenchmarkSyscallTiming(bool enabled) {
+    __atomic_store_n(&m_BenchmarkSyscallTiming, enabled, __ATOMIC_RELEASE);
+  }
+
+  bool benchmarkSyscallTimingEnabled() const {
+    return __atomic_load_n(&m_BenchmarkSyscallTiming, __ATOMIC_ACQUIRE);
+  }
+
+  void recordSyscallTimingCall(size_t slot) {
+    __atomic_fetch_add(&m_SyscallTimingCalls[slot], static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+  }
+
+  void recordSyscallTimingKernel(size_t slot, Time::Timestamp elapsed) {
+    __atomic_fetch_add(&m_SyscallTimingKernelNanoseconds[slot], elapsed, __ATOMIC_RELAXED);
+  }
+
+  void getSyscallTimingEntry(size_t slot, SyscallTimingEntry& result) const {
+    result.calls = __atomic_load_n(&m_SyscallTimingCalls[slot], __ATOMIC_ACQUIRE);
+    result.kernelNanoseconds =
+        __atomic_load_n(&m_SyscallTimingKernelNanoseconds[slot], __ATOMIC_ACQUIRE);
+  }
+#endif
+
   /** Default constructor. */
   Process();
 
@@ -864,6 +901,12 @@ class EXPORTED_PUBLIC Process {
 
 #if PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
   size_t m_BenchmarkUserReturnAblation = 0;
+#endif
+
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  bool m_BenchmarkSyscallTiming = false;
+  uint64_t m_SyscallTimingCalls[SyscallTimingSlotCount] = {};
+  uint64_t m_SyscallTimingKernelNanoseconds[SyscallTimingSlotCount] = {};
 #endif
 
   /** Current user. */

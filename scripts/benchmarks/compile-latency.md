@@ -125,6 +125,23 @@ not supported kernel configurations. A primary timing A/B should disable
 activity diagnostics; use an instrumented smoke run when exact eligible, fast,
 and fallback counts are needed.
 
+For per-syscall accounted kernel time, configure
+`-DPEDIGREE_BENCHMARK_SYSCALL_TIMING=TRUE` and add an empty `time-syscalls`
+marker to the benchmark root. The driver enables attribution only in each
+post-fork command child; compiler descendants inherit it across fork and exec.
+The benchmark parent remains disabled and snapshots the aggregate after it has
+reaped the command child.
+
+This diagnostic reuses the CPU-accounting samples already taken at syscall and
+scheduler boundaries. It adds no clock reads and excludes time that a syscall
+spends descheduled. Metrics contain `scN_calls` and `scN_kernel_ns` for each
+nonzero raw Linux amd64 syscall number, with slot 512 collecting numbers outside
+0 through 511. `syscall_timing_kernel_ns` must not exceed `system_us * 1000`;
+the remainder includes user page faults, interrupts, process setup and teardown,
+and return work outside the architecture syscall tracker. Disable the existing
+`PEDIGREE_SYSCALL_COUNTER` latency histogram in this arm because that diagnostic
+adds two separate clock reads to every syscall.
+
 ## Run and compare
 
 For a short run with `quick-run`, `link-cxx`, and `no-sync` installed:

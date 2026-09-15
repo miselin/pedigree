@@ -344,6 +344,18 @@ class EXPORTED_PUBLIC Thread {
   /** Current accounting owner; never used to classify interrupt origin. */
   CpuTimeMode currentTimeAccountingMode() const;
 
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  static constexpr size_t NoSyscallTimingSlot = ~static_cast<size_t>(0);
+
+  size_t installSyscallTimingSlot(size_t slot) {
+    return __atomic_exchange_n(&m_ActiveSyscallTimingSlot, slot, __ATOMIC_ACQ_REL);
+  }
+
+  void restoreSyscallTimingSlot(size_t slot) {
+    __atomic_store_n(&m_ActiveSyscallTimingSlot, slot, __ATOMIC_RELEASE);
+  }
+#endif
+
   /** Gets CPU time charged specifically to this Thread. */
   Time::Timestamp getUserTime() const {
     return __atomic_load_n(&m_UserTime, __ATOMIC_ACQUIRE);
@@ -1096,6 +1108,10 @@ class EXPORTED_PUBLIC Thread {
 
   /** Mode owning time since the most recent accounting baseline. */
   size_t m_CurrentTimeAccountingMode = static_cast<size_t>(CpuTimeMode::Kernel);
+
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  size_t m_ActiveSyscallTimingSlot = NoSyscallTimingSlot;
+#endif
 
   /** The stack that we allocated from the VMM. This may or may not also be
       the kernel stack - depends on whether we are a user or kernel mode

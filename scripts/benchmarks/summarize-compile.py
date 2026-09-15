@@ -59,6 +59,51 @@ def syscall_latency_buckets(metric):
     return [metric.get(f"syscall_h{index}", 0) for index in range(16)]
 
 
+LINUX_AMD64_SYSCALL_NAMES = {
+    0: "read", 1: "write", 2: "open", 3: "close", 4: "stat", 5: "fstat",
+    6: "lstat", 7: "poll", 8: "lseek", 9: "mmap", 10: "mprotect",
+    11: "munmap", 12: "brk", 13: "rt_sigaction", 14: "rt_sigprocmask",
+    16: "ioctl", 17: "pread64", 19: "readv", 20: "writev", 21: "access",
+    25: "mremap", 39: "getpid", 56: "clone",
+    57: "fork", 58: "vfork", 59: "execve", 60: "exit", 61: "wait4",
+    63: "uname", 72: "fcntl", 78: "getdents", 79: "getcwd", 80: "chdir",
+    87: "unlink", 89: "readlink", 96: "gettimeofday", 97: "getrlimit",
+    98: "getrusage",
+    158: "arch_prctl", 186: "gettid", 202: "futex", 217: "getdents64",
+    218: "set_tid_address", 228: "clock_gettime", 231: "exit_group",
+    257: "openat", 262: "newfstatat", 267: "readlinkat", 273: "set_robust_list",
+    293: "pipe2", 302: "prlimit64", 318: "getrandom", 512: "overflow",
+}
+
+
+def syscall_timing(metric):
+    if "syscall_timing_calls" not in metric:
+        return None
+    entries = []
+    for key, calls in metric.items():
+        match = re.fullmatch(r"sc(\d+)_calls", key)
+        if not match:
+            continue
+        number = int(match[1])
+        kernel_nanoseconds = metric.get(f"sc{number}_kernel_ns", 0)
+        entries.append({
+            "number": number,
+            "name": LINUX_AMD64_SYSCALL_NAMES.get(number),
+            "calls": calls,
+            "kernel_ns": kernel_nanoseconds,
+            "kernel_ns_per_call": kernel_nanoseconds / calls if calls else None,
+        })
+    entries.sort(key=lambda item: item["kernel_ns"], reverse=True)
+    system_nanoseconds = metric.get("system_us", 0) * 1000
+    attributed = metric["syscall_timing_kernel_ns"]
+    return {
+        "calls": metric["syscall_timing_calls"],
+        "kernel_ns": attributed,
+        "system_percent": 100 * attributed / system_nanoseconds if system_nanoseconds else None,
+        "entries": entries,
+    }
+
+
 USER_RETURN_STAGES = (
     "interrupt_tail", "syscall_tail", "interrupt_work", "syscall_work",
     "checkpoint", "process_stop", "deferred_fault", "event",
@@ -503,6 +548,7 @@ def summarize(args):
                         "system_s": metric.get("system_us", 0) / 1e6,
                         "syscalls": metric.get("syscalls"),
                         "syscall_latency_buckets": syscall_latency_buckets(metric),
+                        "syscall_timing": syscall_timing(metric),
                         "activity": activity_diagnostics(metric),
                         "rc": metric.get("rc"), "disk": disk,
                         "irq": irq_delta(phase.get("irq_before", ""), phase.get("irq_after", ""), seconds)}
@@ -515,6 +561,7 @@ def summarize(args):
                                 "system_s": metric["system_us"] / 1e6,
                                 "syscalls": metric.get("syscalls"),
                                 "syscall_latency_buckets": syscall_latency_buckets(metric),
+                                "syscall_timing": syscall_timing(metric),
                                 "activity": activity_diagnostics(metric),
                                 "rc": metric["rc"]}
     for name, profile in profiles.items():

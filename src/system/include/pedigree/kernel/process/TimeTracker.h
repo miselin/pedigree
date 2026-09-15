@@ -20,6 +20,9 @@
 #ifndef _PROCESS_TIME_TRACKER_H
 #define _PROCESS_TIME_TRACKER_H
 
+#include <config.h>
+#include <stddef.h>
+
 class Process;
 class Thread;
 
@@ -40,10 +43,17 @@ class TimeTracker {
   /** Completes accounting before restoring a saved kernel continuation. */
   void finishInKernel();
 
+  /** Attributes this userspace Linux syscall to the active Process. */
+  void attributeSyscall(size_t rawNumber);
+
  private:
   Process* m_pProcess;
   Thread* m_pThread;
   bool m_bFromUserspace;
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  bool m_bSyscallAttributed;
+  size_t m_PreviousSyscallTimingSlot;
+#endif
 };
 
 #endif

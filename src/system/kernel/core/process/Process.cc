@@ -557,6 +557,9 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
   m_BenchmarkUserReturnAblation =
       __atomic_load_n(&pParent->m_BenchmarkUserReturnAblation, __ATOMIC_ACQUIRE);
 #endif
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  m_BenchmarkSyscallTiming = __atomic_load_n(&pParent->m_BenchmarkSyscallTiming, __ATOMIC_ACQUIRE);
+#endif
 
   m_pAddressSpace = emptyAddressSpace ? VirtualAddressSpace::create()
                                       : pParent->m_pAddressSpace->clone(bCopyOnWrite);
@@ -756,6 +759,15 @@ void Process::accountReapedChild(const Process* child, Time::Timestamp& user,
   for (size_t i = 0; i < SyscallLatencyBucketCount; ++i) {
     __atomic_fetch_add(&m_Metadata.reapedChildrenSyscallLatencyBuckets[i], latency.buckets[i],
                        __ATOMIC_RELAXED);
+  }
+#endif
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  for (size_t i = 0; i < SyscallTimingSlotCount; ++i) {
+    const uint64_t calls = __atomic_load_n(&child->m_SyscallTimingCalls[i], __ATOMIC_ACQUIRE);
+    const uint64_t kernelNanoseconds =
+        __atomic_load_n(&child->m_SyscallTimingKernelNanoseconds[i], __ATOMIC_ACQUIRE);
+    __atomic_fetch_add(&m_SyscallTimingCalls[i], calls, __ATOMIC_RELAXED);
+    __atomic_fetch_add(&m_SyscallTimingKernelNanoseconds[i], kernelNanoseconds, __ATOMIC_RELAXED);
   }
 #endif
 }

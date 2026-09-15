@@ -162,6 +162,11 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     Processor::setInterrupts(true);
 
     size_t serviceNumber = syscallState.getSyscallService();
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+    if (serviceNumber == linuxCompat) {
+      tracker.attributeSyscall(syscallState.getSyscallNumber());
+    }
+#endif
     bool handled = false;
     PostSyscallAction action;
     if (LIKELY(serviceNumber < serviceEnd)) {

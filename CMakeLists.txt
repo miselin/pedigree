@@ -138,11 +138,16 @@ set(PEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA FALSE CACHE BOOL
     "Benchmark only: bypass x64 user-entry metadata capture and restore.")
 set(PEDIGREE_BENCHMARK_USER_RETURN_ABLATION FALSE CACHE BOOL
     "Benchmark only: allow selected processes to bypass idle user-return policy work.")
+set(PEDIGREE_BENCHMARK_SYSCALL_TIMING FALSE CACHE BOOL
+    "Attribute existing CPU-accounting intervals to benchmark process syscalls.")
 set(PEDIGREE_READY_QUEUE_COUNTS TRUE CACHE BOOL "Maintain ready-queue counts to bound scheduler selection scans.")
 set(PEDIGREE_TIME_ACCOUNTING TRUE CACHE BOOL "Collect per-thread and per-process CPU-time accounting.")
 set(PEDIGREE_SCHEDULER_TICK_DIVISOR 1 CACHE STRING "Schedule once per this many scheduler timer ticks.")
 if (PEDIGREE_SCHEDULER_TICK_DIVISOR LESS 1)
     message(FATAL_ERROR "PEDIGREE_SCHEDULER_TICK_DIVISOR must be at least 1")
+endif ()
+if (PEDIGREE_BENCHMARK_SYSCALL_TIMING AND NOT PEDIGREE_TIME_ACCOUNTING)
+    message(FATAL_ERROR "PEDIGREE_BENCHMARK_SYSCALL_TIMING requires PEDIGREE_TIME_ACCOUNTING")
 endif ()
 
 # init configuration

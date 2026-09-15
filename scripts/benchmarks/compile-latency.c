@@ -43,8 +43,11 @@ static uint64_t timeval_us(struct timeval t) {
 #define ACTIVITY_USER_ENTRY_SAMPLE_PERIOD 256
 #define BENCHMARK_ABLATE_INTERRUPT_RETURN 1
 #define BENCHMARK_ABLATE_SYSCALL_RETURN 2
+#define SYSCALL_TIMING_RAW_SLOT_COUNT 512
+#define SYSCALL_TIMING_SLOT_COUNT (SYSCALL_TIMING_RAW_SLOT_COUNT + 1)
 
 static unsigned benchmark_user_return_ablation;
+static int benchmark_syscall_timing;
 
 static const char* activity_user_return_stage_names[] = {
     "interrupt_tail",     "syscall_tail",     "interrupt_work",       "syscall_work",
@@ -119,6 +122,18 @@ struct activity_snapshot {
 _Static_assert(sizeof(struct activity_snapshot) == 689 * sizeof(uint64_t),
                "activity snapshot layout must match the kernel ABI");
 
+struct syscall_timing_entry {
+  uint64_t calls;
+  uint64_t kernel_nanoseconds;
+};
+
+struct syscall_timing_snapshot {
+  struct syscall_timing_entry slots[SYSCALL_TIMING_SLOT_COUNT];
+};
+
+_Static_assert(sizeof(struct syscall_timing_snapshot) == 1026 * sizeof(uint64_t),
+               "syscall timing snapshot layout must match the kernel ABI");
+
 static int reaped_child_syscall_count(uint64_t* count) {
   uint64_t result = 0;
   long status = syscall(SYS_syslog, 11, &result, sizeof(result));
@@ -157,6 +172,26 @@ static int activity_delta(const struct activity_snapshot* before,
   return 1;
 }
 
+static int syscall_timing_snapshot(struct syscall_timing_snapshot* result) {
+  long status = syscall(SYS_syslog, 16, result, sizeof(*result));
+  return status == (long)sizeof(*result);
+}
+
+static int syscall_timing_delta(const struct syscall_timing_snapshot* before,
+                                const struct syscall_timing_snapshot* after,
+                                struct syscall_timing_snapshot* result) {
+  for (size_t i = 0; i < SYSCALL_TIMING_SLOT_COUNT; ++i) {
+    if (after->slots[i].calls < before->slots[i].calls ||
+        after->slots[i].kernel_nanoseconds < before->slots[i].kernel_nanoseconds) {
+      return 0;
+    }
+    result->slots[i].calls = after->slots[i].calls - before->slots[i].calls;
+    result->slots[i].kernel_nanoseconds =
+        after->slots[i].kernel_nanoseconds - before->slots[i].kernel_nanoseconds;
+  }
+  return 1;
+}
+
 static void gate(const char* phase) {
   printf("COMPILEBENCH READY phase=%s\n", phase);
   for (;;) {
@@ -184,24 +219,39 @@ static void gate(const char* phase) {
 
 static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
                    const struct rusage* usage, uint64_t checksum, int have_syscalls,
-                   uint64_t syscalls, int have_syscall_latency,
-                   const uint64_t* syscall_latency, int have_activity,
-                   const struct activity_snapshot* activity) {
+                   uint64_t syscalls, int have_syscall_latency, const uint64_t* syscall_latency,
+                   int have_syscall_timing, const struct syscall_timing_snapshot* syscall_timing,
+                   int have_activity, const struct activity_snapshot* activity) {
   printf(
       "COMPILEBENCH metric phase=%s total_us=%llu rc=%d user_us=%llu system_us=%llu "
       "minor_faults=%ld major_faults=%ld in_blocks=%ld out_blocks=%ld "
       "voluntary_switches=%ld involuntary_switches=%ld checksum=%llu "
-      "benchmark_user_return_ablation=%u",
+      "benchmark_user_return_ablation=%u benchmark_syscall_timing=%d",
       phase, (unsigned long long)((end - start) / 1000), rc,
       (unsigned long long)timeval_us(usage->ru_utime),
       (unsigned long long)timeval_us(usage->ru_stime), usage->ru_minflt, usage->ru_majflt,
       usage->ru_inblock, usage->ru_oublock, usage->ru_nvcsw, usage->ru_nivcsw,
-      (unsigned long long)checksum, benchmark_user_return_ablation);
+      (unsigned long long)checksum, benchmark_user_return_ablation, benchmark_syscall_timing);
   if (have_syscalls)
     printf(" syscalls=%llu", (unsigned long long)syscalls);
   if (have_syscall_latency) {
     for (unsigned i = 0; i < SYSCALL_LATENCY_BUCKET_COUNT; ++i)
       printf(" syscall_h%u=%llu", i, (unsigned long long)syscall_latency[i]);
+  }
+  if (have_syscall_timing) {
+    uint64_t calls = 0;
+    uint64_t kernel_nanoseconds = 0;
+    for (unsigned i = 0; i < SYSCALL_TIMING_SLOT_COUNT; ++i) {
+      calls += syscall_timing->slots[i].calls;
+      kernel_nanoseconds += syscall_timing->slots[i].kernel_nanoseconds;
+      if (syscall_timing->slots[i].calls || syscall_timing->slots[i].kernel_nanoseconds) {
+        printf(" sc%u_calls=%llu sc%u_kernel_ns=%llu", i,
+               (unsigned long long)syscall_timing->slots[i].calls, i,
+               (unsigned long long)syscall_timing->slots[i].kernel_nanoseconds);
+      }
+    }
+    printf(" syscall_timing_calls=%llu syscall_timing_kernel_ns=%llu", (unsigned long long)calls,
+           (unsigned long long)kernel_nanoseconds);
   }
   if (have_activity) {
     printf(
@@ -333,7 +383,7 @@ static void own_metric(const char* phase, uint64_t start, uint64_t end, const st
   struct activity_snapshot after_activity = {0}, activity = {0};
   int have_activity = before_activity && activity_snapshot(&after_activity) &&
                       activity_delta(before_activity, &after_activity, &activity);
-  metric(phase, start, end, 0, &after, checksum, 0, 0, 0, NULL, have_activity, &activity);
+  metric(phase, start, end, 0, &after, checksum, 0, 0, 0, NULL, 0, NULL, have_activity, &activity);
 }
 
 static int command(const char* phase, char* const args[], int permit_failure) {
@@ -348,6 +398,8 @@ static int command(const char* phase, char* const args[], int permit_failure) {
   int have_before_latency = reaped_child_syscall_latency(before_latency);
   struct activity_snapshot before_activity = {0};
   int have_before_activity = activity_snapshot(&before_activity);
+  struct syscall_timing_snapshot before_syscall_timing = {0};
+  int have_before_syscall_timing = syscall_timing_snapshot(&before_syscall_timing);
   uint64_t start = now_ns();
   pid_t child = fork();
   if (child < 0)
@@ -357,6 +409,10 @@ static int command(const char* phase, char* const args[], int permit_failure) {
         syscall(SYS_syslog, 14, NULL, benchmark_user_return_ablation)) {
       dprintf(STDERR_FILENO, "COMPILEBENCH child ablation setup failed errno=%d\n", errno);
       _exit(124);
+    }
+    if (benchmark_syscall_timing && syscall(SYS_syslog, 15, NULL, 1)) {
+      dprintf(STDERR_FILENO, "COMPILEBENCH child syscall timing setup failed errno=%d\n", errno);
+      _exit(123);
     }
     int null_fd = open("/dev/null", O_RDONLY);
     if (null_fd < 0 || dup2(null_fd, STDIN_FILENO) < 0)
@@ -409,8 +465,13 @@ static int command(const char* phase, char* const args[], int permit_failure) {
   int have_after_activity = activity_snapshot(&after_activity);
   int have_activity = have_before_activity && have_after_activity &&
                       activity_delta(&before_activity, &after_activity, &activity);
+  struct syscall_timing_snapshot after_syscall_timing = {0}, syscall_timing = {0};
+  int have_after_syscall_timing = syscall_timing_snapshot(&after_syscall_timing);
+  int have_syscall_timing =
+      have_before_syscall_timing && have_after_syscall_timing &&
+      syscall_timing_delta(&before_syscall_timing, &after_syscall_timing, &syscall_timing);
   metric(phase, start, end, rc, &usage, 0, have_syscalls, syscalls, have_latency, latency,
-         have_activity, &activity);
+         have_syscall_timing, &syscall_timing, have_activity, &activity);
   if (rc && !permit_failure)
     fail(phase);
   return rc;
@@ -552,9 +613,12 @@ int main(void) {
     benchmark_user_return_ablation |= BENCHMARK_ABLATE_INTERRUPT_RETURN;
   if (!access("ablate-syscall-return", F_OK))
     benchmark_user_return_ablation |= BENCHMARK_ABLATE_SYSCALL_RETURN;
+  benchmark_syscall_timing = !access("time-syscalls", F_OK);
   printf("COMPILEBENCH BEGIN\n");
-  printf("COMPILEBENCH configuration benchmark_user_return_ablation=%u\n",
-         benchmark_user_return_ablation);
+  printf(
+      "COMPILEBENCH configuration benchmark_user_return_ablation=%u "
+      "benchmark_syscall_timing=%d\n",
+      benchmark_user_return_ablation, benchmark_syscall_timing);
   static char kernel_log[256 * 1024];
   long log_size = syscall(SYS_syslog, 3, kernel_log, sizeof(kernel_log) - 1);
   if (log_size > 0) {

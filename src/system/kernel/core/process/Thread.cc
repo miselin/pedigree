@@ -417,6 +417,14 @@ void Thread::transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to) {
 void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
   Time::Timestamp* total = mode == CpuTimeMode::User ? &m_UserTime : &m_KernelTime;
   __atomic_fetch_add(total, elapsed, __ATOMIC_RELAXED);
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  if (mode == CpuTimeMode::Kernel) {
+    const size_t slot = __atomic_load_n(&m_ActiveSyscallTimingSlot, __ATOMIC_ACQUIRE);
+    if (slot != NoSyscallTimingSlot) {
+      m_pParent->recordSyscallTimingKernel(slot, elapsed);
+    }
+  }
+#endif
   m_pParent->publishTimeAccounting(mode, elapsed);
 }
 

@@ -1207,6 +1207,35 @@ int posix_linux_syslog(int type, char* buf, int len) {
       return 0;
     }
 #endif
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+    case 15: {
+      if (buf || (len != 0 && len != 1)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      process->setBenchmarkSyscallTiming(len != 0);
+      return 0;
+    }
+    case 16: {
+      constexpr size_t snapshotSize =
+          Process::SyscallTimingSlotCount * sizeof(Process::SyscallTimingEntry);
+      if (len != static_cast<int>(snapshotSize)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      for (size_t i = 0; i < Process::SyscallTimingSlotCount; ++i) {
+        Process::SyscallTimingEntry entry = {};
+        process->getSyscallTimingEntry(i, entry);
+        if (!PosixSubsystem::copyToUser(buf + i * sizeof(entry), &entry, sizeof(entry))) {
+          SYSCALL_ERROR(BadAddress);
+          return -1;
+        }
+      }
+      return static_cast<int>(snapshotSize);
+    }
+#endif
     case 2:
     case 4:
     case 5:
