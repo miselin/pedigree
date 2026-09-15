@@ -1101,6 +1101,7 @@ ssize_t posix_pwrite64(int fd, const char* ptr, size_t len, off_t offset) {
 
 enum class VectorPayloadValidation {
   Full,
+  AddressRange,
   CommitTime,
   BenchmarkEligible,
 };
@@ -1129,13 +1130,14 @@ static bool snapshotIoVectors(
   }
 
   bool validatePayload = payloadValidation != VectorPayloadValidation::CommitTime;
+  bool rangeOnly = payloadValidation == VectorPayloadValidation::AddressRange;
 #if PEDIGREE_BENCHMARK_VM_ABLATIONS
   Process* process = Processor::information().getCurrentThread()->getParent();
   const bool skipPayloadValidation =
       payloadValidation == VectorPayloadValidation::BenchmarkEligible &&
       process->benchmarkVmAblationEnabled(Process::AblateVectorPayloadValidation);
   if (skipPayloadValidation) {
-    validatePayload = false;
+    rangeOnly = true;
   }
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
   size_t skippedPayloadChecks = 0;
@@ -1152,11 +1154,15 @@ static bool snapshotIoVectors(
       ++skippedPayloadChecks;
     }
 #endif
-    if (vectors[i].iov_len && validatePayload &&
-        !PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(vectors[i].iov_base),
-                                         vectors[i].iov_len, 1, access)) {
-      SYSCALL_ERROR(BadAddress);
-      return false;
+    if (vectors[i].iov_len && validatePayload) {
+      const uintptr_t base = reinterpret_cast<uintptr_t>(vectors[i].iov_base);
+      const bool valid = rangeOnly
+                             ? PosixSubsystem::checkUserAddressRange(base, vectors[i].iov_len, 1)
+                             : PosixSubsystem::checkUserBuffer(base, vectors[i].iov_len, 1, access);
+      if (!valid) {
+        SYSCALL_ERROR(BadAddress);
+        return false;
+      }
     }
     totalLength += vectors[i].iov_len;
   }
@@ -1276,14 +1282,6 @@ static bool scatterEventFdValue(const struct iovec* vectors, int vectorCount, ui
 static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppressAppend) {
   F_NOTICE("writev(" << fd << ", <iov>, " << iovcnt << ")");
 
-  UniqueArray<struct iovec> vectorOwner;
-  size_t totalLength = 0;
-  if (!snapshotIoVectors(iov, iovcnt, true, vectorOwner, totalLength,
-                         VectorPayloadValidation::BenchmarkEligible)) {
-    return -1;
-  }
-  struct iovec* vectors = vectorOwner.get();
-
   Thread* thread = Processor::information().getCurrentThread();
   PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(thread->getParent()->getSubsystem());
   if (!subsystem) {
@@ -1300,6 +1298,18 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
+
+  const VectorPayloadValidation payloadValidation =
+      descriptor->getFile() && descriptor->getFile()->isSeekable()
+          ? VectorPayloadValidation::AddressRange
+          : VectorPayloadValidation::BenchmarkEligible;
+  UniqueArray<struct iovec> vectorOwner;
+  size_t totalLength = 0;
+  if (!snapshotIoVectors(iov, iovcnt, true, vectorOwner, totalLength, payloadValidation)) {
+    return -1;
+  }
+  struct iovec* vectors = vectorOwner.get();
+
   if (!iovcnt) {
     return 0;
   }
@@ -1501,14 +1511,16 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
   auto timerFd = descriptor->getTimerFdImpl();
   auto signalFd = descriptor->getSignalFdImpl();
   auto fanotify = descriptor->getFanotifyImpl();
+  const VectorPayloadValidation payloadValidation =
+      timerFd || signalFd || fanotify ? VectorPayloadValidation::CommitTime
+      : descriptor->getFile() && descriptor->getFile()->isSeekable()
+          ? VectorPayloadValidation::AddressRange
+          : VectorPayloadValidation::BenchmarkEligible;
   UniqueArray<struct iovec> vectorOwner;
   size_t totalLength = 0;
   // Record readers validate each destination at commit time. A later fault
   // must not suppress complete records copied before it.
-  if (!snapshotIoVectors(iov, iovcnt, false, vectorOwner, totalLength,
-                         timerFd || signalFd || fanotify
-                             ? VectorPayloadValidation::CommitTime
-                             : VectorPayloadValidation::BenchmarkEligible)) {
+  if (!snapshotIoVectors(iov, iovcnt, false, vectorOwner, totalLength, payloadValidation)) {
     return -1;
   }
   struct iovec* vectors = vectorOwner.get();
@@ -1755,7 +1767,8 @@ constexpr int LinuxRwfNoAppend = 0x20;
 ssize_t positionalReadVector(int fd, const struct iovec* iov, int iovcnt, off_t offset) {
   UniqueArray<struct iovec> vectorOwner;
   size_t totalLength = 0;
-  if (!snapshotIoVectors(iov, iovcnt, false, vectorOwner, totalLength)) {
+  if (!snapshotIoVectors(iov, iovcnt, false, vectorOwner, totalLength,
+                         VectorPayloadValidation::AddressRange)) {
     return -1;
   }
   if (!positionalIoRangeIsValid(offset, totalLength)) {
@@ -1875,7 +1888,8 @@ ssize_t positionalWriteVector(int fd, const struct iovec* iov, int iovcnt, off_t
                               bool honorAppend) {
   UniqueArray<struct iovec> vectorOwner;
   size_t totalLength = 0;
-  if (!snapshotIoVectors(iov, iovcnt, true, vectorOwner, totalLength)) {
+  if (!snapshotIoVectors(iov, iovcnt, true, vectorOwner, totalLength,
+                         VectorPayloadValidation::AddressRange)) {
     return -1;
   }
   if (!positionalIoRangeIsValid(offset, totalLength)) {

@@ -642,6 +642,27 @@ bool PosixSubsystem::checkedUserBufferSize(size_t count, size_t elementSize, siz
   return true;
 }
 
+bool PosixSubsystem::checkUserAddressRange(uintptr_t addr, size_t count, size_t elementSize,
+                                           size_t* extent) {
+  if (extent) {
+    *extent = 0;
+  }
+
+  size_t byteExtent = 0;
+  if (!checkedUserBufferSize(count, elementSize, byteExtent)) {
+    return false;
+  }
+
+  if (extent) {
+    *extent = byteExtent;
+  }
+#if POSIX_NO_EFAULT
+  return true;
+#else
+  return !byteExtent || validUserAddressRange(addr, byteExtent);
+#endif
+}
+
 bool PosixSubsystem::checkUserBuffer(uintptr_t addr, size_t count, size_t elementSize, size_t flags,
                                      size_t* extent) {
   if (extent) {

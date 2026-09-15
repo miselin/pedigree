@@ -301,6 +301,14 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   static constexpr size_t MaximumExecArgumentBytes = 131072;
 
+  /**
+   * Validate only the arithmetic and architectural userspace bounds of an
+   * array. Mapping residency and permissions are deliberately left to the
+   * eventual user copy.
+   */
+  static bool checkUserAddressRange(uintptr_t addr, size_t count, size_t elementSize,
+                                    size_t* extent = nullptr);
+
   /** Validate a userspace array after checking its size calculation. */
   static bool checkUserBuffer(uintptr_t addr, size_t count, size_t elementSize, size_t flags,
                               size_t* extent = nullptr);
