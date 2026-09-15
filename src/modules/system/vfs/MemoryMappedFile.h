@@ -724,6 +724,8 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   bool sharedBacking(Process* process, uintptr_t address, uintptr_t& identity, size_t& offset);
 
   bool faultIn(uintptr_t address, bool write);
+  /** Fault in and validate every page touched by a byte range. */
+  bool faultInRange(uintptr_t address, size_t length, bool write);
 
   enum class FaultResolution { Unhandled, Resolved, BackingFault };
   FaultResolution resolveUserFault(uintptr_t address, bool write, bool wasPresent, bool execute);
@@ -859,6 +861,9 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
                         VmStatus* status = nullptr);
   void releaseReservation(Process* process, VirtualAddressSpace& addressSpace, uintptr_t base,
                           size_t length);
+  bool faultInUnlocked(uintptr_t address, bool write, MemoryMappedObject*& selected);
+  bool handleTrapUnlocked(uintptr_t address, bool bIsWrite, bool bWasPresent, bool execute,
+                          MemoryMappedObject* selected);
   bool handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent, bool execute = false,
                   MemoryMappedObject* selected = nullptr);
 

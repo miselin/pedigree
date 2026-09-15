@@ -99,24 +99,27 @@ struct PosixSubsystem::ExecutableImage {
 };
 
 namespace {
+bool validUserAddressRange(uintptr_t address, size_t extent) {
+  if (extent - 1 > (~static_cast<uintptr_t>(0) - address)) {
+    return false;
+  }
+  const uintptr_t end = address + extent - 1;
+  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
+  return address >= va.getUserStart() && address < va.getKernelStart() &&
+         end < va.getKernelStart() && va.isAddressValid(reinterpret_cast<void*>(address)) &&
+         va.isAddressValid(reinterpret_cast<void*>(end));
+}
+
 bool prepareUserCopy(uintptr_t address, size_t extent, bool write) {
 #if POSIX_NO_EFAULT
   return true;
 #else
-  if (!PosixSubsystem::checkAddress(address, extent,
-                                    write ? PosixSubsystem::SafeWrite : PosixSubsystem::SafeRead)) {
+  // faultInRange performs the permission checks while it makes demand-paged
+  // pages resident, so a separate complete-range mapping scan is redundant.
+  if (!validUserAddressRange(address, extent)) {
     return false;
   }
-  const size_t pageSize = PhysicalMemoryManager::getPageSize();
-  const uintptr_t lastPage = (address + extent - 1) & ~(pageSize - 1);
-  for (uintptr_t page = address & ~(pageSize - 1);; page += pageSize) {
-    if (!MemoryMapManager::instance().faultIn(page, write)) {
-      return false;
-    }
-    if (page == lastPage) {
-      return true;
-    }
-  }
+  return MemoryMapManager::instance().faultInRange(address, extent, write);
 #endif
 }
 
@@ -538,21 +541,15 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags) {
   PS_NOTICE(" -> ret: " << aa);
 #endif
 
-  if (extent - 1 > (~static_cast<uintptr_t>(0) - addr)) {
-    return false;
-  }
-  uintptr_t end = addr + extent - 1;
-
   // Check the complete address range.
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-  if ((addr < va.getUserStart()) || (addr >= va.getKernelStart()) || (end >= va.getKernelStart()) ||
-      !va.isAddressValid(reinterpret_cast<void*>(addr)) ||
-      !va.isAddressValid(reinterpret_cast<void*>(end))) {
+  if (!validUserAddressRange(addr, extent)) {
 #if VERBOSE_KERNEL
     PS_NOTICE("  -> outside of user address area.");
 #endif
     return false;
   }
+  const uintptr_t end = addr + extent - 1;
 
   // Keep fallback PTE inspection stable even for callers that only validate.
   MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());

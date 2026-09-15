@@ -1309,21 +1309,32 @@ bool MemoryMapManager::sharedBacking(Process* process, uintptr_t address, uintpt
   return false;
 }
 
-bool MemoryMapManager::faultIn(uintptr_t address, bool write) {
-  OperationGuard operation(*this);
+bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write,
+                                       MemoryMappedObject*& selected) {
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-  void* page = reinterpret_cast<void*>(address & ~(PhysicalMemoryManager::getPageSize() - 1));
-  auto* objects = m_MmObjectLists.lookup(&va);
-  if (objects)
-    for (auto* object : *objects)
-      if (object->matches(address)) {
-        const auto required = write ? MemoryMappedObject::Write : MemoryMappedObject::Read;
-        if (!(object->permissions() & required) ||
-            object->prepareResidentAccess(va, reinterpret_cast<uintptr_t>(page)) !=
-                PopulationStatus::Success)
-          return false;
-        break;
-      }
+  const uintptr_t pageAddress = address & ~(PhysicalMemoryManager::getPageSize() - 1);
+  void* page = reinterpret_cast<void*>(pageAddress);
+  const bool pageAligned = address == pageAddress;
+
+  if (!selected || !selected->matches(address)) {
+    selected = nullptr;
+    auto* objects = m_MmObjectLists.lookup(&va);
+    if (objects)
+      for (auto* object : *objects)
+        if (object->matches(address)) {
+          selected = object;
+          break;
+        }
+  }
+
+  if (selected) {
+    const auto required = write ? MemoryMappedObject::Write : MemoryMappedObject::Read;
+    if (!(selected->permissions() & required) ||
+        selected->prepareResidentAccess(va, reinterpret_cast<uintptr_t>(page)) !=
+            PopulationStatus::Success)
+      return false;
+  }
+
   const bool present = va.isMapped(page);
   if (present) {
     physical_uintptr_t physical;
@@ -1341,7 +1352,39 @@ bool MemoryMapManager::faultIn(uintptr_t address, bool write) {
       return va.handleCopyOnWriteFault(page, true);
     }
   }
-  return handleTrap(address, write, present);
+
+  // A page-aligned range keeps the selected object aligned with handleTrap's
+  // own mapping lookup. Preserve the old fallback for unaligned direct calls.
+  MemoryMappedObject* trapObject = pageAligned ? selected : nullptr;
+  return handleTrapUnlocked(address, write, present, false, trapObject);
+}
+
+bool MemoryMapManager::faultIn(uintptr_t address, bool write) {
+  OperationGuard operation(*this);
+  MemoryMappedObject* selected = nullptr;
+  return faultInUnlocked(address, write, selected);
+}
+
+bool MemoryMapManager::faultInRange(uintptr_t address, size_t length, bool write) {
+  if (!length) {
+    return true;
+  }
+  if (length - 1 > (~static_cast<uintptr_t>(0) - address)) {
+    return false;
+  }
+
+  OperationGuard operation(*this);
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const uintptr_t lastPage = (address + length - 1) & ~(pageSize - 1);
+  MemoryMappedObject* selected = nullptr;
+  for (uintptr_t page = address & ~(pageSize - 1);; page += pageSize) {
+    if (!faultInUnlocked(page, write, selected)) {
+      return false;
+    }
+    if (page == lastPage) {
+      return true;
+    }
+  }
 }
 
 MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t address, bool write,
@@ -1374,7 +1417,7 @@ MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t a
     return FaultResolution::Unhandled;
   if (selected->beyondBackingEnd(pageAddress))
     return FaultResolution::BackingFault;
-  if (!handleTrap(address, write, wasPresent, execute, selected))
+  if (!handleTrapUnlocked(address, write, wasPresent, execute, selected))
     return FaultResolution::Unhandled;
   void* page = reinterpret_cast<void*>(pageAddress);
   if (!space.isMapped(page))
@@ -1449,6 +1492,14 @@ bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPre
   // be in a minefield (can't touch *any* trap pages in userspace).
   Uninterruptible while_trapping;
   OperationGuard operation(*this);
+
+  return handleTrapUnlocked(address, bIsWrite, bWasPresent, execute, selected);
+}
+
+bool MemoryMapManager::handleTrapUnlocked(uintptr_t address, bool bIsWrite, bool bWasPresent,
+                                          bool execute, MemoryMappedObject* selected) {
+  // Callers already own OperationGuard, so do not re-enter the event and
+  // lifetime deferral scopes for every page fault in a user copy.
 
 #ifdef DEBUG_MMOBJECTS
   NOTICE("Trap start: " << Hex << address << ", pid:tid " << Dec
