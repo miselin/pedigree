@@ -49,6 +49,22 @@ uint64_t g_IdleHaltEntries = 0;
 uint64_t g_FramebufferFlips = 0;
 uint64_t g_FramebufferCells = 0;
 uint64_t g_FramebufferDurationBuckets[DurationBucketCount] = {};
+uint64_t g_UserReturnStageSamples[UserReturnStageCount] = {};
+uint64_t g_UserReturnStageTotalNanoseconds[UserReturnStageCount] = {};
+uint64_t g_UserReturnStageDurationBuckets[UserReturnStageCount][DurationBucketCount] = {};
+uint64_t g_UserReturnFaultHandledSamples = 0;
+uint64_t g_UserReturnFaultFallbackSamples = 0;
+uint64_t g_UserReturnInterruptAffinityWaitedSamples = 0;
+uint64_t g_UserReturnSyscallAffinityWaitedSamples = 0;
+uint64_t g_UserEntryCaptureSamples = 0;
+uint64_t g_UserEntryRestoreSamples = 0;
+uint64_t g_UserEntryCaptureTscTotal = 0;
+uint64_t g_UserEntryRestoreTscTotal = 0;
+uint64_t g_UserEntryEmptyTscSamples = 0;
+uint64_t g_UserEntryEmptyTscTotal = 0;
+uint64_t g_UserEntryCaptureTscBuckets[DurationBucketCount] = {};
+uint64_t g_UserEntryRestoreTscBuckets[DurationBucketCount] = {};
+uint64_t g_UserEntryEmptyTscBuckets[DurationBucketCount] = {};
 
 size_t durationBucket(uint64_t duration) {
   size_t bucket = 0;
@@ -65,11 +81,31 @@ void recordDuration(uint64_t* buckets, uint64_t duration) {
                      __ATOMIC_RELAXED);
 }
 
+size_t tscDurationBucket(uint64_t duration) {
+  size_t bucket = 0;
+  uint64_t limit = 64;
+  while (bucket + 1 < DurationBucketCount && duration >= limit) {
+    ++bucket;
+    limit <<= 1;
+  }
+  return bucket;
+}
+
+void recordTscDuration(uint64_t* buckets, uint64_t duration) {
+  __atomic_fetch_add(&buckets[tscDurationBucket(duration)], static_cast<uint64_t>(1),
+                     __ATOMIC_RELAXED);
+}
+
 uint64_t load(const uint64_t& value) {
   return __atomic_load_n(&value, __ATOMIC_ACQUIRE);
 }
 
 }  // namespace
+
+#if PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS
+extern "C" uint64_t pedigree_user_entry_capture_calls;
+extern "C" uint64_t pedigree_user_entry_restore_calls;
+#endif
 
 uint64_t timestamp() {
   return Time::getTicks();
@@ -117,6 +153,37 @@ void snapshot(Snapshot& result) {
   result.framebufferCells = load(g_FramebufferCells);
   for (size_t i = 0; i < DurationBucketCount; ++i)
     result.framebufferDurationBuckets[i] = load(g_FramebufferDurationBuckets[i]);
+  for (size_t stage = 0; stage < UserReturnStageCount; ++stage) {
+    result.userReturnStageSamples[stage] = load(g_UserReturnStageSamples[stage]);
+    result.userReturnStageTotalNanoseconds[stage] = load(g_UserReturnStageTotalNanoseconds[stage]);
+    for (size_t i = 0; i < DurationBucketCount; ++i) {
+      result.userReturnStageDurationBuckets[stage][i] =
+          load(g_UserReturnStageDurationBuckets[stage][i]);
+    }
+  }
+  result.userReturnFaultHandledSamples = load(g_UserReturnFaultHandledSamples);
+  result.userReturnFaultFallbackSamples = load(g_UserReturnFaultFallbackSamples);
+  result.userReturnInterruptAffinityWaitedSamples =
+      load(g_UserReturnInterruptAffinityWaitedSamples);
+  result.userReturnSyscallAffinityWaitedSamples = load(g_UserReturnSyscallAffinityWaitedSamples);
+#if PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS
+  result.userEntryCaptureCalls = pedigree_user_entry_capture_calls;
+  result.userEntryRestoreCalls = pedigree_user_entry_restore_calls;
+#else
+  result.userEntryCaptureCalls = 0;
+  result.userEntryRestoreCalls = 0;
+#endif
+  result.userEntryCaptureSamples = load(g_UserEntryCaptureSamples);
+  result.userEntryRestoreSamples = load(g_UserEntryRestoreSamples);
+  result.userEntryCaptureTscTotal = load(g_UserEntryCaptureTscTotal);
+  result.userEntryRestoreTscTotal = load(g_UserEntryRestoreTscTotal);
+  result.userEntryEmptyTscSamples = load(g_UserEntryEmptyTscSamples);
+  result.userEntryEmptyTscTotal = load(g_UserEntryEmptyTscTotal);
+  for (size_t i = 0; i < DurationBucketCount; ++i) {
+    result.userEntryCaptureTscBuckets[i] = load(g_UserEntryCaptureTscBuckets[i]);
+    result.userEntryRestoreTscBuckets[i] = load(g_UserEntryRestoreTscBuckets[i]);
+    result.userEntryEmptyTscBuckets[i] = load(g_UserEntryEmptyTscBuckets[i]);
+  }
 }
 
 void recordInterruptEntry(size_t vector) {
@@ -232,6 +299,47 @@ void recordFramebufferFlip(size_t cells, uint64_t duration) {
   __atomic_fetch_add(&g_FramebufferCells, static_cast<uint64_t>(cells), __ATOMIC_RELAXED);
   recordDuration(g_FramebufferDurationBuckets, duration);
 }
+
+void recordUserReturnStage(UserReturnStage stage, uint64_t duration) {
+  const size_t index = static_cast<size_t>(stage);
+  if (index >= UserReturnStageCount)
+    return;
+  __atomic_fetch_add(&g_UserReturnStageSamples[index], static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+  __atomic_fetch_add(&g_UserReturnStageTotalNanoseconds[index], duration, __ATOMIC_RELAXED);
+  recordDuration(g_UserReturnStageDurationBuckets[index], duration);
+}
+
+void recordUserReturnFaultOutcome(bool handled) {
+  uint64_t* counter =
+      handled ? &g_UserReturnFaultHandledSamples : &g_UserReturnFaultFallbackSamples;
+  __atomic_fetch_add(counter, static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+}
+
+void recordUserReturnAffinityWait(bool syscall) {
+  uint64_t* counter = syscall ? &g_UserReturnSyscallAffinityWaitedSamples
+                              : &g_UserReturnInterruptAffinityWaitedSamples;
+  __atomic_fetch_add(counter, static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+}
+
+#if PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS
+extern "C" void pedigree_record_user_entry_capture(uint64_t duration, uint64_t emptyDuration) {
+  __atomic_fetch_add(&g_UserEntryCaptureSamples, static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+  __atomic_fetch_add(&g_UserEntryCaptureTscTotal, duration, __ATOMIC_RELAXED);
+  recordTscDuration(g_UserEntryCaptureTscBuckets, duration);
+  __atomic_fetch_add(&g_UserEntryEmptyTscSamples, static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+  __atomic_fetch_add(&g_UserEntryEmptyTscTotal, emptyDuration, __ATOMIC_RELAXED);
+  recordTscDuration(g_UserEntryEmptyTscBuckets, emptyDuration);
+}
+
+extern "C" void pedigree_record_user_entry_restore(uint64_t duration, uint64_t emptyDuration) {
+  __atomic_fetch_add(&g_UserEntryRestoreSamples, static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+  __atomic_fetch_add(&g_UserEntryRestoreTscTotal, duration, __ATOMIC_RELAXED);
+  recordTscDuration(g_UserEntryRestoreTscBuckets, duration);
+  __atomic_fetch_add(&g_UserEntryEmptyTscSamples, static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+  __atomic_fetch_add(&g_UserEntryEmptyTscTotal, emptyDuration, __ATOMIC_RELAXED);
+  recordTscDuration(g_UserEntryEmptyTscBuckets, emptyDuration);
+}
+#endif
 
 }  // namespace ActivityDiagnostics
 

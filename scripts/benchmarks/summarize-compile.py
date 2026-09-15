@@ -59,6 +59,14 @@ def syscall_latency_buckets(metric):
     return [metric.get(f"syscall_h{index}", 0) for index in range(16)]
 
 
+USER_RETURN_STAGES = (
+    "interrupt_tail", "syscall_tail", "interrupt_work", "syscall_work",
+    "checkpoint", "process_stop", "deferred_fault", "event",
+    "interrupt_affinity", "syscall_affinity", "interrupt_accounting",
+    "syscall_accounting",
+)
+
+
 def activity_diagnostics(metric):
     if "activity_interrupts" not in metric:
         return None
@@ -105,6 +113,43 @@ def activity_diagnostics(metric):
         "framebuffer_cells": metric.get("activity_framebuffer_cells", 0),
         "framebuffer_duration_buckets": [metric.get(f"activity_framebuffer_h{index}", 0)
                                           for index in range(16)],
+        "user_return": {
+            "sample_period": metric.get("activity_ur_sample_period"),
+            "stages": {
+                stage: {
+                    "samples": metric.get(f"activity_ur_{stage}_samples", 0),
+                    "total_ns": metric.get(f"activity_ur_{stage}_total_ns", 0),
+                    "duration_buckets": [
+                        metric.get(f"activity_ur_{stage}_h{index}", 0)
+                        for index in range(16)
+                    ],
+                }
+                for stage in USER_RETURN_STAGES
+            },
+            "fault_handled_samples": metric.get("activity_ur_fault_handled_samples", 0),
+            "fault_fallback_samples": metric.get("activity_ur_fault_fallback_samples", 0),
+            "interrupt_affinity_waited_samples": metric.get(
+                "activity_ur_interrupt_affinity_waited_samples", 0),
+            "syscall_affinity_waited_samples": metric.get(
+                "activity_ur_syscall_affinity_waited_samples", 0),
+        },
+        "user_entry": {
+            "sample_period": metric.get("activity_ue_sample_period"),
+            "capture_calls": metric.get("activity_ue_capture_calls", 0),
+            "restore_calls": metric.get("activity_ue_restore_calls", 0),
+            "capture_samples": metric.get("activity_ue_capture_samples", 0),
+            "restore_samples": metric.get("activity_ue_restore_samples", 0),
+            "capture_tsc_total": metric.get("activity_ue_capture_tsc_total", 0),
+            "restore_tsc_total": metric.get("activity_ue_restore_tsc_total", 0),
+            "empty_tsc_samples": metric.get("activity_ue_empty_tsc_samples", 0),
+            "empty_tsc_total": metric.get("activity_ue_empty_tsc_total", 0),
+            "capture_tsc_buckets": [metric.get(f"activity_ue_capture_tsc_h{index}", 0)
+                                    for index in range(16)],
+            "restore_tsc_buckets": [metric.get(f"activity_ue_restore_tsc_h{index}", 0)
+                                    for index in range(16)],
+            "empty_tsc_buckets": [metric.get(f"activity_ue_empty_tsc_h{index}", 0)
+                                  for index in range(16)],
+        },
     }
 
 

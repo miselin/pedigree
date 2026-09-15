@@ -7,6 +7,12 @@ counters. Run one guest at a time. Use fresh disposable overlays for each arm,
 and freeze their backing images, kernels, initrds, symbols, and compiler files.
 These QEMU TCG comparisons do not establish physical T420 timings.
 
+The guest gate rechecks COM1 with a short finite poll timeout. The current x86
+serial device is polling-only and does not publish a readiness edge, so an
+infinite `poll` can sleep forever if the admission byte arrives after the
+initial readiness snapshots. `ACK` confirms that the guest actually consumed
+the byte before a measured phase begins.
+
 ## Prepare the image
 
 Build the two static guest programs with the configured userspace cross compiler.
@@ -75,6 +81,23 @@ every POSIX syscall and is not a timing control; restore
 `PEDIGREE_SYSCALL_COUNTER=FALSE` for performance comparisons. Latency buckets
 are emitted as `syscall_h0` through `syscall_h15`, covering `<1 us`, then
 exponentially widening ranges, through `>=16.384 ms`.
+
+For the x64 user-return diagnostic, configure both
+`-DPEDIGREE_ACTIVITY_DIAGNOSTICS=TRUE` and
+`-DPEDIGREE_X64_USER_ENTRY_DIAGNOSTICS=TRUE`. The benchmark samples one in 64
+interrupt/syscall return tails using the monotonic nanosecond clock. It reports
+the complete C++ tail separately from its checkpoint, stop, deferred-fault,
+event, affinity, and accounting stages. Stage totals overlap with the complete
+tail and must not be summed together.
+
+The assembly entry diagnostic counts every metadata capture and restore, and
+samples one in 256 of each around the FS/GS-base MSR work. Its `activity_ue_*`
+durations are raw TSC deltas; compare their paired empty-bracket samples and use
+the boot log's `TSC calibration` ratio before converting them to nanoseconds.
+These opt-in probes add counters on every user boundary and timestamp work to
+sampled boundaries, so use them for attribution rather than as a timing control.
+The report records the sample periods and the summarizer groups these values
+under `activity.user_return` and `activity.user_entry`.
 
 ## Run and compare
 

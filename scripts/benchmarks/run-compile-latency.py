@@ -24,6 +24,40 @@ PHASES = ["idle", "cpu", "compile-exact", "compile-warm-1", "compile-warm-2",
           "anon-1mib", "anon-4mib", "anon-16mib", "anon-64mib", "anon-contract"]
 
 
+def public_phase_state(current):
+    return {key: value for key, value in current.items()
+            if not key.endswith("_monotonic")}
+
+
+def write_report(output, report, *, result=None, current=None):
+    snapshot = {**report}
+    if result is not None:
+        snapshot["result"] = result
+    if current is not None:
+        snapshot["incomplete_phase"] = public_phase_state(current)
+    temporary = output / "report.json.tmp"
+    temporary.write_text(json.dumps(snapshot, indent=2) + "\n")
+    temporary.replace(output / "report.json")
+
+
+def validate_phase_event(current, phase, event):
+    if current is None:
+        raise RuntimeError(f"{event} without active phase: {phase}")
+    if phase != current["phase"]:
+        raise RuntimeError(
+            f"{event} phase {phase} does not match active phase {current['phase']}")
+    if event == "ACK":
+        if current["gate_acknowledged"]:
+            raise RuntimeError(f"duplicate ACK for phase: {phase}")
+        return
+    if not current["gate_acknowledged"]:
+        raise RuntimeError(f"{event} before ACK for phase: {phase}")
+    if event == "metric" and "metric" in current:
+        raise RuntimeError(f"duplicate metric for phase: {phase}")
+    if event == "DONE" and "metric" not in current:
+        raise RuntimeError(f"DONE before metric for phase: {phase}")
+
+
 def sample_stacks(guest, register_text, paused=False, max_frames=8):
     """Inspect bounded frame chains; the caller controls whether CPUs are paused."""
     stacks = []
@@ -270,29 +304,44 @@ def main():
                         index = len(report["phases"])
                         if current is not None or index >= len(expected) or match[1] != expected[index]:
                             raise RuntimeError(f"unexpected phase: {line}")
-                        current = {"phase": match[1], "samples": 0,
-                                   "blocks_before": guest.qmp("query-blockstats"),
-                                   "irq_before": guest.qmp("human-monitor-command",
-                                                           {"command-line": "info irq"})}
                         now = time.monotonic()
-                        current["started_monotonic"] = now
-                        current["host_started_s"] = now - boot
-                        next_sample = now + sample_delay()
+                        current = {"phase": match[1], "samples": 0,
+                                   "gate_acknowledged": False,
+                                   "ready_host_s": now - boot}
+                        write_report(output, report, result="RUNNING", current=current)
+                        current["blocks_before"] = guest.qmp("query-blockstats")
+                        current["irq_before"] = guest.qmp(
+                            "human-monitor-command", {"command-line": "info irq"})
                         serial.sendall(b"g")
+                        sent = time.monotonic()
+                        current["started_monotonic"] = sent
+                        current["go_monotonic"] = sent
+                        current["host_started_s"] = sent - boot
+                        current["go_host_s"] = sent - boot
+                        current["ready_to_go_wall_s"] = sent - now
+                        next_sample = sent + sample_delay()
+                        write_report(output, report, result="RUNNING", current=current)
+                    match = re.fullmatch(r"COMPILEBENCH ACK phase=(\S+)", line)
+                    if match:
+                        validate_phase_event(current, match[1], "ACK")
+                        now = time.monotonic()
+                        current["gate_acknowledged"] = True
+                        current["ack_host_s"] = now - boot
+                        current["gate_ack_wall_s"] = now - current["go_monotonic"]
+                        write_report(output, report, result="RUNNING", current=current)
                     match = re.fullmatch(r"COMPILEBENCH metric phase=(\S+) (.+)", line)
                     if match:
-                        if current is None or match[1] != current["phase"] or "metric" in current:
-                            raise RuntimeError(f"unexpected metric: {line}")
+                        validate_phase_event(current, match[1], "metric")
                         current["metric"] = {key: int(value) for key, value in
                                              (item.split("=", 1) for item in match[2].split())}
                         if match[1] == "compile-exact" and current["metric"]["rc"]:
                             expected.insert(3, "compile-practical")
                     match = re.fullmatch(r"COMPILEBENCH DONE phase=(\S+)", line)
                     if match:
-                        if current is None or match[1] != current["phase"] or "metric" not in current:
-                            raise RuntimeError(f"incomplete phase: {line}")
+                        validate_phase_event(current, match[1], "DONE")
                         now = time.monotonic()
                         current["host_wall_s"] = now - current.pop("started_monotonic")
+                        current.pop("go_monotonic")
                         current["host_done_s"] = now - boot
                         current["blocks_after"] = guest.qmp("query-blockstats")
                         current["irq_after"] = guest.qmp(
@@ -300,8 +349,7 @@ def main():
                         current["block_delta"] = LAUNCH.block_delta(
                             current["blocks_before"], current["blocks_after"])
                         report["phases"].append(current)
-                        (output / "report.json").write_text(
-                            json.dumps({**report, "result": "RUNNING"}, indent=2) + "\n")
+                        write_report(output, report, result="RUNNING")
                         print(json.dumps({"phase": current["phase"],
                                           "host_wall_s": current["host_wall_s"],
                                           **current["metric"]}), flush=True)
@@ -328,7 +376,7 @@ def main():
     except Exception as error:
         report["error"] = repr(error)
         if current is not None:
-            report["incomplete_phase"] = current
+            report["incomplete_phase"] = public_phase_state(current)
         if guest:
             try:
                 guest.qmp("stop")
@@ -352,7 +400,7 @@ def main():
         if serial:
             serial.close()
         report["total_host_wall_s"] = time.monotonic() - started
-        (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+        write_report(output, report, current=current)
     print(json.dumps({key: value for key, value in report.items() if key != "phases"}))
     return 0 if report["result"] == "PASS" else 1
 

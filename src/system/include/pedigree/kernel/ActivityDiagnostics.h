@@ -19,6 +19,26 @@ namespace ActivityDiagnostics {
 
 static constexpr size_t DurationBucketCount = 16;
 static constexpr size_t InterruptVectorCount = 256;
+static constexpr size_t UserReturnSamplePeriod = 64;
+static constexpr size_t UserEntrySamplePeriod = 256;
+
+enum class UserReturnStage : size_t {
+  InterruptTail,
+  SyscallTail,
+  InterruptWork,
+  SyscallWork,
+  Checkpoint,
+  ProcessStop,
+  DeferredFault,
+  Event,
+  InterruptAffinity,
+  SyscallAffinity,
+  InterruptAccounting,
+  SyscallAccounting,
+  Count,
+};
+
+static constexpr size_t UserReturnStageCount = static_cast<size_t>(UserReturnStage::Count);
 
 /** A detached, monotonically increasing view of kernel activity counters. */
 struct Snapshot {
@@ -54,6 +74,24 @@ struct Snapshot {
   uint64_t framebufferFlips;
   uint64_t framebufferCells;
   uint64_t framebufferDurationBuckets[DurationBucketCount];
+  uint64_t userReturnStageSamples[UserReturnStageCount];
+  uint64_t userReturnStageTotalNanoseconds[UserReturnStageCount];
+  uint64_t userReturnStageDurationBuckets[UserReturnStageCount][DurationBucketCount];
+  uint64_t userReturnFaultHandledSamples;
+  uint64_t userReturnFaultFallbackSamples;
+  uint64_t userReturnInterruptAffinityWaitedSamples;
+  uint64_t userReturnSyscallAffinityWaitedSamples;
+  uint64_t userEntryCaptureCalls;
+  uint64_t userEntryRestoreCalls;
+  uint64_t userEntryCaptureSamples;
+  uint64_t userEntryRestoreSamples;
+  uint64_t userEntryCaptureTscTotal;
+  uint64_t userEntryRestoreTscTotal;
+  uint64_t userEntryEmptyTscSamples;
+  uint64_t userEntryEmptyTscTotal;
+  uint64_t userEntryCaptureTscBuckets[DurationBucketCount];
+  uint64_t userEntryRestoreTscBuckets[DurationBucketCount];
+  uint64_t userEntryEmptyTscBuckets[DurationBucketCount];
 };
 
 #if PEDIGREE_ACTIVITY_DIAGNOSTICS
@@ -81,6 +119,9 @@ bool shouldSampleTimeAccounting();
 void recordTimeAccounting(uint64_t duration);
 void recordIdleHalt();
 EXPORTED_PUBLIC void recordFramebufferFlip(size_t cells, uint64_t duration);
+void recordUserReturnStage(UserReturnStage stage, uint64_t duration);
+void recordUserReturnFaultOutcome(bool handled);
+void recordUserReturnAffinityWait(bool syscall);
 
 class InterruptScope {
  public:
@@ -174,6 +215,9 @@ inline bool shouldSampleTimeAccounting() {
 inline void recordTimeAccounting(uint64_t) {}
 inline void recordIdleHalt() {}
 inline void recordFramebufferFlip(size_t, uint64_t) {}
+inline void recordUserReturnStage(UserReturnStage, uint64_t) {}
+inline void recordUserReturnFaultOutcome(bool) {}
+inline void recordUserReturnAffinityWait(bool) {}
 
 class InterruptScope {
  public:

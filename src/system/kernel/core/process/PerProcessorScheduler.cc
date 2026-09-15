@@ -1605,10 +1605,20 @@ bool PerProcessorScheduler::serviceProcessStopAtUserReturn(ProcessStopGateMode m
 }
 
 bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state,
-                                                  UserReturnFrame::Origin origin) {
+                                                  UserReturnFrame::Origin origin,
+                                                  bool diagnosticSample) {
+  const uint64_t workStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  auto finishWork = [diagnosticSample, workStart](bool terminal) {
+    if (diagnosticSample) {
+      ActivityDiagnostics::recordUserReturnStage(
+          ActivityDiagnostics::UserReturnStage::InterruptWork,
+          ActivityDiagnostics::timestamp() - workStart);
+    }
+    return terminal;
+  };
   Thread* owner = Processor::information().getCurrentThread();
   if (!owner)
-    return false;
+    return finishWork(false);
 #if X64 && !HOSTED
   {
     EnsureInterrupts interrupts(false);
@@ -1618,36 +1628,80 @@ bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state,
   UserReturnFrame frame(*owner, state, origin);
   Thread::UserReturnFrameScope frameScope(*owner, frame);
   Subsystem* subsystem = owner->getParent() ? owner->getParent()->getSubsystem() : nullptr;
-  if (subsystem &&
-      subsystem->userReturnCheckpoint(*owner, frame) == Subsystem::UserReturnResult::Terminal)
-    return true;
+  if (subsystem) {
+    const uint64_t checkpointStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+    const bool terminal =
+        subsystem->userReturnCheckpoint(*owner, frame) == Subsystem::UserReturnResult::Terminal;
+    if (diagnosticSample) {
+      ActivityDiagnostics::recordUserReturnStage(
+          ActivityDiagnostics::UserReturnStage::Checkpoint,
+          ActivityDiagnostics::timestamp() - checkpointStart);
+    }
+    if (terminal)
+      return finishWork(true);
+  }
 
   // Terminal requests and process stops win over later work. The architecture
   // caller owns the final commit after its return-tail scopes and accounting
   // have retired.
-  if (Processor::information().getScheduler().serviceProcessStopAtUserReturn()) {
-    return true;
+  uint64_t stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  bool terminal = Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
+                                               ActivityDiagnostics::timestamp() - stageStart);
   }
-  Processor::information().getScheduler().serviceDeferredSubsystemException(state);
+  if (terminal)
+    return finishWork(true);
+
+  Processor::information().getScheduler().serviceDeferredSubsystemException(state,
+                                                                            diagnosticSample);
   Thread* current = Processor::information().getCurrentThread();
   if (current && !current->isTerminationDeferred() &&
       current->getUnwindState() != Thread::Continue) {
-    return true;
+    return finishWork(true);
   }
-  if (Processor::information().getScheduler().serviceProcessStopAtUserReturn()) {
-    return true;
+
+  stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  terminal = Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
+                                               ActivityDiagnostics::timestamp() - stageStart);
   }
+  if (terminal)
+    return finishWork(true);
+
+  stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
   Processor::information().getScheduler().checkEventState(
       state.getStackPointer(), Thread::EventSelection::AnyDeliverable, &state, nullptr);
-  return frame.m_Terminal ||
-         Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::Event,
+                                               ActivityDiagnostics::timestamp() - stageStart);
+  }
+
+  stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  terminal =
+      frame.m_Terminal || Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
+                                               ActivityDiagnostics::timestamp() - stageStart);
+  }
+  return finishWork(terminal);
 }
 
 bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
-                                                  UserReturnFrame::Origin origin) {
+                                                  UserReturnFrame::Origin origin,
+                                                  bool diagnosticSample) {
+  const uint64_t workStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  auto finishWork = [diagnosticSample, workStart](bool terminal) {
+    if (diagnosticSample) {
+      ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::SyscallWork,
+                                                 ActivityDiagnostics::timestamp() - workStart);
+    }
+    return terminal;
+  };
   Thread* owner = Processor::information().getCurrentThread();
   if (!owner)
-    return false;
+    return finishWork(false);
 #if X64 && !HOSTED
   {
     EnsureInterrupts interrupts(false);
@@ -1657,20 +1711,48 @@ bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
   UserReturnFrame frame(*owner, state, origin);
   Thread::UserReturnFrameScope frameScope(*owner, frame);
   Subsystem* subsystem = owner->getParent() ? owner->getParent()->getSubsystem() : nullptr;
-  if (subsystem &&
-      subsystem->userReturnCheckpoint(*owner, frame) == Subsystem::UserReturnResult::Terminal)
-    return true;
-
-  if (Processor::information().getScheduler().serviceProcessStopAtUserReturn()) {
-    return true;
+  if (subsystem) {
+    const uint64_t checkpointStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+    const bool terminal =
+        subsystem->userReturnCheckpoint(*owner, frame) == Subsystem::UserReturnResult::Terminal;
+    if (diagnosticSample) {
+      ActivityDiagnostics::recordUserReturnStage(
+          ActivityDiagnostics::UserReturnStage::Checkpoint,
+          ActivityDiagnostics::timestamp() - checkpointStart);
+    }
+    if (terminal)
+      return finishWork(true);
   }
+
+  uint64_t stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  bool terminal = Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
+                                               ActivityDiagnostics::timestamp() - stageStart);
+  }
+  if (terminal)
+    return finishWork(true);
+
+  stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
   Processor::information().getScheduler().checkEventState(
       state.getStackPointer(), Thread::EventSelection::AnyDeliverable, nullptr, &state);
-  return frame.m_Terminal ||
-         Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::Event,
+                                               ActivityDiagnostics::timestamp() - stageStart);
+  }
+
+  stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  terminal =
+      frame.m_Terminal || Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
+                                               ActivityDiagnostics::timestamp() - stageStart);
+  }
+  return finishWork(terminal);
 }
 
-void PerProcessorScheduler::serviceDeferredSubsystemException(InterruptState& state) {
+void PerProcessorScheduler::serviceDeferredSubsystemException(InterruptState& state,
+                                                              bool diagnosticSample) {
   Thread* thread = Processor::information().getCurrentThread();
   if (!thread) {
     return;
@@ -1692,9 +1774,18 @@ void PerProcessorScheduler::serviceDeferredSubsystemException(InterruptState& st
   // Disk-backed faults can only wait once the raw interrupt and accounting
   // scopes are gone. An unsuccessful retry retains ordinary signal delivery.
   if (rawType == static_cast<size_t>(Subsystem::PageFault) && !state.kernelMode() &&
-      Processor::getInterrupts() &&
-      subsystem->resolveUserPageFault(*thread, state, faultAddress, errorCode))
-    return;
+      Processor::getInterrupts()) {
+    const uint64_t faultStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+    const bool handled = subsystem->resolveUserPageFault(*thread, state, faultAddress, errorCode);
+    if (diagnosticSample) {
+      ActivityDiagnostics::recordUserReturnStage(
+          ActivityDiagnostics::UserReturnStage::DeferredFault,
+          ActivityDiagnostics::timestamp() - faultStart);
+      ActivityDiagnostics::recordUserReturnFaultOutcome(handled);
+    }
+    if (handled)
+      return;
+  }
 
   subsystem->threadException(thread, static_cast<Subsystem::ExceptionType>(rawType), &state,
                              faultAddress, errorCode);

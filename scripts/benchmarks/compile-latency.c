@@ -38,6 +38,19 @@ static uint64_t timeval_us(struct timeval t) {
 #define SYSCALL_LATENCY_BUCKET_COUNT 16
 #define ACTIVITY_DURATION_BUCKET_COUNT 16
 #define ACTIVITY_INTERRUPT_VECTOR_COUNT 256
+#define ACTIVITY_USER_RETURN_STAGE_COUNT 12
+#define ACTIVITY_USER_RETURN_SAMPLE_PERIOD 64
+#define ACTIVITY_USER_ENTRY_SAMPLE_PERIOD 256
+
+static const char* activity_user_return_stage_names[] = {
+    "interrupt_tail",     "syscall_tail",     "interrupt_work",       "syscall_work",
+    "checkpoint",         "process_stop",     "deferred_fault",       "event",
+    "interrupt_affinity", "syscall_affinity", "interrupt_accounting", "syscall_accounting"};
+
+_Static_assert(sizeof(activity_user_return_stage_names) /
+                       sizeof(activity_user_return_stage_names[0]) ==
+                   ACTIVITY_USER_RETURN_STAGE_COUNT,
+               "user-return stage names must match the kernel ABI");
 
 struct activity_snapshot {
   uint64_t interrupt_count;
@@ -72,10 +85,29 @@ struct activity_snapshot {
   uint64_t framebuffer_flips;
   uint64_t framebuffer_cells;
   uint64_t framebuffer_duration_buckets[ACTIVITY_DURATION_BUCKET_COUNT];
+  uint64_t user_return_stage_samples[ACTIVITY_USER_RETURN_STAGE_COUNT];
+  uint64_t user_return_stage_total_nanoseconds[ACTIVITY_USER_RETURN_STAGE_COUNT];
+  uint64_t user_return_stage_duration_buckets[ACTIVITY_USER_RETURN_STAGE_COUNT]
+                                             [ACTIVITY_DURATION_BUCKET_COUNT];
+  uint64_t user_return_fault_handled_samples;
+  uint64_t user_return_fault_fallback_samples;
+  uint64_t user_return_interrupt_affinity_waited_samples;
+  uint64_t user_return_syscall_affinity_waited_samples;
+  uint64_t user_entry_capture_calls;
+  uint64_t user_entry_restore_calls;
+  uint64_t user_entry_capture_samples;
+  uint64_t user_entry_restore_samples;
+  uint64_t user_entry_capture_tsc_total;
+  uint64_t user_entry_restore_tsc_total;
+  uint64_t user_entry_empty_tsc_samples;
+  uint64_t user_entry_empty_tsc_total;
+  uint64_t user_entry_capture_tsc_buckets[ACTIVITY_DURATION_BUCKET_COUNT];
+  uint64_t user_entry_restore_tsc_buckets[ACTIVITY_DURATION_BUCKET_COUNT];
+  uint64_t user_entry_empty_tsc_buckets[ACTIVITY_DURATION_BUCKET_COUNT];
 };
 
-_Static_assert(sizeof(struct activity_snapshot) % sizeof(uint64_t) == 0,
-               "activity snapshot must contain only 64-bit words");
+_Static_assert(sizeof(struct activity_snapshot) == 683 * sizeof(uint64_t),
+               "activity snapshot layout must match the kernel ABI");
 
 static int reaped_child_syscall_count(uint64_t* count) {
   uint64_t result = 0;
@@ -120,8 +152,10 @@ static void gate(const char* phase) {
   for (;;) {
     char c;
     ssize_t n = read(serial_fd, &c, 1);
-    if (n == 1 && c == 'g')
+    if (n == 1 && c == 'g') {
+      printf("COMPILEBENCH ACK phase=%s\n", phase);
       return;
+    }
     if (n == 1 || (n < 0 && errno == EINTR))
       continue;
     if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
@@ -129,7 +163,9 @@ static void gate(const char* phase) {
     struct pollfd p = {serial_fd, POLLIN, 0};
     int rc;
     do {
-      rc = poll(&p, 1, -1);
+      // Pedigree's x86 serial device is polling-only and does not publish a
+      // readiness edge, so an infinite poll can strand the benchmark gate.
+      rc = poll(&p, 1, 10);
     } while (rc < 0 && errno == EINTR);
     if (rc < 0 || (p.revents & (POLLERR | POLLNVAL | POLLHUP)))
       fail("gate-poll");
@@ -157,53 +193,92 @@ static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
       printf(" syscall_h%u=%llu", i, (unsigned long long)syscall_latency[i]);
   }
   if (have_activity) {
-    printf(" activity_interrupts=%llu activity_exceptions=%llu activity_hardware_interrupts=%llu"
-           " activity_other_interrupts=%llu activity_hard_dispatches=%llu"
-           " activity_threaded_dispatches=%llu activity_scheduler_timer_ticks=%llu"
-           " activity_schedule_calls=%llu activity_same_thread=%llu"
-           " activity_context_switches=%llu activity_idle_selections=%llu"
-           " activity_idle_fallbacks=%llu activity_idle_fallback_ready=%llu"
-           " activity_idle_fallback_pending=%llu activity_no_eligible=%llu"
-           " activity_ready_scans=%llu activity_ready_visits=%llu"
-           " activity_ready_predicate_rejects=%llu activity_ready_selection_samples=%llu"
-           " activity_time_accounting_samples=%llu activity_idle_halts=%llu"
-           " activity_framebuffer_flips=%llu activity_framebuffer_cells=%llu",
-           (unsigned long long)activity->interrupt_count,
-           (unsigned long long)activity->exception_count,
-           (unsigned long long)activity->hardware_interrupt_count,
-           (unsigned long long)activity->other_interrupt_count,
-           (unsigned long long)activity->hard_dispatch_count,
-           (unsigned long long)activity->threaded_dispatch_count,
-           (unsigned long long)activity->scheduler_timer_ticks,
-           (unsigned long long)activity->schedule_calls,
-           (unsigned long long)activity->same_thread_selections,
-           (unsigned long long)activity->context_switches,
-           (unsigned long long)activity->idle_selections,
-           (unsigned long long)activity->scheduler_idle_fallbacks,
-           (unsigned long long)activity->scheduler_idle_fallback_current_ready,
-           (unsigned long long)activity->scheduler_idle_fallback_current_pending,
-           (unsigned long long)activity->scheduler_no_eligible_selections,
-           (unsigned long long)activity->ready_queue_scan_entries,
-           (unsigned long long)activity->ready_queue_candidate_visits,
-           (unsigned long long)activity->ready_queue_predicate_rejects,
-           (unsigned long long)activity->ready_queue_selection_samples,
-           (unsigned long long)activity->time_accounting_samples,
-           (unsigned long long)activity->idle_halt_entries,
-           (unsigned long long)activity->framebuffer_flips,
-           (unsigned long long)activity->framebuffer_cells);
+    printf(
+        " activity_interrupts=%llu activity_exceptions=%llu activity_hardware_interrupts=%llu"
+        " activity_other_interrupts=%llu activity_hard_dispatches=%llu"
+        " activity_threaded_dispatches=%llu activity_scheduler_timer_ticks=%llu"
+        " activity_schedule_calls=%llu activity_same_thread=%llu"
+        " activity_context_switches=%llu activity_idle_selections=%llu"
+        " activity_idle_fallbacks=%llu activity_idle_fallback_ready=%llu"
+        " activity_idle_fallback_pending=%llu activity_no_eligible=%llu"
+        " activity_ready_scans=%llu activity_ready_visits=%llu"
+        " activity_ready_predicate_rejects=%llu activity_ready_selection_samples=%llu"
+        " activity_time_accounting_samples=%llu activity_idle_halts=%llu"
+        " activity_framebuffer_flips=%llu activity_framebuffer_cells=%llu"
+        " activity_ur_sample_period=%u activity_ue_sample_period=%u"
+        " activity_ur_fault_handled_samples=%llu"
+        " activity_ur_fault_fallback_samples=%llu"
+        " activity_ur_interrupt_affinity_waited_samples=%llu"
+        " activity_ur_syscall_affinity_waited_samples=%llu"
+        " activity_ue_capture_calls=%llu activity_ue_restore_calls=%llu"
+        " activity_ue_capture_samples=%llu activity_ue_restore_samples=%llu"
+        " activity_ue_capture_tsc_total=%llu activity_ue_restore_tsc_total=%llu"
+        " activity_ue_empty_tsc_samples=%llu activity_ue_empty_tsc_total=%llu",
+        (unsigned long long)activity->interrupt_count,
+        (unsigned long long)activity->exception_count,
+        (unsigned long long)activity->hardware_interrupt_count,
+        (unsigned long long)activity->other_interrupt_count,
+        (unsigned long long)activity->hard_dispatch_count,
+        (unsigned long long)activity->threaded_dispatch_count,
+        (unsigned long long)activity->scheduler_timer_ticks,
+        (unsigned long long)activity->schedule_calls,
+        (unsigned long long)activity->same_thread_selections,
+        (unsigned long long)activity->context_switches,
+        (unsigned long long)activity->idle_selections,
+        (unsigned long long)activity->scheduler_idle_fallbacks,
+        (unsigned long long)activity->scheduler_idle_fallback_current_ready,
+        (unsigned long long)activity->scheduler_idle_fallback_current_pending,
+        (unsigned long long)activity->scheduler_no_eligible_selections,
+        (unsigned long long)activity->ready_queue_scan_entries,
+        (unsigned long long)activity->ready_queue_candidate_visits,
+        (unsigned long long)activity->ready_queue_predicate_rejects,
+        (unsigned long long)activity->ready_queue_selection_samples,
+        (unsigned long long)activity->time_accounting_samples,
+        (unsigned long long)activity->idle_halt_entries,
+        (unsigned long long)activity->framebuffer_flips,
+        (unsigned long long)activity->framebuffer_cells, ACTIVITY_USER_RETURN_SAMPLE_PERIOD,
+        ACTIVITY_USER_ENTRY_SAMPLE_PERIOD,
+        (unsigned long long)activity->user_return_fault_handled_samples,
+        (unsigned long long)activity->user_return_fault_fallback_samples,
+        (unsigned long long)activity->user_return_interrupt_affinity_waited_samples,
+        (unsigned long long)activity->user_return_syscall_affinity_waited_samples,
+        (unsigned long long)activity->user_entry_capture_calls,
+        (unsigned long long)activity->user_entry_restore_calls,
+        (unsigned long long)activity->user_entry_capture_samples,
+        (unsigned long long)activity->user_entry_restore_samples,
+        (unsigned long long)activity->user_entry_capture_tsc_total,
+        (unsigned long long)activity->user_entry_restore_tsc_total,
+        (unsigned long long)activity->user_entry_empty_tsc_samples,
+        (unsigned long long)activity->user_entry_empty_tsc_total);
+    for (unsigned stage = 0; stage < ACTIVITY_USER_RETURN_STAGE_COUNT; ++stage) {
+      printf(" activity_ur_%s_samples=%llu activity_ur_%s_total_ns=%llu",
+             activity_user_return_stage_names[stage],
+             (unsigned long long)activity->user_return_stage_samples[stage],
+             activity_user_return_stage_names[stage],
+             (unsigned long long)activity->user_return_stage_total_nanoseconds[stage]);
+      for (unsigned i = 0; i < ACTIVITY_DURATION_BUCKET_COUNT; ++i) {
+        printf(" activity_ur_%s_h%u=%llu", activity_user_return_stage_names[stage], i,
+               (unsigned long long)activity->user_return_stage_duration_buckets[stage][i]);
+      }
+    }
     for (unsigned i = 0; i < ACTIVITY_DURATION_BUCKET_COUNT; ++i) {
-      printf(" activity_irq_h%u=%llu activity_pf_h%u=%llu activity_timer_h%u=%llu"
-             " activity_hard_h%u=%llu activity_threaded_h%u=%llu"
-             " activity_ready_selection_h%u=%llu activity_time_accounting_h%u=%llu"
-             " activity_framebuffer_h%u=%llu",
-             i, (unsigned long long)activity->interrupt_duration_buckets[i], i,
-             (unsigned long long)activity->page_fault_duration_buckets[i], i,
-             (unsigned long long)activity->scheduler_timer_duration_buckets[i], i,
-             (unsigned long long)activity->hard_duration_buckets[i], i,
-             (unsigned long long)activity->threaded_duration_buckets[i], i,
-             (unsigned long long)activity->ready_queue_selection_duration_buckets[i], i,
-             (unsigned long long)activity->time_accounting_duration_buckets[i], i,
-             (unsigned long long)activity->framebuffer_duration_buckets[i]);
+      printf(
+          " activity_irq_h%u=%llu activity_pf_h%u=%llu activity_timer_h%u=%llu"
+          " activity_hard_h%u=%llu activity_threaded_h%u=%llu"
+          " activity_ready_selection_h%u=%llu activity_time_accounting_h%u=%llu"
+          " activity_framebuffer_h%u=%llu activity_ue_capture_tsc_h%u=%llu"
+          " activity_ue_restore_tsc_h%u=%llu activity_ue_empty_tsc_h%u=%llu",
+          i, (unsigned long long)activity->interrupt_duration_buckets[i], i,
+          (unsigned long long)activity->page_fault_duration_buckets[i], i,
+          (unsigned long long)activity->scheduler_timer_duration_buckets[i], i,
+          (unsigned long long)activity->hard_duration_buckets[i], i,
+          (unsigned long long)activity->threaded_duration_buckets[i], i,
+          (unsigned long long)activity->ready_queue_selection_duration_buckets[i], i,
+          (unsigned long long)activity->time_accounting_duration_buckets[i], i,
+          (unsigned long long)activity->framebuffer_duration_buckets[i], i,
+          (unsigned long long)activity->user_entry_capture_tsc_buckets[i], i,
+          (unsigned long long)activity->user_entry_restore_tsc_buckets[i], i,
+          (unsigned long long)activity->user_entry_empty_tsc_buckets[i]);
     }
     for (unsigned i = 0; i < ACTIVITY_INTERRUPT_VECTOR_COUNT; ++i) {
       if (activity->interrupt_vector_counts[i])

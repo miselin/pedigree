@@ -19,6 +19,7 @@
 
 #ifndef PERPROCESSORSCHEDULER_H
 #define PERPROCESSORSCHEDULER_H
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
@@ -161,11 +162,22 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
    * return, after the raw interrupt frame has released its C++ scopes.
    */
   MUST_USE_RESULT bool serviceUserReturnWork(
-      InterruptState& state, UserReturnFrame::Origin origin = UserReturnFrame::Origin::Interrupt);
+      InterruptState& state, UserReturnFrame::Origin origin = UserReturnFrame::Origin::Interrupt,
+      bool diagnosticSample = false);
 
   /** Delivers pending Events immediately before returning from a syscall. */
   MUST_USE_RESULT bool serviceUserReturnWork(
-      SyscallState& state, UserReturnFrame::Origin origin = UserReturnFrame::Origin::Syscall);
+      SyscallState& state, UserReturnFrame::Origin origin = UserReturnFrame::Origin::Syscall,
+      bool diagnosticSample = false);
+
+  /** Selects one low-overhead, per-CPU user-return diagnostic sample. */
+  bool sampleUserReturnDiagnostics() {
+#if PEDIGREE_ACTIVITY_DIAGNOSTICS
+    return (++m_UserReturnDiagnosticSequence % ActivityDiagnostics::UserReturnSamplePeriod) == 0;
+#else
+    return false;
+#endif
+  }
 
   /** Commits terminal state after architecture return-tail cleanup is done. */
   void commitUserReturnTerminalState();
@@ -210,7 +222,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   void finishCurrentThreadExit(Spinlock* pLock, bool transferToIdle) NORETURN;
 
   /** Runs a raw-frame exception through its subsystem in ordinary context. */
-  void serviceDeferredSubsystemException(InterruptState& state);
+  void serviceDeferredSubsystemException(InterruptState& state, bool diagnosticSample = false);
 
   /** Dispatches one event using an exact scheduler-owned selection policy. */
   void checkEventState(uintptr_t userStack, Thread::EventSelection selection);
@@ -295,6 +307,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   Thread* m_pIdleThread;
   bool m_IdleWakeRequested = false;
   size_t m_SchedulerTickCounter = 0;
+  size_t m_UserReturnDiagnosticSequence = 0;
 };
 
 #endif

@@ -274,23 +274,44 @@ void X64InterruptManager::returnFromInterrupt(InterruptState& interruptState) {
     return;
   }
 
+  PerProcessorScheduler& scheduler = Processor::information().getScheduler();
+  const bool diagnosticSample = scheduler.sampleUserReturnDiagnostics();
+  const uint64_t tailStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+
   // interrupt() has returned, so InterruptTimeAccounting and every raw
   // handler scope are complete. Finish the architecture accounting tail
   // before a terminal transition consumes this root stack.
   Processor::setInterrupts(true);
   bool terminal = false;
   while (true) {
-    terminal = Processor::information().getScheduler().serviceUserReturnWork(interruptState);
+    terminal = scheduler.serviceUserReturnWork(interruptState, UserReturnFrame::Origin::Interrupt,
+                                               diagnosticSample);
     if (terminal)
       break;
     bool waited = false;
+    const uint64_t affinityStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
     terminal = thread->completeAffinityAtSafePoint(&waited) == AffinityResult::Terminal;
+    if (diagnosticSample) {
+      ActivityDiagnostics::recordUserReturnStage(
+          ActivityDiagnostics::UserReturnStage::InterruptAffinity,
+          ActivityDiagnostics::timestamp() - affinityStart);
+      if (waited)
+        ActivityDiagnostics::recordUserReturnAffinityWait(false);
+    }
     if (terminal || !waited)
       break;
     Processor::setInterrupts(true);
   }
   Processor::setInterrupts(false);
+  const uint64_t accountingStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
   InterruptTimeAccounting::finishUserReturn(thread);
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(
+        ActivityDiagnostics::UserReturnStage::InterruptAccounting,
+        ActivityDiagnostics::timestamp() - accountingStart);
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::InterruptTail,
+                                               ActivityDiagnostics::timestamp() - tailStart);
+  }
   if (terminal) {
     Processor::setInterrupts(true);
     Processor::information().getScheduler().commitUserReturnTerminalState();
