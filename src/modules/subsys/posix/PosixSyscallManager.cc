@@ -142,6 +142,13 @@ uintptr_t PosixSyscallManager::call(uintptr_t function, uintptr_t p1, uintptr_t 
 }
 
 uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
+#if PEDIGREE_SYSCALL_COUNTER
+  if (Process* process = Processor::information().getCurrentThread()->getParent()) {
+    // This is after the architecture entry stub and before ABI translation, so
+    // it counts each user-visible POSIX/Linux syscall exactly once.
+    process->recordSyscall();
+  }
+#endif
   uint64_t syscallNumber = state.getSyscallNumber();
   const bool linuxAbi = state.getSyscallService() == linuxCompat;
 

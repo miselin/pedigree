@@ -384,6 +384,7 @@ def summarize(args):
         phases[name] = {"host_wall_s": seconds, "guest_wall_s": metric.get("total_us", 0) / 1e6,
                         "user_s": metric.get("user_us", 0) / 1e6,
                         "system_s": metric.get("system_us", 0) / 1e6,
+                        "syscalls": metric.get("syscalls"),
                         "rc": metric.get("rc"), "disk": disk,
                         "irq": irq_delta(phase.get("irq_before", ""), phase.get("irq_after", ""), seconds)}
     if not report_path.exists():
@@ -392,7 +393,8 @@ def summarize(args):
                       (item.split("=", 1) for item in match[2].split())}
             phases[match[1]] = {"guest_wall_s": metric["total_us"] / 1e6,
                                 "user_s": metric["user_us"] / 1e6,
-                                "system_s": metric["system_us"] / 1e6, "rc": metric["rc"]}
+                                "system_s": metric["system_us"] / 1e6,
+                                "syscalls": metric.get("syscalls"), "rc": metric["rc"]}
     for name, profile in profiles.items():
         phases.setdefault(name, {})["profile"] = profile
     return {"directory": str(directory), "result": report["result"], "error": report.get("error"),

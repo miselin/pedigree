@@ -65,6 +65,14 @@ without a trailing newline. This retains kernel log generation while keeping
 benchmark records intact. Freeze the exact raw archive and matching module
 symbol files for later profiling.
 
+For a syscall-count diagnostic, configure the target with
+`-DPEDIGREE_SYSCALL_COUNTER=TRUE` and rebuild the kernel, POSIX module and
+initrd. The driver adds `syscalls=` to command metrics. Counts are recorded once
+at POSIX syscall dispatch and accumulated through `wait4`, so a command includes
+the child-side setup and the complete compiler descendant tree. The counter
+build adds an atomic increment to every POSIX syscall and is not a timing
+control; restore `PEDIGREE_SYSCALL_COUNTER=FALSE` for performance comparisons.
+
 ## Run and compare
 
 For a short run with `quick-run`, `link-cxx`, and `no-sync` installed:

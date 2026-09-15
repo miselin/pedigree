@@ -320,6 +320,35 @@ Required checks include arm/downshift races, independent timer ownership,
 shutdown, short sleeps/overruns, realtime changes, input repeat/hotplug, pressure,
 writeback and watchdog behavior on one and four CPUs.
 
+### Syscall count
+
+An opt-in `PEDIGREE_SYSCALL_COUNTER` build counts once at the POSIX syscall
+dispatch boundary and folds each terminated child's own and already-reaped
+descendant counts into its parent. The benchmark queries the accumulated count
+after `wait4`, outside the timed interval. This gives the complete child-side
+`gcc` invocation, including `execve`, `cc1plus`, assembler and linker descendants,
+while excluding the benchmark supervisor's `fork` and `wait4`.
+
+Two fresh one-vCPU, 128-Hz, writes-disabled quick runs produced the same counts:
+
+| Phase | Syscalls | Reported kernel seconds |
+| --- | ---: | ---: |
+| Cold `gcc -o which which.cc -lstdc++` | 124,005 | 30.304 |
+| Warm `gcc -o which which.cc -lstdc++` | 124,009 | 26.506 |
+| `./which gcc` | 18 | 0.019 |
+| Anonymous-memory contract | 812 | 0.175 |
+
+So the successful GCC run is approximately **124 thousand syscalls**, with only
+four calls separating the cold and warm runs. The counter itself adds an atomic
+increment and the diagnostic timings are not controls; the stable count is the
+result to retain. At that call volume, removing 1, 5 or 10 microseconds from
+every entry/exit would save at most about 0.12, 0.62 or 1.24 seconds,
+respectively. The approximately 30-second reported kernel interval therefore
+points to substantial work inside syscall bodies, faults, I/O and scheduling in
+addition to the raw entry/return boundary. The reported system interval is still
+the TSC-derived Pedigree accounting described below, so its quotient by syscall
+count is a sizing signal rather than a per-call CPU measurement.
+
 ## Profiler design and limits
 
 The host samples QEMU CPU registers, identifies userspace, kernel execution
@@ -400,6 +429,7 @@ logs are under `/tmp/pedigree-which-perf-20260914`, with short QEMU output paths
 | `/tmp/wperf-cpuid-reboot1` | Final kernel, saved binary hash and execution after reboot; PASS |
 | `/tmp/wperf-watchdog-qmp-new4`, `/tmp/wperf-watchdog-qmp-old4` | Four-CPU watchdog positive/negative pair, promoted runner; PASS |
 | `/tmp/pedigree-which-perf-20260914/rtc-negative` | Unsupported/duplicate RTC boot-option rejection; PASS |
+| `/tmp/pedigree-syscall-counter-20260914/run1`, `/tmp/pedigree-syscall-counter-20260914/run2` | Opt-in syscall-count quick runs; PASS |
 
 The target kernel and initrd were rebuilt with `cmake --build build --target
 kernel initrd -j8`, including all consumers after shared layout changes. The

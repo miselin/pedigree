@@ -1151,6 +1151,21 @@ int posix_linux_syslog(int type, char* buf, int len) {
       break;
     case 10:
       return static_cast<int>(Log::textCapacity());
+#if PEDIGREE_SYSCALL_COUNTER
+    case 11: {
+      if (len != static_cast<int>(sizeof(uint64_t))) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      const uint64_t count = process->getReapedChildrenSyscallCount();
+      if (!PosixSubsystem::copyToUser(buf, &count, sizeof(count))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      return static_cast<int>(sizeof(count));
+    }
+#endif
     case 2:
     case 4:
     case 5:

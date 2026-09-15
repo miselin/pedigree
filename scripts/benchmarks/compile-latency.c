@@ -35,6 +35,15 @@ static uint64_t timeval_us(struct timeval t) {
   return (uint64_t)t.tv_sec * 1000000ULL + (uint64_t)t.tv_usec;
 }
 
+static int reaped_child_syscall_count(uint64_t* count) {
+  uint64_t result = 0;
+  long status = syscall(SYS_syslog, 11, &result, sizeof(result));
+  if (status != (long)sizeof(result))
+    return 0;
+  *count = result;
+  return 1;
+}
+
 static void gate(const char* phase) {
   printf("COMPILEBENCH READY phase=%s\n", phase);
   for (;;) {
@@ -57,16 +66,20 @@ static void gate(const char* phase) {
 }
 
 static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
-                   const struct rusage* usage, uint64_t checksum) {
+                   const struct rusage* usage, uint64_t checksum, int have_syscalls,
+                   uint64_t syscalls) {
   printf(
       "COMPILEBENCH metric phase=%s total_us=%llu rc=%d user_us=%llu system_us=%llu "
       "minor_faults=%ld major_faults=%ld in_blocks=%ld out_blocks=%ld "
-      "voluntary_switches=%ld involuntary_switches=%ld checksum=%llu\n",
+      "voluntary_switches=%ld involuntary_switches=%ld checksum=%llu",
       phase, (unsigned long long)((end - start) / 1000), rc,
       (unsigned long long)timeval_us(usage->ru_utime),
       (unsigned long long)timeval_us(usage->ru_stime), usage->ru_minflt, usage->ru_majflt,
       usage->ru_inblock, usage->ru_oublock, usage->ru_nvcsw, usage->ru_nivcsw,
       (unsigned long long)checksum);
+  if (have_syscalls)
+    printf(" syscalls=%llu", (unsigned long long)syscalls);
+  printf("\n");
   printf("COMPILEBENCH DONE phase=%s\n", phase);
 }
 
@@ -87,7 +100,7 @@ static void own_metric(const char* phase, uint64_t start, uint64_t end, const st
   after.ru_oublock -= before->ru_oublock;
   after.ru_nvcsw -= before->ru_nvcsw;
   after.ru_nivcsw -= before->ru_nivcsw;
-  metric(phase, start, end, 0, &after, checksum);
+  metric(phase, start, end, 0, &after, checksum, 0, 0);
 }
 
 static int command(const char* phase, char* const args[], int permit_failure) {
@@ -96,6 +109,8 @@ static int command(const char* phase, char* const args[], int permit_failure) {
     printf("%s%s", i ? " " : "", args[i]);
   printf("\n");
   gate(phase);
+  uint64_t before_syscalls = 0;
+  int have_before_syscalls = reaped_child_syscall_count(&before_syscalls);
   uint64_t start = now_ns();
   pid_t child = fork();
   if (child < 0)
@@ -130,7 +145,12 @@ static int command(const char* phase, char* const args[], int permit_failure) {
   if (waited != child)
     fail("wait4");
   int rc = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
-  metric(phase, start, end, rc, &usage, 0);
+  uint64_t after_syscalls = 0;
+  int have_after_syscalls = reaped_child_syscall_count(&after_syscalls);
+  uint64_t syscalls = after_syscalls - before_syscalls;
+  int have_syscalls = have_before_syscalls && have_after_syscalls &&
+                      after_syscalls >= before_syscalls;
+  metric(phase, start, end, rc, &usage, 0, have_syscalls, syscalls);
   if (rc && !permit_failure)
     fail(phase);
   return rc;

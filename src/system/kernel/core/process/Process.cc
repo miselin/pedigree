@@ -743,6 +743,10 @@ void Process::accountReapedChild(const Process* child, Time::Timestamp& user,
   kernel = child->getKernelTime() + child->getReapedChildrenKernelTime();
   __atomic_fetch_add(&m_Metadata.reapedChildrenUserTime, user, __ATOMIC_RELAXED);
   __atomic_fetch_add(&m_Metadata.reapedChildrenKernelTime, kernel, __ATOMIC_RELAXED);
+#if PEDIGREE_SYSCALL_COUNTER
+  const uint64_t syscalls = child->getSyscallCount() + child->getReapedChildrenSyscallCount();
+  __atomic_fetch_add(&m_Metadata.reapedChildrenSyscallCount, syscalls, __ATOMIC_RELAXED);
+#endif
 }
 
 void Process::publishTimeAccountingBatch(Time::Timestamp user, Time::Timestamp system) {

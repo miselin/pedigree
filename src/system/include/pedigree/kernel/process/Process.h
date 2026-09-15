@@ -639,6 +639,21 @@ class EXPORTED_PUBLIC Process {
     return __atomic_load_n(&m_Metadata.reapedChildrenKernelTime, __ATOMIC_ACQUIRE);
   }
 
+#if PEDIGREE_SYSCALL_COUNTER
+  /** Records one syscall handled by this process for benchmark diagnostics. */
+  void recordSyscall() {
+    __atomic_fetch_add(&m_Metadata.syscallCount, static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+  }
+
+  uint64_t getSyscallCount() const {
+    return __atomic_load_n(&m_Metadata.syscallCount, __ATOMIC_ACQUIRE);
+  }
+
+  uint64_t getReapedChildrenSyscallCount() const {
+    return __atomic_load_n(&m_Metadata.reapedChildrenSyscallCount, __ATOMIC_ACQUIRE);
+  }
+#endif
+
   /**
    * Adds a reaped child's final self and descendant CPU totals to this
    * process. The caller must own the child's sole reaper claim and wait until
@@ -966,6 +981,20 @@ class EXPORTED_PUBLIC Process {
 
   /** Stores metadata about this process. */
   struct ProcessMetadata {
+#if PEDIGREE_SYSCALL_COUNTER
+    ProcessMetadata()
+        : heapUsage(0),
+          virtualPages(0),
+          physicalPages(0),
+          sharedPages(0),
+          userTime(0),
+          kernelTime(0),
+          reapedChildrenUserTime(0),
+          reapedChildrenKernelTime(0),
+          syscallCount(0),
+          reapedChildrenSyscallCount(0),
+          startTime(0) {}
+#else
     ProcessMetadata()
         : heapUsage(0),
           virtualPages(0),
@@ -976,6 +1005,7 @@ class EXPORTED_PUBLIC Process {
           reapedChildrenUserTime(0),
           reapedChildrenKernelTime(0),
           startTime(0) {}
+#endif
 
     /// Bytes used in the kernel heap by this process.
     ssize_t heapUsage;
@@ -995,6 +1025,13 @@ class EXPORTED_PUBLIC Process {
     Time::Timestamp reapedChildrenUserTime;
     /// Time spent in the kernel by children this process has reaped.
     Time::Timestamp reapedChildrenKernelTime;
+
+#if PEDIGREE_SYSCALL_COUNTER
+    /// Number of syscalls handled by this process.
+    uint64_t syscallCount;
+    /// Number of syscalls handled by children and descendants this process reaped.
+    uint64_t reapedChildrenSyscallCount;
+#endif
 
     /// Time at which process started.
     Time::Timestamp startTime;

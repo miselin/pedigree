@@ -130,6 +130,7 @@ set(PEDIGREE_STRICT_LOCK_ORDERING FALSE CACHE BOOL "Enforce strict lock ordering
 set(PEDIGREE_LOGGING TRUE CACHE BOOL "Enable the kernel logging facility.")
 set(PEDIGREE_TRACK_PAGE_ALLOCS FALSE CACHE BOOL "Track physical page allocations in the debugger allocations command.")
 set(PEDIGREE_VERBOSE_MEMORY_MANAGER FALSE CACHE BOOL "Be more verbose in PhysicalMemoryManager.")
+set(PEDIGREE_SYSCALL_COUNTER FALSE CACHE BOOL "Count POSIX syscalls per process for benchmark diagnostics.")
 
 # init configuration
 set(PEDIGREE_WITH_INIT TRUE CACHE BOOL "Build and run the init module at startup. It can be useful to skip running init to test without having the system start an entire userspace.")
