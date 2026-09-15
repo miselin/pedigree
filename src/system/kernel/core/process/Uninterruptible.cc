@@ -27,6 +27,21 @@ Uninterruptible::Uninterruptible()
   m_pThread->registerDeferredScope(m_Record, true, true);
 }
 
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+Uninterruptible::Uninterruptible(bool active)
+    : m_pThread(active ? Processor::information().getCurrentThread() : nullptr), m_Record() {
+  if (m_pThread) {
+    m_pThread->registerDeferredScope(m_Record, true, true);
+  }
+}
+#endif
+
 Uninterruptible::~Uninterruptible() {
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+  if (m_pThread) {
+    m_pThread->unregisterDeferredScope(m_Record);
+  }
+#else
   m_pThread->unregisterDeferredScope(m_Record);
+#endif
 }

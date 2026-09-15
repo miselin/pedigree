@@ -775,6 +775,26 @@ void MemoryMappedFile::clearMappings() {
   m_Mappings.clear();
 }
 
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+MemoryMapManager::OperationGuard::OperationGuard(MemoryMapManager& manager, bool tryOnly)
+    : OperationGuard(manager, tryOnly, manager.benchmarkSkipRecursiveGuardEvents(tryOnly),
+                     manager.benchmarkSkipGuardTermination()) {}
+
+MemoryMapManager::OperationGuard::OperationGuard(MemoryMapManager& manager, bool tryOnly,
+                                                 bool skipEventDeferral,
+                                                 bool skipTerminationDeferral)
+    : m_EventDeferral(!skipEventDeferral),
+      m_TerminationDeferral(!skipTerminationDeferral),
+      m_Manager(manager),
+      m_Acquired(!tryOnly || manager.tryEnterOperation()) {
+  if (!tryOnly) {
+    m_Manager.enterOperation();
+  }
+  if (m_Acquired) {
+    Processor::information().getCurrentThread()->enterBenchmarkVmOperationGuard();
+  }
+}
+#else
 MemoryMapManager::OperationGuard::OperationGuard(MemoryMapManager& manager, bool tryOnly)
     : m_EventDeferral(),
       m_TerminationDeferral(),
@@ -784,9 +804,13 @@ MemoryMapManager::OperationGuard::OperationGuard(MemoryMapManager& manager, bool
     m_Manager.enterOperation();
   }
 }
+#endif
 
 MemoryMapManager::OperationGuard::~OperationGuard() {
   if (m_Acquired) {
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+    Processor::information().getCurrentThread()->leaveBenchmarkVmOperationGuard();
+#endif
     m_Manager.leaveOperation();
   }
 }
@@ -802,6 +826,40 @@ MemoryMapManager::MemoryMapManager()
   assert(registered);
   MemoryPressureManager::instance().registerHandler(MemoryPressureManager::HighPriority, this);
 }
+
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+bool MemoryMapManager::benchmarkSkipRecursiveGuardEvents(bool tryOnly) {
+  if (tryOnly) {
+    return false;
+  }
+  Thread* thread = Processor::information().getCurrentThread();
+  Process* process = thread ? thread->getParent() : nullptr;
+  if (!process || !process->benchmarkVmAblationEnabled(Process::AblateGuardRecursiveEvents)) {
+    return false;
+  }
+
+  const bool skip = thread->benchmarkVmOperationGuardNested();
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  if (skip) {
+    process->recordBenchmarkVmCounter(Process::VmAblationGuardRecursiveEventScopesSkipped);
+  }
+#endif
+  return skip;
+}
+
+bool MemoryMapManager::benchmarkSkipGuardTermination() {
+  Thread* thread = Processor::information().getCurrentThread();
+  Process* process = thread ? thread->getParent() : nullptr;
+  const bool skip =
+      process && process->benchmarkVmAblationEnabled(Process::AblateGuardDuplicateTermination);
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  if (skip) {
+    process->recordBenchmarkVmCounter(Process::VmAblationGuardTerminationScopesSkipped);
+  }
+#endif
+  return skip;
+}
+#endif
 
 void MemoryMapManager::enterOperation() {
   void* owner = currentOperationOwner();

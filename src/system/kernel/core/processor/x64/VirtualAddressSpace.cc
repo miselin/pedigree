@@ -633,7 +633,23 @@ bool X64VirtualAddressSpace::unmapUnlocked(void* virtualAddress, X64MappingMutat
   // storage until every processor has discarded both translations and
   // paging-structure-cache entries for this address.
   physical_uintptr_t detachedTables[3] = {};
-  const size_t detachedCount = detachEmptyTables(virtualAddress, detachedTables);
+  size_t detachedCount = 0;
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+  Thread* benchmarkThread = Processor::information().getCurrentThread();
+  Process* benchmarkProcess = benchmarkThread ? benchmarkThread->getParent() : nullptr;
+  const bool deferTableRetirement =
+      benchmarkProcess && benchmarkThread->benchmarkVmMunmapActive() &&
+      benchmarkProcess->getAddressSpace() == this && virtualAddress < KERNEL_SPACE_START &&
+      benchmarkProcess->benchmarkVmAblationEnabled(Process::AblateTableRetirement);
+  if (deferTableRetirement) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    benchmarkProcess->recordBenchmarkVmCounter(Process::VmAblationTableRetirementScansSkipped);
+#endif
+  } else
+#endif
+  {
+    detachedCount = detachEmptyTables(virtualAddress, detachedTables);
+  }
   if (!invalidateMapping(virtualAddress, mutation)) {
     return false;
   }

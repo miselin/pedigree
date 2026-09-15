@@ -829,6 +829,11 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
    private:
     NOT_COPYABLE_OR_ASSIGNABLE(OperationGuard);
 
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+    OperationGuard(MemoryMapManager& manager, bool tryOnly, bool skipEventDeferral,
+                   bool skipTerminationDeferral);
+#endif
+
     Uninterruptible m_EventDeferral;
     TerminationDeferral m_TerminationDeferral;
     MemoryMapManager& m_Manager;
@@ -856,6 +861,10 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   void enterOperation();
   bool tryEnterOperation();
   void leaveOperation();
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+  bool benchmarkSkipRecursiveGuardEvents(bool tryOnly);
+  bool benchmarkSkipGuardTermination();
+#endif
 
   size_t removeInternal(uintptr_t base, size_t length, bool releaseReservations,
                         VmStatus* status = nullptr);

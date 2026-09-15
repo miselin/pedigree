@@ -40,6 +40,12 @@ In an offline disposable ext2 root, install the driver as `/usr/bin/init`, mode
 | `no-sync` | Empty marker for a performance-only run with disk writes disabled |
 | `persist-check` | Optional empty marker to create a persistence sentinel during sync |
 | `trace-vm` | Enable process-scoped VM cardinality counters when supported by the kernel |
+| `vm-ablation` | Require the process-scoped VM ablation API, including for mask-zero controls |
+| `ablate-vm-vector-validation` | Skip only readv/writev payload-wide prevalidation |
+| `ablate-vm-guards` | Omit duplicate guard termination scopes and recursive guard event scopes |
+| `ablate-vm-guard-termination` | Omit only the guard's duplicate termination scope |
+| `ablate-vm-guard-recursive-events` | Omit only recursive guard event scopes |
+| `ablate-vm-table-retirement` | Defer munmap empty-table retirement until reuse or process teardown |
 
 Do not seed `persisted-output`: the driver creates it from the compiled binary.
 On its next boot, an existing sentinel with `persist-check` selects verification
@@ -159,7 +165,33 @@ entry counters are accumulated locally and published once per logical scan.
 
 This diagnostic adds atomic counter publication and is for cardinality, not a
 wall-time control. Pair it with syscall timing to connect exact path volume to
-the accounted syscall totals, but use a probe-free kernel for timing A/Bs.
+the accounted syscall totals, but disable both runtime probes for timing A/Bs.
+
+For scoped VM timing ablations, configure
+`-DPEDIGREE_BENCHMARK_VM_ABLATIONS=TRUE` and add `vm-ablation` to every arm,
+including the mask-zero control. Individual markers select the mask only in
+each post-fork command child; fork and exec descendants inherit it. The driver
+always submits the mask through the same setup syscall when `vm-ablation` is
+present.
+
+The vector-validation arm affects only the initial payload-wide checks in raw
+`readv` and `writev`. It retains the kernel copy and structural validation of
+the iovec array, regular-read commit-time destination checks, and every actual
+`copyFromUser` or `copyToUser` fault-in. The combined guard arm retains manager
+ownership, recursion depth, and one outer event-and-termination scope. It omits
+the separate termination scope already covered by `Uninterruptible`, and omits
+both deferred records from ordinary recursive guards protected by an acquired
+outer guard. Separate guard markers allow those contributions to be timed
+individually if the combined arm is material. The table-retirement arm applies
+only during raw `munmap`: leaf PTE removal and invalidation still occur, while
+now-empty page-table storage remains reachable for reuse and is reclaimed at
+process teardown.
+
+These are known-valid-workload diagnostics, not supported kernel policies. Run
+one `trace-vm` smoke for coverage and invariants, then remove both `trace-vm`
+and `time-syscalls` for alternating same-kernel wall-time comparisons. The
+smoke counters report skipped vector checks, termination scopes, recursive
+event scopes, and skipped table-retirement scans.
 
 ## Run and compare
 

@@ -1099,9 +1099,16 @@ ssize_t posix_pwrite64(int fd, const char* ptr, size_t len, off_t offset) {
   return static_cast<ssize_t>(totalWritten);
 }
 
-static bool snapshotIoVectors(const struct iovec* userVectors, int vectorCount, bool writeOperation,
-                              UniqueArray<struct iovec>& vectorOwner, size_t& totalLength,
-                              bool validatePayload = true) {
+enum class VectorPayloadValidation {
+  Full,
+  CommitTime,
+  BenchmarkEligible,
+};
+
+static bool snapshotIoVectors(
+    const struct iovec* userVectors, int vectorCount, bool writeOperation,
+    UniqueArray<struct iovec>& vectorOwner, size_t& totalLength,
+    VectorPayloadValidation payloadValidation = VectorPayloadValidation::Full) {
   constexpr int MaximumIoVectors = 1024;
   if (vectorCount < 0 || vectorCount > MaximumIoVectors) {
     SYSCALL_ERROR(InvalidArgument);
@@ -1121,12 +1128,30 @@ static bool snapshotIoVectors(const struct iovec* userVectors, int vectorCount, 
     return false;
   }
 
+  bool validatePayload = payloadValidation != VectorPayloadValidation::CommitTime;
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  const bool skipPayloadValidation =
+      payloadValidation == VectorPayloadValidation::BenchmarkEligible &&
+      process->benchmarkVmAblationEnabled(Process::AblateVectorPayloadValidation);
+  if (skipPayloadValidation) {
+    validatePayload = false;
+  }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  size_t skippedPayloadChecks = 0;
+#endif
+#endif
   const size_t access = writeOperation ? PosixSubsystem::SafeRead : PosixSubsystem::SafeWrite;
   for (int i = 0; i < vectorCount; ++i) {
     if (vectors[i].iov_len > static_cast<size_t>(INT_MAX) - totalLength) {
       SYSCALL_ERROR(InvalidArgument);
       return false;
     }
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS && PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    if (vectors[i].iov_len && skipPayloadValidation) {
+      ++skippedPayloadChecks;
+    }
+#endif
     if (vectors[i].iov_len && validatePayload &&
         !PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(vectors[i].iov_base),
                                          vectors[i].iov_len, 1, access)) {
@@ -1135,6 +1160,10 @@ static bool snapshotIoVectors(const struct iovec* userVectors, int vectorCount, 
     }
     totalLength += vectors[i].iov_len;
   }
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS && PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmAblationVectorPayloadChecksSkipped,
+                                    skippedPayloadChecks);
+#endif
   return true;
 }
 
@@ -1249,7 +1278,8 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
 
   UniqueArray<struct iovec> vectorOwner;
   size_t totalLength = 0;
-  if (!snapshotIoVectors(iov, iovcnt, true, vectorOwner, totalLength)) {
+  if (!snapshotIoVectors(iov, iovcnt, true, vectorOwner, totalLength,
+                         VectorPayloadValidation::BenchmarkEligible)) {
     return -1;
   }
   struct iovec* vectors = vectorOwner.get();
@@ -1476,7 +1506,9 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
   // Record readers validate each destination at commit time. A later fault
   // must not suppress complete records copied before it.
   if (!snapshotIoVectors(iov, iovcnt, false, vectorOwner, totalLength,
-                         !timerFd && !signalFd && !fanotify)) {
+                         timerFd || signalFd || fanotify
+                             ? VectorPayloadValidation::CommitTime
+                             : VectorPayloadValidation::BenchmarkEligible)) {
     return -1;
   }
   struct iovec* vectors = vectorOwner.get();
@@ -3417,7 +3449,21 @@ int posix_munmap(void* addr, size_t len) {
 #endif
 
   MemoryMapManager::VmStatus status;
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+  Thread* benchmarkThread = Processor::information().getCurrentThread();
+  Process* benchmarkProcess = benchmarkThread->getParent();
+  const bool deferTableRetirement =
+      benchmarkProcess->benchmarkVmAblationEnabled(Process::AblateTableRetirement);
+  if (deferTableRetirement) {
+    benchmarkThread->enterBenchmarkVmMunmap();
+  }
+#endif
   MemoryMapManager::instance().removeAndRelease(address, roundedLength, &status);
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+  if (deferTableRetirement) {
+    benchmarkThread->leaveBenchmarkVmMunmap();
+  }
+#endif
   if (status != MemoryMapManager::VmStatus::Success) {
     if (status == MemoryMapManager::VmStatus::Unsupported)
       SYSCALL_ERROR(OperationNotSupported);

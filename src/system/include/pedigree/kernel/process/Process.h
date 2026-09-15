@@ -313,6 +313,25 @@ class EXPORTED_PUBLIC Process {
   }
 #endif
 
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+  enum BenchmarkVmAblation : size_t {
+    AblateVectorPayloadValidation = 1,
+    AblateGuardDuplicateTermination = 2,
+    AblateGuardRecursiveEvents = 4,
+    AblateTableRetirement = 8,
+    VmAblationMask = AblateVectorPayloadValidation | AblateGuardDuplicateTermination |
+                     AblateGuardRecursiveEvents | AblateTableRetirement,
+  };
+
+  void setBenchmarkVmAblation(size_t value) {
+    __atomic_store_n(&m_BenchmarkVmAblation, value, __ATOMIC_RELEASE);
+  }
+
+  bool benchmarkVmAblationEnabled(BenchmarkVmAblation value) const {
+    return (__atomic_load_n(&m_BenchmarkVmAblation, __ATOMIC_ACQUIRE) & value) != 0;
+  }
+#endif
+
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
   enum BenchmarkVmCounter : size_t {
     VmMmapCalls,
@@ -372,6 +391,10 @@ class EXPORTED_PUBLIC Process {
     VmDetachTables,
     VmInvalidationActive,
     VmInvalidationInactive,
+    VmAblationVectorPayloadChecksSkipped,
+    VmAblationGuardTerminationScopesSkipped,
+    VmAblationGuardRecursiveEventScopesSkipped,
+    VmAblationTableRetirementScansSkipped,
     BenchmarkVmCounterCount,
   };
 
@@ -988,6 +1011,10 @@ class EXPORTED_PUBLIC Process {
   bool m_BenchmarkSyscallTiming = false;
   uint64_t m_SyscallTimingCalls[SyscallTimingSlotCount] = {};
   uint64_t m_SyscallTimingKernelNanoseconds[SyscallTimingSlotCount] = {};
+#endif
+
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+  size_t m_BenchmarkVmAblation = 0;
 #endif
 
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS

@@ -556,6 +556,8 @@ def summarize(args):
                         "syscall_latency_buckets": syscall_latency_buckets(metric),
                         "syscall_timing": syscall_timing(metric),
                         "vm_diagnostics": vm_diagnostics(metric),
+                        "vm_ablation_api": metric.get("benchmark_vm_ablation_api"),
+                        "vm_ablation": metric.get("benchmark_vm_ablation"),
                         "activity": activity_diagnostics(metric),
                         "rc": metric.get("rc"), "disk": disk,
                         "irq": irq_delta(phase.get("irq_before", ""), phase.get("irq_after", ""), seconds)}
@@ -570,6 +572,8 @@ def summarize(args):
                                 "syscall_latency_buckets": syscall_latency_buckets(metric),
                                 "syscall_timing": syscall_timing(metric),
                                 "vm_diagnostics": vm_diagnostics(metric),
+                                "vm_ablation_api": metric.get("benchmark_vm_ablation_api"),
+                                "vm_ablation": metric.get("benchmark_vm_ablation"),
                                 "activity": activity_diagnostics(metric),
                                 "rc": metric["rc"]}
     for name, profile in profiles.items():

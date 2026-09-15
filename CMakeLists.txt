@@ -142,6 +142,8 @@ set(PEDIGREE_BENCHMARK_SYSCALL_TIMING FALSE CACHE BOOL
     "Attribute existing CPU-accounting intervals to benchmark process syscalls.")
 set(PEDIGREE_BENCHMARK_VM_DIAGNOSTICS FALSE CACHE BOOL
     "Collect benchmark process VM lifecycle cardinality counters.")
+set(PEDIGREE_BENCHMARK_VM_ABLATIONS FALSE CACHE BOOL
+    "Benchmark only: allow selected processes to bypass isolated VM hot-path work.")
 set(PEDIGREE_READY_QUEUE_COUNTS TRUE CACHE BOOL "Maintain ready-queue counts to bound scheduler selection scans.")
 set(PEDIGREE_TIME_ACCOUNTING TRUE CACHE BOOL "Collect per-thread and per-process CPU-time accounting.")
 set(PEDIGREE_SCHEDULER_TICK_DIVISOR 1 CACHE STRING "Schedule once per this many scheduler timer ticks.")

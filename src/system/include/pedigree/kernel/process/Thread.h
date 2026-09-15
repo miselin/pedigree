@@ -38,6 +38,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
+#include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/new"
 
 #include <config.h>
@@ -848,6 +849,34 @@ class EXPORTED_PUBLIC Thread {
   /** Gets whether event delivery is currently deferred. */
   bool eventsDeferred();
 
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+  bool benchmarkVmOperationGuardNested() const {
+    return m_BenchmarkVmOperationGuardDepth != 0;
+  }
+
+  void enterBenchmarkVmOperationGuard() {
+    ++m_BenchmarkVmOperationGuardDepth;
+  }
+
+  void leaveBenchmarkVmOperationGuard() {
+    assert(m_BenchmarkVmOperationGuardDepth);
+    --m_BenchmarkVmOperationGuardDepth;
+  }
+
+  void enterBenchmarkVmMunmap() {
+    ++m_BenchmarkVmMunmapDepth;
+  }
+
+  void leaveBenchmarkVmMunmap() {
+    assert(m_BenchmarkVmMunmapDepth);
+    --m_BenchmarkVmMunmapDepth;
+  }
+
+  bool benchmarkVmMunmapActive() const {
+    return m_BenchmarkVmMunmapDepth != 0;
+  }
+#endif
+
   /** Returns this Thread's explicit logical execution context. */
   ExecutionContext executionContext() const;
 
@@ -1281,6 +1310,11 @@ class EXPORTED_PUBLIC Thread {
 
   /** Nesting depth for deferred event delivery. */
   size_t m_EventDeferralDepth = 0;
+
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+  size_t m_BenchmarkVmOperationGuardDepth = 0;
+  size_t m_BenchmarkVmMunmapDepth = 0;
+#endif
 
   /** Nesting depth for scopes which must run cleanup before teardown. */
   size_t m_TerminationDeferralDepth = 0;

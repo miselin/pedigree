@@ -43,13 +43,19 @@ static uint64_t timeval_us(struct timeval t) {
 #define ACTIVITY_USER_ENTRY_SAMPLE_PERIOD 256
 #define BENCHMARK_ABLATE_INTERRUPT_RETURN 1
 #define BENCHMARK_ABLATE_SYSCALL_RETURN 2
+#define BENCHMARK_ABLATE_VM_VECTOR_VALIDATION 1
+#define BENCHMARK_ABLATE_VM_GUARD_TERMINATION 2
+#define BENCHMARK_ABLATE_VM_GUARD_RECURSIVE_EVENTS 4
+#define BENCHMARK_ABLATE_VM_TABLE_RETIREMENT 8
 #define SYSCALL_TIMING_RAW_SLOT_COUNT 512
 #define SYSCALL_TIMING_SLOT_COUNT (SYSCALL_TIMING_RAW_SLOT_COUNT + 1)
-#define VM_DIAGNOSTIC_COUNTER_COUNT 57
+#define VM_DIAGNOSTIC_COUNTER_COUNT 61
 
 static unsigned benchmark_user_return_ablation;
 static int benchmark_syscall_timing;
 static int benchmark_vm_diagnostics;
+static int benchmark_vm_ablation_api;
+static unsigned benchmark_vm_ablation;
 
 static const char* vm_diagnostic_names[VM_DIAGNOSTIC_COUNTER_COUNT] = {
     "mmap_calls",
@@ -109,6 +115,10 @@ static const char* vm_diagnostic_names[VM_DIAGNOSTIC_COUNTER_COUNT] = {
     "detach_tables",
     "invalidation_active",
     "invalidation_inactive",
+    "ablation_vector_payload_checks_skipped",
+    "ablation_guard_termination_scopes_skipped",
+    "ablation_guard_recursive_event_scopes_skipped",
+    "ablation_table_retirement_scans_skipped",
 };
 
 static const char* activity_user_return_stage_names[] = {
@@ -200,7 +210,7 @@ struct vm_diagnostic_snapshot {
   uint64_t counters[VM_DIAGNOSTIC_COUNTER_COUNT];
 };
 
-_Static_assert(sizeof(struct vm_diagnostic_snapshot) == 57 * sizeof(uint64_t),
+_Static_assert(sizeof(struct vm_diagnostic_snapshot) == 61 * sizeof(uint64_t),
                "VM diagnostic snapshot layout must match the kernel ABI");
 
 static int reaped_child_syscall_count(uint64_t* count) {
@@ -314,13 +324,14 @@ static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
       "minor_faults=%ld major_faults=%ld in_blocks=%ld out_blocks=%ld "
       "voluntary_switches=%ld involuntary_switches=%ld checksum=%llu "
       "benchmark_user_return_ablation=%u benchmark_syscall_timing=%d "
-      "benchmark_vm_diagnostics=%d",
+      "benchmark_vm_diagnostics=%d benchmark_vm_ablation_api=%d "
+      "benchmark_vm_ablation=%u",
       phase, (unsigned long long)((end - start) / 1000), rc,
       (unsigned long long)timeval_us(usage->ru_utime),
       (unsigned long long)timeval_us(usage->ru_stime), usage->ru_minflt, usage->ru_majflt,
       usage->ru_inblock, usage->ru_oublock, usage->ru_nvcsw, usage->ru_nivcsw,
       (unsigned long long)checksum, benchmark_user_return_ablation, benchmark_syscall_timing,
-      benchmark_vm_diagnostics);
+      benchmark_vm_diagnostics, benchmark_vm_ablation_api, benchmark_vm_ablation);
   if (have_syscalls)
     printf(" syscalls=%llu", (unsigned long long)syscalls);
   if (have_syscall_latency) {
@@ -509,6 +520,11 @@ static int command(const char* phase, char* const args[], int permit_failure) {
         syscall(SYS_syslog, 14, NULL, benchmark_user_return_ablation)) {
       dprintf(STDERR_FILENO, "COMPILEBENCH child ablation setup failed errno=%d\n", errno);
       _exit(124);
+    }
+    if (benchmark_vm_ablation_api &&
+        syscall(SYS_syslog, 19, NULL, benchmark_vm_ablation)) {
+      dprintf(STDERR_FILENO, "COMPILEBENCH child VM ablation setup failed errno=%d\n", errno);
+      _exit(121);
     }
     if (benchmark_syscall_timing && syscall(SYS_syslog, 15, NULL, 1)) {
       dprintf(STDERR_FILENO, "COMPILEBENCH child syscall timing setup failed errno=%d\n", errno);
@@ -725,11 +741,29 @@ int main(void) {
     benchmark_user_return_ablation |= BENCHMARK_ABLATE_SYSCALL_RETURN;
   benchmark_syscall_timing = !access("time-syscalls", F_OK);
   benchmark_vm_diagnostics = !access("trace-vm", F_OK);
+  benchmark_vm_ablation_api = !access("vm-ablation", F_OK);
+  if (!access("ablate-vm-vector-validation", F_OK))
+    benchmark_vm_ablation |= BENCHMARK_ABLATE_VM_VECTOR_VALIDATION;
+  if (!access("ablate-vm-guard-termination", F_OK))
+    benchmark_vm_ablation |= BENCHMARK_ABLATE_VM_GUARD_TERMINATION;
+  if (!access("ablate-vm-guard-recursive-events", F_OK))
+    benchmark_vm_ablation |= BENCHMARK_ABLATE_VM_GUARD_RECURSIVE_EVENTS;
+  if (!access("ablate-vm-guards", F_OK))
+    benchmark_vm_ablation |= BENCHMARK_ABLATE_VM_GUARD_TERMINATION |
+                             BENCHMARK_ABLATE_VM_GUARD_RECURSIVE_EVENTS;
+  if (!access("ablate-vm-table-retirement", F_OK))
+    benchmark_vm_ablation |= BENCHMARK_ABLATE_VM_TABLE_RETIREMENT;
+  if (benchmark_vm_ablation && !benchmark_vm_ablation_api) {
+    errno = EINVAL;
+    fail("vm-ablation-marker");
+  }
   printf("COMPILEBENCH BEGIN\n");
   printf(
       "COMPILEBENCH configuration benchmark_user_return_ablation=%u "
-      "benchmark_syscall_timing=%d benchmark_vm_diagnostics=%d\n",
-      benchmark_user_return_ablation, benchmark_syscall_timing, benchmark_vm_diagnostics);
+      "benchmark_syscall_timing=%d benchmark_vm_diagnostics=%d "
+      "benchmark_vm_ablation_api=%d benchmark_vm_ablation=%u\n",
+      benchmark_user_return_ablation, benchmark_syscall_timing, benchmark_vm_diagnostics,
+      benchmark_vm_ablation_api, benchmark_vm_ablation);
   static char kernel_log[256 * 1024];
   long log_size = syscall(SYS_syslog, 3, kernel_log, sizeof(kernel_log) - 1);
   if (log_size > 0) {

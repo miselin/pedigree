@@ -23,6 +23,8 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/DeferredScope.h"
 
+#include <config.h>
+
 class Thread;
 
 /**
@@ -35,6 +37,9 @@ class Thread;
 class EXPORTED_PUBLIC Uninterruptible {
  public:
   Uninterruptible();
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+  explicit Uninterruptible(bool active);
+#endif
   ~Uninterruptible();
 
  private:

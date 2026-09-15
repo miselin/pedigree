@@ -1263,6 +1263,17 @@ int posix_linux_syslog(int type, char* buf, int len) {
       return static_cast<int>(snapshotSize);
     }
 #endif
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+    case 19: {
+      if (buf || len < 0 || (static_cast<size_t>(len) & ~Process::VmAblationMask)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      process->setBenchmarkVmAblation(static_cast<size_t>(len));
+      return 0;
+    }
+#endif
     case 2:
     case 4:
     case 5:
