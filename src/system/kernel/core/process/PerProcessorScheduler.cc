@@ -72,7 +72,10 @@ PerProcessorScheduler::PerProcessorScheduler()
       m_DeferredThreadReapPublicationState(DeferredReapPublicationClosed),
       m_StopTimeAccountingWorker(0),
       m_TimeAccountingWorker(),
+      m_TimeAccountingWorkerWaiters(),
+      m_TimeAccountingWorkerWake(),
       m_IrqWorkDoorbell(0),
+      m_IrqWorkLock(),
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       m_nDeferredThreadReapCompletions(0),
 #endif
@@ -105,9 +108,7 @@ void PerProcessorScheduler::startTimeAccountingWorker(Process* pParent) {
   m_StopTimeAccountingWorker = 0;
   Thread* worker = new Thread(pParent, timeAccountingWorkerEntry, this, nullptr, false, true, true);
   worker->setName("deferred process time accounting");
-  if (!worker->setSchedulerReadyPredicate(timeAccountingWorkerReady, this)) {
-    FATAL("Time accounting worker could not install its ready predicate.");
-  }
+  registerWorkerWake(m_TimeAccountingWorkerWake, m_TimeAccountingWorkerWaiters);
   m_TimeAccountingWorker.adopt(worker);
   if (!worker->start()) {
     FATAL("Time accounting worker could not be started.");
@@ -140,9 +141,10 @@ void PerProcessorScheduler::stopTimeAccountingWorker() {
   }
 
   m_StopTimeAccountingWorker = 1;
-  ringIrqWorkDoorbell();
+  ringIrqWorkDoorbell(m_TimeAccountingWorkerWake);
   serviceIrqWorkDoorbell();
   m_TimeAccountingWorker.join();
+  unregisterWorkerWake(m_TimeAccountingWorkerWake);
   if (m_nDeferredThreadReaps.value() || m_AffinityRequests.value()) {
     FATAL("Deferred Thread reap worker stopped with pending targets.");
   }
@@ -152,32 +154,38 @@ int PerProcessorScheduler::timeAccountingWorkerEntry(void* instance) {
   return reinterpret_cast<PerProcessorScheduler*>(instance)->runTimeAccountingWorker();
 }
 
-bool PerProcessorScheduler::timeAccountingWorkerReady(void* instance) {
-  PerProcessorScheduler* scheduler = reinterpret_cast<PerProcessorScheduler*>(instance);
-  return scheduler->m_TimeAccountingState.ready(scheduler->m_StopTimeAccountingWorker.value() !=
-                                                0) ||
-         scheduler->m_nDeferredThreadReaps.value() || scheduler->m_AffinityRequests.value();
-}
-
 int PerProcessorScheduler::runTimeAccountingWorker() {
   TerminationDeferral workerLifetime;
   while (true) {
+    const bool stopping = m_StopTimeAccountingWorker.value() != 0;
+    const bool pending = m_TimeAccountingState.ready() || m_nDeferredThreadReaps.value() ||
+                         m_AffinityRequests.value();
+    if (stopping && m_TimeAccountingState.caughtUp() && !m_nDeferredThreadReaps.value() &&
+        !m_AffinityRequests.value()) {
+      break;
+    }
+    if (!pending) {
+      auto guard = m_TimeAccountingWorkerWaiters.acquire();
+      const bool stillPending = m_TimeAccountingState.ready() || m_nDeferredThreadReaps.value() ||
+                                m_AffinityRequests.value() || m_StopTimeAccountingWorker.value();
+      if (!stillPending) {
+        const WaitQueue::WakeReason reason =
+            guard.wait(WaitQueue::Channel(), Thread::CondWait, reinterpret_cast<uintptr_t>(this));
+        (void)reason;
+      }
+      continue;
+    }
+
     const size_t target = m_TimeAccountingState.beginBatch();
     Scheduler::instance().drainDeferredTimeAccounting();
     Scheduler::instance().sampleLoadAverage();
     drainDeferredThreadReaps();
     drainAffinityRequests();
     // Sampling can be preempted while owning its global mutex. Keep this
-    // worker eligible until every operation in the batch has retired.
+    // worker accounted until every operation in the batch has retired.
     m_TimeAccountingState.finishBatch(target);
 
-    if (m_StopTimeAccountingWorker.value() && m_TimeAccountingState.caughtUp() &&
-        !m_nDeferredThreadReaps.value() && !m_AffinityRequests.value()) {
-      break;
-    }
-
-    // A newly published generation keeps the predicate true. Otherwise
-    // give ordinary peers a scheduling turn until another IRQ rings us.
+    // Give ordinary peers a scheduling turn before draining another batch.
     Scheduler::instance().yield();
   }
 
@@ -196,11 +204,11 @@ void PerProcessorScheduler::publishDeferredThreadReap(Thread* thread) {
     FATAL_NOLOCK("Deferred Thread reap node has invalid ownership.");
   }
 
-  // Make the worker eligible before the node is consumable. A transient pop
-  // simply leaves the nonzero count visible for its next scheduling turn.
+  // Make the worker wake edge visible before the node is consumable. A
+  // transient pop simply leaves the nonzero count visible for its next turn.
   m_nDeferredThreadReaps += 1;
   m_DeferredThreadReaps.push(node);
-  ringIrqWorkDoorbell();
+  ringIrqWorkDoorbell(m_TimeAccountingWorkerWake);
   m_DeferredThreadReapPublicationState -= 1;
 }
 
@@ -499,12 +507,10 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
     ActivityDiagnostics::recordSchedulerIdleFallback(
         pCurrentThread->m_Status == Thread::Ready,
         __atomic_load_n(&pCurrentThread->m_ReadyPublicationPending, __ATOMIC_ACQUIRE));
-    // A tick or yield does not make a runnable thread idle. Predicate-backed
-    // workers must still leave the CPU when their work has been consumed.
+    // A tick or yield does not make a runnable thread idle. Workers which have
+    // no work park themselves on their WaitQueue before reaching this path.
     if (nextStatus == Thread::Ready && pCurrentThread != m_pIdleThread &&
-        !pCurrentThread->m_ReadyPublicationPending &&
-        (!pCurrentThread->m_SchedulerReadyPredicate ||
-         pCurrentThread->m_SchedulerReadyPredicate(pCurrentThread->m_SchedulerReadyContext))) {
+        !pCurrentThread->m_ReadyPublicationPending) {
       pNextThread = pCurrentThread;
     } else if (m_pIdleThread == 0) {
       // The scheduler is still bootstrapping, so spinning is the only
@@ -1393,10 +1399,12 @@ void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
   (void)state;
   ActivityDiagnostics::recordSchedulerTimer();
   Scheduler::instance().requestLoadAverageSample();
-  // Hard IRQ publication only changes an atomic work predicate. Consume the
-  // reschedule request at the scheduler interrupt, where a context switch is
-  // already required and no arbitrary device IRQ frame is suspended.
-  m_IrqWorkDoorbell.compareAndSwap(1, 0);
+  // Device IRQs only publish atomic wake edges. The scheduler interrupt is a
+  // safe boundary to turn those edges into ordinary Sleeping -> Ready
+  // transitions before selecting the next thread.
+  if (m_IrqWorkDoorbell.compareAndSwap(1, 0)) {
+    serviceWorkerWakeups();
+  }
   // A scheduler tick may switch stacks, but it remains a hard interrupt
   // until this callback returns. Kernel Events can unwind into arbitrary
   // subsystem teardown, so leave their delivery to an ordinary syscall or
@@ -1446,9 +1454,62 @@ void PerProcessorScheduler::ringIrqWorkDoorbell() {
   m_IrqWorkDoorbell = 1;
 }
 
+void PerProcessorScheduler::registerWorkerWake(SchedulerWorkerWake& worker, WaitQueue& waiters) {
+  LockGuard<Spinlock> guard(m_IrqWorkLock);
+  if (worker.m_pWaiters || worker.m_pNext) {
+    FATAL("Scheduler worker wake was registered twice.");
+  }
+  worker.m_Pending = 0;
+  worker.m_pWaiters = &waiters;
+  worker.m_pNext = m_pWorkerWakeHead;
+  m_pWorkerWakeHead = &worker;
+}
+
+void PerProcessorScheduler::unregisterWorkerWake(SchedulerWorkerWake& worker) {
+  LockGuard<Spinlock> guard(m_IrqWorkLock);
+  SchedulerWorkerWake** link = &m_pWorkerWakeHead;
+  while (*link && *link != &worker) {
+    link = &(*link)->m_pNext;
+  }
+  if (!*link) {
+    FATAL("Scheduler worker wake was not registered.");
+  }
+  *link = worker.m_pNext;
+  worker.m_pNext = nullptr;
+  worker.m_pWaiters = nullptr;
+  worker.m_Pending = 0;
+}
+
+void PerProcessorScheduler::ringIrqWorkDoorbell(SchedulerWorkerWake& worker) {
+  worker.m_Pending = 1;
+  ringIrqWorkDoorbell();
+}
+
+void PerProcessorScheduler::serviceWorkerWakeups() {
+  LockGuard<Spinlock> guard(m_IrqWorkLock);
+  bool retry = false;
+  for (SchedulerWorkerWake* worker = m_pWorkerWakeHead; worker; worker = worker->m_pNext) {
+    if (!worker->m_Pending.value() || !worker->m_pWaiters) {
+      continue;
+    }
+
+    if (worker->m_pWaiters->wakeOne()) {
+      worker->m_Pending.compareAndSwap(1, 0);
+    } else {
+      // A producer may publish between the worker's empty check and its
+      // WaitQueue enrollment. Keep the edge armed so the next scheduler
+      // boundary retries after the waiter is visible.
+      retry = true;
+    }
+  }
+  if (retry) {
+    m_IrqWorkDoorbell = 1;
+  }
+}
+
 void PerProcessorScheduler::publishDeferredTimeAccounting() {
   m_TimeAccountingState.publish();
-  ringIrqWorkDoorbell();
+  ringIrqWorkDoorbell(m_TimeAccountingWorkerWake);
 }
 
 void PerProcessorScheduler::serviceIrqWorkDoorbell() {
@@ -1457,9 +1518,9 @@ void PerProcessorScheduler::serviceIrqWorkDoorbell() {
   }
 
   // One bounded claim is enough: a racing ring remains set for the next
-  // scheduler tick, while the predicate-backed worker stays scheduler-
-  // visible in the meantime.
+  // scheduler tick.
   if (m_IrqWorkDoorbell.compareAndSwap(1, 0)) {
+    serviceWorkerWakeups();
     schedule();
   }
 }

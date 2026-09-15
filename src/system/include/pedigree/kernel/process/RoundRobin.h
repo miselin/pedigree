@@ -51,7 +51,6 @@ class RoundRobin : public SchedulingAlgorithm {
 
  private:
   static bool isReady(Thread* pThread);
-  static bool isEligible(Thread* pThread);
 
   void enqueue(Thread* pThread);
   void unlink(Thread* pThread);

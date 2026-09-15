@@ -648,9 +648,8 @@ void Thread::shutdown() {
   }
 
   // This is only an exit-announced scheduler state. Join completion is
-  // deliberately delayed until markReapable(). Predicate-backed workers
-  // can still be published on the ready queue while idle, so the status
-  // transition must also withdraw that scheduler publication.
+  // deliberately delayed until markReapable(). The status transition must
+  // also withdraw any ready-queue publication before the thread is retired.
   setStatus(Thread::AwaitingJoin);
 }
 
@@ -844,17 +843,6 @@ bool Thread::startDetached() {
 
   parent->endThreadJoin();
   return accepted;
-}
-
-bool Thread::setSchedulerReadyPredicate(SchedulerReadyPredicate predicate, void* context) {
-  LockGuard<Spinlock> guard(m_Lock);
-  if (m_Status != Created || m_bStartRequested) {
-    return false;
-  }
-
-  m_SchedulerReadyPredicate = predicate;
-  m_SchedulerReadyContext = context;
-  return true;
 }
 
 SchedulerState& Thread::state() {

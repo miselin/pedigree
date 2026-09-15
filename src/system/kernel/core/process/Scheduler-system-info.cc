@@ -110,13 +110,10 @@ void Scheduler::sampleLoadAverage() {
       continue;
     LockGuard<Spinlock> state(thread->m_Lock);
     const auto status = thread->getStatus();
-    // Eligibility predicates are the same nonblocking predicates used by the
-    // run queue. Evaluate them only after dropping the global registry lock.
-    // Exclude this observer, whose eligibility protects the sampling work.
+    // The ready queue contains only threads which can run. Exclude this
+    // observer, whose own execution protects the sampling work.
     if ((status == Thread::Ready || status == Thread::Running) &&
-        !__atomic_load_n(&thread->m_ReadyPublicationPending, __ATOMIC_ACQUIRE) &&
-        (!thread->m_SchedulerReadyPredicate ||
-         thread->m_SchedulerReadyPredicate(thread->m_SchedulerReadyContext)))
+        !__atomic_load_n(&thread->m_ReadyPublicationPending, __ATOMIC_ACQUIRE))
       if (active != ~uint32_t(0))
         ++active;
   }

@@ -22,6 +22,7 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/SchedulerWorkerWake.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -489,7 +490,6 @@ class EXPORTED_PUBLIC RequestQueue {
   bool startWorker();
   bool stopWorker();
 
-  static bool workerReady(void* context);
   void closePreallocatedAdmission();
   void waitForPreallocatedPublishers();
 #endif
@@ -507,26 +507,27 @@ class EXPORTED_PUBLIC RequestQueue {
   /** The request currently being executed by the worker. */
   Request* m_pActiveRequest;
 
-  /** Worker lifecycle, atomically visible to the ready predicate. */
+  /** Worker lifecycle, atomically visible to the worker wait predicate. */
   Atomic<size_t> m_State;
 
 #if THREADS
   /** Serialises initialise/halt/resume/destroy, including worker joins. */
   Mutex m_LifecycleMutex;
 
-  /** Non-sleeping request-list lock and worker predicate wait queue. */
+  /** Non-sleeping request-list lock and worker wait queue. */
   WaitQueue m_RequestQueueWaiters;
+  WaitQueue m_WorkerWaiters;
 
   Thread* m_pThread;
 
-  /** Scheduler which owns the predicate-backed worker and its IRQ doorbell.
-   */
+  /** Scheduler which owns the worker and its IRQ doorbell. */
   Atomic<PerProcessorScheduler*> m_pWorkerScheduler;
+  SchedulerWorkerWake m_WorkerWake;
 
   /** The worker has entered work() and installed its lifetime deferral. */
   Atomic<size_t> m_bWorkerReady;
 
-  /** Keeps a preempted worker eligible inside queue critical sections. */
+  /** Keeps a preempted worker accounted inside queue critical sections. */
   Atomic<size_t> m_bWorkerActive;
 
   /** Changes whenever the worker claims another queued request. */

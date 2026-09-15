@@ -27,7 +27,9 @@
 #include "pedigree/kernel/process/DeferredTimeAccounting.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OwnedThread.h"
+#include "pedigree/kernel/process/SchedulerWorkerWake.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/UserReturnFrame.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -38,7 +40,6 @@
 
 class SchedulingAlgorithm;
 class Spinlock;
-class WaitQueue;
 
 class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
  public:
@@ -123,6 +124,15 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   /** Atomic hard-IRQ publication; does not touch a lock or ready queue. */
   void ringIrqWorkDoorbell();
 
+  /** Registers a worker wait queue for scheduler-side wake publication. */
+  void registerWorkerWake(SchedulerWorkerWake& worker, WaitQueue& waiters);
+
+  /** Removes a worker wake registration after its worker has joined. */
+  void unregisterWorkerWake(SchedulerWorkerWake& worker);
+
+  /** Publishes one worker wake edge without touching a lock or ready queue. */
+  void ringIrqWorkDoorbell(SchedulerWorkerWake& worker);
+
   /**
    * Publishes deferred process timer accounting from IRQ/scheduler context.
    * The accounting worker is made runnable through the shared IRQ doorbell.
@@ -166,7 +176,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   void setIdle(Thread* pThread);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-  /** Exercises the real add-worker predicate and owned shutdown path. */
+  /** Exercises the real add-worker wait and owned shutdown path. */
   bool runHostedNewThreadWorkerRegressions();
 
   static bool currentIrqWorkDoorbellPendingForTest();
@@ -231,7 +241,6 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   void startTimeAccountingWorker(Process* pParent);
   void stopTimeAccountingWorker();
   static int timeAccountingWorkerEntry(void* instance);
-  static bool timeAccountingWorkerReady(void* instance);
   int runTimeAccountingWorker();
   void publishDeferredThreadReap(Thread* thread);
   bool drainDeferredThreadReaps();
@@ -239,6 +248,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   void drainAffinityRequests();
   void prompt();
   Thread* selectNext(Thread* current);
+  void serviceWorkerWakeups();
 
   /** The current SchedulingAlgorithm */
   SchedulingAlgorithm* m_pSchedulingAlgorithm;
@@ -258,7 +268,11 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   Atomic<size_t> m_DeferredThreadReapPublicationState;
   Atomic<size_t> m_StopTimeAccountingWorker;
   OwnedThread m_TimeAccountingWorker;
+  WaitQueue m_TimeAccountingWorkerWaiters;
+  SchedulerWorkerWake m_TimeAccountingWorkerWake;
   Atomic<size_t> m_IrqWorkDoorbell;
+  Spinlock m_IrqWorkLock;
+  SchedulerWorkerWake* m_pWorkerWakeHead = nullptr;
   Spinlock m_AffinityQueueLock;
   Thread* m_AffinityHead = nullptr;
   Thread* m_AffinityTail = nullptr;

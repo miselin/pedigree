@@ -4,7 +4,7 @@
 
 #include "pedigree/kernel/processor/types.h"
 
-/** The scheduler owns serialization and samples eligible non-idle tasks. */
+/** The scheduler owns serialization and samples runnable non-idle tasks. */
 class LoadAverage {
  public:
   static constexpr uint64_t PeriodNanoseconds = 5000000000ULL;

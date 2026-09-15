@@ -50,7 +50,7 @@ class SchedulingAlgorithm {
    * need to take action. */
   virtual void threadStatusChanged(Thread* pThread) = 0;
 
-  /** Returns whether an eligible ready thread remains for this scheduler. */
+  /** Returns whether a ready thread remains for this scheduler. */
   virtual bool hasRunnableThread(Thread* pCurrentThread) = 0;
 };
 

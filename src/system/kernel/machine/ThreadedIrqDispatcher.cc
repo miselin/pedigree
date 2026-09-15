@@ -83,6 +83,8 @@ ThreadedIrqDispatcher::Line::Line()
       m_CallbackContext(nullptr),
       m_Thread(nullptr),
       m_Scheduler(nullptr),
+      m_WorkerWaiters(),
+      m_WorkerWake(),
       m_WorkerProcessor(0),
       m_Line(0),
       m_PendingCookies(nullptr),
@@ -162,10 +164,7 @@ bool ThreadedIrqDispatcher::Line::start() {
   __atomic_store_n(&m_Thread, thread, __ATOMIC_RELEASE);
   const String workerName(static_cast<const char*>(m_Owner->m_Name), m_Owner->m_Name.length());
   thread->setName(workerName);
-  if (!thread->setSchedulerReadyPredicate(workerReady, this)) {
-    FATAL("A threaded IRQ worker could not install its ready predicate.");
-    return false;
-  }
+  m_Scheduler->registerWorkerWake(m_WorkerWake, m_WorkerWaiters);
 
   __atomic_store_n(&m_Started, static_cast<size_t>(1), __ATOMIC_RELEASE);
   if (!thread->start()) {
@@ -188,7 +187,7 @@ void ThreadedIrqDispatcher::Line::beginStop() {
   // One atomic word closes admission and counts publishers already inside
   // publishFromInterrupt(). The worker does not exit until that count drains.
   __atomic_fetch_or(&m_PublicationState, PublicationClosed, __ATOMIC_ACQ_REL);
-  m_Scheduler->ringIrqWorkDoorbell();
+  m_Scheduler->ringIrqWorkDoorbell(m_WorkerWake);
 }
 
 bool ThreadedIrqDispatcher::Line::join() {
@@ -201,7 +200,11 @@ bool ThreadedIrqDispatcher::Line::join() {
     return false;
   }
 
+  if (m_Scheduler) {
+    m_Scheduler->unregisterWorkerWake(m_WorkerWake);
+  }
   __atomic_store_n(&m_Thread, static_cast<Thread*>(nullptr), __ATOMIC_RELEASE);
+  m_Scheduler = nullptr;
   __atomic_store_n(&m_Started, static_cast<size_t>(0), __ATOMIC_RELEASE);
   delete[] m_PendingCookies;
   m_PendingCookies = nullptr;
@@ -272,10 +275,10 @@ bool ThreadedIrqDispatcher::Line::publishFromInterrupt(size_t cookie) {
 #endif
 
   // The worker is pinned to this scheduler. Stage its local doorbell before
-  // issuing a directed prompt so a fast IPI observes an already-ready
-  // predicate. A 0-to-pending transition is the sole prompt obligation;
-  // later occurrences coalesce into the batch the first prompt exposed.
-  m_Scheduler->ringIrqWorkDoorbell();
+  // issuing a directed prompt so a fast IPI observes the published cookie. A
+  // 0-to-pending transition is the sole prompt obligation; later occurrences
+  // coalesce into the batch the first prompt exposed.
+  m_Scheduler->ringIrqWorkDoorbell(m_WorkerWake);
   if (remoteProducer && !pending) {
     if (!m_Owner->m_RemoteWakeCallback(m_Owner->m_RemoteWakeCallbackContext, m_Line,
                                        m_WorkerProcessor)) {
@@ -414,21 +417,14 @@ int ThreadedIrqDispatcher::Line::workerEntry(void* context) {
   return reinterpret_cast<Line*>(context)->run();
 }
 
-bool ThreadedIrqDispatcher::Line::workerReady(void* context) {
-  Line* line = reinterpret_cast<Line*>(context);
-  return line->hasPendingForWorker() ||
-         __atomic_load_n(&line->m_CallbackActive, __ATOMIC_ACQUIRE) ||
-         (__atomic_load_n(&line->m_PublicationState, __ATOMIC_ACQUIRE) & PublicationClosed);
-}
-
 int ThreadedIrqDispatcher::Line::run() {
   // Manager-owned workers are retired only by shutdown(). A terminal
   // request must not strand a line which still accepts publications.
   TerminationDeferral workerLifetime;
   while (true) {
-    // Stay scheduler-eligible from before the claim until all callback
-    // completion bookkeeping is published. Otherwise a timer preemption
-    // can park this worker after it clears the only pending predicate.
+    // Keep callback state visible for diagnostics while this worker owns a
+    // claimed batch. It is already Running/Ready in the scheduler, so no
+    // scheduler-side predicate is needed to protect this interval.
     __atomic_store_n(&m_CallbackActive, static_cast<size_t>(1), __ATOMIC_RELEASE);
     const size_t pendingSince = __atomic_load_n(&m_PendingSinceTimestamp, __ATOMIC_ACQUIRE);
     const size_t cookie = takePendingCookie();
@@ -485,7 +481,16 @@ int ThreadedIrqDispatcher::Line::run() {
       continue;
     }
 
-    Scheduler::instance().yield();
+    // Recheck the publication state while holding the wait queue's lock. A
+    // producer which races this check either finds a waiter to wake or leaves
+    // its published cookie visible for this second check.
+    auto guard = m_WorkerWaiters.acquire();
+    const size_t currentPublicationState = __atomic_load_n(&m_PublicationState, __ATOMIC_ACQUIRE);
+    if (!hasPendingForWorker() && !(currentPublicationState & PublicationClosed)) {
+      const WaitQueue::WakeReason reason =
+          guard.wait(WaitQueue::Channel(), Thread::CondWait, reinterpret_cast<uintptr_t>(this));
+      (void)reason;
+    }
   }
 
   return 0;

@@ -277,7 +277,7 @@ bool PerProcessorScheduler::enqueueAffinity(Thread* thread, bool accepted) {
     m_AffinityHead = thread;
   m_AffinityTail = thread;
   m_AffinityRequests += 1;
-  ringIrqWorkDoorbell();
+  ringIrqWorkDoorbell(m_TimeAccountingWorkerWake);
   return true;
 }
 

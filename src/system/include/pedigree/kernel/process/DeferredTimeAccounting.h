@@ -157,7 +157,7 @@ class DeferredTimeAccountingWorkerState {
     __atomic_add_fetch(&m_Published, static_cast<size_t>(1), __ATOMIC_RELEASE);
   }
 
-  /** Keeps the worker eligible and snapshots the generation it will drain. */
+  /** Marks the worker active and snapshots the generation it will drain. */
   size_t beginBatch() {
     __atomic_store_n(&m_Active, static_cast<size_t>(1), __ATOMIC_RELEASE);
     return __atomic_load_n(&m_Published, __ATOMIC_ACQUIRE);
