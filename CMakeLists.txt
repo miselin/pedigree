@@ -134,6 +134,10 @@ set(PEDIGREE_SYSCALL_COUNTER FALSE CACHE BOOL "Count POSIX syscalls per process 
 set(PEDIGREE_ACTIVITY_DIAGNOSTICS FALSE CACHE BOOL "Collect opt-in IRQ, scheduler, idle and framebuffer benchmark diagnostics.")
 set(PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS FALSE CACHE BOOL
     "Sample x64 user-entry metadata capture and restore costs.")
+set(PEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA FALSE CACHE BOOL
+    "Benchmark only: bypass x64 user-entry metadata capture and restore.")
+set(PEDIGREE_BENCHMARK_USER_RETURN_ABLATION FALSE CACHE BOOL
+    "Benchmark only: allow selected processes to bypass idle user-return policy work.")
 set(PEDIGREE_READY_QUEUE_COUNTS TRUE CACHE BOOL "Maintain ready-queue counts to bound scheduler selection scans.")
 set(PEDIGREE_TIME_ACCOUNTING TRUE CACHE BOOL "Collect per-thread and per-process CPU-time accounting.")
 set(PEDIGREE_SCHEDULER_TICK_DIVISOR 1 CACHE STRING "Schedule once per this many scheduler timer ticks.")
@@ -295,6 +299,14 @@ if (PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS)
     endif ()
     string(APPEND PEDIGREE_NASM_FLAGS
         " -DPEDIGREE_X64_USER_ENTRY_DIAGNOSTICS=1")
+endif ()
+if (PEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA)
+    if (NOT PEDIGREE_ARCH_TARGET STREQUAL "X64")
+        message(FATAL_ERROR
+            "PEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA requires the x64 target")
+    endif ()
+    string(APPEND PEDIGREE_NASM_FLAGS
+        " -DPEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA=1")
 endif ()
 if (PEDIGREE_NASM_GLOBAL_PREFIX)
     string(APPEND PEDIGREE_NASM_FLAGS

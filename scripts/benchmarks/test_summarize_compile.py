@@ -22,6 +22,12 @@ class ActivityDiagnosticsTest(unittest.TestCase):
             "activity_ur_interrupt_tail_h4": 2,
             "activity_ur_fault_handled_samples": 1,
             "activity_ur_interrupt_affinity_waited_samples": 1,
+            "benchmark_user_return_ablation": 3,
+            "activity_ur_interrupt_ablation_eligible": 17,
+            "activity_ur_interrupt_ablation_fast": 16,
+            "activity_ur_interrupt_ablation_fallback": 1,
+            "activity_ur_syscall_ablation_eligible": 9,
+            "activity_ur_syscall_ablation_fast": 9,
             "activity_ue_sample_period": 256,
             "activity_ue_capture_calls": 1024,
             "activity_ue_capture_samples": 4,
@@ -40,6 +46,11 @@ class ActivityDiagnosticsTest(unittest.TestCase):
         self.assertEqual(user_return["fault_handled_samples"], 1)
         self.assertEqual(user_return["interrupt_affinity_waited_samples"], 1)
         self.assertEqual(user_return["stages"]["syscall_tail"]["samples"], 0)
+        self.assertEqual(user_return["ablation"]["mask"], 3)
+        self.assertEqual(user_return["ablation"]["interrupt"], {
+            "eligible": 17, "fast": 16, "fallback": 1})
+        self.assertEqual(user_return["ablation"]["syscall"], {
+            "eligible": 9, "fast": 9, "fallback": 0})
 
         user_entry = activity["user_entry"]
         self.assertEqual(user_entry["sample_period"], 256)

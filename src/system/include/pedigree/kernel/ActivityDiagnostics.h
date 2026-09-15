@@ -81,6 +81,12 @@ struct Snapshot {
   uint64_t userReturnFaultFallbackSamples;
   uint64_t userReturnInterruptAffinityWaitedSamples;
   uint64_t userReturnSyscallAffinityWaitedSamples;
+  uint64_t userReturnInterruptAblationEligible;
+  uint64_t userReturnInterruptAblationFast;
+  uint64_t userReturnInterruptAblationFallback;
+  uint64_t userReturnSyscallAblationEligible;
+  uint64_t userReturnSyscallAblationFast;
+  uint64_t userReturnSyscallAblationFallback;
   uint64_t userEntryCaptureCalls;
   uint64_t userEntryRestoreCalls;
   uint64_t userEntryCaptureSamples;
@@ -122,6 +128,7 @@ EXPORTED_PUBLIC void recordFramebufferFlip(size_t cells, uint64_t duration);
 void recordUserReturnStage(UserReturnStage stage, uint64_t duration);
 void recordUserReturnFaultOutcome(bool handled);
 void recordUserReturnAffinityWait(bool syscall);
+void recordUserReturnAblation(bool syscall, bool fast);
 
 class InterruptScope {
  public:
@@ -218,6 +225,7 @@ inline void recordFramebufferFlip(size_t, uint64_t) {}
 inline void recordUserReturnStage(UserReturnStage, uint64_t) {}
 inline void recordUserReturnFaultOutcome(bool) {}
 inline void recordUserReturnAffinityWait(bool) {}
+inline void recordUserReturnAblation(bool, bool) {}
 
 class InterruptScope {
  public:

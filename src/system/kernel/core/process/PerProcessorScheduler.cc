@@ -54,6 +54,14 @@ Atomic<size_t> g_StackDiscardCount(0);
 Atomic<size_t> g_EmergencyProcessKillDiscardCount(0);
 Atomic<size_t> g_HostedRegressionDiscardCount(0);
 Atomic<size_t> g_LegacyAbiDiscardCount(0);
+
+#if PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
+bool userReturnIsIdle(Thread& thread) {
+  Process* process = thread.getParent();
+  return process && process->getState() == Process::Active &&
+         thread.getUnwindState() == Thread::Continue && !thread.hasEvents();
+}
+#endif
 }  // namespace
 
 PerProcessorScheduler::PerProcessorScheduler()
@@ -1627,8 +1635,22 @@ bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state,
 #endif
   UserReturnFrame frame(*owner, state, origin);
   Thread::UserReturnFrameScope frameScope(*owner, frame);
+
+#if PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
+  Process* ablationProcess = owner->getParent();
+  const bool ablationRequested =
+      origin == UserReturnFrame::Origin::Interrupt && ablationProcess &&
+      ablationProcess->benchmarkUserReturnAblationEnabled(Process::AblateInterruptReturn);
+  const bool ablationCandidate = ablationRequested && userReturnIsIdle(*owner);
+  if (ablationRequested && !ablationCandidate) {
+    ActivityDiagnostics::recordUserReturnAblation(false, false);
+  }
+#else
+  constexpr bool ablationCandidate = false;
+#endif
+
   Subsystem* subsystem = owner->getParent() ? owner->getParent()->getSubsystem() : nullptr;
-  if (subsystem) {
+  if (!ablationCandidate && subsystem) {
     const uint64_t checkpointStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
     const bool terminal =
         subsystem->userReturnCheckpoint(*owner, frame) == Subsystem::UserReturnResult::Terminal;
@@ -1644,22 +1666,39 @@ bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state,
   // Terminal requests and process stops win over later work. The architecture
   // caller owns the final commit after its return-tail scopes and accounting
   // have retired.
-  uint64_t stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
-  bool terminal = Processor::information().getScheduler().serviceProcessStopAtUserReturn();
-  if (diagnosticSample) {
-    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
-                                               ActivityDiagnostics::timestamp() - stageStart);
+  uint64_t stageStart = 0;
+  bool terminal = false;
+  if (!ablationCandidate) {
+    stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+    terminal = Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+    if (diagnosticSample) {
+      ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
+                                                 ActivityDiagnostics::timestamp() - stageStart);
+    }
+    if (terminal)
+      return finishWork(true);
   }
-  if (terminal)
-    return finishWork(true);
 
   Processor::information().getScheduler().serviceDeferredSubsystemException(state,
                                                                             diagnosticSample);
   Thread* current = Processor::information().getCurrentThread();
   if (current && !current->isTerminationDeferred() &&
       current->getUnwindState() != Thread::Continue) {
+#if PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
+    if (ablationCandidate)
+      ActivityDiagnostics::recordUserReturnAblation(false, false);
+#endif
     return finishWork(true);
   }
+
+#if PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
+  if (ablationCandidate) {
+    const bool fast = current && !frame.m_Terminal && userReturnIsIdle(*current);
+    ActivityDiagnostics::recordUserReturnAblation(false, fast);
+    if (fast)
+      return finishWork(false);
+  }
+#endif
 
   stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
   terminal = Processor::information().getScheduler().serviceProcessStopAtUserReturn();
@@ -1708,6 +1747,18 @@ bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
     state.setFlags(state.getFlags() | 0x202);
   }
 #endif
+
+#if PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
+  Process* ablationProcess = owner->getParent();
+  if (origin == UserReturnFrame::Origin::Syscall && ablationProcess &&
+      ablationProcess->benchmarkUserReturnAblationEnabled(Process::AblateSyscallReturn)) {
+    const bool fast = userReturnIsIdle(*owner);
+    ActivityDiagnostics::recordUserReturnAblation(true, fast);
+    if (fast)
+      return finishWork(false);
+  }
+#endif
+
   UserReturnFrame frame(*owner, state, origin);
   Thread::UserReturnFrameScope frameScope(*owner, frame);
   Subsystem* subsystem = owner->getParent() ? owner->getParent()->getSubsystem() : nullptr;

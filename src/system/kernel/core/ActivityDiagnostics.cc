@@ -56,6 +56,12 @@ uint64_t g_UserReturnFaultHandledSamples = 0;
 uint64_t g_UserReturnFaultFallbackSamples = 0;
 uint64_t g_UserReturnInterruptAffinityWaitedSamples = 0;
 uint64_t g_UserReturnSyscallAffinityWaitedSamples = 0;
+uint64_t g_UserReturnInterruptAblationEligible = 0;
+uint64_t g_UserReturnInterruptAblationFast = 0;
+uint64_t g_UserReturnInterruptAblationFallback = 0;
+uint64_t g_UserReturnSyscallAblationEligible = 0;
+uint64_t g_UserReturnSyscallAblationFast = 0;
+uint64_t g_UserReturnSyscallAblationFallback = 0;
 uint64_t g_UserEntryCaptureSamples = 0;
 uint64_t g_UserEntryRestoreSamples = 0;
 uint64_t g_UserEntryCaptureTscTotal = 0;
@@ -166,6 +172,12 @@ void snapshot(Snapshot& result) {
   result.userReturnInterruptAffinityWaitedSamples =
       load(g_UserReturnInterruptAffinityWaitedSamples);
   result.userReturnSyscallAffinityWaitedSamples = load(g_UserReturnSyscallAffinityWaitedSamples);
+  result.userReturnInterruptAblationEligible = load(g_UserReturnInterruptAblationEligible);
+  result.userReturnInterruptAblationFast = load(g_UserReturnInterruptAblationFast);
+  result.userReturnInterruptAblationFallback = load(g_UserReturnInterruptAblationFallback);
+  result.userReturnSyscallAblationEligible = load(g_UserReturnSyscallAblationEligible);
+  result.userReturnSyscallAblationFast = load(g_UserReturnSyscallAblationFast);
+  result.userReturnSyscallAblationFallback = load(g_UserReturnSyscallAblationFallback);
 #if PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS
   result.userEntryCaptureCalls = pedigree_user_entry_capture_calls;
   result.userEntryRestoreCalls = pedigree_user_entry_restore_calls;
@@ -319,6 +331,17 @@ void recordUserReturnAffinityWait(bool syscall) {
   uint64_t* counter = syscall ? &g_UserReturnSyscallAffinityWaitedSamples
                               : &g_UserReturnInterruptAffinityWaitedSamples;
   __atomic_fetch_add(counter, static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+}
+
+void recordUserReturnAblation(bool syscall, bool fast) {
+  uint64_t* eligible =
+      syscall ? &g_UserReturnSyscallAblationEligible : &g_UserReturnInterruptAblationEligible;
+  uint64_t* outcome =
+      syscall
+          ? (fast ? &g_UserReturnSyscallAblationFast : &g_UserReturnSyscallAblationFallback)
+          : (fast ? &g_UserReturnInterruptAblationFast : &g_UserReturnInterruptAblationFallback);
+  __atomic_fetch_add(eligible, static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+  __atomic_fetch_add(outcome, static_cast<uint64_t>(1), __ATOMIC_RELAXED);
 }
 
 #if PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS

@@ -260,6 +260,22 @@ class EXPORTED_PUBLIC Process {
     Reaped,      /// Reaped means the process has had a status retrieved.
   };
 
+#if PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
+  enum BenchmarkUserReturnAblation : size_t {
+    AblateInterruptReturn = 1,
+    AblateSyscallReturn = 2,
+    UserReturnAblationMask = AblateInterruptReturn | AblateSyscallReturn,
+  };
+
+  void setBenchmarkUserReturnAblation(size_t value) {
+    __atomic_store_n(&m_BenchmarkUserReturnAblation, value, __ATOMIC_RELEASE);
+  }
+
+  bool benchmarkUserReturnAblationEnabled(BenchmarkUserReturnAblation value) const {
+    return (__atomic_load_n(&m_BenchmarkUserReturnAblation, __ATOMIC_ACQUIRE) & value) != 0;
+  }
+#endif
+
   /** Default constructor. */
   Process();
 
@@ -845,6 +861,10 @@ class EXPORTED_PUBLIC Process {
   MemoryAllocator m_DynamicSpaceAllocator;
   Spinlock m_UserReservationLock;
   uint64_t m_UserReservationGeneration;
+
+#if PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
+  size_t m_BenchmarkUserReturnAblation = 0;
+#endif
 
   /** Current user. */
   FilesystemCredentials m_NativeFilesystemCredentials;

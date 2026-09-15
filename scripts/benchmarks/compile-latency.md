@@ -99,6 +99,32 @@ sampled boundaries, so use them for attribution rather than as a timing control.
 The report records the sample periods and the summarizer groups these values
 under `activity.user_return` and `activity.user_entry`.
 
+For the paired metadata ablation, also configure
+`-DPEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA=TRUE`. This benchmark-only
+arm preserves the state layout and helper call sites but removes their selector
+and FS/GS-base body. It is not suitable for ptrace, signal restore, unusual
+segment use, or general testing. Run it only with one vCPU and compare it
+against a control built from the same tree and configuration. Leave the
+fine-grained activity diagnostics disabled for the timing comparison; the
+instrumented run establishes the helper call count separately.
+
+For the user-return policy ablation, configure
+`-DPEDIGREE_BENCHMARK_USER_RETURN_ABLATION=TRUE`. The capability remains inert
+unless the benchmark root contains `ablate-interrupt-return`,
+`ablate-syscall-return`, or both. The driver enables the requested bits only in
+each post-fork command child, and they are inherited by the compiler descendants
+across fork and exec. The benchmark parent, init, and other services keep the
+normal return path.
+
+The interrupt arm preserves the user-return frame, deferred exception and page
+fault resolver, affinity completion, terminal commit, and time accounting. It
+only skips idle checkpoint, stop, and event work, falling back when work is
+pending. The syscall arm applies only to ordinary syscall returns, not new-image,
+signal-restore, or direct return actions. These are one-vCPU diagnostic arms,
+not supported kernel configurations. A primary timing A/B should disable
+activity diagnostics; use an instrumented smoke run when exact eligible, fast,
+and fallback counts are needed.
+
 ## Run and compare
 
 For a short run with `quick-run`, `link-cxx`, and `no-sync` installed:

@@ -21,6 +21,7 @@ pedigree_user_entry_restore_calls:
 %endif
 
 %macro CAPTURE_USER_ENTRY 0
+%ifndef PEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA
   mov [rdi], ds
   mov [rdi+2], es
   mov [rdi+4], fs
@@ -35,9 +36,11 @@ pedigree_user_entry_restore_calls:
   shl rdx, 32
   or rax, rdx
   mov [rdi+16], rax
+%endif
 %endmacro
 
 %macro RESTORE_USER_ENTRY 0
+%ifndef PEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA
   mov ax, [rdi]
   mov ds, ax
   mov ax, [rdi+2]
@@ -56,6 +59,7 @@ pedigree_user_entry_restore_calls:
   shr rdx, 32
   mov ecx, 0xc0000101
   wrmsr
+%endif
 %endmacro
 
 ; RDI points at the 32-byte prefix. All clobbered GPRs are already saved.

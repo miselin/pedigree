@@ -1196,6 +1196,17 @@ int posix_linux_syslog(int type, char* buf, int len) {
       return static_cast<int>(sizeof(snapshot));
     }
 #endif
+#if PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
+    case 14: {
+      if (buf || len < 0 || (static_cast<size_t>(len) & ~Process::UserReturnAblationMask)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      process->setBenchmarkUserReturnAblation(static_cast<size_t>(len));
+      return 0;
+    }
+#endif
     case 2:
     case 4:
     case 5:

@@ -132,6 +132,23 @@ def activity_diagnostics(metric):
                 "activity_ur_interrupt_affinity_waited_samples", 0),
             "syscall_affinity_waited_samples": metric.get(
                 "activity_ur_syscall_affinity_waited_samples", 0),
+            "ablation": {
+                "mask": metric.get("benchmark_user_return_ablation", 0),
+                "interrupt": {
+                    "eligible": metric.get(
+                        "activity_ur_interrupt_ablation_eligible", 0),
+                    "fast": metric.get("activity_ur_interrupt_ablation_fast", 0),
+                    "fallback": metric.get(
+                        "activity_ur_interrupt_ablation_fallback", 0),
+                },
+                "syscall": {
+                    "eligible": metric.get(
+                        "activity_ur_syscall_ablation_eligible", 0),
+                    "fast": metric.get("activity_ur_syscall_ablation_fast", 0),
+                    "fallback": metric.get(
+                        "activity_ur_syscall_ablation_fallback", 0),
+                },
+            },
         },
         "user_entry": {
             "sample_period": metric.get("activity_ue_sample_period"),

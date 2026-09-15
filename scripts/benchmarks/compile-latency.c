@@ -41,6 +41,10 @@ static uint64_t timeval_us(struct timeval t) {
 #define ACTIVITY_USER_RETURN_STAGE_COUNT 12
 #define ACTIVITY_USER_RETURN_SAMPLE_PERIOD 64
 #define ACTIVITY_USER_ENTRY_SAMPLE_PERIOD 256
+#define BENCHMARK_ABLATE_INTERRUPT_RETURN 1
+#define BENCHMARK_ABLATE_SYSCALL_RETURN 2
+
+static unsigned benchmark_user_return_ablation;
 
 static const char* activity_user_return_stage_names[] = {
     "interrupt_tail",     "syscall_tail",     "interrupt_work",       "syscall_work",
@@ -93,6 +97,12 @@ struct activity_snapshot {
   uint64_t user_return_fault_fallback_samples;
   uint64_t user_return_interrupt_affinity_waited_samples;
   uint64_t user_return_syscall_affinity_waited_samples;
+  uint64_t user_return_interrupt_ablation_eligible;
+  uint64_t user_return_interrupt_ablation_fast;
+  uint64_t user_return_interrupt_ablation_fallback;
+  uint64_t user_return_syscall_ablation_eligible;
+  uint64_t user_return_syscall_ablation_fast;
+  uint64_t user_return_syscall_ablation_fallback;
   uint64_t user_entry_capture_calls;
   uint64_t user_entry_restore_calls;
   uint64_t user_entry_capture_samples;
@@ -106,7 +116,7 @@ struct activity_snapshot {
   uint64_t user_entry_empty_tsc_buckets[ACTIVITY_DURATION_BUCKET_COUNT];
 };
 
-_Static_assert(sizeof(struct activity_snapshot) == 683 * sizeof(uint64_t),
+_Static_assert(sizeof(struct activity_snapshot) == 689 * sizeof(uint64_t),
                "activity snapshot layout must match the kernel ABI");
 
 static int reaped_child_syscall_count(uint64_t* count) {
@@ -180,12 +190,13 @@ static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
   printf(
       "COMPILEBENCH metric phase=%s total_us=%llu rc=%d user_us=%llu system_us=%llu "
       "minor_faults=%ld major_faults=%ld in_blocks=%ld out_blocks=%ld "
-      "voluntary_switches=%ld involuntary_switches=%ld checksum=%llu",
+      "voluntary_switches=%ld involuntary_switches=%ld checksum=%llu "
+      "benchmark_user_return_ablation=%u",
       phase, (unsigned long long)((end - start) / 1000), rc,
       (unsigned long long)timeval_us(usage->ru_utime),
       (unsigned long long)timeval_us(usage->ru_stime), usage->ru_minflt, usage->ru_majflt,
       usage->ru_inblock, usage->ru_oublock, usage->ru_nvcsw, usage->ru_nivcsw,
-      (unsigned long long)checksum);
+      (unsigned long long)checksum, benchmark_user_return_ablation);
   if (have_syscalls)
     printf(" syscalls=%llu", (unsigned long long)syscalls);
   if (have_syscall_latency) {
@@ -210,6 +221,12 @@ static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
         " activity_ur_fault_fallback_samples=%llu"
         " activity_ur_interrupt_affinity_waited_samples=%llu"
         " activity_ur_syscall_affinity_waited_samples=%llu"
+        " activity_ur_interrupt_ablation_eligible=%llu"
+        " activity_ur_interrupt_ablation_fast=%llu"
+        " activity_ur_interrupt_ablation_fallback=%llu"
+        " activity_ur_syscall_ablation_eligible=%llu"
+        " activity_ur_syscall_ablation_fast=%llu"
+        " activity_ur_syscall_ablation_fallback=%llu"
         " activity_ue_capture_calls=%llu activity_ue_restore_calls=%llu"
         " activity_ue_capture_samples=%llu activity_ue_restore_samples=%llu"
         " activity_ue_capture_tsc_total=%llu activity_ue_restore_tsc_total=%llu"
@@ -242,6 +259,12 @@ static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
         (unsigned long long)activity->user_return_fault_fallback_samples,
         (unsigned long long)activity->user_return_interrupt_affinity_waited_samples,
         (unsigned long long)activity->user_return_syscall_affinity_waited_samples,
+        (unsigned long long)activity->user_return_interrupt_ablation_eligible,
+        (unsigned long long)activity->user_return_interrupt_ablation_fast,
+        (unsigned long long)activity->user_return_interrupt_ablation_fallback,
+        (unsigned long long)activity->user_return_syscall_ablation_eligible,
+        (unsigned long long)activity->user_return_syscall_ablation_fast,
+        (unsigned long long)activity->user_return_syscall_ablation_fallback,
         (unsigned long long)activity->user_entry_capture_calls,
         (unsigned long long)activity->user_entry_restore_calls,
         (unsigned long long)activity->user_entry_capture_samples,
@@ -330,6 +353,11 @@ static int command(const char* phase, char* const args[], int permit_failure) {
   if (child < 0)
     fail("fork");
   if (!child) {
+    if (benchmark_user_return_ablation &&
+        syscall(SYS_syslog, 14, NULL, benchmark_user_return_ablation)) {
+      dprintf(STDERR_FILENO, "COMPILEBENCH child ablation setup failed errno=%d\n", errno);
+      _exit(124);
+    }
     int null_fd = open("/dev/null", O_RDONLY);
     if (null_fd < 0 || dup2(null_fd, STDIN_FILENO) < 0)
       _exit(125);
@@ -520,7 +548,13 @@ int main(void) {
   }
   if (chdir("/root/compile-bench"))
     fail("setup");
+  if (!access("ablate-interrupt-return", F_OK))
+    benchmark_user_return_ablation |= BENCHMARK_ABLATE_INTERRUPT_RETURN;
+  if (!access("ablate-syscall-return", F_OK))
+    benchmark_user_return_ablation |= BENCHMARK_ABLATE_SYSCALL_RETURN;
   printf("COMPILEBENCH BEGIN\n");
+  printf("COMPILEBENCH configuration benchmark_user_return_ablation=%u\n",
+         benchmark_user_return_ablation);
   static char kernel_log[256 * 1024];
   long log_size = syscall(SYS_syslog, 3, kernel_log, sizeof(kernel_log) - 1);
   if (log_size > 0) {

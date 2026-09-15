@@ -553,6 +553,11 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
   m_Metadata.sharedPages = pParent->getSharedPageCount();
   m_Metadata.startTime = Time::getTimeNanoseconds();
 
+#if PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
+  m_BenchmarkUserReturnAblation =
+      __atomic_load_n(&pParent->m_BenchmarkUserReturnAblation, __ATOMIC_ACQUIRE);
+#endif
+
   m_pAddressSpace = emptyAddressSpace ? VirtualAddressSpace::create()
                                       : pParent->m_pAddressSpace->clone(bCopyOnWrite);
   if (emptyAddressSpace && m_pAddressSpace)
