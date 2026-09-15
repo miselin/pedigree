@@ -5,6 +5,7 @@
  * purpose with or without fee is hereby granted.
  */
 
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
@@ -1260,6 +1261,7 @@ void IrqHandlerRegistry::abandonAdmissionCutoff(void* context) {
 bool IrqHandlerRegistry::dispatchHard(uint8_t irq, InterruptState& state,
                                       HardIrqDisposition& disposition, HardIrqHandler* onlyHandler,
                                       size_t dispatchGeneration, AdmissionCutoff admissionCutoff) {
+  ActivityDiagnostics::HardDispatchScope activityScope(irq);
   AdmissionCutoffCleanup cutoffCleanup(this, admissionCutoff);
   beginAdmissionCutoffCleanup(cutoffCleanup);
   bool admitted = false;

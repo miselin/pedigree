@@ -5,6 +5,7 @@
  * purpose with or without fee is hereby granted.
  */
 
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
@@ -452,6 +453,7 @@ int ThreadedIrqDispatcher::Line::run() {
       m_Callback(m_CallbackContext, m_Line, cookie);
       const size_t completed = static_cast<size_t>(Time::getTicks());
       const size_t runtime = elapsedSince(completed, started);
+      ActivityDiagnostics::recordThreadedDispatch(m_Line, runtime);
       __atomic_store_n(&m_LastCallbackRuntime, runtime, __ATOMIC_RELEASE);
       updateMaximum(m_MaximumCallbackRuntime, runtime);
       __atomic_add_fetch(&m_CompletedBatches, static_cast<size_t>(1), __ATOMIC_ACQ_REL);

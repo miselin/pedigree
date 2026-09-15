@@ -131,6 +131,13 @@ set(PEDIGREE_LOGGING TRUE CACHE BOOL "Enable the kernel logging facility.")
 set(PEDIGREE_TRACK_PAGE_ALLOCS FALSE CACHE BOOL "Track physical page allocations in the debugger allocations command.")
 set(PEDIGREE_VERBOSE_MEMORY_MANAGER FALSE CACHE BOOL "Be more verbose in PhysicalMemoryManager.")
 set(PEDIGREE_SYSCALL_COUNTER FALSE CACHE BOOL "Count POSIX syscalls per process for benchmark diagnostics.")
+set(PEDIGREE_ACTIVITY_DIAGNOSTICS FALSE CACHE BOOL "Collect opt-in IRQ, scheduler, idle and framebuffer benchmark diagnostics.")
+set(PEDIGREE_READY_QUEUE_COUNTS TRUE CACHE BOOL "Maintain ready-queue counts to bound scheduler selection scans.")
+set(PEDIGREE_TIME_ACCOUNTING TRUE CACHE BOOL "Collect per-thread and per-process CPU-time accounting.")
+set(PEDIGREE_SCHEDULER_TICK_DIVISOR 1 CACHE STRING "Schedule once per this many scheduler timer ticks.")
+if (PEDIGREE_SCHEDULER_TICK_DIVISOR LESS 1)
+    message(FATAL_ERROR "PEDIGREE_SCHEDULER_TICK_DIVISOR must be at least 1")
+endif ()
 
 # init configuration
 set(PEDIGREE_WITH_INIT TRUE CACHE BOOL "Build and run the init module at startup. It can be useful to skip running init to test without having the system start an entire userspace.")

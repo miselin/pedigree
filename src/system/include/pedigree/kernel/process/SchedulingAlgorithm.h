@@ -49,6 +49,9 @@ class SchedulingAlgorithm {
   /** Notifies us that the status of a thread has changed, and that we may
    * need to take action. */
   virtual void threadStatusChanged(Thread* pThread) = 0;
+
+  /** Returns whether an eligible ready thread remains for this scheduler. */
+  virtual bool hasRunnableThread(Thread* pCurrentThread) = 0;
 };
 
 #endif

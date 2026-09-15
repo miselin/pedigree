@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -352,6 +353,9 @@ ProcessorId ProcessorBase::id() {
     return 0;
 
 #if MULTIPROCESSOR
+  if (m_ProcessorInformation.count() == 1)
+    return m_ProcessorInformation[0]->m_ProcessorId;
+
   Pc& pc = Pc::instance();
   if (!pc.localApicAvailable())
     return 0;
@@ -376,6 +380,9 @@ size_t ProcessorBase::index() {
     return 0;
 
 #if MULTIPROCESSOR
+  if (m_ProcessorInformation.count() == 1)
+    return 0;
+
   Pc& pc = Pc::instance();
   if (!pc.localApicAvailable())
     return 0;
@@ -404,6 +411,9 @@ ProcessorInformation& ProcessorBase::information() {
 #if MULTIPROCESSOR
   if (m_Initialised < 2)
     return m_SafeBspProcessorInformation;
+
+  if (m_ProcessorInformation.count() == 1)
+    return *m_ProcessorInformation[0];
 
   Pc& pc = Pc::instance();
   if (!pc.localApicAvailable())
@@ -467,6 +477,9 @@ void ProcessorBase::reset() {
 }
 
 void ProcessorBase::haltUntilInterrupt() {
+#if PEDIGREE_ACTIVITY_DIAGNOSTICS
+  ActivityDiagnostics::recordIdleHalt();
+#endif
   bool bWasInterrupts = getInterrupts();
   __asm__ __volatile__("sti; hlt");
   if (!bWasInterrupts)

@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
@@ -451,6 +452,7 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEve
 void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus,
                                                        bool dispatchEvents, bool bWasInterrupts) {
   assert(!Processor::getInterrupts());
+  ActivityDiagnostics::recordScheduleCall();
 
   Thread* pCurrentThread = Processor::information().getCurrentThread();
   if (!pCurrentThread) {
@@ -494,6 +496,9 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
   // This will also get the lock for the returned thread.
   Thread* pNextThread = selectNext(pCurrentThread);
   if (pNextThread == 0) {
+    ActivityDiagnostics::recordSchedulerIdleFallback(
+        pCurrentThread->m_Status == Thread::Ready,
+        __atomic_load_n(&pCurrentThread->m_ReadyPublicationPending, __ATOMIC_ACQUIRE));
     // A tick or yield does not make a runnable thread idle. Predicate-backed
     // workers must still leave the CPU when their work has been consumed.
     if (nextStatus == Thread::Ready && pCurrentThread != m_pIdleThread &&
@@ -508,6 +513,11 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
       Processor::setInterrupts(bWasInterrupts);
       return;
     } else {
+      // An ordinary idle handoff must not hide a runnable queue entry. The
+      // shutdown path deliberately keeps its idle owner selected while it
+      // retires, so that path is excluded from this invariant.
+      if (!__atomic_load_n(&m_IdleWakeRequested, __ATOMIC_ACQUIRE))
+        assert(!m_pSchedulingAlgorithm->hasRunnableThread(pCurrentThread));
       pNextThread = m_pIdleThread;
       if (pNextThread != pCurrentThread)
         pNextThread->getLock().acquire();
@@ -517,6 +527,7 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
   // Saving and restoring the same hosted context does not yield and can
   // strand the add-thread worker, so return directly when current stays on CPU.
   if (pNextThread == pCurrentThread) {
+    ActivityDiagnostics::recordSameThreadSelection();
     const bool waitOwnsEventDispatch = pCurrentThread->hasActiveWaitUnlocked();
     pCurrentThread->getLock().release();
     Processor::setInterrupts(bWasInterrupts);
@@ -532,6 +543,9 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
 #endif
 
   // Now neither thread can be moved, we're safe to switch.
+  ActivityDiagnostics::recordContextSwitch();
+  if (pNextThread == m_pIdleThread)
+    ActivityDiagnostics::recordIdleSelection();
   if (pCurrentThread != m_pIdleThread)
     pCurrentThread->setStatusUnlocked(nextStatus);
   pNextThread->setStatusUnlocked(Thread::Running);
@@ -1377,6 +1391,7 @@ Thread* PerProcessorScheduler::selectNext(Thread* current) {
 void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
   (void)delta;
   (void)state;
+  ActivityDiagnostics::recordSchedulerTimer();
   Scheduler::instance().requestLoadAverageSample();
   // Hard IRQ publication only changes an atomic work predicate. Consume the
   // reschedule request at the scheduler interrupt, where a context switch is
@@ -1386,37 +1401,45 @@ void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
   // until this callback returns. Kernel Events can unwind into arbitrary
   // subsystem teardown, so leave their delivery to an ordinary syscall or
   // WaitQueue boundary.
-  schedule(Thread::Ready, false);
+  if (++m_SchedulerTickCounter >= PEDIGREE_SCHEDULER_TICK_DIVISOR) {
+    m_SchedulerTickCounter = 0;
+    schedule(Thread::Ready, false);
+  }
 }
 
 void PerProcessorScheduler::threadStatusChanged(Thread* pThread) {
   bool wakeWorker = false;
-  // Only Created threads can be parked in the add-worker predicate. Avoid
-  // taking a sleeping mutex from ordinary scheduling and interrupt paths.
-  if (pThread->getStatus() == Thread::Created) {
-    m_NewThreadDataLock.acquire();
-    for (List<void*>::Iterator it = m_DelayedNewThreadData.begin();
-         it != m_DelayedNewThreadData.end();) {
-      newThreadData* pData = reinterpret_cast<newThreadData*>(*it);
-      if (pData->pThread == pThread) {
-        void* p = *it;
-        it = m_DelayedNewThreadData.erase(it);
-        m_NewThreadData.pushBack(p);
-        wakeWorker = true;
-      } else {
-        ++it;
+  {
+    // The add worker holds the thread lock while moving a not-yet-started
+    // record to the delayed list. Take that lock before checking Created so a
+    // start notification cannot inspect the list between the worker's dequeue
+    // and its delayed-list publication.
+    LockGuard<Spinlock> guard(pThread->m_Lock);
+    if (pThread->m_Status == Thread::Created) {
+      m_NewThreadDataLock.acquire();
+      for (List<void*>::Iterator it = m_DelayedNewThreadData.begin();
+           it != m_DelayedNewThreadData.end();) {
+        newThreadData* pData = reinterpret_cast<newThreadData*>(*it);
+        if (pData->pThread == pThread) {
+          void* p = *it;
+          it = m_DelayedNewThreadData.erase(it);
+          m_NewThreadData.pushBack(p);
+          wakeWorker = true;
+        } else {
+          ++it;
+        }
       }
+      m_NewThreadDataLock.release();
     }
-    m_NewThreadDataLock.release();
+
+    PerProcessorScheduler* owner = pThread->getScheduler();
+    assert(owner);
+    owner->m_pSchedulingAlgorithm->threadStatusChanged(pThread);
   }
 
   if (wakeWorker) {
     m_NewThreadDataCondition.signal();
   }
-  LockGuard<Spinlock> guard(pThread->m_Lock);
-  PerProcessorScheduler* owner = pThread->getScheduler();
-  assert(owner);
-  owner->m_pSchedulingAlgorithm->threadStatusChanged(pThread);
 }
 
 void PerProcessorScheduler::ringIrqWorkDoorbell() {

@@ -18,6 +18,7 @@
  */
 
 #include "InterruptManager.h"
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -129,6 +130,7 @@ size_t X64InterruptManager::getDebugInterruptNumber() {
 void X64InterruptManager::interrupt(InterruptState& interruptState) {
   InterruptTimeAccounting accounting(!interruptState.kernelMode());
   size_t nIntNumber = interruptState.getInterruptNumber();
+  ActivityDiagnostics::InterruptScope activityScope(nIntNumber);
 
 #if DEBUGGER
   {

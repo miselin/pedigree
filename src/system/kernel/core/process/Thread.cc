@@ -21,6 +21,7 @@
 
 #if THREADS
 
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Subsystem.h"
@@ -188,6 +189,7 @@ class CpuTimeSample {
 
  private:
   bool m_InterruptsWereEnabled;
+  ActivityDiagnostics::TimeAccountingScope m_ActivityScope;
 };
 }  // namespace
 
@@ -356,21 +358,28 @@ Thread::Thread(Process* pParent, SyscallState& state, bool delayedStart,
 }
 
 void Thread::recordTime(CpuTimeMode mode) {
+#if PEDIGREE_TIME_ACCOUNTING
   const CpuTimeSample sample;
   m_TimeAccounting.record(mode, sample.timestamp, sample.processor);
+#endif
   __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(mode), __ATOMIC_RELEASE);
 }
 
 void Thread::trackTime(CpuTimeMode mode) {
+#if PEDIGREE_TIME_ACCOUNTING
   const CpuTimeSample sample;
   const Time::Timestamp elapsed =
       m_TimeAccounting.elapsed(mode, sample.timestamp, sample.processor);
   if (elapsed) {
     publishTimeAccounting(mode, elapsed);
   }
+#else
+  (void)mode;
+#endif
 }
 
 void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to) {
+#if PEDIGREE_TIME_ACCOUNTING
   const CpuTimeSample sample;
   const Time::Timestamp elapsed =
       m_TimeAccounting.elapsed(from, sample.timestamp, sample.processor);
@@ -379,9 +388,15 @@ void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to) {
   if (elapsed) {
     publishTimeAccounting(from, elapsed);
   }
+#else
+  (void)from;
+  __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
+#endif
 }
 
 void Thread::transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to) {
+#if PEDIGREE_TIME_ACCOUNTING
+  ActivityDiagnostics::TimeAccountingScope accountingScope;
   // The architecture return boundary owns the physical IRQ mask. Going
   // through CpuTimeSample here could momentarily undo that mask on hosted,
   // where the logical state intentionally describes the pending sigreturn.
@@ -393,6 +408,10 @@ void Thread::transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to) {
   if (elapsed) {
     publishTimeAccounting(from, elapsed);
   }
+#else
+  (void)from;
+  __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
+#endif
 }
 
 void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {

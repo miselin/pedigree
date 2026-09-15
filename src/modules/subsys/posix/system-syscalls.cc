@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/compiler.h"
@@ -1173,6 +1174,21 @@ int posix_linux_syslog(int type, char* buf, int len) {
         SYSCALL_ERROR(InvalidArgument);
         return -1;
       }
+      if (!PosixSubsystem::copyToUser(buf, &snapshot, sizeof(snapshot))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      return static_cast<int>(sizeof(snapshot));
+    }
+#endif
+#if PEDIGREE_ACTIVITY_DIAGNOSTICS
+    case 13: {
+      if (len != static_cast<int>(sizeof(ActivityDiagnostics::Snapshot))) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      ActivityDiagnostics::Snapshot snapshot = {};
+      ActivityDiagnostics::snapshot(snapshot);
       if (!PosixSubsystem::copyToUser(buf, &snapshot, sizeof(snapshot))) {
         SYSCALL_ERROR(BadAddress);
         return -1;

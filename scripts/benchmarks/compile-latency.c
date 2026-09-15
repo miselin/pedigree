@@ -36,6 +36,46 @@ static uint64_t timeval_us(struct timeval t) {
 }
 
 #define SYSCALL_LATENCY_BUCKET_COUNT 16
+#define ACTIVITY_DURATION_BUCKET_COUNT 16
+#define ACTIVITY_INTERRUPT_VECTOR_COUNT 256
+
+struct activity_snapshot {
+  uint64_t interrupt_count;
+  uint64_t exception_count;
+  uint64_t hardware_interrupt_count;
+  uint64_t other_interrupt_count;
+  uint64_t interrupt_vector_counts[ACTIVITY_INTERRUPT_VECTOR_COUNT];
+  uint64_t interrupt_duration_buckets[ACTIVITY_DURATION_BUCKET_COUNT];
+  uint64_t page_fault_duration_buckets[ACTIVITY_DURATION_BUCKET_COUNT];
+  uint64_t scheduler_timer_duration_buckets[ACTIVITY_DURATION_BUCKET_COUNT];
+  uint64_t hard_dispatch_count;
+  uint64_t hard_duration_buckets[ACTIVITY_DURATION_BUCKET_COUNT];
+  uint64_t threaded_dispatch_count;
+  uint64_t threaded_duration_buckets[ACTIVITY_DURATION_BUCKET_COUNT];
+  uint64_t scheduler_timer_ticks;
+  uint64_t schedule_calls;
+  uint64_t same_thread_selections;
+  uint64_t context_switches;
+  uint64_t idle_selections;
+  uint64_t scheduler_idle_fallbacks;
+  uint64_t scheduler_idle_fallback_current_ready;
+  uint64_t scheduler_idle_fallback_current_pending;
+  uint64_t scheduler_no_eligible_selections;
+  uint64_t ready_queue_scan_entries;
+  uint64_t ready_queue_candidate_visits;
+  uint64_t ready_queue_predicate_rejects;
+  uint64_t ready_queue_selection_samples;
+  uint64_t ready_queue_selection_duration_buckets[ACTIVITY_DURATION_BUCKET_COUNT];
+  uint64_t time_accounting_samples;
+  uint64_t time_accounting_duration_buckets[ACTIVITY_DURATION_BUCKET_COUNT];
+  uint64_t idle_halt_entries;
+  uint64_t framebuffer_flips;
+  uint64_t framebuffer_cells;
+  uint64_t framebuffer_duration_buckets[ACTIVITY_DURATION_BUCKET_COUNT];
+};
+
+_Static_assert(sizeof(struct activity_snapshot) % sizeof(uint64_t) == 0,
+               "activity snapshot must contain only 64-bit words");
 
 static int reaped_child_syscall_count(uint64_t* count) {
   uint64_t result = 0;
@@ -52,6 +92,26 @@ static int reaped_child_syscall_latency(uint64_t* buckets) {
   if (status != (long)sizeof(result))
     return 0;
   memcpy(buckets, result, sizeof(result));
+  return 1;
+}
+
+static int activity_snapshot(struct activity_snapshot* result) {
+  long status = syscall(SYS_syslog, 13, result, sizeof(*result));
+  return status == (long)sizeof(*result);
+}
+
+static int activity_delta(const struct activity_snapshot* before,
+                          const struct activity_snapshot* after,
+                          struct activity_snapshot* result) {
+  const uint64_t* before_words = (const uint64_t*)before;
+  const uint64_t* after_words = (const uint64_t*)after;
+  uint64_t* result_words = (uint64_t*)result;
+  size_t count = sizeof(*result) / sizeof(uint64_t);
+  for (size_t i = 0; i < count; ++i) {
+    if (after_words[i] < before_words[i])
+      return 0;
+    result_words[i] = after_words[i] - before_words[i];
+  }
   return 1;
 }
 
@@ -79,7 +139,8 @@ static void gate(const char* phase) {
 static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
                    const struct rusage* usage, uint64_t checksum, int have_syscalls,
                    uint64_t syscalls, int have_syscall_latency,
-                   const uint64_t* syscall_latency) {
+                   const uint64_t* syscall_latency, int have_activity,
+                   const struct activity_snapshot* activity) {
   printf(
       "COMPILEBENCH metric phase=%s total_us=%llu rc=%d user_us=%llu system_us=%llu "
       "minor_faults=%ld major_faults=%ld in_blocks=%ld out_blocks=%ld "
@@ -95,12 +156,67 @@ static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
     for (unsigned i = 0; i < SYSCALL_LATENCY_BUCKET_COUNT; ++i)
       printf(" syscall_h%u=%llu", i, (unsigned long long)syscall_latency[i]);
   }
+  if (have_activity) {
+    printf(" activity_interrupts=%llu activity_exceptions=%llu activity_hardware_interrupts=%llu"
+           " activity_other_interrupts=%llu activity_hard_dispatches=%llu"
+           " activity_threaded_dispatches=%llu activity_scheduler_timer_ticks=%llu"
+           " activity_schedule_calls=%llu activity_same_thread=%llu"
+           " activity_context_switches=%llu activity_idle_selections=%llu"
+           " activity_idle_fallbacks=%llu activity_idle_fallback_ready=%llu"
+           " activity_idle_fallback_pending=%llu activity_no_eligible=%llu"
+           " activity_ready_scans=%llu activity_ready_visits=%llu"
+           " activity_ready_predicate_rejects=%llu activity_ready_selection_samples=%llu"
+           " activity_time_accounting_samples=%llu activity_idle_halts=%llu"
+           " activity_framebuffer_flips=%llu activity_framebuffer_cells=%llu",
+           (unsigned long long)activity->interrupt_count,
+           (unsigned long long)activity->exception_count,
+           (unsigned long long)activity->hardware_interrupt_count,
+           (unsigned long long)activity->other_interrupt_count,
+           (unsigned long long)activity->hard_dispatch_count,
+           (unsigned long long)activity->threaded_dispatch_count,
+           (unsigned long long)activity->scheduler_timer_ticks,
+           (unsigned long long)activity->schedule_calls,
+           (unsigned long long)activity->same_thread_selections,
+           (unsigned long long)activity->context_switches,
+           (unsigned long long)activity->idle_selections,
+           (unsigned long long)activity->scheduler_idle_fallbacks,
+           (unsigned long long)activity->scheduler_idle_fallback_current_ready,
+           (unsigned long long)activity->scheduler_idle_fallback_current_pending,
+           (unsigned long long)activity->scheduler_no_eligible_selections,
+           (unsigned long long)activity->ready_queue_scan_entries,
+           (unsigned long long)activity->ready_queue_candidate_visits,
+           (unsigned long long)activity->ready_queue_predicate_rejects,
+           (unsigned long long)activity->ready_queue_selection_samples,
+           (unsigned long long)activity->time_accounting_samples,
+           (unsigned long long)activity->idle_halt_entries,
+           (unsigned long long)activity->framebuffer_flips,
+           (unsigned long long)activity->framebuffer_cells);
+    for (unsigned i = 0; i < ACTIVITY_DURATION_BUCKET_COUNT; ++i) {
+      printf(" activity_irq_h%u=%llu activity_pf_h%u=%llu activity_timer_h%u=%llu"
+             " activity_hard_h%u=%llu activity_threaded_h%u=%llu"
+             " activity_ready_selection_h%u=%llu activity_time_accounting_h%u=%llu"
+             " activity_framebuffer_h%u=%llu",
+             i, (unsigned long long)activity->interrupt_duration_buckets[i], i,
+             (unsigned long long)activity->page_fault_duration_buckets[i], i,
+             (unsigned long long)activity->scheduler_timer_duration_buckets[i], i,
+             (unsigned long long)activity->hard_duration_buckets[i], i,
+             (unsigned long long)activity->threaded_duration_buckets[i], i,
+             (unsigned long long)activity->ready_queue_selection_duration_buckets[i], i,
+             (unsigned long long)activity->time_accounting_duration_buckets[i], i,
+             (unsigned long long)activity->framebuffer_duration_buckets[i]);
+    }
+    for (unsigned i = 0; i < ACTIVITY_INTERRUPT_VECTOR_COUNT; ++i) {
+      if (activity->interrupt_vector_counts[i])
+        printf(" activity_v%u=%llu", i,
+               (unsigned long long)activity->interrupt_vector_counts[i]);
+    }
+  }
   printf("\n");
   printf("COMPILEBENCH DONE phase=%s\n", phase);
 }
 
 static void own_metric(const char* phase, uint64_t start, uint64_t end, const struct rusage* before,
-                       uint64_t checksum) {
+                       uint64_t checksum, const struct activity_snapshot* before_activity) {
   struct rusage after;
   if (getrusage(RUSAGE_SELF, &after))
     fail("getrusage");
@@ -116,7 +232,10 @@ static void own_metric(const char* phase, uint64_t start, uint64_t end, const st
   after.ru_oublock -= before->ru_oublock;
   after.ru_nvcsw -= before->ru_nvcsw;
   after.ru_nivcsw -= before->ru_nivcsw;
-  metric(phase, start, end, 0, &after, checksum, 0, 0, 0, NULL);
+  struct activity_snapshot after_activity = {0}, activity = {0};
+  int have_activity = before_activity && activity_snapshot(&after_activity) &&
+                      activity_delta(before_activity, &after_activity, &activity);
+  metric(phase, start, end, 0, &after, checksum, 0, 0, 0, NULL, have_activity, &activity);
 }
 
 static int command(const char* phase, char* const args[], int permit_failure) {
@@ -129,6 +248,8 @@ static int command(const char* phase, char* const args[], int permit_failure) {
   int have_before_syscalls = reaped_child_syscall_count(&before_syscalls);
   uint64_t before_latency[SYSCALL_LATENCY_BUCKET_COUNT] = {0};
   int have_before_latency = reaped_child_syscall_latency(before_latency);
+  struct activity_snapshot before_activity = {0};
+  int have_before_activity = activity_snapshot(&before_activity);
   uint64_t start = now_ns();
   pid_t child = fork();
   if (child < 0)
@@ -181,7 +302,12 @@ static int command(const char* phase, char* const args[], int permit_failure) {
       latency[i] = after_latency[i] - before_latency[i];
     }
   }
-  metric(phase, start, end, rc, &usage, 0, have_syscalls, syscalls, have_latency, latency);
+  struct activity_snapshot after_activity = {0}, activity = {0};
+  int have_after_activity = activity_snapshot(&after_activity);
+  int have_activity = have_before_activity && have_after_activity &&
+                      activity_delta(&before_activity, &after_activity, &activity);
+  metric(phase, start, end, rc, &usage, 0, have_syscalls, syscalls, have_latency, latency,
+         have_activity, &activity);
   if (rc && !permit_failure)
     fail(phase);
   return rc;
@@ -199,16 +325,20 @@ static void controls(void) {
   gate("idle");
   if (getrusage(RUSAGE_SELF, &before))
     fail("getrusage");
+  struct activity_snapshot before_activity = {0};
+  int have_before_activity = activity_snapshot(&before_activity);
   uint64_t start = now_ns();
   struct timespec delay = {5, 0};
   while (nanosleep(&delay, &delay)) {
     if (errno != EINTR)
       fail("nanosleep");
   }
-  own_metric("idle", start, now_ns(), &before, 0);
+  own_metric("idle", start, now_ns(), &before, 0,
+             have_before_activity ? &before_activity : NULL);
   gate("cpu");
   if (getrusage(RUSAGE_SELF, &before))
     fail("getrusage");
+  have_before_activity = activity_snapshot(&before_activity);
   start = now_ns();
   uint64_t value = 0x123456789abcdefULL;
   for (uint64_t i = 0; i < 100000000; ++i) {
@@ -216,7 +346,8 @@ static void controls(void) {
     value ^= value >> 7;
     value ^= value << 17;
   }
-  own_metric("cpu", start, now_ns(), &before, value);
+  own_metric("cpu", start, now_ns(), &before, value,
+             have_before_activity ? &before_activity : NULL);
 }
 
 static void anonymous_faults(unsigned mib) {
@@ -241,7 +372,7 @@ static void anonymous_faults(unsigned mib) {
       fail("anon-pattern");
     checksum += mapping[i];
   }
-  own_metric(phase, start, end, &before, checksum);
+  own_metric(phase, start, end, &before, checksum, NULL);
   if (munmap(mapping, size))
     fail("munmap");
 }
@@ -338,7 +469,7 @@ int main(void) {
       fail("getrusage");
     uint64_t start = now_ns();
     uint64_t hash = persisted_output(1);
-    own_metric("verify-persisted", start, now_ns(), &before, hash);
+    own_metric("verify-persisted", start, now_ns(), &before, hash, NULL);
     command("run-persisted", run, 0);
     printf("COMPILEBENCH PASS END\n");
     return 0;
@@ -390,7 +521,7 @@ int main(void) {
       fail("fsync");
     close(fd);
     sync();
-    own_metric("sync", start, now_ns(), &before, 0);
+    own_metric("sync", start, now_ns(), &before, 0, NULL);
   }
   require_file("which");
   if (!quick) {

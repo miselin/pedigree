@@ -18,6 +18,7 @@
  */
 
 #include "TextIO.h"
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/InputManager.h"
@@ -1738,6 +1739,11 @@ void TextIO::clearBackbuffer() {
 void TextIO::flip(bool timer, bool hideState) {
   LockGuard<Mutex> guard(m_Lock);
 
+#if PEDIGREE_ACTIVITY_DIAGNOSTICS
+  const uint64_t activityStart = ActivityDiagnostics::timestamp();
+  size_t activityCells = 0;
+#endif
+
   const VgaColour defaultBack = Black, defaultFore = LightGrey;
 
   // Avoid flipping if we do not have a VGA instance.
@@ -1798,11 +1804,18 @@ void TextIO::flip(bool timer, bool hideState) {
 
       uint16_t front = (pCell->hidden ? ' ' : pCell->character) | (attrib << 8);
       m_pFramebuffer[(y * numCols) + x] = front;
+#if PEDIGREE_ACTIVITY_DIAGNOSTICS
+      ++activityCells;
+#endif
       if (m_pVterm)
         m_VtermDirty[dirtyIndex] = 0;
     }
   }
   m_pVga->flush();
+#if PEDIGREE_ACTIVITY_DIAGNOSTICS
+  ActivityDiagnostics::recordFramebufferFlip(activityCells,
+                                             ActivityDiagnostics::timestamp() - activityStart);
+#endif
 }
 
 uint64_t TextIO::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {

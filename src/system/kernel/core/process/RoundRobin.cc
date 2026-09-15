@@ -20,6 +20,7 @@
 #include <config.h>
 
 #if THREADS
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/RoundRobin.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -31,6 +32,9 @@ RoundRobin::RoundRobin() : m_Lock(false) {
   for (size_t i = 0; i < MAX_PRIORITIES; ++i) {
     m_pReadyQueueHeads[i] = nullptr;
     m_pReadyQueueTails[i] = nullptr;
+#if PEDIGREE_READY_QUEUE_COUNTS
+    m_ReadyQueueCounts[i] = 0;
+#endif
   }
 }
 
@@ -67,6 +71,9 @@ void RoundRobin::enqueue(Thread* pThread) {
     m_pReadyQueueHeads[priority] = pThread;
   }
   m_pReadyQueueTails[priority] = pThread;
+#if PEDIGREE_READY_QUEUE_COUNTS
+  ++m_ReadyQueueCounts[priority];
+#endif
 }
 
 void RoundRobin::unlink(Thread* pThread) {
@@ -93,22 +100,34 @@ void RoundRobin::unlink(Thread* pThread) {
   pThread->m_pReadyNext = nullptr;
   pThread->m_ReadyQueuePriority = MAX_PRIORITIES;
   pThread->m_bReadyQueued = false;
+#if PEDIGREE_READY_QUEUE_COUNTS
+  assert(m_ReadyQueueCounts[priority]);
+  --m_ReadyQueueCounts[priority];
+#endif
 }
 
 Thread* RoundRobin::getNext(Thread* pCurrentThread) {
+  ActivityDiagnostics::ReadyQueueSelectionScope selectionScope;
   LockGuard<Spinlock> guard(m_Lock);
 
   Thread* pThread = 0;
   for (size_t i = 0; i < MAX_PRIORITIES; i++) {
     // Bound the scan so a stale entry whose priority changes cannot be
+#if PEDIGREE_READY_QUEUE_COUNTS
+    // requeued forever in the same selection pass. The maintained count
+    // avoids walking this list once merely to determine that bound.
+    size_t candidates = m_ReadyQueueCounts[i];
+#else
+    // Bound the scan so a stale entry whose priority changes cannot be
     // requeued forever in the same selection pass.
     size_t candidates = 0;
-    for (pThread = m_pReadyQueueHeads[i]; pThread; pThread = pThread->m_pReadyNext) {
+    for (pThread = m_pReadyQueueHeads[i]; pThread; pThread = pThread->m_pReadyNext)
       ++candidates;
-    }
+#endif
     while (candidates--) {
       pThread = m_pReadyQueueHeads[i];
       assert(pThread);
+      ActivityDiagnostics::recordReadyQueueCandidateVisit();
       unlink(pThread);
 
       if (pThread == pCurrentThread || !isReady(pThread)) {
@@ -121,6 +140,7 @@ Thread* RoundRobin::getNext(Thread* pCurrentThread) {
       }
 
       if (!isEligible(pThread)) {
+        ActivityDiagnostics::recordReadyQueuePredicateReject();
         // Predicate-backed workers stay published without making the
         // hard producer touch this queue when work arrives.
         enqueue(pThread);
@@ -130,6 +150,7 @@ Thread* RoundRobin::getNext(Thread* pCurrentThread) {
       return pThread;
     }
   }
+  ActivityDiagnostics::recordSchedulerNoEligibleSelection();
   return 0;
 }
 
@@ -147,6 +168,17 @@ void RoundRobin::threadStatusChanged(Thread* pThread) {
   if (RoundRobin::isReady(pThread)) {
     enqueue(pThread);
   }
+}
+
+bool RoundRobin::hasRunnableThread(Thread* pCurrentThread) {
+  LockGuard<Spinlock> guard(m_Lock);
+  for (size_t i = 0; i < MAX_PRIORITIES; ++i) {
+    for (Thread* pThread = m_pReadyQueueHeads[i]; pThread; pThread = pThread->m_pReadyNext) {
+      if (pThread != pCurrentThread && isEligible(pThread))
+        return true;
+    }
+  }
+  return false;
 }
 
 bool RoundRobin::isReady(Thread* pThread) {

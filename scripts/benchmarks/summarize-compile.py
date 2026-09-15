@@ -59,6 +59,55 @@ def syscall_latency_buckets(metric):
     return [metric.get(f"syscall_h{index}", 0) for index in range(16)]
 
 
+def activity_diagnostics(metric):
+    if "activity_interrupts" not in metric:
+        return None
+    vectors = {key[10:]: value for key, value in metric.items()
+               if key.startswith("activity_v")}
+    return {
+        "interrupts": metric["activity_interrupts"],
+        "exceptions": metric.get("activity_exceptions", 0),
+        "hardware_interrupts": metric.get("activity_hardware_interrupts", 0),
+        "other_interrupts": metric.get("activity_other_interrupts", 0),
+        "vectors": vectors,
+        "interrupt_duration_buckets": [metric.get(f"activity_irq_h{index}", 0)
+                                        for index in range(16)],
+        "page_fault_duration_buckets": [metric.get(f"activity_pf_h{index}", 0)
+                                         for index in range(16)],
+        "scheduler_timer_duration_buckets": [metric.get(f"activity_timer_h{index}", 0)
+                                              for index in range(16)],
+        "hard_dispatches": metric.get("activity_hard_dispatches", 0),
+        "hard_duration_buckets": [metric.get(f"activity_hard_h{index}", 0)
+                                   for index in range(16)],
+        "threaded_dispatches": metric.get("activity_threaded_dispatches", 0),
+        "threaded_duration_buckets": [metric.get(f"activity_threaded_h{index}", 0)
+                                       for index in range(16)],
+        "scheduler_timer_ticks": metric.get("activity_scheduler_timer_ticks", 0),
+        "schedule_calls": metric.get("activity_schedule_calls", 0),
+        "same_thread": metric.get("activity_same_thread", 0),
+        "context_switches": metric.get("activity_context_switches", 0),
+        "idle_selections": metric.get("activity_idle_selections", 0),
+        "idle_fallbacks": metric.get("activity_idle_fallbacks", 0),
+        "idle_fallback_current_ready": metric.get("activity_idle_fallback_ready", 0),
+        "idle_fallback_current_pending": metric.get("activity_idle_fallback_pending", 0),
+        "no_eligible_selections": metric.get("activity_no_eligible", 0),
+        "ready_queue_scans": metric.get("activity_ready_scans", 0),
+        "ready_queue_visits": metric.get("activity_ready_visits", 0),
+        "ready_queue_predicate_rejects": metric.get("activity_ready_predicate_rejects", 0),
+        "ready_queue_selection_samples": metric.get("activity_ready_selection_samples", 0),
+        "ready_queue_selection_duration_buckets": [
+            metric.get(f"activity_ready_selection_h{index}", 0) for index in range(16)],
+        "time_accounting_samples": metric.get("activity_time_accounting_samples", 0),
+        "time_accounting_duration_buckets": [
+            metric.get(f"activity_time_accounting_h{index}", 0) for index in range(16)],
+        "idle_halts": metric.get("activity_idle_halts", 0),
+        "framebuffer_flips": metric.get("activity_framebuffer_flips", 0),
+        "framebuffer_cells": metric.get("activity_framebuffer_cells", 0),
+        "framebuffer_duration_buckets": [metric.get(f"activity_framebuffer_h{index}", 0)
+                                          for index in range(16)],
+    }
+
+
 def module_ranges(serial):
     result = {}
     for match in re.finditer(r"COMPILEBENCH KERNELELF: Preloaded module (.+?) "
@@ -392,6 +441,7 @@ def summarize(args):
                         "system_s": metric.get("system_us", 0) / 1e6,
                         "syscalls": metric.get("syscalls"),
                         "syscall_latency_buckets": syscall_latency_buckets(metric),
+                        "activity": activity_diagnostics(metric),
                         "rc": metric.get("rc"), "disk": disk,
                         "irq": irq_delta(phase.get("irq_before", ""), phase.get("irq_after", ""), seconds)}
     if not report_path.exists():
@@ -403,6 +453,7 @@ def summarize(args):
                                 "system_s": metric["system_us"] / 1e6,
                                 "syscalls": metric.get("syscalls"),
                                 "syscall_latency_buckets": syscall_latency_buckets(metric),
+                                "activity": activity_diagnostics(metric),
                                 "rc": metric["rc"]}
     for name, profile in profiles.items():
         phases.setdefault(name, {})["profile"] = profile
@@ -413,6 +464,7 @@ def summarize(args):
             "notes": ["Samples are QMP observations, not an exact accounting of CPU time; sampling can perturb timing.",
                       "HLT is reported separately from running kernel samples; per-CPU samples are the denominator.",
                       "IRQ controller counts are reported separately and must not be summed across controllers.",
+                      "Activity interrupt durations cover the C++ interrupt dispatch boundary and can include time suspended by a context switch; hard and threaded buckets cover their respective callback scopes.",
                       "Block service times can overlap and do not directly measure guest blocked time.",
                       "Zero-size assembly symbols use the next symbol as a labeled inferred bound; sized symbols use their exact ranges.",
                       "ET_REL files require unavailable section relocations and remain unsymbolized.",

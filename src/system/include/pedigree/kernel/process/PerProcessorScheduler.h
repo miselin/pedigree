@@ -280,6 +280,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
 
   Thread* m_pIdleThread;
   bool m_IdleWakeRequested = false;
+  size_t m_SchedulerTickCounter = 0;
 };
 
 #endif
