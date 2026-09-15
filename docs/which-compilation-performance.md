@@ -349,6 +349,29 @@ addition to the raw entry/return boundary. The reported system interval is still
 the TSC-derived Pedigree accounting described below, so its quotient by syscall
 count is a sizing signal rather than a per-call CPU measurement.
 
+The same diagnostic records a latency histogram at the POSIX dispatch boundary,
+from entry to return from `PosixSyscallManager::syscall`. It includes dispatch,
+syscall bodies, faults, blocking and descheduling that occur before that return;
+it excludes the architecture entry stub and final return tail. The buckets are
+`<1`, `1-2`, `2-4`, ... microseconds, ending at `>=16.384 ms`. The useful
+grouping was:
+
+| Duration range | Cold | Warm |
+| --- | ---: | ---: |
+| `<64 us` | 39,974 (32.236%) | 45,533 (36.717%) |
+| `64-256 us` | 74,408 (60.004%) | 67,273 (54.248%) |
+| `256-512 us` | 7,483 (6.034%) | 9,422 (7.598%) |
+| `512 us-1.024 ms` | 1,369 (1.104%) | 1,324 (1.068%) |
+| `>=1.024 ms` | 771 (0.622%) | 457 (0.369%) |
+
+This is a real long tail, but not a universal fixed entry cost: roughly 54-60% of
+calls land in `64-256 us` and another 32-38% are below `64 us`; 7.2-9.0% take
+at least `256 us` and hundreds reach the millisecond range. That makes a single
+entry/exit fast path unlikely to explain the whole slowdown. The current
+histogram is count-only; the raw bucket counts are retained in the report, and
+the next useful refinement would be per-bucket elapsed-time totals plus
+syscall-number attribution so the tail can be assigned to specific operations.
+
 ## Profiler design and limits
 
 The host samples QEMU CPU registers, identifies userspace, kernel execution
@@ -430,6 +453,7 @@ logs are under `/tmp/pedigree-which-perf-20260914`, with short QEMU output paths
 | `/tmp/wperf-watchdog-qmp-new4`, `/tmp/wperf-watchdog-qmp-old4` | Four-CPU watchdog positive/negative pair, promoted runner; PASS |
 | `/tmp/pedigree-which-perf-20260914/rtc-negative` | Unsupported/duplicate RTC boot-option rejection; PASS |
 | `/tmp/pedigree-syscall-counter-20260914/run1`, `/tmp/pedigree-syscall-counter-20260914/run2` | Opt-in syscall-count quick runs; PASS |
+| `/tmp/pedigree-syscall-histogram-20260914/run2`, `/tmp/pedigree-syscall-histogram-20260914/run3` | Opt-in syscall-latency histogram quick runs; PASS |
 
 The target kernel and initrd were rebuilt with `cmake --build build --target
 kernel initrd -j8`, including all consumers after shared layout changes. The

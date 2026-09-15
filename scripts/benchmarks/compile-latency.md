@@ -70,8 +70,11 @@ For a syscall-count diagnostic, configure the target with
 initrd. The driver adds `syscalls=` to command metrics. Counts are recorded once
 at POSIX syscall dispatch and accumulated through `wait4`, so a command includes
 the child-side setup and the complete compiler descendant tree. The counter
-build adds an atomic increment to every POSIX syscall and is not a timing
-control; restore `PEDIGREE_SYSCALL_COUNTER=FALSE` for performance comparisons.
+build adds an atomic increment and a two-clock-sample latency bucket update to
+every POSIX syscall and is not a timing control; restore
+`PEDIGREE_SYSCALL_COUNTER=FALSE` for performance comparisons. Latency buckets
+are emitted as `syscall_h0` through `syscall_h15`, covering `<1 us`, then
+exponentially widening ranges, through `>=16.384 ms`.
 
 ## Run and compare
 

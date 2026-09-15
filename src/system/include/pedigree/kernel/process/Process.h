@@ -640,9 +640,27 @@ class EXPORTED_PUBLIC Process {
   }
 
 #if PEDIGREE_SYSCALL_COUNTER
+  static constexpr size_t SyscallLatencyBucketCount = 16;
+
+  struct SyscallLatencySnapshot {
+    uint64_t buckets[SyscallLatencyBucketCount];
+  };
+
   /** Records one syscall handled by this process for benchmark diagnostics. */
   void recordSyscall() {
     __atomic_fetch_add(&m_Metadata.syscallCount, static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+  }
+
+  /** Records a POSIX syscall dispatch latency in a coarse diagnostic bucket. */
+  void recordSyscallDuration(Time::Timestamp duration) {
+    size_t bucket = 0;
+    Time::Timestamp limit = Time::Multiplier::Microsecond;
+    while (bucket + 1 < SyscallLatencyBucketCount && duration >= limit) {
+      ++bucket;
+      limit <<= 1;
+    }
+    __atomic_fetch_add(&m_Metadata.syscallLatencyBuckets[bucket], static_cast<uint64_t>(1),
+                       __ATOMIC_RELAXED);
   }
 
   uint64_t getSyscallCount() const {
@@ -651,6 +669,21 @@ class EXPORTED_PUBLIC Process {
 
   uint64_t getReapedChildrenSyscallCount() const {
     return __atomic_load_n(&m_Metadata.reapedChildrenSyscallCount, __ATOMIC_ACQUIRE);
+  }
+
+  void getSyscallLatencySnapshot(SyscallLatencySnapshot& snapshot) const {
+    for (size_t i = 0; i < SyscallLatencyBucketCount; ++i) {
+      snapshot.buckets[i] =
+          __atomic_load_n(&m_Metadata.syscallLatencyBuckets[i], __ATOMIC_ACQUIRE) +
+          __atomic_load_n(&m_Metadata.reapedChildrenSyscallLatencyBuckets[i], __ATOMIC_ACQUIRE);
+    }
+  }
+
+  void getReapedChildrenSyscallLatencySnapshot(SyscallLatencySnapshot& snapshot) const {
+    for (size_t i = 0; i < SyscallLatencyBucketCount; ++i) {
+      snapshot.buckets[i] =
+          __atomic_load_n(&m_Metadata.reapedChildrenSyscallLatencyBuckets[i], __ATOMIC_ACQUIRE);
+    }
   }
 #endif
 
@@ -993,6 +1026,8 @@ class EXPORTED_PUBLIC Process {
           reapedChildrenKernelTime(0),
           syscallCount(0),
           reapedChildrenSyscallCount(0),
+          syscallLatencyBuckets{},
+          reapedChildrenSyscallLatencyBuckets{},
           startTime(0) {}
 #else
     ProcessMetadata()
@@ -1031,6 +1066,10 @@ class EXPORTED_PUBLIC Process {
     uint64_t syscallCount;
     /// Number of syscalls handled by children and descendants this process reaped.
     uint64_t reapedChildrenSyscallCount;
+    /// Duration buckets for syscalls handled by this process.
+    uint64_t syscallLatencyBuckets[SyscallLatencyBucketCount];
+    /// Duration buckets for syscalls handled by children and descendants this process reaped.
+    uint64_t reapedChildrenSyscallLatencyBuckets[SyscallLatencyBucketCount];
 #endif
 
     /// Time at which process started.

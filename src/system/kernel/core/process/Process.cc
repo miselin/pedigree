@@ -746,6 +746,12 @@ void Process::accountReapedChild(const Process* child, Time::Timestamp& user,
 #if PEDIGREE_SYSCALL_COUNTER
   const uint64_t syscalls = child->getSyscallCount() + child->getReapedChildrenSyscallCount();
   __atomic_fetch_add(&m_Metadata.reapedChildrenSyscallCount, syscalls, __ATOMIC_RELAXED);
+  SyscallLatencySnapshot latency;
+  child->getSyscallLatencySnapshot(latency);
+  for (size_t i = 0; i < SyscallLatencyBucketCount; ++i) {
+    __atomic_fetch_add(&m_Metadata.reapedChildrenSyscallLatencyBuckets[i], latency.buckets[i],
+                       __ATOMIC_RELAXED);
+  }
 #endif
 }
 

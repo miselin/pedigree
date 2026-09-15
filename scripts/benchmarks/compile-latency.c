@@ -35,12 +35,23 @@ static uint64_t timeval_us(struct timeval t) {
   return (uint64_t)t.tv_sec * 1000000ULL + (uint64_t)t.tv_usec;
 }
 
+#define SYSCALL_LATENCY_BUCKET_COUNT 16
+
 static int reaped_child_syscall_count(uint64_t* count) {
   uint64_t result = 0;
   long status = syscall(SYS_syslog, 11, &result, sizeof(result));
   if (status != (long)sizeof(result))
     return 0;
   *count = result;
+  return 1;
+}
+
+static int reaped_child_syscall_latency(uint64_t* buckets) {
+  uint64_t result[SYSCALL_LATENCY_BUCKET_COUNT] = {0};
+  long status = syscall(SYS_syslog, 12, result, sizeof(result));
+  if (status != (long)sizeof(result))
+    return 0;
+  memcpy(buckets, result, sizeof(result));
   return 1;
 }
 
@@ -67,7 +78,8 @@ static void gate(const char* phase) {
 
 static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
                    const struct rusage* usage, uint64_t checksum, int have_syscalls,
-                   uint64_t syscalls) {
+                   uint64_t syscalls, int have_syscall_latency,
+                   const uint64_t* syscall_latency) {
   printf(
       "COMPILEBENCH metric phase=%s total_us=%llu rc=%d user_us=%llu system_us=%llu "
       "minor_faults=%ld major_faults=%ld in_blocks=%ld out_blocks=%ld "
@@ -79,6 +91,10 @@ static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
       (unsigned long long)checksum);
   if (have_syscalls)
     printf(" syscalls=%llu", (unsigned long long)syscalls);
+  if (have_syscall_latency) {
+    for (unsigned i = 0; i < SYSCALL_LATENCY_BUCKET_COUNT; ++i)
+      printf(" syscall_h%u=%llu", i, (unsigned long long)syscall_latency[i]);
+  }
   printf("\n");
   printf("COMPILEBENCH DONE phase=%s\n", phase);
 }
@@ -100,7 +116,7 @@ static void own_metric(const char* phase, uint64_t start, uint64_t end, const st
   after.ru_oublock -= before->ru_oublock;
   after.ru_nvcsw -= before->ru_nvcsw;
   after.ru_nivcsw -= before->ru_nivcsw;
-  metric(phase, start, end, 0, &after, checksum, 0, 0);
+  metric(phase, start, end, 0, &after, checksum, 0, 0, 0, NULL);
 }
 
 static int command(const char* phase, char* const args[], int permit_failure) {
@@ -111,6 +127,8 @@ static int command(const char* phase, char* const args[], int permit_failure) {
   gate(phase);
   uint64_t before_syscalls = 0;
   int have_before_syscalls = reaped_child_syscall_count(&before_syscalls);
+  uint64_t before_latency[SYSCALL_LATENCY_BUCKET_COUNT] = {0};
+  int have_before_latency = reaped_child_syscall_latency(before_latency);
   uint64_t start = now_ns();
   pid_t child = fork();
   if (child < 0)
@@ -147,10 +165,23 @@ static int command(const char* phase, char* const args[], int permit_failure) {
   int rc = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
   uint64_t after_syscalls = 0;
   int have_after_syscalls = reaped_child_syscall_count(&after_syscalls);
-  uint64_t syscalls = after_syscalls - before_syscalls;
   int have_syscalls = have_before_syscalls && have_after_syscalls &&
                       after_syscalls >= before_syscalls;
-  metric(phase, start, end, rc, &usage, 0, have_syscalls, syscalls);
+  uint64_t syscalls = have_syscalls ? after_syscalls - before_syscalls : 0;
+  uint64_t after_latency[SYSCALL_LATENCY_BUCKET_COUNT] = {0};
+  int have_after_latency = reaped_child_syscall_latency(after_latency);
+  int have_latency = have_before_latency && have_after_latency;
+  uint64_t latency[SYSCALL_LATENCY_BUCKET_COUNT] = {0};
+  if (have_latency) {
+    for (unsigned i = 0; i < SYSCALL_LATENCY_BUCKET_COUNT; ++i) {
+      if (after_latency[i] < before_latency[i]) {
+        have_latency = 0;
+        break;
+      }
+      latency[i] = after_latency[i] - before_latency[i];
+    }
+  }
+  metric(phase, start, end, rc, &usage, 0, have_syscalls, syscalls, have_latency, latency);
   if (rc && !permit_failure)
     fail(phase);
   return rc;

@@ -53,6 +53,12 @@ def irq_delta(before, after, seconds):
     return result
 
 
+def syscall_latency_buckets(metric):
+    if "syscall_h0" not in metric:
+        return None
+    return [metric.get(f"syscall_h{index}", 0) for index in range(16)]
+
+
 def module_ranges(serial):
     result = {}
     for match in re.finditer(r"COMPILEBENCH KERNELELF: Preloaded module (.+?) "
@@ -385,6 +391,7 @@ def summarize(args):
                         "user_s": metric.get("user_us", 0) / 1e6,
                         "system_s": metric.get("system_us", 0) / 1e6,
                         "syscalls": metric.get("syscalls"),
+                        "syscall_latency_buckets": syscall_latency_buckets(metric),
                         "rc": metric.get("rc"), "disk": disk,
                         "irq": irq_delta(phase.get("irq_before", ""), phase.get("irq_after", ""), seconds)}
     if not report_path.exists():
@@ -394,7 +401,9 @@ def summarize(args):
             phases[match[1]] = {"guest_wall_s": metric["total_us"] / 1e6,
                                 "user_s": metric["user_us"] / 1e6,
                                 "system_s": metric["system_us"] / 1e6,
-                                "syscalls": metric.get("syscalls"), "rc": metric["rc"]}
+                                "syscalls": metric.get("syscalls"),
+                                "syscall_latency_buckets": syscall_latency_buckets(metric),
+                                "rc": metric["rc"]}
     for name, profile in profiles.items():
         phases.setdefault(name, {})["profile"] = profile
     return {"directory": str(directory), "result": report["result"], "error": report.get("error"),

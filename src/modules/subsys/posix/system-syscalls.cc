@@ -1165,6 +1165,20 @@ int posix_linux_syslog(int type, char* buf, int len) {
       }
       return static_cast<int>(sizeof(count));
     }
+    case 12: {
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      Process::SyscallLatencySnapshot snapshot = {};
+      process->getReapedChildrenSyscallLatencySnapshot(snapshot);
+      if (len != static_cast<int>(sizeof(snapshot))) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      if (!PosixSubsystem::copyToUser(buf, &snapshot, sizeof(snapshot))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      return static_cast<int>(sizeof(snapshot));
+    }
 #endif
     case 2:
     case 4:

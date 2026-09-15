@@ -94,6 +94,24 @@ off_t linuxAmd64VectorOffset(uintptr_t low, uintptr_t high) {
       (static_cast<uint64_t>(high) << 32U) | (static_cast<uint64_t>(low) & 0xFFFFFFFFULL);
   return static_cast<off_t>(bits);
 }
+
+#if PEDIGREE_SYSCALL_COUNTER
+class SyscallLatencyRecorder {
+ public:
+  explicit SyscallLatencyRecorder(Process* process)
+      : m_pProcess(process), m_Start(Time::getTicks()) {}
+
+  ~SyscallLatencyRecorder() {
+    if (m_pProcess) {
+      m_pProcess->recordSyscallDuration(Time::getTicks() - m_Start);
+    }
+  }
+
+ private:
+  Process* m_pProcess;
+  Time::Timestamp m_Start;
+};
+#endif
 }  // namespace
 
 PosixSyscallManager::PosixSyscallManager() {}
@@ -143,11 +161,13 @@ uintptr_t PosixSyscallManager::call(uintptr_t function, uintptr_t p1, uintptr_t 
 
 uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
 #if PEDIGREE_SYSCALL_COUNTER
-  if (Process* process = Processor::information().getCurrentThread()->getParent()) {
+  Process* syscallProcess = Processor::information().getCurrentThread()->getParent();
+  if (syscallProcess) {
     // This is after the architecture entry stub and before ABI translation, so
     // it counts each user-visible POSIX/Linux syscall exactly once.
-    process->recordSyscall();
+    syscallProcess->recordSyscall();
   }
+  SyscallLatencyRecorder syscallLatencyRecorder(syscallProcess);
 #endif
   uint64_t syscallNumber = state.getSyscallNumber();
   const bool linuxAbi = state.getSyscallService() == linuxCompat;
