@@ -19,6 +19,9 @@ bool Process::snapshotUserReservations(UserReservationSnapshot& result) {
   UniqueArray<ReservationRange> ranges;
   size_t capacity = 0, normalCount = 0, dynamicCount = 0;
   uint64_t generation = 0;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  size_t storageAllocations = 0;
+#endif
   for (;;) {
     size_t needed = 0;
     {
@@ -49,8 +52,17 @@ bool Process::snapshotUserReservations(UserReservationSnapshot& result) {
     if (!ranges) {
       return false;
     }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++storageAllocations;
+#endif
     capacity = needed;
   }
+
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  recordBenchmarkVmCounter(VmReservationSnapshots);
+  recordBenchmarkVmCounter(VmReservationExtents, normalCount + dynamicCount);
+  recordBenchmarkVmCounter(VmReservationScratchAllocations, storageAllocations);
+#endif
 
   UserReservationSnapshot snapshot;
   for (size_t i = 0; i < normalCount; ++i) {

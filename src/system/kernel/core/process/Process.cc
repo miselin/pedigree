@@ -560,6 +560,9 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
   m_BenchmarkSyscallTiming = __atomic_load_n(&pParent->m_BenchmarkSyscallTiming, __ATOMIC_ACQUIRE);
 #endif
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  m_BenchmarkVmDiagnostics = __atomic_load_n(&pParent->m_BenchmarkVmDiagnostics, __ATOMIC_ACQUIRE);
+#endif
 
   m_pAddressSpace = emptyAddressSpace ? VirtualAddressSpace::create()
                                       : pParent->m_pAddressSpace->clone(bCopyOnWrite);
@@ -768,6 +771,12 @@ void Process::accountReapedChild(const Process* child, Time::Timestamp& user,
         __atomic_load_n(&child->m_SyscallTimingKernelNanoseconds[i], __ATOMIC_ACQUIRE);
     __atomic_fetch_add(&m_SyscallTimingCalls[i], calls, __ATOMIC_RELAXED);
     __atomic_fetch_add(&m_SyscallTimingKernelNanoseconds[i], kernelNanoseconds, __ATOMIC_RELAXED);
+  }
+#endif
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  for (size_t i = 0; i < BenchmarkVmCounterCount; ++i) {
+    const uint64_t value = __atomic_load_n(&child->m_BenchmarkVmCounters[i], __ATOMIC_ACQUIRE);
+    __atomic_fetch_add(&m_BenchmarkVmCounters[i], value, __ATOMIC_RELAXED);
   }
 #endif
 }

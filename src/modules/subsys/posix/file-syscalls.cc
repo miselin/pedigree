@@ -362,6 +362,19 @@ namespace {
 constexpr size_t ScalarIoBounceCapacity = PIPE_BUF_MAX + 1;
 constexpr size_t RegularReadBounceCapacity = 64 * 1024;
 
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+Process::BenchmarkVmCounter vmLengthCounter(bool unmap, size_t pages) {
+  const size_t bucket = pages <= 1     ? 0
+                        : pages <= 3   ? 1
+                        : pages <= 15  ? 2
+                        : pages <= 63  ? 3
+                        : pages <= 255 ? 4
+                                       : 5;
+  const auto first = unmap ? Process::VmMunmapLength1 : Process::VmMmapLength1;
+  return static_cast<Process::BenchmarkVmCounter>(static_cast<size_t>(first) + bucket);
+}
+#endif
+
 UniqueArray<uint8_t> allocateReadBounce(File* file, size_t length, size_t& capacity) {
   const bool diskBackedRegular = file->supportsRegularFileOperations() && !file->isBlockDevice() &&
                                  file->getFilesystem() && file->getFilesystem()->getDisk();
@@ -3161,6 +3174,14 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
     SYSCALL_ERROR(InvalidArgument);
     return MAP_FAILED;
   }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  pProcess->recordBenchmarkVmCounter(Process::VmMmapCalls);
+  pProcess->recordBenchmarkVmCounter(flags & MAP_ANON ? Process::VmMmapAnonymousCalls
+                                                      : Process::VmMmapFileCalls);
+  const size_t mappingPages = roundedLength / pageSz;
+  pProcess->recordBenchmarkVmCounter(Process::VmMmapPages, mappingPages);
+  pProcess->recordBenchmarkVmCounter(vmLengthCounter(false, mappingPages));
+#endif
 
   // Sanitise input.
   uintptr_t sanityAddress = reinterpret_cast<uintptr_t>(addr);
@@ -3386,6 +3407,14 @@ int posix_munmap(void* addr, size_t len) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
+
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  const size_t mappingPages = roundedLength / pageSz;
+  process->recordBenchmarkVmCounter(Process::VmMunmapCalls);
+  process->recordBenchmarkVmCounter(Process::VmMunmapPages, mappingPages);
+  process->recordBenchmarkVmCounter(vmLengthCounter(true, mappingPages));
+#endif
 
   MemoryMapManager::VmStatus status;
   MemoryMapManager::instance().removeAndRelease(address, roundedLength, &status);

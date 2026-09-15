@@ -79,6 +79,19 @@ class ActivityDiagnosticsTest(unittest.TestCase):
         self.assertEqual([entry["name"] for entry in timing["entries"]], ["mmap", "read"])
         self.assertEqual(timing["entries"][0]["kernel_ns_per_call"], 300000)
 
+    def test_vm_diagnostics_extracts_only_vm_counters(self):
+        metric = {
+            "vm_publish_calls": 10,
+            "vm_publish_overlap_probe_visits": 550,
+            "system_us": 1000,
+        }
+
+        self.assertEqual(SUMMARY.vm_diagnostics(metric), {
+            "publish_calls": 10,
+            "publish_overlap_probe_visits": 550,
+        })
+        self.assertIsNone(SUMMARY.vm_diagnostics({"system_us": 1000}))
+
 
 if __name__ == "__main__":
     unittest.main()

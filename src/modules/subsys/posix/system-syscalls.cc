@@ -1236,6 +1236,33 @@ int posix_linux_syslog(int type, char* buf, int len) {
       return static_cast<int>(snapshotSize);
     }
 #endif
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    case 17: {
+      if (buf || (len != 0 && len != 1)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      process->setBenchmarkVmDiagnostics(len != 0);
+      return 0;
+    }
+    case 18: {
+      constexpr size_t snapshotSize = Process::BenchmarkVmCounterCount * sizeof(uint64_t);
+      if (len != static_cast<int>(snapshotSize)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      for (size_t i = 0; i < Process::BenchmarkVmCounterCount; ++i) {
+        const uint64_t value = process->getBenchmarkVmCounter(i);
+        if (!PosixSubsystem::copyToUser(buf + i * sizeof(value), &value, sizeof(value))) {
+          SYSCALL_ERROR(BadAddress);
+          return -1;
+        }
+      }
+      return static_cast<int>(snapshotSize);
+    }
+#endif
     case 2:
     case 4:
     case 5:

@@ -104,6 +104,12 @@ def syscall_timing(metric):
     }
 
 
+def vm_diagnostics(metric):
+    counters = {key[3:]: value for key, value in metric.items()
+                if key.startswith("vm_")}
+    return counters or None
+
+
 USER_RETURN_STAGES = (
     "interrupt_tail", "syscall_tail", "interrupt_work", "syscall_work",
     "checkpoint", "process_stop", "deferred_fault", "event",
@@ -549,6 +555,7 @@ def summarize(args):
                         "syscalls": metric.get("syscalls"),
                         "syscall_latency_buckets": syscall_latency_buckets(metric),
                         "syscall_timing": syscall_timing(metric),
+                        "vm_diagnostics": vm_diagnostics(metric),
                         "activity": activity_diagnostics(metric),
                         "rc": metric.get("rc"), "disk": disk,
                         "irq": irq_delta(phase.get("irq_before", ""), phase.get("irq_after", ""), seconds)}
@@ -562,6 +569,7 @@ def summarize(args):
                                 "syscalls": metric.get("syscalls"),
                                 "syscall_latency_buckets": syscall_latency_buckets(metric),
                                 "syscall_timing": syscall_timing(metric),
+                                "vm_diagnostics": vm_diagnostics(metric),
                                 "activity": activity_diagnostics(metric),
                                 "rc": metric["rc"]}
     for name, profile in profiles.items():

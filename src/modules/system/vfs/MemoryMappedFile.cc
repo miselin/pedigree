@@ -805,9 +805,21 @@ MemoryMapManager::MemoryMapManager()
 
 void MemoryMapManager::enterOperation() {
   void* owner = currentOperationOwner();
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Thread* diagnosticThread = Processor::information().getCurrentThread();
+  Process* diagnosticProcess = diagnosticThread ? diagnosticThread->getParent() : nullptr;
+  if (diagnosticProcess) {
+    diagnosticProcess->recordBenchmarkVmCounter(Process::VmGuardEntries);
+  }
+#endif
   {
     LockGuard<Spinlock> guard(m_LifecycleStateLock);
     if (m_pLifecycleOwner == owner) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      if (diagnosticProcess) {
+        diagnosticProcess->recordBenchmarkVmCounter(Process::VmGuardRecursiveEntries);
+      }
+#endif
       ++m_LifecycleDepth;
       return;
     }
@@ -1197,12 +1209,22 @@ bool MemoryMapManager::allows(uintptr_t base, size_t length,
     return false;
   }
 
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  process->recordBenchmarkVmCounter(Process::VmAllowsCalls);
+  process->recordBenchmarkVmCounter(Process::VmAllowsObjectCount, pMmObjectList->count());
+  size_t objectVisits = 0;
+#endif
+
   const size_t pageMask = PhysicalMemoryManager::getPageSize() - 1;
   uintptr_t cursor = base;
   while (cursor < end) {
     uintptr_t coveredUntil = cursor;
     for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin();
          it != pMmObjectList->end(); ++it) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      ++objectVisits;
+#endif
       MemoryMappedObject* pObject = *it;
       uintptr_t objectEnd = (pObject->address() + pObject->length() + pageMask) & ~pageMask;
       if (cursor >= pObject->address() && cursor < objectEnd &&
@@ -1211,17 +1233,26 @@ bool MemoryMapManager::allows(uintptr_t base, size_t length,
           coveredUntil = objectEnd;
         }
         if (coveredUntil >= end) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+          process->recordBenchmarkVmCounter(Process::VmAllowsObjectVisits, objectVisits);
+#endif
           return true;
         }
       }
     }
 
     if (coveredUntil == cursor) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      process->recordBenchmarkVmCounter(Process::VmAllowsObjectVisits, objectVisits);
+#endif
       return false;
     }
     cursor = coveredUntil < end ? coveredUntil : end;
   }
 
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmAllowsObjectVisits, objectVisits);
+#endif
   return true;
 }
 
@@ -1312,6 +1343,9 @@ bool MemoryMapManager::sharedBacking(Process* process, uintptr_t address, uintpt
 bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write,
                                        MemoryMappedObject*& selected) {
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Process* diagnosticProcess = Processor::information().getCurrentThread()->getParent();
+#endif
   const uintptr_t pageAddress = address & ~(PhysicalMemoryManager::getPageSize() - 1);
   void* page = reinterpret_cast<void*>(pageAddress);
   const bool pageAligned = address == pageAddress;
@@ -1319,12 +1353,24 @@ bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write,
   if (!selected || !selected->matches(address)) {
     selected = nullptr;
     auto* objects = m_MmObjectLists.lookup(&va);
-    if (objects)
-      for (auto* object : *objects)
+    if (objects) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      size_t objectVisits = 0;
+#endif
+      for (auto* object : *objects) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+        ++objectVisits;
+#endif
         if (object->matches(address)) {
           selected = object;
           break;
         }
+      }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      Processor::information().getCurrentThread()->getParent()->recordBenchmarkVmCounter(
+          Process::VmFaultInObjectVisits, objectVisits);
+#endif
+    }
   }
 
   if (selected) {
@@ -1346,9 +1392,15 @@ bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write,
       return false;
     }
     if (!write || (flags & VirtualAddressSpace::Write)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      diagnosticProcess->recordBenchmarkVmCounter(Process::VmFaultInPresent);
+#endif
       return true;
     }
     if (flags & VirtualAddressSpace::CopyOnWrite) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      diagnosticProcess->recordBenchmarkVmCounter(Process::VmFaultInCopyOnWrite);
+#endif
       return va.handleCopyOnWriteFault(page, true);
     }
   }
@@ -1356,6 +1408,9 @@ bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write,
   // A page-aligned range keeps the selected object aligned with handleTrap's
   // own mapping lookup. Preserve the old fallback for unaligned direct calls.
   MemoryMappedObject* trapObject = pageAligned ? selected : nullptr;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  diagnosticProcess->recordBenchmarkVmCounter(Process::VmFaultInTrap);
+#endif
   return handleTrapUnlocked(address, write, present, false, trapObject);
 }
 
@@ -1376,6 +1431,12 @@ bool MemoryMapManager::faultInRange(uintptr_t address, size_t length, bool write
   OperationGuard operation(*this);
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const uintptr_t lastPage = (address + length - 1) & ~(pageSize - 1);
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  process->recordBenchmarkVmCounter(Process::VmFaultInRangeCalls);
+  process->recordBenchmarkVmCounter(Process::VmFaultInRangePages,
+                                    (lastPage - (address & ~(pageSize - 1))) / pageSize + 1);
+#endif
   MemoryMappedObject* selected = nullptr;
   for (uintptr_t page = address & ~(pageSize - 1);; page += pageSize) {
     if (!faultInUnlocked(page, write, selected)) {
@@ -1395,33 +1456,72 @@ MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t a
     return FaultResolution::Unhandled;
   OperationGuard operation(*this);
   VirtualAddressSpace& space = Processor::information().getVirtualAddressSpace();
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  process->recordBenchmarkVmCounter(Process::VmFaultCalls);
+#endif
   const bool normal = address >= space.getUserStart() && address < space.getUserReservedStart();
   const bool dynamic = space.getDynamicStart() && address >= space.getDynamicStart() &&
                        address < space.getDynamicEnd();
-  if (!normal && !dynamic)
+  if (!normal && !dynamic) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmFaultUnhandled);
+#endif
     return FaultResolution::Unhandled;
+  }
   auto* objects = m_MmObjectLists.lookup(&space);
-  if (!objects)
+  if (!objects) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmFaultUnhandled);
+#endif
     return FaultResolution::Unhandled;
+  }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmFaultObjectCount, objects->count());
+  size_t objectVisits = 0;
+#endif
   const uintptr_t pageAddress = address & ~(PhysicalMemoryManager::getPageSize() - 1);
   const auto required = execute ? MemoryMappedObject::Exec
                         : write ? MemoryMappedObject::Write
                                 : MemoryMappedObject::Read;
   MemoryMappedObject* selected = nullptr;
-  for (auto* object : *objects)
+  for (auto* object : *objects) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++objectVisits;
+#endif
     if (object->matches(pageAddress)) {
       selected = object;
       break;
     }
-  if (!selected || !(selected->permissions() & required))
+  }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmFaultObjectVisits, objectVisits);
+#endif
+  if (!selected || !(selected->permissions() & required)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmFaultUnhandled);
+#endif
     return FaultResolution::Unhandled;
-  if (selected->beyondBackingEnd(pageAddress))
+  }
+  if (selected->beyondBackingEnd(pageAddress)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmFaultBacking);
+#endif
     return FaultResolution::BackingFault;
-  if (!handleTrapUnlocked(address, write, wasPresent, execute, selected))
+  }
+  if (!handleTrapUnlocked(address, write, wasPresent, execute, selected)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmFaultUnhandled);
+#endif
     return FaultResolution::Unhandled;
+  }
   void* page = reinterpret_cast<void*>(pageAddress);
-  if (!space.isMapped(page))
+  if (!space.isMapped(page)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmFaultUnhandled);
+#endif
     return FaultResolution::Unhandled;
+  }
   physical_uintptr_t physical;
   size_t flags;
   space.getMapping(page, physical, flags);
@@ -1431,6 +1531,10 @@ MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t a
       (!write ||
        ((flags & VirtualAddressSpace::Write) && !(flags & VirtualAddressSpace::WriteProtected))) &&
       (!execute || (flags & VirtualAddressSpace::Execute));
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(accessible ? Process::VmFaultResolved
+                                               : Process::VmFaultUnhandled);
+#endif
   return accessible ? FaultResolution::Resolved : FaultResolution::Unhandled;
 }
 

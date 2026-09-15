@@ -157,6 +157,9 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     return nullptr;
   auto& space = Processor::information().getVirtualAddressSpace();
   auto* process = Processor::information().getCurrentThread()->getParent();
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmPublishCalls);
+#endif
   auto* account = space.memoryLockAccount();
   const MemoryLockMode mode = requestedLock != MemoryLockMode::None ? requestedLock
                               : account                             ? account->futureMode()
@@ -176,6 +179,9 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
   constexpr size_t MaximumObjects = 4096;
   if (objects->count() > MaximumObjects)
     return nullptr;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmPublishObjectCount, objects->count());
+#endif
   const uintptr_t requested = address;
   for (size_t attempt = 0; attempt < 32; ++attempt) {
     Snapshot snapshot;
@@ -198,13 +204,24 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     if (rawStatus != MemoryLockStatus::Success)
       return nullptr;
     bool overlaps = false;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    size_t objectVisits = 0;
+#endif
     for (auto* object : *objects) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      ++objectVisits;
+#endif
       const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
       if (destination < end && object->address() < destination + length) {
         overlaps = true;
         break;
       }
     }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmPublishOverlapProbeVisits, objectVisits);
+    if (overlaps)
+      process->recordBenchmarkVmCounter(Process::VmPublishOverlapHits);
+#endif
     MappingPlan plan;
     if (!plan.staged.tryReserve(overlaps ? objects->count() * 2 + 1 : 1))
       return nullptr;
@@ -273,6 +290,9 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     if (publication->count() >= MaximumObjects || !publication->tryPushBack(plan.inserted))
       return nullptr;
     if (!process->commitUserReservations(snapshot.generation, snapshot)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      process->recordBenchmarkVmCounter(Process::VmPublishCommitRetries);
+#endif
       // The operation gate excludes other executions; the allocation-free
       // reservation commit cannot reenter this registry. Undo the provisional
       // append before destroying the staged object.
@@ -337,8 +357,17 @@ size_t MemoryMapManager::removeInternal(uintptr_t base, size_t length, bool rele
     *status = VmStatus::NoMemory;
   if (objects->count() > 4096)
     return 0;
+  auto* process = Processor::information().getCurrentThread()->getParent();
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmRemoveCalls);
+  process->recordBenchmarkVmCounter(Process::VmRemoveObjectCount, objects->count());
+  size_t objectVisits = 0;
+#endif
   bool needsSlices = false;
   for (auto* object : *objects) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++objectVisits;
+#endif
     const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
     if (object->address() < base + length && base < end &&
         (object->address() < base || end > base + length)) {
@@ -346,10 +375,18 @@ size_t MemoryMapManager::removeInternal(uintptr_t base, size_t length, bool rele
       break;
     }
   }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmRemoveObjectVisits, objectVisits);
+#endif
   if (!needsSlices) {
     size_t affected = 0, removedPages = 0;
-    auto* process = Processor::information().getCurrentThread()->getParent();
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    objectVisits = 0;
+#endif
     for (auto it = objects->begin(); it != objects->end();) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      ++objectVisits;
+#endif
       auto* object = *it;
       const uintptr_t first = object->address();
       const uintptr_t end = (first + object->length() + mask) & ~mask;
@@ -367,6 +404,10 @@ size_t MemoryMapManager::removeInternal(uintptr_t base, size_t length, bool rele
       delete object;
       ++affected;
     }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmRemoveObjectVisits, objectVisits);
+    process->recordBenchmarkVmCounter(Process::VmRemoveAffectedObjects, affected);
+#endif
     retireLockedPages(space, removedPages);
     if (status)
       *status = VmStatus::Success;
@@ -379,7 +420,13 @@ size_t MemoryMapManager::removeInternal(uintptr_t base, size_t length, bool rele
   if (!plan.replacement)
     return 0;
   size_t removedPages = 0;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  objectVisits = 0;
+#endif
   for (auto* object : *objects) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++objectVisits;
+#endif
     const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
     const uintptr_t first = object->address() > base ? object->address() : base;
     const uintptr_t last = end < base + length ? end : base + length;
@@ -394,9 +441,13 @@ size_t MemoryMapManager::removeInternal(uintptr_t base, size_t length, bool rele
     if (!plan.appendSlice(object, object->address(), first) || !plan.appendSlice(object, last, end))
       return 0;
   }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmRemoveObjectVisits, objectVisits);
+  process->recordBenchmarkVmCounter(Process::VmRemoveSliceCalls);
+  process->recordBenchmarkVmCounter(Process::VmRemoveAffectedObjects, plan.retired.count());
+#endif
   if (plan.replacement->count() > 4096)
     return 0;
-  auto* process = Processor::information().getCurrentThread()->getParent();
   for (auto* object : plan.retired) {
     const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
     const uintptr_t first = object->address() > base ? object->address() : base;

@@ -39,6 +39,7 @@ In an offline disposable ext2 root, install the driver as `/usr/bin/init`, mode
 | `quick-run` | Empty marker for the shorter suite; also requires `link-cxx` |
 | `no-sync` | Empty marker for a performance-only run with disk writes disabled |
 | `persist-check` | Optional empty marker to create a persistence sentinel during sync |
+| `trace-vm` | Enable process-scoped VM cardinality counters when supported by the kernel |
 
 Do not seed `persisted-output`: the driver creates it from the compiled binary.
 On its next boot, an existing sentinel with `persist-check` selects verification
@@ -141,6 +142,24 @@ the remainder includes user page faults, interrupts, process setup and teardown,
 and return work outside the architecture syscall tracker. Disable the existing
 `PEDIGREE_SYSCALL_COUNTER` latency histogram in this arm because that diagnostic
 adds two separate clock reads to every syscall.
+
+For exact VM lifecycle cardinalities, configure
+`-DPEDIGREE_BENCHMARK_VM_DIAGNOSTICS=TRUE` and add the `trace-vm` marker. As with
+syscall timing, the driver enables collection only in each post-fork command
+child and snapshots counters after reaping the complete compiler descendant
+tree. Metrics use the `vm_` prefix.
+
+The counters distinguish mmap/munmap length buckets, reservation snapshot
+rebuilds, mapping-list visits for publication/removal/faults/user checks,
+already-resident versus copy-on-write versus trap paths during user copies,
+nested mapping lifecycle guards, page-table entries examined while reclaiming
+empty tables, and active versus inactive address-space invalidations. Length
+buckets are 1, 2-3, 4-15, 16-63, 64-255, and at least 256 pages. Visit and
+entry counters are accumulated locally and published once per logical scan.
+
+This diagnostic adds atomic counter publication and is for cardinality, not a
+wall-time control. Pair it with syscall timing to connect exact path volume to
+the accounted syscall totals, but use a probe-free kernel for timing A/Bs.
 
 ## Run and compare
 

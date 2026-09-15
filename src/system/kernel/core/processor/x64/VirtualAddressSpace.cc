@@ -1306,6 +1306,15 @@ bool X64VirtualAddressSpace::getPageTableEntry(void* virtualAddress,
 
 bool X64VirtualAddressSpace::invalidateMapping(void* virtualAddress,
                                                X64MappingMutationScope& mutation) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Thread* diagnosticThread = Processor::information().getCurrentThread();
+  Process* diagnosticProcess = diagnosticThread ? diagnosticThread->getParent() : nullptr;
+  if (diagnosticProcess && virtualAddress < KERNEL_SPACE_START) {
+    diagnosticProcess->recordBenchmarkVmCounter(diagnosticProcess->getAddressSpace() == this
+                                                    ? Process::VmInvalidationActive
+                                                    : Process::VmInvalidationInactive);
+  }
+#endif
   // Upper-half mappings are shared by every address space. Lower-half
   // mappings can also be active on more than one processor, and no residency
   // mask currently identifies a narrower destination set. Use the same
@@ -1315,9 +1324,31 @@ bool X64VirtualAddressSpace::invalidateMapping(void* virtualAddress,
 
 size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,
                                                  physical_uintptr_t* detachedTables) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Thread* diagnosticThread = Processor::information().getCurrentThread();
+  Process* diagnosticProcess = diagnosticThread ? diagnosticThread->getParent() : nullptr;
+  if (diagnosticProcess && diagnosticProcess->getAddressSpace() != this) {
+    diagnosticProcess = nullptr;
+  }
+  size_t pteEntries = 0, pdeEntries = 0, pdptEntries = 0;
+  if (diagnosticProcess) {
+    diagnosticProcess->recordBenchmarkVmCounter(Process::VmTableRetirementScans);
+  }
+  auto publishDiagnostics = [&](size_t detachedCount) {
+    if (!diagnosticProcess)
+      return;
+    diagnosticProcess->recordBenchmarkVmCounter(Process::VmDetachPteEntries, pteEntries);
+    diagnosticProcess->recordBenchmarkVmCounter(Process::VmDetachPdeEntries, pdeEntries);
+    diagnosticProcess->recordBenchmarkVmCounter(Process::VmDetachPdptEntries, pdptEntries);
+    diagnosticProcess->recordBenchmarkVmCounter(Process::VmDetachTables, detachedCount);
+  };
+#endif
   const size_t pml4Index = PML4_INDEX(virtualAddress);
   uint64_t* pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
   if ((*pml4Entry & PAGE_PRESENT) != PAGE_PRESENT) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    publishDiagnostics(0);
+#endif
     return 0;
   }
 
@@ -1325,6 +1356,9 @@ size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,
   uint64_t* pageDirectoryPointerEntry =
       TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pml4Entry), pageDirectoryPointerIndex);
   if ((*pageDirectoryPointerEntry & PAGE_PRESENT) != PAGE_PRESENT) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    publishDiagnostics(0);
+#endif
     return 0;
   }
 
@@ -1333,12 +1367,21 @@ size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,
       TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry), pageDirectoryIndex);
   if ((*pageDirectoryEntry & PAGE_PRESENT) != PAGE_PRESENT ||
       (*pageDirectoryEntry & PAGE_2MB) == PAGE_2MB) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    publishDiagnostics(0);
+#endif
     return 0;
   }
 
   for (size_t i = 0; i < 0x200; ++i) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++pteEntries;
+#endif
     uint64_t* entry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryEntry), i);
     if (*entry & (PAGE_PRESENT | PAGE_SWAPPED | PAGE_NO_ACCESS)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      publishDiagnostics(0);
+#endif
       return 0;
     }
   }
@@ -1348,8 +1391,14 @@ size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,
   *pageDirectoryEntry = 0;
 
   for (size_t i = 0; i < 0x200; ++i) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++pdeEntries;
+#endif
     uint64_t* entry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry), i);
     if ((*entry & PAGE_PRESENT) == PAGE_PRESENT) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      publishDiagnostics(detachedCount);
+#endif
       return detachedCount;
     }
   }
@@ -1362,18 +1411,30 @@ size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,
   // at freed storage.
   if (reinterpret_cast<uintptr_t>(virtualAddress) >=
       reinterpret_cast<uintptr_t>(KERNEL_SPACE_START)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    publishDiagnostics(detachedCount);
+#endif
     return detachedCount;
   }
 
   for (size_t i = 0; i < 0x200; ++i) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++pdptEntries;
+#endif
     uint64_t* entry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pml4Entry), i);
     if ((*entry & PAGE_PRESENT) == PAGE_PRESENT) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      publishDiagnostics(detachedCount);
+#endif
       return detachedCount;
     }
   }
 
   detachedTables[detachedCount++] = PAGE_GET_PHYSICAL_ADDRESS(pml4Entry);
   *pml4Entry = 0;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  publishDiagnostics(detachedCount);
+#endif
   return detachedCount;
 }
 

@@ -313,6 +313,87 @@ class EXPORTED_PUBLIC Process {
   }
 #endif
 
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  enum BenchmarkVmCounter : size_t {
+    VmMmapCalls,
+    VmMmapAnonymousCalls,
+    VmMmapFileCalls,
+    VmMmapPages,
+    VmMmapLength1,
+    VmMmapLength2To3,
+    VmMmapLength4To15,
+    VmMmapLength16To63,
+    VmMmapLength64To255,
+    VmMmapLength256Plus,
+    VmPublishCalls,
+    VmPublishObjectCount,
+    VmPublishOverlapProbeVisits,
+    VmPublishOverlapHits,
+    VmPublishCommitRetries,
+    VmReservationSnapshots,
+    VmReservationExtents,
+    VmReservationScratchAllocations,
+    VmMunmapCalls,
+    VmMunmapPages,
+    VmMunmapLength1,
+    VmMunmapLength2To3,
+    VmMunmapLength4To15,
+    VmMunmapLength16To63,
+    VmMunmapLength64To255,
+    VmMunmapLength256Plus,
+    VmRemoveCalls,
+    VmRemoveObjectCount,
+    VmRemoveObjectVisits,
+    VmRemoveSliceCalls,
+    VmRemoveAffectedObjects,
+    VmAllowsCalls,
+    VmAllowsObjectCount,
+    VmAllowsObjectVisits,
+    VmFaultInRangeCalls,
+    VmFaultInRangePages,
+    VmFaultInObjectVisits,
+    VmFaultInPresent,
+    VmFaultInCopyOnWrite,
+    VmFaultInTrap,
+    VmFaultCalls,
+    VmFaultObjectCount,
+    VmFaultObjectVisits,
+    VmFaultResolved,
+    VmFaultBacking,
+    VmFaultUnhandled,
+    VmGuardEntries,
+    VmGuardRecursiveEntries,
+    VmDiscardTrackedPages,
+    VmDiscardMappedPages,
+    VmTableRetirementScans,
+    VmDetachPteEntries,
+    VmDetachPdeEntries,
+    VmDetachPdptEntries,
+    VmDetachTables,
+    VmInvalidationActive,
+    VmInvalidationInactive,
+    BenchmarkVmCounterCount,
+  };
+
+  void setBenchmarkVmDiagnostics(bool enabled) {
+    __atomic_store_n(&m_BenchmarkVmDiagnostics, enabled, __ATOMIC_RELEASE);
+  }
+
+  bool benchmarkVmDiagnosticsEnabled() const {
+    return __atomic_load_n(&m_BenchmarkVmDiagnostics, __ATOMIC_ACQUIRE);
+  }
+
+  void recordBenchmarkVmCounter(BenchmarkVmCounter counter, uint64_t amount = 1) {
+    if (benchmarkVmDiagnosticsEnabled() && amount) {
+      __atomic_fetch_add(&m_BenchmarkVmCounters[counter], amount, __ATOMIC_RELAXED);
+    }
+  }
+
+  uint64_t getBenchmarkVmCounter(size_t counter) const {
+    return __atomic_load_n(&m_BenchmarkVmCounters[counter], __ATOMIC_ACQUIRE);
+  }
+#endif
+
   /** Default constructor. */
   Process();
 
@@ -907,6 +988,11 @@ class EXPORTED_PUBLIC Process {
   bool m_BenchmarkSyscallTiming = false;
   uint64_t m_SyscallTimingCalls[SyscallTimingSlotCount] = {};
   uint64_t m_SyscallTimingKernelNanoseconds[SyscallTimingSlotCount] = {};
+#endif
+
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  bool m_BenchmarkVmDiagnostics = false;
+  uint64_t m_BenchmarkVmCounters[BenchmarkVmCounterCount] = {};
 #endif
 
   /** Current user. */
