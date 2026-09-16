@@ -3,6 +3,23 @@
 For native GCC compilation timing, kernel profiles, and comparison heatmaps,
 see the [compilation latency guide](compile-latency.md).
 
+## Synthetic VM syscall benchmark
+
+`vm-syscall-latency.c` measures mmap/munmap without rebuilding GCC. Compile it
+with the target static toolchain and install it, together with a marker file
+named `synthetic-vm`, in the existing compile-latency guest root. Put a single
+line such as this in `/vm-syscall-latency.conf`:
+
+```text
+gcc-pattern 100000 1
+```
+
+Run the disposable image with `run-compile-latency.py --synthetic-vm`. The
+available modes are `anonymous`, `anonymous-touch`, `staircase`, `file`,
+`fragmented`, and `gcc-pattern`. The last mode approximates the dominant
+anonymous mapping sizes from the exact `which.cc` trace. Each run reports the
+guest wall, user, and system time, plus the benchmark's own elapsed time.
+
 Compile `io-latency.c` with the Pedigree userspace toolchain and install the binary as
 `/io-latency` in a bootable test image. The image must provide root/root console
 login, Bash, and `ls`; GNU nano is measured when installed. Use a build with

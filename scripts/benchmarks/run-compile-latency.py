@@ -119,6 +119,8 @@ def main():
                         help="Image contains quick-run and link-cxx; two compiles plus controls")
     parser.add_argument("--skip-sync", action="store_true",
                         help="Image contains no-sync; performance-only run with writes disabled")
+    parser.add_argument("--synthetic-vm", action="store_true",
+                        help="Run only the image's synthetic VM syscall workload")
     parser.add_argument("--verify-persisted", action="store_true",
                         help="Require persisted-output verification and execution, without compilation")
     parser.add_argument("--reuse-overlay", type=Path,
@@ -147,6 +149,8 @@ def main():
         parser.error("quick and verify-persisted are separate runs")
     if args.skip_sync and args.verify_persisted:
         parser.error("skip-sync cannot verify persistence")
+    if args.synthetic_vm and (args.quick or args.linked or args.skip_sync or args.verify_persisted):
+        parser.error("synthetic-vm cannot be combined with compile workload options")
     if args.reuse_overlay and not args.verify_persisted:
         parser.error("reuse-overlay requires verify-persisted")
     if args.quick:
@@ -162,6 +166,8 @@ def main():
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     expected = PHASES.copy()
+    if args.synthetic_vm:
+        expected = ["vm-synthetic"]
     if args.linked:
         expected[expected.index("compile-exact")] = "compile-cold"
     if args.quick:
