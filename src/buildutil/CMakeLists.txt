@@ -475,6 +475,9 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-SymbolTableConcepts.cc
         testsuite/bench-stringlib.cc
         testsuite/bench-RangeList.cc
+        testsuite/bench-Buffer.cc
+        testsuite/bench-RingBuffer.cc
+        testsuite/bench-ProcessorMemory.cc
         testsuite/bench-HashTable.cc
         testsuite/bench-List.cc
         testsuite/bench-SlamAllocator.cc

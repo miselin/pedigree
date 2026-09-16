@@ -23,6 +23,7 @@
 
 #include <fstream>
 #include <stdlib.h>
+#include <string>
 #include <time.h>
 #include <vector>
 
@@ -54,6 +55,15 @@ static void LoadWords(std::vector<String>& result) {
     }
 
     result.emplace_back(s.c_str(), s.length());
+  }
+
+  // macOS does not normally ship /usr/share/dict/words. Keep the benchmark
+  // runnable and deterministic when that optional corpus is unavailable.
+  if (result.empty()) {
+    for (size_t i = 0; i < 4096; ++i) {
+      std::string word = "symbol-" + std::to_string(i);
+      result.emplace_back(word.c_str(), word.length());
+    }
   }
 }
 

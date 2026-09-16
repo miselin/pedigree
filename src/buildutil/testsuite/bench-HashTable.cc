@@ -21,10 +21,13 @@
 
 #include "pedigree/kernel/utilities/HashTable.h"
 
+#include <algorithm>
+#include <random>
 #include <string.h>
 #include <vector>
 
 #include <benchmark/benchmark.h>
+#include <unordered_map>
 
 class HashedInteger {
  public:
@@ -199,6 +202,37 @@ static void BM_HashTableLookupNoChainsLinear(benchmark::State& state) {
   state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
+static void BM_HashTableLookupStdUnorderedMap(benchmark::State& state) {
+  std::vector<int64_t> keys;
+  keys.reserve(state.range(0));
+  for (int64_t i = 0; i < state.range(0); ++i) {
+    keys.push_back(i);
+  }
+  std::mt19937 generator(0x5eed);
+  std::shuffle(keys.begin(), keys.end(), generator);
+
+  std::unordered_map<int64_t, int64_t> table;
+  table.reserve(state.range(0));
+  for (size_t i = 0; i < keys.size(); ++i) {
+    table.emplace(keys[i], static_cast<int64_t>(i * 17 + 3));
+  }
+
+  size_t index = 0;
+  volatile int64_t observed = 0;
+  while (state.KeepRunning()) {
+    for (size_t i = 0; i < keys.size(); ++i) {
+      int64_t key = keys[index++ % keys.size()];
+      benchmark::DoNotOptimize(key);
+      auto result = table.find(key);
+      observed ^= result->second;
+    }
+  }
+  benchmark::DoNotOptimize(observed);
+
+  state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range(0)));
+  state.SetComplexityN(state.range(0));
+}
+
 static void BM_HashTableInsertWithChains(benchmark::State& state) {
   int64_t value = 1;
 
@@ -241,5 +275,6 @@ BENCHMARK(BM_HashTableLookupNoChains)->Range(8, 16384);
 BENCHMARK(BM_HashTableInsertNoChainsLinear)->Range(8, 16384);
 BENCHMARK(BM_HashTableInsertNoChainsReservedLinear)->Range(8, 16384);
 BENCHMARK(BM_HashTableLookupNoChainsLinear)->Range(8, 16384);
+BENCHMARK(BM_HashTableLookupStdUnorderedMap)->Range(8, 16384);
 BENCHMARK(BM_HashTableInsertWithChains)->Range(8, 16384);
 BENCHMARK(BM_HashTableLookupWithChains)->Range(8, 16384);

@@ -21,6 +21,7 @@
 
 #include "pedigree/kernel/utilities/List.h"
 
+#include <list>
 #include <string.h>
 
 #include <benchmark/benchmark.h>
@@ -54,6 +55,18 @@ static void BM_ListPushPop(benchmark::State& state) {
   while (state.KeepRunning()) {
     list.pushFront(value);
     list.popFront();
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_ListPushPopStdList(benchmark::State& state) {
+  std::list<int64_t> list;
+  const int64_t value = 1;
+
+  while (state.KeepRunning()) {
+    list.push_front(value);
+    list.pop_front();
   }
 
   state.SetItemsProcessed(int64_t(state.iterations()));
@@ -102,5 +115,6 @@ static void BM_ListPopBack(benchmark::State& state) {
 BENCHMARK(BM_ListPushFront);
 BENCHMARK(BM_ListPushBack);
 BENCHMARK(BM_ListPushPop);
+BENCHMARK(BM_ListPushPopStdList);
 BENCHMARK(BM_ListPopFront)->Range(8, 8 << 16);
 BENCHMARK(BM_ListPopBack)->Range(8, 8 << 16);
