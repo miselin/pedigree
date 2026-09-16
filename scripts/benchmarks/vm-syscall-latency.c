@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
 #include <errno.h>
@@ -10,6 +11,7 @@
 #include <unistd.h>
 
 #include <sys/mman.h>
+#include <sys/syscall.h>
 
 static const size_t PageSize = 4096;
 
@@ -132,6 +134,18 @@ static void run_gcc_pattern(size_t iterations) {
   metric("mmap_gcc_pattern", start, iterations, pages, checksum);
 }
 
+static void run_basic_syscall(const char* phase, size_t iterations, long syscall_number) {
+  uint64_t start = now_ns();
+  uintptr_t checksum = 0;
+  for (size_t i = 0; i < iterations; ++i) {
+    const long value = syscall(syscall_number);
+    if (value < 0)
+      fail(phase);
+    checksum ^= (uintptr_t)value;
+  }
+  metric(phase, start, iterations, 0, checksum);
+}
+
 int main(int argc, char** argv) {
   char configured_mode[32] = "anonymous";
   size_t configured_iterations = 100000;
@@ -166,9 +180,14 @@ int main(int argc, char** argv) {
     run_fragmented(iterations, pages, 1);
   } else if (!strcmp(mode, "gcc-pattern")) {
     run_gcc_pattern(iterations);
+  } else if (!strcmp(mode, "getuid")) {
+    run_basic_syscall("syscall_getuid", iterations, SYS_getuid);
+  } else if (!strcmp(mode, "getpid")) {
+    run_basic_syscall("syscall_getpid", iterations, SYS_getpid);
   } else {
     fprintf(stderr,
-            "usage: %s [anonymous|anonymous-touch|staircase|file|fragmented|gcc-pattern] "
+            "usage: %s [anonymous|anonymous-touch|staircase|file|fragmented|gcc-pattern|getuid|"
+            "getpid] "
             "iterations pages\n",
             argv[0]);
     return 2;

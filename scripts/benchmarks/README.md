@@ -16,9 +16,11 @@ gcc-pattern 100000 1
 
 Run the disposable image with `run-compile-latency.py --synthetic-vm`. The
 available modes are `anonymous`, `anonymous-touch`, `staircase`, `file`,
-`fragmented`, and `gcc-pattern`. The last mode approximates the dominant
-anonymous mapping sizes from the exact `which.cc` trace. Each run reports the
-guest wall, user, and system time, plus the benchmark's own elapsed time.
+`fragmented`, `gcc-pattern`, `getuid`, and `getpid`. The last mapping mode
+approximates the dominant anonymous mapping sizes from the exact `which.cc`
+trace. The syscall modes issue direct basic syscalls without mapping work. Each
+run reports the guest wall, user, and system time, plus the benchmark's own
+elapsed time.
 
 Compile `io-latency.c` with the Pedigree userspace toolchain and install the binary as
 `/io-latency` in a bootable test image. The image must provide root/root console
