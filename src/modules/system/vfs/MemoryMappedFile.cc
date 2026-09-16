@@ -699,14 +699,16 @@ bool MemoryMappedFile::compact() {
       continue;
     }
     void* page = reinterpret_cast<void*>(address);
-    if (!va.isMapped(page)) {
-      continue;
-    }
     if (!m_pBacking->tryBeginMappingRelease()) {
       break;
     }
     const size_t offset = m_Offset + (address - m_Address);
-    va.unmap(page);
+    size_t flags = 0;
+    physical_uintptr_t physical = 0;
+    if (!va.detachMapping(page, physical, flags)) {
+      m_pBacking->endMappingRelease();
+      continue;
+    }
     if (!m_bCopyOnWrite) {
       m_pBacking->sync(offset, false);
     }
@@ -1415,12 +1417,12 @@ bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write,
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
       size_t objectVisits = 0;
 #endif
-      for (auto* object : *objects) {
+      for (auto it = objects->rbegin(); it != objects->rend(); ++it) {
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
         ++objectVisits;
 #endif
-        if (object->matches(address)) {
-          selected = object;
+        if ((*it)->matches(address)) {
+          selected = *it;
           break;
         }
       }
@@ -1431,19 +1433,24 @@ bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write,
     }
   }
 
-  if (selected) {
-    const auto required = write ? MemoryMappedObject::Write : MemoryMappedObject::Read;
-    if (!(selected->permissions() & required) ||
-        selected->prepareResidentAccess(va, reinterpret_cast<uintptr_t>(page)) !=
-            PopulationStatus::Success)
-      return false;
-  }
+  const auto required = write ? MemoryMappedObject::Write : MemoryMappedObject::Read;
+  if (selected && !(selected->permissions() & required))
+    return false;
 
-  const bool present = va.isMapped(page);
-  if (present) {
-    physical_uintptr_t physical;
-    size_t flags;
+  bool present = va.isMapped(page);
+  physical_uintptr_t physical = 0;
+  size_t flags = 0;
+  if (present)
     va.getMapping(page, physical, flags);
+  if (selected && (!present || (flags & VirtualAddressSpace::NoAccess))) {
+    if (selected->prepareResidentAccess(va, reinterpret_cast<uintptr_t>(page)) !=
+        PopulationStatus::Success)
+      return false;
+    present = va.isMapped(page);
+    if (present)
+      va.getMapping(page, physical, flags);
+  }
+  if (present) {
     if ((flags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::NoAccess |
                   VirtualAddressSpace::Swapped)) ||
         (write && (flags & VirtualAddressSpace::WriteProtected))) {
@@ -1486,24 +1493,30 @@ bool MemoryMapManager::faultInRange(uintptr_t address, size_t length, bool write
     return false;
   }
 
-  OperationGuard operation(*this);
-  const size_t pageSize = PhysicalMemoryManager::getPageSize();
-  const uintptr_t lastPage = (address + length - 1) & ~(pageSize - 1);
+  auto faultRange = [&]() {
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    const uintptr_t lastPage = (address + length - 1) & ~(pageSize - 1);
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
-  Process* process = Processor::information().getCurrentThread()->getParent();
-  process->recordBenchmarkVmCounter(Process::VmFaultInRangeCalls);
-  process->recordBenchmarkVmCounter(Process::VmFaultInRangePages,
-                                    (lastPage - (address & ~(pageSize - 1))) / pageSize + 1);
+    Process* process = Processor::information().getCurrentThread()->getParent();
+    process->recordBenchmarkVmCounter(Process::VmFaultInRangeCalls);
+    process->recordBenchmarkVmCounter(Process::VmFaultInRangePages,
+                                      (lastPage - (address & ~(pageSize - 1))) / pageSize + 1);
 #endif
-  MemoryMappedObject* selected = nullptr;
-  for (uintptr_t page = address & ~(pageSize - 1);; page += pageSize) {
-    if (!faultInUnlocked(page, write, selected)) {
-      return false;
+    MemoryMappedObject* selected = nullptr;
+    for (uintptr_t page = address & ~(pageSize - 1);; page += pageSize) {
+      if (!faultInUnlocked(page, write, selected)) {
+        return false;
+      }
+      if (page == lastPage) {
+        return true;
+      }
     }
-    if (page == lastPage) {
-      return true;
-    }
-  }
+  };
+
+  if (operationOwnedByCurrentExecution())
+    return faultRange();
+  OperationGuard operation(*this);
+  return faultRange();
 }
 
 MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t address, bool write,

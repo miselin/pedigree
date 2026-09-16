@@ -367,35 +367,46 @@ File::WriteGuard File::lockWrites() {
 
 File::WriteGuard::WriteGuard(File& file) : m_File(file), m_Guard(file.writeSerializationLock()) {}
 
-uint64_t File::WriteGuard::write(uint64_t location, uint64_t size, uintptr_t buffer,
-                                 bool bCanBlock) {
+File::WriteGuard::~WriteGuard() {
+  if (m_MetadataPending) {
+    m_File.publishWriteMetadata();
+  }
+}
+
+void File::publishWriteMetadata() {
+  if (!isBytewise() && !isDirectory() && !isSymlink() && isSeekable()) {
+    Attributes attributes;
+    attributes.modified = attributes.changed = Time::getTime();
+    updateAttributes(attributes, ModifyTime | ChangeTime);
+  }
+  publishEvent(FileEvents::Modify);
+}
+
+uint64_t File::WriteGuard::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock,
+                                 bool publishMetadata) {
   LockGuard<Mutex> guard(m_File.dataMutationLock());
   const uint64_t written = m_File.writeUnlocked(location, size, buffer, bCanBlock);
   if (written) {
-    if (!m_File.isBytewise() && !m_File.isDirectory() && !m_File.isSymlink() &&
-        m_File.isSeekable()) {
-      Attributes attributes;
-      attributes.modified = attributes.changed = Time::getTime();
-      m_File.updateAttributes(attributes, ModifyTime | ChangeTime);
+    if (publishMetadata) {
+      m_File.publishWriteMetadata();
+    } else {
+      m_MetadataPending = true;
     }
-    m_File.publishEvent(FileEvents::Modify);
   }
   return written;
 }
 
 uint64_t File::WriteGuard::append(uint64_t size, uintptr_t buffer, uint64_t& location,
-                                  bool bCanBlock) {
+                                  bool bCanBlock, bool publishMetadata) {
   LockGuard<Mutex> guard(m_File.dataMutationLock());
   location = m_File.getSize();
   const uint64_t written = m_File.writeUnlocked(location, size, buffer, bCanBlock);
   if (written) {
-    if (!m_File.isBytewise() && !m_File.isDirectory() && !m_File.isSymlink() &&
-        m_File.isSeekable()) {
-      Attributes attributes;
-      attributes.modified = attributes.changed = Time::getTime();
-      m_File.updateAttributes(attributes, ModifyTime | ChangeTime);
+    if (publishMetadata) {
+      m_File.publishWriteMetadata();
+    } else {
+      m_MetadataPending = true;
     }
-    m_File.publishEvent(FileEvents::Modify);
   }
   return written;
 }

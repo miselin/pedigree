@@ -102,8 +102,12 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /** Holds this file's write transaction lock across one or more fragments. */
   class WriteGuard {
    public:
-    uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-    uint64_t append(uint64_t size, uintptr_t buffer, uint64_t& location, bool bCanBlock = true);
+    ~WriteGuard();
+
+    uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true,
+                   bool publishMetadata = true);
+    uint64_t append(uint64_t size, uintptr_t buffer, uint64_t& location, bool bCanBlock = true,
+                    bool publishMetadata = true);
 
    private:
     friend class File;
@@ -112,6 +116,7 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
 
     File& m_File;
     LockGuard<Mutex> m_Guard;
+    bool m_MetadataPending = false;
   };
 
   /** Constructor, creates an invalid file. */
@@ -659,6 +664,8 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   List<MonitorTarget*> m_MonitorTargets;
 
  private:
+  void publishWriteMetadata();
+
   /** Performs a write while m_WriteLock is already held. */
   uint64_t writeUnlocked(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock);
 

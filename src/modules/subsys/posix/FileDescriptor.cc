@@ -665,6 +665,14 @@ int FileDescriptor::PositionGuard::statusFlags() const {
   return m_Description->statusFlags;
 }
 
+File* FileDescriptor::PositionGuard::file() const {
+  return m_Description->getFile();
+}
+
+bool FileDescriptor::PositionGuard::isNoopSeekEndpoint() const {
+  return m_Description->timerFdImpl || m_Description->signalFdImpl || m_Description->fanotifyImpl;
+}
+
 void FileDescriptor::PositionGuard::setOffset(uint64_t offset) {
   m_Description->offset = offset;
 }

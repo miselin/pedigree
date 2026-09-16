@@ -361,6 +361,7 @@ int posix_open(const char* name, int flags, int mode) {
 namespace {
 constexpr size_t ScalarIoBounceCapacity = PIPE_BUF_MAX + 1;
 constexpr size_t RegularReadBounceCapacity = 64 * 1024;
+constexpr size_t RegularWriteBounceCapacity = 64 * 1024;
 
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
 Process::BenchmarkVmCounter vmLengthCounter(bool unmap, size_t pages) {
@@ -1102,6 +1103,7 @@ ssize_t posix_pwrite64(int fd, const char* ptr, size_t len, off_t offset) {
 enum class VectorPayloadValidation {
   Full,
   AddressRange,
+  CopyTime,
   CommitTime,
   BenchmarkEligible,
 };
@@ -1129,7 +1131,8 @@ static bool snapshotIoVectors(
     return false;
   }
 
-  bool validatePayload = payloadValidation != VectorPayloadValidation::CommitTime;
+  bool validatePayload = payloadValidation != VectorPayloadValidation::CopyTime &&
+                         payloadValidation != VectorPayloadValidation::CommitTime;
   bool rangeOnly = payloadValidation == VectorPayloadValidation::AddressRange;
 #if PEDIGREE_BENCHMARK_VM_ABLATIONS
   Process* process = Processor::information().getCurrentThread()->getParent();
@@ -1176,7 +1179,7 @@ static bool snapshotIoVectors(
 static int writeFileVectorElement(Thread* thread, const DescriptorLease& descriptor,
                                   FileDescriptor::PositionGuard* position, int statusFlags,
                                   File::WriteGuard& writeGuard, const void* buffer, size_t length,
-                                  bool reportError, bool& signalInterrupted,
+                                  bool publishMetadata, bool reportError, bool& signalInterrupted,
                                   bool& deliverPipeSignal) {
   File* file = descriptor->getFile();
   const bool canBlock = !(statusFlags & O_NONBLOCK);
@@ -1186,17 +1189,19 @@ static int writeFileVectorElement(Thread* thread, const DescriptorLease& descrip
   if (file->isSeekable()) {
     assert(position);
     uint64_t location = position->offset();
-    written =
-        (statusFlags & O_APPEND)
-            ? writeGuard.append(length, reinterpret_cast<uintptr_t>(buffer), location, canBlock)
-            : writeGuard.write(location, length, reinterpret_cast<uintptr_t>(buffer), canBlock);
+    written = (statusFlags & O_APPEND)
+                  ? writeGuard.append(length, reinterpret_cast<uintptr_t>(buffer), location,
+                                      canBlock, publishMetadata)
+                  : writeGuard.write(location, length, reinterpret_cast<uintptr_t>(buffer),
+                                     canBlock, publishMetadata);
     if (written) {
       position->setOffset(location + written);
     }
   } else if (ConsoleManager::instance().isConsole(file)) {
     written = descriptor->writeFile(0, length, reinterpret_cast<uintptr_t>(buffer), canBlock);
   } else {
-    written = writeGuard.write(0, length, reinterpret_cast<uintptr_t>(buffer), canBlock);
+    written =
+        writeGuard.write(0, length, reinterpret_cast<uintptr_t>(buffer), canBlock, publishMetadata);
   }
 
   signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
@@ -1299,10 +1304,11 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
     return -1;
   }
 
+  const bool regularFile = descriptor->getFile() &&
+                           descriptor->getFile()->supportsRegularFileOperations() &&
+                           !descriptor->getFile()->isBlockDevice();
   const VectorPayloadValidation payloadValidation =
-      descriptor->getFile() && descriptor->getFile()->isSeekable()
-          ? VectorPayloadValidation::AddressRange
-          : VectorPayloadValidation::BenchmarkEligible;
+      regularFile ? VectorPayloadValidation::CopyTime : VectorPayloadValidation::BenchmarkEligible;
   UniqueArray<struct iovec> vectorOwner;
   size_t totalLength = 0;
   if (!snapshotIoVectors(iov, iovcnt, true, vectorOwner, totalLength, payloadValidation)) {
@@ -1387,12 +1393,12 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
       bool signalInterrupted = false;
       return totalLength ? writeFileVectorElement(thread, descriptor, position, statusFlags,
                                                   writeGuard, aggregate.get(), totalLength, true,
-                                                  signalInterrupted, deliverPipeSignal)
+                                                  true, signalInterrupted, deliverPipeSignal)
                          : 0;
     }
 
-    const size_t bounceCapacity =
-        totalLength < ScalarIoBounceCapacity ? totalLength : ScalarIoBounceCapacity;
+    const size_t bounceLimit = regularFile ? RegularWriteBounceCapacity : ScalarIoBounceCapacity;
+    const size_t bounceCapacity = totalLength < bounceLimit ? totalLength : bounceLimit;
     UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
     File::WriteGuard writeGuard = descriptor->getFile()->lockWrites();
     for (int i = 0; i < iovcnt; ++i) {
@@ -1447,7 +1453,7 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
 
       bool signalInterrupted = false;
       const int r = writeFileVectorElement(thread, descriptor, position, statusFlags, writeGuard,
-                                           bounce.get(), requested, totalWritten == 0,
+                                           bounce.get(), requested, !regularFile, totalWritten == 0,
                                            signalInterrupted, deliverPipeSignal);
       if (r < 0) {
         return totalWritten ? totalWritten : r;
@@ -1511,11 +1517,14 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
   auto timerFd = descriptor->getTimerFdImpl();
   auto signalFd = descriptor->getSignalFdImpl();
   auto fanotify = descriptor->getFanotifyImpl();
-  const VectorPayloadValidation payloadValidation =
-      timerFd || signalFd || fanotify ? VectorPayloadValidation::CommitTime
-      : descriptor->getFile() && descriptor->getFile()->isSeekable()
-          ? VectorPayloadValidation::AddressRange
-          : VectorPayloadValidation::BenchmarkEligible;
+  const bool regularFile = descriptor->getFile() &&
+                           descriptor->getFile()->supportsRegularFileOperations() &&
+                           !descriptor->getFile()->isBlockDevice();
+  VectorPayloadValidation payloadValidation =
+      regularFile ? VectorPayloadValidation::CopyTime : VectorPayloadValidation::BenchmarkEligible;
+  if (timerFd || signalFd || fanotify) {
+    payloadValidation = VectorPayloadValidation::CommitTime;
+  }
   UniqueArray<struct iovec> vectorOwner;
   size_t totalLength = 0;
   // Record readers validate each destination at commit time. A later fault
@@ -1654,6 +1663,74 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
       return static_cast<int>(copied);
     }
 
+    if (regularFile && position) {
+      size_t bounceCapacity = 0;
+      UniqueArray<uint8_t> bounce =
+          allocateReadBounce(descriptor->getFile(), totalLength, bounceCapacity);
+      if (!bounce) {
+        SYSCALL_ERROR(OutOfMemory);
+        return -1;
+      }
+
+      size_t totalRead = 0;
+      int vectorIndex = 0;
+      size_t vectorOffset = 0;
+      while (totalRead < totalLength) {
+        if (totalRead && thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+          thread->clearInterruption();
+          return static_cast<int>(totalRead);
+        }
+
+        const size_t remaining = totalLength - totalRead;
+        const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+        bool signalInterrupted = false;
+        const int amount =
+            readFileVectorElement(thread, descriptor, position, statusFlags, bounce.get(),
+                                  requested, totalRead == 0, signalInterrupted);
+        if (amount < 0) {
+          return totalRead ? static_cast<int>(totalRead) : amount;
+        }
+        if (!amount) {
+          return static_cast<int>(totalRead);
+        }
+
+        size_t copied = 0;
+        while (copied < static_cast<size_t>(amount)) {
+          while (vectorIndex < iovcnt && vectorOffset == vectors[vectorIndex].iov_len) {
+            ++vectorIndex;
+            vectorOffset = 0;
+          }
+          assert(vectorIndex < iovcnt);
+
+          const size_t vectorRemaining = vectors[vectorIndex].iov_len - vectorOffset;
+          const size_t fragment = vectorRemaining < static_cast<size_t>(amount) - copied
+                                      ? vectorRemaining
+                                      : static_cast<size_t>(amount) - copied;
+          void* userDestination = reinterpret_cast<void*>(
+              reinterpret_cast<uintptr_t>(vectors[vectorIndex].iov_base) + vectorOffset);
+          if (!PosixSubsystem::copyToUser(userDestination, bounce.get() + copied, fragment)) {
+            thread->clearInterruption();
+            if (totalRead) {
+              return static_cast<int>(totalRead);
+            }
+            SYSCALL_ERROR(BadAddress);
+            return -1;
+          }
+
+          copied += fragment;
+          vectorOffset += fragment;
+          position->advanceOffset(fragment);
+          totalRead += fragment;
+        }
+
+        if (static_cast<size_t>(amount) < requested || signalInterrupted) {
+          return static_cast<int>(totalRead);
+        }
+      }
+
+      return static_cast<int>(totalRead);
+    }
+
     size_t bounceCapacity = 0;
     UniqueArray<uint8_t> bounce =
         allocateReadBounce(descriptor->getFile(), totalLength, bounceCapacity);
@@ -1681,7 +1758,10 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
         size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
         void* userDestination = reinterpret_cast<void*>(
             reinterpret_cast<uintptr_t>(vectors[i].iov_base) + vectorOffset);
-        if (!checkReadDestination(userDestination, requested)) {
+        // Regular-file reads do not consume the OFD offset until the copy has
+        // succeeded. Let copyToUser perform the only authoritative mapping
+        // check immediately before publishing bytes to userspace.
+        if (!regularFile && !checkReadDestination(userDestination, requested)) {
           thread->clearInterruption();
           if (totalRead) {
             return totalRead;
@@ -2076,12 +2156,13 @@ off_t posix_lseek(int file, off_t ptr, int dir) {
     return -1;
   }
 
-  if (pFd->getStatusFlags() & O_PATH) {
+  FileDescriptor::PositionGuard position = pFd->lockPosition();
+  if (position.statusFlags() & O_PATH) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
 
-  if (pFd->getTimerFdImpl() || pFd->getSignalFdImpl() || pFd->getFanotifyImpl()) {
+  if (position.isNoopSeekEndpoint()) {
     if (dir < SEEK_SET || dir > 4) {
       SYSCALL_ERROR(InvalidArgument);
       return -1;
@@ -2090,31 +2171,34 @@ off_t posix_lseek(int file, off_t ptr, int dir) {
     return 0;
   }
 
-  if (!pFd->getFile()) {
+  File* fileObject = position.file();
+  if (fileObject && fileObject->isSeekable()) {
+    switch (dir) {
+      case SEEK_SET:
+        position.setOffset(ptr);
+        break;
+      case SEEK_CUR:
+        position.advanceOffset(ptr);
+        break;
+      case SEEK_END:
+        position.setOffset(fileObject->getSize() + ptr);
+        break;
+    }
+
+    return static_cast<off_t>(position.offset());
+  }
+
+  if (!fileObject) {
     SYSCALL_ERROR(IllegalSeek);
     return -1;
   }
 
-  if (!pFd->getFile()->isSeekable()) {
+  if (!fileObject->isSeekable()) {
     SYSCALL_ERROR(IllegalSeek);
     return -1;
   }
 
-  FileDescriptor::PositionGuard position = pFd->lockPosition();
-  size_t fileSize = pFd->getFile()->getSize();
-  switch (dir) {
-    case SEEK_SET:
-      position.setOffset(ptr);
-      break;
-    case SEEK_CUR:
-      position.advanceOffset(ptr);
-      break;
-    case SEEK_END:
-      position.setOffset(fileSize + ptr);
-      break;
-  }
-
-  return static_cast<off_t>(position.offset());
+  return -1;
 }
 
 int posix_link(char* target, char* link) {

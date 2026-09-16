@@ -157,7 +157,6 @@ void AnonymousMemoryMap::releaseDetachedPage(uintptr_t oldAddress,
     PhysicalMemoryManager::instance().freePage(page.physical);
 }
 void AnonymousMemoryMap::discardRange(VirtualAddressSpace& space, uintptr_t base, size_t length) {
-  MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
   size_t trackedPages = 0, mappedPages = 0;
 #endif
@@ -439,9 +438,17 @@ SwapStatus AnonymousMemoryMap::restoreAll(VirtualAddressSpace& space) {
 
 PopulationStatus AnonymousMemoryMap::prepareResidentAccess(VirtualAddressSpace& space,
                                                            uintptr_t address) {
+  auto restoreResidentPage = [&]() {
+    Page* page = m_Mappings.find(address);
+    if (page && page->pagingBlocked)
+      return populationStatus(restorePage(space, *page));
+    return PopulationStatus::Success;
+  };
+  // User copies already hold the manager operation gate; avoid rebuilding the
+  // interrupt and termination deferral scopes for every resident page.
+  if (MemoryMapManager::instance().operationOwnedByCurrentExecution())
+    return restoreResidentPage();
+
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  Page* page = m_Mappings.find(address);
-  if (page && page->pagingBlocked)
-    return populationStatus(restorePage(space, *page));
-  return PopulationStatus::Success;
+  return restoreResidentPage();
 }

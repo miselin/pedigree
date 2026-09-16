@@ -124,6 +124,8 @@ class EXPORTED_PUBLIC FileDescriptor {
    public:
     uint64_t offset() const;
     int statusFlags() const;
+    File* file() const;
+    bool isNoopSeekEndpoint() const;
     void setOffset(uint64_t offset);
     void advanceOffset(uint64_t amount);
 
