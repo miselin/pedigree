@@ -142,6 +142,12 @@ if (NOT PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE MATCHES "^[0-3]$")
     message(FATAL_ERROR
         "PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE must be 0, 1, 2, or 3")
 endif ()
+set(PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE 0 CACHE STRING
+    "Benchmark only: getuid C++ path checkpoint (0=full, 1-5=dispatcher, 6-12=user return, 13-14=return scope).")
+if (NOT PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE MATCHES "^(0|[1-9]|1[0-4])$")
+    message(FATAL_ERROR
+        "PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE must be between 0 and 14")
+endif ()
 set(PEDIGREE_BENCHMARK_USER_RETURN_ABLATION FALSE CACHE BOOL
     "Benchmark only: allow selected processes to bypass idle user-return policy work.")
 set(PEDIGREE_BENCHMARK_SYSCALL_TIMING FALSE CACHE BOOL

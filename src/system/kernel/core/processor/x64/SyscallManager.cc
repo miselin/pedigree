@@ -137,6 +137,16 @@ bool X64SyscallManager::registerSyscallHandler(Service_t Service, SyscallHandler
 }
 
 void X64SyscallManager::syscall(SyscallState& syscallState) {
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE > 0
+  const bool benchmarkGetuid = syscallState.getSyscallService() == linuxCompat &&
+                               syscallState.getSyscallNumber() == 102;
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 1
+  if (benchmarkGetuid) {
+    syscallState.setSyscallReturnValue(0);
+    return;
+  }
+#endif
+#endif
   const SyscallState originalState = syscallState;
   const bool diagnosticSample =
       Processor::information().getScheduler().sampleUserReturnDiagnostics();
@@ -160,6 +170,13 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     // Enable IRQs - stack switching and such are done now and it's now safe to
     // start processing interrupts elsewhere.
     Processor::setInterrupts(true);
+
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 2
+    if (benchmarkGetuid) {
+      syscallState.setSyscallReturnValue(0);
+      return;
+    }
+#endif
 
     size_t serviceNumber = syscallState.getSyscallService();
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
@@ -196,6 +213,11 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
         Processor::information().getCurrentThread()->setErrno(0);
       }
     }
+
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 3
+    if (benchmarkGetuid)
+      return;
+#endif
 
     returnTailStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
     if (!handled) {
@@ -330,13 +352,28 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
           shutdownType = static_cast<Machine::ShutdownType>(action.value);
           break;
         case NoPostSyscallAction: {
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 13
+          if (benchmarkGetuid)
+            return;
+#endif
           SyscallReturnScope returnScope(interruptedWithoutProgress ? &originalState : nullptr);
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 14
+          if (benchmarkGetuid)
+            return;
+#endif
           userReturnTerminal = Processor::information().getScheduler().serviceUserReturnWork(
               syscallState, UserReturnFrame::Origin::Syscall, diagnosticSample);
           break;
         }
       }
     }
+
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 4 || \
+    (PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE >= 6 && \
+     PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE <= 14)
+    if (benchmarkGetuid)
+      return;
+#endif
 
     if (!exitCurrentProcess && !rebootSystem) {
       Thread* pThread = Processor::information().getCurrentThread();
@@ -368,6 +405,11 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
 #endif
     tracker.finishInKernel();
   }
+
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 5
+  if (benchmarkGetuid)
+    return;
+#endif
 
   if (rebootSystem) {
     Processor::setInterrupts(false);

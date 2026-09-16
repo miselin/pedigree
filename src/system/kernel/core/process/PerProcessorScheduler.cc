@@ -1741,11 +1741,24 @@ bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
   Thread* owner = Processor::information().getCurrentThread();
   if (!owner)
     return finishWork(false);
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE >= 6
+  const bool benchmarkGetuid = origin == UserReturnFrame::Origin::Syscall &&
+                               state.getSyscallService() == 0 &&
+                               state.getUserEntryMetadata().origRax == 102;
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 6
+  if (benchmarkGetuid)
+    return finishWork(false);
+#endif
+#endif
 #if X64 && !HOSTED
   {
     EnsureInterrupts interrupts(false);
     state.setFlags(state.getFlags() | 0x202);
   }
+#endif
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 7
+  if (benchmarkGetuid)
+    return finishWork(false);
 #endif
 
 #if PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
@@ -1761,6 +1774,10 @@ bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
 
   UserReturnFrame frame(*owner, state, origin);
   Thread::UserReturnFrameScope frameScope(*owner, frame);
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 8
+  if (benchmarkGetuid)
+    return finishWork(false);
+#endif
   Subsystem* subsystem = owner->getParent() ? owner->getParent()->getSubsystem() : nullptr;
   if (subsystem) {
     const uint64_t checkpointStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
@@ -1774,6 +1791,10 @@ bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
     if (terminal)
       return finishWork(true);
   }
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 9
+  if (benchmarkGetuid)
+    return finishWork(false);
+#endif
 
   uint64_t stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
   bool terminal = Processor::information().getScheduler().serviceProcessStopAtUserReturn();
@@ -1783,6 +1804,10 @@ bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
   }
   if (terminal)
     return finishWork(true);
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 10
+  if (benchmarkGetuid)
+    return finishWork(false);
+#endif
 
   stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
   Processor::information().getScheduler().checkEventState(
@@ -1791,6 +1816,10 @@ bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
     ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::Event,
                                                ActivityDiagnostics::timestamp() - stageStart);
   }
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 11
+  if (benchmarkGetuid)
+    return finishWork(false);
+#endif
 
   stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
   terminal =
@@ -1799,6 +1828,10 @@ bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
     ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
                                                ActivityDiagnostics::timestamp() - stageStart);
   }
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 12
+  if (benchmarkGetuid)
+    return finishWork(false);
+#endif
   return finishWork(terminal);
 }
 

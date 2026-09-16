@@ -122,6 +122,12 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/x64/fastmemory.s)
 
     set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/SyscallManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/process/PerProcessorScheduler.cc
+        PROPERTIES COMPILE_DEFINITIONS
+        "PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE=${PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE}")
+
+    set_source_files_properties(
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/Processor.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/instrument.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/gdt.s
