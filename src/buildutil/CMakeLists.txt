@@ -490,6 +490,7 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-String.cc
         testsuite/bench-memory.cc
         testsuite/bench-Tree.cc
+        testsuite/bench-Scheduler.cc
         testsuite/bench-VFS.cc
         testsuite/bench-LruCache.cc
         testsuite/bench-Log.cc)

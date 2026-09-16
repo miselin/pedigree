@@ -56,3 +56,11 @@ Those require a target or a much larger host adapter. Likewise, the PMM cases
 do not include page-stack bookkeeping, bitmap checks, memory pressure, or
 physical I/O. Use these probes to identify data-structure costs first; treat
 the resulting ranking as a prompt for a second, lifecycle-level benchmark.
+
+The scheduler cases use a host-only model of the current `RoundRobin::getNext`
+selection algorithm. The model includes the fixed priority scan, intrusive
+queue unlink/requeue behavior, and an uncontended scheduler lock. Queue refill
+and fixture construction are excluded from the timed region. It covers uniform
+and mixed priority queues; the full `PerProcessorScheduler::selectNext` path,
+real Thread objects, and the architecture-specific context switch are not
+included.
