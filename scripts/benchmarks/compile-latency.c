@@ -47,6 +47,7 @@ static uint64_t timeval_us(struct timeval t) {
 #define BENCHMARK_ABLATE_VM_GUARD_TERMINATION 2
 #define BENCHMARK_ABLATE_VM_GUARD_RECURSIVE_EVENTS 4
 #define BENCHMARK_ABLATE_VM_TABLE_RETIREMENT 8
+#define BENCHMARK_ABLATE_VM_REVERSE_FAULT_LOOKUP 16
 #define SYSCALL_TIMING_RAW_SLOT_COUNT 512
 #define SYSCALL_TIMING_SLOT_COUNT (SYSCALL_TIMING_RAW_SLOT_COUNT + 1)
 #define VM_DIAGNOSTIC_COUNTER_COUNT 61
@@ -753,6 +754,8 @@ int main(void) {
                              BENCHMARK_ABLATE_VM_GUARD_RECURSIVE_EVENTS;
   if (!access("ablate-vm-table-retirement", F_OK))
     benchmark_vm_ablation |= BENCHMARK_ABLATE_VM_TABLE_RETIREMENT;
+  if (!access("ablate-vm-reverse-fault-lookup", F_OK))
+    benchmark_vm_ablation |= BENCHMARK_ABLATE_VM_REVERSE_FAULT_LOOKUP;
   if (benchmark_vm_ablation && !benchmark_vm_ablation_api) {
     errno = EINVAL;
     fail("vm-ablation-marker");

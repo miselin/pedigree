@@ -46,6 +46,7 @@ In an offline disposable ext2 root, install the driver as `/usr/bin/init`, mode
 | `ablate-vm-guard-termination` | Omit only the guard's duplicate termination scope |
 | `ablate-vm-guard-recursive-events` | Omit only recursive guard event scopes |
 | `ablate-vm-table-retirement` | Defer munmap empty-table retirement until reuse or process teardown |
+| `ablate-vm-reverse-fault-lookup` | Scan the mapping list tail-first for userspace page faults |
 
 Do not seed `persisted-output`: the driver creates it from the compiled binary.
 On its next boot, an existing sentinel with `persist-check` selects verification
@@ -185,7 +186,10 @@ outer guard. Separate guard markers allow those contributions to be timed
 individually if the combined arm is material. The table-retirement arm applies
 only during raw `munmap`: leaf PTE removal and invalidation still occur, while
 now-empty page-table storage remains reachable for reuse and is reclaimed at
-process teardown.
+process teardown. The reverse-fault-lookup arm changes only the mapping-list
+traversal direction in the deferred userspace page-fault resolver. It does not
+change user-copy fault-in, permission checks, mapping placement, or object
+lifetime rules.
 
 These are known-valid-workload diagnostics, not supported kernel policies. Run
 one `trace-vm` smoke for coverage and invariants, then remove both `trace-vm`

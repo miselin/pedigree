@@ -319,8 +319,9 @@ class EXPORTED_PUBLIC Process {
     AblateGuardDuplicateTermination = 2,
     AblateGuardRecursiveEvents = 4,
     AblateTableRetirement = 8,
+    AblateReverseFaultLookup = 16,
     VmAblationMask = AblateVectorPayloadValidation | AblateGuardDuplicateTermination |
-                     AblateGuardRecursiveEvents | AblateTableRetirement,
+                     AblateGuardRecursiveEvents | AblateTableRetirement | AblateReverseFaultLookup,
   };
 
   void setBenchmarkVmAblation(size_t value) {

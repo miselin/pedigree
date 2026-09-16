@@ -1514,8 +1514,10 @@ MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t a
     return FaultResolution::Unhandled;
   OperationGuard operation(*this);
   VirtualAddressSpace& space = Processor::information().getVirtualAddressSpace();
-#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS || PEDIGREE_BENCHMARK_VM_ABLATIONS
   Process* process = Processor::information().getCurrentThread()->getParent();
+#endif
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
   process->recordBenchmarkVmCounter(Process::VmFaultCalls);
 #endif
   const bool normal = address >= space.getUserStart() && address < space.getUserReservedStart();
@@ -1543,13 +1545,28 @@ MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t a
                         : write ? MemoryMappedObject::Write
                                 : MemoryMappedObject::Read;
   MemoryMappedObject* selected = nullptr;
-  for (auto* object : *objects) {
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+  if (process->benchmarkVmAblationEnabled(Process::AblateReverseFaultLookup)) {
+    for (auto it = objects->rbegin(); it != objects->rend(); ++it) {
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
-    ++objectVisits;
+      ++objectVisits;
 #endif
-    if (object->matches(pageAddress)) {
-      selected = object;
-      break;
+      if ((*it)->matches(pageAddress)) {
+        selected = *it;
+        break;
+      }
+    }
+  } else
+#endif
+  {
+    for (auto* object : *objects) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      ++objectVisits;
+#endif
+      if (object->matches(pageAddress)) {
+        selected = object;
+        break;
+      }
     }
   }
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
