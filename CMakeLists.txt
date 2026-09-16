@@ -136,8 +136,12 @@ set(PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS FALSE CACHE BOOL
     "Sample x64 user-entry metadata capture and restore costs.")
 set(PEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA FALSE CACHE BOOL
     "Benchmark only: bypass x64 user-entry metadata capture and restore.")
-set(PEDIGREE_BENCHMARK_FAST_GETUID_SYSCALL FALSE CACHE BOOL
-    "Benchmark only: return zero for Linux getuid directly from the x64 syscall entry stub.")
+set(PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE 0 CACHE STRING
+    "Benchmark only: getuid entry path stage (0=normal, 1=bare, 2=metadata, 3=full C++ path).")
+if (NOT PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE MATCHES "^[0-3]$")
+    message(FATAL_ERROR
+        "PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE must be 0, 1, 2, or 3")
+endif ()
 set(PEDIGREE_BENCHMARK_USER_RETURN_ABLATION FALSE CACHE BOOL
     "Benchmark only: allow selected processes to bypass idle user-return policy work.")
 set(PEDIGREE_BENCHMARK_SYSCALL_TIMING FALSE CACHE BOOL
@@ -319,13 +323,13 @@ if (PEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA)
     string(APPEND PEDIGREE_NASM_FLAGS
         " -DPEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA=1")
 endif ()
-if (PEDIGREE_BENCHMARK_FAST_GETUID_SYSCALL)
+if (PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE GREATER 0)
     if (NOT PEDIGREE_ARCH_TARGET STREQUAL "X64")
         message(FATAL_ERROR
-            "PEDIGREE_BENCHMARK_FAST_GETUID_SYSCALL requires the x64 target")
+            "PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE requires the x64 target")
     endif ()
     string(APPEND PEDIGREE_NASM_FLAGS
-        " -DPEDIGREE_BENCHMARK_FAST_GETUID_SYSCALL=1")
+        " -DPEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE=${PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE}")
 endif ()
 if (PEDIGREE_NASM_GLOBAL_PREFIX)
     string(APPEND PEDIGREE_NASM_FLAGS
