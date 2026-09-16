@@ -1192,6 +1192,7 @@ bool Thread::sendEvent(Event* pEvent) {
 
         if (!duplicate) {
           m_EventQueue.pushBack(pEvent);
+          markUserReturnWorkPending();
           wakeThread = hasDeliverableEventsUnlocked() &&
                        interruptWaitUnlocked(WaitQueue::WakeReason::Event, readyScheduler);
         }
@@ -2045,6 +2046,8 @@ bool Thread::finishTemporarySignalMask(size_t stateLevel, bool deferForUserRetur
       }
     }
   }
+  if (deferRestore)
+    markUserReturnWorkPending();
   // Keep a temporarily unblocked signal eligible until the syscall boundary
   // can save the original mask in its handler's return frame.
   state.m_DeferredSignalMaskRestore = deferRestore;
@@ -3057,7 +3060,7 @@ void Thread::markSignalInterruptedWait() {
   }
 }
 
-bool Thread::eventsDeferred() {
+bool Thread::eventsDeferred() const {
   return __atomic_load_n(&m_EventDeferralDepth, __ATOMIC_ACQUIRE) != 0;
 }
 
@@ -3485,6 +3488,7 @@ void Thread::setUnwindState(UnwindType ut) {
     __atomic_store_n(&m_UnwindState, ut, __ATOMIC_RELEASE);
     queuedBeforeStart = m_Status == Created && ut == TerminateThread;
     if (ut != Continue) {
+      markUserReturnWorkPending();
       const bool terminating = ut == TerminateThread;
       becameReady = interruptWaitUnlocked(
           terminating ? WaitQueue::WakeReason::Terminating : WaitQueue::WakeReason::Unwinding,
@@ -3538,6 +3542,7 @@ bool Thread::deferSubsystemException(size_t type, uintptr_t faultAddress, uintpt
   m_DeferredSubsystemExceptionFaultAddress = faultAddress;
   m_DeferredSubsystemExceptionErrorCode = errorCode;
   __atomic_store_n(&m_DeferredSubsystemExceptionState, 2, __ATOMIC_RELEASE);
+  markUserReturnWorkPending();
   return true;
 }
 

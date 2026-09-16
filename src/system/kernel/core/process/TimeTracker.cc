@@ -117,3 +117,21 @@ void TimeTracker::finishInKernel() {
   }
 #endif
 }
+
+void TimeTracker::finishForUserReturn() {
+  Thread* thread = m_pThread;
+  if (!m_pProcess || !thread)
+    return;
+
+  // The final Kernel -> User transition owns the complete interval for a
+  // clean syscall. Retire this object without publishing an intermediate
+  // sample or changing the thread's accounting mode.
+  m_pProcess = nullptr;
+  m_pThread = nullptr;
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  if (m_bSyscallAttributed) {
+    thread->restoreSyscallTimingSlot(m_PreviousSyscallTimingSlot);
+    m_bSyscallAttributed = false;
+  }
+#endif
+}

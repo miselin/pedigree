@@ -129,11 +129,13 @@ AffinityResult Thread::requestAffinity(const CpuAffinityMask& requested, uint64_
       generation = ++m_AffinityGeneration;
       m_RequestedAffinity = effective;
       m_AffinityPending = true;
+      __atomic_store_n(&m_AffinityReturnPending, static_cast<size_t>(1), __ATOMIC_RELEASE);
       if (!m_AffinityWorkQueued) {
         m_AffinityWorkQueued = true;
         if (!owner->enqueueAffinity(this)) {
           m_AffinityWorkQueued = false;
           m_AffinityPending = false;
+          __atomic_store_n(&m_AffinityReturnPending, static_cast<size_t>(0), __ATOMIC_RELEASE);
           generation = 0;
           rejected = true;
         }
@@ -173,6 +175,12 @@ AffinityResult Thread::waitAffinity(uint64_t generation) {
 }
 
 AffinityResult Thread::completeAffinityAtSafePoint(bool* waited) {
+  if (!affinityWorkPending()) {
+    Processor::setInterrupts(false);
+    if (waited)
+      *waited = false;
+    return AffinityResult::Success;
+  }
   Processor::setInterrupts(false);
   if (waited)
     *waited = false;
@@ -213,6 +221,7 @@ AffinityResult Thread::completeAffinityAtSafePoint(bool* waited) {
           }
           if (!finished && !rejected) {
             m_AffinityGatePending = true;
+            __atomic_store_n(&m_AffinityReturnPending, static_cast<size_t>(1), __ATOMIC_RELEASE);
             if (!m_AffinityWorkQueued) {
               m_AffinityWorkQueued = true;
               if (!owner->enqueueAffinity(this)) {
@@ -360,6 +369,8 @@ void PerProcessorScheduler::drainAffinityRequests() {
           thread->m_AffinityPending = false;
           thread->m_AffinityGatePending = false;
           thread->m_AffinityWorkQueued = false;
+          __atomic_store_n(&thread->m_AffinityReturnPending, static_cast<size_t>(0),
+                           __ATOMIC_RELEASE);
         }
       }
       if (!retry)

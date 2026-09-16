@@ -1,6 +1,7 @@
 /* Copyright (c) 2026, Pedigree Developers. */
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/UserReturnFrame.h"
@@ -51,6 +52,7 @@ bool Thread::tryRequireSignalFrames() {
       m_SignalFramesRequired)
     return false;
   __atomic_store_n(&m_SignalFramesRequired, true, __ATOMIC_RELEASE);
+  markUserReturnWorkPending();
   return true;
 }
 
@@ -69,4 +71,27 @@ void Thread::setUserReturnSignalParked(bool parked) {
   if (Processor::information().getCurrentThread() != this)
     FATAL("User-return signal park has a foreign owner");
   m_UserReturnSignalParked = parked;
+  if (parked)
+    markUserReturnWorkPending();
+}
+
+bool Thread::canSkipUserReturnWork() {
+  Process* process = m_pParent;
+  return process && process->getState() == Process::Active &&
+         getUnwindState() == Continue && !userReturnWorkPending() && !eventsDeferred() &&
+         !isTerminationDeferred() && !requiresSignalFrames() &&
+         !hasDeferredSubsystemException() && m_OriginalSyscallState == nullptr;
+}
+
+bool Thread::clearUserReturnWorkIfIdle() {
+  LockGuard<Spinlock> guard(m_Lock);
+  const StateLevel& state = m_StateLevels[m_nStateLevel];
+  if (!m_pParent || m_pParent->getState() != Process::Active || m_EventQueue.count() ||
+      getUnwindState() != Continue || m_EventDeferralDepth || m_TerminationDeferralDepth ||
+      state.m_DeferredSignalMaskRestore || m_UserReturnSignalParked || m_SignalFramesRequired ||
+      __atomic_load_n(&m_DeferredSubsystemExceptionState, __ATOMIC_ACQUIRE)) {
+    return false;
+  }
+  __atomic_store_n(&m_UserReturnWorkPending, static_cast<size_t>(0), __ATOMIC_RELEASE);
+  return true;
 }

@@ -150,6 +150,8 @@ if (NOT PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE MATCHES "^(0|[1-9]|1[0-4])$"
 endif ()
 set(PEDIGREE_BENCHMARK_USER_RETURN_ABLATION FALSE CACHE BOOL
     "Benchmark only: allow selected processes to bypass idle user-return policy work.")
+set(PEDIGREE_FAST_USER_RETURN TRUE CACHE BOOL
+    "Skip idle user-return policy work when no thread work is pending.")
 set(PEDIGREE_BENCHMARK_SYSCALL_TIMING FALSE CACHE BOOL
     "Attribute existing CPU-accounting intervals to benchmark process syscalls.")
 set(PEDIGREE_BENCHMARK_VM_DIAGNOSTICS FALSE CACHE BOOL

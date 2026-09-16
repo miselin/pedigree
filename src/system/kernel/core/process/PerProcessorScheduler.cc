@@ -57,9 +57,7 @@ Atomic<size_t> g_LegacyAbiDiscardCount(0);
 
 #if PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
 bool userReturnIsIdle(Thread& thread) {
-  Process* process = thread.getParent();
-  return process && process->getState() == Process::Active &&
-         thread.getUnwindState() == Thread::Continue && !thread.hasEvents();
+  return thread.canSkipUserReturnWork();
 }
 #endif
 }  // namespace
@@ -1633,6 +1631,12 @@ bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state,
     state.setFlags(state.getFlags() | 0x202);
   }
 #endif
+#if PEDIGREE_FAST_USER_RETURN
+  if ((origin == UserReturnFrame::Origin::Syscall || origin == UserReturnFrame::Origin::Interrupt) &&
+      owner->canSkipUserReturnWork()) {
+    return finishWork(false);
+  }
+#endif
   UserReturnFrame frame(*owner, state, origin);
   Thread::UserReturnFrameScope frameScope(*owner, frame);
 
@@ -1724,6 +1728,8 @@ bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state,
     ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
                                                ActivityDiagnostics::timestamp() - stageStart);
   }
+  if (!terminal)
+    owner->clearUserReturnWorkIfIdle();
   return finishWork(terminal);
 }
 
@@ -1758,6 +1764,11 @@ bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
 #endif
 #if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 7
   if (benchmarkGetuid)
+    return finishWork(false);
+#endif
+
+#if PEDIGREE_FAST_USER_RETURN
+  if (origin == UserReturnFrame::Origin::Syscall && owner->canSkipUserReturnWork())
     return finishWork(false);
 #endif
 
@@ -1832,6 +1843,8 @@ bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
   if (benchmarkGetuid)
     return finishWork(false);
 #endif
+  if (!terminal)
+    owner->clearUserReturnWorkIfIdle();
   return finishWork(terminal);
 }
 

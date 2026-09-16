@@ -43,6 +43,9 @@ class TimeTracker {
   /** Completes accounting before restoring a saved kernel continuation. */
   void finishInKernel();
 
+  /** Retires the tracker while leaving the kernel interval for user return. */
+  void finishForUserReturn();
+
   /** Attributes this userspace Linux syscall to the active Process. */
   void attributeSyscall(size_t rawNumber);
 

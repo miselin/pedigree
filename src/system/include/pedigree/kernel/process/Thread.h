@@ -123,6 +123,11 @@ class EXPORTED_PUBLIC Thread {
   bool tryRequireSignalFrames();
   void clearSignalFrameRequirement();
   void setUserReturnSignalParked(bool parked);
+  bool canSkipUserReturnWork();
+  bool clearUserReturnWorkIfIdle();
+  bool userReturnWorkPending() const {
+    return __atomic_load_n(&m_UserReturnWorkPending, __ATOMIC_ACQUIRE) != 0;
+  }
   bool requiresSignalFrames() const {
     return __atomic_load_n(&m_SignalFramesRequired, __ATOMIC_ACQUIRE);
   }
@@ -219,6 +224,9 @@ class EXPORTED_PUBLIC Thread {
    * interrupts disabled, including Terminal. Ordinary waits are not gates.
    */
   AffinityResult completeAffinityAtSafePoint(bool* waited = nullptr);
+  bool affinityWorkPending() const {
+    return __atomic_load_n(&m_AffinityReturnPending, __ATOMIC_ACQUIRE) != 0;
+  }
   /** Placement inhibition only; the registration retains its own lifetime. */
   bool tryPinLegacyUserCallbacks();
   void unpinLegacyUserCallbacks();
@@ -502,6 +510,10 @@ class EXPORTED_PUBLIC Thread {
    * allocating from its raw interrupt frame.
    */
   bool deferSubsystemException(size_t type, uintptr_t faultAddress, uintptr_t errorCode);
+
+  bool hasDeferredSubsystemException() const {
+    return __atomic_load_n(&m_DeferredSubsystemExceptionState, __ATOMIC_ACQUIRE) != 0;
+  }
 
   /** Claims a synchronous exception at an IRQ-enabled return boundary. */
   bool takeDeferredSubsystemException(size_t& type, uintptr_t& faultAddress, uintptr_t& errorCode);
@@ -847,7 +859,7 @@ class EXPORTED_PUBLIC Thread {
   static void threadExited() NORETURN;
 
   /** Gets whether event delivery is currently deferred. */
-  bool eventsDeferred();
+  bool eventsDeferred() const;
 
 #if PEDIGREE_BENCHMARK_VM_ABLATIONS
   bool benchmarkVmOperationGuardNested() const {
@@ -917,6 +929,9 @@ class EXPORTED_PUBLIC Thread {
   void resumeEvents();
   void deferTermination();
   void resumeTermination();
+  void markUserReturnWorkPending() {
+    __atomic_store_n(&m_UserReturnWorkPending, static_cast<size_t>(1), __ATOMIC_RELEASE);
+  }
   void registerDeferredScope(DeferredScopeRecord& record, bool termination, bool events);
   void armStateCleanup(DeferredScopeRecord& record, DeferredScopeRecord::Cleanup cleanup,
                        void* context);
@@ -1167,9 +1182,11 @@ class EXPORTED_PUBLIC Thread {
   bool m_AffinityPending = false;
   bool m_AffinityGatePending = false;
   bool m_AffinityWorkQueued = false;
+  size_t m_AffinityReturnPending = 0;
   size_t m_LegacyUserCallbackPins = 0;
   bool m_SignalFramesRequired = false;
   bool m_UserReturnSignalParked = false;
+  size_t m_UserReturnWorkPending = 0;
   Thread* m_AffinityNext = nullptr;
   bool m_HasSchedulerContext = false;
   bool m_ReadyPublicationPending = false;

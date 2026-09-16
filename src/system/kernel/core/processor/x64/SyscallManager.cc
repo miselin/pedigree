@@ -156,6 +156,7 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
   Machine::ShutdownType shutdownType = Machine::ShutdownType::Halt;
   bool userReturnTerminal = false;
   bool interruptedWithoutProgress = false;
+  bool deferTimeAccountingToUserReturn = false;
   uint64_t returnTailStart = 0;
   int processExitCode = 0;
   Subsystem::ExitCause processExitCause = Subsystem::ExitCause::Normal;
@@ -352,6 +353,13 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
           shutdownType = static_cast<Machine::ShutdownType>(action.value);
           break;
         case NoPostSyscallAction: {
+#if PEDIGREE_FAST_USER_RETURN
+          Thread* current = Processor::information().getCurrentThread();
+          if (!interruptedWithoutProgress && current && current->canSkipUserReturnWork()) {
+            deferTimeAccountingToUserReturn = true;
+            break;
+          }
+#endif
 #if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 13
           if (benchmarkGetuid)
             return;
@@ -403,7 +411,10 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     NOTICE("SYSCALL pid=" << Dec << pProcess->getId() << " service=" << serviceNumber
                           << " num=" << syscallNumber << " ns=" << value << Hex);
 #endif
-    tracker.finishInKernel();
+    if (deferTimeAccountingToUserReturn)
+      tracker.finishForUserReturn();
+    else
+      tracker.finishInKernel();
   }
 
 #if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 5
