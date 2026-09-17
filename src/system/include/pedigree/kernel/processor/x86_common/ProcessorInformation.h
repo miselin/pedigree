@@ -135,6 +135,15 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
   uint64_t m_TscClockAnchorNanoseconds;
   /** Release-published after both anchor values have been installed. */
   bool m_TscClockAnchorInitialised;
+
+  // SyscallManager.s uses these offsets while IRQs are masked on entry.
+  struct SyscallEntry {
+    uintptr_t kernelStack = 0;
+    uintptr_t userStack = 0;
+  };
+  static_assert(__builtin_offsetof(SyscallEntry, kernelStack) == 0);
+  static_assert(__builtin_offsetof(SyscallEntry, userStack) == 8);
+  SyscallEntry m_SyscallEntry;
 };
 
 /** @} */

@@ -76,10 +76,11 @@ uintptr_t X86CommonProcessorInformation::getKernelStack() const {
 }
 void X86CommonProcessorInformation::setKernelStack(uintptr_t stack) {
   m_Tss->rsp0 = stack;
-  // Can't use Procesor::writeMachineSpecificRegister as Processor is
-  // undeclared here!
-  uint32_t eax = stack, edx = stack >> 32;
-  asm volatile("wrmsr" ::"a"(eax), "d"(edx), "c"(0xc0000102));
+  m_SyscallEntry.kernelStack = stack;
+  const uintptr_t entry = reinterpret_cast<uintptr_t>(&m_SyscallEntry);
+  uint32_t eax = entry, edx = entry >> 32;
+  // Publish the local entry record after its stack pointer has been updated.
+  asm volatile("wrmsr" ::"a"(eax), "d"(edx), "c"(0xc0000102) : "memory");
 }
 
 Thread* X86CommonProcessorInformation::getCurrentThread() const {

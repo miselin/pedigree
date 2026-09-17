@@ -33,45 +33,35 @@ global syscall_handler:function hidden
 ;##############################################################################
 ;### assembler stub for syscalls ##############################################
 ;##############################################################################
-; TODO: we might want to use the highest (or 8byte lower, to allow rsp saving) 8byte
-;       of gs.base to save the gs.base value, interrupts would just ignore this value
 syscall_handler:
   ; Preserve the user's saved RFLAGS in R11 while establishing the kernel ABI.
   cld
 
-  ; Load kernel stack into gs base
+  ; GS names this CPU's SyscallEntry until the user register frame is saved.
+  ; IA32_FMASK keeps IRQs masked throughout this scratch-state lifetime.
   swapgs
+  mov [gs: 8], rsp
+  mov rsp, [gs: 0]
+  push qword [gs: 8]
+  push rcx
+  push r11
+  push rax
+  push rbx
+  push rdx
+  push rdi
+  push rsi
+  push rbp
+  push r8
+  push r9
+  push r10
+  push r12
+  push r13
+  push r14
+  push r15
 
-  ; Save the registers
-  mov [gs: -0x08], rsp      ; rsp
-  mov [gs: -0x10], rcx      ; rip/rcx
-  mov [gs: -0x18], r11      ; rflags/r11
-  mov [gs: -0x20], rax      ; rax
-  mov [gs: -0x28], rbx      ; rbx
-  mov [gs: -0x30], rdx      ; rdx
-  mov [gs: -0x38], rdi      ; rdi
-  mov [gs: -0x40], rsi      ; rsi
-  mov [gs: -0x48], rbp      ; rbp
-  mov [gs: -0x50], r8       ; r8
-  mov [gs: -0x58], r9       ; r9
-  mov [gs: -0x60], r10      ; r10
-  mov [gs: -0x68], r12      ; r12
-  mov [gs: -0x70], r13      ; r13
-  mov [gs: -0x78], r14      ; r14
-  mov [gs: -0x80], r15      ; r15
-
-  ; Restore the original gs base
+  ; The shared metadata capture expects the original user GS base.
   swapgs
-
-  ; Switch to the kernel stack
-  mov rcx, 0xC0000102
-  rdmsr
-  mov esp, edx
-  shl rsp, 32
-  mov rcx, 0xFFFFFFFF
-  and rax, rcx
-  add rsp, rax
-  sub rsp, 0xa0
+  sub rsp, 32
   mov rax, [rsp+128]
   mov [rsp+24], rax
   mov rdi, rsp

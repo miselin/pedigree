@@ -107,7 +107,7 @@ pedigree_capture_user_entry:
 %endif
 
 ; Selector loads may alter bases: restore the captured bases afterward.
-; IA32_KERNEL_GS_BASE remains the scheduler's kernel-stack pointer.
+; IA32_KERNEL_GS_BASE remains the pointer to this CPU's syscall entry record.
 pedigree_restore_user_entry:
 %ifdef PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS
   inc qword [rel pedigree_user_entry_restore_calls]
