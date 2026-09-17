@@ -493,6 +493,52 @@ target_compile_options(kernel_shared PRIVATE
 target_compile_definitions(kernel_shared PRIVATE -D__UD_STANDALONE__)
 target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS})
 target_include_directories(kernel_shared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if (PEDIGREE_HOSTED_DARWIN)
+    # The hosted library contains the normal kernel bootstrap entrypoints, but
+    # the benchmark executable supplies its own main and lifecycle symbols.
+    # Leave those bootstrap-only references for the executable to resolve.
+    target_link_options(kernel_shared PRIVATE -Wl,-undefined,dynamic_lookup)
+endif ()
+
+if (PEDIGREE_HOSTED_SYSCALL_BENCHMARK)
+    if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+        message(FATAL_ERROR
+            "PEDIGREE_HOSTED_SYSCALL_BENCHMARK requires the hosted target")
+    endif ()
+    if (NOT PEDIGREE_HOSTED_BENCHMARK_INCLUDE_DIR OR
+        NOT EXISTS "${PEDIGREE_HOSTED_BENCHMARK_INCLUDE_DIR}/benchmark/benchmark.h")
+        message(FATAL_ERROR
+            "Set PEDIGREE_HOSTED_BENCHMARK_INCLUDE_DIR to a Google Benchmark include directory")
+    endif ()
+    if (NOT PEDIGREE_HOSTED_BENCHMARK_LIBRARY OR
+        NOT EXISTS "${PEDIGREE_HOSTED_BENCHMARK_LIBRARY}")
+        message(FATAL_ERROR
+            "Set PEDIGREE_HOSTED_BENCHMARK_LIBRARY to an architecture-matched libbenchmark.a")
+    endif ()
+
+    find_package(Threads REQUIRED)
+    add_executable(hosted-syscall-benchmark
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/benchmarks/hosted-syscall-benchmark.cc)
+    target_include_directories(hosted-syscall-benchmark PRIVATE
+        ${PEDIGREE_HOSTED_BENCHMARK_INCLUDE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_definitions(hosted-syscall-benchmark PRIVATE
+        PEDIGREE_HOSTED_SYSCALL_BENCHMARK=1)
+    target_compile_options(hosted-syscall-benchmark PRIVATE
+        -O3
+        -UUTILITY_LINUX
+        -DUTILITY_LINUX=1)
+    if (PEDIGREE_HOSTED_DARWIN)
+        target_link_options(hosted-syscall-benchmark PRIVATE
+            -Wl,-export_dynamic,-rpath,@loader_path)
+    else ()
+        target_link_options(hosted-syscall-benchmark PRIVATE -rdynamic)
+    endif ()
+    target_link_libraries(hosted-syscall-benchmark PRIVATE
+        kernel_shared Threads::Threads ${PEDIGREE_HOSTED_BENCHMARK_LIBRARY})
+    set_target_properties(hosted-syscall-benchmark PROPERTIES
+        BUILD_RPATH "$<TARGET_FILE_DIR:kernel_shared>")
+endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     add_compile_options(

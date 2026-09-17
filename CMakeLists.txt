@@ -178,6 +178,12 @@ set(PEDIGREE_HOSTED_SYSTEM_MALLOC FALSE CACHE BOOL "Use the system malloc instea
 set(PEDIGREE_HOSTED_DYNAMIC_MODULES FALSE CACHE BOOL "Load modules from an initrd in hosted builds instead of linking them into the kernel.")
 set(PEDIGREE_HOSTED_SMOKE_TESTS FALSE CACHE BOOL "Build the hosted smoke-test module and userspace.")
 set(PEDIGREE_HOSTED_ASAN FALSE CACHE BOOL "Instrument hosted kernels and modules with AddressSanitizer.")
+set(PEDIGREE_HOSTED_SYSCALL_BENCHMARK FALSE CACHE BOOL
+    "Build the hosted Google Benchmark syscall-framework harness.")
+set(PEDIGREE_HOSTED_BENCHMARK_INCLUDE_DIR "" CACHE PATH
+    "Google Benchmark include directory for the hosted syscall harness.")
+set(PEDIGREE_HOSTED_BENCHMARK_LIBRARY "" CACHE FILEPATH
+    "Google Benchmark library for the hosted syscall harness.")
 set(PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS FALSE CACHE BOOL "Link the focused IRQ and scheduler closure regressions into a native Linux hosted kernel.")
 set(PEDIGREE_CONCURRENCY_SMOKE_TESTS FALSE CACHE BOOL "Build focused kernel concurrency smoke tests for QEMU.")
 set(PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS FALSE CACHE BOOL "Build focused VM ownership smoke tests for QEMU with a root filesystem.")
