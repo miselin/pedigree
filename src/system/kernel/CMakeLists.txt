@@ -252,7 +252,8 @@ set(HASH_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/spooky/spooky.cc)
 
 set(SLAM_SRCS
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/SlamAllocator.cc)
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/SlamAllocator.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/SlamBitmap.cc)
 
 set(KERNEL_SRCS
     # /
