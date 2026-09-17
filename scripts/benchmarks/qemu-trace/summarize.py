@@ -141,6 +141,8 @@ def special_instructions(disassembly):
 class Symbolizer:
     def __init__(self, args, temporary):
         self.tables, self.byte_ranges, self.byte_provenance = {}, {}, {}
+        self.source_overrides = {}
+        self.unsized_ends = {}
         self.add_table("kernel", args.kernel, args.nm, getattr(args, "kernel_code", None))
         self.ranges = {}
         self.mapping = {"status": "unavailable", "reason": "no module map or two runtime anchors"}
@@ -242,6 +244,9 @@ class Symbolizer:
 
     def lookup(self, pc):
         name, relative = self.location(pc)
+        override = getattr(self, "source_overrides", {}).get((name, relative))
+        if override:
+            return name, override[0]
         table = self.tables.get(name)
         symbol = table.lookup(relative) if table else None
         executable_end = next((high for low, high in table.executable_ranges if low <= relative < high), None) if table else None
@@ -251,12 +256,56 @@ class Symbolizer:
                 address = table.addresses[index]
                 size, name_at_address = table.entries[address]
                 following = table.addresses[index + 1] if index + 1 < len(table.addresses) else executable_end
-                if not size and relative < min(following, executable_end):
-                    symbol = name_at_address + " (zero-size symbol; next-symbol/section bound)"
+                if not size:
+                    boundary = getattr(self, "unsized_ends", {}).get((name, address), executable_end)
+                    symbol = (name_at_address + " (zero-size symbol; next-symbol/section bound)"
+                              if relative < min(following, executable_end, boundary) else None)
         elif table:
             symbol = None
         suffix = " [layout unverified]" if name in self.ranges and self.mapping["status"] != "anchored" else ""
         return name, (symbol or f"0x{relative:x} (unsymbolized)") + suffix
+
+    def resolve_unsized_sources(self, addresses, nm, addr2line=None):
+        """Do not let a size-less assembly label absorb following anonymous C++ code."""
+        tool = addr2line or shutil.which(nm[:-2] + "addr2line" if nm.endswith("nm") else "addr2line")
+        if not tool:
+            self.provenance["unsized_source_check"] = "unavailable: no addr2line"
+            return
+        candidates = {}
+        for pc in addresses:
+            image, relative = self.location(pc)
+            table = self.tables.get(image)
+            if not table:
+                continue
+            index = bisect_right(table.addresses, relative) - 1
+            if index < 0 or not table.entries[table.addresses[index]][0] or not table.lookup(relative):
+                candidates.setdefault(image, set()).add(relative)
+        for image, pending in candidates.items():
+            ordered = sorted(pending)
+            result = subprocess.run([tool, "-f", "-C", "-e", str(self.tables[image].path)],
+                                    input="".join(f"0x{pc:x}\n" for pc in ordered),
+                                    capture_output=True, text=True, check=True).stdout.splitlines()
+            if len(result) != 2 * len(ordered):
+                raise ValueError("unexpected addr2line response length")
+            for index, pc in enumerate(ordered):
+                location = result[2 * index + 1]
+                match = re.match(r"(.+\.(?:c|cc|cpp|cxx|h|hpp)):(\d+)", location)
+                if not match or int(match[2]) == 0:
+                    continue
+                # addr2line can itself reuse the preceding assembly function name.
+                # A verified source location is safer than that inferred name.
+                label = Path(match[1]).name + " [DWARF source; unresolved function]"
+                self.source_overrides[(image, pc)] = (label, location)
+                table = self.tables[image]
+                preceding = bisect_right(table.addresses, pc) - 1
+                if preceding >= 0 and not table.entries[table.addresses[preceding]][0]:
+                    key = image, table.addresses[preceding]
+                    self.unsized_ends[key] = min(pc, self.unsized_ends.get(key, pc))
+        self.provenance["unsized_source_check"] = {
+            "tool": tool, "queried": sum(map(len, candidates.values())),
+            "source_overrides": {f"{image}:0x{pc:x}": location
+                                 for (image, pc), (_, location) in self.source_overrides.items()},
+        }
 
     def verify(self, event):
         name, relative = self.location(event["pc"])
@@ -397,6 +446,7 @@ def main():
     parser.add_argument("--initrd", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True, help="new report directory")
     parser.add_argument("--nm", default=shutil.which("llvm-nm") or "nm")
+    parser.add_argument("--addr2line", help="source lookup for unsized symbols; defaults to nm's toolchain")
     parser.add_argument("--user", type=Path, help="optional non-PIE user ELF at linked addresses")
     parser.add_argument("--serial", type=Path, help="runtime module anchors from this capture's boot")
     parser.add_argument("--module-map", type=Path, help="existing summarize-compile module manifest")
@@ -404,6 +454,9 @@ def main():
     try:
         with tempfile.TemporaryDirectory(prefix="pedigree-trace-symbols-") as temporary:
             symbols = Symbolizer(args, Path(temporary))
+            with args.trace.open() as source:
+                symbols.resolve_unsized_sources((e["pc"] for e in records(source) if e["kind"] == "I"),
+                                                args.nm, args.addr2line)
             args.output.mkdir(parents=True, exist_ok=False)
             report = summarize(args.trace, args.output, symbols.lookup, symbols.verify)
             symbols.provenance["runtime_identity"] = (

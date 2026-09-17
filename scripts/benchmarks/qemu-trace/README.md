@@ -1,5 +1,7 @@
 # Trace an x64 syscall
 
+For an entire GCC invocation, use the [whole-compile profiler](PROFILE.md).
+
 This QEMU TCG plugin records a bounded sequence from a known user instruction
 through its matching continuation. It leaves guest interrupts enabled and
 includes interrupt handlers in the trace when they execute. It requires QEMU

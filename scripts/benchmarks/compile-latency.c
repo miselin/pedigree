@@ -496,6 +496,15 @@ static void own_metric(const char* phase, uint64_t start, uint64_t end, const st
          &activity);
 }
 
+/* Distinct bodies preserve plugin gates without invoking the kernel. */
+__attribute__((noinline, noclone)) void profile_compile_begin(void) {
+  __asm__ volatile("nop" ::: "memory");
+}
+
+__attribute__((noinline, noclone)) void profile_compile_end(void) {
+  __asm__ volatile("nop; nop" ::: "memory");
+}
+
 static int command(const char* phase, char* const args[], int permit_failure) {
   printf("COMPILEBENCH command phase=%s argv=", phase);
   for (unsigned i = 0; args[i]; ++i)
@@ -513,6 +522,9 @@ static int command(const char* phase, char* const args[], int permit_failure) {
   struct vm_diagnostic_snapshot before_vm_diagnostics = {0};
   int have_before_vm_diagnostics = vm_diagnostic_snapshot(&before_vm_diagnostics);
   uint64_t start = now_ns();
+  int profile = !strcmp(phase, "compile-cold");
+  if (profile)
+    profile_compile_begin();
   pid_t child = fork();
   if (child < 0)
     fail("fork");
@@ -560,6 +572,8 @@ static int command(const char* phase, char* const args[], int permit_failure) {
   do {
     waited = wait4(child, &status, 0, &usage);
   } while (waited < 0 && errno == EINTR);
+  if (profile && waited == child)
+    profile_compile_end();
   uint64_t end = now_ns();
   if (waited != child)
     fail("wait4");

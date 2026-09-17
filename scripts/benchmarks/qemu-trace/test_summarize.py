@@ -138,6 +138,22 @@ class ReportTest(unittest.TestCase):
 
 
 class MappingTest(unittest.TestCase):
+    def test_unsized_assembly_does_not_absorb_cpp_source(self):
+        symbols = SUMMARY.Symbolizer.__new__(SUMMARY.Symbolizer)
+        symbols.tables = {"kernel": SimpleNamespace(
+            addresses=[0x1000], entries={0x1000: (0, "memzero")}, path=Path("kernel.debug"),
+            executable_ranges=[(0x1000, 0x1100)], lookup=lambda pc: "memzero")}
+        symbols.ranges, symbols.provenance, symbols.source_overrides = {}, {}, {}
+        symbols.unsized_ends = {}
+        output = "memzero\n??:0\nmemzero\n/project/SlamAllocator.cc:876\n"
+        with patch.object(SUMMARY.subprocess, "run", return_value=SimpleNamespace(stdout=output)):
+            symbols.resolve_unsized_sources([0x1000, 0x1020], "nm", "addr2line")
+        self.assertIn("memzero", symbols.lookup(0x1000)[1])
+        self.assertEqual(symbols.lookup(0x1020)[1], "SlamAllocator.cc [DWARF source; unresolved function]")
+        self.assertNotIn("memzero", symbols.lookup(0x1030)[1])
+        self.assertEqual(symbols.provenance["unsized_source_check"]["source_overrides"],
+                         {"kernel:0x1020": "/project/SlamAllocator.cc:876"})
+
     def test_assembly_without_nm_size_stops_at_executable_section_end(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "kernel"
