@@ -471,6 +471,10 @@ class EXPORTED_PUBLIC ProcessorBase {
   static size_t m_Initialised;
 
  private:
+#if MULTIPROCESSOR && X64
+  static ProcessorInformation* informationFromTss(size_t* processorIndex = nullptr);
+#endif
+
   /** Escalate an admitted mutation to terminal failure. */
   MUST_USE_RESULT static bool closeTlbInvalidationAdmissionForTerminalFailure(
       TlbInvalidationGuard& guard, TlbInvalidationResult result);

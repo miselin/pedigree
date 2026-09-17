@@ -258,6 +258,30 @@ class EXPORTED_PUBLIC Tree {
     return true;
   }
 
+  /** Copies the greatest key less than or equal to the query and its value.
+   * Returns false without changing outputs if absent. */
+  bool floorBound(const K& key, K& foundKey, E& foundValue) const {
+    const Node* n = root;
+    const Node* bound = nullptr;
+    while (n) {
+      if (n->key == key) {
+        bound = n;
+        break;
+      } else if (n->key > key) {
+        n = n->leftChild;
+      } else {
+        bound = n;
+        n = n->rightChild;
+      }
+    }
+    if (!bound)
+      return false;
+
+    foundKey = bound->key;
+    foundValue = bound->element;
+    return true;
+  }
+
   /** Reports whether a given key exists in the tree.
    *\return true if the key exists, false otherwise. */
   bool contains(const K& key) const {

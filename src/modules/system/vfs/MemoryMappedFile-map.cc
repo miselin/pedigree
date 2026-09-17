@@ -76,7 +76,7 @@ Status place(Snapshot& snapshot, VirtualAddressSpace& space, uintptr_t& address,
   return Status::NoMemory;
 }
 struct MappingPlan {
-  List<MemoryMappedObject*>* replacement = nullptr;
+  MappingList<MemoryMappedObject>* replacement = nullptr;
   Vector<MemoryMappedObject*> staged, retired;
   MemoryMappedObject* inserted = nullptr;
   bool committed = false;

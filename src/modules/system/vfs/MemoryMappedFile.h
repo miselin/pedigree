@@ -40,6 +40,7 @@
 
 #include <config.h>
 
+#include "MappingList.h"
 #include "SwapStore.h"
 
 class File;
@@ -886,7 +887,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   /** Singleton instance. */
   static MemoryMapManager m_Instance;
 
-  typedef List<MemoryMappedObject*> MmObjectList;
+  typedef MappingList<MemoryMappedObject> MmObjectList;
 
   /** Cache of virtual address spaces -> MmObjectLists. */
   Tree<VirtualAddressSpace*, MmObjectList*> m_MmObjectLists;

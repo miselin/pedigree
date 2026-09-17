@@ -321,10 +321,38 @@ void X86CommonProcessor::cpuid(uint32_t inEax, uint32_t inEcx, uint32_t& eax, ui
   asm volatile("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "a"(inEax), "c"(inEcx));
 }
 
-#if MULTIPROCESSOR && X64
+#if MULTIPROCESSOR
 namespace {
-ALWAYS_INLINE inline ProcessorInformation* currentProcessorInformationFromTss(
+NEVER_INLINE __attribute__((cold)) ProcessorInformation* currentProcessorInformationFromApic(
     const Vector<ProcessorInformation*>& processors, size_t* processorIndex = nullptr) {
+  Pc& pc = Pc::instance();
+  if (!pc.localApicAvailable()) {
+    if (processorIndex)
+      *processorIndex = 0;
+    return nullptr;
+  }
+
+  const uint8_t apicId = pc.getLocalApic().getId();
+  for (size_t i = 0; i < processors.count(); ++i) {
+    ProcessorInformation* information = processors.begin()[i];
+    if (information->localApicId() == apicId) {
+      if (processorIndex)
+        *processorIndex = i;
+      return information;
+    }
+  }
+
+  // IRQ publication must reject an unknown identity rather than use the BSP.
+  if (processorIndex)
+    *processorIndex = processors.count();
+  return nullptr;
+}
+}  // namespace
+#endif
+
+#if MULTIPROCESSOR && X64
+ALWAYS_INLINE inline ProcessorInformation* ProcessorBase::informationFromTss(
+    size_t* processorIndex) {
   uint16_t selector;
   asm volatile("str %0" : "=r"(selector));
 
@@ -336,16 +364,15 @@ ALWAYS_INLINE inline ProcessorInformation* currentProcessorInformationFromTss(
     return nullptr;
 
   const size_t index = (selector - firstTssSelector) >> 4;
-  if (index >= processors.count())
+  if (index >= m_ProcessorInformation.count())
     return nullptr;
-  ProcessorInformation* information = processors[index];
-  if (information->getTssSelector() != selector)
+  ProcessorInformation* information = m_ProcessorInformation.begin()[index];
+  if (information->m_TssSelector != selector)
     return nullptr;
   if (processorIndex)
     *processorIndex = index;
   return information;
 }
-}  // namespace
 #endif
 
 ProcessorId ProcessorBase::id() {
@@ -354,22 +381,15 @@ ProcessorId ProcessorBase::id() {
 
 #if MULTIPROCESSOR
   if (m_ProcessorInformation.count() == 1)
-    return m_ProcessorInformation[0]->m_ProcessorId;
-
-  Pc& pc = Pc::instance();
-  if (!pc.localApicAvailable())
-    return 0;
+    return (*m_ProcessorInformation.begin())->m_ProcessorId;
 
 #if X64
-  if (auto* information = currentProcessorInformationFromTss(m_ProcessorInformation))
+  if (auto* information = informationFromTss())
     return information->m_ProcessorId;
 #endif
 
-  uint8_t apicId = pc.getLocalApic().getId();
-
-  for (size_t i = 0; i < m_ProcessorInformation.count(); i++)
-    if (m_ProcessorInformation[i]->m_LocalApicId == apicId)
-      return m_ProcessorInformation[i]->m_ProcessorId;
+  if (auto* information = currentProcessorInformationFromApic(m_ProcessorInformation))
+    return information->m_ProcessorId;
 #endif
 
   return 0;
@@ -383,25 +403,14 @@ size_t ProcessorBase::index() {
   if (m_ProcessorInformation.count() == 1)
     return 0;
 
-  Pc& pc = Pc::instance();
-  if (!pc.localApicAvailable())
-    return 0;
-
-#if X64
   size_t index;
-  if (currentProcessorInformationFromTss(m_ProcessorInformation, &index))
+#if X64
+  if (informationFromTss(&index))
     return index;
 #endif
 
-  const uint8_t apicId = pc.getLocalApic().getId();
-  for (size_t i = 0; i < m_ProcessorInformation.count(); ++i) {
-    if (m_ProcessorInformation[i]->m_LocalApicId == apicId)
-      return i;
-  }
-
-  // Never alias an unrecognised hardware identity onto the BSP slot. IRQ
-  // publication treats this sentinel as a topology failure and rejects it.
-  return m_ProcessorInformation.count();
+  currentProcessorInformationFromApic(m_ProcessorInformation, &index);
+  return index;
 #else
   return 0;
 #endif
@@ -413,22 +422,15 @@ ProcessorInformation& ProcessorBase::information() {
     return m_SafeBspProcessorInformation;
 
   if (m_ProcessorInformation.count() == 1)
-    return *m_ProcessorInformation[0];
-
-  Pc& pc = Pc::instance();
-  if (!pc.localApicAvailable())
-    return m_SafeBspProcessorInformation;
+    return **m_ProcessorInformation.begin();
 
 #if X64
-  if (auto* information = currentProcessorInformationFromTss(m_ProcessorInformation))
+  if (auto* information = informationFromTss())
     return *information;
 #endif
 
-  uint8_t apicId = pc.getLocalApic().getId();
-
-  for (size_t i = 0; i < m_ProcessorInformation.count(); i++)
-    if (m_ProcessorInformation[i]->m_LocalApicId == apicId)
-      return *m_ProcessorInformation[i];
+  if (auto* information = currentProcessorInformationFromApic(m_ProcessorInformation))
+    return *information;
 #endif
 
   return m_SafeBspProcessorInformation;

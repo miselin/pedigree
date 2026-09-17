@@ -346,6 +346,7 @@ set(TESTSUITE_SRCS
     testsuite/test-FileMetadata.cc
     testsuite/test-MemoryExtendedAttributes.cc
     testsuite/test-Tree.cc
+    testsuite/test-MappingList.cc
     testsuite/test-ObjectPool.cc
     testsuite/test-SlamAllocator.cc
     testsuite/test-ScsiCommands.cc

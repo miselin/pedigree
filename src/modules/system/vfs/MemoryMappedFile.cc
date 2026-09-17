@@ -968,7 +968,7 @@ bool MemoryMapManager::clone(Process* pProcess) {
   for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin(); it != pMmObjectList->end();
        it++) {
     MemoryMappedObject* obj = *it;
-    if (!pMmObjectList2->tryPushBack(nullptr))
+    if (!pMmObjectList2->reserveBack(obj->address()))
       return false;
     MemoryMappedObject* pNewObject = obj->clone();
     if (!pNewObject) {
@@ -976,7 +976,7 @@ bool MemoryMapManager::clone(Process* pProcess) {
       return false;
     }
     pNewObject->m_OwnerProcess = pProcess;
-    *pMmObjectList2->rbegin() = pNewObject;
+    pMmObjectList2->publishBack(pNewObject);
     if (obj->m_Attachment) {
       auto attachment = clonedAttachments.lookup(obj->m_Attachment.get());
       if (!attachment) {
@@ -1190,7 +1190,7 @@ size_t MemoryMapManager::setPermissions(uintptr_t base, size_t length,
       continue;
     }
     if (object->address() < base) {
-      if (!objects->tryPushBack(nullptr)) {
+      if (!objects->reserveBack(base)) {
         if (status)
           *status = ProtectStatus::NoMemory;
         return affected;
@@ -1202,11 +1202,11 @@ size_t MemoryMapManager::setPermissions(uintptr_t base, size_t length,
           *status = ProtectStatus::NoMemory;
         return affected;
       }
-      *objects->rbegin() = split;
+      objects->publishBack(split);
       object = split;
     }
     if (objectEnd > end) {
-      if (!objects->tryPushBack(nullptr)) {
+      if (!objects->reserveBack(end)) {
         if (status)
           *status = ProtectStatus::NoMemory;
         return affected;
@@ -1218,7 +1218,7 @@ size_t MemoryMapManager::setPermissions(uintptr_t base, size_t length,
           *status = ProtectStatus::NoMemory;
         return affected;
       }
-      *objects->rbegin() = split;
+      objects->publishBack(split);
     }
     object->setPermissions(perms);
     ++affected;
@@ -1392,12 +1392,8 @@ bool MemoryMapManager::sharedBacking(Process* process, uintptr_t address, uintpt
   if (!objects) {
     return false;
   }
-  for (auto it = objects->begin(); it != objects->end(); ++it) {
-    if ((*it)->matches(address)) {
-      return (*it)->sharedBacking(address, identity, offset);
-    }
-  }
-  return false;
+  auto* object = objects->find(address);
+  return object && object->sharedBacking(address, identity, offset);
 }
 
 bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write,
@@ -1417,18 +1413,12 @@ bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write,
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
       size_t objectVisits = 0;
 #endif
-      for (auto it = objects->rbegin(); it != objects->rend(); ++it) {
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
-        ++objectVisits;
-#endif
-        if ((*it)->matches(address)) {
-          selected = *it;
-          break;
-        }
-      }
-#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      selected = objects->find(address, &objectVisits);
       Processor::information().getCurrentThread()->getParent()->recordBenchmarkVmCounter(
           Process::VmFaultInObjectVisits, objectVisits);
+#else
+      selected = objects->find(address);
 #endif
     }
   }
@@ -1572,15 +1562,11 @@ MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t a
   } else
 #endif
   {
-    for (auto* object : *objects) {
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
-      ++objectVisits;
+    selected = objects->find(pageAddress, &objectVisits);
+#else
+    selected = objects->find(pageAddress);
 #endif
-      if (object->matches(pageAddress)) {
-        selected = object;
-        break;
-      }
-    }
   }
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
   process->recordBenchmarkVmCounter(Process::VmFaultObjectVisits, objectVisits);
@@ -1720,26 +1706,8 @@ bool MemoryMapManager::handleTrapUnlocked(uintptr_t address, bool bIsWrite, bool
     NOTICE_NOLOCK("trap: lookup complete " << reinterpret_cast<uintptr_t>(pMmObjectList));
 #endif
 
-    for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin();
-         it != pMmObjectList->end(); it++) {
-      MemoryMappedObject* candidate = *it;
-#ifdef DEBUG_MMOBJECTS
-      NOTICE_NOLOCK("mmobj=" << reinterpret_cast<uintptr_t>(candidate));
-      if (!candidate) {
-        NOTICE_NOLOCK("bad mmobj, should create a real #PF and backtrace");
-        break;
-      }
-#endif
-
-      // Passing in a page-aligned address means we handle the case where
-      // a mapping ends midway through a page and a trap happens after this.
-      // Because we map in terms of pages, but store unaligned 'actual'
-      // lengths (for proper page zeroing etc), this is necessary.
-      if (candidate->matches(pageAddress)) {
-        pObject = candidate;
-        break;
-      }
-    }
+    // The final page can extend beyond the stored byte length of a file.
+    pObject = pMmObjectList->find(pageAddress);
 
     m_Lock.release();
   }
