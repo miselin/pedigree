@@ -438,6 +438,18 @@ void ProcessorBase::disableDebugBreakpoint(size_t nBpNumber) {
 }
 
 void ProcessorBase::setInterrupts(bool bEnable) {
+#if defined(PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE) && \
+    PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE >= 2
+  // The benchmark has no hosted interrupt source; retain only the logical state.
+  m_bInterrupts = bEnable;
+  return;
+#elif defined(PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE) && \
+    PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE == 1
+  if (m_bInterrupts == bEnable) {
+    return;
+  }
+#endif
+
   // Block signals to toggle "interrupts".
   sigset_t set;
   if (bEnable) {

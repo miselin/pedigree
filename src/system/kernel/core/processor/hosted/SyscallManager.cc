@@ -54,16 +54,22 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
     Thread* entryThread = Processor::information().getCurrentThread();
     const bool fromUserspace =
         entryThread && entryThread->currentTimeAccountingMode() == CpuTimeMode::User;
+#if !defined(PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE) || \
+    PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE < 3
     TimeTracker tracker(0, fromUserspace);
+#endif
     if (fromUserspace) {
       Processor::setInterrupts(true);
     }
 
     const size_t serviceNumber = syscallState.getSyscallService();
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+#if !defined(PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE) || \
+    PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE < 3
     if (fromUserspace && serviceNumber == linuxCompat) {
       tracker.attributeSyscall(syscallState.getSyscallNumber());
     }
+#endif
 #endif
     bool handled = false;
     PostSyscallAction action;
@@ -117,7 +123,10 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
           if (userReturnTerminal) {
             break;
           }
+#if !defined(PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE) || \
+    PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE < 3
           tracker.finishInKernel();
+#endif
           scheduler.eventHandlerReturned();
           break;
         case PopEventState:
@@ -134,7 +143,10 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
           if (userReturnTerminal) {
             break;
           }
+#if !defined(PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE) || \
+    PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE < 3
           tracker.finish();
+#endif
           Processor::setInterrupts(false);
           Processor::information().getCurrentThread()->abandonAllStates();
           Processor::jumpUser(nullptr, action.state.getInstructionPointer(),
@@ -144,13 +156,18 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
           shutdownType = static_cast<Machine::ShutdownType>(action.value);
           break;
         case NoPostSyscallAction:
+#if !defined(PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE) || \
+    PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE < 4
           if (fromUserspace) {
             userReturnTerminal = scheduler.serviceUserReturnWork(syscallState);
           }
+#endif
           break;
       }
     }
 
+#if !defined(PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE) || \
+    PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE < 5
     if (!exitCurrentProcess && !rebootSystem) {
       Thread* pThread = Processor::information().getCurrentThread();
       const Thread::UnwindType unwindState = pThread->getUnwindState();
@@ -167,6 +184,7 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
         }
       }
     }
+#endif
   }
 
   if (rebootSystem) {

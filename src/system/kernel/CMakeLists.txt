@@ -516,6 +516,9 @@ if (PEDIGREE_HOSTED_SYSCALL_BENCHMARK)
             "Set PEDIGREE_HOSTED_BENCHMARK_LIBRARY to an architecture-matched libbenchmark.a")
     endif ()
 
+    target_compile_definitions(kernel_shared PRIVATE
+        PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE=${PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE})
+
     find_package(Threads REQUIRED)
     add_executable(hosted-syscall-benchmark
         ${CMAKE_SOURCE_DIR}/src/system/kernel/benchmarks/hosted-syscall-benchmark.cc)
@@ -523,7 +526,8 @@ if (PEDIGREE_HOSTED_SYSCALL_BENCHMARK)
         ${PEDIGREE_HOSTED_BENCHMARK_INCLUDE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(hosted-syscall-benchmark PRIVATE
-        PEDIGREE_HOSTED_SYSCALL_BENCHMARK=1)
+        PEDIGREE_HOSTED_SYSCALL_BENCHMARK=1
+        PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE=${PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE})
     target_compile_options(hosted-syscall-benchmark PRIVATE
         -O3
         -UUTILITY_LINUX

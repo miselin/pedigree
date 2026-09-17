@@ -184,6 +184,9 @@ set(PEDIGREE_HOSTED_BENCHMARK_INCLUDE_DIR "" CACHE PATH
     "Google Benchmark include directory for the hosted syscall harness.")
 set(PEDIGREE_HOSTED_BENCHMARK_LIBRARY "" CACHE FILEPATH
     "Google Benchmark library for the hosted syscall harness.")
+set(PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE 0 CACHE STRING
+    "Hosted syscall benchmark ablation: 0=normal, 1=skip redundant masks, 2=logical-only interrupts, 3=without time tracking, 4=without idle user-return checks, 5=without unwind check.")
+set_property(CACHE PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE PROPERTY STRINGS 0 1 2 3 4 5)
 set(PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS FALSE CACHE BOOL "Link the focused IRQ and scheduler closure regressions into a native Linux hosted kernel.")
 set(PEDIGREE_CONCURRENCY_SMOKE_TESTS FALSE CACHE BOOL "Build focused kernel concurrency smoke tests for QEMU.")
 set(PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS FALSE CACHE BOOL "Build focused VM ownership smoke tests for QEMU with a root filesystem.")
