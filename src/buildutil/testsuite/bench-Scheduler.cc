@@ -25,6 +25,16 @@
 
 #include <benchmark/benchmark.h>
 
+#if PEDIGREE_BENCHMARK_CALL_PROFILE
+extern "C" void pedigree_benchmark_profile_pause();
+extern "C" void pedigree_benchmark_profile_resume();
+extern "C" void pedigree_benchmark_profile_start();
+#else
+static inline void pedigree_benchmark_profile_pause() {}
+static inline void pedigree_benchmark_profile_resume() {}
+static inline void pedigree_benchmark_profile_start() {}
+#endif
+
 namespace {
 
 constexpr size_t kMaxPriorities = 8;
@@ -174,10 +184,16 @@ class RoundRobinSelectionModel {
 static void BM_RoundRobinSelectionSamePriority(benchmark::State& state) {
   RoundRobinSelectionModel model(static_cast<size_t>(state.range(0)), false);
 
-  while (state.KeepRunning()) {
+  pedigree_benchmark_profile_start();
+  while (true) {
+    pedigree_benchmark_profile_pause();
+    if (!state.KeepRunning()) {
+      break;
+    }
     state.PauseTiming();
     model.refill();
     state.ResumeTiming();
+    pedigree_benchmark_profile_resume();
 
     BenchmarkThread* next = model.selectNext();
     benchmark::DoNotOptimize(next);
@@ -190,10 +206,16 @@ static void BM_RoundRobinSelectionSamePriority(benchmark::State& state) {
 static void BM_RoundRobinSelectionMixedPriorities(benchmark::State& state) {
   RoundRobinSelectionModel model(static_cast<size_t>(state.range(0)), true);
 
-  while (state.KeepRunning()) {
+  pedigree_benchmark_profile_start();
+  while (true) {
+    pedigree_benchmark_profile_pause();
+    if (!state.KeepRunning()) {
+      break;
+    }
     state.PauseTiming();
     model.refill();
     state.ResumeTiming();
+    pedigree_benchmark_profile_resume();
 
     BenchmarkThread* next = model.selectNext();
     benchmark::DoNotOptimize(next);

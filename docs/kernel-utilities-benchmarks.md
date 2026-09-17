@@ -64,3 +64,21 @@ and fixture construction are excluded from the timed region. It covers uniform
 and mixed priority queues; the full `PerProcessorScheduler::selectNext` path,
 real Thread objects, and the architecture-specific context switch are not
 included.
+
+For a Callgrind-compatible call profile of the scheduler model, build the
+instrumented target and select one representative case:
+
+```sh
+cmake --build build-native/tools --target benchmarker-native-profile -j2
+PEDIGREE_PROFILE_OUTPUT=/private/tmp/pedigree-scheduler.callgrind \
+  build-native/tools/src/buildutil/benchmarker-native-profile \
+  --benchmark_filter='BM_RoundRobinSelectionSamePriority/512' \
+  --benchmark_min_time=0.02s
+```
+
+Open `/private/tmp/pedigree-scheduler.callgrind` with KCachegrind or another
+Callgrind viewer. This uses compiler function-entry/function-exit
+instrumentation and records inclusive/self host ticks and call edges; it is
+not a sampled profile. The profiler is paused while queue refill is excluded
+from the benchmark, and instrumentation overhead makes the reported benchmark
+time unsuitable for performance comparisons.
