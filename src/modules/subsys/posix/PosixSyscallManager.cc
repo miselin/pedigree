@@ -222,9 +222,6 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
              << syscallNumber << Hex);
 #endif
 
-  // We're interruptible.
-  Processor::setInterrupts(true);
-
   switch (syscallNumber) {
     // POSIX system calls
     case POSIX_OPEN:
