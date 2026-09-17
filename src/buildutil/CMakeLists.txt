@@ -135,6 +135,7 @@ set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/memory.c
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/vsprintf.c
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/SlamAllocator.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/SlamBitmap.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/PhysicalMemoryManager.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/MemoryRegion.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/UserMemoryPolicy.cc
@@ -349,6 +350,7 @@ set(TESTSUITE_SRCS
     testsuite/test-MappingList.cc
     testsuite/test-ObjectPool.cc
     testsuite/test-SlamAllocator.cc
+    testsuite/test-SlamBitmap.cc
     testsuite/test-ScsiCommands.cc
     testsuite/test-utility.cc
     testsuite/test-SharedPointerCopy.cc
@@ -482,6 +484,7 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-HashTable.cc
         testsuite/bench-List.cc
         testsuite/bench-SlamAllocator.cc
+        testsuite/bench-SlamBitmap.cc
         testsuite/bench-main.cc
         testsuite/bench-DirectoryStructures.cc
         testsuite/bench-RadixTree.cc

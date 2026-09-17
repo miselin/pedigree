@@ -419,3 +419,30 @@ TEST_F(SlamAllocatorCorrectnessTest, LargeSlabCanStartMidBitmapEntry) {
 
   EXPECT_EQ(largeSlab, firstPage + SLAB_MINIMUM_SIZE);
 }
+
+TEST_F(SlamAllocatorCorrectnessTest, FullBitmapEntrySeparatesFreeRuns) {
+  SlamAllocator& allocator = SlamAllocator::instance();
+  const size_t page = SLAB_MINIMUM_SIZE;
+  uintptr_t first = allocator.getSlab(128 * page);
+  allocator.freeSlab(first + page, 63 * page);
+
+  // The free suffix cannot continue across the fully reserved second word.
+  uintptr_t slab = allocator.getSlab(64 * page);
+
+  EXPECT_EQ(slab, first + 128 * page);
+  EXPECT_EQ(allocator.heapPageCount(), 129U);
+}
+
+TEST_F(SlamAllocatorCorrectnessTest, ReusesEarliestFittingHoleAcrossBitmapEntries) {
+  SlamAllocator& allocator = SlamAllocator::instance();
+  const size_t page = SLAB_MINIMUM_SIZE;
+  uintptr_t first = allocator.getSlab(256 * page);
+  allocator.freeSlab(first + 3 * page, page);
+  allocator.freeSlab(first + 70 * page, 2 * page);
+  allocator.freeSlab(first + 200 * page, 2 * page);
+
+  EXPECT_EQ(allocator.getSlab(2 * page), first + 70 * page);
+  EXPECT_EQ(allocator.getSlab(2 * page), first + 200 * page);
+  EXPECT_EQ(allocator.getSlab(page), first + 3 * page);
+  EXPECT_EQ(allocator.heapPageCount(), 256U);
+}

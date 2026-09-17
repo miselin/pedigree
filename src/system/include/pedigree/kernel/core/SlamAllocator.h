@@ -31,6 +31,7 @@
 #include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/core/SlamBitmap.h"
 
 #if PEDIGREE_BENCHMARK
 namespace SlamSupport {
@@ -369,13 +370,7 @@ class SlamAllocator {
 
   size_t m_HeapPageCount;
 
-  struct SlabBitmapEntry {
-    uint64_t reserved;
-    uint64_t mapped;
-    uint64_t ready;
-  };
-
-  SlabBitmapEntry* m_SlabRegionBitmap;
+  SlamBitmap::Entry* m_SlabRegionBitmap;
   size_t m_SlabRegionBitmapEntries;
   size_t m_SlabRegionPages;
 

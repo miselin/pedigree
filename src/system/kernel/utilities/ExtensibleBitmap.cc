@@ -106,7 +106,7 @@ void ExtensibleBitmap::set(size_t n) {
 
   // Check we have enough space to handle the bit.
   if (n / 8 >= m_DynamicMapSize) {
-    // Double the size of the map to avoid a quadratic hit from these clears/copies
+    // Double the size of the map to avoid so many allocations/copies/zeroes
     // ... unless the bit itself is well beyond that range!
     size_t sz = max(n / 8 + 8, m_DynamicMapSize * 2);
     uint8_t* pMap = new uint8_t[sz];
