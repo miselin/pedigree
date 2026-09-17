@@ -1,5 +1,19 @@
 #include "pedigree/kernel/core/SlamBitmap.h"
 
+void SlamBitmap::useMemory(void* memory, size_t entryCount, size_t pageCount) {
+  m_Entries = static_cast<Entry*>(memory);
+  m_EntryCount = entryCount;
+  m_PageCount = pageCount;
+}
+
+uint64_t SlamBitmap::reservedBits(size_t entry) const {
+  return m_Entries[entry].reserved;
+}
+
+uintptr_t SlamBitmap::metadataAddress(size_t entry) const {
+  return reinterpret_cast<uintptr_t>(&m_Entries[entry]);
+}
+
 size_t SlamBitmap::findFreeRun(size_t pageCount) const {
   size_t runStart = 0;
   size_t runLength = 0;
@@ -61,4 +75,12 @@ bool SlamBitmap::isReserved(size_t page) const {
 
 bool SlamBitmap::isMapped(size_t page) const {
   return m_Entries[page / 64].mapped & (uint64_t(1) << (page % 64));
+}
+
+bool SlamBitmap::isReady(size_t page) const {
+  return m_Entries[page / 64].ready & (uint64_t(1) << (page % 64));
+}
+
+void SlamBitmap::setReady(size_t page) {
+  m_Entries[page / 64].ready |= uint64_t(1) << (page % 64);
 }

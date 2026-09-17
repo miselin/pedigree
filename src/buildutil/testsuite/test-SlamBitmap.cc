@@ -5,8 +5,9 @@
 #include <gtest/gtest.h>
 
 TEST(SlamBitmap, FindsRunsAcrossEntries) {
-  SlamBitmap::Entry entries[2] = {};
-  SlamBitmap bitmap(entries, 2, 128);
+  uint64_t entries[2 * 3] = {};
+  SlamBitmap bitmap;
+  bitmap.useMemory(entries, 2, 128);
   bitmap.reserve(0, 64);
   bitmap.reserve(70, 2);
 
@@ -15,8 +16,9 @@ TEST(SlamBitmap, FindsRunsAcrossEntries) {
 }
 
 TEST(SlamBitmap, TracksPlanesIndependently) {
-  SlamBitmap::Entry entries[1] = {};
-  SlamBitmap bitmap(entries, 1, 64);
+  uint64_t entries[3] = {};
+  SlamBitmap bitmap;
+  bitmap.useMemory(entries, 1, 64);
   bitmap.reserve(3, 1);
   bitmap.setMapped(3);
 

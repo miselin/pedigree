@@ -8,8 +8,9 @@
 static void BM_SlamBitmapFindFreeRun(benchmark::State& state) {
   const size_t pages = static_cast<size_t>(state.range(0));
   const size_t entriesCount = (pages + 63) / 64;
-  std::vector<SlamBitmap::Entry> entries(entriesCount);
-  SlamBitmap bitmap(entries.data(), entries.size(), pages);
+  std::vector<uint64_t> entries(entriesCount * 3);
+  SlamBitmap bitmap;
+  bitmap.useMemory(entries.data(), entriesCount, pages);
   bitmap.reserve(0, pages / 2);
 
   for (auto _ : state) benchmark::DoNotOptimize(bitmap.findFreeRun(8));

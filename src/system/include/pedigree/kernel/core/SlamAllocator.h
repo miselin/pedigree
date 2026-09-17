@@ -370,7 +370,7 @@ class SlamAllocator {
 
   size_t m_HeapPageCount;
 
-  SlamBitmap::Entry* m_SlabRegionBitmap;
+  SlamBitmap m_SlabRegionBitmap;
   size_t m_SlabRegionBitmapEntries;
   size_t m_SlabRegionPages;
 
