@@ -182,12 +182,16 @@ class SyscallManager {
     Thread* m_pThread;
     DeferredScopeRecord m_Cleanup;
     HandlerDispatch m_Dispatch;
+    bool m_BenchmarkFastPath;
   };
 
   bool registerHandler(Service_t service, SyscallHandler* pHandler, Registration& registration);
+  /** Returns the permanently published handler without taking a lock. */
+  SyscallHandler* loadHandler(Service_t service) const;
   bool closeHandler(Registration& registration);
   bool unregisterHandler(Registration& registration);
-  bool acquireHandler(Service_t service, HandlerLease& lease, PostSyscallAction& action);
+  bool acquireHandler(Service_t service, HandlerLease& lease, PostSyscallAction& action,
+                      bool armCleanup = true, bool benchmarkFastPath = false);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   bool postSyscallHookHandled(const PostSyscallAction& action);

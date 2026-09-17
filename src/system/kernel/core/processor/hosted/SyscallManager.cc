@@ -68,14 +68,14 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
     bool handled = false;
     PostSyscallAction action;
     if (LIKELY(serviceNumber < serviceEnd)) {
-      // The lease must retire before the deferral allows a pending terminal
-      // request to consume this thread's stack.
-      TerminationDeferral callbackDeferral;
-      HandlerLease handler;
-      if (m_Instance.acquireHandler(static_cast<Service_t>(serviceNumber), handler, action)) {
+      SyscallHandler* handler = m_Instance.loadHandler(static_cast<Service_t>(serviceNumber));
+      if (handler) {
         handled = true;
-        syscallState.setSyscallReturnValue(handler.handler()->syscall(syscallState));
         Thread* thread = Processor::information().getCurrentThread();
+        void* previousContext = thread->getSyscallDispatchContext();
+        thread->setSyscallDispatchContext(&action);
+        syscallState.setSyscallReturnValue(handler->syscall(syscallState));
+        thread->setSyscallDispatchContext(previousContext);
         syscallState.setSyscallErrno(thread->getErrno());
         thread->setErrno(0);
       }

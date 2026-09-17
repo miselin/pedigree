@@ -102,7 +102,8 @@ SyscallManager::HandlerLease::HandlerLease()
       m_Generation(0),
       m_pThread(nullptr),
       m_Cleanup(),
-      m_Dispatch{nullptr, nullptr, 0, 0, nullptr, nullptr} {}
+      m_Dispatch{nullptr, nullptr, 0, 0, nullptr, nullptr},
+      m_BenchmarkFastPath(false) {}
 
 SyscallManager::HandlerLease::~HandlerLease() {
   if (m_pManager) {
@@ -127,7 +128,7 @@ SyscallManager::~SyscallManager() = default;
 void SyscallManager::clearSlot(HandlerSlot& slot) {
   assert(!slot.inFlight);
   assert(!slot.dispatches);
-  slot.handler = nullptr;
+  __atomic_store_n(&slot.handler, static_cast<SyscallHandler*>(nullptr), __ATOMIC_RELEASE);
   slot.enabled = false;
   slot.draining = false;
 }
@@ -168,7 +169,7 @@ bool SyscallManager::registerHandler(Service_t service, SyscallHandler* pHandler
   if (!slot.generation) {
     ++slot.generation;
   }
-  slot.handler = pHandler;
+  __atomic_store_n(&slot.handler, pHandler, __ATOMIC_RELEASE);
   slot.enabled = true;
   slot.draining = false;
   registration.m_pManager = this;
@@ -177,6 +178,15 @@ bool SyscallManager::registerHandler(Service_t service, SyscallHandler* pHandler
   registration.m_Generation = slot.generation;
   m_HandlerLock.release();
   return true;
+}
+
+SyscallHandler* SyscallManager::loadHandler(Service_t service) const {
+  if (UNLIKELY(service >= serviceEnd)) {
+    return nullptr;
+  }
+  // TODO: restore safe dynamic-module unloading before allowing a published
+  // handler to be unregistered while a process can still issue its service.
+  return __atomic_load_n(&m_HandlerSlots[service].handler, __ATOMIC_ACQUIRE);
 }
 
 bool SyscallManager::closeHandler(Registration& registration) {
@@ -286,13 +296,26 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
 }
 
 bool SyscallManager::acquireHandler(Service_t service, HandlerLease& lease,
-                                    PostSyscallAction& action) {
+                                    PostSyscallAction& action, bool armCleanup,
+                                    bool benchmarkFastPath) {
   if (UNLIKELY(service >= serviceEnd) || lease.m_pManager) {
     return false;
   }
 
   Thread* thread = Processor::information().getCurrentThread();
-  if (thread) {
+  if (benchmarkFastPath) {
+    HandlerSlot& slot = m_HandlerSlots[service];
+    if (!slot.handler || !slot.enabled) {
+      return false;
+    }
+
+    lease.m_pManager = this;
+    lease.m_pHandler = slot.handler;
+    lease.m_BenchmarkFastPath = true;
+    return true;
+  }
+
+  if (thread && armCleanup) {
     thread->armStateCleanup(lease.m_Cleanup, abandonedHandlerCleanup, &lease);
   }
 
@@ -300,7 +323,7 @@ bool SyscallManager::acquireHandler(Service_t service, HandlerLease& lease,
   HandlerSlot& slot = m_HandlerSlots[service];
   if (!slot.handler || !slot.enabled) {
     m_HandlerLock.release();
-    if (thread) {
+    if (thread && armCleanup) {
       thread->disarmStateCleanup(lease.m_Cleanup);
     }
     return false;
@@ -337,6 +360,13 @@ bool SyscallManager::acquireHandler(Service_t service, HandlerLease& lease,
 }
 
 void SyscallManager::releaseHandler(HandlerLease& lease, bool normalReturn) {
+  if (lease.m_BenchmarkFastPath) {
+    lease.m_pManager = nullptr;
+    lease.m_pHandler = nullptr;
+    lease.m_BenchmarkFastPath = false;
+    return;
+  }
+
   HandlerSlot* slot = lease.m_pSlot;
   HandlerDispatch* dispatch = &lease.m_Dispatch;
   bool wakeDrainers = false;
@@ -348,7 +378,7 @@ void SyscallManager::releaseHandler(HandlerLease& lease, bool normalReturn) {
   }
   assert(slot);
   assert(slot->generation == lease.m_Generation);
-  if (normalReturn && lease.m_pThread) {
+  if (normalReturn && lease.m_pThread && lease.m_Cleanup.armed) {
     // Keep admission pinned until teardown can no longer detach the
     // stack record. The manager lock disables the nonlocal interrupt
     // window between these two ownership transitions.
@@ -370,6 +400,7 @@ void SyscallManager::releaseHandler(HandlerLease& lease, bool normalReturn) {
   lease.m_Generation = 0;
   lease.m_pThread = nullptr;
   lease.m_Dispatch = {nullptr, nullptr, 0, 0, nullptr, nullptr};
+  lease.m_BenchmarkFastPath = false;
   m_HandlerLock.release();
 
   if (wakeDrainers) {
@@ -386,34 +417,23 @@ void SyscallManager::abandonedHandlerCleanup(void* context) {
 
 bool SyscallManager::requestPostSyscallAction(PostSyscallActionKind kind, intptr_t value,
                                               const ProcessorState* state) {
-  void* owner = currentDispatchOwner();
-  HandlerDispatch* target = nullptr;
-
-  m_HandlerLock.acquire();
-  for (size_t i = 0; i < serviceEnd; ++i) {
-    for (HandlerDispatch* dispatch = m_HandlerSlots[i].dispatches; dispatch;
-         dispatch = dispatch->next) {
-      if (dispatch->owner == owner && (!target || dispatch->sequence > target->sequence)) {
-        target = dispatch;
-      }
-    }
-  }
-
-  if (!target || !target->action || target->action->kind != NoPostSyscallAction) {
-    m_HandlerLock.release();
+  Thread* thread = Processor::information().getCurrentThread();
+  PostSyscallAction* action = thread
+                                  ? static_cast<PostSyscallAction*>(
+                                        thread->getSyscallDispatchContext())
+                                  : nullptr;
+  if (!action || action->kind != NoPostSyscallAction) {
     return false;
   }
-  if ((kind == ReturnFromEvent || kind == PopEventState) && !target->stateLevel) {
-    m_HandlerLock.release();
+  if ((kind == ReturnFromEvent || kind == PopEventState) && !thread->getStateLevel()) {
     return false;
   }
 
-  target->action->kind = kind;
-  target->action->value = value;
+  action->kind = kind;
+  action->value = value;
   if (state) {
-    target->action->state = *state;
+    action->state = *state;
   }
-  m_HandlerLock.release();
   return true;
 }
 

@@ -302,6 +302,13 @@ class EXPORTED_PUBLIC Thread {
   /** Returns the state nesting level. */
   size_t getStateLevel() const;
 
+  void* getSyscallDispatchContext() const {
+    return m_SyscallDispatchContext;
+  }
+  void setSyscallDispatchContext(void* context) {
+    m_SyscallDispatchContext = context;
+  }
+
   /** Allocates a new stack for a specific nesting level, if required */
   void allocateStackAtLevel(size_t stateLevel);
 
@@ -1255,6 +1262,7 @@ class EXPORTED_PUBLIC Thread {
   AlternateSignalStack m_AlternateSignalStack;
 
   const SyscallState* m_OriginalSyscallState = nullptr;
+  void* m_SyscallDispatchContext = nullptr;
 
   /** Our current status. Sleeping is reserved for an active WaitQueue. */
   volatile Status m_Status = Ready;

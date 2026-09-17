@@ -161,7 +161,26 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
   int processExitCode = 0;
   Subsystem::ExitCause processExitCause = Subsystem::ExitCause::Normal;
   {
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 23 || \
+    PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 24
+    if (benchmarkGetuid) {
+      Processor::setInterrupts(true);
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 24
+      HandlerLease handler;
+      PostSyscallAction action;
+      m_Instance.acquireHandler(static_cast<Service_t>(linuxCompat), handler, action, true, true);
+#endif
+      syscallState.setSyscallReturnValue(0);
+      return;
+    }
+#endif
     TimeTracker tracker(0, true);
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 22
+    if (benchmarkGetuid) {
+      syscallState.setSyscallReturnValue(0);
+      return;
+    }
+#endif
 #if TIME_SYSCALLS
     Process* pProcess = Processor::information().getCurrentThread()->getParent();
     Time::Stopwatch syscallTimer(true);
@@ -190,11 +209,30 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     if (LIKELY(serviceNumber < serviceEnd)) {
       // The lease must retire before the deferral allows a pending terminal
       // request to consume this thread's stack.
-      TerminationDeferral callbackDeferral;
-      HandlerLease handler;
-      if (m_Instance.acquireHandler(static_cast<Service_t>(serviceNumber), handler, action)) {
+      TerminationDeferral callbackDeferral(
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 17 || \
+    PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 21
+          !benchmarkGetuid
+#else
+          true
+#endif
+      );
+      SyscallHandler* handler = m_Instance.loadHandler(static_cast<Service_t>(serviceNumber));
+      if (handler) {
         handled = true;
-        uint64_t result = handler.handler()->syscall(syscallState);
+#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 16 || \
+    PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 17 || \
+    PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 18 || \
+    PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 19 || \
+    PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 21
+        if (benchmarkGetuid)
+          return;
+#endif
+        Thread* syscallThread = Processor::information().getCurrentThread();
+        void* previousContext = syscallThread->getSyscallDispatchContext();
+        syscallThread->setSyscallDispatchContext(&action);
+        uint64_t result = handler->syscall(syscallState);
+        syscallThread->setSyscallDispatchContext(previousContext);
         uint64_t errno = Processor::information().getCurrentThread()->getErrno();
         interruptedWithoutProgress = result == static_cast<uint64_t>(-1) &&
                                      errno == Error::Interrupted && serviceNumber == linuxCompat;
