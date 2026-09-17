@@ -165,6 +165,8 @@ def main():
     parser.add_argument("--paused-samples", action="store_true",
                         help="Pause all CPUs for coherent 24-frame samples; requires sample-stacks")
     parser.add_argument("--qemu", default="qemu-system-x86_64")
+    parser.add_argument("--plugin", action="append", default=[],
+                        help="QEMU TCG plugin specification (repeatable; instrumentation changes timing)")
     parser.add_argument("--qemu-img", default="qemu-img")
     args = parser.parse_args()
     if args.timeout <= 0 or args.sample_interval < 0:
@@ -248,6 +250,8 @@ def main():
         command = [args.qemu, "-machine", "q35", "-accel", "tcg,thread=multi",
                    "-smp", str(args.cpus), "-m", "4096", "-cpu",
                    "SandyBridge,-rdrand,-rdseed", "-drive", firmware]
+        for plugin in args.plugin:
+            command += ["-plugin", plugin]
         if args.firmware_vars:
             shutil.copyfile(args.firmware_vars, output / "firmware-vars.fd")
             command += ["-drive", f"if=pflash,format=raw,file={output}/firmware-vars.fd"]

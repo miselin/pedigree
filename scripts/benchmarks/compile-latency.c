@@ -767,12 +767,6 @@ int main(void) {
       "benchmark_vm_ablation_api=%d benchmark_vm_ablation=%u\n",
       benchmark_user_return_ablation, benchmark_syscall_timing, benchmark_vm_diagnostics,
       benchmark_vm_ablation_api, benchmark_vm_ablation);
-  if (!access("synthetic-vm", F_OK)) {
-    char* synthetic[] = {"./vm-syscall-latency", "1", NULL};
-    command("vm-synthetic", synthetic, 0);
-    printf("COMPILEBENCH PASS END\n");
-    return 0;
-  }
   static char kernel_log[256 * 1024];
   long log_size = syscall(SYS_syslog, 3, kernel_log, sizeof(kernel_log) - 1);
   if (log_size > 0) {
@@ -784,6 +778,12 @@ int main(void) {
         printf("COMPILEBENCH %s\n", module);
       line = strtok(NULL, "\n");
     }
+  }
+  if (!access("synthetic-vm", F_OK)) {
+    char* synthetic[] = {"./vm-syscall-latency", "1", NULL};
+    command("vm-synthetic", synthetic, 0);
+    printf("COMPILEBENCH PASS END\n");
+    return 0;
   }
   int quick = !access("quick-run", F_OK);
   int skip_sync = !access("no-sync", F_OK);
