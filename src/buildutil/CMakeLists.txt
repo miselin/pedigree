@@ -532,7 +532,7 @@ if (BENCHMARK_LIBRARY)
     target_link_libraries(benchmarker-native-profile PRIVATE
         Threads::Threads ${BENCHMARK_LIBRARY} ${CMAKE_DL_LIBS})
     target_compile_options(benchmarker-native-profile PRIVATE
-        "-O2" "-fno-omit-frame-pointer" "-fno-inline"
+        "-O2" "-fno-omit-frame-pointer"
         "-finstrument-functions" "-Wno-vla-cxx-extension")
     target_compile_definitions(benchmarker-native-profile PRIVATE
         -DTESTSUITE -DPEDIGREE_BENCHMARK_CALL_PROFILE=1)

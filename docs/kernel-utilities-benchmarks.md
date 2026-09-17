@@ -81,4 +81,7 @@ Callgrind viewer. This uses compiler function-entry/function-exit
 instrumentation and records inclusive/self host ticks and call edges; it is
 not a sampled profile. The profiler is paused while queue refill is excluded
 from the benchmark, and instrumentation overhead makes the reported benchmark
-time unsuitable for performance comparisons.
+time unsuitable for performance comparisons. The profile target keeps normal
+optimization enabled; however, `-finstrument-functions` can still alter
+inlining, so use the ordinary benchmark binary or its assembly to decide
+whether a tiny RAII wrapper is actually eliminated.
