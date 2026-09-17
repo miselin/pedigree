@@ -14,7 +14,7 @@
 /** Bitmap used by SLAM to track virtual heap pages. */
 class SlamBitmap {
  public:
-  SlamBitmap() : m_Entries(nullptr), m_EntryCount(0), m_PageCount(0) {}
+  SlamBitmap() : /*m_Entries(nullptr), */ m_EntryCount(0), m_PageCount(0) {}
   void useMemory(void* memory, size_t entryCount, size_t pageCount);
 
   size_t findFreeRun(size_t pageCount) const;
@@ -30,12 +30,17 @@ class SlamBitmap {
   uintptr_t metadataAddress(size_t entry) const;
 
  private:
-  struct Entry {
-    uint64_t reserved;
-    uint64_t mapped;
-    uint64_t ready;
-  };
-  Entry* m_Entries;
+  // struct Entry {
+  //   uint64_t reserved;
+  //   uint64_t mapped;
+  //   uint64_t ready;
+  // };
+  // Entry* m_Entries;
+
+  uint64_t* m_reserved = nullptr;
+  uint64_t* m_mapped = nullptr;
+  uint64_t* m_ready = nullptr;
+
   size_t m_EntryCount;
   size_t m_PageCount;
 };
