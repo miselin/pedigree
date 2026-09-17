@@ -45,6 +45,18 @@ void BM_HostedNoopSyscall(benchmark::State& state) {
 
 BENCHMARK(BM_HostedNoopSyscall)->UseRealTime();
 
+void BM_HostedCanSkipUserReturnWork(benchmark::State& state) {
+  Thread* thread = Processor::information().getCurrentThread();
+  bool observed = false;
+  for (auto _ : state) {
+    observed |= thread && thread->canSkipUserReturnWork();
+  }
+  benchmark::DoNotOptimize(observed);
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK(BM_HostedCanSkipUserReturnWork)->UseRealTime();
+
 void initialiseHostedKernel() {
   BootstrapStruct_t bootstrap;
   // Processor initialisation logs before the normal boot sequence prepares the

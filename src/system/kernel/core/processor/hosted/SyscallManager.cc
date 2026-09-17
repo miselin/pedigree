@@ -156,6 +156,14 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
           shutdownType = static_cast<Machine::ShutdownType>(action.value);
           break;
         case NoPostSyscallAction:
+#if PEDIGREE_FAST_USER_RETURN
+          if (fromUserspace) {
+            Thread* current = Processor::information().getCurrentThread();
+            if (current && current->canSkipUserReturnWork()) {
+              break;
+            }
+          }
+#endif
 #if !defined(PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE) || \
     PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE < 4
           if (fromUserspace) {
