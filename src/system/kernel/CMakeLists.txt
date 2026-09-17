@@ -122,12 +122,6 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/x64/fastmemory.s)
 
     set_source_files_properties(
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/SyscallManager.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/process/PerProcessorScheduler.cc
-        PROPERTIES COMPILE_DEFINITIONS
-        "PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE=${PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE}")
-
-    set_source_files_properties(
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/Processor.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/instrument.s
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/gdt.s
@@ -494,54 +488,7 @@ target_compile_definitions(kernel_shared PRIVATE -D__UD_STANDALONE__)
 target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS})
 target_include_directories(kernel_shared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 if (PEDIGREE_HOSTED_DARWIN)
-    # The hosted library contains the normal kernel bootstrap entrypoints, but
-    # the benchmark executable supplies its own main and lifecycle symbols.
-    # Leave those bootstrap-only references for the executable to resolve.
     target_link_options(kernel_shared PRIVATE -Wl,-undefined,dynamic_lookup)
-endif ()
-
-if (PEDIGREE_HOSTED_SYSCALL_BENCHMARK)
-    if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
-        message(FATAL_ERROR
-            "PEDIGREE_HOSTED_SYSCALL_BENCHMARK requires the hosted target")
-    endif ()
-    if (NOT PEDIGREE_HOSTED_BENCHMARK_INCLUDE_DIR OR
-        NOT EXISTS "${PEDIGREE_HOSTED_BENCHMARK_INCLUDE_DIR}/benchmark/benchmark.h")
-        message(FATAL_ERROR
-            "Set PEDIGREE_HOSTED_BENCHMARK_INCLUDE_DIR to a Google Benchmark include directory")
-    endif ()
-    if (NOT PEDIGREE_HOSTED_BENCHMARK_LIBRARY OR
-        NOT EXISTS "${PEDIGREE_HOSTED_BENCHMARK_LIBRARY}")
-        message(FATAL_ERROR
-            "Set PEDIGREE_HOSTED_BENCHMARK_LIBRARY to an architecture-matched libbenchmark.a")
-    endif ()
-
-    target_compile_definitions(kernel_shared PRIVATE
-        PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE=${PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE})
-
-    find_package(Threads REQUIRED)
-    add_executable(hosted-syscall-benchmark
-        ${CMAKE_SOURCE_DIR}/src/system/kernel/benchmarks/hosted-syscall-benchmark.cc)
-    target_include_directories(hosted-syscall-benchmark PRIVATE
-        ${PEDIGREE_HOSTED_BENCHMARK_INCLUDE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR})
-    target_compile_definitions(hosted-syscall-benchmark PRIVATE
-        PEDIGREE_HOSTED_SYSCALL_BENCHMARK=1
-        PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE=${PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE})
-    target_compile_options(hosted-syscall-benchmark PRIVATE
-        -O3
-        -UUTILITY_LINUX
-        -DUTILITY_LINUX=1)
-    if (PEDIGREE_HOSTED_DARWIN)
-        target_link_options(hosted-syscall-benchmark PRIVATE
-            -Wl,-export_dynamic,-rpath,@loader_path)
-    else ()
-        target_link_options(hosted-syscall-benchmark PRIVATE -rdynamic)
-    endif ()
-    target_link_libraries(hosted-syscall-benchmark PRIVATE
-        kernel_shared Threads::Threads ${PEDIGREE_HOSTED_BENCHMARK_LIBRARY})
-    set_target_properties(hosted-syscall-benchmark PROPERTIES
-        BUILD_RPATH "$<TARGET_FILE_DIR:kernel_shared>")
 endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")

@@ -170,18 +170,24 @@ void requireThreadDestructionContext() {
 
 class CpuTimeSample {
  public:
-  CpuTimeSample()
-      : timestamp(0), processor(0), m_InterruptsWereEnabled(Processor::getInterrupts()) {
-    Processor::setInterrupts(false);
+  explicit CpuTimeSample(bool interruptsAlreadyDisabled = false)
+      : timestamp(0), processor(0), m_InterruptsWereEnabled(false),
+        m_RestoreInterrupts(!interruptsAlreadyDisabled) {
+    if (!interruptsAlreadyDisabled) {
+      m_InterruptsWereEnabled = Processor::getInterrupts();
+      Processor::setInterrupts(false);
+    }
 
     // Keep interrupts masked until the paired baseline/publication update
     // is complete, so migration cannot invalidate this CPU-clock sample.
     processor = Processor::id();
-    timestamp = Time::getTicks();
+    timestamp = Time::getTicksFast();
   }
 
   ~CpuTimeSample() {
-    Processor::setInterrupts(m_InterruptsWereEnabled);
+    if (m_RestoreInterrupts) {
+      Processor::setInterrupts(m_InterruptsWereEnabled);
+    }
   }
 
   Time::Timestamp timestamp;
@@ -189,6 +195,7 @@ class CpuTimeSample {
 
  private:
   bool m_InterruptsWereEnabled;
+  bool m_RestoreInterrupts;
   ActivityDiagnostics::TimeAccountingScope m_ActivityScope;
 };
 }  // namespace
@@ -360,7 +367,7 @@ Thread::Thread(Process* pParent, SyscallState& state, bool delayedStart,
 void Thread::recordTime(CpuTimeMode mode) {
 #if PEDIGREE_TIME_ACCOUNTING
   const CpuTimeSample sample;
-  m_TimeAccounting.record(mode, sample.timestamp, sample.processor);
+  m_TimeAccounting.recordAtInterruptDisabled(mode, sample.timestamp, sample.processor);
 #endif
   __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(mode), __ATOMIC_RELEASE);
 }
@@ -369,7 +376,7 @@ void Thread::trackTime(CpuTimeMode mode) {
 #if PEDIGREE_TIME_ACCOUNTING
   const CpuTimeSample sample;
   const Time::Timestamp elapsed =
-      m_TimeAccounting.elapsed(mode, sample.timestamp, sample.processor);
+      m_TimeAccounting.elapsedAtInterruptDisabled(mode, sample.timestamp, sample.processor);
   if (elapsed) {
     publishTimeAccounting(mode, elapsed);
   }
@@ -378,18 +385,20 @@ void Thread::trackTime(CpuTimeMode mode) {
 #endif
 }
 
-void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to) {
+void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to,
+                            bool interruptsAlreadyDisabled) {
 #if PEDIGREE_TIME_ACCOUNTING
-  const CpuTimeSample sample;
+  const CpuTimeSample sample(interruptsAlreadyDisabled);
   const Time::Timestamp elapsed =
-      m_TimeAccounting.elapsed(from, sample.timestamp, sample.processor);
-  m_TimeAccounting.record(to, sample.timestamp, sample.processor);
+      m_TimeAccounting.elapsedAtInterruptDisabled(from, sample.timestamp, sample.processor);
+  m_TimeAccounting.recordAtInterruptDisabled(to, sample.timestamp, sample.processor);
   __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
   if (elapsed) {
     publishTimeAccounting(from, elapsed);
   }
 #else
   (void)from;
+  (void)interruptsAlreadyDisabled;
   __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
 #endif
 }
@@ -401,9 +410,10 @@ void Thread::transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to) {
   // through CpuTimeSample here could momentarily undo that mask on hosted,
   // where the logical state intentionally describes the pending sigreturn.
   const size_t processor = Processor::id();
-  const Time::Timestamp timestamp = Time::getTicks();
-  const Time::Timestamp elapsed = m_TimeAccounting.elapsed(from, timestamp, processor);
-  m_TimeAccounting.record(to, timestamp, processor);
+  const Time::Timestamp timestamp = Time::getTicksFast();
+  const Time::Timestamp elapsed =
+      m_TimeAccounting.elapsedAtInterruptDisabled(from, timestamp, processor);
+  m_TimeAccounting.recordAtInterruptDisabled(to, timestamp, processor);
   __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
   if (elapsed) {
     publishTimeAccounting(from, elapsed);
@@ -3095,6 +3105,7 @@ bool Thread::getWaitDebugInfo(WaitDebugInfo& info) {
 
 void Thread::deferEvents() {
   __atomic_add_fetch(&m_EventDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+  markUserReturnWorkFlag(UserReturnEventsDeferred);
 }
 
 void Thread::resumeEvents() {
@@ -3102,11 +3113,14 @@ void Thread::resumeEvents() {
   if (!depth) {
     FATAL("Unbalanced event-delivery deferral.");
   }
-  __atomic_sub_fetch(&m_EventDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+  if (__atomic_sub_fetch(&m_EventDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL) == 0) {
+    clearUserReturnWorkFlag(UserReturnEventsDeferred);
+  }
 }
 
 void Thread::deferTermination() {
   __atomic_add_fetch(&m_TerminationDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+  markUserReturnWorkFlag(UserReturnTerminationDeferred);
 }
 
 void Thread::resumeTermination() {
@@ -3114,7 +3128,9 @@ void Thread::resumeTermination() {
   if (!depth) {
     FATAL("Unbalanced terminal-teardown deferral.");
   }
-  __atomic_sub_fetch(&m_TerminationDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+  if (__atomic_sub_fetch(&m_TerminationDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL) == 0) {
+    clearUserReturnWorkFlag(UserReturnTerminationDeferred);
+  }
 }
 
 void Thread::registerDeferredScope(DeferredScopeRecord& record, bool termination, bool events) {
@@ -3238,13 +3254,12 @@ void Thread::disarmStateCleanup(DeferredScopeRecord& record) {
 }
 
 void Thread::unregisterTerminationDeferral(DeferredScopeRecord& record) {
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
   if (!record.armed || !record.defersTermination || record.defersEvents || record.cleanup ||
       record.stateLevel >= MAX_NESTED_EVENTS) {
     FATAL("Invalid termination deferral retirement.");
   }
-
-  const bool interruptsWereEnabled = Processor::getInterrupts();
-  Processor::setInterrupts(false);
 
   DeferredScopeRecord* previous = nullptr;
   DeferredScopeRecord* current =
@@ -3542,7 +3557,7 @@ bool Thread::deferSubsystemException(size_t type, uintptr_t faultAddress, uintpt
   m_DeferredSubsystemExceptionFaultAddress = faultAddress;
   m_DeferredSubsystemExceptionErrorCode = errorCode;
   __atomic_store_n(&m_DeferredSubsystemExceptionState, 2, __ATOMIC_RELEASE);
-  markUserReturnWorkPending();
+  markUserReturnWorkFlag(UserReturnDeferredException);
   return true;
 }
 
@@ -3556,6 +3571,7 @@ bool Thread::takeDeferredSubsystemException(size_t& type, uintptr_t& faultAddres
   faultAddress = m_DeferredSubsystemExceptionFaultAddress;
   errorCode = m_DeferredSubsystemExceptionErrorCode;
   __atomic_store_n(&m_DeferredSubsystemExceptionState, 0, __ATOMIC_RELEASE);
+  clearUserReturnWorkFlag(UserReturnDeferredException);
   return true;
 }
 

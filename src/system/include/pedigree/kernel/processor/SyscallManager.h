@@ -114,7 +114,7 @@ class SyscallManager {
   virtual bool registerSyscallHandler(Service_t Service, SyscallHandler* pHandler,
                                       Registration& registration) = 0;
 
-  /** Stage a terminal operation until the active handler lease is retired. */
+  /** Queue a terminal operation until the active handler lease is retired. */
   EXPORTED_PUBLIC bool requestThreadExit();
   EXPORTED_PUBLIC bool requestProcessExit(int status);
   EXPORTED_PUBLIC bool requestEventReturn();
@@ -182,7 +182,6 @@ class SyscallManager {
     Thread* m_pThread;
     DeferredScopeRecord m_Cleanup;
     HandlerDispatch m_Dispatch;
-    bool m_BenchmarkFastPath;
   };
 
   bool registerHandler(Service_t service, SyscallHandler* pHandler, Registration& registration);
@@ -190,8 +189,7 @@ class SyscallManager {
   SyscallHandler* loadHandler(Service_t service) const;
   bool closeHandler(Registration& registration);
   bool unregisterHandler(Registration& registration);
-  bool acquireHandler(Service_t service, HandlerLease& lease, PostSyscallAction& action,
-                      bool armCleanup = true, bool benchmarkFastPath = false);
+  bool acquireHandler(Service_t service, HandlerLease& lease, PostSyscallAction& action);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   bool postSyscallHookHandled(const PostSyscallAction& action);

@@ -59,6 +59,7 @@ PosixProcess::CredentialStatus PosixProcess::changeCredentials(Thread& task,
   if (status != CredentialStatus::Success)
     return status;
   m_Credentials = next;
+  publishCredentialReadCache();
   publishFilesystemIds(task, group ? fsuid : nextFs, group ? nextFs : fsgid);
   return status;
 }
@@ -154,6 +155,7 @@ bool PosixProcess::installUserIdentity(User* user, Group* group, const uint32_t*
   next.generation = m_Credentials.generation + 1;
   next.dumpable = false;
   m_Credentials = next;
+  publishCredentialReadCache();
   publishAccountIdentity(user, group);
   Thread* current = Processor::information().getCurrentThread();
   if (current && current->getParent() == this)
@@ -162,7 +164,7 @@ bool PosixProcess::installUserIdentity(User* user, Group* group, const uint32_t*
 }
 
 int64_t PosixProcess::getUserId() const {
-  return snapshotCredentials().ruid;
+  return static_cast<int64_t>(__atomic_load_n(&m_RealUserId, __ATOMIC_ACQUIRE));
 }
 int64_t PosixProcess::getGroupId() const {
   return snapshotCredentials().rgid;
@@ -193,6 +195,7 @@ void PosixProcess::setTrustedIdentity(uint32_t CredentialSnapshot::* field, int6
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
   LockGuard<Spinlock> guard(m_CredentialLock);
   m_Credentials.*field = static_cast<uint32_t>(id);
+  publishCredentialReadCache();
   m_Credentials.dumpable = false;
   ++m_Credentials.generation;
   Thread* task = Processor::information().getCurrentThread();

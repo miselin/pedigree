@@ -521,24 +521,6 @@ if (BENCHMARK_LIBRARY)
     target_compile_options(benchmarker-native PRIVATE "-O3" "-march=native" "-mtune=native" "-Wno-vla-cxx-extension")
     target_compile_definitions(benchmarker-native PRIVATE -DTESTSUITE)
 
-    add_library(benchmarker-native-profile-profiler OBJECT
-        testsuite/bench-callprofiler.cc)
-
-    add_executable(benchmarker-native-profile
-        testsuite/bench-Scheduler.cc
-        testsuite/bench-main.cc
-        $<TARGET_OBJECTS:benchmarker-native-profile-profiler>)
-    target_include_directories(benchmarker-native-profile PRIVATE ${BENCHMARK_INCLUDE_DIR})
-    target_link_libraries(benchmarker-native-profile PRIVATE
-        Threads::Threads ${BENCHMARK_LIBRARY} ${CMAKE_DL_LIBS})
-    target_compile_options(benchmarker-native-profile PRIVATE
-        "-O2" "-fno-omit-frame-pointer"
-        "-finstrument-functions" "-Wno-vla-cxx-extension")
-    target_compile_definitions(benchmarker-native-profile PRIVATE
-        -DTESTSUITE -DPEDIGREE_BENCHMARK_CALL_PROFILE=1)
-    target_link_options(benchmarker-native-profile PRIVATE "-Wl,-export_dynamic")
-
-
     export(
         TARGETS benchmarker
         APPEND FILE ${CMAKE_BINARY_DIR}/HostUtilities.cmake NAMESPACE host-

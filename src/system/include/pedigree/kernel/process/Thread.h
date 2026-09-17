@@ -123,6 +123,16 @@ class EXPORTED_PUBLIC Thread {
   bool tryRequireSignalFrames();
   void clearSignalFrameRequirement();
   void setUserReturnSignalParked(bool parked);
+
+  enum UserReturnWorkFlag : size_t {
+    UserReturnExternalWork = 1,
+    UserReturnEventsDeferred = 1 << 1,
+    UserReturnTerminationDeferred = 1 << 2,
+    UserReturnSignalFrames = 1 << 3,
+    UserReturnDeferredException = 1 << 4,
+    UserReturnOriginalSyscall = 1 << 5,
+  };
+
   bool canSkipUserReturnWork();
   bool clearUserReturnWorkIfIdle();
   bool userReturnWorkPending() const {
@@ -349,7 +359,8 @@ class EXPORTED_PUBLIC Thread {
   void trackTime(CpuTimeMode mode);
 
   /** Accounts one CPU-mode transition from a single monotonic sample. */
-  void transitionTime(CpuTimeMode from, CpuTimeMode to);
+  void transitionTime(CpuTimeMode from, CpuTimeMode to,
+                      bool interruptsAlreadyDisabled = false);
 
   /**
    * Accounts the final interrupt return transition while the architecture
@@ -686,6 +697,12 @@ class EXPORTED_PUBLIC Thread {
 
   void setOriginalSyscallState(const SyscallState* state) {
     m_OriginalSyscallState = state;
+    if (state) {
+      __atomic_fetch_or(&m_UserReturnWorkPending, UserReturnOriginalSyscall, __ATOMIC_RELEASE);
+    } else {
+      __atomic_fetch_and(&m_UserReturnWorkPending, ~static_cast<size_t>(UserReturnOriginalSyscall),
+                         __ATOMIC_RELEASE);
+    }
   }
 
   /** Records trusted metadata for the signal dispatched at the current level. */
@@ -936,8 +953,14 @@ class EXPORTED_PUBLIC Thread {
   void resumeEvents();
   void deferTermination();
   void resumeTermination();
+  void markUserReturnWorkFlag(UserReturnWorkFlag flag) {
+    __atomic_fetch_or(&m_UserReturnWorkPending, static_cast<size_t>(flag), __ATOMIC_RELEASE);
+  }
+  void clearUserReturnWorkFlag(UserReturnWorkFlag flag) {
+    __atomic_fetch_and(&m_UserReturnWorkPending, ~static_cast<size_t>(flag), __ATOMIC_RELEASE);
+  }
   void markUserReturnWorkPending() {
-    __atomic_store_n(&m_UserReturnWorkPending, static_cast<size_t>(1), __ATOMIC_RELEASE);
+    markUserReturnWorkFlag(UserReturnExternalWork);
   }
   void registerDeferredScope(DeferredScopeRecord& record, bool termination, bool events);
   void armStateCleanup(DeferredScopeRecord& record, DeferredScopeRecord::Cleanup cleanup,

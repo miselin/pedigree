@@ -80,6 +80,9 @@ EXPORTED_PUBLIC bool setTimeNanoseconds(Timestamp value);
  */
 EXPORTED_PUBLIC Timestamp getTicks();
 
+/** Gets ticks while the caller already has interrupts disabled. */
+EXPORTED_PUBLIC Timestamp getTicksFast();
+
 namespace Conversion {
 /**
  * Converts the given expanded date to a UNIX timestamp.

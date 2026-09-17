@@ -34,7 +34,8 @@ class Thread;
  */
 class TimeTracker {
  public:
-  TimeTracker(Process* pProcess, bool fromUserspace);
+  TimeTracker(Process* pProcess, bool fromUserspace,
+              bool entryInterruptsAlreadyDisabled = false);
   virtual ~TimeTracker();
 
   /** Completes accounting before a no-return architectural transition. */

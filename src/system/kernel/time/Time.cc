@@ -81,4 +81,12 @@ Timestamp getTicks() {
   return pTimer->getTickCountNano();
 }
 
+Timestamp getTicksFast() {
+  Timer* pTimer = Machine::instance().getTimer();
+  if (!pTimer) {
+    return 0;
+  }
+  return pTimer->getTickCountNanoFast();
+}
+
 }  // namespace Time

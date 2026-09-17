@@ -294,6 +294,14 @@ uint64_t Rtc::getTickCountNano() {
 
   return m_MonotonicTicks.publish(candidate);
 }
+
+uint64_t Rtc::getTickCountNanoFast() {
+  // CpuTimeSample already runs with IRQs disabled. The periodic timer cursor
+  // is therefore a safe, allocation-free accounting clock; avoid paying for
+  // an ordered TSC read and 128-bit conversion on every syscall transition.
+  return m_TickCount.value();
+}
+
 bool Rtc::initialise1(uint8_t centuryIndex) {
   NOTICE("Rtc::initialise1");
 

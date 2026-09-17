@@ -137,16 +137,6 @@ bool X64SyscallManager::registerSyscallHandler(Service_t Service, SyscallHandler
 }
 
 void X64SyscallManager::syscall(SyscallState& syscallState) {
-#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE > 0
-  const bool benchmarkGetuid = syscallState.getSyscallService() == linuxCompat &&
-                               syscallState.getSyscallNumber() == 102;
-#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 1
-  if (benchmarkGetuid) {
-    syscallState.setSyscallReturnValue(0);
-    return;
-  }
-#endif
-#endif
   const SyscallState originalState = syscallState;
   const bool diagnosticSample =
       Processor::information().getScheduler().sampleUserReturnDiagnostics();
@@ -161,26 +151,10 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
   int processExitCode = 0;
   Subsystem::ExitCause processExitCause = Subsystem::ExitCause::Normal;
   {
-#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 23 || \
-    PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 24
-    if (benchmarkGetuid) {
-      Processor::setInterrupts(true);
-#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 24
-      HandlerLease handler;
-      PostSyscallAction action;
-      m_Instance.acquireHandler(static_cast<Service_t>(linuxCompat), handler, action, true, true);
-#endif
-      syscallState.setSyscallReturnValue(0);
-      return;
-    }
-#endif
-    TimeTracker tracker(0, true);
-#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 22
-    if (benchmarkGetuid) {
-      syscallState.setSyscallReturnValue(0);
-      return;
-    }
-#endif
+    // SYSCALL entered with IF masked by IA32_FMASK. Let the first accounting
+    // sample reuse that architectural state instead of masking and restoring
+    // interrupts a second time.
+    TimeTracker tracker(0, true, true);
 #if TIME_SYSCALLS
     Process* pProcess = Processor::information().getCurrentThread()->getParent();
     Time::Stopwatch syscallTimer(true);
@@ -190,13 +164,6 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     // Enable IRQs - stack switching and such are done now and it's now safe to
     // start processing interrupts elsewhere.
     Processor::setInterrupts(true);
-
-#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 2
-    if (benchmarkGetuid) {
-      syscallState.setSyscallReturnValue(0);
-      return;
-    }
-#endif
 
     size_t serviceNumber = syscallState.getSyscallService();
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
@@ -209,25 +176,10 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     if (LIKELY(serviceNumber < serviceEnd)) {
       // The lease must retire before the deferral allows a pending terminal
       // request to consume this thread's stack.
-      TerminationDeferral callbackDeferral(
-#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 17 || \
-    PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 21
-          !benchmarkGetuid
-#else
-          true
-#endif
-      );
+      TerminationDeferral callbackDeferral;
       SyscallHandler* handler = m_Instance.loadHandler(static_cast<Service_t>(serviceNumber));
       if (handler) {
         handled = true;
-#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 16 || \
-    PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 17 || \
-    PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 18 || \
-    PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 19 || \
-    PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 21
-        if (benchmarkGetuid)
-          return;
-#endif
         Thread* syscallThread = Processor::information().getCurrentThread();
         void* previousContext = syscallThread->getSyscallDispatchContext();
         syscallThread->setSyscallDispatchContext(&action);
@@ -252,11 +204,6 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
         Processor::information().getCurrentThread()->setErrno(0);
       }
     }
-
-#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 3
-    if (benchmarkGetuid)
-      return;
-#endif
 
     returnTailStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
     if (!handled) {
@@ -398,28 +345,13 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
             break;
           }
 #endif
-#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 13
-          if (benchmarkGetuid)
-            return;
-#endif
           SyscallReturnScope returnScope(interruptedWithoutProgress ? &originalState : nullptr);
-#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 14
-          if (benchmarkGetuid)
-            return;
-#endif
           userReturnTerminal = Processor::information().getScheduler().serviceUserReturnWork(
               syscallState, UserReturnFrame::Origin::Syscall, diagnosticSample);
           break;
         }
       }
     }
-
-#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 4 || \
-    (PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE >= 6 && \
-     PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE <= 14)
-    if (benchmarkGetuid)
-      return;
-#endif
 
     if (!exitCurrentProcess && !rebootSystem) {
       Thread* pThread = Processor::information().getCurrentThread();
@@ -455,11 +387,6 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
       tracker.finishInKernel();
   }
 
-#if PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE == 5
-  if (benchmarkGetuid)
-    return;
-#endif
-
   if (rebootSystem) {
     Processor::setInterrupts(false);
     Processor::information().getCurrentThread()->abandonAllStates();
@@ -485,7 +412,9 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     FATAL_NOLOCK("Terminal affinity return unexpectedly returned");
   }
   const uint64_t accountingStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
-  current->transitionTime(CpuTimeMode::Kernel, CpuTimeMode::User);
+  // completeAffinityAtSafePoint() leaves the ordinary return tail with IRQs
+  // masked. Do not sample and restore that state again before SYSRET.
+  current->transitionTimeAtInterruptReturn(CpuTimeMode::Kernel, CpuTimeMode::User);
   recordAccountingSample(diagnosticSample, accountingStart);
   if (diagnosticSample) {
     ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::SyscallTail,

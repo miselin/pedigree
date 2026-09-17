@@ -42,8 +42,10 @@ PosixProcess::PosixProcess()
       m_VirtualIntervalTimer(this, IntervalTimer::Virtual),
       m_ProfileIntervalTimer(this, IntervalTimer::Profile),
       m_Credentials(),
+      m_RealUserId(0),
       m_bRegistered(false) {
   initializeJobControl(nullptr);
+  publishCredentialReadCache();
   enableTimeAccountingReports(0);
 }
 
@@ -63,6 +65,7 @@ PosixProcess::PosixProcess(Process* pParent, bool bCopyOnWrite,
       m_VirtualIntervalTimer(this, IntervalTimer::Virtual),
       m_ProfileIntervalTimer(this, IntervalTimer::Profile),
       m_Credentials(),
+      m_RealUserId(0),
       m_bRegistered(false) {
   initializeJobControl(pParent);
   enableTimeAccountingReports(0);
@@ -84,6 +87,11 @@ PosixProcess::PosixProcess(Process* pParent, bool bCopyOnWrite,
         m_Credentials.groups[i] = inherited.groups[i];
     }
   }
+  publishCredentialReadCache();
+}
+
+void PosixProcess::publishCredentialReadCache() {
+  __atomic_store_n(&m_RealUserId, m_Credentials.ruid, __ATOMIC_RELEASE);
 }
 
 PosixProcess::~PosixProcess() {

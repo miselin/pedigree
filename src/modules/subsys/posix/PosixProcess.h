@@ -215,6 +215,7 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   PosixProcess& operator=(const PosixProcess&);
 
   void initializeJobControl(Process* parent);
+  void publishCredentialReadCache();
   ProcessAccountingLifetime m_AccountingLifetime;
   size_t m_SessionId;
   ProcessGroup* m_pProcessGroup;
@@ -229,6 +230,9 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   IntervalTimer m_ProfileIntervalTimer;
 
   CredentialSnapshot m_Credentials;
+  // Read-only identity syscalls need one scalar and should not copy the full
+  // credential snapshot or contend on its mutation lock.
+  volatile uint32_t m_RealUserId;
   bool m_bRegistered;
 };
 

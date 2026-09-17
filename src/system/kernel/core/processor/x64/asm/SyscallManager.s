@@ -39,13 +39,6 @@ syscall_handler:
   ; Preserve the user's saved RFLAGS in R11 while establishing the kernel ABI.
   cld
 
-%ifdef PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE
-  ; Linux amd64 SYS_getuid is 102. The normal frame is still required to
-  ; preserve user registers. The selected stage controls what is restored.
-  cmp rax, 102
-  je .fast_getuid
-%endif
-
   ; Load kernel stack into gs base
   swapgs
 
@@ -116,61 +109,3 @@ syscall_handler:
 
   db 0x48
   sysret
-
-%ifdef PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE
-.fast_getuid:
-  ; Reuse the normal register frame layout. The saved RAX slot is at +128;
-  ; the metadata prefix is populated only by stages 2 and 3.
-  swapgs
-  mov [gs: -0x08], rsp      ; rsp
-  mov [gs: -0x10], rcx      ; rip/rcx
-  mov [gs: -0x18], r11      ; rflags/r11
-  mov [gs: -0x20], rax      ; rax
-  mov [gs: -0x28], rbx      ; rbx
-  mov [gs: -0x30], rdx      ; rdx
-  mov [gs: -0x38], rdi      ; rdi
-  mov [gs: -0x40], rsi      ; rsi
-  mov [gs: -0x48], rbp      ; rbp
-  mov [gs: -0x50], r8       ; r8
-  mov [gs: -0x58], r9       ; r9
-  mov [gs: -0x60], r10      ; r10
-  mov [gs: -0x68], r12      ; r12
-  mov [gs: -0x70], r13      ; r13
-  mov [gs: -0x78], r14      ; r14
-  mov [gs: -0x80], r15      ; r15
-
-  swapgs
-
-  mov rcx, 0xC0000102
-  rdmsr
-  mov esp, edx
-  shl rsp, 32
-  mov rcx, 0xFFFFFFFF
-  and rax, rcx
-  add rsp, rax
-  sub rsp, 0xa0
-
-%if PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE >= 2
-  mov rax, [rsp+128]
-  mov [rsp+24], rax
-  mov rdi, rsp
-  call pedigree_capture_user_entry
-%endif
-
-%if PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE >= 3
-  mov rdi, rsp
-  call _ZN17X64SyscallManager7syscallER15X64SyscallState
-%else
-  mov qword [rsp+128], 0
-%endif
-
-  cli
-
-%if PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE >= 2
-  mov rdi, rsp
-  call pedigree_restore_user_entry
-%endif
-
-  jmp .fast_return
-%endif
-        

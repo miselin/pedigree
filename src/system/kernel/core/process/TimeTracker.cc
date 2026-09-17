@@ -23,7 +23,8 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 
-TimeTracker::TimeTracker(Process* pProcess, bool fromUserspace)
+TimeTracker::TimeTracker(Process* pProcess, bool fromUserspace,
+                         bool entryInterruptsAlreadyDisabled)
     : m_pProcess(pProcess),
       m_pThread(nullptr),
       m_bFromUserspace(fromUserspace)
@@ -53,7 +54,8 @@ TimeTracker::TimeTracker(Process* pProcess, bool fromUserspace)
 
   // Track time already spent wherever we were previously.
   m_pThread->transitionTime(KernelTimeTransition::interrupted(m_bFromUserspace),
-                            KernelTimeTransition::handler());
+                            KernelTimeTransition::handler(),
+                            entryInterruptsAlreadyDisabled);
 }
 
 TimeTracker::~TimeTracker() {

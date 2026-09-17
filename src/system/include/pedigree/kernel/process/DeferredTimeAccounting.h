@@ -63,6 +63,20 @@ class ThreadTimeAccounting {
                                 __ATOMIC_ACQUIRE);
   }
 
+  /**
+   * Updates a current Thread's baseline while its CPU has interrupts masked.
+   * The owning Thread cannot migrate or execute concurrently in this window,
+   * so the compare-exchange loop used by the standalone helper is unnecessary.
+   */
+  void recordAtInterruptDisabled(CpuTimeMode mode, Time::Timestamp now,
+                                 size_t processor = 0) {
+    Entry* state = entry(mode);
+    if (state->processor != processor || now > state->timestamp) {
+      state->timestamp = now;
+      state->processor = processor;
+    }
+  }
+
   Time::Timestamp elapsed(CpuTimeMode mode, Time::Timestamp now, size_t processor = 0) {
     Entry* state = entry(mode);
     if (installProcessorBaseline(state, processor, now)) {
@@ -83,6 +97,23 @@ class ThreadTimeAccounting {
                                        __ATOMIC_ACQUIRE)
                ? elapsed
                : 0;
+  }
+
+  /** Returns and advances a current Thread's baseline with IRQs disabled. */
+  Time::Timestamp elapsedAtInterruptDisabled(CpuTimeMode mode, Time::Timestamp now,
+                                              size_t processor = 0) {
+    Entry* state = entry(mode);
+    if (state->processor != processor) {
+      state->timestamp = now;
+      state->processor = processor;
+      return 0;
+    }
+    if (now < state->timestamp) {
+      return 0;
+    }
+    const Time::Timestamp elapsed = now - state->timestamp;
+    state->timestamp = now;
+    return elapsed;
   }
 
  private:

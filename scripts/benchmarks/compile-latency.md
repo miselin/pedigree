@@ -214,6 +214,11 @@ include `report.json`, `serial.log`, `qemu.log`, `command.json`, and
 boot and all phases. It is a bound, not a promise that compilation will finish
 within 500 seconds.
 
+The runner keeps QMP on stdio and connects guest serial through QEMU's `pipe`
+chardev. It creates `serial.in` and `serial.out` as transient FIFOs before QEMU
+starts, then removes them during cleanup. This avoids Unix-domain serial sockets,
+including on hosts where the sandbox denies socket creation.
+
 Quick mode measures idle, a dependent integer CPU control,
 `gcc -o which which.cc -lstdc++`, one warm repeat, `./which gcc`, sync when
 enabled, and `anonymous-contract 1`. Default full mode first runs the exact

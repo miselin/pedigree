@@ -11,7 +11,6 @@ import random
 import re
 import select
 import shutil
-import socket
 import subprocess
 import time
 
@@ -56,6 +55,37 @@ def validate_phase_event(current, phase, event):
         raise RuntimeError(f"duplicate metric for phase: {phase}")
     if event == "DONE" and "metric" not in current:
         raise RuntimeError(f"DONE before metric for phase: {phase}")
+
+
+def open_serial_fifo(output):
+    """Create a QEMU pipe chardev and return host input/output descriptors."""
+    base = output / "serial"
+    input_path = Path(f"{base}.in")
+    output_path = Path(f"{base}.out")
+    input_fd = output_fd = None
+    try:
+        os.mkfifo(input_path)
+        os.mkfifo(output_path)
+        # O_RDWR keeps both sides of each FIFO open while QEMU starts. QEMU's
+        # pipe backend opens serial.in for reading and serial.out for writing;
+        # opening both ends here prevents either open from blocking or failing
+        # with ENXIO.
+        input_fd = os.open(input_path, os.O_RDWR | os.O_NONBLOCK)
+        output_fd = os.open(output_path, os.O_RDWR | os.O_NONBLOCK)
+        return base, input_fd, output_fd
+    except Exception:
+        close_serial_fifo(base, input_fd, output_fd)
+        raise
+
+
+def close_serial_fifo(base, input_fd, output_fd):
+    """Close FIFO descriptors and remove the transient endpoints."""
+    for descriptor in (input_fd, output_fd):
+        if descriptor is not None:
+            os.close(descriptor)
+    if base is not None:
+        for suffix in (".in", ".out"):
+            Path(f"{base}{suffix}").unlink(missing_ok=True)
 
 
 def sample_stacks(guest, register_text, paused=False, max_frames=8):
@@ -188,7 +218,8 @@ def main():
               "paused_samples": args.paused_samples,
               "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               "expected_phases": expected, "phases": []}
-    process = guest = serial = current = None
+    process = guest = current = None
+    serial_base = serial_input_fd = serial_output_fd = None
     started = time.monotonic()
     try:
         report["qemu_version"] = subprocess.check_output(
@@ -220,12 +251,10 @@ def main():
         if args.firmware_vars:
             shutil.copyfile(args.firmware_vars, output / "firmware-vars.fd")
             command += ["-drive", f"if=pflash,format=raw,file={output}/firmware-vars.fd"]
-        serial_path = output / "serial.sock"
-        if len(os.fsencode(serial_path)) >= 100:
-            raise ValueError("output path is too long for a portable Unix socket")
+        serial_base, serial_input_fd, serial_output_fd = open_serial_fifo(output)
         command += ["-drive", f"file={disk},if=ide,format=qcow2",
                     "-display", "none", "-chardev",
-                    f"socket,id=bench,path={serial_path},server=on,wait=off",
+                    f"pipe,id=bench,path={serial_base}",
                     "-serial", "chardev:bench", "-qmp", "stdio", "-nic", "none",
                     "-no-reboot", "-no-shutdown", "-S"]
         (output / "command.json").write_text(json.dumps(command, indent=2) + "\n")
@@ -235,9 +264,6 @@ def main():
         guest = LAUNCH.IO.Guest(process, output)
         guest.receive()
         guest.qmp("qmp_capabilities")
-        serial = socket.socket(socket.AF_UNIX)
-        serial.connect(str(serial_path))
-        serial.setblocking(False)
         boot = time.monotonic()
         guest.qmp("cont")
         deadline = boot + args.timeout
@@ -279,12 +305,12 @@ def main():
                     next_sample = time.monotonic() + sample_delay()
                 wait = max(0, min(1, deadline - time.monotonic(),
                                   next_sample - time.monotonic()))
-                ready, _, _ = select.select([serial], [], [], wait)
+                ready, _, _ = select.select([serial_output_fd], [], [], wait)
                 if not ready:
                     if process.poll() is not None:
                         raise RuntimeError("QEMU exited before benchmark completion")
                     continue
-                data = serial.recv(65536)
+                data = os.read(serial_output_fd, 65536)
                 if not data:
                     raise RuntimeError("serial closed")
                 log.write(data)
@@ -318,7 +344,7 @@ def main():
                         current["blocks_before"] = guest.qmp("query-blockstats")
                         current["irq_before"] = guest.qmp(
                             "human-monitor-command", {"command-line": "info irq"})
-                        serial.sendall(b"g")
+                        os.write(serial_input_fd, b"g")
                         sent = time.monotonic()
                         current["started_monotonic"] = sent
                         current["go_monotonic"] = sent
@@ -403,8 +429,7 @@ def main():
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
-        if serial:
-            serial.close()
+        close_serial_fifo(serial_base, serial_input_fd, serial_output_fd)
         report["total_host_wall_s"] = time.monotonic() - started
         write_report(output, report, current=current)
     print(json.dumps({key: value for key, value in report.items() if key != "phases"}))

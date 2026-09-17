@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -80,6 +81,26 @@ class ReportStateTest(unittest.TestCase):
             self.assertNotIn("started_monotonic", saved["incomplete_phase"])
             self.assertNotIn("go_monotonic", saved["incomplete_phase"])
             self.assertFalse((output / "report.json.tmp").exists())
+
+
+class SerialTransportTest(unittest.TestCase):
+    def test_fifo_transport_bridges_host_and_qemu_ends(self):
+        with tempfile.TemporaryDirectory(prefix="compile-latency-fifo-") as directory:
+            output = Path(directory)
+            base, input_fd, output_fd = RUNNER.open_serial_fifo(output)
+            qemu_input = os.open(f"{base}.in", os.O_RDONLY | os.O_NONBLOCK)
+            qemu_output = os.open(f"{base}.out", os.O_WRONLY | os.O_NONBLOCK)
+            try:
+                self.assertEqual(os.write(input_fd, b"g"), 1)
+                self.assertEqual(os.read(qemu_input, 1), b"g")
+                self.assertEqual(os.write(qemu_output, b"o"), 1)
+                self.assertEqual(os.read(output_fd, 1), b"o")
+            finally:
+                os.close(qemu_input)
+                os.close(qemu_output)
+                RUNNER.close_serial_fifo(base, input_fd, output_fd)
+            self.assertFalse(Path(f"{base}.in").exists())
+            self.assertFalse(Path(f"{base}.out").exists())
 
 
 if __name__ == "__main__":

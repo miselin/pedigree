@@ -136,18 +136,6 @@ set(PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS FALSE CACHE BOOL
     "Sample x64 user-entry metadata capture and restore costs.")
 set(PEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA FALSE CACHE BOOL
     "Benchmark only: bypass x64 user-entry metadata capture and restore.")
-set(PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE 0 CACHE STRING
-    "Benchmark only: getuid entry path stage (0=normal, 1=bare, 2=metadata, 3=full C++ path).")
-if (NOT PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE MATCHES "^[0-3]$")
-    message(FATAL_ERROR
-        "PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE must be 0, 1, 2, or 3")
-endif ()
-set(PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE 0 CACHE STRING
-    "Benchmark only: getuid C++ path checkpoint (0=full, 1-5=dispatcher, 6-12=user return, 13-14=return scope).")
-if (NOT PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE MATCHES "^(0|[1-9]|1[0-4])$")
-    message(FATAL_ERROR
-        "PEDIGREE_BENCHMARK_GETUID_SYSCALL_CPP_STAGE must be between 0 and 14")
-endif ()
 set(PEDIGREE_BENCHMARK_USER_RETURN_ABLATION FALSE CACHE BOOL
     "Benchmark only: allow selected processes to bypass idle user-return policy work.")
 set(PEDIGREE_FAST_USER_RETURN TRUE CACHE BOOL
@@ -178,15 +166,6 @@ set(PEDIGREE_HOSTED_SYSTEM_MALLOC FALSE CACHE BOOL "Use the system malloc instea
 set(PEDIGREE_HOSTED_DYNAMIC_MODULES FALSE CACHE BOOL "Load modules from an initrd in hosted builds instead of linking them into the kernel.")
 set(PEDIGREE_HOSTED_SMOKE_TESTS FALSE CACHE BOOL "Build the hosted smoke-test module and userspace.")
 set(PEDIGREE_HOSTED_ASAN FALSE CACHE BOOL "Instrument hosted kernels and modules with AddressSanitizer.")
-set(PEDIGREE_HOSTED_SYSCALL_BENCHMARK FALSE CACHE BOOL
-    "Build the hosted Google Benchmark syscall-framework harness.")
-set(PEDIGREE_HOSTED_BENCHMARK_INCLUDE_DIR "" CACHE PATH
-    "Google Benchmark include directory for the hosted syscall harness.")
-set(PEDIGREE_HOSTED_BENCHMARK_LIBRARY "" CACHE FILEPATH
-    "Google Benchmark library for the hosted syscall harness.")
-set(PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE 0 CACHE STRING
-    "Hosted syscall benchmark ablation: 0=normal, 1=skip redundant masks, 2=logical-only interrupts, 3=without time tracking, 4=without idle user-return checks, 5=without unwind check.")
-set_property(CACHE PEDIGREE_HOSTED_SYSCALL_BENCHMARK_INTERRUPT_MODE PROPERTY STRINGS 0 1 2 3 4 5)
 set(PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS FALSE CACHE BOOL "Link the focused IRQ and scheduler closure regressions into a native Linux hosted kernel.")
 set(PEDIGREE_CONCURRENCY_SMOKE_TESTS FALSE CACHE BOOL "Build focused kernel concurrency smoke tests for QEMU.")
 set(PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS FALSE CACHE BOOL "Build focused VM ownership smoke tests for QEMU with a root filesystem.")
@@ -339,14 +318,6 @@ if (PEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA)
     endif ()
     string(APPEND PEDIGREE_NASM_FLAGS
         " -DPEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA=1")
-endif ()
-if (PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE GREATER 0)
-    if (NOT PEDIGREE_ARCH_TARGET STREQUAL "X64")
-        message(FATAL_ERROR
-            "PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE requires the x64 target")
-    endif ()
-    string(APPEND PEDIGREE_NASM_FLAGS
-        " -DPEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE=${PEDIGREE_BENCHMARK_GETUID_SYSCALL_STAGE}")
 endif ()
 if (PEDIGREE_NASM_GLOBAL_PREFIX)
     string(APPEND PEDIGREE_NASM_FLAGS
