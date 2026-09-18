@@ -31,8 +31,25 @@ inline uint64_t scale(uint64_t cycles, const Calibration& calibration) {
   }
 
   const unsigned __int128 scaled = static_cast<unsigned __int128>(cycles) * calibration.nanoseconds;
+#if defined(__x86_64__)
+  const uint64_t high = static_cast<uint64_t>(scaled >> 64);
+  if (high >= calibration.cycles) {
+    return MaximumTimestamp;
+  }
+
+  // A 128/64 quotient fits exactly when the high limb is below the divisor.
+  // The guard preserves saturation and prevents DIV's quotient-overflow trap.
+  uint64_t quotient;
+  uint64_t remainder;
+  asm("divq %4"
+      : "=a"(quotient), "=d"(remainder)
+      : "0"(static_cast<uint64_t>(scaled)), "1"(high), "r"(calibration.cycles)
+      : "cc");
+  return quotient;
+#else
   const unsigned __int128 nanoseconds = scaled / calibration.cycles;
   return nanoseconds > MaximumTimestamp ? MaximumTimestamp : static_cast<uint64_t>(nanoseconds);
+#endif
 }
 
 inline uint64_t saturatingAdd(uint64_t first, uint64_t second) {

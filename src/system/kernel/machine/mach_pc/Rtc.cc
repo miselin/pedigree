@@ -296,10 +296,14 @@ uint64_t Rtc::getTickCountNano() {
 }
 
 uint64_t Rtc::getTickCountNanoFast() {
-  // CpuTimeSample already runs with IRQs disabled. The periodic timer cursor
-  // is therefore a safe, allocation-free accounting clock; avoid paying for
-  // an ordered TSC read and 128-bit conversion on every syscall transition.
-  return m_TickCount.value();
+  // The RTC cursor advances in its worker, after the measured thread has
+  // switched out. Accounting needs a clock which advances on this thread.
+  // Callers already mask IRQs and reset their baselines on CPU migration,
+  // so the immutable local anchor needs no global monotonic publication.
+  uint64_t anchorTsc = m_Tsc0;
+  uint64_t anchorNanoseconds = 0;
+  Processor::information().getTscClockAnchor(anchorTsc, anchorNanoseconds);
+  return PcTscClock::fromAnchor(readOrderedTsc(), anchorTsc, anchorNanoseconds, m_TscCalibration);
 }
 
 bool Rtc::initialise1(uint8_t centuryIndex) {
