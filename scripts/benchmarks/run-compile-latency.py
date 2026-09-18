@@ -322,6 +322,8 @@ def main():
                 if b"Breakpoint exception." in wire + data or b"Page Fault Exception" in wire + data:
                     raise RuntimeError("guest entered the kernel debugger")
                 for line in LAUNCH.serial_lines(wire, data):
+                    if "PANIC:" in line:
+                        raise RuntimeError(line)
                     if "COMPILEBENCH FAIL" in line:
                         raise RuntimeError(line)
                     if line == "COMPILEBENCH skipped phase=sync reason=writes-disabled-performance-only":

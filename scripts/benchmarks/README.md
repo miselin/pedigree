@@ -3,6 +3,45 @@
 For native GCC compilation timing, kernel profiles, and comparison heatmaps,
 see the [compilation latency guide](compile-latency.md).
 
+## Syscall framework contracts
+
+`syscall-query-contract.c` checks real nonzero UIDs, stable process/thread IDs,
+errno preservation, and ordinary syscall fallback across four fork workers.
+The parent independently checks reported PIDs against `fork()` results. A
+separate child makes only raw `getuid`, `getpid`, and `gettid` calls in its steady
+loop; shared counters let the parent verify asynchronous signal delivery,
+stop/continue, and forced termination without making that child yield or block.
+It requires root to establish distinct real, effective, and saved UIDs. Success
+is `QUERY-CONTRACT PASS END workers=4` with exit status zero.
+
+`syscall-entry-contract.c` checks TLS/errno preservation, repeated syscalls in
+signal handlers, `sigreturn`, six-argument file mappings with a nonzero offset,
+anonymous mapping faults, and fork workers. It reports visited logical/APIC CPU
+IDs and explicitly skips nonzero GS-base checks when `ARCH_SET_GS` is unsupported.
+Success is `ENTRY-CONTRACT PASS END workers=4` with exit status zero. Observing
+several CPUs does not prove forced thread migration.
+
+Build both static binaries from the repository root with the configured target
+compiler and musl sysroot:
+
+```sh
+contract_dir=/path/to/contracts
+target_cc="$PWD/pedigree-compiler-15.3.0-r2/bin/x86_64-pedigree-gcc"
+target_sysroot="$PWD/build/musl"
+mkdir -p "$contract_dir"
+for name in syscall-entry-contract syscall-query-contract; do
+  "$target_cc" --sysroot="$target_sysroot" -I"$target_sysroot/include" \
+    -L"$target_sysroot/usr/lib" -static -O2 -std=gnu11 -Wall -Wextra \
+    "scripts/benchmarks/$name.c" -o "$contract_dir/$name"
+done
+```
+
+Install them into a disposable guest image and run as root, separately from
+timings, with one and four CPUs. Both have alarm-based failure bounds; also use
+a host timeout and retain the complete serial log and exit status. The
+[syscall performance notes](../../docs/syscall-framework-performance.md) explain
+the dispatch contract and measurement limitations.
+
 ## Synthetic VM syscall benchmark
 
 `vm-syscall-latency.c` measures mmap/munmap without rebuilding GCC. Compile it

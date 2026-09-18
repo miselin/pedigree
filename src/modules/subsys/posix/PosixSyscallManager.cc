@@ -159,6 +159,45 @@ uintptr_t PosixSyscallManager::call(uintptr_t function, uintptr_t p1, uintptr_t 
   return ret;
 }
 
+bool PosixSyscallManager::canRunWithInterruptsDisabled(const SyscallState& state) const {
+#if defined(POSIX_VERBOSE_SYSCALLS) || defined(POSIX_VERBOSE_SYSTEM_SYSCALLS) || \
+    PEDIGREE_SYSCALL_COUNTER || PEDIGREE_BENCHMARK_SYSCALL_TIMING ||             \
+    PEDIGREE_ACTIVITY_DIAGNOSTICS || PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
+  // Instrumented dispatch can acquire locks or sample clocks outside this contract.
+  (void)state;
+  return false;
+#else
+  if (state.getSyscallService() == linuxCompat) {
+    switch (state.getSyscallNumber()) {
+      case PedigreeLinuxAmd64Syscall_getpid:
+      case PedigreeLinuxAmd64Syscall_gettid:
+        return true;
+      case PedigreeLinuxAmd64Syscall_getuid:
+        break;
+      default:
+        return false;
+    }
+  } else if (state.getSyscallService() == posix) {
+    switch (state.getSyscallNumber()) {
+      case POSIX_GETPID:
+      case POSIX_GETTID:
+        return true;
+      case POSIX_GETUID:
+        break;
+      default:
+        return false;
+    }
+  } else {
+    return false;
+  }
+
+  // Only PosixProcess promises an atomic read of the published real UID.
+  Thread* current = Processor::information().getCurrentThread();
+  Process* process = current ? current->getParent() : nullptr;
+  return process && process->getType() == Process::Posix;
+#endif
+}
+
 uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
 #if PEDIGREE_SYSCALL_COUNTER
   Process* syscallProcess = Processor::information().getCurrentThread()->getParent();

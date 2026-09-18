@@ -40,6 +40,8 @@ class PosixSyscallManager : public SyscallHandler {
   /** Called when a syscall arrives. */
   virtual uintptr_t syscall(SyscallState& state);
 
+  bool canRunWithInterruptsDisabled(const SyscallState& state) const override;
+
   /** The constructor */
   PosixSyscallManager();
   /** The destructor */

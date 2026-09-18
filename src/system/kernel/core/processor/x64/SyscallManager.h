@@ -58,8 +58,12 @@ class X64SyscallManager : public ::SyscallManager {
  private:
   /** Called when a syscall was called
    *\param[in] syscallState reference to the usermode state before the syscall
+   *\return whether assembly must restore captured selector/base metadata
    */
-  static void syscall(SyscallState& syscallState) USED;
+  static bool syscall(SyscallState& syscallState) USED;
+  enum class EntryResult { NeedsDispatch, RestoreMetadata, PreserveMetadata };
+  static EntryResult syscallWithInterruptsDisabled(SyscallState& syscallState);
+  static void syscallWithActions(SyscallState& syscallState);
 
   /** The constructor */
   X64SyscallManager() INITIALISATION_ONLY;

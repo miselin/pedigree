@@ -15,7 +15,6 @@
 ; ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-extern pedigree_capture_user_entry
 extern pedigree_restore_user_entry
 
 ; X64SyscallManager::syscall(SyscallState &syscallState)
@@ -59,20 +58,20 @@ syscall_handler:
   push r14
   push r15
 
-  ; The shared metadata capture expects the original user GS base.
+  ; Keep user GS active. C++ captures metadata before any path can change it.
   swapgs
   sub rsp, 32
   mov rax, [rsp+128]
   mov [rsp+24], rax
-  mov rdi, rsp
-  call pedigree_capture_user_entry
-
   ; Call the C++ handler function
   mov rdi, rsp
   call _ZN17X64SyscallManager7syscallER15X64SyscallState
 
   cli
 
+  ; A bounded, IRQ-masked call can leave the original selectors/bases installed.
+  test al, al
+  jz .fast_return
   mov rdi, rsp
   call pedigree_restore_user_entry
 

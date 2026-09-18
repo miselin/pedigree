@@ -11,9 +11,12 @@ use this existing operation. The entry scratch state is per CPU, not global.
 
 The syscall stub swaps to that record, saves user RSP, loads the kernel stack,
 and pushes the same sixteen saved registers as before. A second `swapgs`
-restores user GS before the shared metadata helper captures selectors and
-FS/GS bases. The 32-byte metadata prefix, original-RAX slot, C++ frame layout,
-stack alignment and return path remain unchanged. Entry no longer reads
+restores user GS before C++ dispatch. The shared metadata helper captures
+selectors and FS/GS bases before ordinary dispatch or pending return work.
+Bounded IRQ-masked queries can leave the original selectors and bases installed;
+C++ returns whether assembly must restore captured metadata. The 32-byte
+metadata prefix, original-RAX slot, C++ frame layout and stack alignment remain
+unchanged. Entry no longer reads
 `IA32_KERNEL_GS_BASE` with `rdmsr` to recover the stack pointer.
 
 IRQs remain masked while the scratch user RSP is live. Ordinary interrupt entry
@@ -23,9 +26,12 @@ still leaves a window before RSP switches to the kernel stack. The new sequence
 shortens that window. Both swaps remain necessary for the current shared
 FS/GS metadata convention.
 
-## Validation
+See [syscall framework performance](syscall-framework-performance.md) for the
+bounded callback contract, current timings, and validation of deferred metadata.
 
-The one-CPU getuid trace contains 1,076 dispatches per uninterrupted call,
+## Stack-lookup validation at `65558e329`
+
+The one-CPU getuid trace at that commit contained 1,076 dispatches per uninterrupted call,
 versus 1,081 before this change. It retains two `swapgs`, two `rdmsr` for user
 FS/GS, and two `wrmsr` to restore them. The removed MSR read was solely the
 kernel-stack lookup. This instruction reduction is not a wall-time claim.
