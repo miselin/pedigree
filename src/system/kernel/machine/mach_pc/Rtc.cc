@@ -308,13 +308,9 @@ Time::CpuTimeSample Rtc::sampleCpuTime() {
   uint64_t anchorNanoseconds = 0;
   const ProcessorInformation& processor = Processor::information();
   processor.getTscClockAnchor(anchorTsc, anchorNanoseconds);
-  size_t processorId = processor.processorId();
-  // Firmware can assign the BSP's final ID before Processor::id() exposes it.
-  if (processorId && Processor::isInitialised() < 2) {
-    processorId = 0;
-  }
+  const size_t processorIndex = Processor::index();
   return {PcTscClock::fromAnchor(readOrderedTsc(), anchorTsc, anchorNanoseconds, m_TscCalibration),
-          processorId};
+          processorIndex};
 }
 
 bool Rtc::initialise1(uint8_t centuryIndex) {

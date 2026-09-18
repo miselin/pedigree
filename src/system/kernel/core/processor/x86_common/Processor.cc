@@ -367,12 +367,8 @@ ProcessorId ProcessorBase::id() {
 #endif
 }
 
+#if !X64
 size_t ProcessorBase::index() {
-#if X64
-  size_t index;
-  asm volatile("movq %%gs:24, %0" : "=r"(index) : : "memory");
-  return index;
-#else
   if (m_Initialised < 2)
     return 0;
 
@@ -386,8 +382,8 @@ size_t ProcessorBase::index() {
 #else
   return 0;
 #endif
-#endif
 }
+#endif
 
 size_t ProcessorBase::getCount() {
 #if MULTIPROCESSOR

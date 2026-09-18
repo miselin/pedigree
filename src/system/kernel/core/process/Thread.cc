@@ -1070,10 +1070,6 @@ void Thread::adoptInitialUserStackForExec(VirtualAddressSpace::Stack* stack) {
   m_StateLevels[0].m_pUserStack = stack;
 }
 
-size_t Thread::getStateLevel() const {
-  return __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
-}
-
 void Thread::threadExited() {
   Thread* thread = Processor::information().getCurrentThread();
   if (!thread) {
@@ -3471,10 +3467,6 @@ void Thread::setScheduler(class PerProcessorScheduler* pScheduler) {
   __atomic_store_n(&m_pScheduler, pScheduler, __ATOMIC_RELEASE);
 }
 
-PerProcessorScheduler* Thread::getScheduler() const {
-  return __atomic_load_n(&m_pScheduler, __ATOMIC_ACQUIRE);
-}
-
 void Thread::cleanStateLevel(size_t level) {
   if (__atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE)) {
     FATAL("Thread state stack freed with an armed cleanup record.");
@@ -3544,10 +3536,6 @@ void Thread::setUnwindState(UnwindType ut) {
   } else if (queuedBeforeStart) {
     Scheduler::instance().threadStatusChanged(this);
   }
-}
-
-Thread::UnwindType Thread::getUnwindState() {
-  return __atomic_load_n(&m_UnwindState, __ATOMIC_ACQUIRE);
 }
 
 void Thread::deferProcessExit(int code) {

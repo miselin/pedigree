@@ -29,6 +29,7 @@ typedef uint64_t Timestamp;
 
 struct CpuTimeSample {
   Timestamp timestamp;
+  // Processor::index() identifies the clock domain for migration checks.
   size_t processor;
 };
 

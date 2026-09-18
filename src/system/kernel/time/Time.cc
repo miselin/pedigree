@@ -25,6 +25,10 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
 
+#if X64 && MACH_PC && !HOSTED
+#include "machine/mach_pc/Rtc.h"
+#endif
+
 namespace Time {
 namespace {
 Spinlock realtimeLock(false, true);
@@ -91,11 +95,17 @@ Timestamp getTicksFast() {
 }
 
 CpuTimeSample sampleCpuTime() {
+#if X64 && MACH_PC && !HOSTED
+  // Pc::getTimer() always selects this clock, including before calibration.
+  // Qualifying the call avoids virtual dispatch at every accounting boundary.
+  return Rtc::instance().Rtc::sampleCpuTime();
+#else
   Timer* timer = Machine::instance().getTimer();
   if (!timer) {
-    return {0, Processor::id()};
+    return {0, Processor::index()};
   }
   return timer->sampleCpuTime();
+#endif
 }
 
 }  // namespace Time

@@ -310,7 +310,9 @@ class EXPORTED_PUBLIC Thread {
   void adoptInitialUserStackForExec(VirtualAddressSpace::Stack* stack);
 
   /** Returns the state nesting level. */
-  size_t getStateLevel() const;
+  size_t getStateLevel() const {
+    return __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
+  }
 
   void* getSyscallDispatchContext() const {
     return m_SyscallDispatchContext;
@@ -505,7 +507,9 @@ class EXPORTED_PUBLIC Thread {
 
       Whether to adopt option A or B depends on whether this thread or not has
      been asked to terminate, given by the return value. **/
-  UnwindType getUnwindState();
+  UnwindType getUnwindState() {
+    return __atomic_load_n(&m_UnwindState, __ATOMIC_ACQUIRE);
+  }
   /** Sets the above unwind state. */
   void setUnwindState(UnwindType ut);
 
@@ -925,7 +929,9 @@ class EXPORTED_PUBLIC Thread {
   ExecutionContext executionContext() const;
 
   /** Gets the per-processor scheduler for this Thread. */
-  class PerProcessorScheduler* getScheduler() const;
+  class PerProcessorScheduler* getScheduler() const {
+    return __atomic_load_n(&m_pScheduler, __ATOMIC_ACQUIRE);
+  }
 
   const String& getName() const {
     return m_Name;

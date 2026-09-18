@@ -713,6 +713,99 @@ revision/timestamp strings and symbol/debug data. Fresh final-image GS
 contracts pass again with one and four CPUs. Existing SLAM and `getType`
 working-tree experiments remain unchanged; both timing arms include them.
 
+## Inline accessors and direct accounting clock
+
+Starting at `effa57beb9`, this pass exposes four small accessor bodies to their
+callers: x64 `Processor::index()`, and `Thread::getUnwindState()`,
+`getStateLevel()`, and `getScheduler()`. The Thread getters retain their acquire
+loads; the GS lookup retains its volatile assembly and memory clobber. The
+scheduler getter reads the specified thread's assigned scheduler, not an
+assumed current-CPU scheduler. Most other simple Thread/Process getters were
+already inline. Lazy scheduler creation and virtual POSIX accessors remain
+separate from this pass.
+
+The x64 PC implementation of `Time::sampleCpuTime()` now calls the selected RTC
+implementation directly. `Pc::getTimer()` always returns that singleton, so
+this removes repeated machine lookup and virtual dispatch without changing
+the clock. The common Time API remains unchanged and the generic/hosted path
+still uses its timer backend. All sample producers now identify the CPU with
+`Processor::index()`, matching the permanent x64 GS slot, instead of normalizing
+a firmware ID during bootstrap. Clock-anchor readiness remains a separate
+check. Calibration, ordered reads, exact conversion, saturation, both boundary
+samples, immediate totals, and timer reporting semantics are unchanged.
+
+The emitted process-publication path loses its entire stack frame after index
+inlining. The RTC sampler also becomes a leaf without a stack frame: the old
+conditional `isInitialised()` call did not execute on CPU zero, but its presence
+still forced register preservation on every sample. Removing this possibility
+and the firmware-ID normalization saves 16 instructions per sample. Direct
+clock dispatch saves another 19 per sample.
+
+Eight clean captures per candidate, with all observed instruction bytes matched
+against the frozen kernel/initrd, show:
+
+| Variant | Instructions per getuid | CALL/RET pairs | Accounting instructions |
+| --- | ---: | ---: | ---: |
+| Kernel GS starting point | 556 | 20 | 317 |
+| Inline accessors | 510 | 17 | 281 |
+| Accessors + direct clock + permanent index | 440 | 13 | 211 |
+
+The final clock chain is 70 instructions, down from 140. Accounting's remaining
+211 instructions comprise 90 in thread transitions, 70 in clock sampling,
+14 in thread publication, 23 in process publication, and 14 in report-interest
+checks. Both ordered TSC samples and divisions remain. No locked instruction,
+RDMSR, WRMSR, PAUSE, or HLT appears in the clean path. Counts describe instruction
+dispatches, not elapsed-time shares.
+
+Fresh one-CPU QEMU TCG runs use the unchanged benchmark ELF, normal accounting,
+the real UID handler, and independent disk overlays. Kernel and initrd are
+rebuilt together, frozen, installed, and read back to verify their hashes.
+Timing runs have no tracing or concurrent builds. Three repetitions per cell
+give the following inner monotonic elapsed times:
+
+| Workload | Starting median | Accessor-only median | Combined median |
+| --- | ---: | ---: | ---: |
+| One million getuid calls | 0.500193 s | Not run | 0.414355 s |
+| Ten million getuid calls | 4.628801 s | 4.822332 s | 4.342645 s |
+
+The combined medians are 17.2% and 6.2% lower respectively. The million-call
+ranges are 0.458606–0.624209 s before and 0.407104–0.428493 s after. Ten-million
+ranges overlap: 4.518058–4.851842 s before, 4.569999–4.834726 s for accessors, and
+4.299137–5.079062 s combined. Every observation, including the slow combined
+repeat, is retained. Inlining alone reduces instructions but does not establish
+a wall-time improvement; the integrated result is the retained change. This
+does not establish a fixed speedup across workloads or physical CPUs.
+
+For the million-call workload, enclosing wall/user/system medians change from
+0.562571/0.287830/0.241932 s to 0.485320/0.275155/0.174426 s. The ten-million
+enclosing medians change from 4.702083/2.717281/1.947060 s to
+4.406815/2.736300/1.576413 s. These include process setup and teardown outside
+the inner benchmark interval; medians of the separate fields need not sum.
+
+All fifteen guest syscall/accounting/signal suites and the dedicated kernel-GS
+contract pass on one CPU. The GS contract covers TLS, blocking/preemption,
+directed signals, recovered user #GP, selectors, fork, and exec; user #DB remains
+skipped because the kernel debugger owns that vector. Forty-one native
+clock/accounting/timer tests pass. Actual hosted `Time.cc`, `Timer.cc`, and a
+consumer of all four moved accessors compile with the existing Darwin-hosted
+configuration; this is compile-only coverage. Four-CPU execution and migration
+testing are deferred for this pass.
+
+Artifacts are under `/private/tmp/pedigree-gs-accounting-20260918`, including
+starting source snapshots, per-variant source patches, frozen payloads/images,
+readback hashes, every timing observation in `measurements.json`, exact trace
+summaries/Callgrind files, emitted assembly, and native/hosted/guest logs.
+The prior GS final payload is the baseline, not its earlier pre-GS control.
+The existing SLAM and POSIX `getType` working-tree edits are unchanged and
+included equally in the timing variants.
+
+The direct implementation keeps platform selection out of common public
+headers. A future machine-selected accounting-clock implementation can preserve
+this same Time API through build-time selection; it need not rediscover a
+fixed backend through virtual calls at every boundary. Further accounting work
+should measure the remaining transition bookkeeping before changing clock
+precision or reporting semantics.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the

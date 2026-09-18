@@ -14,8 +14,9 @@ The anchor has a fixed assembly layout:
 | 16 | `ProcessorInformation*` |
 | 24 | Dense logical CPU index |
 
-`Processor::information()` remains the common API. Its x64 header definition is
-an always-inline GS-relative load; the current-thread getter is a second load.
+`Processor::information()` and `Processor::index()` remain common APIs. Their
+x64 header definitions are always-inline GS-relative loads; the current-thread
+getter is a second load after `information()`.
 The compiler memory clobber prevents reuse across operations that could change
 the current CPU or thread. Callers still need their normal exclusion when
 retaining a per-CPU reference across several operations. Hosted and other
@@ -32,6 +33,10 @@ The BSP owns logical slot zero. Each AP's information object and index are
 published before its SIPI; trampoline slot `0x7FE0` carries the anchor address.
 The AP installs GS before entering C++. A bootstrap IDT has no IST selectors;
 the permanent IDT is loaded only after the local GDT and TSS are active.
+
+CPU accounting uses this permanent index to identify its clock domain, rather
+than the firmware ID. The clock anchor still has a separate readiness check:
+having a valid GS anchor does not mean TSC calibration has finished.
 
 Changing the kernel stack updates the anchor and TSS, without overwriting the
 inactive user GS bank. Changing the current thread saves the actual outgoing

@@ -22,7 +22,7 @@
 #include "pedigree/kernel/time/Time.h"
 
 Time::CpuTimeSample Timer::sampleCpuTime() {
-  const size_t processor = Processor::id();
+  const size_t processor = Processor::index();
   return {getTickCountNanoFast(), processor};
 }
 
