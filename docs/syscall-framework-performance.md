@@ -937,6 +937,52 @@ The retained guest results are `verified/contracts-1cpu` and `verified/trace`; t
 and trace commands are captured in each run directory. The four unrelated SLAM
 edits are preserved and included equally in all variants.
 
+## Constant-return UID control
+
+Starting at `5e2e17718`, a temporary diagnostic replaces the entire
+`posix_getuid()` body with `return 0`. Dispatch, IRQ eligibility, accounting,
+errno handling, and pending work remain unchanged. This removes current-thread
+and parent lookup, the virtual UID call, and the UID load together; it does not
+isolate just the cost of reading the UID field. Changing only the virtual
+getter would retain the surrounding lookup and call overhead.
+
+The ordinary handler executes nine instructions plus two in the virtual
+getter. The diagnostic handler is exactly `XOR EAX,EAX; RET`. Seven clean
+captures execute **415 instructions and 10 CALL/RET pairs**, versus 424 and 11
+normally: nine instructions, or 2.1%, disappear. Accounting still executes 211
+instructions. The first capture includes an interrupt and executes 4,939
+instructions; it is retained separately. All 2,338 observed PC/byte pairs match
+the frozen payloads, including the interrupted capture.
+
+Fresh one-CPU QEMU TCG runs interleave normal and diagnostic payloads, with three
+repetitions per arm and no tracing or concurrent builds during timing:
+
+| Workload | Normal median | Return-zero median | Normal range | Return-zero range |
+| --- | ---: | ---: | --- | --- |
+| One million calls | 0.392925 s | 0.404416 s | 0.384909–0.395640 s | 0.375003–0.476824 s |
+| Ten million calls | 4.108829 s | 3.949003 s | 3.978936–4.148996 s | 3.741239–4.059389 s |
+
+The short runs do not establish a gain. The longer control's median is 3.9%
+lower, with overlapping ranges; it suggests a modest contribution rather than
+an unexpectedly large UID penalty. Instruction counts are not timing shares.
+For the longer run, enclosing wall/user/system medians change from
+4.174882/2.454424/1.598990 s to 4.023303/2.344797/1.481307 s. Those intervals also
+include process setup and teardown. All observations, including the slow
+million-call diagnostic repetition, are retained.
+
+The deliberately incorrect implementation is not retained. After freezing its
+private image, the source is restored and `cmake --build build --target initrd
+--parallel 8` rebuilds the normal module. The restored kernel, debug kernel,
+and initrd hashes exactly match the starting payloads. Credential correctness
+suites are not run against the intentional constant-return control. The four
+unrelated SLAM edits are unchanged.
+
+Artifacts are under `/private/tmp/pedigree-getuid-zero-20260918`: the one-line
+`diagnostic.patch`, normal/diagnostic payloads and readback manifests,
+`measurements.json`, `handler-comparison.txt`, `clean-trace-counts.json`,
+`zero/summary/`, complete serial logs, reusable run scripts, and
+`restoration-sha256.json`.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the
