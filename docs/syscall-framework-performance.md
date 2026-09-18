@@ -424,6 +424,51 @@ frozen payloads and images, all six timing runs, `measurements.json`,
 `candidate/summary/` (trace and Callgrind output), and
 `identity-verification.txt`. Only these findings are retained in the repository.
 
+## Skipping C++ after the assembly frame is saved
+
+A second temporary bypass starts at `2d6949344`. It retains CLD, both SWAPGS
+instructions, the kernel-stack switch, all sixteen register/frame pushes, the
+32-byte metadata area and saved original syscall number. Immediately before the
+C++ call it compares the full RAX with 102. On a match it writes zero to saved
+RAX at `[rsp+128]`, sets live EAX to zero (the wrapper's preserve-metadata return),
+and rejoins the original CLI, return test, register pops and SYSRET. Other calls
+still enter C++. This retains the normal quiet getuid assembly path while
+omitting everything reached through its C++ call.
+
+Fresh measurements use three interleaved runs of each build, one CPU, the same
+benchmark ELF and QEMU settings, without tracing or concurrent builds:
+
+| Path | One million calls, median | Range |
+| --- | ---: | ---: |
+| Full framework | 0.589092 s | 0.579423–0.589459 s |
+| Bare assembly return | 0.061630 s | 0.058505–0.066326 s |
+| Saved frame, skip C++ | 0.078867 s | 0.077884–0.079263 s |
+
+Keeping the full assembly frame adds about 17.2 ms per million calls relative
+to the bare return. Skipping C++ still saves about 510.2 ms, or 86.6%, relative
+to the full framework (7.47 times faster). These are differences between whole
+benchmark medians, including their different branches; they do not isolate an
+individual SWAPGS or memory-operation cost. The bulk of this workload's cost is
+above the assembly save/restore layer.
+
+Eight separate clean trace captures each contain 52 instructions including the
+userspace SYSCALL, versus five for the bare return and 638 for the current full
+path. Each framed capture includes two SWAPGS instructions, all saves/restores,
+CLI and SYSRET, with no CALL, discontinuity or CR3 change. All 52 observed
+PC/byte pairs match the frozen payloads, and every capture returns zero.
+
+This remains a root-only lower bound: it skips real credentials, accounting,
+CPU-timer publication and pending return work. Enclosing user/system accounting
+is not comparable. No production ABI, SMP or exception-safety claim is made.
+The original assembly was restored with a fresh modification time and rebuilt;
+kernel, debug ELF, initrd and configuration match the control byte for byte.
+
+Artifacts are under `/private/tmp/pedigree-framed-sysret-20260917`, including
+all nine timing runs in `control/`, `bare/` and `candidate/`, `measurements.json`,
+`candidate/source.patch`, `candidate/disassembly.txt`, `candidate/summary/`,
+`verification.md` and `identity-verification.txt`. Unrelated SLAM edits are
+unchanged. Only the findings are retained in the repository.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the
