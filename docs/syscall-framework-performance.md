@@ -370,6 +370,60 @@ root images, and preservation of unrelated SLAM edits. This pass starts at
 `a9a9e3522`; its original payloads are the byte-identical restored build from the
 accounting-context experiment above.
 
+## Minimal assembly return: experimental lower bound
+
+A temporary root-only getuid bypass was tested at `0e1687b3c`, before `CLD`,
+`SWAPGS`, stack switching or register saves. The matched path disassembles as:
+
+```asm
+cmp rax, 102
+jne normal_entry
+xor eax, eax
+sysretq
+```
+
+The full-width comparison selects only Linux service-0 getuid. Other calls use
+the original entry path. This returns a constant zero and touches no memory,
+stack or GS base. RCX and R11 retain the return address and flags established by
+SYSCALL; RSP stays at its user value. IA32_FMASK already clears IF/TF/DF, and
+SYSRET restores flags from R11. The architectural requirements are described in
+the [Intel instruction reference, SYSCALL/SYSRET](https://cdrdv2-public.intel.com/782151/253667-sdm-vol-2b.pdf).
+
+Three uninstrumented one-CPU QEMU 11.1.1 TCG runs per build, same benchmark ELF:
+
+| Path | One million calls, median | Range |
+| --- | ---: | ---: |
+| Current framework | 0.601623 s | 0.597618–0.608987 s |
+| Minimal assembly return | 0.059840 s | 0.058516–0.072194 s |
+
+The bypass is 10.05 times faster, removing 90.1% of elapsed time in this
+experiment. All samples are retained. Controls and candidates alternate, and no
+builds run concurrently with timing. This is a measured lower bound for this
+QEMU workload, not a physical-hardware cycle estimate or a correct getuid result
+for arbitrary processes. It confirms substantial cost above bare entry/exit;
+it does not apportion that cost among framework components.
+
+A separate plugin run captures eight clean calls, each with exactly five
+instruction dispatches: the userspace SYSCALL plus four kernel instructions.
+There are no calls, stack accesses, SWAPGS instructions or address-space changes.
+All observed instruction bytes match the frozen kernel and benchmark.
+
+The bypass deliberately omits real credentials, accounting boundaries and CPU
+timer publication, pending signals/termination/affinity work, and normal dispatch
+bookkeeping. Enclosing user/system totals therefore are not comparable. It also
+leaves CPL0 running on user RSP: current IDT setup gives only double fault an IST
+stack, so NMI/exception safety and canonical SYSRET targets would need proper
+handling before considering a general entry path. No NMI injection or production
+correctness claim is made for this experiment.
+
+The experimental assembly was restored after capture. Rebuilt kernel, debug ELF,
+initrd and configuration are byte-identical to the original control, and unrelated
+SLAM edits are unchanged. Artifacts under
+`/private/tmp/pedigree-minimal-sysret-20260917` include `candidate/source.patch`,
+frozen payloads and images, all six timing runs, `measurements.json`,
+`candidate/summary/` (trace and Callgrind output), and
+`identity-verification.txt`. Only these findings are retained in the repository.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the
