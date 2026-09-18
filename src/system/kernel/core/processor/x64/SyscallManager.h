@@ -44,7 +44,7 @@ class X64SyscallManager : public ::SyscallManager {
   }
 
   virtual bool registerSyscallHandler(Service_t Service, SyscallHandler* pHandler,
-                                      Registration& registration);
+                                      Registration& registration, FastEntry entry = nullptr);
 
   /** Initialises this processors syscall handling
    *\note This should only be called from Processor::initialise1() and

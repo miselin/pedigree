@@ -121,10 +121,10 @@ PosixSyscallManager::~PosixSyscallManager() {}
 
 bool PosixSyscallManager::initialise() {
   SyscallManager& manager = SyscallManager::instance();
-  if (!manager.registerSyscallHandler(linuxCompat, this, m_LinuxRegistration)) {
+  if (!manager.registerSyscallHandler(linuxCompat, this, m_LinuxRegistration, syscallEntry)) {
     return false;
   }
-  if (!manager.registerSyscallHandler(posix, this, m_PosixRegistration)) {
+  if (!manager.registerSyscallHandler(posix, this, m_PosixRegistration, syscallEntry)) {
     if (!m_LinuxRegistration.reset()) {
       FATAL("POSIX syscall registration rollback failed.");
     }
@@ -200,6 +200,11 @@ bool PosixSyscallManager::canRunWithInterruptsDisabled(const SyscallState& state
 }
 
 uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
+  return syscallEntry(this, state);
+}
+
+uintptr_t PosixSyscallManager::syscallEntry(SyscallHandler* handler, SyscallState& state) {
+  auto* manager = static_cast<PosixSyscallManager*>(handler);
 #if PEDIGREE_SYSCALL_COUNTER
   Process* syscallProcess = Processor::information().getCurrentThread()->getParent();
   if (syscallProcess) {
@@ -241,10 +246,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     bool firstOccurrence = false;
     {
       TerminationDeferral terminationDeferral;
-      LockGuard<Mutex> guard(m_UnknownSyscallsLock);
-      firstOccurrence = !m_SeenUnknownSyscalls.lookup(key);
+      LockGuard<Mutex> guard(manager->m_UnknownSyscallsLock);
+      firstOccurrence = !manager->m_SeenUnknownSyscalls.lookup(key);
       if (firstOccurrence) {
-        m_SeenUnknownSyscalls.insert(key, true);
+        manager->m_SeenUnknownSyscalls.insert(key, true);
       }
     }
     if (firstOccurrence) {

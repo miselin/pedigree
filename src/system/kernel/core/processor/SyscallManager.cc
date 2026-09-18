@@ -113,6 +113,7 @@ SyscallManager::HandlerLease::~HandlerLease() {
 SyscallManager::SyscallManager()
     : m_HandlerLock(),
       m_HandlerSlots(),
+      m_FastEntries(),
       m_NextDispatchSequence(0)
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
@@ -124,10 +125,16 @@ SyscallManager::SyscallManager()
 
 SyscallManager::~SyscallManager() = default;
 
-void SyscallManager::clearSlot(HandlerSlot& slot) {
+uintptr_t SyscallManager::dispatchVirtual(SyscallHandler* handler, SyscallState& state) {
+  return handler->syscall(state);
+}
+
+void SyscallManager::clearSlot(Service_t service) {
+  HandlerSlot& slot = m_HandlerSlots[service];
   assert(!slot.inFlight);
   assert(!slot.dispatches);
   __atomic_store_n(&slot.handler, static_cast<SyscallHandler*>(nullptr), __ATOMIC_RELEASE);
+  __atomic_store_n(&m_FastEntries[service], static_cast<FastEntry>(nullptr), __ATOMIC_RELAXED);
   slot.enabled = false;
   slot.draining = false;
 }
@@ -151,7 +158,7 @@ bool SyscallManager::callbackContextLocked(void* owner) const {
 }
 
 bool SyscallManager::registerHandler(Service_t service, SyscallHandler* pHandler,
-                                     Registration& registration) {
+                                     Registration& registration, FastEntry entry) {
   if (UNLIKELY(service >= serviceEnd) || !pHandler || registration) {
     return false;
   }
@@ -159,6 +166,10 @@ bool SyscallManager::registerHandler(Service_t service, SyscallHandler* pHandler
   m_HandlerLock.acquire();
   HandlerSlot& slot = m_HandlerSlots[service];
 
+  if (entry && m_FastEntries[service] && m_FastEntries[service] != dispatchVirtual) {
+    FATAL("Syscall fast entry already registered for service " << Dec
+                                                               << static_cast<size_t>(service));
+  }
   if (slot.handler) {
     m_HandlerLock.release();
     return false;
@@ -168,6 +179,8 @@ bool SyscallManager::registerHandler(Service_t service, SyscallHandler* pHandler
   if (!slot.generation) {
     ++slot.generation;
   }
+  // Choose the fallback once so registered services need no entry-null check.
+  __atomic_store_n(&m_FastEntries[service], entry ? entry : dispatchVirtual, __ATOMIC_RELAXED);
   __atomic_store_n(&slot.handler, pHandler, __ATOMIC_RELEASE);
   slot.enabled = true;
   slot.draining = false;
@@ -177,15 +190,6 @@ bool SyscallManager::registerHandler(Service_t service, SyscallHandler* pHandler
   registration.m_Generation = slot.generation;
   m_HandlerLock.release();
   return true;
-}
-
-SyscallHandler* SyscallManager::loadHandler(Service_t service) const {
-  if (UNLIKELY(service >= serviceEnd)) {
-    return nullptr;
-  }
-  // TODO: restore safe dynamic-module unloading before allowing a published
-  // handler to be unregistered while a process can still issue its service.
-  return __atomic_load_n(&m_HandlerSlots[service].handler, __ATOMIC_ACQUIRE);
 }
 
 bool SyscallManager::closeHandler(Registration& registration) {
@@ -218,7 +222,7 @@ bool SyscallManager::dispatchHandlerForTest(Service_t service, uintptr_t& result
   }
 
   SyscallState state = {};
-  result = handler.handler()->syscall(state);
+  result = dispatchHandler(service, handler.handler(), state);
   return action.kind == NoPostSyscallAction;
 }
 #endif
@@ -245,7 +249,7 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
 
   const size_t targetGeneration = registration.m_Generation;
   if (!slot.inFlight) {
-    clearSlot(slot);
+    clearSlot(registration.m_Service);
     m_HandlerLock.release();
     return true;
   }
@@ -280,7 +284,7 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
     if (!slot.inFlight) {
       if (slot.handler) {
         assert(slot.draining);
-        clearSlot(slot);
+        clearSlot(registration.m_Service);
       }
       m_HandlerLock.release();
       return true;

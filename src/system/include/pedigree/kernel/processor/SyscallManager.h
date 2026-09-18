@@ -24,13 +24,13 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/process/DeferredScope.h"
 #include "pedigree/kernel/process/WaitQueue.h"
+#include "pedigree/kernel/processor/SyscallHandler.h"
 #include "pedigree/kernel/processor/Syscalls.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
 
 #include <config.h>
 
-class SyscallHandler;
 class Thread;
 
 /** @addtogroup kernelprocessor
@@ -65,6 +65,8 @@ class SyscallManager {
   };
 
  public:
+  using FastEntry = uintptr_t (*)(SyscallHandler*, SyscallState&);
+
   enum PostSyscallActionKind {
     NoPostSyscallAction,
     TerminateCurrentThread,
@@ -110,9 +112,10 @@ class SyscallManager {
   /** Register a syscall handler
    *\param[in] Service the service number you want to register
    *\param[in] pHandler the interrupt handler
+   *\param[in] entry optional nonvirtual implementation of the same syscall contract
    *\return true, if successfully registered, false otherwise */
   virtual bool registerSyscallHandler(Service_t Service, SyscallHandler* pHandler,
-                                      Registration& registration) = 0;
+                                      Registration& registration, FastEntry entry = nullptr) = 0;
 
   /** Queue a terminal operation until the active handler lease is retired. */
   EXPORTED_PUBLIC bool requestThreadExit();
@@ -184,9 +187,24 @@ class SyscallManager {
     HandlerDispatch m_Dispatch;
   };
 
-  bool registerHandler(Service_t service, SyscallHandler* pHandler, Registration& registration);
+  bool registerHandler(Service_t service, SyscallHandler* pHandler, Registration& registration,
+                       FastEntry entry = nullptr);
   /** Returns the permanently published handler without taking a lock. */
-  SyscallHandler* loadHandler(Service_t service) const;
+  SyscallHandler* loadHandler(Service_t service) const {
+    if (UNLIKELY(service >= serviceEnd)) {
+      return nullptr;
+    }
+    // TODO: restore safe dynamic-module unloading before allowing a published
+    // handler to be unregistered while a process can still issue its service.
+    return __atomic_load_n(&m_HandlerSlots[service].handler, __ATOMIC_ACQUIRE);
+  }
+  ALWAYS_INLINE uintptr_t dispatchHandler(Service_t service, SyscallHandler* handler,
+                                          SyscallState& state) const {
+    // Acquiring the handler also publishes its fixed entry. Retirement requires
+    // the same quiescence as loadHandler(), including the module's code lifetime.
+    const FastEntry entry = __atomic_load_n(&m_FastEntries[service], __ATOMIC_RELAXED);
+    return entry(handler, state);
+  }
   bool closeHandler(Registration& registration);
   bool unregisterHandler(Registration& registration);
   bool acquireHandler(Service_t service, HandlerLease& lease, PostSyscallAction& action);
@@ -201,7 +219,8 @@ class SyscallManager {
   virtual ~SyscallManager();
 
  private:
-  static void clearSlot(HandlerSlot& slot);
+  static uintptr_t dispatchVirtual(SyscallHandler* handler, SyscallState& state);
+  void clearSlot(Service_t service);
   static void* currentDispatchOwner();
   bool callbackContextLocked(void* owner) const;
   static void abandonedHandlerCleanup(void* context);
@@ -218,6 +237,7 @@ class SyscallManager {
 
   Spinlock m_HandlerLock;
   HandlerSlot m_HandlerSlots[serviceEnd];
+  FastEntry m_FastEntries[serviceEnd];
   size_t m_NextDispatchSequence;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

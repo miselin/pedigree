@@ -137,8 +137,8 @@ SyscallManager& SyscallManager::instance() {
 }
 
 bool X64SyscallManager::registerSyscallHandler(Service_t Service, SyscallHandler* pHandler,
-                                               Registration& registration) {
-  return registerHandler(Service, pHandler, registration);
+                                               Registration& registration, FastEntry entry) {
+  return registerHandler(Service, pHandler, registration, entry);
 }
 
 bool X64SyscallManager::syscall(SyscallState& syscallState) {
@@ -170,7 +170,8 @@ X64SyscallManager::EntryResult X64SyscallManager::syscallWithInterruptsDisabled(
   // These handlers cannot block, replace the frame, or request a post-action.
   // Keeping IRQs masked protects the callback without a stack-owned deferral.
   current->transitionTimeAtInterruptReturn(CpuTimeMode::User, CpuTimeMode::Kernel);
-  const uintptr_t result = handler->syscall(state);
+  const uintptr_t result =
+      m_Instance.dispatchHandler(static_cast<Service_t>(service), handler, state);
   const size_t error = current->getErrno();
   if (service == linuxCompat) {
     state.setSyscallReturnValue(error ? -error : result);
@@ -268,7 +269,8 @@ void X64SyscallManager::syscallWithActions(SyscallState& syscallState) {
         handled = true;
         void* previousContext = syscallThread->getSyscallDispatchContext();
         syscallThread->setSyscallDispatchContext(&action);
-        uint64_t result = handler->syscall(syscallState);
+        uint64_t result = m_Instance.dispatchHandler(static_cast<Service_t>(serviceNumber), handler,
+                                                     syscallState);
         syscallThread->setSyscallDispatchContext(previousContext);
         uint64_t errno = syscallThread->getErrno();
         interruptedWithoutProgress = result == static_cast<uint64_t>(-1) &&

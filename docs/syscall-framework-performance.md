@@ -847,6 +847,96 @@ starting source snapshots, frozen payloads and read-back-verified images,
 `measurements.json`, `clean-trace-counts.json`, the complete trace, disassembly,
 and guest/hosted logs.
 
+## Inline handler lookup and registered entries
+
+Starting at `7fea0c0c0`, `loadHandler()` moves into its header. Its acquire
+semantics remain unchanged, but inlining removes the call and the duplicate
+service bounds check. The syscall manager also gains a compact entry-function
+table. Registration publishes the entry before releasing the handler pointer;
+the caller acquires the handler before loading that fixed entry.
+
+POSIX supplies one static dispatcher for both `linuxCompat` and `posix`. This
+function contains the existing switch body, including diagnostic paths and
+unknown-syscall handling. The virtual method delegates to it for compatibility.
+The registered entry is an indirect function-pointer call without a vtable
+lookup or an additional wrapper. No kernel reference to a POSIX implementation
+symbol is introduced, so POSIX remains an optional module.
+
+Slots begin null. For a handler without a supplied entry, registration installs
+a virtual-dispatch fallback. Choosing it at registration avoids testing for a
+null entry on every syscall. The emitted fallback is a load followed by a
+virtual tail jump, with no additional return frame. Attempting to replace a
+live supplied entry with another supplied entry is fatal; ordinary duplicate
+registration still fails without changing either pointer. Retirement clears
+both pointers, so subsequent quiescent reuse cannot retain a stale entry.
+Concurrent production-handler unloading remains unsupported, as before; this
+does not restore leases or change the existing lifetime requirement.
+
+IRQ eligibility, IRQ policy, accounting, errno, post-syscall actions, and pending
+return work remain unchanged. The eligibility query still needs the handler
+object; the new table replaces invocation through its vtable, not that query.
+Both x64 dispatch paths, hosted dispatch, and the synthetic leased test path
+use the same entry invocation.
+
+The baseline payload is byte-identical to the preceding process-type pass.
+Fresh traces of each new variant contain eight uninterrupted captures each,
+with all observed PC/byte pairs matching the frozen kernel/initrd:
+
+| Variant | Instructions per getuid | CALL/RET pairs |
+| --- | ---: | ---: |
+| Starting implementation | 433 | 12 |
+| Inline lookup only | 423 | 11 |
+| Initial table with per-call null check | 427 | 11 |
+| Retained table with registration-time fallback | 424 | 11 |
+
+The table refinement removes three instructions from the initial attempt. The
+retained table costs one address-calculation instruction versus inlining alone,
+while removing the dispatcher vtable lookup. Accounting remains 211
+instructions. Eligibility and the POSIX UID accessor are the two remaining
+virtual calls. No PLT stub executes in the clean trace.
+
+Fresh one-CPU QEMU TCG timing uses the unchanged million-call benchmark, normal
+accounting, the real UID handler, and independent writable overlays. Builds and
+tracing are excluded from the retained timing runs. Four baseline and inline
+repetitions and three retained repetitions give:
+
+| Variant | Inner elapsed median | Range | Enclosing wall / user / system medians |
+| --- | ---: | --- | --- |
+| Baseline | 0.430414 s | 0.425843–0.434168 s | 0.503187 / 0.253350 / 0.207284 s |
+| Inline lookup | 0.400707 s | 0.390441–0.415604 s | 0.473550 / 0.246156 / 0.185091 s |
+| Retained entries | 0.395377 s | 0.382892–0.400027 s | 0.459591 / 0.233152 / 0.187864 s |
+
+The combined inner median is 8.1% below baseline and 1.3% below inlining alone.
+The latter ranges overlap, and system time is higher than the inline-only
+median: this small sample does not establish an independent table speedup.
+The initial nullable-table median was 0.399948 s; those observations are also
+retained. Its first boot overlapped a short native harness compile, which ended
+immediately before its measured phase. The retained implementation's earlier
+pre-formatting build measured a 0.384817 s median; formatting changed embedded
+source-line metadata, so the final payload was rebuilt, frozen, and measured
+again for the table above. Both batches remain in the artifacts. No
+ten-million-call run was made.
+
+Kernel and modules rebuild together with
+`cmake --build build --target kernel initrd --parallel 8`. Both installed
+payloads are read back and hash-checked. All fifteen guest syscall/accounting/
+signal suites pass on one CPU. A focused native harness compiles the actual
+base manager with mocked kernel dependencies: 35 assertions pass with ASan and
+UBSan, covering absent services, virtual fallback, exact owner/state/result
+preservation, duplicate rejection and fatal overwrite, token moves, reset/reuse,
+dual-service ownership, and synthetic lease admission. These are sequential
+registration tests, not kernel scheduling or publication-concurrency proof.
+The actual base and hosted manager sources also compile with the Darwin-hosted
+configuration. Hosted execution and four-CPU testing are not run.
+
+Artifacts are under `/private/tmp/pedigree-fast-dispatch-20260918`, including
+starting source snapshots, all variant payloads and image manifests,
+`measurements.json`, per-variant `summary/` traces and Callgrind output, build
+logs, hosted compile commands, and the reproducible native harness in `tests/`.
+The retained guest results are `verified/contracts-1cpu` and `verified/trace`; timing
+and trace commands are captured in each run directory. The four unrelated SLAM
+edits are preserved and included equally in all variants.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the

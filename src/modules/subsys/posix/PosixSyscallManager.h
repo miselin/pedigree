@@ -48,6 +48,8 @@ class PosixSyscallManager : public SyscallHandler {
   virtual ~PosixSyscallManager();
 
  private:
+  static uintptr_t syscallEntry(SyscallHandler* handler, SyscallState& state);
+
   /** The copy-constructor
    *\note Not implemented (singleton) */
   PosixSyscallManager(const PosixSyscallManager&);

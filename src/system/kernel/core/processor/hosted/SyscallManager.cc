@@ -38,8 +38,8 @@ SyscallManager& SyscallManager::instance() {
 }
 
 bool HostedSyscallManager::registerSyscallHandler(Service_t Service, SyscallHandler* pHandler,
-                                                  Registration& registration) {
-  return registerHandler(Service, pHandler, registration);
+                                                  Registration& registration, FastEntry entry) {
+  return registerHandler(Service, pHandler, registration, entry);
 }
 
 void HostedSyscallManager::syscall(SyscallState& syscallState) {
@@ -74,7 +74,8 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
         Thread* thread = Processor::information().getCurrentThread();
         void* previousContext = thread->getSyscallDispatchContext();
         thread->setSyscallDispatchContext(&action);
-        syscallState.setSyscallReturnValue(handler->syscall(syscallState));
+        syscallState.setSyscallReturnValue(m_Instance.dispatchHandler(
+            static_cast<Service_t>(serviceNumber), handler, syscallState));
         thread->setSyscallDispatchContext(previousContext);
         syscallState.setSyscallErrno(thread->getErrno());
         thread->setErrno(0);
