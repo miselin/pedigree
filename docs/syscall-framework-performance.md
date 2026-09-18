@@ -220,6 +220,94 @@ PATH for a bare filename present only in its working directory. The fixture now
 tries that path directly before PATH lookup. The retained parallel fixture is
 [`parallel-getuid.c`](../scripts/benchmarks/parallel-getuid.c).
 
+## Reusing accounting setup: rejected experiments
+
+Starting from `3365263e5`, this pass tested reusing setup across the existing
+IRQ-masked getuid/getpid/gettid window. Both accounting boundaries retained
+fresh ordered TSC reads, the exact nanosecond conversion, immediate thread and
+process totals, and live CPU-timer publication checks. The cached state ended
+before pending work, IRQ enabling, or affinity handling.
+
+All timings below are one CPU, one million calls through the unchanged getuid
+ELF, using uninstrumented QEMU runs and disposable overlays. Traces were separate.
+
+| Variant | Runs | Median inner elapsed | Clean instructions per call |
+| --- | ---: | ---: | ---: |
+| Original, including rebuilt control | 8 | 0.621266 s | 675 |
+| Cache timer, CPU identities and clock anchor | 2 | 0.813936 s | 633 |
+| Same cache, redundant compiler fill suppressed | 3 | 0.724096 s | 629 |
+| Cache only dense CPU counter index | 5 | 0.627635 s | 644 |
+
+The five initial controls had a 0.614998 s median. Three later controls rebuilt
+from restored source had a 0.657250 s median; their kernel, debug ELF and initrd
+are byte-for-byte identical to the initial control. Original timings span
+0.610192–0.817704 s, and index-only timings span 0.624789–0.818736 s. Preserve
+those outliers: the index-only change has no reliable elapsed-time benefit.
+Neither cache implementation is retained.
+
+The first implementation returned a fully initialized 40-byte aggregate.
+Despite that initialization, GCC's hardened build inserted a `REP STOSB`
+prefill before the factory call. One trace dispatch therefore concealed a
+repeated memory operation. A local `uninitialized` variable attribute removed
+only that redundant compiler fill while leaving the factory initializer intact;
+the second trace proves the REP is absent. This variant still measured slower
+than the original. The attribute and all experimental APIs were reverted.
+
+The wider cache removed two calls per syscall (30 to 28), but its 629-instruction
+path did not improve wall time. Guest instruction counts establish executed
+work, not its cost under TCG. The remaining regression was not causally isolated;
+it must not be attributed solely to a particular instruction or cache effect.
+The index-only trace has seven clean 644-instruction captures and one capture
+with interrupt/address-space activity, which is excluded from the clean count.
+
+Enclosing original process accounting has median user/system times of
+0.332037/0.318194 s. For the cache without REP these are 0.413601/0.335530 s;
+for index-only, 0.345526/0.314263 s. They describe the enclosing benchmark process,
+not just the inner loop; moving setup before the entry sample also changes
+which mode receives that overhead. Inner wall time is the acceptance metric.
+
+All 36 native accounting/clock/timer tests pass, including after restoration.
+No new guest contract or four-CPU correctness claim is made for these rejected
+patches. One index-only run reported zero elapsed time because restoring files
+with old modification times left mixed Timer vtable layouts in incremental
+objects. That invalid run is preserved and excluded; touching every restored
+clock source/header and rebuilding kernel plus modules fixed the build mismatch.
+Future restores must update modification times or explicitly rebuild consumers.
+
+Artifacts are under `/private/tmp/pedigree-accounting-context-20260917`:
+`candidate/`, `prepared/`, and `index/` contain frozen payloads, source diffs,
+run logs and traces; `control/` and `restored/` contain original timing runs.
+`measurements.json` includes every timing, including the invalid run flagged
+separately under `index-stale-objects/`. `identity-verification.txt` records
+installed payload readbacks, exact restored-control identity, and unchanged
+unrelated SLAM edits.
+
+## POSIX dispatch: conversion versus generic dispatch
+
+The original getuid trace spends 74 self instructions in
+`PosixSyscallManager::syscall`. Only eight implement Linux-number to native-POSIX
+number translation. Twenty surround eagerly extracting all six arguments,
+although getuid needs none; 17 are the large function's prologue/epilogue and
+14 are the second switch plus handler call. These are instruction counts,
+not elapsed-time shares. ABI-personality bookkeeping adds helper calls as well.
+
+Target musl already issues raw Linux syscall numbers. Linux service 0 and
+historical Pedigree service 1 are both externally used, with different register
+conventions and some different semantics. There is no userspace/kernel double
+renumbering to remove. Genuine adapters for signals, clone/TLS, task IDs,
+resource structures, exit behavior and errors must remain.
+
+The next dispatcher experiment should let each external ABI select the shared
+operation body directly, eliminating translation to an intermediate number and
+redispatch. Extract only the arguments consumed by that operation. The existing
+Linux mapping definitions can select the existing operation bodies; this does
+not require changing musl or removing the native ABI. Preserve personality
+setup until the loader has an explicit replacement rule. Validate native and
+Linux entry, argument counts, errno, unmapped numbers, fchmodat's unused fourth
+argument, task IDs, clone/TLS and signal return, then measure elapsed time and
+inspect generated code separately. No ABI implementation changed in this pass.
+The detailed source audit is in the artifact `abi-dispatch.md`.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the
