@@ -75,7 +75,7 @@ constexpr Time::Timestamp RtcUpdateTimeout = 25 * Time::Multiplier::Millisecond;
 constexpr size_t RtcUpdateMaximumPolls = 1000000;
 constexpr size_t RtcCalibrationMaximumPolls = 100000000;
 
-uint64_t readOrderedTsc() {
+ALWAYS_INLINE inline uint64_t readOrderedTsc() {
   uint32_t edx = 0;
   uint32_t eax = 0;
   asm volatile("lfence\nrdtsc" : "=d"(edx), "=a"(eax) : : "memory");
@@ -296,14 +296,25 @@ uint64_t Rtc::getTickCountNano() {
 }
 
 uint64_t Rtc::getTickCountNanoFast() {
+  return Rtc::sampleCpuTime().timestamp;
+}
+
+Time::CpuTimeSample Rtc::sampleCpuTime() {
   // The RTC cursor advances in its worker, after the measured thread has
   // switched out. Accounting needs a clock which advances on this thread.
   // Callers already mask IRQs and reset their baselines on CPU migration,
   // so the immutable local anchor needs no global monotonic publication.
   uint64_t anchorTsc = m_Tsc0;
   uint64_t anchorNanoseconds = 0;
-  Processor::information().getTscClockAnchor(anchorTsc, anchorNanoseconds);
-  return PcTscClock::fromAnchor(readOrderedTsc(), anchorTsc, anchorNanoseconds, m_TscCalibration);
+  const ProcessorInformation& processor = Processor::information();
+  processor.getTscClockAnchor(anchorTsc, anchorNanoseconds);
+  size_t processorId = processor.processorId();
+  // Firmware can assign the BSP's final ID before Processor::id() exposes it.
+  if (processorId && Processor::isInitialised() < 2) {
+    processorId = 0;
+  }
+  return {PcTscClock::fromAnchor(readOrderedTsc(), anchorTsc, anchorNanoseconds, m_TscCalibration),
+          processorId};
 }
 
 bool Rtc::initialise1(uint8_t centuryIndex) {

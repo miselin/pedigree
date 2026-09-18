@@ -180,8 +180,9 @@ class CpuTimeSample {
 
     // Keep interrupts masked until the paired baseline/publication update
     // is complete, so migration cannot invalidate this CPU-clock sample.
-    processor = Processor::id();
-    timestamp = Time::getTicksFast();
+    const auto sample = Time::sampleCpuTime();
+    processor = sample.processor;
+    timestamp = sample.timestamp;
   }
 
   ~CpuTimeSample() {
@@ -409,11 +410,10 @@ void Thread::transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to) {
   // The architecture return boundary owns the physical IRQ mask. Going
   // through CpuTimeSample here could momentarily undo that mask on hosted,
   // where the logical state intentionally describes the pending sigreturn.
-  const size_t processor = Processor::id();
-  const Time::Timestamp timestamp = Time::getTicksFast();
+  const auto sample = Time::sampleCpuTime();
   const Time::Timestamp elapsed =
-      m_TimeAccounting.elapsedAtInterruptDisabled(from, timestamp, processor);
-  m_TimeAccounting.recordAtInterruptDisabled(to, timestamp, processor);
+      m_TimeAccounting.elapsedAtInterruptDisabled(from, sample.timestamp, sample.processor);
+  m_TimeAccounting.recordAtInterruptDisabled(to, sample.timestamp, sample.processor);
   __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
   if (elapsed) {
     publishTimeAccounting(from, elapsed);
@@ -426,7 +426,13 @@ void Thread::transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to) {
 
 void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
   Time::Timestamp* total = mode == CpuTimeMode::User ? &m_UserTime : &m_KernelTime;
+#if X64
+  // IRQ masking and scheduler ownership exclude writers on other CPUs. Keep
+  // this one instruction so an NMI cannot interleave a load/add/store sequence.
+  asm volatile("addq %1, %0" : "+m"(*total) : "r"(elapsed) : "cc");
+#else
   __atomic_fetch_add(total, elapsed, __ATOMIC_RELAXED);
+#endif
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
   if (mode == CpuTimeMode::Kernel) {
     const size_t slot = __atomic_load_n(&m_ActiveSyscallTimingSlot, __ATOMIC_ACQUIRE);

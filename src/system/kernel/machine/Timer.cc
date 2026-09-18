@@ -18,7 +18,13 @@
  */
 
 #include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
+
+Time::CpuTimeSample Timer::sampleCpuTime() {
+  const size_t processor = Processor::id();
+  return {getTickCountNanoFast(), processor};
+}
 
 Time::Timestamp Timer::getUnixTimestamp() {
   return Time::Conversion::toUnix(getSecond(), getMinute(), getHour(), getDayOfMonth(), getMonth(),

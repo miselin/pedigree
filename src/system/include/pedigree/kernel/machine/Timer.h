@@ -69,6 +69,9 @@ class Timer {
     return getTickCountNano();
   }
 
+  /** Samples nanoseconds and CPU identity while the caller keeps interrupts disabled. */
+  virtual Time::CpuTimeSample sampleCpuTime();
+
   /** Get the time in UNIX timestamp form (seconds since Jan 1st, 1970). */
   virtual Time::Timestamp getUnixTimestamp();
 

@@ -46,7 +46,7 @@ time for one million calls, without tracing enabled.
 | Retained implementation, including exact x64 clock conversion | 0.718402, 0.686924, 0.721727 |
 | Linux 3.2.78 reference, same benchmark ELF | 0.124384, 0.125294, 0.124515 |
 
-The retained implementation's median is 0.718402 s: about 2.9 times faster than
+The dispatch pass's median is 0.718402 s: about 2.9 times faster than
 the starting point and still about 5.8 times slower than this Linux reference.
 The baseline and intermediate rows before deferred metadata are single trials.
 Linux ran the benchmark
@@ -64,15 +64,15 @@ system. These include work outside the inner loop. The split follows the
 existing C++ accounting boundaries: entry and exit overhead can still be charged
 to user time, so it is not an instruction-accurate user/kernel attribution.
 
-The final trace contains eight uninterrupted calls of 710 instructions each,
+The dispatch-pass trace contains eight uninterrupted calls of 710 instructions each,
 down from 1,076 at the starting commit. All return UID 0 and all observed bytes
 match the frozen kernel and modules. Each call has two SWAPGS, two RDTSC, four
 LOCK-prefixed additions and 40 CALLs. No RDMSR, WRMSR or REP initialization executes
 on this clean query path. Pending work still uses full metadata capture/restore.
 
-Accounting occupies 380 of the 710 dispatches (53.5%), including clock reads,
-mode transitions and thread/process counter publication. It is the next focused
-target; this pass does not establish Linux parity. Replacing thread counter
+Accounting occupies 380 of those 710 dispatches (53.5%), including clock reads,
+mode transitions and thread/process counter publication. The accounting pass
+below reduces this cost further. Replacing thread counter
 atomic additions with load/store is unsafe: NMI accounting can nest despite
 masked IRQs and its update would be lost. Any batching or deferred publication
 design must preserve resource-usage reads, CPU timers, migration and exit totals.
@@ -84,6 +84,79 @@ instrumentation. Do not use their shares as a time profile or infer the cost of
 a whole copy from its REP count. Compare clean complete syscall captures
 separately from captures containing interrupts or scheduling.
 
+## Accounting pass
+
+The follow-up starts at `d64dc8792`, with the same benchmark ELF, QEMU settings,
+and accounting semantics. The retained changes are:
+
+- Sample the timestamp and logical CPU identity together, sharing the local
+  processor lookup and anchor. The generic timer implementation preserves the
+  existing sequence for other machines.
+- Inline the small baseline and clock-anchor helpers on the accounting path.
+- Update each x64 thread counter with one unlocked memory `ADD`. IRQ masking and
+  scheduler ownership exclude writers on another CPU; one instruction also
+  prevents a nested NMI from losing an increment between a load and store.
+  Aligned counter reads remain atomic. Process counters retain locked additions
+  because several threads can update the same process concurrently.
+
+This does not change accounting frequency, defer process totals, or alter
+rounding. It also does not repair the preexisting possibility of an NMI nesting
+inside a baseline update; the single-instruction counter update is not a claim
+that the entire accounting path is NMI-safe.
+
+| Accounting experiment | Million-call elapsed seconds | Median |
+| --- | --- | ---: |
+| Unchanged starting kernel | 0.729702, 0.709125, 0.713291 | 0.713291 |
+| Retained changes | 0.677917, 0.656262, 0.651691, 0.645112, 0.637557 | 0.651691 |
+| Rejected exact reciprocal conversion | 0.736010, 0.769728, 0.757491 | 0.757491 |
+
+The retained median is **8.6% lower**, still about **5.2 times** the earlier Linux
+reference. The last two candidate/control pairs were interleaved after the
+reciprocal experiment to check that its regression was not simply host drift.
+The enclosing process's median wall/user/system times change from
+0.770625/0.372816/0.365677 s to 0.711602/0.357224/0.319797 s. These include setup
+and teardown; the existing attribution-boundary limitation still applies.
+The reciprocal cached a Q64 multiplier and corrected its quotient exactly;
+native tests passed, but the extra arithmetic was slower in this QEMU workload.
+Its source changes were removed, and guarded hardware division remains.
+
+Eight uninterrupted final captures each execute **630 instructions**, including
+**300 in accounting** (47.6%). The accounting ranges in capture 1 are 127–276 and
+443–592. Each call now executes 28 CALLs and two locked additions, down from 40
+and four. The two ordered TSC samples and two divisions remain. These are
+instruction counts, not accounting's fraction of elapsed time.
+
+The final retained implementation passes 32 native clock/accounting/timer tests
+and all 14 guest suites on one CPU. On four CPUs, query correctness, resource
+usage, the new concurrent-accounting contract, clock conversion, and CPU interval
+timers pass before the broader suite stops in `timers`. The unchanged starting
+kernel with the same fixture also stops, later in `wait-restart`. Its sampled
+stacks show the debugger polling for input while the other CPUs are paused;
+the candidate's final registers show a consistent stop signature. This proves
+that the debugger-stop failure class predates this patch, not that both runs
+have an identical initiating fault. Neither full four-CPU run passed. Forced
+migration and NMI injection remain untested.
+
+The new contract checks live process totals against snapshots from four active
+threads, retained totals after join, sleep exclusion, repeated CPU timer delivery
+in a query-only loop, and cross-thread timer arming. Process publication remains
+eager: batching only until the next caller-side `getrusage` would miss remote
+readers and change the baseline when another thread arms a CPU timer.
+
+A separate experiment could replace process-wide counters with process-owned
+per-CPU counters and aggregate them at every existing reader. That needs a
+storage and lifetime policy, IRQ-safe CPU ownership, and timer-arming coverage;
+it should be measured before assuming the added lookup beats two locked adds.
+
+Artifacts are under `/private/tmp/pedigree-accounting-phase-20260917`:
+`candidate/` contains frozen payloads, timings, the trace and Callgrind output,
+and both guest runs; `baseline1` and `control-recheck-*` hold baseline timings;
+`candidate-recheck-*` hold the interleaved candidate timings. `reciprocal/`
+preserves the rejected diff, binaries, tests and runs. `control/contracts-4cpu`
+preserves the failed starting-kernel control and paused stack samples.
+The final rebuild matches the frozen kernel, debug kernel and initrd hashes;
+kernel/initrd payloads read back from both guest images match as well.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the
@@ -93,7 +166,7 @@ asynchronous signals during a query-only loop, stop/continue/kill behavior,
 TLS, argument passing, mappings, and signal return. Run both with one and four
 CPUs; a timing result does not establish those properties.
 
-The final build passes all eleven suites on one CPU, including entry/TLS,
+The earlier dispatch build passes all eleven suites on one CPU, including entry/TLS,
 queries, resource accounting, 4,113 x64 clock conversion checks, and seven
 signal interruption/restart cases. The ten suites excluding entry stress also
 pass on four CPUs. Eighteen native clock/accounting tests and seven benchmark

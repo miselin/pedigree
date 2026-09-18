@@ -22,6 +22,7 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/process/InfoBlock.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
 
 namespace Time {
@@ -87,6 +88,14 @@ Timestamp getTicksFast() {
     return 0;
   }
   return pTimer->getTickCountNanoFast();
+}
+
+CpuTimeSample sampleCpuTime() {
+  Timer* timer = Machine::instance().getTimer();
+  if (!timer) {
+    return {0, Processor::id()};
+  }
+  return timer->sampleCpuTime();
 }
 
 }  // namespace Time

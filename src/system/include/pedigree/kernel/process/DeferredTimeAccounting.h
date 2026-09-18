@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESS_DEFERREDTIMEACCOUNTING_H
 #define PEDIGREE_KERNEL_PROCESS_DEFERREDTIMEACCOUNTING_H
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 
@@ -68,8 +69,8 @@ class ThreadTimeAccounting {
    * The owning Thread cannot migrate or execute concurrently in this window,
    * so the compare-exchange loop used by the standalone helper is unnecessary.
    */
-  void recordAtInterruptDisabled(CpuTimeMode mode, Time::Timestamp now,
-                                 size_t processor = 0) {
+  ALWAYS_INLINE void recordAtInterruptDisabled(CpuTimeMode mode, Time::Timestamp now,
+                                               size_t processor = 0) {
     Entry* state = entry(mode);
     if (state->processor != processor || now > state->timestamp) {
       state->timestamp = now;
@@ -100,8 +101,8 @@ class ThreadTimeAccounting {
   }
 
   /** Returns and advances a current Thread's baseline with IRQs disabled. */
-  Time::Timestamp elapsedAtInterruptDisabled(CpuTimeMode mode, Time::Timestamp now,
-                                              size_t processor = 0) {
+  ALWAYS_INLINE Time::Timestamp elapsedAtInterruptDisabled(CpuTimeMode mode, Time::Timestamp now,
+                                                           size_t processor = 0) {
     Entry* state = entry(mode);
     if (state->processor != processor) {
       state->timestamp = now;
@@ -137,7 +138,7 @@ class ThreadTimeAccounting {
     return true;
   }
 
-  Entry* entry(CpuTimeMode mode) {
+  ALWAYS_INLINE Entry* entry(CpuTimeMode mode) {
     return mode == CpuTimeMode::User ? &m_User : &m_Kernel;
   }
 

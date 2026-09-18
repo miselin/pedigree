@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_MACH_PC_TSCCLOCK_H
 #define PEDIGREE_KERNEL_MACHINE_MACH_PC_TSCCLOCK_H
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 #include <config.h>
@@ -25,7 +26,7 @@ struct Calibration {
   uint64_t nanoseconds;
 };
 
-inline uint64_t scale(uint64_t cycles, const Calibration& calibration) {
+ALWAYS_INLINE inline uint64_t scale(uint64_t cycles, const Calibration& calibration) {
   if (!calibration.cycles) {
     return 0;
   }
@@ -52,12 +53,13 @@ inline uint64_t scale(uint64_t cycles, const Calibration& calibration) {
 #endif
 }
 
-inline uint64_t saturatingAdd(uint64_t first, uint64_t second) {
+ALWAYS_INLINE inline uint64_t saturatingAdd(uint64_t first, uint64_t second) {
   return first > (MaximumTimestamp - second) ? MaximumTimestamp : first + second;
 }
 
-inline uint64_t fromAnchor(uint64_t currentTsc, uint64_t anchorTsc, uint64_t anchorNanoseconds,
-                           const Calibration& calibration) {
+ALWAYS_INLINE inline uint64_t fromAnchor(uint64_t currentTsc, uint64_t anchorTsc,
+                                         uint64_t anchorNanoseconds,
+                                         const Calibration& calibration) {
   if (currentTsc < anchorTsc) {
     return anchorNanoseconds;
   }

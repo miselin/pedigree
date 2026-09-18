@@ -106,16 +106,6 @@ void X86CommonProcessorInformation::initialiseTscClockAnchor(uint64_t tsc, uint6
   __atomic_store_n(&m_TscClockAnchorInitialised, true, __ATOMIC_RELEASE);
 }
 
-bool X86CommonProcessorInformation::getTscClockAnchor(uint64_t& tsc, uint64_t& nanoseconds) const {
-  if (!__atomic_load_n(&m_TscClockAnchorInitialised, __ATOMIC_ACQUIRE)) {
-    return false;
-  }
-
-  tsc = __atomic_load_n(&m_TscClockAnchor, __ATOMIC_RELAXED);
-  nanoseconds = __atomic_load_n(&m_TscClockAnchorNanoseconds, __ATOMIC_RELAXED);
-  return true;
-}
-
 X86CommonProcessorInformation::X86CommonProcessorInformation(ProcessorId processorId,
                                                              uint8_t apicId)
     : m_ProcessorId(processorId),

@@ -27,6 +27,11 @@
 namespace Time {
 typedef uint64_t Timestamp;
 
+struct CpuTimeSample {
+  Timestamp timestamp;
+  size_t processor;
+};
+
 namespace Multiplier {
 const Timestamp Nanosecond = 1U;
 const Timestamp Microsecond = 1000U;
@@ -82,6 +87,9 @@ EXPORTED_PUBLIC Timestamp getTicks();
 
 /** Gets ticks while the caller already has interrupts disabled. */
 EXPORTED_PUBLIC Timestamp getTicksFast();
+
+/** Samples nanoseconds and CPU identity while the caller keeps interrupts disabled. */
+EXPORTED_PUBLIC CpuTimeSample sampleCpuTime();
 
 namespace Conversion {
 /**

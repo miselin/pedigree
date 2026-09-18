@@ -21,7 +21,21 @@ IDs and explicitly skips nonzero GS-base checks when `ARCH_SET_GS` is unsupporte
 Success is `ENTRY-CONTRACT PASS END workers=4` with exit status zero. Observing
 several CPUs does not prove forced thread migration.
 
-Build both static binaries from the repository root with the configured target
+`syscall-accounting-contract.c` checks live process/thread CPU totals after user
+work and a million raw `getuid` calls, monotonicity through exit, and agreement
+between `wait4` usage and the parent's reaped-child totals. Success is
+`RUSAGE-PROBE PASS` with exit status zero.
+
+`syscall-accounting-concurrency.c` checks live aggregation across four pthread
+workers, retained totals after joining, and exclusion of sleeping time from CPU
+usage. It also checks periodic `ITIMER_VIRTUAL`/`ITIMER_PROF` delivery during
+raw-query-only loops and when one thread arms timers while another consumes CPU.
+Those loops make no accounting or clock queries that could force publication.
+Success is `ACCOUNTING-CONCURRENCY PASS END` with exit status zero. These tests
+exercise one- and four-CPU scheduling; forced migration and NMI injection are
+outside their scope.
+
+Build the static binaries from the repository root with the configured target
 compiler and musl sysroot:
 
 ```sh
@@ -29,15 +43,19 @@ contract_dir=/path/to/contracts
 target_cc="$PWD/pedigree-compiler-15.3.0-r2/bin/x86_64-pedigree-gcc"
 target_sysroot="$PWD/build/musl"
 mkdir -p "$contract_dir"
-for name in syscall-entry-contract syscall-query-contract; do
+for name in syscall-entry-contract syscall-query-contract syscall-accounting-contract; do
   "$target_cc" --sysroot="$target_sysroot" -I"$target_sysroot/include" \
     -L"$target_sysroot/usr/lib" -static -O2 -std=gnu11 -Wall -Wextra \
     "scripts/benchmarks/$name.c" -o "$contract_dir/$name"
 done
+"$target_cc" --sysroot="$target_sysroot" -I"$target_sysroot/include" \
+  -L"$target_sysroot/usr/lib" -static -O2 -std=gnu11 -Wall -Wextra -pthread \
+  scripts/benchmarks/syscall-accounting-concurrency.c \
+  -o "$contract_dir/syscall-accounting-concurrency"
 ```
 
 Install them into a disposable guest image and run as root, separately from
-timings, with one and four CPUs. Both have alarm-based failure bounds; also use
+timings, with one and four CPUs. All have alarm-based failure bounds; also use
 a host timeout and retain the complete serial log and exit status. The
 [syscall performance notes](../../docs/syscall-framework-performance.md) explain
 the dispatch contract and measurement limitations.

@@ -86,7 +86,15 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
   void initialiseTscClockAnchor(uint64_t tsc, uint64_t nanoseconds);
 
   /** Reads this processor's clock anchor after its release publication. */
-  bool getTscClockAnchor(uint64_t& tsc, uint64_t& nanoseconds) const;
+  ALWAYS_INLINE bool getTscClockAnchor(uint64_t& tsc, uint64_t& nanoseconds) const {
+    if (!__atomic_load_n(&m_TscClockAnchorInitialised, __ATOMIC_ACQUIRE)) {
+      return false;
+    }
+
+    tsc = __atomic_load_n(&m_TscClockAnchor, __ATOMIC_RELAXED);
+    nanoseconds = __atomic_load_n(&m_TscClockAnchorNanoseconds, __ATOMIC_RELAXED);
+    return true;
+  }
 
  protected:
   /** Construct a X86CommonProcessor object
