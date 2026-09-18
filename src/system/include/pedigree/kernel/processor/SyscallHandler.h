@@ -36,18 +36,6 @@ class EXPORTED_PUBLIC SyscallHandler {
    *syscall */
   virtual uintptr_t syscall(SyscallState& State) = 0;
 
-  /**
-   * Whether syscall() may run with IRQs masked and no dispatch-action context.
-   * This query must be bounded and side-effect-free. A true result guarantees
-   * bounded completion without enabling IRQs, allocating, acquiring locks,
-   * touching user memory, blocking, dispatching events, requesting post-syscall
-   * actions, changing TLS or the saved return frame, or reporting interruption.
-   * From the frame, both methods may read only saved general registers and control fields;
-   * selector/base metadata may not yet be captured, so do not copy the frame.
-   * The caller still owns accounting and return work.
-   */
-  virtual bool canRunWithInterruptsDisabled(const SyscallState& state) const;
-
  protected:
   /** Virtual destructor */
   virtual ~SyscallHandler();

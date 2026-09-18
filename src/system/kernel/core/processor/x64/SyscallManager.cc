@@ -142,86 +142,9 @@ bool X64SyscallManager::registerSyscallHandler(Service_t Service, SyscallHandler
 }
 
 bool X64SyscallManager::syscall(SyscallState& syscallState) {
-  const EntryResult result = syscallWithInterruptsDisabled(syscallState);
-  if (result == EntryResult::PreserveMetadata)
-    return false;
-  if (result == EntryResult::NeedsDispatch) {
-    captureUserEntry(syscallState);
-    syscallWithActions(syscallState);
-  }
+  captureUserEntry(syscallState);
+  syscallWithActions(syscallState);
   return true;
-}
-
-X64SyscallManager::EntryResult X64SyscallManager::syscallWithInterruptsDisabled(
-    SyscallState& state) {
-#if PEDIGREE_FAST_USER_RETURN && !PEDIGREE_ACTIVITY_DIAGNOSTICS && \
-    !PEDIGREE_BENCHMARK_SYSCALL_TIMING && !PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
-  const size_t service = state.getSyscallService();
-  if (service >= serviceEnd)
-    return EntryResult::NeedsDispatch;
-  SyscallHandler* handler = m_Instance.loadHandler(static_cast<Service_t>(service));
-  if (!handler || !handler->canRunWithInterruptsDisabled(state))
-    return EntryResult::NeedsDispatch;
-
-  Thread* current = Processor::information().getCurrentThread();
-  if (!current || current->getSyscallDispatchContext())
-    return EntryResult::NeedsDispatch;
-
-  // These handlers cannot block, replace the frame, or request a post-action.
-  // Keeping IRQs masked protects the callback without a stack-owned deferral.
-  current->transitionTimeAtInterruptReturn(CpuTimeMode::User, CpuTimeMode::Kernel);
-  const uintptr_t result =
-      m_Instance.dispatchHandler(static_cast<Service_t>(service), handler, state);
-  const size_t error = current->getErrno();
-  if (service == linuxCompat) {
-    state.setSyscallReturnValue(error ? -error : result);
-  } else {
-    state.setSyscallReturnValue(result);
-    state.setSyscallErrno(error);
-  }
-  current->setErrno(0);
-  state.setFlags(state.getFlags() | 0x200);
-
-  if (current->canSkipUserReturnWork() && !current->affinityWorkPending()) {
-    current->transitionTimeAtInterruptReturn(CpuTimeMode::Kernel, CpuTimeMode::User);
-    return EntryResult::PreserveMetadata;
-  }
-
-  return finishUserReturn(state, current);
-#else
-  (void)state;
-  return EntryResult::NeedsDispatch;
-#endif
-}
-
-X64SyscallManager::EntryResult X64SyscallManager::finishUserReturn(SyscallState& state,
-                                                                   Thread* current) {
-  // Keep signal/scheduler scopes and their stack storage off the quiet path.
-  // Materialize the full frame before any return work can enable interrupts,
-  // switch threads, or expose it to signals and tracing.
-  captureUserEntry(state);
-  bool terminal = false;
-  if (!current->canSkipUserReturnWork()) {
-    Processor::setInterrupts(true);
-    {
-      SyscallReturnScope returnScope(nullptr);
-      terminal = Processor::information().getScheduler().serviceUserReturnWork(
-          state, UserReturnFrame::Origin::Syscall, false);
-    }
-    current->transitionTime(CpuTimeMode::Kernel, CpuTimeMode::Kernel);
-  }
-
-  if (terminal || current->getUnwindState() != Thread::Continue) {
-    Processor::setInterrupts(true);
-    Processor::information().getScheduler().commitUserReturnTerminalState();
-  }
-  if (finishAffinityReturn(state, nullptr, false)) {
-    Processor::setInterrupts(true);
-    Processor::information().getScheduler().commitUserReturnTerminalState();
-    FATAL_NOLOCK("Terminal affinity return unexpectedly returned");
-  }
-  current->transitionTimeAtInterruptReturn(CpuTimeMode::Kernel, CpuTimeMode::User);
-  return EntryResult::RestoreMetadata;
 }
 
 void X64SyscallManager::syscallWithActions(SyscallState& syscallState) {

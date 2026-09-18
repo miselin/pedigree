@@ -40,8 +40,6 @@ class PosixSyscallManager : public SyscallHandler {
   /** Called when a syscall arrives. */
   virtual uintptr_t syscall(SyscallState& state);
 
-  bool canRunWithInterruptsDisabled(const SyscallState& state) const override;
-
   /** The constructor */
   PosixSyscallManager();
   /** The destructor */
@@ -49,7 +47,6 @@ class PosixSyscallManager : public SyscallHandler {
 
  private:
   static uintptr_t syscallEntry(SyscallHandler* handler, SyscallState& state);
-  static NEVER_INLINE uintptr_t syscallGeneral(SyscallHandler* handler, SyscallState& state);
 
   /** The copy-constructor
    *\note Not implemented (singleton) */

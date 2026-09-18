@@ -53,9 +53,13 @@ TimeTracker::TimeTracker(Process* pProcess, bool fromUserspace,
   m_pProcess = threadProcess;
 
   // Track time already spent wherever we were previously.
-  m_pThread->transitionTime(KernelTimeTransition::interrupted(m_bFromUserspace),
-                            KernelTimeTransition::handler(),
-                            entryInterruptsAlreadyDisabled);
+  if (entryInterruptsAlreadyDisabled) {
+    m_pThread->transitionTimeAtInterruptReturn(
+        KernelTimeTransition::interrupted(m_bFromUserspace), KernelTimeTransition::handler());
+  } else {
+    m_pThread->transitionTime(KernelTimeTransition::interrupted(m_bFromUserspace),
+                              KernelTimeTransition::handler());
+  }
 }
 
 TimeTracker::~TimeTracker() {

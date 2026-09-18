@@ -19,8 +19,4 @@
 
 #include "pedigree/kernel/processor/SyscallHandler.h"
 
-bool SyscallHandler::canRunWithInterruptsDisabled(const SyscallState&) const {
-  return false;
-}
-
 SyscallHandler::~SyscallHandler() = default;

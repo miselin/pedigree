@@ -61,9 +61,6 @@ class X64SyscallManager : public ::SyscallManager {
    *\return whether assembly must restore captured selector/base metadata
    */
   static bool syscall(SyscallState& syscallState) USED;
-  enum class EntryResult { NeedsDispatch, RestoreMetadata, PreserveMetadata };
-  ALWAYS_INLINE static inline EntryResult syscallWithInterruptsDisabled(SyscallState& syscallState);
-  NEVER_INLINE static EntryResult finishUserReturn(SyscallState& syscallState, Thread* current);
   static void syscallWithActions(SyscallState& syscallState);
 
   /** The constructor */

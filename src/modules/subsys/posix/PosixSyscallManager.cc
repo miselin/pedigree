@@ -160,88 +160,11 @@ uintptr_t PosixSyscallManager::call(uintptr_t function, uintptr_t p1, uintptr_t 
   return ret;
 }
 
-bool PosixSyscallManager::canRunWithInterruptsDisabled(const SyscallState& state) const {
-#if defined(POSIX_VERBOSE_SYSCALLS) || defined(POSIX_VERBOSE_SYSTEM_SYSCALLS) || \
-    PEDIGREE_SYSCALL_COUNTER || PEDIGREE_BENCHMARK_SYSCALL_TIMING ||             \
-    PEDIGREE_ACTIVITY_DIAGNOSTICS || PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
-  // Instrumented dispatch can acquire locks or sample clocks outside this contract.
-  (void)state;
-  return false;
-#else
-  if (state.getSyscallService() == linuxCompat) {
-    switch (state.getSyscallNumber()) {
-      case PedigreeLinuxAmd64Syscall_getpid:
-      case PedigreeLinuxAmd64Syscall_gettid:
-        return true;
-      case PedigreeLinuxAmd64Syscall_getuid:
-        break;
-      default:
-        return false;
-    }
-  } else if (state.getSyscallService() == posix) {
-    switch (state.getSyscallNumber()) {
-      case POSIX_GETPID:
-      case POSIX_GETTID:
-        return true;
-      case POSIX_GETUID:
-        break;
-      default:
-        return false;
-    }
-  } else {
-    return false;
-  }
-
-  // Only PosixProcess promises an atomic read of the published real UID.
-  Thread* current = Processor::information().getCurrentThread();
-  Process* process = current ? current->getParent() : nullptr;
-  return process && process->getType() == Process::Posix;
-#endif
-}
-
 uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
   return syscallEntry(this, state);
 }
 
 uintptr_t PosixSyscallManager::syscallEntry(SyscallHandler* handler, SyscallState& state) {
-#if !defined(POSIX_VERBOSE_SYSCALLS) && !defined(POSIX_VERBOSE_SYSTEM_SYSCALLS) && \
-    !PEDIGREE_SYSCALL_COUNTER && !PEDIGREE_BENCHMARK_SYSCALL_TIMING &&             \
-    !PEDIGREE_ACTIVITY_DIAGNOSTICS && !PEDIGREE_BENCHMARK_USER_RETURN_ABLATION
-  // Keep simple queries out of the general dispatcher's large stack frame.
-  uint64_t syscallNumber = state.getSyscallNumber();
-  const bool linuxAbi = state.getSyscallService() == linuxCompat;
-  if (linuxAbi) {
-    switch (syscallNumber) {
-      case PedigreeLinuxAmd64Syscall_getuid:
-        syscallNumber = POSIX_GETUID;
-        break;
-      case PedigreeLinuxAmd64Syscall_getpid:
-        syscallNumber = POSIX_GETPID;
-        break;
-      case PedigreeLinuxAmd64Syscall_gettid:
-        syscallNumber = POSIX_GETTID;
-        break;
-      default:
-        return syscallGeneral(handler, state);
-    }
-    Process* process = Processor::information().getCurrentThread()->getParent();
-    static_cast<PosixSubsystem*>(process->getSubsystem())->setAbi(PosixSubsystem::LinuxAbi);
-  }
-  switch (syscallNumber) {
-    case POSIX_GETUID:
-      return posix_getuid();
-    case POSIX_GETPID:
-      return posix_getpid();
-    case POSIX_GETTID:
-      return posix_gettid(linuxAbi);
-    default:
-      break;
-  }
-#endif
-  return syscallGeneral(handler, state);
-}
-
-uintptr_t PosixSyscallManager::syscallGeneral(SyscallHandler* handler, SyscallState& state) {
   auto* manager = static_cast<PosixSyscallManager*>(handler);
 #if PEDIGREE_SYSCALL_COUNTER
   Process* syscallProcess = Processor::information().getCurrentThread()->getParent();

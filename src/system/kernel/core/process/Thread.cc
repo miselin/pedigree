@@ -407,26 +407,6 @@ void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to,
 #endif
 }
 
-void Thread::transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to) {
-#if PEDIGREE_TIME_ACCOUNTING
-  ActivityDiagnostics::TimeAccountingScope accountingScope;
-  // The architecture return boundary owns the physical IRQ mask. Going
-  // through CpuTimeSample here could momentarily undo that mask on hosted,
-  // where the logical state intentionally describes the pending sigreturn.
-  const auto sample = Time::sampleCpuTime();
-  const Time::Timestamp elapsed =
-      m_TimeAccounting.elapsedAtInterruptDisabled(from, sample.timestamp, sample.processor);
-  m_TimeAccounting.recordAtInterruptDisabled(to, sample.timestamp, sample.processor);
-  __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
-  if (elapsed) {
-    publishTimeAccounting(from, elapsed);
-  }
-#else
-  (void)from;
-  __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
-#endif
-}
-
 void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
   Time::Timestamp* total = mode == CpuTimeMode::User ? &m_UserTime : &m_KernelTime;
 #if X64

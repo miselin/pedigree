@@ -1,10 +1,136 @@
 # Syscall framework performance
 
-The current investigation isolates the cost of one million raw `getuid`
-syscalls. The handler still reads the process's real UID; the benchmark is not
-a constant-return implementation. Compilation performance is outside this pass.
+This records the syscall investigation and its successive experiments. The
+handler reads the process's real UID. Timings use uninstrumented guests;
+instruction traces identify executed work rather than elapsed-time shares.
 
-## Dispatch contract
+## Ordinary dispatch and accounting, 2026-09-18
+
+Starting at `de4ae6d0d`, accounting remains enabled and the query-specific routes
+are removed. `getuid`, `getpid`, and `gettid` now use the same interruptible x64
+path and POSIX dispatcher as other calls. This restores ordinary metadata
+capture/restore, termination deferral, post-actions, and signal/restart handling.
+The eligibility virtual method and the small three-query POSIX front end are
+deleted. General registered entry points, GS access, lazy argument extraction,
+and the common no-pending-work return predicate remain.
+
+The retained accounting change exposes the existing IRQ-owned transition body
+for inlining. Architecture callers can fold constant modes and avoid preserving
+them across clock sampling. `TimeTracker` reuses it when entry already owns the
+physical IRQ mask. Both samples, exact clock conversion, migration/backward-clock
+guards, mode publication, thread/process totals, and diagnostic scopes remain.
+Other callers retain the existing IRQ guard. No sampled accounting is introduced.
+
+Three interleaved repetitions per build use one CPU, QEMU 11.1.1 TCG, the same
+ten-million-call benchmark, frozen kernel/initrd payloads with readback hashes,
+and a new writable overlay per run. No build or other task-owned guest overlaps
+timing. The accounting change is compared within the ordinary path:
+
+| Build | Inner elapsed, median | Range | Enclosing user/system, medians |
+| --- | ---: | --- | --- |
+| Ordinary dispatch, original accounting | 16.640323 s | 16.145559–16.727729 s | 5.371461 / 10.861586 s |
+| Ordinary dispatch, inline accounting | 15.047190 s | 14.666118–15.148054 s | 5.237643 / 9.444003 s |
+
+The median improves **9.6%**; every paired candidate is faster and observed
+ranges do not overlap. User/system values cover the enclosing process, not just
+the inner loop. Three final one-million-call runs take 1.641707, 1.437773, and
+1.441054 seconds (median **1.441054 s**); their enclosing median user/system times
+are 0.503643/0.942059 seconds. This is far slower than the removed quiet-query
+path's roughly 0.35–0.38 seconds per million and the historical Linux reference
+of about 0.125 seconds. These are not fresh Linux measurements.
+
+The clean ordinary trace falls from **862 to 815 instructions**, 28 to 27
+CALL/RET pairs, and 65 to 58 explicit push/pop pairs. Clock sampling and totals
+publication are unchanged. All eight original captures agree; seven candidate
+captures agree. The eighth candidate includes interrupts and scheduling:
+28,713 instructions, two discontinuities, and two CR3 changes. It is retained
+separately, not included in the clean-path count. Observed executable bytes match
+the frozen payloads, including the interrupted capture.
+
+Ordinary dispatch still executes two RDTSCs, two DIVs, two RDMSRs, two WRMSRs,
+four SWAPGS, and six LOCK-prefixed operations per clean call. The previous
+query route bypassed metadata restoration and lifecycle machinery as well as
+keeping interrupts disabled; restoring it is not an isolated IRQ experiment.
+The remaining broad-path cost is therefore substantially larger than the quiet
+query experiment suggested. Metadata capture/restore and termination-deferral
+bookkeeping are the next candidates to isolate and optimize generally. Counts
+alone do not establish how much elapsed time each costs.
+
+### Accounting experiments not retained
+
+With the former quiet-query route frozen for controlled probes, ten-million-call
+medians are 1.976257 seconds with accounting bypassed, 2.630208 seconds with only
+the two consumed ordered TSC samples, and 3.084322 seconds with the two full
+clock samples but no accounting publication. The latter difference includes
+anchor lookup and conversion, not isolated DIV latency. Diagnostic user/system
+attribution is invalid. These temporary bypasses are absent from retained source.
+
+Two cached Q63 reciprocal conversions preserve the exact quotient with a guarded
+division fallback. Neither earns retention: the first compares 3.544644 versus
+3.563976 seconds, and the smaller-guard variant compares 3.792678 versus
+4.428798 seconds. Each has three interleaved repetitions; all outliers remain in
+the artifacts. Their clean paths grow from 394 instructions to 428 and 406,
+respectively. The original exact conversion and its tests are restored.
+
+The retained Linux reference is Debian's `3.2.0-4-amd64` kernel, version 3.2.78-1.
+Its matched config has `CONFIG_HZ=250` and no virtual CPU accounting. Upstream
+[Linux 3.2 accounting](https://raw.githubusercontent.com/torvalds/linux/v3.2/kernel/sched.c)
+samples the user/system split on ticks and scales it against more precise total
+runtime; its [x64 entry](https://raw.githubusercontent.com/torvalds/linux/v3.2/arch/x86/kernel/entry_64.S)
+does not timestamp every syscall boundary. This explains a real difference in
+work performed, not a claim about every Linux configuration. The exact Debian
+patchset was not disassembled. Pedigree's per-boundary attribution is retained.
+
+### Original GCC workload
+
+Both builds use clones of the original
+`/private/tmp/pedigree-slam-current-20260917/fixture.img`, changing only the
+readback-verified EFI kernel/initrd payloads. The compiler, libraries, source,
+and workload remain identical: `gcc -o which which.cc -lstdc++`, including driver,
+compiler, assembler, and linker. One CPU, disposable overlays, no trace plugin,
+and `--quick --skip-sync` match the earlier workload. Runtime HDD writes remain
+enabled; skipping the explicit sync phase does not disable disk writes.
+
+Runs use order control, final, final, control. Host wall times are:
+
+| Build | Cold compile, both runs | Warm compile, both runs |
+| --- | --- | --- |
+| Starting quiet-query build | 37.247 / 43.349 s | 29.874 / 35.381 s |
+| Final ordinary dispatch and inline accounting | 40.893 / 39.340 s | 32.615 / 34.398 s |
+
+Guest warm wall times are 29.689/35.096 seconds for the control and
+32.668/34.236 seconds for the final build. All four complete compilation, run
+the resulting `which`, and pass the anonymous-memory and CPU contracts. The
+overlapping ranges and control variation do not demonstrate either an improvement
+or a regression. None beats the historical warm results around 28.6–28.8 seconds.
+Do not extrapolate the getuid improvement to compiler performance. These GCC
+runs compare the combined normalization and accounting changes; they do not
+isolate the accounting change within ordinary dispatch.
+
+### Validation and artifacts for this pass
+
+All fifteen syscall/ABI/query/accounting/clock/timer/lifetime/signal-restart suites
+pass with one CPU and their exact completion markers. Separate entry/TLS and
+kernel-GS fixtures pass, including selector changes, user GP recovery, fork,
+exec, and signals; the GS fixture explicitly skips user DB. All 41 native
+accounting/clock/timer tests pass. Nine compile-only checks cover diagnostics on,
+accounting off, and hosted Thread/TimeTracker/syscall-manager consumers. Kernel
+and all initrd modules are rebuilt together because removing a virtual method
+changes handler vtable layout. Four-CPU testing remains deferred.
+
+Artifacts: `/private/tmp/pedigree-accounting-general-20260918`. `ordinary/` and
+`ordinary-inline/` hold matched payloads, images, timing runs and traces;
+`transition-inline/clean-trace-comparison.json` separates interrupted captures;
+`measurements.json` retains syscall measurements; `gcc-results.json` records all
+four compiler runs; `compile-checks/` contains exact commands and results.
+`final-identity.json` verifies the final build against its
+frozen payloads and all four unrelated SLAM files against their starting hashes.
+Reusable `freeze.py`, `run.py`, `compare.py`, and `which.py` retain the setup.
+
+## Historical bounded-query dispatch contract (removed)
+
+The sections below record earlier stages. Their query-only dispatch contract no
+longer applies to current source.
 
 `SyscallHandler::canRunWithInterruptsDisabled()` defaults to false. The POSIX
 handler opts in only `getuid`, `getpid`, and `gettid`, for the Linux and Pedigree

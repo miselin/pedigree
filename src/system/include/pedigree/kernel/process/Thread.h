@@ -19,6 +19,7 @@
 
 #ifndef THREAD_H
 #define THREAD_H
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
@@ -365,10 +366,28 @@ class EXPORTED_PUBLIC Thread {
                       bool interruptsAlreadyDisabled = false);
 
   /**
-   * Accounts the final interrupt return transition while the architecture
-   * already has IRQ delivery physically masked.
+   * Accounts a transition while the architecture already has IRQ delivery
+   * physically masked.
    */
-  void transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to);
+  ALWAYS_INLINE void transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to) {
+#if PEDIGREE_TIME_ACCOUNTING
+    ActivityDiagnostics::TimeAccountingScope accountingScope;
+    // The architecture boundary owns the physical IRQ mask. Going
+    // through CpuTimeSample here could momentarily undo that mask on hosted,
+    // where the logical state intentionally describes the pending sigreturn.
+    const auto sample = Time::sampleCpuTime();
+    const Time::Timestamp elapsed =
+        m_TimeAccounting.elapsedAtInterruptDisabled(from, sample.timestamp, sample.processor);
+    m_TimeAccounting.recordAtInterruptDisabled(to, sample.timestamp, sample.processor);
+    __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
+    if (elapsed) {
+      publishTimeAccounting(from, elapsed);
+    }
+#else
+    (void)from;
+    __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
+#endif
+  }
 
   /** Current accounting owner; never used to classify interrupt origin. */
   CpuTimeMode currentTimeAccountingMode() const;
