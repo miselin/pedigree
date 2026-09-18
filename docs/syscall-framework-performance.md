@@ -983,6 +983,101 @@ Artifacts are under `/private/tmp/pedigree-getuid-zero-20260918`: the one-line
 `zero/summary/`, complete serial logs, reusable run scripts, and
 `restoration-sha256.json`.
 
+## Accounting sampling versus bookkeeping
+
+Starting at `c7ff38d38`, three frozen payloads separate the quiet Linux `getuid`
+accounting path while retaining the real UID handler, IRQ eligibility, dispatch,
+errno handling, and pending-work predicate:
+
+- `baseline`: normal user/kernel accounting transitions.
+- `clock`: replace both transitions with `Time::sampleCpuTime()` and consume both
+  returned fields through an assembly compiler barrier. No accounting state or
+  totals are updated on the quiet path.
+- `off`: omit both transitions and both clock samples on the quiet path.
+
+The diagnostic controls apply only to Linux syscall 102 in the existing
+interrupt-disabled route. If user-return or affinity work is pending, they
+restore the user-to-kernel transition before metadata capture, interrupt
+enabling, or scheduler entry, then use the ordinary return path. These controls
+deliberately misattribute quiet kernel execution to user time; their user/system
+times and CPU-timer behavior are not valid accounting evidence. The benchmark's
+monotonic clock and global clock implementation are unchanged.
+
+All eight trace captures per arm are uninterrupted and agree:
+
+| Variant | Instructions | CALL/RET pairs | RDTSC | DIVQ | LFENCE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Normal | 424 | 11 | 2 | 2 | 3 |
+| Clock samples only | 286 | 9 | 2 | 2 | 3 |
+| Accounting off | 214 | 7 | 0 | 0 | 1 |
+
+All observed executable PC/byte pairs match the frozen kernel and modules:
+322 distinct pairs for normal, 251 for clock-only, and 214 for off. Kernel
+interrupts remain masked throughout these captures. The real UID handler and
+getter execute the same eleven instructions in every arm. The clock-only arm
+retains the identical 70 sampling-body instructions plus two calls; it executes
+no accounting transition or publication functions. Removing bookkeeping saves
+141 self-instructions but adds three in the caller, for a net reduction of 138.
+The remaining LFENCE in the off arm is the entry GS barrier.
+
+Uninstrumented one-CPU QEMU TCG timings use three interleaved repetitions per
+arm, fresh writable overlays, and no concurrent builds or other guests. All
+observations are retained, including the slow final normal ten-million run.
+
+| Workload | Variant | Median wall time | Range |
+| --- | --- | ---: | --- |
+| One million calls | Normal | 0.399484 s | 0.389705–0.406715 s |
+| One million calls | Clock samples only | 0.364282 s | 0.360018–0.384725 s |
+| One million calls | Accounting off | 0.231592 s | 0.223417–0.233094 s |
+| Ten million calls | Normal | 3.858315 s | 3.832881–4.748352 s |
+| Ten million calls | Clock samples only | 3.625416 s | 3.585502–3.647388 s |
+| Ten million calls | Accounting off | 2.187670 s | 2.174976–2.191434 s |
+
+Bypassing accounting reduces median elapsed time by 42.0% in the short workload
+and 43.3% in the longer one. In the longer workload, removing bookkeeping saves
+0.232899 s (6.0% of normal), while removing the retained clock samples saves a
+further 1.437746 s. Sampling therefore accounts for roughly 86% of this measured
+accounting-related difference; the short workload gives 79%. These are
+differences between complete variants, not additive intrinsic instruction
+latencies. Caller code generation and emulator execution still affect them.
+
+The recorded Linux million-call reference is 0.124515 s, making this pass's
+normal result 3.21x and its accounting-off diagnostic 1.86x that reference.
+Linux is not rerun in this pass. Accounting is a major remaining tax, but
+removing it does not eliminate the entire gap.
+
+The next bounded control should retain only two ordered raw counter reads in
+the getuid diagnostic. Comparing it with clock-only and off would separate
+`LFENCE; RDTSC` sampling from anchor lookup and conversion, without changing
+the clock used to measure the benchmark. The current results do not isolate
+DIVQ latency. The previous exact reciprocal conversion regression is not a
+reason to repeat that replacement without further evidence.
+
+Deferring conversion could eventually help if conversion dominates, but storing
+raw baselines while converting every interval still pays two divisions per
+syscall. Accumulating raw user/kernel cycles would also require correct totals
+at reads, exit/reaping, and CPU-timer evaluation, plus explicit treatment of
+rounding and CPU clock domains. If ordered reads dominate, deferred conversion
+alone cannot address the principal cost.
+
+The getuid-only query fixture passes on all three payloads with one CPU: four
+nonzero UIDs (20001, 20004, 20007, 20010), errno preservation, ordinary fallback
+errors, seventeen asynchronous signals, stop quiescence, continue progress, and
+kill termination. Each run reaches `QUERY-CONTRACT PASS END workers=4` and
+returns zero. This proves the exercised liveness and query behavior, not CPU
+accounting correctness; the fixture's legacy query-count multiplier is ignored.
+Results and full serial logs are in `query-results.json` and each arm's
+`query-1cpu/` directory.
+
+Artifacts are under `/private/tmp/pedigree-accounting-split-20260918`: exact
+`off.patch` and `clock.patch`, frozen payloads and readback-verified image
+manifests, all eighteen timing runs in `measurements.json`, per-arm `summary/`
+traces and Callgrind output, `trace-counts.json`, build logs, and reusable run
+scripts. Normal source is restored and the rebuilt kernel, debug kernel, and
+initrd exactly match their starting hashes in `restoration-sha256.json`.
+The four unrelated SLAM edits are preserved. No diagnostic kernel change is
+retained and no four-CPU testing is performed.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the
