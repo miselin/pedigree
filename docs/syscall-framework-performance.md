@@ -1078,6 +1078,92 @@ initrd exactly match their starting hashes in `restoration-sha256.json`.
 The four unrelated SLAM edits are preserved. No diagnostic kernel change is
 retained and no four-CPU testing is performed.
 
+## Small query dispatch and outlined return work
+
+Starting at `0f374a88e`, an accounting-off control isolates the remaining
+framework cost. Two structural changes retain the real query implementations
+and existing IRQ eligibility, errno handling, and pending-work checks:
+
+- POSIX `syscallEntry()` handles getuid/getpid/gettid in a small front end and
+  sends other calls to the original dispatcher in `syscallGeneral()`. Linux
+  queries still select Linux ABI once, and gettid retains the Linux/global
+  versus Pedigree/local ID distinction. Instrumented and verbose builds use
+  the original general body directly.
+- x64 `syscallWithInterruptsDisabled()` inlines into the assembly-facing
+  wrapper. Signal/scheduler return work moves into `finishUserReturn()`, which
+  remains out of line. Frame capture, interrupt enabling, stack-discard cleanup,
+  affinity handling, terminal operations, and accounting retain their order.
+
+This removes stack setup imposed on quiet queries by code they do not execute.
+Nonquery POSIX calls pay extra query-classification comparisons before entering
+the general dispatcher; their wall-time effect is not measured in this pass.
+No handler registration, service interface, or UID abstraction changes.
+
+Eight uninterrupted, byte-verified captures agree in each candidate:
+
+| Configuration | Instructions before/after | CALL/RET pairs before/after | Push/pop pairs before/after |
+| --- | ---: | ---: | ---: |
+| Accounting off | 214 / 186 | 7 / 6 | 32 / 25 |
+| Normal accounting | 424 / 394 | 11 / 10 | 41 / 33 |
+
+The accounting-off reduction divides equally: x64 wrapper/quiet handling saves
+14 instructions and POSIX entry saves 14. Both the 184-byte x64 and 264-byte
+POSIX general stack reservations disappear from the quiet path. There are still
+three indirect calls, but the POSIX switch-table indirect jump disappears.
+The UID handler/getter remains eleven instructions, the pending-work predicate
+remains fifteen, and normal accounting still executes 211 instructions. Stack
+reservation itself was an adjustment of the stack pointer, not a buffer copy.
+
+Fresh uninstrumented runs use one CPU, frozen payloads, fresh writable overlays,
+and three interleaved repetitions per arm. No builds or other task-owned guests
+run concurrently. The accounting-off results are:
+
+| Workload | Baseline median | Candidate median | Baseline range | Candidate range |
+| --- | ---: | ---: | --- | --- |
+| One million calls | 0.269267 s | 0.241195 s | 0.222445–0.284709 s | 0.192723–0.244737 s |
+| Ten million calls | 2.234923 s | 1.971397 s | 2.196749–2.241630 s | 1.955477–2.025402 s |
+
+The longer workload improves by **11.8%**, with nonoverlapping observed ranges;
+the shorter workload's median improves by 10.4%, with more host/run variation.
+Every same-repetition pair favors the candidate. These results measure the two
+structural changes together; equal instruction savings do not establish equal
+timing contributions. All observations are retained, and the diagnostic
+user/system attribution remains invalid. The long candidate's normalized rate
+is about 197 ns/call, versus the previously recorded Linux million-call rate of
+125 ns/call (roughly 1.58x). This is a cross-run, different-loop-length reference,
+not a fresh Linux comparison; the short candidate median is slower than that
+normalized long rate.
+
+With normal accounting restored, the corresponding fresh comparison is:
+
+| Workload | Baseline median | Candidate median | Baseline range | Candidate range |
+| --- | ---: | ---: | --- | --- |
+| One million calls | 0.387208 s | 0.371998 s | 0.383512–0.405888 s | 0.365293–0.437391 s |
+| Ten million calls | 3.905743 s | 3.627034 s | 3.856712–3.998793 s | 3.601283–4.405562 s |
+
+Normal medians improve by 3.9% and 7.1%, respectively. The first candidate in
+each workload is slower than its paired baseline; both later candidates are
+faster. The overlapping ranges and retained slow repetitions make the normal
+timing result less consistent than the accounting-off result. The accounting
+implementation and its 211-instruction trace are unchanged. All twenty-four
+uninstrumented measurements are recorded in `measurements.json`.
+
+The diagnostic candidate passes the getuid-only nonzero-UID, errno, fallback,
+seventeen-signal, stop/continue/kill fixture on one CPU. With normal accounting,
+all fifteen ABI/query/accounting/clock/timer/lifetime/signal interruption and
+restart suites pass and reach `ABI-SUITE PASS END`. The actual changed POSIX
+translation unit compiles for Darwin-hosted, target instrumented, and target
+verbose configurations; the x64 manager also compiles with instrumentation
+disabling the quiet route. Those configuration checks are compile-only.
+
+Artifacts are under `/private/tmp/pedigree-dispatch-spike-20260918`: frozen
+baseline/candidate payloads and readback-verified images for both accounting
+modes, interleaved timing logs, trace summaries/Callgrind output,
+`trace-comparison.json`, `diagnostic-off.patch`, the query result, full contract
+logs, compile commands/results, and reusable freeze/run scripts. The diagnostic
+bypass is not retained. The final source and build use normal accounting, and
+the four unrelated SLAM edits remain unchanged. Four-CPU testing is deferred.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the

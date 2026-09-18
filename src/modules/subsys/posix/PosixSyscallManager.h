@@ -49,6 +49,7 @@ class PosixSyscallManager : public SyscallHandler {
 
  private:
   static uintptr_t syscallEntry(SyscallHandler* handler, SyscallState& state);
+  static NEVER_INLINE uintptr_t syscallGeneral(SyscallHandler* handler, SyscallState& state);
 
   /** The copy-constructor
    *\note Not implemented (singleton) */

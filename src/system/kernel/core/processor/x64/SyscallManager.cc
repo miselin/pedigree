@@ -187,6 +187,16 @@ X64SyscallManager::EntryResult X64SyscallManager::syscallWithInterruptsDisabled(
     return EntryResult::PreserveMetadata;
   }
 
+  return finishUserReturn(state, current);
+#else
+  (void)state;
+  return EntryResult::NeedsDispatch;
+#endif
+}
+
+X64SyscallManager::EntryResult X64SyscallManager::finishUserReturn(SyscallState& state,
+                                                                   Thread* current) {
+  // Keep signal/scheduler scopes and their stack storage off the quiet path.
   // Materialize the full frame before any return work can enable interrupts,
   // switch threads, or expose it to signals and tracing.
   captureUserEntry(state);
@@ -212,10 +222,6 @@ X64SyscallManager::EntryResult X64SyscallManager::syscallWithInterruptsDisabled(
   }
   current->transitionTimeAtInterruptReturn(CpuTimeMode::Kernel, CpuTimeMode::User);
   return EntryResult::RestoreMetadata;
-#else
-  (void)state;
-  return EntryResult::NeedsDispatch;
-#endif
 }
 
 void X64SyscallManager::syscallWithActions(SyscallState& syscallState) {
