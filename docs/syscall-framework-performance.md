@@ -525,6 +525,61 @@ include all nine timing runs, `measurements.json`, `candidate/source.patch`,
 diff, `verification.md` and `identity-verification.txt`. Unrelated SLAM edits
 are unchanged; only these findings are retained in the repository.
 
+## What remains without accounting; constant getuid handler
+
+The eight 294-instruction traces can be partitioned without double counting:
+
+| Work, including its called helpers | Instructions per call |
+| --- | ---: |
+| Architecture dispatch and direct helpers | 107 |
+| POSIX dispatch and ABI personality setup | 50 |
+| Userspace SYSCALL plus assembly entry/return | 48 |
+| Handler eligibility checks | 39 |
+| Pending-return predicate and unwind getter | 25 |
+| Actual getuid and its lookup helpers | 25 |
+| Total | 294 |
+
+Caller CALL instructions stay with callers; the architecture category includes
+the inline affinity check. No pending-work service executes. Actual getuid's
+25 instructions comprise its ten-instruction body, CPU information (nine),
+current-thread lookup (two), two module jump thunks, and the UID getter (two).
+The UID getter is a cached load and return, with no lock or scan.
+
+Four CPU/current-thread lookup pairs occur across eligibility, architecture
+dispatch, POSIX personality setup and the handler. Including module jump thunks,
+they account for 50 instructions already assigned to the categories above.
+The two previously unnamed POSIX locations are jump thunks to CPU information
+and current-thread lookup, verified against the frozen ELF's JUMP_SLOT entries.
+The path also contains 18 CALL/RET pairs. These are instruction counts, not
+elapsed-time shares.
+
+A controlled experiment at `bf5b426e4` replaces only the body of `posix_getuid`
+with `return 0`. Both builds use the exact same accounting bypass from the prior
+experiment; their kernel, debug ELF and configuration are byte-identical.
+Dispatch, eligibility and pending checks remain. Three fresh interleaved
+one-CPU runs per build, without tracing or concurrent builds, give:
+
+| Handler, accounting bypassed in both | One million calls, median | Range |
+| --- | ---: | ---: |
+| Real UID lookup | 0.391921 s | 0.385640–0.409855 s |
+| Constant zero | 0.351896 s | 0.347862–0.379523 s |
+
+The constant handler saves about 40.0 ms per million calls (10.2%). All samples
+are retained. A separate trace confirms eight clean 271-instruction captures:
+the handler is exactly XOR EAX,EAX followed by RET, reducing its subtree from
+25 instructions to two. The rest of the 294-instruction partition is unchanged.
+CALL/RET pairs fall from 18 to 15, and all 247 observed PC/byte pairs match.
+The real UID operation is a small part of the remaining framework cost.
+
+This is a root-only diagnostic, not correct credential handling. User/system
+totals remain invalid because both arms bypass accounting. Both experimental
+source changes were restored and rebuilt; kernel, debug ELF, initrd and config
+match the normal-accounting, real-UID build byte for byte. Artifacts under
+`/private/tmp/pedigree-getuid-handler-zero-20260917` include the six timing runs,
+`measurements.json`, `breakdown.md`, `breakdown.json`, relocation evidence,
+`candidate/source.patch`, `candidate/summary/`, `verification.md` and
+`identity-verification.txt`. Unrelated SLAM edits are unchanged.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the
