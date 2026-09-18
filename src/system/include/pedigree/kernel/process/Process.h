@@ -684,9 +684,8 @@ class EXPORTED_PUBLIC Process {
     return m_pSubsystem;
   }
 
-  /** Gets the type of the Process (subsystems may override) */
-  virtual ProcessType getType() {
-    return Stock;
+  ProcessType getType() const {
+    return m_Type;
   }
 
   /**
@@ -902,10 +901,10 @@ class EXPORTED_PUBLIC Process {
    */
   struct DeferredPublication {};
 
-  Process(DeferredPublication);
+  Process(DeferredPublication, ProcessType type = Stock);
   Process(DeferredPublication, Process* pParent, bool bCopyOnWrite = true,
           FilesystemContextMode filesystemContext = FilesystemContextMode::Inherit,
-          bool emptyAddressSpace = false);
+          bool emptyAddressSpace = false, ProcessType type = Stock);
 
   /** Makes a completely constructed Process visible to enumeration. */
   void publish();
@@ -1086,6 +1085,9 @@ class EXPORTED_PUBLIC Process {
 
   /** Our current state. */
   ProcessState m_State;
+
+  // Construction selects the actual class, independently of the parent's type.
+  const ProcessType m_Type;
 
   /**
    * Changes process state only if it still matches the expected state.

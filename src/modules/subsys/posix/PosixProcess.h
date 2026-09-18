@@ -162,8 +162,6 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   int createSession();
   int changeProcessGroup(PosixProcess& caller, int groupId);
 
-  virtual ProcessType getType();
-
   void setMask(uint32_t mask);
   uint32_t getMask() const;
 

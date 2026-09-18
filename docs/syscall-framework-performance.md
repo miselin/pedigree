@@ -806,6 +806,47 @@ fixed backend through virtual calls at every boundary. Further accounting work
 should measure the remaining transition bookkeeping before changing clock
 precision or reporting semantics.
 
+## Process type as immutable data
+
+Starting at `81f796862`, `Process::getType()` becomes a nonvirtual inline read
+of an immutable field. Protected constructors default to `Stock`; both
+`PosixProcess` constructors explicitly select `Posix`. A bare `Process` created
+from a POSIX parent remains `Stock`. The UID interface and credential handling
+are unchanged. This replaces the earlier uncommitted POSIX getter-inlining
+experiment; unrelated SLAM edits remain untouched.
+
+The eligibility predicate now compares the type field directly and needs no
+stack frame. Seven uninterrupted captures each execute **433 instructions and
+12 CALL/RET pairs**, down from 440 and 13. No `getType` call executes. Capture
+eight includes an interrupt and executes 4,957 instructions; it is retained
+separately from the clean-path comparison. All 2,356 observed PC/byte pairs,
+including the interrupted capture, match the frozen kernel/initrd.
+
+Three fresh one-CPU repetitions per arm, with normal accounting and no tracing,
+give the following one-million-call elapsed times:
+
+| Variant | Elapsed seconds | Median |
+| --- | --- | ---: |
+| Before | 0.448386, 0.542631, 0.436034 | 0.448386 |
+| Immutable process type | 0.434755, 0.435038, 0.418538 | 0.434755 |
+
+The median is 3.0% lower, but this quick sample does not establish a stable
+speedup. Enclosing wall/user/system medians change from
+0.517287/0.283328/0.191085 s to 0.492578/0.254539/0.204930 s; system time does not
+improve. All observations are retained. No ten-million-call run was made.
+
+The kernel and modules were rebuilt together because removing the virtual
+method changes their shared ABI. All fifteen syscall/accounting/signal guest
+suites pass on one CPU. A hosted constructor/getter consumer compiles; hosted
+execution and four-CPU testing were not run. Construction and teardown were
+reviewed for type-dependent casts: the tag persists through base destruction,
+with existing unpublication and lifetime barriers protecting derived state.
+
+Artifacts are under `/private/tmp/pedigree-process-type-20260918`, including
+starting source snapshots, frozen payloads and read-back-verified images,
+`measurements.json`, `clean-trace-counts.json`, the complete trace, disassembly,
+and guest/hosted logs.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the

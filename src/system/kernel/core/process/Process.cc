@@ -402,7 +402,7 @@ Process::Process() : Process(DeferredPublication()) {
   publish();
 }
 
-Process::Process(DeferredPublication)
+Process::Process(DeferredPublication, ProcessType type)
     : m_Threads(),
       m_NextTid(0),
       m_Id(Scheduler::instance().reserveProcessId()),
@@ -438,6 +438,7 @@ Process::Process(DeferredPublication)
       m_bExternalLeaseReleaseInProgress(false),
       m_PendingChildTransition(),
       m_State(Active),
+      m_Type(type),
       m_bDestroying(false),
       m_bPublished(false),
       m_bUnregistered(false),
@@ -471,7 +472,7 @@ Process::Process(Process* pParent, bool bCopyOnWrite)
 }
 
 Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
-                 FilesystemContextMode filesystemContext, bool emptyAddressSpace)
+                 FilesystemContextMode filesystemContext, bool emptyAddressSpace, ProcessType type)
     : m_Threads(),
       m_NextTid(0),
       m_Id(Scheduler::instance().reserveProcessId()),
@@ -507,6 +508,7 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
       m_bExternalLeaseReleaseInProgress(false),
       m_PendingChildTransition(),
       m_State(Active),
+      m_Type(type),
       m_bDestroying(false),
       m_bPublished(false),
       m_bUnregistered(false),

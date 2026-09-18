@@ -29,7 +29,7 @@
 #include "modules/system/vfs/VFS.h"
 
 PosixProcess::PosixProcess()
-    : Process(DeferredPublication()),
+    : Process(DeferredPublication(), Posix),
       m_AccountingLifetime(false),
       m_SessionId(0),
       m_pProcessGroup(nullptr),
@@ -52,7 +52,8 @@ PosixProcess::PosixProcess()
 /** Copy constructor. */
 PosixProcess::PosixProcess(Process* pParent, bool bCopyOnWrite,
                            FilesystemContextMode filesystemContext, bool emptyAddressSpace)
-    : Process(DeferredPublication(), pParent, bCopyOnWrite, filesystemContext, emptyAddressSpace),
+    : Process(DeferredPublication(), pParent, bCopyOnWrite, filesystemContext, emptyAddressSpace,
+              Posix),
       m_AccountingLifetime(true),
       m_SessionId(0),
       m_pProcessGroup(nullptr),
@@ -106,10 +107,6 @@ void PosixProcess::publish() {
   assert(jobControlReady());
   Process::publish();
   registerProcess();
-}
-
-Process::ProcessType PosixProcess::getType() {
-  return Posix;
 }
 
 void PosixProcess::setMask(uint32_t mask) {
