@@ -580,6 +580,61 @@ match the normal-accounting, real-UID build byte for byte. Artifacts under
 `candidate/source.patch`, `candidate/summary/`, `verification.md` and
 `identity-verification.txt`. Unrelated SLAM edits are unchanged.
 
+## Header-inline CPU and process helpers
+
+At `5a800bdbe`, the working-tree experiment moves `ProcessorBase::information`,
+`X86CommonProcessorInformation::getCurrentThread`, and `PosixProcess::getType`
+into headers. The first build fails because the TSS helper remains defined only
+inline in the source file. Completing the relocation moves that helper into the
+header, exports the APIC fallback for module callers, and guards the new x86
+definitions against hosted inclusion. No accounting or credential ablation is
+enabled in this experiment.
+
+Three fresh interleaved one-CPU runs per arm, with no tracing or concurrent
+builds, compare the frozen previous payload with the completed header patch:
+
+| Workload | Previous median | Header patch median | Change |
+| --- | ---: | ---: | ---: |
+| One million getuid calls | 0.625212 s | 0.696693 s | 11.4% slower |
+| Ten million getuid calls | 6.340165 s | 7.148185 s | 12.7% slower |
+
+The one-million ranges are 0.603551–0.828386 s and 0.689283–0.704324 s;
+the ten-million ranges are 6.108752–6.354499 s and 7.090405–7.199388 s.
+All observations are retained. Enclosing ten-million median user/system times
+are 3.482552/2.773072 s before and 3.926695/3.150019 s after. These enclosing
+measurements include setup outside the inner monotonic benchmark interval.
+
+The clean normal-accounting path falls from 638 to 628 instruction dispatches
+and from 30 to 26 CALL/RET pairs. All four current-thread getter calls disappear,
+including their three module PLT jumps. `information()` does not inline at
+`-Os`: its six calls become three kernel calls at nine self instructions and
+three module-local calls at eleven, versus six at nine before. The module
+copies add GOT loads. `getType()` remains an indirect virtual call through
+`Process*`, despite its visible constant-return body. The count reduction does
+not establish the cause of the elapsed-time regression.
+
+Seven captures contain the clean 628-instruction path. The eighth contains
+5,483 instructions: its first 628 match the clean path exactly, followed by
+an interrupt after SYSRET and 4,855 additional dispatches through vector 0x28
+and IRET. Preserve that capture; it does not show interrupt enabling within
+the quiet syscall. All 2,471 observed PC/byte pairs validate against the frozen
+payload, and all clean kernel dispatches have IF clear.
+
+All fifteen existing contract suites pass on one CPU. On four CPUs, eight
+suites pass before `read-eintr` hits `Mapping mutation admission timed out`.
+This is a previously observed failure signature, but this pass does not
+establish its cause or claim four-CPU correctness. Hosted execution was not
+tested. Header formatting and `git diff --check` pass. A final formatting-only
+rebuild changes debug data; every non-debug ELF section in the kernel and initrd
+modules matches the tested payloads.
+
+Artifacts are under `/private/tmp/pedigree-inline-getuid-20260917`, including
+the initial source snapshots, completed `candidate/source.patch`, verified
+installed payloads, twelve timing runs, `measurements.json`,
+`long-measurements.json`, the full trace and interrupted capture, contract logs,
+and `formatting-build-section-comparison.json`. The source experiment remains
+in the working tree for follow-up; this is not a retained performance win.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the
