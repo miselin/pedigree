@@ -79,10 +79,10 @@ class InotifyRoutingTests(unittest.TestCase):
         for number in range(300, 304):
             self.assertIn(f" {number}", numbers)
         for case in (
-            "case POSIX_INOTIFY_INIT:",
-            "case POSIX_INOTIFY_INIT1:",
-            "case POSIX_INOTIFY_ADD_WATCH:",
-            "case POSIX_INOTIFY_RM_WATCH:",
+            "POSIX_CASE(POSIX_INOTIFY_INIT)",
+            "POSIX_CASE(POSIX_INOTIFY_INIT1)",
+            "POSIX_CASE(POSIX_INOTIFY_ADD_WATCH)",
+            "POSIX_CASE(POSIX_INOTIFY_RM_WATCH)",
         ):
             self.assertIn(case, manager)
 

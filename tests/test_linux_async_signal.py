@@ -99,10 +99,10 @@ class LinuxAsyncSignalTests(unittest.TestCase):
         self.assertNotIn("lookup(sig % 32)", subsystem)
         self.assertIn("sizeof(LinuxAmd64KernelSigaction) == 32", signals)
 
-        dispatch = manager.split("case POSIX_SIGACTION:", 1)[1].split(
+        dispatch = manager.split("POSIX_CASE(POSIX_SIGACTION)", 1)[1].split(
             "case POSIX_SIGNAL:", 1
         )[0]
-        self.assertIn("p4 != sizeof(uint64_t)", dispatch)
+        self.assertIn("argument(3) != sizeof(uint64_t)", dispatch)
         self.assertIn("posix_linux_amd64_sigaction", dispatch)
 
         raw_sigaction = signals.split(

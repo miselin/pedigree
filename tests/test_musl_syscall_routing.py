@@ -9,6 +9,14 @@ MUSL = ROOT / "src/modules/subsys/posix/musl"
 HOSTED_MUSL_CMAKE = ROOT / "build-etc/cmake/PedigreeHostedMusl.cmake"
 
 
+def dispatch_body(manager: str, name: str) -> str:
+    body = manager.split(f"POSIX_CASE({name})", 1)[1]
+    body = re.split(
+        r"^\s*(?:POSIX_CASE\(|case |default:)", body, maxsplit=1, flags=re.MULTILINE
+    )[0]
+    return " ".join(body.split())
+
+
 class MuslSyscallRoutingTests(unittest.TestCase):
     def test_native_musl_uses_the_raw_linux_syscall_abi(self):
         build_script = (ROOT / "scripts/build-musl-amd64.sh").read_text(
@@ -138,10 +146,10 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         )
         self.assertIn("#define POSIX_CLONE3 413", numbers)
         self.assertIn('#include "clone3-syscalls.h"', manager)
-        self.assertRegex(
-            manager,
-            r"case POSIX_CLONE3:\s+return posix_clone3\(state, "
-            r"reinterpret_cast<const LinuxCloneArgs\*>\(p1\), p2\);",
+        self.assertIn(
+            "return posix_clone3(state, "
+            "reinterpret_cast<const LinuxCloneArgs*>(argument(0)), argument(1));",
+            dispatch_body(manager, "POSIX_CLONE3"),
         )
 
     def test_linux_epoll_syscalls_are_mapped(self):
@@ -181,10 +189,10 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             mappings,
         )
         self.assertIn("#define POSIX_DUP3 295", numbers)
-        self.assertRegex(
-            manager,
-            r"case POSIX_DUP3:\s+return posix_dup3\(static_cast<int>\(p1\), "
-            r"static_cast<int>\(p2\), static_cast<int>\(p3\)\);",
+        self.assertIn(
+            "return posix_dup3(static_cast<int>(argument(0)), "
+            "static_cast<int>(argument(1)), static_cast<int>(argument(2)));",
+            dispatch_body(manager, "POSIX_DUP3"),
         )
         self.assertIn(
             "int posix_dup3(int oldfd, int newfd, int flags);",
@@ -224,35 +232,29 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         self.assertIn("#define POSIX_PREADV2 298", numbers)
         self.assertIn("#define POSIX_PWRITEV2 299", numbers)
 
-        pread = manager.split("case POSIX_PREAD64:", 1)[1].split(
-            "case ", 1
-        )[0]
+        pread = dispatch_body(manager, "POSIX_PREAD64")
         self.assertIn("return posix_pread64", pread)
-        self.assertIn("static_cast<int>(p1)", pread)
-        self.assertIn("reinterpret_cast<char*>(p2)", pread)
-        self.assertIn("static_cast<size_t>(p3)", pread)
-        self.assertIn("static_cast<off_t>(p4)", pread)
+        self.assertIn("static_cast<int>(argument(0))", pread)
+        self.assertIn("reinterpret_cast<char*>(argument(1))", pread)
+        self.assertIn("static_cast<size_t>(argument(2))", pread)
+        self.assertIn("static_cast<off_t>(argument(3))", pread)
 
-        pwrite = manager.split("case POSIX_PWRITE64:", 1)[1].split(
-            "case ", 1
-        )[0]
+        pwrite = dispatch_body(manager, "POSIX_PWRITE64")
         self.assertIn("return posix_pwrite64", pwrite)
-        self.assertIn("static_cast<int>(p1)", pwrite)
-        self.assertIn("reinterpret_cast<const char*>(p2)", pwrite)
-        self.assertIn("static_cast<size_t>(p3)", pwrite)
-        self.assertIn("static_cast<off_t>(p4)", pwrite)
+        self.assertIn("static_cast<int>(argument(0))", pwrite)
+        self.assertIn("reinterpret_cast<const char*>(argument(1))", pwrite)
+        self.assertIn("static_cast<size_t>(argument(2))", pwrite)
+        self.assertIn("static_cast<off_t>(argument(3))", pwrite)
 
         self.assertIn("off_t linuxAmd64VectorOffset", manager)
         self.assertIn("static_cast<uint64_t>(high) << 32U", manager)
         self.assertIn("static_cast<uint64_t>(low) & 0xFFFFFFFFULL", manager)
         for syscall in ("PREADV", "PWRITEV", "PREADV2", "PWRITEV2"):
-            dispatch = manager.split(f"case POSIX_{syscall}:", 1)[1].split(
-                "case ", 1
-            )[0]
+            dispatch = dispatch_body(manager, f"POSIX_{syscall}")
             self.assertIn(f"return posix_{syscall.lower()}", dispatch)
-            self.assertIn("linuxAmd64VectorOffset(p4, p5)", dispatch)
+            self.assertIn("linuxAmd64VectorOffset(argument(3), argument(4))", dispatch)
             if syscall.endswith("2"):
-                self.assertIn("static_cast<int>(p6)", dispatch)
+                self.assertIn("static_cast<int>(argument(5))", dispatch)
 
         for declaration in (
             "ssize_t posix_preadv(int fd, const struct iovec* iov, int iovcnt, off_t offset);",
@@ -318,16 +320,12 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         self.assertIn("#define POSIX_PRLIMIT64 292", numbers)
         self.assertIn("#define POSIX_MEMBARRIER 293", numbers)
 
-        prlimit = manager.split("case POSIX_PRLIMIT64:", 1)[1].split(
-            "case ", 1
-        )[0]
+        prlimit = dispatch_body(manager, "POSIX_PRLIMIT64")
         self.assertIn("return posix_prlimit64", prlimit)
-        self.assertIn("reinterpret_cast<const LinuxRlimit64*>(p3)", prlimit)
-        self.assertIn("reinterpret_cast<LinuxRlimit64*>(p4)", prlimit)
+        self.assertIn("reinterpret_cast<const LinuxRlimit64*>(argument(2))", prlimit)
+        self.assertIn("reinterpret_cast<LinuxRlimit64*>(argument(3))", prlimit)
 
-        membarrier = manager.split("case POSIX_MEMBARRIER:", 1)[1].split(
-            "case ", 1
-        )[0]
+        membarrier = dispatch_body(manager, "POSIX_MEMBARRIER")
         self.assertIn("return posix_membarrier", membarrier)
 
     def test_linux_faccessat2_is_mapped_and_dispatched_with_flags(self):
@@ -348,20 +346,17 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         )
         self.assertIn("#define POSIX_FACCESSAT2 294", numbers)
 
-        faccessat = manager.split("case POSIX_FACCESSAT:", 1)[1].split(
-            "case ", 1
-        )[0]
+        faccessat = dispatch_body(manager, "POSIX_FACCESSAT")
         self.assertIn(
-            "return posix_faccessat(p1, reinterpret_cast<const char*>(p2), p3, 0)",
+            "return posix_faccessat(argument(0), "
+            "reinterpret_cast<const char*>(argument(1)), argument(2), 0)",
             faccessat,
         )
 
-        faccessat2 = manager.split("case POSIX_FACCESSAT2:", 1)[1].split(
-            "case ", 1
-        )[0]
+        faccessat2 = dispatch_body(manager, "POSIX_FACCESSAT2")
         self.assertIn("return posix_faccessat", faccessat2)
-        self.assertIn("reinterpret_cast<const char*>(p2)", faccessat2)
-        self.assertIn("p3, p4", faccessat2)
+        self.assertIn("reinterpret_cast<const char*>(argument(1))", faccessat2)
+        self.assertIn("argument(2), argument(3)", faccessat2)
 
     def test_linux_epoll_pwait_uses_a_guarded_temporary_mask(self):
         source = (
@@ -431,15 +426,13 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             "PEDIGREE_LINUX_AMD64_SYSCALL(ppoll, 271, POSIX_PPOLL)",
             mappings,
         )
-        self.assertIn("case POSIX_PPOLL:", manager)
-        dispatch = manager.split("case POSIX_PPOLL:", 1)[1].split(
-            "case ", 1
-        )[0]
+        self.assertIn("POSIX_CASE(POSIX_PPOLL)", manager)
+        dispatch = dispatch_body(manager, "POSIX_PPOLL")
         self.assertIn("return posix_ppoll", dispatch)
-        self.assertIn("static_cast<unsigned int>(p2)", dispatch)
-        self.assertIn("reinterpret_cast<LinuxKernelTimespec*>(p3)", dispatch)
-        self.assertIn("reinterpret_cast<const uint64_t*>(p4)", dispatch)
-        self.assertIn("static_cast<size_t>(p5)", dispatch)
+        self.assertIn("static_cast<unsigned int>(argument(1))", dispatch)
+        self.assertIn("reinterpret_cast<LinuxKernelTimespec*>(argument(2))", dispatch)
+        self.assertIn("reinterpret_cast<const uint64_t*>(argument(3))", dispatch)
+        self.assertIn("static_cast<size_t>(argument(4))", dispatch)
 
         self.assertRegex(
             wait_abi,
@@ -547,17 +540,15 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             mappings,
         )
         self.assertIn("#define POSIX_PSELECT6 284", numbers)
-        self.assertIn("case POSIX_PSELECT6:", manager)
-        dispatch = manager.split("case POSIX_PSELECT6:", 1)[1].split(
-            "case ", 1
-        )[0]
+        self.assertIn("POSIX_CASE(POSIX_PSELECT6)", manager)
+        dispatch = dispatch_body(manager, "POSIX_PSELECT6")
         self.assertIn("return posix_pselect6", dispatch)
-        self.assertIn("static_cast<int>(p1)", dispatch)
-        for parameter in ("p2", "p3", "p4"):
+        self.assertIn("static_cast<int>(argument(0))", dispatch)
+        for parameter in ("argument(1)", "argument(2)", "argument(3)"):
             self.assertIn(f"reinterpret_cast<fd_set*>({parameter})", dispatch)
-        self.assertIn("reinterpret_cast<LinuxKernelTimespec*>(p5)", dispatch)
+        self.assertIn("reinterpret_cast<LinuxKernelTimespec*>(argument(4))", dispatch)
         self.assertIn(
-            "reinterpret_cast<const LinuxPselectSigsetArgument*>(p6)",
+            "reinterpret_cast<const LinuxPselectSigsetArgument*>(argument(5))",
             dispatch,
         )
 
@@ -713,26 +704,26 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             ),
         )
 
-        getres_dispatch = manager.split("case POSIX_CLOCK_GETRES:", 1)[1].split(
-            "case ", 1
-        )[0]
+        getres_dispatch = dispatch_body(manager, "POSIX_CLOCK_GETRES")
         self.assertIn("return posix_clock_getres", getres_dispatch)
         self.assertIn("if (linuxAbi)", getres_dispatch)
-        self.assertIn("reinterpret_cast<LinuxKernelTimespec*>(p2)", getres_dispatch)
-        self.assertIn("return posix_clock_getres_native", getres_dispatch)
-        self.assertIn("reinterpret_cast<struct timespec*>(p2)", getres_dispatch)
-
-        nanosleep_dispatch = manager.split(
-            "case POSIX_CLOCK_NANOSLEEP:", 1
-        )[1].split("case ", 1)[0]
-        self.assertIn("return posix_clock_nanosleep", nanosleep_dispatch)
-        self.assertIn("static_cast<int>(p2)", nanosleep_dispatch)
         self.assertIn(
-            "reinterpret_cast<const LinuxKernelTimespec*>(p3)",
+            "reinterpret_cast<LinuxKernelTimespec*>(argument(1))", getres_dispatch
+        )
+        self.assertIn("return posix_clock_getres_native", getres_dispatch)
+        self.assertIn(
+            "reinterpret_cast<struct timespec*>(argument(1))", getres_dispatch
+        )
+
+        nanosleep_dispatch = dispatch_body(manager, "POSIX_CLOCK_NANOSLEEP")
+        self.assertIn("return posix_clock_nanosleep", nanosleep_dispatch)
+        self.assertIn("static_cast<int>(argument(1))", nanosleep_dispatch)
+        self.assertIn(
+            "reinterpret_cast<const LinuxKernelTimespec*>(argument(2))",
             nanosleep_dispatch,
         )
         self.assertIn(
-            "reinterpret_cast<LinuxKernelTimespec*>(p4)", nanosleep_dispatch
+            "reinterpret_cast<LinuxKernelTimespec*>(argument(3))", nanosleep_dispatch
         )
 
         native_getres = source.split("int posix_clock_getres_native", 1)[1].split(
@@ -809,17 +800,13 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         self.assertIn("#define POSIX_TKILL 287", numbers)
         self.assertIn("#define POSIX_TGKILL 288", numbers)
 
-        tkill_dispatch = manager.split("case POSIX_TKILL:", 1)[1].split(
-            "case ", 1
-        )[0]
+        tkill_dispatch = dispatch_body(manager, "POSIX_TKILL")
         self.assertIn("return posix_tkill", tkill_dispatch)
-        self.assertIn("static_cast<int>(p1)", tkill_dispatch)
-        self.assertIn("static_cast<int>(p2)", tkill_dispatch)
-        tgkill_dispatch = manager.split("case POSIX_TGKILL:", 1)[1].split(
-            "case ", 1
-        )[0]
+        self.assertIn("static_cast<int>(argument(0))", tkill_dispatch)
+        self.assertIn("static_cast<int>(argument(1))", tkill_dispatch)
+        tgkill_dispatch = dispatch_body(manager, "POSIX_TGKILL")
         self.assertIn("return posix_tgkill", tgkill_dispatch)
-        for parameter in ("p1", "p2", "p3"):
+        for parameter in ("argument(0)", "argument(1)", "argument(2)"):
             self.assertIn(f"static_cast<int>({parameter})", tgkill_dispatch)
 
         tkill = source.split("int posix_tkill", 1)[1].split(
@@ -888,12 +875,10 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             mappings,
         )
         self.assertIn("#define POSIX_RT_SIGSUSPEND 289", numbers)
-        dispatch = manager.split("case POSIX_RT_SIGSUSPEND:", 1)[1].split(
-            "case ", 1
-        )[0]
+        dispatch = dispatch_body(manager, "POSIX_RT_SIGSUSPEND")
         self.assertIn("return posix_rt_sigsuspend", dispatch)
-        self.assertIn("reinterpret_cast<const uint64_t*>(p1)", dispatch)
-        self.assertIn("static_cast<size_t>(p2)", dispatch)
+        self.assertIn("reinterpret_cast<const uint64_t*>(argument(0))", dispatch)
+        self.assertIn("static_cast<size_t>(argument(1))", dispatch)
 
         entry = source.split("int posix_rt_sigsuspend", 1)[1].split(
             "size_t posix_alarm", 1
@@ -1047,13 +1032,21 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn('#include "syscalls/translate.h"', manager)
-        self.assertIn("long which = posix_translate_syscall(syscallNumber);", manager)
+        linux_dispatch = manager.split("if (linuxAbi) {", 1)[1].split(
+            "#define POSIX_CASE", 1
+        )[0]
+        self.assertIn("switch (syscallNumber)", linux_dispatch)
+        self.assertIn("case PedigreeLinuxAmd64Syscall_##name:", linux_dispatch)
+        self.assertIn("goto handle_##target;", linux_dispatch)
+        self.assertIn(
+            '#include "syscalls/linuxSyscallMappings-amd64.h"', linux_dispatch
+        )
+        unknown = linux_dispatch.split("#undef PEDIGREE_LINUX_AMD64_SYSCALL", 1)[1]
+        self.assertRegex(unknown, r"SYSCALL_ERROR\(Unimplemented\);\s*return -1;")
         self.assertRegex(
             manager,
-            re.compile(
-                r"if \(which < 0\).*?SYSCALL_ERROR\(Unimplemented\);.*?return -1;",
-                re.DOTALL,
-            ),
+            r"#define POSIX_CASE\(target\)[\s\\]*"
+            r"case target:[\s\\]*handle_##target:",
         )
 
     def test_raw_syscalls_select_linux_service_and_use_linux_errno(self):

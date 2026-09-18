@@ -5,6 +5,13 @@ see the [compilation latency guide](compile-latency.md).
 
 ## Syscall framework contracts
 
+`syscall-abi-contract.c` issues raw Linux service-0 and native service-1 calls
+with their distinct register conventions. It checks zero-, one-, three-, and
+six-argument operations, unused-register sentinels, pipe contents, file mappings
+at a nonzero offset, both errno conventions, unmapped numbers, fchmodat's ABI
+differences, and global versus local thread IDs. Success is
+`ABI-CONTRACT PASS END` with exit status zero.
+
 `syscall-query-contract.c` checks real nonzero UIDs, stable process/thread IDs,
 errno preservation, and ordinary syscall fallback across four fork workers.
 The parent independently checks reported PIDs against `fork()` results. A
@@ -51,6 +58,10 @@ contract_dir=/path/to/contracts
 target_cc="$PWD/pedigree-compiler-15.3.0-r2/bin/x86_64-pedigree-gcc"
 target_sysroot="$PWD/build/musl"
 mkdir -p "$contract_dir"
+"$target_cc" --sysroot="$target_sysroot" -I"$target_sysroot/include" \
+  -I"$PWD/src/modules/subsys/posix/syscalls" -L"$target_sysroot/usr/lib" \
+  -static -O2 -std=gnu11 -Wall -Wextra -Werror \
+  scripts/benchmarks/syscall-abi-contract.c -o "$contract_dir/syscall-abi-contract"
 for name in syscall-entry-contract syscall-query-contract syscall-accounting-contract; do
   "$target_cc" --sysroot="$target_sysroot" -I"$target_sysroot/include" \
     -L"$target_sysroot/usr/lib" -static -O2 -std=gnu11 -Wall -Wextra \

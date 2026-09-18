@@ -297,16 +297,78 @@ conventions and some different semantics. There is no userspace/kernel double
 renumbering to remove. Genuine adapters for signals, clone/TLS, task IDs,
 resource structures, exit behavior and errors must remain.
 
-The next dispatcher experiment should let each external ABI select the shared
-operation body directly, eliminating translation to an intermediate number and
-redispatch. Extract only the arguments consumed by that operation. The existing
-Linux mapping definitions can select the existing operation bodies; this does
-not require changing musl or removing the native ABI. Preserve personality
-setup until the loader has an explicit replacement rule. Validate native and
-Linux entry, argument counts, errno, unmapped numbers, fchmodat's unused fourth
-argument, task IDs, clone/TLS and signal return, then measure elapsed time and
-inspect generated code separately. No ABI implementation changed in this pass.
-The detailed source audit is in the artifact `abi-dispatch.md`.
+The retained ABI dispatch pass lets each external ABI select the shared
+operation body directly. The existing Linux mapping definitions now generate
+switch cases that jump to the matching operation label, eliminating translation
+to an intermediate number and redispatch. Native numbers still select the same
+bodies. An inline accessor extracts arguments only where they are consumed;
+TLS and exit operations retain local snapshots where needed. All 287 mappings
+and 319 operation bodies were audited against the original source. Musl,
+personality setup, real ABI adapters, accounting and assembly entry are unchanged.
+
+Eight clean getuid captures each execute 638 instructions, down from 675
+(5.5%). POSIX dispatch falls from 74 to 37 instructions, with no argument loads
+on the getuid path. Observed instruction bytes match the frozen payloads.
+The large dispatcher prologue remains, as do 30 CALL/RET pairs across the full
+path. The register frame is still saved at entry; this change removes unnecessary
+extraction and redispatch after that save.
+
+Uninstrumented one-CPU QEMU 11.1.1 TCG results, using the unchanged benchmark ELF:
+
+| Loop size | Repetitions per build | Original median | New median |
+| --- | ---: | ---: | ---: |
+| 1 million getuid calls | 5 | 0.614841 s | 0.602661 s |
+| 10 million getuid calls | 3 | 6.084874 s | 6.149586 s |
+
+The short batch is 2.0% faster; the longer batch is 1.1% slower. There is no
+repeatable elapsed-time improvement. Short-run ranges are 0.605337–0.626150 s
+and 0.566641–0.647701 s. Long-run ranges are 6.055387–6.357500 s and
+6.054215–8.146384 s; the slow candidate is retained. No timing was excluded.
+The longer runs were interleaved, with one guest at a time and no concurrent
+builds. Retain the change as a reduction in dispatch work and a simpler route
+from external numbers to operations, without claiming a wall-time win.
+
+For one-million-call runs, enclosing median user/system times change from
+0.325958/0.313361 s to 0.339986/0.292651 s. For ten-million-call runs they change
+from 3.191191/2.849109 s to 3.462707/2.655816 s. These describe the whole process
+and should not replace the inner-loop wall measurement. Fewer traced guest
+instructions still do not establish lower TCG execution cost.
+
+The new raw-ABI contract passes on both the original and new builds. It checks
+the distinct register layouts and errno conventions, unused argument sentinels,
+pipe contents, six-argument file mappings with nonzero offsets, unmapped numbers,
+fchmodat's unused fourth Linux argument, and global versus native-local thread
+IDs. All 15 suites pass on the new build with one and four CPUs: ABI, queries,
+resource accounting, concurrent accounting, clock scaling, CPU interval timers,
+timers, process lifetime, and seven signal interruption/restart modes.
+The separate entry/TLS stress test passes with one CPU; nonzero GS is explicitly
+skipped because ARCH_SET_GS is unsupported.
+
+Four-CPU entry/TLS stress remains failing. The candidate reaches the 100-second
+deadline with three CPUs in the LAPIC processor-control wait loop. The original
+build, running the same freshly compiled fixture and root image, panics with
+`Mapping mutation admission timed out` after two workers pass. Both failed runs
+and register snapshots are retained as `candidate/entry-4cpu` and
+`control/entry-4cpu`. The control confirms this workload already fails without
+the ABI changes; it does not prove identical triggers or establish SMP reliability.
+
+The target build and a target translation-unit compile with both verbose syscall
+diagnostics enabled pass. The configured hosted compile database is stale and
+fails on the original source too; a Clang x86_64 hosted translation-unit check
+passes with the host sysroot and GNU feature declarations. This is compile-only
+coverage, not a hosted runtime result. Of 43 routing tests, 41 pass. Two stale
+source assertions concerning signal-return diagnostics and inotify notification
+variables also fail at the starting commit; they are preserved as unrelated
+failures. The mapping snapshot was updated for the already-existing clone3 entry.
+
+Artifacts are under `/private/tmp/pedigree-abi-dispatch-20260917`: frozen
+`candidate/` payloads, `control/` and `candidate/` timing/contract runs,
+`candidate/summary/` trace and Callgrind output, `measurements.json`,
+`dispatch-body-comparison.json`, `baseline-routing-evidence.json`, and
+`identity-verification.txt`. The latter checks installed payloads, test binaries,
+root images, and preservation of unrelated SLAM edits. This pass starts at
+`a9a9e3522`; its original payloads are the byte-identical restored build from the
+accounting-context experiment above.
 
 ## Validation and remaining uncertainty
 
