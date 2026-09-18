@@ -53,11 +53,16 @@ _ZN13ProcessorBase14getDebugStatusEv:
   ret
 
 _ZN13ProcessorBase13contextSwitchEP17X64InterruptState:
+  cli
   ; Change the stack pointer to point to the top of the passed InterruptState object.
   mov rsp, rdi
 
   mov rdi, rsp
   call pedigree_restore_user_entry
+  test byte [rsp+176], 3
+  jz .kernel_return
+  swapgs
+.kernel_return:
   add rsp, 32
 
   ; Restore the registers
@@ -82,11 +87,11 @@ _ZN13ProcessorBase13contextSwitchEP17X64InterruptState:
   iretq
 
 _ZN13ProcessorBase16switchToUserModeEmm:
+  cli
   mov ax, 0x23       ; Load the new data segment descriptor with an RPL of 3.
   mov ds, ax         ; Propagate the change to all segment registers.
   mov es, ax
   mov fs, ax
-  mov gs, ax
 
   mov rdx, rdi       ; First parameter is the address to jump to. Store in RDX.
   mov rdi, rsi       ; Second parameter to this function is the first to the called function.
@@ -103,4 +108,17 @@ _ZN13ProcessorBase16switchToUserModeEmm:
   push 0x1B          ; Push the new code segment with an RPL of 3.
   push rdx           ; Push the RIP to IRET to.
 
+  ; Install the user selector without overwriting the kernel GS anchor.
+  ; RAX/RCX/RDX are scratch registers after the IRET frame has been built.
+  mov ecx, 0xc0000102
+  rdmsr
+  mov r8d, eax
+  mov r9d, edx
+  swapgs
+  mov ax, 0x23
+  mov gs, ax
+  mov eax, r8d
+  mov edx, r9d
+  mov ecx, 0xc0000101
+  wrmsr
   iretq

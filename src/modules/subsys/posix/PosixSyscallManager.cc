@@ -1029,10 +1029,13 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       const uintptr_t p2 = argument(1);
       const int result = posix_arch_prctl(p1, p2);
 #if X64 && !HOSTED
-      if (!result && static_cast<int>(p1) == 0x1002) {  // ARCH_SET_FS.
+      if (!result && (static_cast<int>(p1) == 0x1002 || static_cast<int>(p1) == 0x1001)) {
         // The return frame owns the base even if this syscall was preempted.
         auto metadata = state.getUserEntryMetadata();
-        metadata.fsBase = p2;
+        if (static_cast<int>(p1) == 0x1002)  // ARCH_SET_FS.
+          metadata.fsBase = p2;
+        else
+          metadata.gsBase = p2;
         state.setUserEntryMetadata(metadata);
       }
 #endif

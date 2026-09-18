@@ -44,6 +44,25 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
  public:
   typedef struct X64TaskStateSegment TaskStateSegment;
 
+#if X64
+  struct KernelGsAnchor {
+    uintptr_t kernelStack;
+    uintptr_t userStack;
+    X86CommonProcessorInformation* information;
+    size_t processorIndex;
+  };
+  static_assert(__builtin_offsetof(KernelGsAnchor, kernelStack) == 0);
+  static_assert(__builtin_offsetof(KernelGsAnchor, userStack) == 8);
+  static_assert(__builtin_offsetof(KernelGsAnchor, information) == 16);
+  static_assert(__builtin_offsetof(KernelGsAnchor, processorIndex) == 24);
+  static_assert(sizeof(KernelGsAnchor) == 32);
+
+  KernelGsAnchor* kernelGsAnchor() {
+    return &m_KernelGsAnchor;
+  }
+  void activateKernelGsAnchor(size_t processorIndex);
+#endif
+
   /** Get the current processor's VirtualAddressSpace
    *\return reference to the current processor's VirtualAddressSpace */
   VirtualAddressSpace& getVirtualAddressSpace() const;
@@ -70,7 +89,9 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
 
   uintptr_t getKernelStack() const;
   void setKernelStack(uintptr_t stack);
-  Thread* getCurrentThread() const;
+  Thread* getCurrentThread() const {
+    return m_pCurrentThread;
+  }
   void setCurrentThread(Thread* pThread);
 
   PerProcessorScheduler& getScheduler();
@@ -144,14 +165,9 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
   /** Release-published after both anchor values have been installed. */
   bool m_TscClockAnchorInitialised;
 
-  // SyscallManager.s uses these offsets while IRQs are masked on entry.
-  struct SyscallEntry {
-    uintptr_t kernelStack = 0;
-    uintptr_t userStack = 0;
-  };
-  static_assert(__builtin_offsetof(SyscallEntry, kernelStack) == 0);
-  static_assert(__builtin_offsetof(SyscallEntry, userStack) == 8);
-  SyscallEntry m_SyscallEntry;
+#if X64
+  KernelGsAnchor m_KernelGsAnchor{0, 0, this, 0};
+#endif
 };
 
 /** @} */

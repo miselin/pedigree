@@ -448,9 +448,8 @@ class EXPORTED_PUBLIC ProcessorBase {
 
   /**
    * Get this processor's dense topology index for per-CPU storage.
-   * Once processor discovery is complete, successful results are strictly
-   * less than getCount(). An unmatched hardware identity returns getCount()
-   * so callers cannot alias another processor's slot.
+   * The bootstrap processor owns slot zero before discovery; each additional
+   * processor receives its permanent slot before it enters C++.
    */
   static size_t index();
 
@@ -467,12 +466,18 @@ class EXPORTED_PUBLIC ProcessorBase {
   /** Set a new TLS area base address. */
   static void setTlsBase(uintptr_t newBase);
 
+#if X64 && !HOSTED
+  static uintptr_t getUserGsBase();
+  static void setUserGsBase(uintptr_t newBase);
+#endif
+
   /** How far has the processor-specific interface been initialised */
   static size_t m_Initialised;
 
  private:
-#if MULTIPROCESSOR && X64
-  static ProcessorInformation* informationFromTss(size_t* processorIndex = nullptr);
+#if X64
+  // Constant-initialized independently of the BSP information constructor.
+  static ProcessorInformation::KernelGsAnchor m_BootstrapKernelGsAnchor;
 #endif
 
   /** Escalate an admitted mutation to terminal failure. */

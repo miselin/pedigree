@@ -52,10 +52,13 @@ static int gs_valid(void) {
     return 0;
   if (!gs_enabled)
     return 1;
+  uint64_t magic;
+  __asm__ volatile("movq %%gs:0, %0" : "=r"(magic) : : "memory");
+  if (magic != expected_magic)
+    return 0;
   uintptr_t base = 0;
   if (raw6(SYS_arch_prctl, ARCH_GET_GS, (long)&base, 0, 0, 0, 0) != 0 || base != expected_gs)
     return 0;
-  uint64_t magic;
   __asm__ volatile("movq %%gs:0, %0" : "=r"(magic) : : "memory");
   return magic == expected_magic;
 }
@@ -95,7 +98,7 @@ static void user_signal(int signum) {
   errno = EOVERFLOW;
   for (unsigned i = 0; i < 16; ++i) {
     if (raw6(SYS_getuid, 0, 0, 0, 0, 0, 0) != expected_uid || tls_token != handler_token ||
-        errno != EOVERFLOW || &errno != errno_address)
+        errno != EOVERFLOW || &errno != errno_address || !gs_valid())
       signal_error = 2;
   }
   if (raw6(SYS_sched_yield, 0, 0, 0, 0, 0, 0) != 0 || !gs_valid())
@@ -137,15 +140,9 @@ static void run_worker(int slot) {
   gs_slots[slot][0] = expected_magic;
   expected_gs = (uintptr_t)&gs_slots[slot][0];
   const long set_gs = raw6(SYS_arch_prctl, ARCH_SET_GS, (long)expected_gs, 0, 0, 0, 0);
-  if (set_gs == -EINVAL || set_gs == -ENOSYS) {
-    require(get_gs == 0 || get_gs == -EINVAL || get_gs == -ENOSYS, "get-gs-unexpected-error");
-    printf("ENTRY-CONTRACT SKIP worker=%d feature=nonzero-gs set_rc=%ld get_rc=%ld\n", slot, set_gs,
-           get_gs);
-  } else {
-    require(set_gs == 0 && get_gs == 0, "set-get-gs");
-    gs_enabled = 1;
-    require(gs_valid(), "initial-gs");
-  }
+  require(set_gs == 0 && get_gs == 0, "nonzero-gs-required");
+  gs_enabled = 1;
+  require(gs_valid(), "initial-gs");
 
   struct sigaction action = {0};
   action.sa_handler = user_signal;
@@ -176,6 +173,7 @@ static void run_worker(int slot) {
       unsigned cpu = UINT32_MAX, node = UINT32_MAX;
       require(raw6(SYS_getcpu, (long)&cpu, (long)&node, 0, 0, 0, 0) == 0 && cpu < 256,
               "getcpu-record");
+      require(gs_valid(), "gs-after-getcpu");
       cpu_seen[cpu] = 1;
       apic_seen[hardware_apic()] = 1;
       require(raw6(SYS_sched_yield, 0, 0, 0, 0, 0, 0) == 0, "yield");
@@ -186,14 +184,17 @@ static void run_worker(int slot) {
       long result =
           raw6(SYS_mmap, 0, page_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, page_size);
       require((unsigned long)result < (unsigned long)-4095, "six-argument-file-mmap");
+      check_state(token, EDOM);
       volatile unsigned char* mapping = (void*)result;
       for (long n = 0; n < page_size; ++n)
         require(mapping[n] == second, "mmap-offset-contents");
       mapping[0] = (unsigned char)(second ^ 0x3f);
       require(raw6(SYS_munmap, result, page_size, 0, 0, 0, 0) == 0, "file-munmap");
+      check_state(token, EDOM);
       result =
           raw6(SYS_mmap, 0, page_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
       require((unsigned long)result < (unsigned long)-4095, "anonymous-mmap");
+      check_state(token, EDOM);
       mapping = (void*)result;
       for (long n = 0; n < page_size; ++n)
         require(mapping[n] == 0, "anonymous-zero");
@@ -205,6 +206,7 @@ static void run_worker(int slot) {
     if (!(iteration % 128)) {
       sig_atomic_t before = signal_count;
       require(raw6(SYS_kill, pid, SIGUSR1, 0, 0, 0, 0) == 0, "signal-send");
+      check_state(token, EDOM);
       for (unsigned wait = 0; signal_count == before && wait < 4096; ++wait)
         require(raw6(SYS_sched_yield, 0, 0, 0, 0, 0, 0) == 0, "signal-wait");
       require(signal_count == before + 1 && !signal_error, "signal-handler-return");
@@ -224,8 +226,8 @@ static void run_worker(int slot) {
   if (gs_enabled)
     require(raw6(SYS_arch_prctl, ARCH_SET_GS, (long)original_gs, 0, 0, 0, 0) == 0, "restore-gs");
   alarm(0);
-  printf("ENTRY-CONTRACT WORKER PASS worker=%d getuid=%d signals=%d gs=%s\n", slot, ITERATIONS,
-         (int)signal_count, gs_enabled ? "PASS" : "SKIP");
+  printf("ENTRY-CONTRACT WORKER PASS worker=%d getuid=%d signals=%d gs=PASS\n", slot, ITERATIONS,
+         (int)signal_count);
   _exit(0);
 }
 

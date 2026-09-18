@@ -57,6 +57,9 @@ class X64InterruptManager : public ::InterruptManager {
    *      Multiprocessor::applicationProcessorStartup() */
   static void initialiseProcessor() INITIALISATION_ONLY;
 
+  /** Enables IST entries only after this processor has loaded its permanent TSS. */
+  static void initialiseProcessorIst() INITIALISATION_ONLY;
+
  private:
   /** Called when an interrupt was triggered
    *\param[in] interruptState reference to the usermode/kernel state before
@@ -110,6 +113,8 @@ class X64InterruptManager : public ::InterruptManager {
 
   /** The interrupt descriptor table (IDT) */
   GateDescriptor m_IDT[256];
+  /** Early BSP/AP entries cannot use a TSS that has not been loaded yet. */
+  GateDescriptor m_BootstrapIDT[256];
   /** The normal interrupt handlers */
   InterruptHandler* m_pHandler[256];
 #if DEBUGGER

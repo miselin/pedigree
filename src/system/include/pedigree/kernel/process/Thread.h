@@ -818,6 +818,14 @@ class EXPORTED_PUBLIC Thread {
    */
   void setTlsBase(uintptr_t base);
 
+#if X64 && !HOSTED
+  uintptr_t getUserGsBase() const {
+    return m_UserGsBase;
+  }
+  void setUserGsBase(uintptr_t base);
+  void saveUserGsBase();
+#endif
+
   /** Gets this thread's CPU ID */
   inline
 #if MULTIPROCESSOR
@@ -1233,6 +1241,9 @@ class EXPORTED_PUBLIC Thread {
   /** Memory mapping for the TLS base of this thread (userspace-only) */
   VirtualAddressSpace::Stack* m_pInputUserStack = nullptr;
   void* m_pTlsBase = nullptr;
+#if X64 && !HOSTED
+  uintptr_t m_UserGsBase = 0;
+#endif
 
 #if MULTIPROCESSOR
   ProcessorId

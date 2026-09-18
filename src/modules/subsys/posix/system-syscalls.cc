@@ -91,8 +91,10 @@ static_assert(sizeof(struct rusage) == sizeof(LinuxRusage64) + 16 * sizeof(long)
 #endif
 
 // arch_prctl
+#define ARCH_SET_GS 0x1001
 #define ARCH_SET_FS 0x1002
 #define ARCH_GET_FS 0x1003
+#define ARCH_GET_GS 0x1004
 
 // Linux prctl operations used by musl's current-thread naming helpers.
 #define LINUX_PR_SET_NAME 15
@@ -1458,6 +1460,27 @@ int posix_prctl(int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_
 int posix_arch_prctl(int code, unsigned long addr) {
   Thread* current = Processor::information().getCurrentThread();
   switch (code) {
+#if X64 && !HOSTED
+    case ARCH_SET_GS:
+      // Paranoid entry distinguishes kernel and user GS by the address half.
+      // FSGSBASE stays disabled, so userspace cannot bypass this restriction.
+      if (addr >= current->getParent()->getAddressSpace()->getKernelStart() ||
+          addr >= 0x0000800000000000ULL) {
+        SYSCALL_ERROR(NotEnoughPermissions);
+        return -1;
+      }
+      current->setUserGsBase(addr);
+      break;
+
+    case ARCH_GET_GS: {
+      const unsigned long base = Processor::getUserGsBase();
+      if (!PosixSubsystem::copyToUser(reinterpret_cast<void*>(addr), &base, sizeof(base))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      break;
+    }
+#endif
     case ARCH_SET_FS:
       if (addr >= current->getParent()->getAddressSpace()->getKernelStart()
 #if X64

@@ -3,6 +3,9 @@
 [section .text]
 global pedigree_capture_user_entry:function protected
 global pedigree_restore_user_entry:function protected
+global pedigree_user_gs_restore_swapgs:function hidden
+global pedigree_user_gs_restore_user:function hidden
+global pedigree_user_gs_restore_kernel:function hidden
 
 %ifdef PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS
 extern pedigree_record_user_entry_capture
@@ -31,7 +34,7 @@ pedigree_user_entry_restore_calls:
   shl rdx, 32
   or rax, rdx
   mov [rdi+8], rax
-  mov ecx, 0xc0000101
+  mov ecx, 0xc0000102
   rdmsr
   shl rdx, 32
   or rax, rdx
@@ -39,7 +42,7 @@ pedigree_user_entry_restore_calls:
 %endif
 %endmacro
 
-%macro RESTORE_USER_ENTRY 0
+%macro RESTORE_USER_ENTRY 1
 %ifndef PEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA
   mov ax, [rdi]
   mov ds, ax
@@ -47,18 +50,32 @@ pedigree_user_entry_restore_calls:
   mov es, ax
   mov ax, [rdi+4]
   mov fs, ax
-  mov ax, [rdi+6]
-  mov gs, ax
   mov rax, [rdi+8]
   mov rdx, rax
   shr rdx, 32
   mov ecx, 0xc0000100
   wrmsr
+  ; Loading a selector changes the active GS base. Keep the kernel anchor
+  ; inactive until the user selector and its exact base have both been loaded.
+  mov ax, [rdi+6]
+%if %1
+pedigree_user_gs_restore_swapgs:
+%endif
+  swapgs
+%if %1
+pedigree_user_gs_restore_user:
+%endif
+  mov gs, ax
   mov rax, [rdi+16]
   mov rdx, rax
   shr rdx, 32
   mov ecx, 0xc0000101
   wrmsr
+  swapgs
+%if %1
+pedigree_user_gs_restore_kernel:
+%endif
+  lfence
 %endif
 %endmacro
 
@@ -107,18 +124,18 @@ pedigree_capture_user_entry:
 %endif
 
 ; Selector loads may alter bases: restore the captured bases afterward.
-; IA32_KERNEL_GS_BASE remains the pointer to this CPU's syscall entry record.
+; Active GS remains the local kernel anchor; inactive GS holds the user base.
 pedigree_restore_user_entry:
 %ifdef PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS
   inc qword [rel pedigree_user_entry_restore_calls]
   test byte [rel pedigree_user_entry_restore_calls], 0xff
-  jz .sampled
+  jz pedigree_restore_user_entry.sampled
 %endif
-  RESTORE_USER_ENTRY
+  RESTORE_USER_ENTRY 1
   ret
 
 %ifdef PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS
-.sampled:
+pedigree_restore_user_entry.sampled:
   lfence
   rdtsc
   shl rdx, 32
@@ -136,7 +153,7 @@ pedigree_restore_user_entry:
   shl rdx, 32
   or rax, rdx
   mov r8, rax
-  RESTORE_USER_ENTRY
+  RESTORE_USER_ENTRY 0
   lfence
   rdtsc
   shl rdx, 32

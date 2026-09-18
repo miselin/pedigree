@@ -22,6 +22,11 @@ extern _ZN17X64SyscallManager7syscallER15X64SyscallState
 
 ; Export the syscall handler
 global syscall_handler:function hidden
+global pedigree_syscall_entry_swapgs:function hidden
+global pedigree_syscall_entry_kernel_gs:function hidden
+global pedigree_syscall_kernel_stack:function hidden
+global pedigree_syscall_exit_swapgs:function hidden
+global pedigree_syscall_exit_user_gs:function hidden
 
 ;##############################################################################
 ;### Code section #############################################################
@@ -36,11 +41,14 @@ syscall_handler:
   ; Preserve the user's saved RFLAGS in R11 while establishing the kernel ABI.
   cld
 
-  ; GS names this CPU's SyscallEntry until the user register frame is saved.
-  ; IA32_FMASK keeps IRQs masked throughout this scratch-state lifetime.
+  ; IA32_FMASK masks IRQs; paranoid IST entry covers the NMI/exception windows.
+pedigree_syscall_entry_swapgs:
   swapgs
+pedigree_syscall_entry_kernel_gs:
+  lfence
   mov [gs: 8], rsp
   mov rsp, [gs: 0]
+pedigree_syscall_kernel_stack:
   push qword [gs: 8]
   push rcx
   push r11
@@ -58,8 +66,6 @@ syscall_handler:
   push r14
   push r15
 
-  ; Keep user GS active. C++ captures metadata before any path can change it.
-  swapgs
   sub rsp, 32
   mov rax, [rsp+128]
   mov [rsp+24], rax
@@ -69,7 +75,7 @@ syscall_handler:
 
   cli
 
-  ; A bounded, IRQ-masked call can leave the original selectors/bases installed.
+  ; A bounded call can retain the original user selectors and inactive GS base.
   test al, al
   jz .fast_return
   mov rdi, rsp
@@ -95,6 +101,8 @@ syscall_handler:
   pop rcx
   pop rsp
 
-
+pedigree_syscall_exit_swapgs:
+  swapgs
+pedigree_syscall_exit_user_gs:
   db 0x48
   sysret

@@ -635,6 +635,84 @@ installed payloads, twelve timing runs, `measurements.json`,
 and `formatting-build-section-comparison.json`. The source experiment remains
 in the working tree for follow-up; this is not a retained performance win.
 
+## Kernel GS ownership and inline per-CPU lookup
+
+Starting at `3ccd91eab`, the next pass keeps kernel GS active throughout x64
+C++ and scheduling. The BSP installs an anchor before constructors; APs install
+their own before entering C++. Syscall entry swaps once to kernel GS and exit
+swaps back to user GS. User GS is saved separately across thread switches,
+fork, signals, and exec. The [architecture note](x64-kernel-gs.md) describes
+the exception windows, IST stacks, and multiarchitecture API boundary.
+
+The control is the completed header-inline experiment above, with its source
+and payload frozen before the GS changes. Both arms use normal accounting and
+the real UID handler. Three fresh interleaved one-CPU runs per arm, without
+profiling or concurrent builds, give:
+
+| Workload | Header-inline control median | Kernel GS median | Change |
+| --- | ---: | ---: | ---: |
+| One million getuid calls | 0.670840 s | 0.453460 s | 32.4% faster |
+| Ten million getuid calls | 7.053152 s | 4.750583 s | 32.6% faster |
+
+One-million ranges are 0.648239–0.715471 s and 0.451653–0.597276 s;
+ten-million ranges are 6.838462–7.285850 s and 4.740743–5.967653 s.
+All observations are retained. Enclosing ten-million user/system medians are
+3.857595/3.124566 s before and 2.840366/1.946764 s after. These process totals
+include setup outside the inner monotonic benchmark interval. The results
+describe this QEMU TCG configuration, not physical CPU latency.
+
+All eight trace captures contain the same clean 556-instruction path, down
+from 628; CALL/RET pairs fall from 26 to 20. All 401 observed PC/byte pairs
+match the frozen payload. There is no RDMSR, WRMSR, STR, or information-helper
+call on this path. The module's emitted current-thread lookup is:
+
+```asm
+movq %gs:0x10, %rax
+movq 0x30(%rax), %rax
+```
+
+The first load gets the local information pointer; the second gets its current
+thread. The second offset is a property of this build, not an assembly ABI.
+`PosixProcess::getType()` remains virtual. The count reduction establishes
+which work disappeared; it does not assign cycle costs to each instruction.
+
+The entry/TLS contract and all fifteen existing syscall/accounting/signal
+suites pass on one CPU. The dedicated GS contract passes with one and four
+CPUs, observing a worker on each CPU in the latter. It covers distinct per-thread
+GS/TLS/errno, blocking, timer-driven preemption, directed signals, five recovered
+user #GP faults, selector changes, fork isolation, and exec resetting GS.
+It does not force an individual thread to migrate.
+
+The separate diagnostic build passes nine exact NMI injection boundaries,
+including entry before SWAPGS with a user stack, exit after SWAPGS, and the
+temporary zero GS base after loading a user selector. Each NMI uses IST2,
+observes the same valid CPU anchor, and restores RIP/RSP/CS/GS exactly before
+the next injection. The guest's complete canary contract passes afterward.
+This is one-CPU, one-NMI-per-boundary evidence; nested NMIs, intervening faults,
+and machine checks remain outside its coverage. User #DB is skipped because
+the configured kernel debugger owns that vector.
+
+The broader four-CPU entry/mapping stress times out. Captured registers show
+three CPUs in `LocalApic::interrupt`'s processor-control pause loop and the
+fourth in `ProcessorBase::pause`; all four have distinct valid-looking kernel
+GS anchors. Earlier passes also encountered debugger/quiesce stalls, but this
+capture alone does not establish the initiating cause. The failed run remains
+preserved; the dedicated GS pass does not erase that SMP reliability gap.
+
+The hosted lookup interface compiles with the existing Darwin-hosted flags.
+The full hosted kernel build fails in existing Darwin/musl header selection
+and context-layout code, so hosted runtime is not claimed. No hosted lookup
+implementation was replaced with x64 GS assembly.
+
+Artifacts are under `/private/tmp/pedigree-kernel-gs-20260917`: starting source
+snapshots, read-back-verified images, normal and diagnostic payloads, timings,
+the symbolized trace and Callgrind file, contract logs, and NMI-window records.
+The normal build's diagnostic options are restored to false after validation.
+Its code sections and initrd match the timed payload; differences are build
+revision/timestamp strings and symbol/debug data. Fresh final-image GS
+contracts pass again with one and four CPUs. Existing SLAM and `getType`
+working-tree experiments remain unchanged; both timing arms include them.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the

@@ -354,6 +354,9 @@ Thread::Thread(Process* pParent, SyscallState& state, bool delayedStart,
     m_bTlsBaseOverride = true;
     m_pTlsBase = pCurrent->m_pTlsBase;
   }
+#if X64 && !HOSTED
+  m_UserGsBase = state.getUserEntryMetadata().gsBase;
+#endif
 
   m_Lock.acquire();
 
@@ -2646,6 +2649,10 @@ void Thread::resetTlsBase() {
 #endif
   const uintptr_t tlsBase = getTlsBase();
   Processor::setTlsBase(tlsBase);
+#if X64 && !HOSTED
+  m_UserGsBase = 0;
+  Processor::setUserGsBase(0);
+#endif
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   if (hook && hookTarget == this) {
     hook(this, TlsResetRemapped, tlsBase);
@@ -2662,6 +2669,20 @@ void Thread::setTlsBase(uintptr_t base) {
     Processor::setTlsBase(getTlsBase());
   }
 }
+
+#if X64 && !HOSTED
+void Thread::setUserGsBase(uintptr_t base) {
+  EnsureInterrupts interrupts(false);
+  m_UserGsBase = base;
+  if (Processor::information().getCurrentThread() == this)
+    Processor::setUserGsBase(base);
+}
+
+void Thread::saveUserGsBase() {
+  // A userspace selector load can change the base without arch_prctl.
+  m_UserGsBase = Processor::getUserGsBase();
+}
+#endif
 
 bool Thread::join() {
   return joinInternal(false);

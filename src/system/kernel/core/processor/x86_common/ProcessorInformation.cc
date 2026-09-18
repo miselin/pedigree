@@ -21,6 +21,7 @@
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/processor/x64/tss.h"
@@ -76,19 +77,30 @@ uintptr_t X86CommonProcessorInformation::getKernelStack() const {
 }
 void X86CommonProcessorInformation::setKernelStack(uintptr_t stack) {
   m_Tss->rsp0 = stack;
-  m_SyscallEntry.kernelStack = stack;
-  const uintptr_t entry = reinterpret_cast<uintptr_t>(&m_SyscallEntry);
-  uint32_t eax = entry, edx = entry >> 32;
-  // Publish the local entry record after its stack pointer has been updated.
-  asm volatile("wrmsr" ::"a"(eax), "d"(edx), "c"(0xc0000102) : "memory");
+#if X64
+  m_KernelGsAnchor.kernelStack = stack;
+#endif
 }
 
-Thread* X86CommonProcessorInformation::getCurrentThread() const {
-  return m_pCurrentThread;
+#if X64
+void X86CommonProcessorInformation::activateKernelGsAnchor(size_t processorIndex) {
+  m_KernelGsAnchor.processorIndex = processorIndex;
+  const uintptr_t entry = reinterpret_cast<uintptr_t>(&m_KernelGsAnchor);
+  uint32_t eax = entry, edx = entry >> 32;
+  // Kernel GS stays local to the CPU; the alternate MSR belongs to userspace.
+  asm volatile("wrmsr" ::"a"(eax), "d"(edx), "c"(0xc0000101) : "memory");
 }
+#endif
 
 void X86CommonProcessorInformation::setCurrentThread(Thread* pThread) {
+#if X64
+  if (m_pCurrentThread)
+    m_pCurrentThread->saveUserGsBase();
+#endif
   m_pCurrentThread = pThread;
+#if X64
+  Processor::setUserGsBase(pThread->getUserGsBase());
+#endif
   InfoBlockManager::instance().setPid(pThread->getParent()->getId());
 }
 

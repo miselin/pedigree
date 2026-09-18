@@ -321,10 +321,9 @@ void X86CommonProcessor::cpuid(uint32_t inEax, uint32_t inEcx, uint32_t& eax, ui
   asm volatile("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "a"(inEax), "c"(inEcx));
 }
 
-#if MULTIPROCESSOR
-namespace {
+#if MULTIPROCESSOR && !X64
 NEVER_INLINE __attribute__((cold)) ProcessorInformation* currentProcessorInformationFromApic(
-    const Vector<ProcessorInformation*>& processors, size_t* processorIndex = nullptr) {
+    const Vector<ProcessorInformation*>& processors, size_t* processorIndex) {
   Pc& pc = Pc::instance();
   if (!pc.localApicAvailable()) {
     if (processorIndex)
@@ -347,35 +346,12 @@ NEVER_INLINE __attribute__((cold)) ProcessorInformation* currentProcessorInforma
     *processorIndex = processors.count();
   return nullptr;
 }
-}  // namespace
-#endif
-
-#if MULTIPROCESSOR && X64
-ALWAYS_INLINE inline ProcessorInformation* ProcessorBase::informationFromTss(
-    size_t* processorIndex) {
-  uint16_t selector;
-  asm volatile("str %0" : "=r"(selector));
-
-  // The permanent GDT assigns two entries per CPU, starting at entry 7.
-  // Before its LTR, an AP still has the null TR established by INIT and must
-  // use the APIC fallback. The BSP loads its TSS before m_Initialised reaches 2.
-  constexpr uint16_t firstTssSelector = 7 << 3;
-  if (selector < firstTssSelector || ((selector - firstTssSelector) & 0xF))
-    return nullptr;
-
-  const size_t index = (selector - firstTssSelector) >> 4;
-  if (index >= m_ProcessorInformation.count())
-    return nullptr;
-  ProcessorInformation* information = m_ProcessorInformation.begin()[index];
-  if (information->m_TssSelector != selector)
-    return nullptr;
-  if (processorIndex)
-    *processorIndex = index;
-  return information;
-}
 #endif
 
 ProcessorId ProcessorBase::id() {
+#if X64
+  return information().processorId();
+#else
   if (m_Initialised < 2)
     return 0;
 
@@ -383,19 +359,20 @@ ProcessorId ProcessorBase::id() {
   if (m_ProcessorInformation.count() == 1)
     return (*m_ProcessorInformation.begin())->m_ProcessorId;
 
-#if X64
-  if (auto* information = informationFromTss())
-    return information->m_ProcessorId;
-#endif
-
   if (auto* information = currentProcessorInformationFromApic(m_ProcessorInformation))
     return information->m_ProcessorId;
 #endif
 
   return 0;
+#endif
 }
 
 size_t ProcessorBase::index() {
+#if X64
+  size_t index;
+  asm volatile("movq %%gs:24, %0" : "=r"(index) : : "memory");
+  return index;
+#else
   if (m_Initialised < 2)
     return 0;
 
@@ -404,36 +381,12 @@ size_t ProcessorBase::index() {
     return 0;
 
   size_t index;
-#if X64
-  if (informationFromTss(&index))
-    return index;
-#endif
-
   currentProcessorInformationFromApic(m_ProcessorInformation, &index);
   return index;
 #else
   return 0;
 #endif
-}
-
-ProcessorInformation& ProcessorBase::information() {
-#if MULTIPROCESSOR
-  if (m_Initialised < 2)
-    return m_SafeBspProcessorInformation;
-
-  if (m_ProcessorInformation.count() == 1)
-    return **m_ProcessorInformation.begin();
-
-#if X64
-  if (auto* information = informationFromTss())
-    return *information;
 #endif
-
-  if (auto* information = currentProcessorInformationFromApic(m_ProcessorInformation))
-    return *information;
-#endif
-
-  return m_SafeBspProcessorInformation;
 }
 
 size_t ProcessorBase::getCount() {

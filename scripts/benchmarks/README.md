@@ -24,9 +24,21 @@ is `QUERY-CONTRACT PASS END workers=4` with exit status zero.
 `syscall-entry-contract.c` checks TLS/errno preservation, repeated syscalls in
 signal handlers, `sigreturn`, six-argument file mappings with a nonzero offset,
 anonymous mapping faults, and fork workers. It reports visited logical/APIC CPU
-IDs and explicitly skips nonzero GS-base checks when `ARCH_SET_GS` is unsupported.
+IDs and requires nonzero GS-base support through `ARCH_SET_GS`/`ARCH_GET_GS`.
+It reads GS directly before querying the base again, to expose return corruption.
 Success is `ENTRY-CONTRACT PASS END workers=4` with exit status zero. Observing
 several CPUs does not prove forced thread migration.
+
+`kernel-gs-contract.c` checks distinct GS canaries and TLS/errno across four
+pthread workers, blocking reads, directed signals, and syscall-free user loops
+that require timer preemption on one CPU. It also checks fork inheritance,
+parent/child isolation, exec resetting GS, rejection of high GS addresses, and
+preserving an actual selector-loaded base across scheduling. A user CLI fault
+exercises #GP's IST frame and signal recovery in the parent and each worker.
+User #DB is explicitly skipped because vector 1 opens the kernel debugger.
+Success is `KERNEL-GS-CONTRACT PASS END workers=4` with exit status zero.
+The [kernel GS design](../../docs/x64-kernel-gs.md) describes entry invariants
+and the separate diagnostic NMI injection facility.
 
 `syscall-accounting-contract.c` checks live process/thread CPU totals after user
 work and a million raw `getuid` calls, monotonicity through exit, and agreement
@@ -67,7 +79,7 @@ for name in syscall-entry-contract syscall-query-contract syscall-accounting-con
     -L"$target_sysroot/usr/lib" -static -O2 -std=gnu11 -Wall -Wextra \
     "scripts/benchmarks/$name.c" -o "$contract_dir/$name"
 done
-for name in syscall-accounting-concurrency parallel-getuid; do
+for name in syscall-accounting-concurrency parallel-getuid kernel-gs-contract; do
   "$target_cc" --sysroot="$target_sysroot" -I"$target_sysroot/include" \
     -L"$target_sysroot/usr/lib" -static -O2 -std=gnu11 -Wall -Wextra -pthread \
     "scripts/benchmarks/$name.c" -o "$contract_dir/$name"
