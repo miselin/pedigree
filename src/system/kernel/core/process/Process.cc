@@ -452,6 +452,8 @@ Process::Process(DeferredPublication)
       m_ReaperState(ReaperUnclaimed),
       m_Lock(false),
       m_Metadata(),
+      m_PerCpuTimeAccounting(
+          PEDIGREE_TIME_ACCOUNTING && Processor::isInitialised() >= 2 ? Processor::getCount() : 0),
       m_DeferredTimeAccounting(),
       m_TimeAccountingReports(),
       m_bTimeAccountingReportsEnabled(false),
@@ -519,6 +521,8 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
       m_ReaperState(ReaperUnclaimed),
       m_Lock(false),
       m_Metadata(),
+      m_PerCpuTimeAccounting(
+          PEDIGREE_TIME_ACCOUNTING && Processor::isInitialised() >= 2 ? Processor::getCount() : 0),
       m_DeferredTimeAccounting(),
       m_TimeAccountingReports(),
       m_bTimeAccountingReportsEnabled(false),
@@ -739,8 +743,12 @@ void Process::setTimeAccountingReportInterest(size_t interest, bool enabled) {
 
 void Process::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
   const bool userspace = mode == CpuTimeMode::User;
-  Time::Timestamp* total = userspace ? &m_Metadata.userTime : &m_Metadata.kernelTime;
-  __atomic_fetch_add(total, elapsed, __ATOMIC_RELAXED);
+  // The caller keeps IRQs masked through publication. Charge the CPU executing
+  // this update, including when a scheduler is retiring an outgoing Thread.
+  if (!m_PerCpuTimeAccounting.add(mode, elapsed, Processor::index())) {
+    Time::Timestamp* total = userspace ? &m_Metadata.userTime : &m_Metadata.kernelTime;
+    __atomic_fetch_add(total, elapsed, __ATOMIC_RELAXED);
+  }
 
   const Time::Timestamp user = userspace ? elapsed : 0;
   const Time::Timestamp system = userspace ? 0 : elapsed;

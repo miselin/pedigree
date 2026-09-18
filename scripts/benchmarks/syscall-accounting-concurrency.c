@@ -4,12 +4,15 @@
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 
 #define WORKERS 4
 #define OBSERVATIONS 20
@@ -251,15 +254,79 @@ static void cpu_timers(void) {
   timer_result("cross-thread-timers", worker_timers);
 }
 
-int main(void) {
+static struct usage burn_to(struct usage target) {
+  volatile uint64_t work = 1;
+  struct usage current = sample(RUSAGE_SELF);
+  while (!covers(current, target)) {
+    for (unsigned i = 0; i < 32768; ++i)
+      work = work * 6364136223846793005ULL + 1;
+    for (unsigned i = 0; i < 1024; ++i)
+      raw_query();
+    struct usage next = sample(RUSAGE_SELF);
+    require(covers(next, current), "lifetime-burn-monotonic");
+    current = next;
+  }
+  return current;
+}
+
+static void fork_exec_lifetime(const char* executable) {
+  // Establish a broad CPU-time margin; wall-clock scheduling delays are irrelevant.
+  const struct usage parent = burn_to((struct usage){200000, 200000});
+  pid_t child = fork();
+  require(child >= 0, "lifetime-fork");
+  if (!child) {
+    alarm(30);
+    struct usage fresh = sample(RUSAGE_SELF);
+    require(fresh.user < parent.user / 2 && fresh.system < parent.system / 2,
+            "fork-does-not-inherit-cpu-totals");
+    printf("ACCOUNTING-CONCURRENCY PASS phase=fork-fresh user_us=%llu system_us=%llu\n",
+           (unsigned long long)fresh.user, (unsigned long long)fresh.system);
+    struct usage before = burn_to((struct usage){fresh.user + 20000, fresh.system + 20000});
+    char user[32], system[32];
+    snprintf(user, sizeof(user), "%llu", (unsigned long long)before.user);
+    snprintf(system, sizeof(system), "%llu", (unsigned long long)before.system);
+    execl(executable, executable, "--after-exec", user, system, NULL);
+    execlp(executable, executable, "--after-exec", user, system, NULL);
+    require(0, "lifetime-exec");
+  }
+  int status = 0;
+  pid_t result;
+  do {
+    result = waitpid(child, &status, 0);
+  } while (result < 0 && errno == EINTR);
+  require(result == child && WIFEXITED(status) && WEXITSTATUS(status) == 0, "lifetime-child-exit");
+  require(covers(sample(RUSAGE_SELF), parent), "parent-totals-retained");
+  puts("ACCOUNTING-CONCURRENCY PASS phase=fork-exec");
+}
+
+static uint64_t lower_bound(const char* argument) {
+  char* end;
+  errno = 0;
+  uint64_t value = strtoull(argument, &end, 10);
+  require(end != argument && !*end && errno != ERANGE && value > 0, "exec-lower-bound");
+  return value;
+}
+
+int main(int argc, char** argv) {
+  const int after_exec = argc > 1 && !strcmp(argv[1], "--after-exec");
   setvbuf(stdout, NULL, _IONBF, 0);
   require(signal(SIGALRM, timeout) != SIG_ERR, "timeout-setup");
-  alarm(60);
+  alarm(after_exec ? 20 : 60);
   expected_uid = getuid();
+  if (after_exec) {
+    require(argc == 4, "exec-arguments");
+    struct usage before = {lower_bound(argv[2]), lower_bound(argv[3])};
+    struct usage after = sample(RUSAGE_SELF);
+    require(covers(after, before), "exec-retains-cpu-totals");
+    printf("ACCOUNTING-CONCURRENCY PASS phase=exec-retained user_us=%llu system_us=%llu\n",
+           (unsigned long long)after.user, (unsigned long long)after.system);
+    return 0;
+  }
   puts("ACCOUNTING-CONCURRENCY BEGIN workers=4");
   aggregate_threads();
   sleeping_time();
   cpu_timers();
+  fork_exec_lifetime(argv[0]);
   alarm(0);
   puts("ACCOUNTING-CONCURRENCY PASS END");
   return 0;

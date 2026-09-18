@@ -28,6 +28,7 @@
 #include "pedigree/kernel/process/FilesystemCredentials.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
+#include "pedigree/kernel/process/PerCpuTimeAccounting.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
@@ -785,10 +786,12 @@ class EXPORTED_PUBLIC Process {
 
   /** Gets timestamps. */
   Time::Timestamp getUserTime() const {
-    return __atomic_load_n(&m_Metadata.userTime, __ATOMIC_ACQUIRE);
+    return m_PerCpuTimeAccounting.total(CpuTimeMode::User) +
+           __atomic_load_n(&m_Metadata.userTime, __ATOMIC_ACQUIRE);
   }
   Time::Timestamp getKernelTime() const {
-    return __atomic_load_n(&m_Metadata.kernelTime, __ATOMIC_ACQUIRE);
+    return m_PerCpuTimeAccounting.total(CpuTimeMode::Kernel) +
+           __atomic_load_n(&m_Metadata.kernelTime, __ATOMIC_ACQUIRE);
   }
   Time::Timestamp getReapedChildrenUserTime() const {
     return __atomic_load_n(&m_Metadata.reapedChildrenUserTime, __ATOMIC_ACQUIRE);
@@ -1229,9 +1232,8 @@ class EXPORTED_PUBLIC Process {
     /// Shared pages consumed.
     ssize_t sharedPages;
 
-    /// Time spent in userspace as this process.
+    /// CPU time published without an allocated local shard.
     Time::Timestamp userTime;
-    /// Time spent in the kernel as this process.
     Time::Timestamp kernelTime;
     /// Time spent in userspace by children this process has reaped.
     Time::Timestamp reapedChildrenUserTime;
@@ -1252,6 +1254,13 @@ class EXPORTED_PUBLIC Process {
     /// Time at which process started.
     Time::Timestamp startTime;
   } m_Metadata;
+
+  /**
+   * Persistent shards retain exited threads' totals without a transfer.
+   * Bootstrap processes use the fallback: an AP NMI can still see BSP state
+   * before the CPU identity and scheduler startup gates are published.
+   */
+  PerCpuTimeAccounting m_PerCpuTimeAccounting;
 
   /** Lock-free IRQ/scheduler publication consumed by an ordinary worker. */
   DeferredTimeAccounting m_DeferredTimeAccounting;

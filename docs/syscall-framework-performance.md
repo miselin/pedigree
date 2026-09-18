@@ -143,10 +143,8 @@ in a query-only loop, and cross-thread timer arming. Process publication remains
 eager: batching only until the next caller-side `getrusage` would miss remote
 readers and change the baseline when another thread arms a CPU timer.
 
-A separate experiment could replace process-wide counters with process-owned
-per-CPU counters and aggregate them at every existing reader. That needs a
-storage and lifetime policy, IRQ-safe CPU ownership, and timer-arming coverage;
-it should be measured before assuming the added lookup beats two locked adds.
+The next pass below tests process-owned per-CPU counters and aggregation at
+every existing reader, including the cost of looking up the owning CPU.
 
 Artifacts are under `/private/tmp/pedigree-accounting-phase-20260917`:
 `candidate/` contains frozen payloads, timings, the trace and Callgrind output,
@@ -156,6 +154,71 @@ preserves the rejected diff, binaries, tests and runs. `control/contracts-4cpu`
 preserves the failed starting-kernel control and paused stack samples.
 The final rebuild matches the frozen kernel, debug kernel and initrd hashes;
 kernel/initrd payloads read back from both guest images match as well.
+
+## Per-CPU process accounting
+
+Starting at `6d11f09de`, each process created after CPU initialization gets an
+immutable array of user/kernel counters indexed by the current dense CPU index.
+Each slot occupies a separately aligned 64-byte region. Publication keeps IRQs
+masked and uses a single unlocked x64 memory `ADD`; other architectures and
+native tests use atomic additions. The dense index is distinct from firmware
+processor IDs, which need not be contiguous.
+
+The existing atomic totals remain the fallback for unavailable storage or an
+out-of-range CPU index. Bootstrap processes permanently use that fallback: an
+AP NMI before initialization completes can still see shared BSP identity/state,
+so treating that early index as exclusive would be unsafe. Storage never grows,
+moves, or transfers totals. Reads sum all persistent slots plus the fallback,
+and timer-report notification remains after each update. Fork creates zeroed
+counters; exec retains them; exited threads need no retirement transfer.
+
+This moves work to the less frequent usage reads, which now cost O(allocated
+CPUs). Shard storage requests `64 * CPUs + 63` bytes per process, in addition to
+the helper's bookkeeping and allocator overhead. It adds no allocation or lock
+to the syscall accounting path.
+
+Three uninstrumented runs per arm use the same fixture ELF and QEMU settings.
+The parallel fixture has four pthreads each issuing one million raw `getuid`
+calls in one process; its timed interval covers the start barrier through joins.
+
+| Workload | Starting median | Per-CPU median | Result |
+| --- | ---: | ---: | --- |
+| One CPU, one million calls | 0.642347 s | 0.638260 s | Essentially unchanged |
+| Four CPUs, four concurrent million-call loops | 1.123212 s | 0.977760 s | 13.0% less wall time |
+
+One-CPU starting trials are 0.642347, 0.643512 and 0.633459 s; candidate trials
+are 0.622335, 0.638260 and 0.650722 s. Four-CPU starting trials are 1.172412,
+1.104888 and 1.123212 s; candidates are 0.977760, 0.973071 and 1.083064 s.
+The one-CPU distributions overlap, so this is a scaling improvement rather than
+evidence of a meaningful single-core speedup. The enclosing parallel process's
+median user/system times fall from 2.210680/2.171158 s to 1.933187/1.916566 s.
+
+Eight clean traces contain **675 instructions each and zero LOCK-prefixed
+instructions**, versus 630 and two before. Accounting occupies 345 instructions
+(capture-1 ranges 127–299 and 466–637). The extra dense-CPU lookup raises the
+instruction count, illustrating why dispatch counts cannot predict elapsed
+cost. Ordered TSC sampling and conversion remain unchanged.
+
+All **36 native accounting/clock/timer tests** and all **14 guest suites on both
+one and four CPUs** pass. Coverage includes live cross-thread aggregation,
+sleep exclusion, CPU timers, fresh fork totals, preservation across exec,
+wait/reap snapshots, and signal interruption/restart behavior. Native shard
+tests cover wide values, every allocated slot, invalid indices, and concurrent
+writers/readers. The x64 unlocked-add path is exercised by the guest tests.
+Forced migration and NMI injection remain untested; passing these runs does not
+resolve the earlier intermittent SMP debugger stops.
+
+Artifacts are under `/private/tmp/pedigree-percpu-accounting-20260917`, with
+per-run commands, logs and measurements under `control/` and `candidate/`.
+`final/summary` contains the final trace and Callgrind output;
+`final/contracts-{1,4}cpu` contain final contract results. A formatting-only
+rebuild was rechecked with both guest suites and the trace. Installed payload
+hashes match the frozen final build, and the checked-in parallel fixture builds
+byte-for-byte identically to the ELF used for the measurements. The first
+contract run is retained: it failed because the new self-exec fixture searched
+PATH for a bare filename present only in its working directory. The fixture now
+tries that path directly before PATH lookup. The retained parallel fixture is
+[`parallel-getuid.c`](../scripts/benchmarks/parallel-getuid.c).
 
 ## Validation and remaining uncertainty
 
@@ -186,7 +249,7 @@ mapping admission while console workers are freeing event stacks with IRQs
 masked. Quiesce waits for those workers, while they wait for admission. The
 initial debugger trigger is still unidentified and is deferred from this pass.
 
-Artifacts for this pass are under
+Artifacts for the dispatch pass are under
 `/private/tmp/pedigree-framework-phase-20260917`. They include starting state,
 frozen kernels/images, per-run `command.json`, `serial.log`, `report.json`, trace
 summaries, and the Linux manifest recording kernel and benchmark hashes. Timing

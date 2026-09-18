@@ -28,12 +28,20 @@ between `wait4` usage and the parent's reaped-child totals. Success is
 
 `syscall-accounting-concurrency.c` checks live aggregation across four pthread
 workers, retained totals after joining, and exclusion of sleeping time from CPU
-usage. It also checks periodic `ITIMER_VIRTUAL`/`ITIMER_PROF` delivery during
+usage. It verifies fresh child CPU totals after fork and retained totals across
+self-exec. It also checks periodic `ITIMER_VIRTUAL`/`ITIMER_PROF` delivery during
 raw-query-only loops and when one thread arms timers while another consumes CPU.
 Those loops make no accounting or clock queries that could force publication.
 Success is `ACCOUNTING-CONCURRENCY PASS END` with exit status zero. These tests
 exercise one- and four-CPU scheduling; forced migration and NMI injection are
 outside their scope.
+
+`parallel-getuid.c` runs four pthread workers, each issuing one million raw
+`getuid` calls and checking the returned UID. Its elapsed time starts before
+the barrier release and ends after all four joins, excluding thread creation.
+Use four guest CPUs for parallel comparisons. The metric is
+`phase=parallel_getuid operations=4000000`; success is `IOBENCH PASS END` with
+exit status zero. Run it separately from the correctness contracts.
 
 Build the static binaries from the repository root with the configured target
 compiler and musl sysroot:
@@ -48,14 +56,16 @@ for name in syscall-entry-contract syscall-query-contract syscall-accounting-con
     -L"$target_sysroot/usr/lib" -static -O2 -std=gnu11 -Wall -Wextra \
     "scripts/benchmarks/$name.c" -o "$contract_dir/$name"
 done
-"$target_cc" --sysroot="$target_sysroot" -I"$target_sysroot/include" \
-  -L"$target_sysroot/usr/lib" -static -O2 -std=gnu11 -Wall -Wextra -pthread \
-  scripts/benchmarks/syscall-accounting-concurrency.c \
-  -o "$contract_dir/syscall-accounting-concurrency"
+for name in syscall-accounting-concurrency parallel-getuid; do
+  "$target_cc" --sysroot="$target_sysroot" -I"$target_sysroot/include" \
+    -L"$target_sysroot/usr/lib" -static -O2 -std=gnu11 -Wall -Wextra -pthread \
+    "scripts/benchmarks/$name.c" -o "$contract_dir/$name"
+done
 ```
 
-Install them into a disposable guest image and run as root, separately from
-timings, with one and four CPUs. All have alarm-based failure bounds; also use
+Install the binaries into a disposable guest image. Run the correctness
+contracts as root, separately from timings, with one and four CPUs. All have
+alarm-based failure bounds; also use
 a host timeout and retain the complete serial log and exit status. The
 [syscall performance notes](../../docs/syscall-framework-performance.md) explain
 the dispatch contract and measurement limitations.
