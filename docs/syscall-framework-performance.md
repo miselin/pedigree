@@ -469,6 +469,62 @@ all nine timing runs in `control/`, `bare/` and `candidate/`, `measurements.json
 `verification.md` and `identity-verification.txt`. Unrelated SLAM edits are
 unchanged. Only the findings are retained in the repository.
 
+## Skipping only getuid accounting
+
+A temporary experiment at `5e5dc26c2` skips the paired User-to-Kernel and
+Kernel-to-User accounting transitions for quiet Linux getuid calls. Assembly,
+handler eligibility, the real UID lookup, errno handling and pending-work checks
+remain intact. If return work is pending, the path performs the delayed
+User-to-Kernel transition before entering that work, then uses the ordinary
+accounting return path. Other syscalls keep their original accounting.
+
+This deliberately charges the skipped kernel interval to user time. Enclosing
+user/system totals and CPU-time timer behavior cannot be used as correctness or
+performance evidence. The benchmark's inner elapsed time uses CLOCK_MONOTONIC,
+independently of process CPU accounting, and remains the comparison metric.
+
+Three fresh interleaved runs per arm, one CPU, unchanged benchmark ELF, no
+instrumentation or concurrent builds during timing:
+
+| Path | One million calls, median | Range |
+| --- | ---: | ---: |
+| Full framework | 0.584242 s | 0.578214–0.593489 s |
+| Skip only getuid accounting | 0.363426 s | 0.361896–0.504713 s |
+| Assembly frame, skip all C++ | 0.087090 s | 0.081117–0.091405 s |
+
+Skipping accounting saves about 220.8 ms per million calls: 37.8% less elapsed
+time, or 1.61 times faster. No samples are excluded, including the 0.504713 s
+candidate outlier. In this experiment accounting explains about 44% of the
+full-framework excess over the assembly-only baseline. About 276.3 ms remains
+between the no-accounting path and that baseline, so accounting is substantial
+but does not explain the whole C++ cost. These are differences between medians,
+not isolated cycle costs for particular functions.
+
+Enclosing median user/system totals change from 0.327925/0.282795 s to
+0.364431/0.030579 s. The apparent system-time reduction includes the intentional
+misclassification; it must not be reported as an independent optimization gain.
+These whole-process totals also cover work outside the inner measured loop.
+
+Eight clean captures each execute 294 instructions, down from 638. Accounting
+functions and both RDTSC instructions disappear; CALL/RET pairs fall from 30 to
+18. The real getuid handler and the 23-instruction pending-work predicate remain.
+No pending-work service executes in the quiet captures. All 257 observed
+PC/byte pairs match the frozen payloads, with no discontinuity or CR3 change.
+
+A temporary version of the query contract issues only getuid in its hot loops.
+It passes on one CPU with real UIDs 20001, 20004, 20007 and 20010, errno checks,
+17 asynchronous signals, stop/continue and forced termination. This establishes
+liveness and real UID behavior for that fixture, not full accounting/timer or
+SMP correctness, nor which individual syscall serviced each event.
+
+The original source was restored with a fresh modification time and rebuilt.
+Kernel, debug ELF, initrd and configuration match the original control byte for
+byte. Artifacts under `/private/tmp/pedigree-getuid-no-accounting-20260917`
+include all nine timing runs, `measurements.json`, `candidate/source.patch`,
+`candidate/summary/`, `candidate/query-1cpu/`, the query fixture and its source
+diff, `verification.md` and `identity-verification.txt`. Unrelated SLAM edits
+are unchanged; only these findings are retained in the repository.
+
 ## Validation and remaining uncertainty
 
 The contracts are described in the
