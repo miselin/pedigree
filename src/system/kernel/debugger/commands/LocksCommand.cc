@@ -310,11 +310,12 @@ const char* LocksCommand::getLine2(size_t index, size_t& colOffset, DebuggerIO::
     Line += " state=";
     Line += stateName(pD->state);
     Line += " caller=";
-    Line.append(pD->pLock->m_Ra, 16);
+    Line.append(pD->pLock->acquisitionAddress(), 16);
 
 #ifndef TESTSUITE
     uintptr_t symStart = 0;
-    const char* pSym = KernelElf::instance().globalLookupSymbol(pD->pLock->m_Ra, &symStart);
+    const char* pSym =
+        KernelElf::instance().globalLookupSymbol(pD->pLock->acquisitionAddress(), &symStart);
     if (pSym) {
       LargeStaticString sym(pSym);
 
@@ -376,7 +377,7 @@ bool LocksCommand::lockAttempted(const Spinlock* pLock, size_t nCpu, bool intSta
   if (pLock->m_bAvoidTracking)
     return true;
   if (nCpu == ~0U)
-    nCpu = Processor::id();
+    nCpu = Processor::index();
 
   size_t pos = (m_NextPosition[nCpu] += 1) - 1;
   if (pos > MAX_DESCRIPTORS) {
@@ -437,7 +438,7 @@ bool LocksCommand::lockAcquired(const Spinlock* pLock, size_t nCpu, bool intStat
   if (pLock->m_bAvoidTracking)
     return true;
   if (nCpu == ~0U)
-    nCpu = Processor::id();
+    nCpu = Processor::index();
 
   size_t back = m_NextPosition[nCpu] - 1;
   if (back > MAX_DESCRIPTORS) {
@@ -470,7 +471,7 @@ bool LocksCommand::lockReleased(const Spinlock* pLock, size_t nCpu) {
   if (pLock->m_bAvoidTracking)
     return true;
   if (nCpu == ~0U)
-    nCpu = Processor::id();
+    nCpu = Processor::index();
 
   size_t back = m_NextPosition[nCpu] - 1;
 
@@ -516,14 +517,15 @@ bool LocksCommand::checkSchedule(size_t nCpu) {
   if (!g_bReady)
     return true;
   if (nCpu == ~0U)
-    nCpu = Processor::id();
+    nCpu = Processor::index();
 
   size_t pos = m_NextPosition[nCpu];
   if (pos) {
     const LockDescriptor& retained = m_pDescriptors[nCpu][pos - 1];
     ERROR_NOLOCK("Reschedule retained lock "
                  << Hex << retained.pLock << " acquired at "
-                 << (retained.pLock ? retained.pLock->m_Ra : 0) << ", schedule caller "
+                 << (retained.pLock ? retained.pLock->acquisitionAddress() : 0)
+                 << ", schedule caller "
                  << reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
     ERROR_OR_FATAL("Rescheduling CPU" << nCpu << " is not allowed, as there are still " << pos
                                       << " acquired locks.");
@@ -539,7 +541,7 @@ bool LocksCommand::checkState(const Spinlock* pLock, size_t nCpu) {
   if (pLock->m_bAvoidTracking)
     return true;
   if (nCpu == ~0U)
-    nCpu = Processor::id();
+    nCpu = Processor::index();
 
   bool bResult = true;
 

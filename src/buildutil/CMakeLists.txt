@@ -365,6 +365,7 @@ set(TESTSUITE_SRCS
     testsuite/test-RtcCalendar.cc
     testsuite/test-IrqDiagnosticRenderer.cc
     testsuite/test-LocksCommand.cc
+    testsuite/test-SpinlockWord.cc
     testsuite/test-ThreadWaitDiagnostic.cc
     testsuite/test-IntrusiveList.cc
     testsuite/test-List.cc

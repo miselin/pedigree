@@ -20,7 +20,7 @@
 #ifndef KERNEL_SPINLOCK_H
 #define KERNEL_SPINLOCK_H
 
-#include "pedigree/kernel/Atomic.h"
+#include "pedigree/kernel/SpinlockWord.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -54,30 +54,44 @@ class EXPORTED_PUBLIC Spinlock {
   static const bool allow_recursion = true;
 
  private:
+  /** Returns true for recursive reentry, false for a newly acquired lock. */
+  bool acquireContended(bool recurse, bool safe, uintptr_t ra) NEVER_INLINE;
+
+  /** Unlocks without restoring IRQ state, leaving nested acquisitions held. */
+  void unlock(uintptr_t ra) ALWAYS_INLINE;
+
   /** Unwind the spinlock because a thread is releasing it. */
-  void unwind();
+  void unwind() ALWAYS_INLINE;
+
+  /** Scheduler owns tracking and IRQ restoration across these handoffs. */
+  volatile processor_register_t* deferredReleaseWord();
+  void unlockForScheduler();
 
   /** Track the release of this lock. */
-  void trackRelease() const;
+  void trackRelease(uintptr_t ra) const;
 
-  volatile bool m_bInterrupts = false;
-  Atomic<bool> m_Atom = true;  // unlocked by default
-  /// \todo handle more than 64 CPUs.
-  Atomic<uint64_t> m_CpuState = 0;
+  uintptr_t acquisitionAddress() const;
+  void badMagic(uintptr_t ra) const NEVER_INLINE;
+  void badReleaseInterrupts() const NEVER_INLINE;
+  void deadlock(uintptr_t ra, bool releasing, uintptr_t acquiredAt = 0) NEVER_INLINE NORETURN;
 
+  NOT_COPYABLE_OR_ASSIGNABLE(Spinlock);
+
+  SpinlockWord m_Lock;
+  bool m_bInterrupts = false;
+
+#if SPINLOCK_DIAGNOSTICS
   uint64_t m_Sentinel = 0;
-
   uint32_t m_Magic = 0xdeadbaba;
   uint32_t m_MagicAlign = 0;
+  uintptr_t m_Ra = 0;
+#endif
 
   void* m_pOwner = nullptr;
   size_t m_Level = 0;
   size_t m_OwnedProcessor = ~0;
 
-  uintptr_t m_Ra = 0;
-
   bool m_bAvoidTracking = false;
-  bool m_bOwned = false;
 };
 
 #endif

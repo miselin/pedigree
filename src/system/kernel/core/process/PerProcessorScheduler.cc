@@ -589,9 +589,8 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
   }
 
   EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH) {
-    pCurrentThread->getLock().unwind();
     Processor::switchState(bWasInterrupts, pCurrentThread->state(), pNextThread->state(),
-                           &pCurrentThread->getLock().m_Atom.m_Atom);
+                           pCurrentThread->getLock().deferredReleaseWord());
     const bool waitOwnsEventDispatch = pCurrentThread->hasActiveWaitUnlocked();
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     Processor::notifyHostedContextSwitchStage(
@@ -627,8 +626,7 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
 
     // Restore context, releasing the old thread's lock when we've switched
     // stacks.
-    pCurrentThread->getLock().unwind();
-    Processor::restoreState(pNextThread->state(), &pCurrentThread->getLock().m_Atom.m_Atom);
+    Processor::restoreState(pNextThread->state(), pCurrentThread->getLock().deferredReleaseWord());
     // Not reached.
   }
 }
@@ -980,11 +978,10 @@ void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc p
   // This thread is safe from being moved as its status is now "running".
   // It is worth noting that we can't just call exit() here, as the lock is
   // not necessarily actually taken.
-  if (pThread->getLock().m_bInterrupts)
+  if (pThread->getLock().interrupts())
     bWasInterrupts = true;
   bool bWas = pThread->getLock().acquired();
-  pThread->getLock().unwind();
-  pThread->getLock().m_Atom = true;
+  pThread->getLock().unlockForScheduler();
   EMIT_IF(TRACK_LOCKS) {
     // Satisfy the lock checker; we're releasing these out of order, so make
     // sure the checker sees them unlocked in order.
@@ -1002,15 +999,14 @@ void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc p
   pThread->recordTime(bUsermode ? CpuTimeMode::User : CpuTimeMode::Kernel);
 
   EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH) {
-    pCurrentThread->getLock().unwind();
     if (bUsermode) {
       Processor::saveAndJumpUser(
-          bWasInterrupts, pCurrentThread->state(), &pCurrentThread->getLock().m_Atom.m_Atom,
+          bWasInterrupts, pCurrentThread->state(), pCurrentThread->getLock().deferredReleaseWord(),
           reinterpret_cast<uintptr_t>(pStartFunction), reinterpret_cast<uintptr_t>(pStack),
           reinterpret_cast<uintptr_t>(pParam));
     } else {
       Processor::saveAndJumpKernel(
-          bWasInterrupts, pCurrentThread->state(), &pCurrentThread->getLock().m_Atom.m_Atom,
+          bWasInterrupts, pCurrentThread->state(), pCurrentThread->getLock().deferredReleaseWord(),
           reinterpret_cast<uintptr_t>(pStartFunction), reinterpret_cast<uintptr_t>(pStack),
           reinterpret_cast<uintptr_t>(pParam));
     }
@@ -1024,15 +1020,15 @@ void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc p
       return;
     }
 
-    pCurrentThread->getLock().unwind();
     if (bUsermode) {
-      Processor::jumpUser(&pCurrentThread->getLock().m_Atom.m_Atom,
+      Processor::jumpUser(pCurrentThread->getLock().deferredReleaseWord(),
                           reinterpret_cast<uintptr_t>(pStartFunction),
                           reinterpret_cast<uintptr_t>(pStack), reinterpret_cast<uintptr_t>(pParam));
     } else {
-      Processor::jumpKernel(
-          &pCurrentThread->getLock().m_Atom.m_Atom, reinterpret_cast<uintptr_t>(pStartFunction),
-          reinterpret_cast<uintptr_t>(pStack), reinterpret_cast<uintptr_t>(pParam));
+      Processor::jumpKernel(pCurrentThread->getLock().deferredReleaseWord(),
+                            reinterpret_cast<uintptr_t>(pStartFunction),
+                            reinterpret_cast<uintptr_t>(pStack),
+                            reinterpret_cast<uintptr_t>(pParam));
     }
   }
 }
@@ -1094,11 +1090,10 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
   // This thread is safe from being moved as its status is now "running".
   // It is worth noting that we can't just call exit() here, as the lock is
   // not necessarily actually taken.
-  if (pThread->getLock().m_bInterrupts)
+  if (pThread->getLock().interrupts())
     bWasInterrupts = true;
   bool bWas = pThread->getLock().acquired();
-  pThread->getLock().unwind();
-  pThread->getLock().m_Atom.m_Atom = 1;
+  pThread->getLock().unlockForScheduler();
   EMIT_IF(TRACK_LOCKS) {
     g_LocksCommand.lockReleased(&pCurrentThread->getLock());
     if (bWas) {
@@ -1130,10 +1125,9 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
   pThread->recordTime(CpuTimeMode::User);
 
   EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH) {
-    pCurrentThread->getLock().unwind();
     NOTICE("restoring (new) syscall state");
     Processor::switchState(bWasInterrupts, pCurrentThread->state(), newState,
-                           &pCurrentThread->getLock().m_Atom.m_Atom);
+                           pCurrentThread->getLock().deferredReleaseWord());
   }
   else {
     if (Processor::saveState(pCurrentThread->state())) {
@@ -1143,8 +1137,7 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
       return;
     }
 
-    pCurrentThread->getLock().unwind();
-    Processor::restoreState(newState, &pCurrentThread->getLock().m_Atom.m_Atom);
+    Processor::restoreState(newState, pCurrentThread->getLock().deferredReleaseWord());
   }
 }
 
@@ -1290,7 +1283,8 @@ void PerProcessorScheduler::finishCurrentThreadExit(Spinlock* pLock, bool transf
 
   // Pass in the lock atom we were given if possible, as the caller wants an
   // atomic release (i.e. once the thread is no longer able to be scheduled).
-  deleteThreadThenRestoreState(pThread, pNextThread->state(), pLock ? &pLock->m_Atom.m_Atom : 0);
+  deleteThreadThenRestoreState(pThread, pNextThread->state(),
+                               pLock ? pLock->deferredReleaseWord() : 0);
 }
 
 void PerProcessorScheduler::deleteThread(Thread* pThread) {
@@ -1319,8 +1313,7 @@ void PerProcessorScheduler::deleteThread(Thread* pThread) {
   // a joiner or detach owner can treat reapable as a true final-use boundary.
   // No Process lock is held here, so waking another same-core thread cannot
   // resume it into a conflicting terminal operation under that lock.
-  pThread->getLock().unwind();
-  pThread->getLock().m_Atom.m_Atom = 1;
+  pThread->getLock().unlockForScheduler();
 
   bool deleteTarget = false;
   bool completesProcessExit = false;

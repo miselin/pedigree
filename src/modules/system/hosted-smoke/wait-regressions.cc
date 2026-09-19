@@ -35,6 +35,7 @@ bool runHostedBufferRegressions();
 bool runHostedElfValidationRegressions();
 bool runHostedLifetimeLeaseRegressions();
 bool runHostedMutexRegressions();
+bool runHostedSpinlockRegressions();
 bool runHostedPageFaultRegressions();
 bool runHostedPayloadPageRegressions();
 bool runHostedPrimitiveRegressions(Thread* thread);
@@ -2684,7 +2685,7 @@ bool runHostedWaitRegressions() {
   NOTICE("HOSTED-WAIT-TEST: BEGIN");
 
   const bool passed =
-      runHostedElfValidationRegressions() &&
+      runHostedSpinlockRegressions() && runHostedElfValidationRegressions() &&
 #if !PEDIGREE_HOSTED_CORE_SMOKE
       runHostedPs2ControllerRegressions() &&
 #endif

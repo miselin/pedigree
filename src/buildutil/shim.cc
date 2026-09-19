@@ -244,21 +244,11 @@ void unmapAll() {
 Spinlock::Spinlock() = default;
 
 Spinlock::Spinlock(bool bLocked, bool bAvoidTracking)
-    : m_bInterrupts(),
-      m_Atom(!bLocked),
-      m_CpuState(0),
-      m_Magic(0xdeadbaba),
-      m_pOwner(0),
-      m_Level(0),
-      m_OwnedProcessor(~0),
-      m_Ra(0),
-      m_bAvoidTracking(bAvoidTracking),
-      m_bOwned(false) {}
+    : m_Lock(bLocked), m_bAvoidTracking(bAvoidTracking) {}
 
 bool Spinlock::acquire(bool recurse, bool safe) {
-  while (!m_Atom.compareAndSwap(true, false))
+  while (!m_Lock.tryAcquire())
     ;
-
   return true;
 }
 
@@ -267,7 +257,11 @@ void Spinlock::release() {
 }
 
 void Spinlock::exit(uintptr_t) {
-  m_Atom.compareAndSwap(false, true);
+  m_Lock.release();
+}
+
+uintptr_t Spinlock::acquisitionAddress() const {
+  return 0;
 }
 
 /**
@@ -550,6 +544,10 @@ void Scheduler::yield() {
 }
 
 size_t ProcessorBase::id() {
+  return 0;
+}
+
+size_t ProcessorBase::index() {
   return 0;
 }
 
