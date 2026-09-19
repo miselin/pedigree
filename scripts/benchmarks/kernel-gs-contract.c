@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -23,6 +24,7 @@
 #endif
 
 #define ARCH_SET_GS 0x1001
+#define ARCH_GET_FS 0x1003
 #define ARCH_GET_GS 0x1004
 #define WORKERS 4
 #define ITERATIONS 4096
@@ -58,6 +60,72 @@ static uint64_t gs_value(void) {
   __asm__ volatile("movq %%gs:0, %0" : "=r"(value) : : "memory");
   return value;
 }
+
+static unsigned short gs_selector(void) {
+  unsigned short selector;
+  __asm__ volatile("movw %%gs, %0" : "=r"(selector));
+  return selector;
+}
+
+struct fs_base_probe {
+  uintptr_t original, replacement, observed;
+  uint64_t after_set, after_yield;
+  long set_result, get_result, yield_result, restore_result;
+  unsigned short before_selector, after_selector, yielded_selector, restored_selector;
+};
+_Static_assert(SYS_arch_prctl == 158 && SYS_sched_yield == 24, "FS probe syscall numbers");
+_Static_assert(offsetof(struct fs_base_probe, original) == 0 &&
+                   offsetof(struct fs_base_probe, replacement) == 8 &&
+                   offsetof(struct fs_base_probe, observed) == 16 &&
+                   offsetof(struct fs_base_probe, after_set) == 24 &&
+                   offsetof(struct fs_base_probe, after_yield) == 32 &&
+                   offsetof(struct fs_base_probe, set_result) == 40 &&
+                   offsetof(struct fs_base_probe, get_result) == 48 &&
+                   offsetof(struct fs_base_probe, yield_result) == 56 &&
+                   offsetof(struct fs_base_probe, restore_result) == 64 &&
+                   offsetof(struct fs_base_probe, before_selector) == 72 &&
+                   offsetof(struct fs_base_probe, after_selector) == 74 &&
+                   offsetof(struct fs_base_probe, yielded_selector) == 76 &&
+                   offsetof(struct fs_base_probe, restored_selector) == 78,
+               "FS probe assembly layout");
+
+// C code, libc, and compiler-generated TLS accesses must wait until FS is restored.
+extern void kernel_gs_fs_base_probe(struct fs_base_probe* probe);
+__asm__(".text\n"
+        ".global kernel_gs_fs_base_probe\n"
+        ".type kernel_gs_fs_base_probe,@function\n"
+        "kernel_gs_fs_base_probe:\n"
+        "push %rbx\n"
+        "mov %rdi,%rbx\n"
+        "mov %fs,72(%rbx)\n"
+        "mov $158,%eax\n"
+        "mov $0x1002,%edi\n"
+        "mov 8(%rbx),%rsi\n"
+        "syscall\n"
+        "mov %rax,40(%rbx)\n"
+        "mov %fs,74(%rbx)\n"
+        "mov %fs:0,%rax\n"
+        "mov %rax,24(%rbx)\n"
+        "mov $158,%eax\n"
+        "mov $0x1003,%edi\n"
+        "lea 16(%rbx),%rsi\n"
+        "syscall\n"
+        "mov %rax,48(%rbx)\n"
+        "mov $24,%eax\n"
+        "syscall\n"
+        "mov %rax,56(%rbx)\n"
+        "mov %fs:0,%rax\n"
+        "mov %rax,32(%rbx)\n"
+        "mov %fs,76(%rbx)\n"
+        "mov $158,%eax\n"
+        "mov $0x1002,%edi\n"
+        "mov 0(%rbx),%rsi\n"
+        "syscall\n"
+        "mov %rax,64(%rbx)\n"
+        "mov %fs,78(%rbx)\n"
+        "pop %rbx\n"
+        "ret\n"
+        ".size kernel_gs_fs_base_probe,.-kernel_gs_fs_base_probe\n");
 
 static unsigned load(unsigned* value) {
   return __atomic_load_n(value, __ATOMIC_ACQUIRE);
@@ -188,19 +256,48 @@ static void user_gs_selector_contract(uint64_t token) {
   // Pedigree's flat user data descriptor has base zero; avoid null-selector quirks.
   __asm__ volatile("mov $0x23, %%eax\n\tmov %%ax, %%gs" : : : "rax", "memory");
   // Do not dereference GS while its base is zero.
-  require(get_gs() == 0 && tls_token == token && &errno == errno_address && errno == EDOM,
+  require(get_gs() == 0 && gs_selector() == 0x23 && tls_token == token &&
+              &errno == errno_address && errno == EDOM,
           "selector-resets-base");
   require(raw6(SYS_sched_yield, 0, 0, 0, 0, 0, 0) == 0, "selector-yield");
-  require(get_gs() == 0 && tls_token == token && &errno == errno_address && errno == EDOM,
+  require(get_gs() == 0 && gs_selector() == 0x23 && tls_token == token &&
+              &errno == errno_address && errno == EDOM,
           "selector-reset-survives-yield");
   struct timespec delay = {0, 1000000};
   while (nanosleep(&delay, &delay))
     require(errno == EINTR, "selector-nanosleep");
   errno = EDOM;
-  require(get_gs() == 0 && tls_token == token && &errno == errno_address && errno == EDOM,
+  require(get_gs() == 0 && gs_selector() == 0x23 && tls_token == token &&
+              &errno == errno_address && errno == EDOM,
           "selector-reset-survives-blocking");
   install_gs(WORKERS, token);
   puts("KERNEL-GS-CONTRACT PASS phase=user-gs-selector");
+}
+
+static void user_fs_base_contract(uint64_t token) {
+  uintptr_t original = 0;
+  require(raw6(SYS_arch_prctl, ARCH_GET_FS, (long)&original, 0, 0, 0, 0) == 0,
+          "get-original-fs");
+  sigset_t all, previous;
+  require(sigfillset(&all) == 0 && pthread_sigmask(SIG_BLOCK, &all, &previous) == 0,
+          "fs-probe-block-signals");
+  const uint64_t canaries[] = {UINT64_C(0x14bec8d047392a65), UINT64_C(0xc219a56e74308bdf)};
+  for (unsigned i = 0; i < sizeof(canaries) / sizeof(canaries[0]); ++i) {
+    struct fs_base_probe probe = {.original = original, .replacement = (uintptr_t)&canaries[i]};
+    kernel_gs_fs_base_probe(&probe);
+    require(probe.restore_result == 0 && state_valid(token, EDOM), "fs-probe-restored-tls");
+    require(probe.set_result == 0 && probe.get_result == 0 && probe.yield_result == 0,
+            "fs-probe-syscalls");
+    require(probe.observed == probe.replacement && probe.after_set == canaries[i] &&
+                probe.after_yield == canaries[i],
+            "same-selector-fs-base");
+    require(probe.before_selector == probe.after_selector &&
+                probe.before_selector == probe.yielded_selector &&
+                probe.before_selector == probe.restored_selector,
+            "fs-probe-selector-unchanged");
+  }
+  require(pthread_sigmask(SIG_SETMASK, &previous, NULL) == 0, "fs-probe-restore-signals");
+  puts("KERNEL-GS-CONTRACT PASS phase=same-selector-fs-base");
 }
 
 // No syscalls: progress on one CPU requires IRQ-driven preemption of these loops.
@@ -363,6 +460,7 @@ int main(int argc, char** argv) {
   require(state_valid(token, EDOM), "bad-get-retains-state");
   puts("KERNEL-GS-CONTRACT PASS phase=arch-prctl");
   user_gs_selector_contract(token);
+  user_fs_base_contract(token);
   struct sigaction gp_action = {0};
   gp_action.sa_sigaction = user_gp_signal;
   gp_action.sa_flags = SA_SIGINFO;

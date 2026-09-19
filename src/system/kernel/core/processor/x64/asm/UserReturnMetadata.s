@@ -44,6 +44,34 @@ pedigree_user_entry_restore_calls:
 
 %macro RESTORE_USER_ENTRY 1
 %ifndef PEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA
+  ; Most returns leave this state installed. Check hardware rather than
+  ; thread fields: user selector loads and nested entry can change the bases.
+  mov ax, ds
+  cmp ax, [rdi]
+  jne %%restore
+  mov ax, es
+  cmp ax, [rdi+2]
+  jne %%restore
+  mov ax, fs
+  cmp ax, [rdi+4]
+  jne %%restore
+  mov ax, gs
+  cmp ax, [rdi+6]
+  jne %%restore
+  mov ecx, 0xc0000100
+  rdmsr
+  shl rdx, 32
+  or rax, rdx
+  cmp rax, [rdi+8]
+  jne %%restore
+  mov ecx, 0xc0000102
+  rdmsr
+  shl rdx, 32
+  or rax, rdx
+  cmp rax, [rdi+16]
+  je %%done
+
+%%restore:
   mov ax, [rdi]
   mov ds, ax
   mov ax, [rdi+2]
@@ -76,6 +104,7 @@ pedigree_user_gs_restore_user:
 pedigree_user_gs_restore_kernel:
 %endif
   lfence
+%%done:
 %endif
 %endmacro
 
