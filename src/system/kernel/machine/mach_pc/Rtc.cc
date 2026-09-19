@@ -308,9 +308,9 @@ Time::CpuTimeSample Rtc::sampleCpuTime() {
   uint64_t anchorNanoseconds = 0;
   const ProcessorInformation& processor = Processor::information();
   processor.getTscClockAnchor(anchorTsc, anchorNanoseconds);
-  const size_t processorIndex = Processor::index();
-  return {PcTscClock::fromAnchor(readOrderedTsc(), anchorTsc, anchorNanoseconds, m_TscCalibration),
-          processorIndex};
+  const uint64_t timestamp =
+      PcTscClock::fromAnchor(readOrderedTsc(), anchorTsc, anchorNanoseconds, m_TscCalibration);
+  return {timestamp, Processor::index()};
 }
 
 bool Rtc::initialise1(uint8_t centuryIndex) {

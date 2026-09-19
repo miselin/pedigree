@@ -19,38 +19,62 @@ namespace PcTscClock {
 constexpr uint64_t MaximumTimestamp = ~static_cast<uint64_t>(0);
 
 struct Calibration {
-  constexpr Calibration(uint64_t cycles = 1, uint64_t nanoseconds = 1)
-      : cycles(cycles), nanoseconds(nanoseconds) {}
+  Calibration(uint64_t cycles = 1, uint64_t nanoseconds = 1)
+      : cycles(cycles), nanoseconds(nanoseconds), whole(0), multiplier(0), fractional(0) {
+    if (!cycles) {
+      return;
+    }
+
+    whole = nanoseconds / cycles;
+    fractional = nanoseconds % cycles;
+    if (!fractional) {
+      return;
+    }
+
+#if defined(__x86_64__)
+    uint64_t remainder;
+    // fractional < cycles, so this boot-time division cannot overflow. Avoid
+    // requiring a freestanding 128-bit division runtime for calibration.
+    asm("divq %4"
+        : "=a"(multiplier), "=d"(remainder)
+        : "0"(uint64_t(0)), "1"(fractional), "r"(cycles)
+        : "cc");
+#else
+    multiplier = static_cast<uint64_t>((static_cast<unsigned __int128>(fractional) << 64) / cycles);
+#endif
+  }
 
   uint64_t cycles;
   uint64_t nanoseconds;
+  uint64_t whole;
+  uint64_t multiplier;
+  uint64_t fractional;
 };
 
 ALWAYS_INLINE inline uint64_t scale(uint64_t cycles, const Calibration& calibration) {
-  if (!calibration.cycles) {
-    return 0;
+  const unsigned __int128 product = static_cast<unsigned __int128>(cycles) * calibration.multiplier;
+  uint64_t nanoseconds = static_cast<uint64_t>(product >> 64);
+  const uint64_t fraction = static_cast<uint64_t>(product);
+
+  // The rounded-down Q64 multiplier underestimates by less than cycles / 2^64.
+  // Without a carry from fraction + cycles, its integer part is already exact.
+  // Correct the remaining cases to retain floor(x * numerator / denominator)
+  // even at long uptimes, without a division or accumulated clock drift.
+  if (fraction > MaximumTimestamp - cycles) {
+    // The fractional quotient is below cycles, so adding one cannot overflow.
+    if (static_cast<unsigned __int128>(cycles) * calibration.fractional >=
+        static_cast<unsigned __int128>(nanoseconds + 1) * calibration.cycles) {
+      ++nanoseconds;
+    }
   }
 
-  const unsigned __int128 scaled = static_cast<unsigned __int128>(cycles) * calibration.nanoseconds;
-#if defined(__x86_64__)
-  const uint64_t high = static_cast<uint64_t>(scaled >> 64);
-  if (high >= calibration.cycles) {
-    return MaximumTimestamp;
+  if (!calibration.whole) {
+    return nanoseconds;
   }
 
-  // A 128/64 quotient fits exactly when the high limb is below the divisor.
-  // The guard preserves saturation and prevents DIV's quotient-overflow trap.
-  uint64_t quotient;
-  uint64_t remainder;
-  asm("divq %4"
-      : "=a"(quotient), "=d"(remainder)
-      : "0"(static_cast<uint64_t>(scaled)), "1"(high), "r"(calibration.cycles)
-      : "cc");
-  return quotient;
-#else
-  const unsigned __int128 nanoseconds = scaled / calibration.cycles;
-  return nanoseconds > MaximumTimestamp ? MaximumTimestamp : static_cast<uint64_t>(nanoseconds);
-#endif
+  const unsigned __int128 result =
+      static_cast<unsigned __int128>(cycles) * calibration.whole + nanoseconds;
+  return result > MaximumTimestamp ? MaximumTimestamp : static_cast<uint64_t>(result);
 }
 
 ALWAYS_INLINE inline uint64_t saturatingAdd(uint64_t first, uint64_t second) {
