@@ -382,15 +382,14 @@ void Thread::trackTime(CpuTimeMode mode) {
   const Time::Timestamp elapsed =
       m_TimeAccounting.elapsedAtInterruptDisabled(mode, sample.timestamp, sample.processor);
   if (elapsed) {
-    publishTimeAccounting(mode, elapsed);
+    publishTimeAccounting(mode, elapsed, sample.processor);
   }
 #else
   (void)mode;
 #endif
 }
 
-void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to,
-                            bool interruptsAlreadyDisabled) {
+void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to, bool interruptsAlreadyDisabled) {
 #if PEDIGREE_TIME_ACCOUNTING
   const CpuTimeSample sample(interruptsAlreadyDisabled);
   const Time::Timestamp elapsed =
@@ -398,7 +397,7 @@ void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to,
   m_TimeAccounting.recordAtInterruptDisabled(to, sample.timestamp, sample.processor);
   __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
   if (elapsed) {
-    publishTimeAccounting(from, elapsed);
+    publishTimeAccounting(from, elapsed, sample.processor);
   }
 #else
   (void)from;
@@ -407,7 +406,7 @@ void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to,
 #endif
 }
 
-void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
+void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed, size_t processor) {
   Time::Timestamp* total = mode == CpuTimeMode::User ? &m_UserTime : &m_KernelTime;
 #if X64
   // IRQ masking and scheduler ownership exclude writers on other CPUs. Keep
@@ -424,13 +423,17 @@ void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
     }
   }
 #endif
-  m_pParent->publishTimeAccounting(mode, elapsed);
+  m_pParent->publishTimeAccounting(mode, elapsed, processor);
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 void Thread::publishTimeAccountingForHostedTest(Time::Timestamp user, Time::Timestamp system) {
-  publishTimeAccounting(CpuTimeMode::User, user);
-  publishTimeAccounting(CpuTimeMode::Kernel, system);
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  const size_t processor = Processor::index();
+  publishTimeAccounting(CpuTimeMode::User, user, processor);
+  publishTimeAccounting(CpuTimeMode::Kernel, system, processor);
+  Processor::setInterrupts(interruptsWereEnabled);
 }
 #endif
 

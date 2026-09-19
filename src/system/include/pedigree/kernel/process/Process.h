@@ -959,11 +959,27 @@ class EXPORTED_PUBLIC Process {
   /** Stops timer-report admission and discards any unpublished residue. */
   void closeDeferredTimeAccounting();
 
-  /** Adds one Thread's elapsed monotonic time to Process-wide totals. */
-  void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed);
+  /** Adds elapsed time while the caller still holds its sampled CPU's IRQ mask. */
+  ALWAYS_INLINE void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed,
+                                           size_t processor) {
+    if (!m_PerCpuTimeAccounting.add(mode, elapsed, processor)) {
+      Time::Timestamp* total =
+          mode == CpuTimeMode::User ? &m_Metadata.userTime : &m_Metadata.kernelTime;
+      __atomic_fetch_add(total, elapsed, __ATOMIC_RELAXED);
+    }
+    reportTimeAccounting(elapsed);
+  }
 
-  /** Common fixed-cost accumulator publication after aggregate accounting. */
-  void publishTimeAccountingBatch(Time::Timestamp user, Time::Timestamp system);
+  ALWAYS_INLINE void reportTimeAccounting(Time::Timestamp elapsed) {
+    // Most processes have no armed CPU-time timer. Keep that path free of
+    // worker publication and its lifecycle-admission load.
+    if (__atomic_load_n(&m_TimeAccountingReportInterest, __ATOMIC_ACQUIRE) &&
+        __atomic_load_n(&m_bTimeAccountingReportsEnabled, __ATOMIC_ACQUIRE)) {
+      queueTimeAccountingReport(elapsed);
+    }
+  }
+
+  void queueTimeAccountingReport(Time::Timestamp elapsed);
 
   /** Called when the process is terminated to allow for subclass cleanup. */
   virtual void processTerminated() {}

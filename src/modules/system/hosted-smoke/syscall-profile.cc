@@ -32,6 +32,7 @@
 bool runHostedVasRegressions();
 bool runHostedVmOperationGuardRegressions();
 bool runHostedPostSyscallRegressions();
+bool runHostedAccountingRegressions();
 
 namespace {
 constexpr size_t QueryCount = 1000000;
@@ -269,6 +270,10 @@ bool hostedRunSyscallProfile() {
   }
   if (!runHostedPostSyscallRegressions()) {
     ERROR("HOSTED-PROFILE: FAIL post-syscall regressions");
+    return false;
+  }
+  if (!runHostedAccountingRegressions()) {
+    ERROR("HOSTED-PROFILE: FAIL accounting regressions");
     return false;
   }
   const size_t divisor = hostedSyscallProfileDivisor();

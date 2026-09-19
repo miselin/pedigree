@@ -381,7 +381,7 @@ class EXPORTED_PUBLIC Thread {
     m_TimeAccounting.recordAtInterruptDisabled(to, sample.timestamp, sample.processor);
     __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
     if (elapsed) {
-      publishTimeAccounting(from, elapsed);
+      publishTimeAccounting(from, elapsed, sample.processor);
     }
 #else
     (void)from;
@@ -1025,7 +1025,7 @@ class EXPORTED_PUBLIC Thread {
   Thread& operator=(const Thread&);
 
   /** Adds one elapsed interval to this Thread and its Process aggregate. */
-  void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed);
+  void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed, size_t processor);
 
   void initialisePlacement(const ThreadPlacement* placement);
   void publishReadyNotification();

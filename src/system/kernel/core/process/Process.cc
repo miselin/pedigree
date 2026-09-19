@@ -746,20 +746,6 @@ void Process::setTimeAccountingReportInterest(size_t interest, bool enabled) {
   }
 }
 
-void Process::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
-  const bool userspace = mode == CpuTimeMode::User;
-  // The caller keeps IRQs masked through publication. Charge the CPU executing
-  // this update, including when a scheduler is retiring an outgoing Thread.
-  if (!m_PerCpuTimeAccounting.add(mode, elapsed, Processor::index())) {
-    Time::Timestamp* total = userspace ? &m_Metadata.userTime : &m_Metadata.kernelTime;
-    __atomic_fetch_add(total, elapsed, __ATOMIC_RELAXED);
-  }
-
-  const Time::Timestamp user = userspace ? elapsed : 0;
-  const Time::Timestamp system = userspace ? 0 : elapsed;
-  publishTimeAccountingBatch(user, system);
-}
-
 void Process::accountReapedChild(const Process* child, Time::Timestamp& user,
                                  Time::Timestamp& kernel) {
   if (!child || child == this || child->getState() != Reaped) {
@@ -797,13 +783,7 @@ void Process::accountReapedChild(const Process* child, Time::Timestamp& user,
 #endif
 }
 
-void Process::publishTimeAccountingBatch(Time::Timestamp user, Time::Timestamp system) {
-  if (!__atomic_load_n(&m_bTimeAccountingReportsEnabled, __ATOMIC_ACQUIRE) ||
-      !__atomic_load_n(&m_TimeAccountingReportInterest, __ATOMIC_ACQUIRE)) {
-    return;
-  }
-
-  const Time::Timestamp elapsed = user ? user : system;
+void Process::queueTimeAccountingReport(Time::Timestamp elapsed) {
   if (m_DeferredTimeAccounting.publish(elapsed)) {
     Processor::information().getScheduler().publishDeferredTimeAccounting();
   }
@@ -813,7 +793,7 @@ void Process::publishTimeAccountingBatch(Time::Timestamp user, Time::Timestamp s
 void Process::publishTimeAccountingForHostedTest(Time::Timestamp user, Time::Timestamp system) {
   __atomic_fetch_add(&m_Metadata.userTime, user, __ATOMIC_RELAXED);
   __atomic_fetch_add(&m_Metadata.kernelTime, system, __ATOMIC_RELAXED);
-  publishTimeAccountingBatch(user, system);
+  reportTimeAccounting(user ? user : system);
 }
 
 void Process::closeTimeAccountingForHostedTest() {

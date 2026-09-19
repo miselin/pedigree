@@ -75,6 +75,8 @@ clone ownership, copy-on-write, and teardown. These must print
 `HOSTED-WAIT-TEST: PASS hosted-vas-mapping-index` before the workload begins.
 Post-syscall checks also validate owned state payloads, nested dispatch, rejected
 duplicate actions, and dispatch-context restoration before timing begins.
+Accounting checks verify thread/process totals and deferred timer reporting,
+including timer arming and shutdown, before the measured workload.
 
 Each of three repetitions performs one million `getuid` calls, 1,000 seeks,
 1,000 seek/writev pairs, and 1,000 seek/readv pairs. Vector operations transfer

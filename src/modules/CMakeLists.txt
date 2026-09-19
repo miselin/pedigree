@@ -461,6 +461,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     NOT PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
     pedigree_module(hosted-syscall-smoke "" "pedigree-vterm-kernel"
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/access-syscall-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/accounting-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/advisory-lock-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/child-resource-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/clone-routing-regressions.cc
