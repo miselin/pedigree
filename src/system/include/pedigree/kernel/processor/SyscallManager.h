@@ -138,7 +138,7 @@ class SyscallManager {
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   using HandlerPinHook = void (*)(Service_t, SyscallHandler*);
-  using PostSyscallHook = bool (*)(PostSyscallActionKind, intptr_t);
+  using PostSyscallHook = bool (*)(PostSyscallActionKind, intptr_t, const ProcessorState*);
 
   EXPORTED_PUBLIC void setHandlerPinHook(HandlerPinHook hook);
   EXPORTED_PUBLIC void setPostSyscallHook(PostSyscallHook hook);
@@ -146,11 +146,24 @@ class SyscallManager {
 
  protected:
   struct PostSyscallAction {
-    PostSyscallAction();
+    PostSyscallAction() : kind(NoPostSyscallAction), value(0) {}
+
+    ~PostSyscallAction() {
+      if (kind == RestoreProcessorState || kind == JumpToUserspace) {
+        state.~ProcessorState();
+      }
+    }
+
+    PostSyscallAction(const PostSyscallAction&) = delete;
+    PostSyscallAction& operator=(const PostSyscallAction&) = delete;
 
     PostSyscallActionKind kind;
     intptr_t value;
-    ProcessorState state;
+    // Ordinary syscalls need only the discriminator. State-bearing actions
+    // copy-construct their owned payload before the handler's frame disappears.
+    union {
+      ProcessorState state;
+    };
   };
 
   /**

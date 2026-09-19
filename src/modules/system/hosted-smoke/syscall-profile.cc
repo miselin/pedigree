@@ -31,6 +31,7 @@
 
 bool runHostedVasRegressions();
 bool runHostedVmOperationGuardRegressions();
+bool runHostedPostSyscallRegressions();
 
 namespace {
 constexpr size_t QueryCount = 1000000;
@@ -264,6 +265,10 @@ bool hostedRunSyscallProfile() {
   }
   if (!runHostedVmOperationGuardRegressions()) {
     ERROR("HOSTED-PROFILE: FAIL operation-guard regressions");
+    return false;
+  }
+  if (!runHostedPostSyscallRegressions()) {
+    ERROR("HOSTED-PROFILE: FAIL post-syscall regressions");
     return false;
   }
   const size_t divisor = hostedSyscallProfileDivisor();

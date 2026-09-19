@@ -26,6 +26,7 @@
 #include "pedigree/kernel/processor/SyscallHandler.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/new"
 
 SyscallManager::HandlerSlot::HandlerSlot()
     : handler(nullptr),
@@ -35,9 +36,6 @@ SyscallManager::HandlerSlot::HandlerSlot()
       draining(false),
       dispatches(nullptr),
       drainWaiters() {}
-
-SyscallManager::PostSyscallAction::PostSyscallAction()
-    : kind(NoPostSyscallAction), value(0), state() {}
 
 SyscallManager::Registration::Registration()
     : m_pManager(nullptr), m_Service(serviceEnd), m_pHandler(nullptr), m_Generation(0) {}
@@ -411,11 +409,11 @@ bool SyscallManager::requestPostSyscallAction(PostSyscallActionKind kind, intptr
     return false;
   }
 
-  action->kind = kind;
-  action->value = value;
   if (state) {
-    action->state = *state;
+    new (&action->state) ProcessorState(*state);
   }
+  action->value = value;
+  action->kind = kind;
   return true;
 }
 
@@ -461,6 +459,9 @@ void SyscallManager::setPostSyscallHook(PostSyscallHook hook) {
 
 bool SyscallManager::postSyscallHookHandled(const PostSyscallAction& action) {
   PostSyscallHook hook = __atomic_load_n(&m_PostSyscallHook, __ATOMIC_ACQUIRE);
-  return hook && hook(action.kind, action.value);
+  const ProcessorState* state =
+      action.kind == RestoreProcessorState || action.kind == JumpToUserspace ? &action.state
+                                                                             : nullptr;
+  return hook && hook(action.kind, action.value, state);
 }
 #endif

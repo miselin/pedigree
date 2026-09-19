@@ -325,7 +325,14 @@ class PostActionHandler : public SyscallHandler {
  public:
   PostActionHandler() : requested(SyscallManager::NoPostSyscallAction), calls(0), failures(0) {}
 
-  uintptr_t syscall(SyscallState&) override {
+  uintptr_t syscall(SyscallState& syscallState) override {
+    calls += 1;
+    if (syscallState.getSyscallNumber() == 1) {
+      return 0x62;
+    }
+
+    Thread* thread = Processor::information().getCurrentThread();
+    void* dispatchContext = thread->getSyscallDispatchContext();
     bool staged = false;
     switch (requested) {
       case SyscallManager::TerminateCurrentThread:
@@ -342,9 +349,11 @@ class PostActionHandler : public SyscallHandler {
         break;
       case SyscallManager::RestoreProcessorState: {
         ProcessorState state;
-        state.setInstructionPointer(0x1234);
-        state.setStackPointer(0x5678);
+        // Hosted IP/SP accessors are stubs; this is its actual copied payload.
+        state.state = 0x12345678;
         staged = SyscallManager::instance().requestStateRestore(state);
+        volatile uint64_t* source = &state.state;
+        *source = 0x87654321;
         break;
       }
       case SyscallManager::JumpToUserspace:
@@ -354,11 +363,24 @@ class PostActionHandler : public SyscallHandler {
         staged = SyscallManager::instance().requestReboot();
         break;
       case SyscallManager::NoPostSyscallAction:
+        staged = true;
         break;
     }
 
-    calls += 1;
     if (!staged) {
+      failures += 1;
+    }
+    if (requested != SyscallManager::NoPostSyscallAction) {
+      ProcessorState rejectedState;
+      rejectedState.state = 0xabcdef;
+      if (SyscallManager::instance().requestUserJump(0xabcd, 0xef01) ||
+          SyscallManager::instance().requestStateRestore(rejectedState) ||
+          SyscallManager::instance().requestProcessExit(73)) {
+        failures += 1;
+      }
+    }
+    if (SyscallManager::instance().syscall(TUI, 1) != 0x62 ||
+        thread->getSyscallDispatchContext() != dispatchContext) {
       failures += 1;
     }
     return 0x61;
@@ -372,6 +394,7 @@ class PostActionHandler : public SyscallHandler {
 struct PostActionContext {
   SyscallManager::PostSyscallActionKind expected = SyscallManager::NoPostSyscallAction;
   intptr_t expectedValue = 0;
+  void* previousContext = nullptr;
   SyscallManager::Registration* registration = nullptr;
   Atomic<size_t> calls = 0;
   Atomic<size_t> retired = 0;
@@ -380,7 +403,8 @@ struct PostActionContext {
 
 PostActionContext* g_PostActionContext = nullptr;
 
-bool postActionHook(SyscallManager::PostSyscallActionKind kind, intptr_t value) {
+bool postActionHook(SyscallManager::PostSyscallActionKind kind, intptr_t value,
+                    const ProcessorState* state) {
   PostActionContext* context = g_PostActionContext;
   if (!context) {
     return false;
@@ -389,7 +413,14 @@ bool postActionHook(SyscallManager::PostSyscallActionKind kind, intptr_t value) 
   context->calls += 1;
   Thread* thread = Processor::information().getCurrentThread();
   if (kind != context->expected || value != context->expectedValue || !thread ||
-      thread->isTerminationDeferred()) {
+      thread->isTerminationDeferred() ||
+      thread->getSyscallDispatchContext() != context->previousContext) {
+    context->failures += 1;
+  }
+  const bool needsState =
+      kind == SyscallManager::RestoreProcessorState || kind == SyscallManager::JumpToUserspace;
+  if (needsState != (state != nullptr) ||
+      (state && state->state != (kind == SyscallManager::RestoreProcessorState ? 0x12345678 : 0))) {
     context->failures += 1;
   }
   if (context->registration && context->registration->reset()) {
@@ -402,18 +433,17 @@ bool postActionHook(SyscallManager::PostSyscallActionKind kind, intptr_t value) 
 
 bool postSyscallActions() {
   static const SyscallManager::PostSyscallActionKind actions[] = {
-      SyscallManager::TerminateCurrentThread,
-      SyscallManager::ExitCurrentProcess,
-      SyscallManager::ReturnFromEvent,
-      SyscallManager::PopEventState,
-      SyscallManager::RestoreProcessorState,
-      SyscallManager::JumpToUserspace,
-      SyscallManager::RebootSystem};
+      SyscallManager::TerminateCurrentThread, SyscallManager::ExitCurrentProcess,
+      SyscallManager::ReturnFromEvent,        SyscallManager::PopEventState,
+      SyscallManager::RestoreProcessorState,  SyscallManager::NoPostSyscallAction,
+      SyscallManager::JumpToUserspace,        SyscallManager::RebootSystem};
   constexpr size_t ActionCount = sizeof(actions) / sizeof(actions[0]);
 
   SyscallManager& manager = SyscallManager::instance();
   PostActionHandler handler;
   PostActionContext context;
+  Thread* thread = Processor::information().getCurrentThread();
+  context.previousContext = thread->getSyscallDispatchContext();
   g_PostActionContext = &context;
   manager.setPostSyscallHook(postActionHook);
 
@@ -421,15 +451,20 @@ bool postSyscallActions() {
   for (size_t i = 0; i < ActionCount; ++i) {
     const bool needsEventState = actions[i] == SyscallManager::ReturnFromEvent ||
                                  actions[i] == SyscallManager::PopEventState;
-    Thread* thread = Processor::information().getCurrentThread();
     const bool stateReady = !needsEventState || (thread && thread->pushState() != nullptr);
     SyscallManager::Registration registration;
     context.expected = actions[i];
     context.expectedValue = actions[i] == SyscallManager::ExitCurrentProcess ? 37 : 0;
     context.registration = &registration;
     handler.requested = actions[i];
-    if (!stateReady || !manager.registerSyscallHandler(TUI, &handler, registration) ||
-        manager.syscall(TUI, 0) != 0x61 || registration) {
+    const bool noAction = actions[i] == SyscallManager::NoPostSyscallAction;
+    const size_t hookCalls = context.calls;
+    const bool dispatched = stateReady &&
+                            manager.registerSyscallHandler(TUI, &handler, registration) &&
+                            manager.syscall(TUI, 0) == 0x61;
+    if (!dispatched || thread->getSyscallDispatchContext() != context.previousContext ||
+        (noAction ? !registration || context.calls != hookCalls || !registration.reset()
+                  : static_cast<bool>(registration))) {
       loopPassed = false;
       if (registration) {
         registration.reset();
@@ -442,10 +477,11 @@ bool postSyscallActions() {
 
   manager.setPostSyscallHook(nullptr);
   g_PostActionContext = nullptr;
-  const bool passed = check(
-      loopPassed && handler.calls == ActionCount && handler.failures == 0 &&
-          context.calls == ActionCount && context.retired == ActionCount && context.failures == 0,
-      "syscall-post-actions", "a terminal action ran before its handler token retired");
+  const bool passed =
+      check(loopPassed && handler.calls == 2 * ActionCount && handler.failures == 0 &&
+                context.calls == ActionCount - 1 && context.retired == ActionCount - 1 &&
+                context.failures == 0,
+            "syscall-post-actions", "post-action state, nesting, rejection, or retirement failed");
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS syscall-post-actions");
   }
@@ -586,6 +622,10 @@ bool abandonedSyscallStack() {
   return passed;
 }
 }  // namespace
+
+bool runHostedPostSyscallRegressions() {
+  return postSyscallActions() && baseStateEventActionsRejected();
+}
 
 bool runHostedSyscallRegressions() {
   return handlerLifetimeBarrier() && reciprocalUnregisterRejected() && postSyscallActions() &&
