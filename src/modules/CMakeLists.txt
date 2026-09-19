@@ -465,6 +465,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/eventfd-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/file-contract-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/futex-robust-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/hosted-vas-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/system-usercopy-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/vm-permission-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/exit-status-regressions.cc

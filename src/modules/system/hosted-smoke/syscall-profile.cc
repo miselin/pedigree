@@ -26,6 +26,8 @@
 #include "system/kernel/core/processor/hosted/SyscallManager.h"
 #include <sys/uio.h>
 
+bool runHostedVasRegressions();
+
 namespace {
 constexpr size_t QueryCount = 1000000;
 constexpr size_t IoCount = 1000;
@@ -222,6 +224,10 @@ int profileWorker(void* parameter) {
 }  // namespace
 
 bool hostedRunSyscallProfile() {
+  if (!runHostedVasRegressions()) {
+    ERROR("HOSTED-PROFILE: FAIL address-space regressions");
+    return false;
+  }
   const size_t divisor = hostedSyscallProfileDivisor();
   size_t queryCount = QueryCount / divisor;
   size_t ioCount = IoCount / divisor;

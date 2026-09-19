@@ -162,6 +162,7 @@ elseif (PEDIGREE_ARCHDIR STREQUAL "hosted")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/state.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/SyscallManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/VirtualAddressSpace.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/MappingIndex.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/PhysicalMemoryManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/ProcessorInformation.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/Processor.cc

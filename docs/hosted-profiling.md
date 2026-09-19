@@ -68,6 +68,11 @@ and cleans temporary backing files. It saves the measured kernel and debug file
 with the results so later rebuilds cannot invalidate the profile. Normal hosted
 smoke behavior is unchanged when the environment setting is absent.
 
+Before timing, the profile runs focused hosted address-space checks: isolation
+across switches, global kernel mappings, permission changes, mapping reuse,
+clone ownership, copy-on-write, and teardown. These must print
+`HOSTED-WAIT-TEST: PASS hosted-vas-mapping-index` before the workload begins.
+
 Each of three repetitions performs one million `getuid` calls, 1,000 seeks,
 1,000 seek/writev pairs, and 1,000 seek/readv pairs. Vector operations transfer
 4 KiB through two iovecs. Mappings and file backing are prepared before timing;
@@ -88,3 +93,10 @@ Hosted interrupt masking uses `pthread_sigmask`; address-space operations use
 host VM syscalls. Attribute those separately from portable kernel work. A hosted
 profile can locate expensive algorithms and calls, but cannot establish the
 bare-metal cost of IRQ masking, page-table operations, or syscall entry.
+
+For workload attribution, filter sampled callchains to `hostedProfileGetuid`,
+`hostedProfileLseek`, `hostedProfileWritev`, or `hostedProfileReadv`, excluding
+`reportPhase` and logging. The whole-process report includes boot, regression
+checks, and shutdown. In particular, mapping allocation during ELF symbol loading
+is not syscall-loop work. Preserve unresolved sample addresses as unknown rather
+than attributing them to a nearby kernel function.
