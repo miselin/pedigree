@@ -111,7 +111,7 @@ class SlamCache;
 /// Scribble in freed memory; can be useful for finding bugs which are caused
 /// by reuse of freed objects (that would otherwise look like valid objects).
 /// It can also avoid leaking information in heap objects.
-#define SCRIBBLE_FREED_BLOCKS 1
+#define SCRIBBLE_FREED_BLOCKS 0
 
 /// Block allocations larger than or equal to the native page size.
 #define WARN_PAGE_SIZE_OR_LARGER 0
