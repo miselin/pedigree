@@ -272,6 +272,12 @@ bool hostedRunSyscallProfile() {
     ERROR("HOSTED-PROFILE: FAIL post-syscall regressions");
     return false;
   }
+  Thread* driver = Processor::information().getCurrentThread();
+  if (!driver || !driver->runHostedStateCleanupRegression()) {
+    ERROR("HOSTED-PROFILE: FAIL state-cleanup regressions");
+    return false;
+  }
+  NOTICE("HOSTED-PROFILE: PASS state-cleanup regressions");
   if (!runHostedAccountingRegressions()) {
     ERROR("HOSTED-PROFILE: FAIL accounting regressions");
     return false;

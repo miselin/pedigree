@@ -23,17 +23,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 
-TimeTracker::TimeTracker(Process* pProcess, bool fromUserspace,
-                         bool entryInterruptsAlreadyDisabled)
-    : m_pProcess(pProcess),
-      m_pThread(nullptr),
-      m_bFromUserspace(fromUserspace)
-#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
-      ,
-      m_bSyscallAttributed(false),
-      m_PreviousSyscallTimingSlot(Thread::NoSyscallTimingSlot)
-#endif
-{
+void TimeTracker::initialise(bool entryInterruptsAlreadyDisabled) {
   // Accounting baselines belong to the exact interrupted Thread. A Process
   // can execute on multiple CPUs and cannot provide one shared baseline.
   m_pThread = Processor::information().getCurrentThread();

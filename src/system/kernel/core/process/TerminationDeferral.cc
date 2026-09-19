@@ -43,9 +43,8 @@ void assertCurrentThread(Thread* thread, const void* scope, const char* site) {
 }
 }  // namespace
 
-TerminationDeferral::TerminationDeferral(bool active)
-    : m_pThread(active ? Processor::information().getCurrentThread() : nullptr),
-      m_Record(DeferredScopeRecord::Uninitialised{}) {
+void TerminationDeferral::initialise(bool active) {
+  m_pThread = active ? Processor::information().getCurrentThread() : nullptr;
 #if PEDIGREE_AFFINITY_TESTS
   if (active) {
     const bool interrupts = Processor::getInterrupts();

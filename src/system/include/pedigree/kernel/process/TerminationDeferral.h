@@ -26,13 +26,20 @@ class Thread;
  */
 class EXPORTED_PUBLIC TerminationDeferral {
  public:
-  explicit TerminationDeferral(bool active = true);
+  // Keep the fresh-record constructor visible to avoid a redundant automatic
+  // stack fill before initialise() writes every field and publishes it.
+  explicit ALWAYS_INLINE TerminationDeferral(bool active = true)
+      : m_pThread(nullptr), m_Record(DeferredScopeRecord::Uninitialised{}) {
+    initialise(active);
+  }
   TerminationDeferral(TerminationDeferral&& other) noexcept;
   ~TerminationDeferral();
 
   TerminationDeferral& operator=(TerminationDeferral&& other) noexcept;
 
  private:
+  void initialise(bool active);
+
   TerminationDeferral(const TerminationDeferral&) = delete;
   TerminationDeferral& operator=(const TerminationDeferral&) = delete;
 

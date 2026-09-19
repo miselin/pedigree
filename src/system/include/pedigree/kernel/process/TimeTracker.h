@@ -19,6 +19,7 @@
 
 #ifndef _PROCESS_TIME_TRACKER_H
 #define _PROCESS_TIME_TRACKER_H
+#include "pedigree/kernel/compiler.h"
 
 #include <config.h>
 #include <stddef.h>
@@ -34,8 +35,21 @@ class Thread;
  */
 class TimeTracker {
  public:
-  TimeTracker(Process* pProcess, bool fromUserspace,
-              bool entryInterruptsAlreadyDisabled = false);
+  // Expose member initialization so stack auto-initialization does not fill
+  // the whole object before the constructor writes the same fields.
+  ALWAYS_INLINE TimeTracker(Process* pProcess, bool fromUserspace,
+                            bool entryInterruptsAlreadyDisabled = false)
+      : m_pProcess(pProcess),
+        m_pThread(nullptr),
+        m_bFromUserspace(fromUserspace)
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+        ,
+        m_bSyscallAttributed(false),
+        m_PreviousSyscallTimingSlot(~static_cast<size_t>(0))
+#endif
+  {
+    initialise(entryInterruptsAlreadyDisabled);
+  }
   virtual ~TimeTracker();
 
   /** Completes accounting before a no-return architectural transition. */
@@ -51,6 +65,8 @@ class TimeTracker {
   void attributeSyscall(size_t rawNumber);
 
  private:
+  void initialise(bool entryInterruptsAlreadyDisabled);
+
   Process* m_pProcess;
   Thread* m_pThread;
   bool m_bFromUserspace;
