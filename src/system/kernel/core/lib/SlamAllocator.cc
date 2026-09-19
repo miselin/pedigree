@@ -207,12 +207,14 @@ inline void unmap(void* addr) {
 
 SlamCache::SlamCache()
     : m_PartialLists(),
+      m_FastSlabs(),
       m_LargeFreeList(nullptr),
       m_ObjectSize(0),
       m_SlabSize(0),
       m_SlabObjectOffset(0),
       m_SlabObjectCount(0),
       m_FirstSlab(),
+      m_FastPathState(0),
       m_RecoveryLock(false, true) {}
 
 SlamCache::~SlamCache() {}
@@ -229,7 +231,10 @@ void SlamCache::initialise(SlamAllocator* parent, size_t objectSize) {
 
   for (size_t i = 0; i < NUM_LISTS; i++)
     m_PartialLists[i] = nullptr;
+  for (size_t i = 0; i < NUM_LISTS; i++)
+    m_FastSlabs[i] = nullptr;
   m_LargeFreeList = nullptr;
+  m_FastPathState = 0;
 
   if (m_ObjectSize < getPageSize()) {
     m_SlabObjectOffset = ((sizeof(Slab) + m_ObjectSize - 1) / m_ObjectSize) * m_ObjectSize;
@@ -290,6 +295,52 @@ void SlamCache::removeSlab(Slab* slab) {
   slab->onList = false;
 }
 
+bool SlamCache::beginFastPath() {
+  constexpr size_t writer = static_cast<size_t>(1) << ((sizeof(size_t) * 8) - 1);
+  size_t state = __atomic_load_n(&m_FastPathState, __ATOMIC_ACQUIRE);
+  while (!(state & writer)) {
+    if (__atomic_compare_exchange_n(&m_FastPathState, &state, state + 1, false, __ATOMIC_ACQUIRE,
+                                    __ATOMIC_RELAXED))
+      return true;
+  }
+  return false;
+}
+
+void SlamCache::endFastPath() {
+  __atomic_fetch_sub(&m_FastPathState, static_cast<size_t>(1), __ATOMIC_RELEASE);
+}
+
+SlamCache::Node* SlamCache::popFreeObject(Slab* slab) {
+  if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE))
+    return nullptr;
+
+  Node* taggedHead = __atomic_load_n(&slab->freeHead, ATOMIC_POP_MEMORY_ORDER);
+  while (taggedHead) {
+    Node* head = untagged(taggedHead);
+    Node* next = head->next;
+    if (__atomic_compare_exchange_n(&slab->freeHead, &taggedHead, next_tag(next, taggedHead),
+                                    ATOMIC_CAS_WEAK, ATOMIC_POP_MEMORY_ORDER,
+                                    ATOMIC_POP_FAILURE_MEMORY_ORDER)) {
+      __atomic_fetch_sub(&slab->freeObjects, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+      return head;
+    }
+    if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE))
+      return nullptr;
+  }
+
+  return nullptr;
+}
+
+void SlamCache::pushFreeObject(Slab* slab, Node* node) {
+  Node* head = __atomic_load_n(&slab->freeHead, __ATOMIC_RELAXED);
+  do {
+    node->next = head;
+  } while (!__atomic_compare_exchange_n(&slab->freeHead, &head, next_tag(node, head),
+                                        ATOMIC_CAS_WEAK, ATOMIC_PUSH_MEMORY_ORDER,
+                                        __ATOMIC_RELAXED));
+  __atomic_fetch_add(&slab->freeObjects, static_cast<size_t>(1), __ATOMIC_RELEASE);
+}
+
 SlamCache::Node* SlamCache::objectAt(uintptr_t slab, size_t index) const {
   return reinterpret_cast<Node*>(slab + m_SlabObjectOffset + (index * m_ObjectSize));
 }
@@ -325,18 +376,49 @@ uintptr_t SlamCache::allocate() {
 
   const size_t thisList = currentList();
   Node* N = nullptr;
-  {
+  Slab* fastSlab = nullptr;
+  const bool fastPath = beginFastPath();
+  if (fastPath) {
+    fastSlab = __atomic_load_n(&m_FastSlabs[thisList], __ATOMIC_ACQUIRE);
+    if (fastSlab) {
+      N = popFreeObject(fastSlab);
+      if (N && !__atomic_load_n(&fastSlab->freeObjects, __ATOMIC_ACQUIRE))
+        __atomic_store_n(&m_FastSlabs[thisList], static_cast<Slab*>(nullptr), __ATOMIC_RELEASE);
+    }
+    endFastPath();
+  }
+
+  if (N && fastSlab && !__atomic_load_n(&fastSlab->freeObjects, __ATOMIC_ACQUIRE)) {
+    LockGuard<Spinlock> guard(m_RecoveryLock);
+    if (!__atomic_load_n(&fastSlab->freeObjects, __ATOMIC_ACQUIRE) && fastSlab->onList)
+      removeSlab(fastSlab);
+  }
+
+  if (N) {
+    assert(N->next != reinterpret_cast<Node*>(VIGILANT_MAGIC));
+    EMIT_IF(USING_MAGIC) {
+      assert(N->magic == TEMP_MAGIC || N->magic == MAGIC_VALUE);
+      N->magic = TEMP_MAGIC;
+    }
+    reinterpret_cast<SlamAllocator::AllocHeader*>(N)->cache = this;
+  }
+
+  if (!N) {
     LockGuard<Spinlock> guard(m_RecoveryLock);
     for (size_t offset = 0; offset < NUM_LISTS; ++offset) {
       const size_t list = (thisList + offset) % NUM_LISTS;
+      if (__atomic_load_n(&m_FastSlabs[list], __ATOMIC_ACQUIRE))
+        continue;
       for (Slab* slab = m_PartialLists[list]; slab; slab = slab->next) {
-        if (!slab->freeHead)
+        if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE))
           continue;
-        N = slab->freeHead;
-        slab->freeHead = N->next;
-        --slab->freeObjects;
-        if (!slab->freeObjects)
+        N = popFreeObject(slab);
+        if (!N)
+          continue;
+        if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE))
           removeSlab(slab);
+        else if (list == thisList)
+          __atomic_store_n(&m_FastSlabs[thisList], slab, __ATOMIC_RELEASE);
         break;
       }
       if (N)
@@ -350,7 +432,6 @@ uintptr_t SlamCache::allocate() {
         assert(N->magic == TEMP_MAGIC || N->magic == MAGIC_VALUE);
         N->magic = TEMP_MAGIC;
       }
-
       SlamAllocator::AllocHeader* header = reinterpret_cast<SlamAllocator::AllocHeader*>(N);
       header->cache = this;
     }
@@ -403,7 +484,6 @@ void SlamCache::free(uintptr_t object) {
   }
 
   Node* N = reinterpret_cast<Node*>(object);
-  LockGuard<Spinlock> guard(m_RecoveryLock);
 
   EMIT_IF(OVERRUN_CHECK) {
     // Grab the footer and check it.
@@ -423,11 +503,38 @@ void SlamCache::free(uintptr_t object) {
   }
 
   Slab* slab = slabForObject(object);
-  if (!slab->freeObjects)
-    addSlab(slab, currentList());
-  N->next = slab->freeHead;
-  slab->freeHead = N;
-  ++slab->freeObjects;
+  const bool fastPath = beginFastPath();
+  if (fastPath) {
+    if (__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE)) {
+      pushFreeObject(slab, N);
+      endFastPath();
+      return;
+    }
+    endFastPath();
+  }
+
+  if (!fastPath) {
+    LockGuard<Spinlock> guard(m_RecoveryLock);
+    pushFreeObject(slab, N);
+    if (!slab->onList)
+      addSlab(slab, slab->list);
+    if (slab->list == currentList())
+      __atomic_store_n(&m_FastSlabs[slab->list], slab, __ATOMIC_RELEASE);
+    return;
+  }
+
+  if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE)) {
+    LockGuard<Spinlock> guard(m_RecoveryLock);
+    if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE)) {
+      pushFreeObject(slab, N);
+      if (!slab->onList)
+        addSlab(slab, slab->list);
+      if (slab->list == currentList())
+        __atomic_store_n(&m_FastSlabs[slab->list], slab, __ATOMIC_RELEASE);
+      return;
+    }
+  }
+  pushFreeObject(slab, N);
 }
 
 bool SlamCache::isPointerValid(uintptr_t object) const {
@@ -486,6 +593,22 @@ size_t SlamCache::recovery(size_t maxSlabs) {
     }
   }
 
+  constexpr size_t writer = static_cast<size_t>(1) << ((sizeof(size_t) * 8) - 1);
+  size_t expected = 0;
+  while (true) {
+    expected = __atomic_load_n(&m_FastPathState, __ATOMIC_ACQUIRE);
+    if (expected & writer) {
+      spin_pause();
+      continue;
+    }
+    const size_t requested = expected | writer;
+    if (__atomic_compare_exchange_n(&m_FastPathState, &expected, requested, false,
+                                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+      break;
+  }
+  while (__atomic_load_n(&m_FastPathState, __ATOMIC_ACQUIRE) != writer)
+    spin_pause();
+
   LockGuard<Spinlock> guard(m_RecoveryLock);
 
   size_t freedSlabs = 0;
@@ -494,7 +617,10 @@ size_t SlamCache::recovery(size_t maxSlabs) {
       Slab* slab = m_PartialLists[list];
       while (slab && freedSlabs < maxSlabs) {
         Slab* next = slab->next;
-        if (slab->freeObjects == slab->objectCount) {
+        if (__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE) == slab->objectCount) {
+          if (__atomic_load_n(&m_FastSlabs[slab->list], __ATOMIC_ACQUIRE) == slab)
+            __atomic_store_n(&m_FastSlabs[slab->list], static_cast<Slab*>(nullptr),
+                             __ATOMIC_RELEASE);
           removeSlab(slab);
           freeSlab(reinterpret_cast<uintptr_t>(slab));
           ++freedSlabs;
@@ -511,6 +637,7 @@ size_t SlamCache::recovery(size_t maxSlabs) {
     }
   }
 
+  __atomic_store_n(&m_FastPathState, static_cast<size_t>(0), __ATOMIC_RELEASE);
   return freedSlabs;
 }
 
@@ -546,7 +673,7 @@ SlamCache::Node* SlamCache::initialiseSlab(uintptr_t slab) {
   for (size_t i = 1; i < nObjects; i++) {
     Node* pNode = objectAt(slab, i);
     pNode->next = slabState->freeHead;
-    slabState->freeHead = pNode;
+    slabState->freeHead = next_tag(pNode, slabState->freeHead);
     EMIT_IF(USING_MAGIC) {
       pNode->magic = MAGIC_VALUE;
     }
@@ -558,6 +685,7 @@ SlamCache::Node* SlamCache::initialiseSlab(uintptr_t slab) {
     reinterpret_cast<SlamAllocator::AllocHeader*>(N)->cache = this;
     if (slabState->freeObjects)
       addSlab(slabState, currentList());
+    __atomic_store_n(&m_FastSlabs[currentList()], slabState, __ATOMIC_RELEASE);
     m_pParentAllocator->markSlabReady(slab, m_SlabSize);
   }
 

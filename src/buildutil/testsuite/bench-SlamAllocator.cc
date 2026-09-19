@@ -56,6 +56,7 @@ static void BM_SlamAllocatorBackForth(benchmark::State& state) {
 
 BENCHMARK(BM_SlamAllocatorBackForthReference);
 BENCHMARK(BM_SlamAllocatorBackForth);
+BENCHMARK(BM_SlamAllocatorBackForth)->Threads(4);
 
 static void BM_SlamAllocatorRecovery(benchmark::State& state) {
   std::vector<uintptr_t> objects(static_cast<size_t>(state.range(0)));

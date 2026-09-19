@@ -223,10 +223,15 @@ class SlamCache {
 #endif
 
   Slab* m_PartialLists[NUM_LISTS];
+  Slab* m_FastSlabs[NUM_LISTS];
   Node* m_LargeFreeList;
 
   void addSlab(Slab* slab, size_t list);
   void removeSlab(Slab* slab);
+  bool beginFastPath();
+  void endFastPath();
+  Node* popFreeObject(Slab* slab);
+  void pushFreeObject(Slab* slab, Node* node);
   Node* objectAt(uintptr_t slab, size_t index) const;
   Slab* slabForObject(uintptr_t object) const;
 
@@ -246,12 +251,11 @@ class SlamCache {
   // avoids needing to lock the free list on MP systems.
 
   uintptr_t m_FirstSlab;
+  size_t m_FastPathState;
 
   /**
-   * Recovery cannot be done trivially.
-   * Spinlock disables interrupts as part of its operation. Allocation and
-   * free-list publication also take this lock, allowing recovery to inspect
-   * every CPU-local list without a dangling-node window.
+   * Protects slab-list transitions and the slow paths. Recovery quiesces the
+   * lock-free fast path before inspecting or reclaiming slabs.
    */
   Spinlock m_RecoveryLock;
 
