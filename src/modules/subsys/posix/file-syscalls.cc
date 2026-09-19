@@ -1115,7 +1115,8 @@ struct IoVectorSnapshot {
   struct iovec* vectors = nullptr;
 };
 
-constexpr size_t SmallVectorIoBounceCapacity = 2048;
+// Keep a page-sized regular-file transfer off the heap without a large stack buffer.
+constexpr size_t SmallVectorIoBounceCapacity = 4096;
 // Changing chunk sizes would change how much I/O precedes a later user-copy fault.
 static_assert(SmallVectorIoBounceCapacity <= ScalarIoBounceCapacity &&
               SmallVectorIoBounceCapacity <= RegularReadBounceCapacity);
