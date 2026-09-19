@@ -2,6 +2,8 @@
 
 For native GCC compilation timing, kernel profiles, and comparison heatmaps,
 see the [compilation latency guide](compile-latency.md).
+For matched Linux/Pedigree stage timings and `-pipe` comparisons, see the
+[compiler stage matrix](compile-matrix.md).
 
 ## Syscall framework contracts
 
