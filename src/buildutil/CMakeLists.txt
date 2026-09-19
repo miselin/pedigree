@@ -366,6 +366,7 @@ set(TESTSUITE_SRCS
     testsuite/test-IrqDiagnosticRenderer.cc
     testsuite/test-LocksCommand.cc
     testsuite/test-ThreadWaitDiagnostic.cc
+    testsuite/test-IntrusiveList.cc
     testsuite/test-List.cc
     testsuite/test-SharedPointer.cc
     testsuite/test-UniquePointer.cc
@@ -483,6 +484,7 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-RingBuffer.cc
         testsuite/bench-ProcessorMemory.cc
         testsuite/bench-HashTable.cc
+        testsuite/bench-IntrusiveList.cc
         testsuite/bench-List.cc
         testsuite/bench-SlamAllocator.cc
         testsuite/bench-SlamAllocator-adapter.cc
