@@ -507,6 +507,24 @@ class EXPORTED_PUBLIC ProcessorBase {
   static size_t m_nProcessors;
 };
 
+#if X86_COMMON && !HOSTED && !PEDIGREE_BUILDUTILS && defined(IN_PEDIGREE_KERNEL) && \
+    !STANDALONE_MUTEXES
+ALWAYS_INLINE inline void ProcessorBase::setInterrupts(bool bEnable) {
+  if (bEnable) {
+    // Consume the STI shadow before the caller's next instruction.
+    asm volatile("sti\n\tnop" : : : "memory", "cc");
+  } else {
+    asm volatile("cli" : : : "memory", "cc");
+  }
+}
+
+ALWAYS_INLINE inline bool ProcessorBase::getInterrupts() {
+  size_t flags;
+  asm volatile("pushf\n\tpop %0" : "=r"(flags) : : "memory", "cc");
+  return (flags & 0x200) != 0;
+}
+#endif
+
 inline TlbInvalidationGuard::~TlbInvalidationGuard() {
   retire();
 }

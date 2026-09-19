@@ -140,21 +140,10 @@ void ProcessorBase::disableDebugBreakpoint(size_t nBpNumber) {
   asm volatile("mov %0, %%db7" ::"r"(nStatus));
 }
 
-void ProcessorBase::setInterrupts(bool bEnable) {
-  if (bEnable)
-    asm volatile("sti");
-  else
-    asm volatile("cli");
-}
-
-bool ProcessorBase::getInterrupts() {
-  size_t result;
-  asm volatile(
-      "pushf\n"
-      "pop %0\n"
-      "and $0x200, %0\n"
-      : "=r"(result));
-  return (result != 0);
+namespace {
+// Keep addressable kernel exports for modules built against the interrupt API.
+void (*const setInterruptsEntry)(bool) USED = &ProcessorBase::setInterrupts;
+bool (*const getInterruptsEntry)() USED = &ProcessorBase::getInterrupts;
 }
 
 void ProcessorBase::setSingleStep(bool bEnable, InterruptState& state) {
