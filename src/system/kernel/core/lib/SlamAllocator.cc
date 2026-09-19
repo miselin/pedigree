@@ -315,7 +315,8 @@ SlamCache::Node* SlamCache::popFreeObject(Slab* slab) {
     return nullptr;
 
   Node* taggedHead = __atomic_load_n(&slab->freeHead, ATOMIC_POP_MEMORY_ORDER);
-  while (taggedHead) {
+  // An empty head still carries an ABA tag; the count can lag behind a pop.
+  while (reinterpret_cast<uintptr_t>(taggedHead) & POINTER_MASK) {
     Node* head = untagged(taggedHead);
     Node* next = head->next;
     if (__atomic_compare_exchange_n(&slab->freeHead, &taggedHead, next_tag(next, taggedHead),
@@ -368,10 +369,15 @@ uintptr_t SlamCache::allocate() {
       if (m_LargeFreeList) {
         Node* node = m_LargeFreeList;
         m_LargeFreeList = node->next;
+        EMIT_IF(USING_MAGIC) {
+          assert(node->magic == MAGIC_VALUE);
+          node->magic = TEMP_MAGIC;
+        }
+        reinterpret_cast<SlamAllocator::AllocHeader*>(node)->cache = this;
         return reinterpret_cast<uintptr_t>(node);
       }
     }
-    return getSlab();
+    return reinterpret_cast<uintptr_t>(initialiseSlab(getSlab()));
   }
 
   const size_t thisList = currentList();
@@ -475,14 +481,6 @@ void SlamCache::free(uintptr_t object) {
     }
   }
 
-  if (m_ObjectSize >= getPageSize()) {
-    Node* node = reinterpret_cast<Node*>(object);
-    LockGuard<Spinlock> guard(m_RecoveryLock);
-    node->next = m_LargeFreeList;
-    m_LargeFreeList = node;
-    return;
-  }
-
   Node* N = reinterpret_cast<Node*>(object);
 
   EMIT_IF(OVERRUN_CHECK) {
@@ -500,6 +498,13 @@ void SlamCache::free(uintptr_t object) {
     // Possible double free?
     assert(N->magic != MAGIC_VALUE);
     N->magic = MAGIC_VALUE;
+  }
+
+  if (m_ObjectSize >= getPageSize()) {
+    LockGuard<Spinlock> guard(m_RecoveryLock);
+    N->next = m_LargeFreeList;
+    m_LargeFreeList = N;
+    return;
   }
 
   Slab* slab = slabForObject(object);
@@ -663,7 +668,6 @@ SlamCache::Node* SlamCache::initialiseSlab(uintptr_t slab) {
   slabState->cache = this;
   slabState->freeObjects = nObjects - 1;
   slabState->objectCount = nObjects;
-  slabState->list = 0;
   slabState->onList = false;
 
   Node* N = objectAt(slab, 0);
@@ -683,9 +687,11 @@ SlamCache::Node* SlamCache::initialiseSlab(uintptr_t slab) {
   {
     LockGuard<Spinlock> guard(m_RecoveryLock);
     reinterpret_cast<SlamAllocator::AllocHeader*>(N)->cache = this;
+    // Even an initially full slab can be cached and later recovered.
+    slabState->list = currentList();
     if (slabState->freeObjects)
-      addSlab(slabState, currentList());
-    __atomic_store_n(&m_FastSlabs[currentList()], slabState, __ATOMIC_RELEASE);
+      addSlab(slabState, slabState->list);
+    __atomic_store_n(&m_FastSlabs[slabState->list], slabState, __ATOMIC_RELEASE);
     m_pParentAllocator->markSlabReady(slab, m_SlabSize);
   }
 
