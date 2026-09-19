@@ -92,12 +92,12 @@ class FileEventState {
 
   void notify(const FileEvent& event) {
     OperationBarrier::Lease publication;
-    if (!m_Publications.tryAcquire(publication))
-      return;
     size_t boundary;
     {
       LockGuard<Mutex> guard(m_Lock);
-      if (!m_Open)
+      if (!m_Open || !m_Targets.count())
+        return;
+      if (!m_Publications.tryAcquire(publication))
         return;
       boundary = m_NextSequence - 1;
     }

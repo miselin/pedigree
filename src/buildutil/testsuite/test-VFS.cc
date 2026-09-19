@@ -1444,6 +1444,41 @@ TEST(VFS, InodeEventsFollowAliasesWithoutNamespaceRetirement) {
   inode.reset();
 }
 
+TEST(VFS, InodeEventsResumeAfterLastSubscriptionRemoved) {
+  InodeEventSource source;
+  source.publish(FileEvent(FileEvents::Modify, StringView(), false, 1));
+  auto* observed = new InodeTestObserver;
+  SharedPointer<FileEventObserver> observer(observed);
+  FileEventSubscription subscription;
+  ASSERT_TRUE(source.subscribeFileEvents(FileEvents::Modify | FileEvents::SourceRetired, observer,
+                                         subscription));
+  EXPECT_EQ(observed->calls.load(), 0U);
+  source.publish(FileEvent(FileEvents::Modify, StringView(), false, 2));
+  EXPECT_EQ(observed->calls.load(), 1U);
+  EXPECT_EQ(observed->masks.load(), FileEvents::Modify);
+  EXPECT_EQ(observed->pid.load(), 2U);
+
+  subscription.reset();
+  source.publish(FileEvent(FileEvents::Modify, StringView(), false, 3));
+  EXPECT_EQ(observed->calls.load(), 1U);
+  EXPECT_EQ(observed->pid.load(), 2U);
+  ASSERT_TRUE(source.subscribeFileEvents(FileEvents::Modify | FileEvents::SourceRetired, observer,
+                                         subscription));
+  EXPECT_EQ(observed->calls.load(), 1U);
+  source.publish(FileEvent(FileEvents::Modify, StringView(), false, 4));
+  EXPECT_EQ(observed->calls.load(), 2U);
+  EXPECT_EQ(observed->pid.load(), 4U);
+
+  source.beginRetirement();
+  source.finishRetirement();
+  EXPECT_EQ(observed->calls.load(), 3U);
+  EXPECT_EQ(observed->masks.load(), FileEvents::Modify | FileEvents::SourceRetired);
+  source.publish(FileEvent(FileEvents::Modify, StringView(), false, 5));
+  EXPECT_EQ(observed->calls.load(), 3U);
+  subscription.reset();
+  EXPECT_FALSE(source.subscribeFileEvents(FileEvents::Modify, observer, subscription));
+}
+
 TEST(VFS, InodeRetirementClosesAdmissionBeforeCallbackDrain) {
   InodeEventSource source;
   auto* observed = new InodeTestObserver(FileEvents::Modify);
