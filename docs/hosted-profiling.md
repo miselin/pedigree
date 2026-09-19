@@ -100,3 +100,18 @@ For workload attribution, filter sampled callchains to `hostedProfileGetuid`,
 checks, and shutdown. In particular, mapping allocation during ELF symbol loading
 is not syscall-loop work. Preserve unresolved sample addresses as unknown rather
 than attributing them to a nearby kernel function.
+
+## Valgrind compatibility
+
+Callgrind is not currently a validated runner mode. On Linux amd64 with
+Valgrind 3.27.1, the hosted kernel aborts before the workload with Callgrind's
+`vgCallgrind_post_signal` assertion (`sigNum == current_state.sig`). Keeping PLT
+frames with `--skip-plt=no` also fails. This matches the signal/alternate-stack
+failure described in [Valgrind bug 339160](https://bugs.kde.org/show_bug.cgi?id=339160).
+Callgrind's shadow-stack handling needs investigation before its call counts
+can be trusted with the hosted signal and context-switch paths.
+
+A Cachegrind attempt with the same kernel reached module startup but faulted
+while starting `splash`; it did not reach the workload either. These are tool
+compatibility results, not performance measurements. Continue using the native
+`perf` mode until a Valgrind run passes the workload and shutdown checks.
