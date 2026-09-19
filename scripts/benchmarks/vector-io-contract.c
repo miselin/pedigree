@@ -223,6 +223,70 @@ static void shared_offset(int fd) {
   passed();
 }
 
+static void access_flags(int fixture, void* inaccessible) {
+  const int modes[] = {O_RDONLY, O_WRONLY, O_RDWR, O_PATH};
+  for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); ++i) {
+    char label[64];
+    snprintf(label, sizeof(label), "immutable-access-flags-%d", modes[i]);
+    current_case = label;
+    reset_file(fixture, source, 16);
+    int fd = open("vectors", modes[i]);
+    require(fd >= 0, "access-open");
+    int alias = dup(fd);
+    require(alias >= 0, "access-dup");
+    const int changedMode = modes[i] == O_RDWR ? O_RDONLY : O_RDWR;
+    errno = 0;
+    const int changed = fcntl(alias, F_SETFL, changedMode | O_APPEND | O_NONBLOCK);
+    if (modes[i] == O_PATH) {
+      require(changed == -1 && errno == EBADF, "path-rejects-setfl");
+    } else {
+      require(changed == 0, "access-setfl");
+      require((fcntl(fd, F_GETFL) & (O_ACCMODE | O_APPEND | O_NONBLOCK)) ==
+                  (modes[i] | O_APPEND | O_NONBLOCK),
+              "access-preserved-mutable-flags-shared");
+      require(lseek(fd, 0, SEEK_SET) == 0, "access-rewind");
+    }
+
+    const int readable = modes[i] == O_RDONLY || modes[i] == O_RDWR;
+    const int writable = modes[i] == O_WRONLY || modes[i] == O_RDWR;
+    struct iovec vector = {output[0], 1};
+    if (readable) {
+      require(read(alias, output[0], 1) == 1 && output[0][0] == source[0] &&
+                  readv(fd, &vector, 1) == 1 && output[0][0] == source[1],
+              "access-read-permitted");
+    } else {
+      errno = 0;
+      require(read(alias, inaccessible, 1) == -1 && errno == EBADF,
+              "access-read-denied-before-payload");
+      errno = 0;
+      require(readv(fd, inaccessible, 1) == -1 && errno == EBADF,
+              "access-readv-denied-before-vector");
+    }
+    vector.iov_base = source + 17;
+    if (writable) {
+      require(write(alias, source + 16, 1) == 1 && writev(fd, &vector, 1) == 1 &&
+                  lseek(alias, 0, SEEK_CUR) == 18 &&
+                  pread(fixture, output[0], 2, 16) == 2 &&
+                  !memcmp(output[0], source + 16, 2),
+              "access-write-permitted-shared-append");
+    } else {
+      errno = 0;
+      require(write(alias, inaccessible, 1) == -1 && errno == EBADF,
+              "access-write-denied-before-payload");
+      errno = 0;
+      require(writev(fd, inaccessible, 1) == -1 && errno == EBADF,
+              "access-writev-denied-before-vector");
+    }
+    if (modes[i] != O_PATH) {
+      require(fcntl(fd, F_SETFL, changedMode) == 0 &&
+                  (fcntl(alias, F_GETFL) & (O_ACCMODE | O_APPEND | O_NONBLOCK)) == modes[i],
+              "access-preserved-cleared-flags-shared");
+    }
+    require(close(alias) == 0 && close(fd) == 0, "access-close");
+    passed();
+  }
+}
+
 static void eventfd_vectors(void) {
   current_case = "eventfd-vector-dispatch";
   int fd = eventfd(0, EFD_NONBLOCK);
@@ -387,6 +451,7 @@ int main(int argc, char** argv) {
   faults(fd, inaccessible);
   short_eof(fd);
   shared_offset(fd);
+  access_flags(fd, inaccessible);
   // Special descriptor vector writes and errors are Pedigree-specific contracts.
   if (pedigree) {
     eventfd_vectors();

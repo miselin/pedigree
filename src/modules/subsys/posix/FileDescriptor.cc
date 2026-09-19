@@ -110,6 +110,7 @@ FileDescriptor::OpenFileDescription::OpenFileDescription(File* newFile, uint64_t
                        ? static_cast<ConsoleFile*>(newFile)->captureOpenEpoch()
                        : SharedPointer<ConsoleIoState>()),
       offset(initialOffset),
+      accessFlags(initialStatusFlags & (O_PATH | O_ACCMODE)),
       statusFlags(initialStatusFlags),
       descriptorOwners(1),
       vfsLease(newFile && newFile->retainVfsReference()) {

@@ -114,6 +114,7 @@ class EXPORTED_PUBLIC FileDescriptor {
     SharedPointer<PosixMessageQueue> mqueueImpl;
     SharedPointer<ConsoleIoState> consoleEpoch;
     uint64_t offset;
+    const int accessFlags;
     int statusFlags;
     size_t descriptorOwners;
     bool vfsLease;
@@ -228,6 +229,11 @@ class EXPORTED_PUBLIC FileDescriptor {
 
   /// Get current status flags.
   int getStatusFlags() const;
+
+  // F_SETFL cannot change access permissions; permission checks need no OFD lock.
+  int getAccessFlags() const {
+    return m_OpenFile->accessFlags;
+  }
 
   /** Retain and identify the open file description behind this descriptor. */
   OpenFileDescriptionLease acquireOpenFileDescription() const;

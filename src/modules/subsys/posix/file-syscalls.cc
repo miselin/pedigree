@@ -447,7 +447,7 @@ int posix_read(int fd, char* ptr, int len) {
     return -1;
   }
   if (pFd->getFile() &&
-      ((pFd->getStatusFlags() & O_PATH) || (pFd->getStatusFlags() & O_ACCMODE) == O_WRONLY)) {
+      ((pFd->getAccessFlags() & O_PATH) || (pFd->getAccessFlags() & O_ACCMODE) == O_WRONLY)) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -670,7 +670,7 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
     return -1;
   }
   if (pFd->getFile() &&
-      ((pFd->getStatusFlags() & O_PATH) || (pFd->getStatusFlags() & O_ACCMODE) == O_RDONLY)) {
+      ((pFd->getAccessFlags() & O_PATH) || (pFd->getAccessFlags() & O_ACCMODE) == O_RDONLY)) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -1320,8 +1320,8 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
     return -1;
   }
   if (descriptor->getFile()) {
-    const int statusFlags = descriptor->getStatusFlags();
-    if ((statusFlags & O_PATH) || (statusFlags & O_ACCMODE) == O_RDONLY) {
+    const int accessFlags = descriptor->getAccessFlags();
+    if ((accessFlags & O_PATH) || (accessFlags & O_ACCMODE) == O_RDONLY) {
       SYSCALL_ERROR(BadFileDescriptor);
       return -1;
     }
@@ -1544,8 +1544,8 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
     return -1;
   }
   if (descriptor->getFile()) {
-    const int statusFlags = descriptor->getStatusFlags();
-    if ((statusFlags & O_PATH) || (statusFlags & O_ACCMODE) == O_WRONLY) {
+    const int accessFlags = descriptor->getAccessFlags();
+    if ((accessFlags & O_PATH) || (accessFlags & O_ACCMODE) == O_WRONLY) {
       SYSCALL_ERROR(BadFileDescriptor);
       return -1;
     }
