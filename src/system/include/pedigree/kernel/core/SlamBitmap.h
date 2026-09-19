@@ -43,6 +43,7 @@ class SlamBitmap {
 
   size_t m_EntryCount;
   size_t m_PageCount;
+  size_t m_FirstFreeEntry = 0;
 };
 
 #endif

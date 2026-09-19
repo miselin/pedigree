@@ -8,6 +8,7 @@ void SlamBitmap::useMemory(void* memory, size_t entryCount, size_t pageCount) {
   // m_Entries = static_cast<Entry*>(memory);
   m_EntryCount = entryCount;
   m_PageCount = pageCount;
+  m_FirstFreeEntry = 0;
 }
 
 uint64_t SlamBitmap::reservedBits(size_t entry) const {
@@ -20,10 +21,16 @@ uintptr_t SlamBitmap::metadataAddress(size_t entry) const {
   return reinterpret_cast<uintptr_t>(&m_reserved[entry]);
 }
 
+static bool hasFreePage(uint64_t reserved, size_t firstPage, size_t pageCount) {
+  const size_t bits = pageCount - firstPage < 64 ? pageCount - firstPage : 64;
+  const uint64_t valid = bits == 64 ? ~uint64_t(0) : (uint64_t(1) << bits) - 1;
+  return (reserved & valid) != valid;
+}
+
 size_t SlamBitmap::findFreeRun(size_t pageCount) const {
   size_t runStart = 0;
   size_t runLength = 0;
-  for (size_t entryIndex = 0; entryIndex < m_EntryCount; ++entryIndex) {
+  for (size_t entryIndex = m_FirstFreeEntry; entryIndex < m_EntryCount; ++entryIndex) {
     const size_t entryBase = entryIndex * 64;
     const size_t bits = (m_PageCount - entryBase < 64) ? m_PageCount - entryBase : 64;
     const uint64_t bitmap = m_reserved[entryIndex];  // m_Entries[entryIndex].reserved;
@@ -45,7 +52,7 @@ size_t SlamBitmap::findFreeRun(size_t pageCount) const {
         runLength = 0;
         bit += (remaining == ~uint64_t(0)) ? bits - bit : __builtin_ctzll(~remaining);
       } else {
-        const size_t freeBits = remaining ? __builtin_ctzll(~remaining) : bits - bit;
+        const size_t freeBits = remaining ? __builtin_ctzll(remaining) : bits - bit;
         const size_t span = freeBits < bits - bit ? freeBits : bits - bit;
         if (!runLength)
           runStart = entryBase + bit;
@@ -63,6 +70,10 @@ void SlamBitmap::reserve(size_t firstPage, size_t pageCount) {
   for (size_t i = 0; i < pageCount; ++i)
     // m_Entries[(firstPage + i) / 64].reserved |= uint64_t(1) << ((firstPage + i) % 64);
     m_reserved[(firstPage + i) / 64] |= uint64_t(1) << ((firstPage + i) % 64);
+
+  while (m_FirstFreeEntry < m_EntryCount &&
+         !hasFreePage(m_reserved[m_FirstFreeEntry], m_FirstFreeEntry * 64, m_PageCount))
+    ++m_FirstFreeEntry;
 }
 
 void SlamBitmap::release(size_t firstPage, size_t pageCount) {
@@ -72,6 +83,8 @@ void SlamBitmap::release(size_t firstPage, size_t pageCount) {
     m_mapped[index] &= ~bit;
     m_ready[index] &= ~bit;
     m_reserved[index] &= ~bit;
+    if (index < m_FirstFreeEntry)
+      m_FirstFreeEntry = index;
     /*
      Entry& entry = m_Entries[(firstPage + i) / 64];
      entry.mapped &= ~bit;

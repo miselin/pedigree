@@ -28,3 +28,18 @@ TEST(SlamBitmap, TracksPlanesIndependently) {
   EXPECT_FALSE(bitmap.isReserved(3));
   EXPECT_FALSE(bitmap.isMapped(3));
 }
+
+TEST(SlamBitmap, FindsAndReservesDistinctRuns) {
+  uint64_t entries[4 * 3] = {};
+  SlamBitmap bitmap;
+  bitmap.useMemory(entries, 4, 256);
+
+  for (size_t expected = 0; expected < 64; expected += 8) {
+    const size_t start = bitmap.findFreeRun(8);
+    EXPECT_EQ(start, expected);
+    bitmap.reserve(start, 8);
+  }
+
+  bitmap.release(24, 8);
+  EXPECT_EQ(bitmap.findFreeRun(8), 24U);
+}
