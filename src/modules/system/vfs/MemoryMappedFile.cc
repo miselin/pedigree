@@ -786,7 +786,7 @@ MemoryMapManager::OperationGuard::OperationGuard(MemoryMapManager& manager, bool
                                                  bool skipEventDeferral,
                                                  bool skipTerminationDeferral)
     : m_EventDeferral(!skipEventDeferral),
-      m_TerminationDeferral(!skipTerminationDeferral),
+      m_TerminationDeferral(skipEventDeferral && !skipTerminationDeferral),
       m_Manager(manager),
       m_Acquired(!tryOnly || manager.tryEnterOperation()) {
   if (!tryOnly) {
@@ -799,7 +799,6 @@ MemoryMapManager::OperationGuard::OperationGuard(MemoryMapManager& manager, bool
 #else
 MemoryMapManager::OperationGuard::OperationGuard(MemoryMapManager& manager, bool tryOnly)
     : m_EventDeferral(),
-      m_TerminationDeferral(),
       m_Manager(manager),
       m_Acquired(!tryOnly || manager.tryEnterOperation()) {
   if (!tryOnly) {

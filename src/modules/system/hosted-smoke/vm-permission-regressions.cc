@@ -9,6 +9,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -525,6 +526,58 @@ bool runVmMappedOwnershipRegressions() {
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+bool runHostedVmOperationGuardRegressions() {
+  MemoryMapManager& manager = MemoryMapManager::instance();
+  Thread* thread = Processor::information().getCurrentThread();
+  const bool priorEvents = thread->eventsDeferred();
+  const bool priorTermination = thread->isTerminationDeferred();
+  auto protectedState = [&]() {
+    return thread->eventsDeferred() && thread->isTerminationDeferred();
+  };
+  auto restoredState = [&]() {
+    return thread->eventsDeferred() == priorEvents &&
+           thread->isTerminationDeferred() == priorTermination;
+  };
+  bool passed = true;
+  {
+    MemoryMapManager::OperationGuard operation(manager);
+    passed &= check(operation && protectedState(), "mapping operation lost deferral protection");
+    {
+      MemoryMapManager::OperationGuard nestedOperation(manager);
+      passed &= check(nestedOperation && protectedState(),
+                      "nested mapping operation lost deferral protection");
+      {
+        MemoryMapManager::OperationGuard pressure(manager, true);
+        passed &= check(!pressure && protectedState(),
+                        "failed pressure entry changed mapping operation protection");
+      }
+      passed &= check(protectedState(), "failed pressure guard retired outer protection");
+    }
+    passed &= check(protectedState(), "nested mapping guard retired outer protection");
+  }
+  passed &= check(restoredState(), "mapping operation did not restore prior deferral state");
+  {
+    MemoryMapManager::OperationGuard pressure(manager, true);
+    passed &= check(pressure && protectedState(),
+                    "successful pressure entry lacked the operation gate or protection");
+  }
+  passed &= check(restoredState(), "pressure guard did not restore prior deferral state");
+  {
+    Uninterruptible outer;
+    {
+      MemoryMapManager::OperationGuard operation(manager);
+      passed &= check(operation && protectedState(),
+                      "mapping operation lost enclosing uninterruptible protection");
+    }
+    passed &= check(protectedState(), "mapping guard retired enclosing uninterruptible scope");
+  }
+  passed &= check(restoredState(), "enclosing scope did not restore prior deferral state");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS vm-operation-guard-deferrals");
+  }
+  return passed;
+}
+
 bool runHostedVmPermissionRegressions() {
   VirtualAddressSpace& space = Processor::information().getVirtualAddressSpace();
   bool passed = check(space.isAddressValid(reinterpret_cast<void*>(0x00007FFFFFFFFFFFULL)) &&
@@ -532,18 +585,7 @@ bool runHostedVmPermissionRegressions() {
                           !space.isAddressValid(reinterpret_cast<void*>(0xFFFF7FFFFFFFFFFFULL)) &&
                           space.isAddressValid(reinterpret_cast<void*>(0xFFFF800000000000ULL)),
                       "four-level canonical address boundaries");
-  MemoryMapManager& manager = MemoryMapManager::instance();
-  {
-    MemoryMapManager::OperationGuard operation(manager);
-    MemoryMapManager::OperationGuard nestedOperation(manager);
-    MemoryMapManager::OperationGuard pressure(manager, true);
-    passed &= check(operation && nestedOperation && !pressure,
-                    "pressure recovery entered an active mapping operation");
-  }
-  {
-    MemoryMapManager::OperationGuard pressure(manager, true);
-    passed &= check(bool(pressure), "mapping operation did not release the pressure gate");
-  }
+  passed &= runHostedVmOperationGuardRegressions();
   passed &= protectedClone(false);
   passed &= protectedClone(true);
   passed &= borrowedClones();

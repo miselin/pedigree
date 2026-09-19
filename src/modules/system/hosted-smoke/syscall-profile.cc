@@ -28,6 +28,7 @@
 #include <sys/uio.h>
 
 bool runHostedVasRegressions();
+bool runHostedVmOperationGuardRegressions();
 
 namespace {
 constexpr size_t QueryCount = 1000000;
@@ -239,6 +240,10 @@ int profileWorker(void* parameter) {
 bool hostedRunSyscallProfile() {
   if (!runHostedVasRegressions()) {
     ERROR("HOSTED-PROFILE: FAIL address-space regressions");
+    return false;
+  }
+  if (!runHostedVmOperationGuardRegressions()) {
+    ERROR("HOSTED-PROFILE: FAIL operation-guard regressions");
     return false;
   }
   const size_t divisor = hostedSyscallProfileDivisor();

@@ -836,7 +836,10 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
 #endif
 
     Uninterruptible m_EventDeferral;
+#if PEDIGREE_BENCHMARK_VM_ABLATIONS
+    // Uninterruptible also defers termination unless the experiment disables it.
     TerminationDeferral m_TerminationDeferral;
+#endif
     MemoryMapManager& m_Manager;
     bool m_Acquired;
   };
