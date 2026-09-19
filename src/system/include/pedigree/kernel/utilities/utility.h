@@ -32,11 +32,6 @@
 #include <bit>
 #endif
 
-#if HOSTED && !UTILITY_LINUX
-// Override headers we are replacing.
-#define _STRING_H 1
-#endif
-
 /** @addtogroup kernelutilities
  * @{ */
 

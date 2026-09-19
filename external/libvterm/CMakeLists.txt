@@ -21,7 +21,11 @@ foreach(vterm_target pedigree-vterm pedigree-vterm-kernel)
     target_include_directories(${vterm_target}
         PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
         PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_link_libraries(${vterm_target} PUBLIC pedigree_musl_headers)
+    # The hosted kernel and its archive use the host libc ABI.
+    if(NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" OR
+       NOT vterm_target STREQUAL "pedigree-vterm-kernel")
+        target_link_libraries(${vterm_target} PUBLIC pedigree_musl_headers)
+    endif()
 endforeach()
 
 set_target_properties(pedigree-vterm PROPERTIES OUTPUT_NAME vterm)

@@ -22,6 +22,7 @@
 #include <fcntl.h>
 #include <memory.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -40,6 +41,20 @@
 extern "C" void _main(BootstrapStruct_t& bs);
 extern "C" {
 HostedSmokeStage g_HostedSmokeStage = HostedSmokeNone;
+}
+static size_t profileDivisor = 1;
+
+size_t hostedSyscallProfileDivisor() {
+  return profileDivisor;
+}
+
+bool hostedSyscallProfileRequested() {
+#if HOSTED_SMOKE_TESTS
+  const char* value = getenv("PEDIGREE_HOSTED_SYSCALL_PROFILE");
+  return value && !strcmp(value, "1");
+#else
+  return false;
+#endif
 }
 
 static void* add_ptr(void* ptr, size_t addend) {
@@ -74,6 +89,19 @@ extern "C" int main(int argc, char* argv[]) {
   Elf64_Shdr* shdrs = 0;
 #endif
   BootstrapStruct_t bs = {};
+
+  if (hostedSyscallProfileRequested()) {
+    const char* value = getenv("PEDIGREE_HOSTED_PROFILE_DIVISOR");
+    if (value) {
+      char* end = nullptr;
+      const unsigned long divisor = strtoul(value, &end, 10);
+      if (!*value || *end || divisor < 1 || divisor > 100000) {
+        fprintf(stderr, "PEDIGREE_HOSTED_PROFILE_DIVISOR must be between 1 and 100000.\n");
+        goto fail;
+      }
+      profileDivisor = divisor;
+    }
+  }
 
   if (argc < 3 || argc > 5) {
     fprintf(stderr,

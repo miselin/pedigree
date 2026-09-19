@@ -25,6 +25,7 @@
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/StringView.h"
@@ -37,6 +38,10 @@
 #include "modules/system/ramfs/RamFs.h"
 #include "modules/system/vfs/Filesystem.h"
 #include "modules/system/vfs/VFS.h"
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+#include "pedigree/kernel/processor/hosted/smoke.h"
+#endif
 
 class File;
 
@@ -133,8 +138,50 @@ static Device* probeDisk(Device* diskDevice) {
   return diskDevice;
 }
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+static bool installHostedProfileRoot() {
+  auto root = UniquePointer<Filesystem>::adopt(new RamFs);
+  if (!root || !root.get()->initialise(nullptr))
+    return false;
+
+  const char* directories[] = {"/etc", "/dev",     "/run",  "/run/sockets",
+                               "/var", "/var/run", "/proc", "/tmp"};
+  for (const char* path : directories) {
+    if (!root.get()->createDirectory(StringView(path), 0755))
+      return false;
+  }
+
+  const struct {
+    const char* path;
+    const char* contents;
+  } accounts[] = {{"/etc/passwd", "root:x:0:0:root:/:/bin/sh\n"},
+                  {"/etc/group", "root:x:0:root\n"}};
+  for (const auto& account : accounts) {
+    if (!root.get()->createFile(StringView(account.path), 0644))
+      return false;
+    Directory::ChildLease lease;
+    File* file = root.get()->findRetained(StringView(account.path), lease);
+    const size_t length = StringLength(account.contents);
+    if (!file || file->write(0, length, reinterpret_cast<uintptr_t>(account.contents)) != length)
+      return false;
+  }
+
+  // Publish only the complete fixture so POSIX and users see the same boot namespace.
+  if (!VFS::instance().setRootFilesystem(root.get()))
+    return false;
+  g_MountedFilesystems.pushBack(root.releaseOwnership());
+  bRootMounted = true;
+  return true;
+}
+#endif
+
 static bool init() {
-  if (!parseRootSelector()) {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  const bool hostedProfile = hostedSyscallProfileRequested();
+#else
+  const bool hostedProfile = false;
+#endif
+  if (!hostedProfile && !parseRootSelector()) {
     error("No valid root=UUID= or root=LABEL= selector was supplied.");
     if (!HOSTED) {
       return false;
@@ -156,6 +203,16 @@ static bool init() {
   pRuntimeFs->setProcessOwnership(true);
   VFS::instance().registerFilesystem(pRuntimeFs, String("runtime"));
   g_MountedFilesystems.pushBack(pRuntimeFs);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  if (hostedProfile) {
+    if (!installHostedProfileRoot()) {
+      error("Unable to prepare the hosted syscall profiling root.");
+      return false;
+    }
+    return true;
+  }
+#endif
 
   // Root selection must not hide later partitions, such as the UEFI ESP.
   // The first matching root wins; other filesystems remain available in /media.

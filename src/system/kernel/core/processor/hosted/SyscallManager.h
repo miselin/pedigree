@@ -49,6 +49,12 @@ class HostedSyscallManager : public ::SyscallManager {
   uintptr_t syscall(Service_t service, uintptr_t function, uintptr_t p1, uintptr_t p2, uintptr_t p3,
                     uintptr_t p4, uintptr_t p5);
 
+#if HOSTED_SMOKE_TESTS
+  static void dispatchStateForTest(SyscallState& state) {
+    syscall(state);
+  }
+#endif
+
  private:
   /** Called when a syscall was called
    *\param[in] syscallState reference to the usermode state before the syscall

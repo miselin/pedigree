@@ -22,6 +22,8 @@
 
 #include "pedigree/kernel/process/InfoBlock.h"
 
+#include <config.h>
+
 #include <errno.h>
 #include <stdint.h>
 #include <time.h>

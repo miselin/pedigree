@@ -8,6 +8,8 @@
 #ifndef PEDIGREE_KERNEL_PROCESSOR_HOSTED_SMOKE_H
 #define PEDIGREE_KERNEL_PROCESSOR_HOSTED_SMOKE_H
 #include <config.h>
+#include <stddef.h>
+#include "pedigree/kernel/compiler.h"
 
 enum HostedSmokeStage {
   HostedSmokeNone,
@@ -18,5 +20,7 @@ enum HostedSmokeStage {
 };
 
 extern "C" HostedSmokeStage g_HostedSmokeStage;
+EXPORTED_PUBLIC bool hostedSyscallProfileRequested();
+EXPORTED_PUBLIC size_t hostedSyscallProfileDivisor();
 
 #endif

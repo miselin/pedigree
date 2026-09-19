@@ -187,6 +187,14 @@ function(pedigree_module name opts libs)
 
     if (PEDIGREE_STATIC_DRIVERS)
         target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS})
+        # Archives are linked into the final kernel; relocatable modules still
+        # need the declared dependencies' headers while compiling.
+        foreach (lib IN LISTS libs)
+            if (TARGET ${lib})
+                target_include_directories(${name} PRIVATE
+                    $<TARGET_PROPERTY:${lib},INTERFACE_INCLUDE_DIRECTORIES>)
+            endif ()
+        endforeach ()
     elseif (PEDIGREE_HOSTED_DARWIN)
         # The Mach-O kernel cannot be an ELF link input. Modules deliberately
         # retain unresolved kernel references for the hosted ELF loader to
@@ -448,7 +456,7 @@ endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     NOT PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
-    pedigree_module(hosted-syscall-smoke "" ""
+    pedigree_module(hosted-syscall-smoke "" "pedigree-vterm-kernel"
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/access-syscall-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/advisory-lock-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/child-resource-regressions.cc
@@ -474,12 +482,15 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/scm-stream-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/sleep-clock-syscall-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/static-syscall-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/syscall-profile.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/thread-signal-syscall-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/termios-syscall-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/time-syscall-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/unix-stream-interruption-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/usercopy-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/vector-io-regressions.cc)
+    target_include_directories(hosted-syscall-smoke PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls)
 endif ()
 
 if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND

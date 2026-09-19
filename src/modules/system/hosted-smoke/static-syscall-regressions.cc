@@ -41,6 +41,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
+#include "pedigree/kernel/processor/hosted/smoke.h"
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -51,6 +52,7 @@
 #include "modules/subsys/posix/syscalls/posixSyscallNumbers.h"
 
 extern void system_reset();
+extern bool hostedRunSyscallProfile();
 extern "C" bool posixDuplicateInitRollbackPreservesProcessForTest(Process* processIdentity);
 extern "C" void posixSetCloneBeforeStartHookForTest(void (*hook)(Thread*, size_t, void*),
                                                     void* context);
@@ -5279,7 +5281,7 @@ bool runRegressions() {
 }
 
 bool entry() {
-  const bool passed = runRegressions();
+  const bool passed = hostedSyscallProfileRequested() ? hostedRunSyscallProfile() : runRegressions();
   system_reset();
   return passed;
 }

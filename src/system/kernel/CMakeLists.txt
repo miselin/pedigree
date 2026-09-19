@@ -20,6 +20,10 @@ if (PEDIGREE_HOSTED_DARWIN)
 else ()
     set(GENERIC_KERNEL_LINKFLAGS
         "-Wl,--discard-all" "-static-libgcc")
+    if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_HOSTED_SMOKE_TESTS)
+        # Keep local workload and implementation names visible to host profilers.
+        list(REMOVE_ITEM GENERIC_KERNEL_LINKFLAGS "-Wl,--discard-all")
+    endif ()
 endif ()
 set(GENERIC_KERNEL_LINKFLAGS_NOLINKSCRIPT ${GENERIC_KERNEL_LINKFLAGS})
 if (PEDIGREE_LINKERSCRIPT)
