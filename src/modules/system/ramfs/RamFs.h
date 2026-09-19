@@ -65,6 +65,7 @@ class EXPORTED_PUBLIC RamFile : public File {
   virtual uintptr_t readBlock(uint64_t location);
 
   virtual bool pinBlock(uint64_t location);
+  uintptr_t acquireCachedBlock(uint64_t location, bool retryChanged) override;
 
   virtual void unpinBlock(uint64_t location);
 

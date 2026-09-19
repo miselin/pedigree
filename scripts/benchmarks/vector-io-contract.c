@@ -287,6 +287,53 @@ static void access_flags(int fixture, void* inaccessible) {
   }
 }
 
+static void cache_mapping_lifetime(int fd, size_t page) {
+  current_case = "cache-mapping-lifetime";
+  const size_t length = 2 * page;
+  unsigned char* seed = malloc(length);
+  unsigned char* readback = malloc(length);
+  require(seed && readback, "mapping-buffers");
+  for (size_t i = 0; i < length; ++i)
+    seed[i] = (unsigned char)((i * 37 + 11) ^ ((i / page) * 0x5d));
+  reset_file(fd, seed, length);
+  require(pread(fd, readback, length, 0) == (ssize_t)length && !memcmp(readback, seed, length),
+          "mapping-warm-pages");
+
+  const unsigned char* shared = mmap(NULL, length, PROT_READ, MAP_SHARED, fd, 0);
+  const unsigned char* alias = mmap(NULL, length, PROT_READ, MAP_SHARED, fd, 0);
+  unsigned char* private = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+  require(shared != MAP_FAILED && alias != MAP_FAILED && private != MAP_FAILED, "mapping-create");
+  require(!memcmp(shared, seed, length) && !memcmp(alias, seed, length) &&
+              !memcmp(private, seed, length),
+          "mapping-warmed-bytes");
+  for (size_t offset = 0; offset < length; offset += page) {
+    private[offset] ^= 0xff;
+    private[offset + page - 1] ^= 0x55;
+    require(private[offset] == (unsigned char)(seed[offset] ^ 0xff) &&
+                private[offset + page - 1] == (unsigned char)(seed[offset + page - 1] ^ 0x55),
+            "mapping-private-write");
+  }
+  require(!memcmp(shared, seed, length) && !memcmp(alias, seed, length) &&
+              pread(fd, readback, length, 0) == (ssize_t)length && !memcmp(readback, seed, length),
+          "mapping-private-preserves-file");
+  require(munmap(private, length) == 0 && munmap((void*)shared, length) == 0 &&
+              munmap((void*)alias, length) == 0,
+          "mapping-release-pins");
+
+  struct stat status;
+  require(ftruncate(fd, 0) == 0 && fstat(fd, &status) == 0 && status.st_size == 0,
+          "mapping-shrink-after-unmap");
+  for (size_t i = 0; i < length; ++i)
+    seed[i] ^= 0xa7;
+  require(pwrite(fd, seed, length, 0) == (ssize_t)length, "mapping-rewrite");
+  shared = mmap(NULL, length, PROT_READ, MAP_SHARED, fd, 0);
+  require(shared != MAP_FAILED && !memcmp(shared, seed, length), "mapping-fresh-bytes");
+  require(munmap((void*)shared, length) == 0, "mapping-final-unmap");
+  free(readback);
+  free(seed);
+  passed();
+}
+
 static void eventfd_vectors(void) {
   current_case = "eventfd-vector-dispatch";
   int fd = eventfd(0, EFD_NONBLOCK);
@@ -452,6 +499,7 @@ int main(int argc, char** argv) {
   short_eof(fd);
   shared_offset(fd);
   access_flags(fd, inaccessible);
+  cache_mapping_lifetime(fd, (size_t)page);
   // Special descriptor vector writes and errors are Pedigree-specific contracts.
   if (pedigree) {
     eventfd_vectors();

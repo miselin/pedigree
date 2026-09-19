@@ -443,18 +443,11 @@ physical_uintptr_t File::getPhysicalPage(size_t offset) {
   uintptr_t vaddr = FILE_BAD_BLOCK;
   bool pinned = false;
   if (LIKELY(!useFillCache())) {
-    // A key can be evicted and replaced between the address snapshot and
-    // pinBlock(). Validate that the address still names the pinned page.
-    vaddr = getCachedPage(offset / blockSize);
-    if ((!vaddr) || (vaddr == FILE_BAD_BLOCK) || !pinBlock(offset)) {
+    vaddr = acquireCachedBlock(offset, false);
+    if (!vaddr) {
       return ~0UL;
     }
     pinned = true;
-
-    if (getCachedPage(offset / blockSize) != vaddr) {
-      unpinBlock(offset);
-      return ~0UL;
-    }
   } else {
     // Using the fill cache, because the filesystem has a block size
     // smaller than our native page size. lookup() itself acquires the
@@ -1273,6 +1266,21 @@ bool File::pinBlock(uint64_t location) {
   return false;
 }
 
+uintptr_t File::acquireCachedBlock(uint64_t location, bool retryChanged) {
+  const size_t block = location / getBlockSize();
+  do {
+    const uintptr_t address = getCachedPage(block);
+    if (!address || address == FILE_BAD_BLOCK || !pinBlock(location))
+      return 0;
+    // A key can be replaced between the address snapshot and pinBlock().
+    // Only return an address which still names the pinned page.
+    if (getCachedPage(block) == address)
+      return address;
+    unpinBlock(location);
+  } while (retryChanged);
+  return 0;
+}
+
 void File::unpinBlock(uint64_t location) {}
 
 void File::evict(uint64_t location) {
@@ -1707,30 +1715,20 @@ uintptr_t File::readIntoCache(uintptr_t block, bool overwriteWholePage, size_t r
     return vaddr ? vaddr : FILE_BAD_BLOCK;
   }
 
-  uintptr_t buff = FILE_BAD_BLOCK;
   if (!m_bDirect) {
-    while ((buff = getCachedPage(block)) != FILE_BAD_BLOCK) {
-      if (!pinBlock(offset)) {
-        buff = FILE_BAD_BLOCK;
-        break;
-      }
-      if (getCachedPage(block) == buff) {
-        return buff;
-      }
-      unpinBlock(offset);
-    }
+    const uintptr_t cached = acquireCachedBlock(offset, true);
+    if (cached)
+      return cached;
   }
-  if (buff == FILE_BAD_BLOCK) {
-    buff = readBlock(offset);
-    if (!buff) {
-      ERROR("File::readIntoCache - bad read (" << (block * blockSize) << " - block size is "
-                                               << blockSize << ")");
-      return FILE_BAD_BLOCK;
-    }
+  const uintptr_t buff = readBlock(offset);
+  if (!buff) {
+    ERROR("File::readIntoCache - bad read (" << (block * blockSize) << " - block size is "
+                                             << blockSize << ")");
+    return FILE_BAD_BLOCK;
+  }
 
-    if (!m_bDirect) {
-      setCachedPage(block, buff);
-    }
+  if (!m_bDirect) {
+    setCachedPage(block, buff);
   }
 
   return buff;

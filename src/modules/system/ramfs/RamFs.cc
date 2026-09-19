@@ -311,6 +311,10 @@ bool RamFile::pinBlock(uint64_t location) {
   return m_FileBlocks.pin(location);
 }
 
+uintptr_t RamFile::acquireCachedBlock(uint64_t location, bool) {
+  return m_FileBlocks.lookup(location);
+}
+
 void RamFile::unpinBlock(uint64_t location) {
   m_FileBlocks.release(location);
 }

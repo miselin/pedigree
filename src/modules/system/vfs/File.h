@@ -556,6 +556,14 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   MUST_USE_RESULT virtual bool pinBlock(uint64_t location);
 
   /**
+   * Returns an existing block's exact address with one caller-owned reference,
+   * or zero without a reference. The aligned byte location must be released
+   * with one unpinBlock(). No backend population occurs on a miss.
+   * retryChanged retries when the File index changes while acquiring the pin.
+   */
+  MUST_USE_RESULT virtual uintptr_t acquireCachedBlock(uint64_t location, bool retryChanged);
+
+  /**
    * Unpins the given page.
    */
   virtual void unpinBlock(uint64_t location);
