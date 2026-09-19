@@ -749,6 +749,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
  private:
   struct ExecutableImage;
 
+  void acquireFdLock();
+
   virtual void prepareThreadsForExec(Thread* owner);
   virtual void preserveProcessSignalsForThreadExit(Thread* thread);
   virtual void threadExiting(Thread* pThread);
@@ -799,9 +801,9 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
    */
   size_t m_NextFd;
   /**
-   * Lock to guard the next file descriptor while it is being changed.
+   * Serializes descriptor lookup, publication, and allocation metadata.
    */
-  UnlikelyLock m_FdLock;
+  Mutex m_FdLock;
   /**
    * File descriptors used by this process
    */

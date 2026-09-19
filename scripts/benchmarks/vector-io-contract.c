@@ -2,6 +2,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <pthread.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -220,6 +222,155 @@ static void shared_offset(int fd) {
               !memcmp(output[2], source + 20, 5),
           "alias-writev-shared");
   require(close(alias) == 0, "alias-close");
+  passed();
+}
+
+enum { RaceRounds = 128, GenerationBytes = 64 };
+
+static void race_gate(pthread_barrier_t* gate) {
+  int result = pthread_barrier_wait(gate);
+  require(result == 0 || result == PTHREAD_BARRIER_SERIAL_THREAD, "race-gate");
+}
+
+struct replacement_race {
+  pthread_barrier_t gate;
+  int sources[2];
+  int target;
+  int error;
+};
+
+static void* replace_descriptors(void* argument) {
+  struct replacement_race* race = argument;
+  for (int round = 0; round < RaceRounds; ++round) {
+    race_gate(&race->gate);
+    for (int change = 0; change < 8; ++change) {
+      if (dup2(race->sources[(round + change) % 2], race->target) != race->target)
+        race->error = errno ? errno : EIO;
+      sched_yield();
+    }
+  }
+  return NULL;
+}
+
+static int coherent_generation(const unsigned char* bytes) {
+  if (bytes[0] != 0x36 && bytes[0] != 0xa9)
+    return 0;
+  for (size_t i = 1; i < GenerationBytes; ++i)
+    if (bytes[i] != bytes[0])
+      return 0;
+  return 1;
+}
+
+static void concurrent_replacement(void) {
+  current_case = "dup2-concurrent-vector-generation";
+  struct replacement_race race = {.sources = {-1, -1}, .target = -1};
+  const char* paths[] = {"generation-a", "generation-b"};
+  unsigned char seed[RaceRounds * GenerationBytes];
+  for (int i = 0; i < 2; ++i) {
+    int writer = open(paths[i], O_CREAT | O_EXCL | O_WRONLY, 0600);
+    memset(seed, i ? 0xa9 : 0x36, sizeof(seed));
+    require(writer >= 0 && write(writer, seed, sizeof(seed)) == (ssize_t)sizeof(seed) &&
+                close(writer) == 0,
+            "generation-seed");
+    race.sources[i] = open(paths[i], O_RDONLY);
+    require(race.sources[i] >= 0 && unlink(paths[i]) == 0, "generation-open-immutable");
+  }
+  race.target = dup(race.sources[0]);
+  require(race.target >= 0 && pthread_barrier_init(&race.gate, NULL, 2) == 0,
+          "generation-setup");
+  pthread_t writer;
+  require(pthread_create(&writer, NULL, replace_descriptors, &race) == 0,
+          "generation-thread");
+  int error = 0;
+  for (int round = 0; round < RaceRounds; ++round) {
+    race_gate(&race.gate);
+    unsigned char bytes[GenerationBytes];
+    struct iovec vectors[] = {{bytes, 17}, {bytes + 17, sizeof(bytes) - 17}};
+    memset(bytes, 0, sizeof(bytes));
+    if (preadv(race.target, vectors, 2, 0) != (ssize_t)sizeof(bytes) ||
+        !coherent_generation(bytes))
+      error = 1;
+    sched_yield();
+    memset(bytes, 0, sizeof(bytes));
+    // Either source OFD can advance, but no source can consume more than the
+    // total number of reads. Its immutable seed therefore cannot reach EOF.
+    if (readv(race.target, vectors, 2) != (ssize_t)sizeof(bytes) ||
+        !coherent_generation(bytes))
+      error = 1;
+  }
+  require(pthread_join(writer, NULL) == 0 && pthread_barrier_destroy(&race.gate) == 0,
+          "generation-join");
+  require(close(race.target) == 0 && close(race.sources[0]) == 0 &&
+              close(race.sources[1]) == 0,
+          "generation-close");
+  require(!error && !race.error, "atomic-replacement-keeps-complete-generation");
+  passed();
+}
+
+struct offset_record {
+  uint32_t number;
+  uint32_t check;
+};
+
+struct offset_race {
+  pthread_barrier_t* gate;
+  int fd;
+  int error;
+  struct offset_record records[RaceRounds];
+};
+
+static void* read_shared_offset(void* argument) {
+  struct offset_race* race = argument;
+  for (int round = 0; round < RaceRounds; ++round) {
+    race_gate(race->gate);
+    unsigned char* bytes = (unsigned char*)&race->records[round];
+    struct iovec vectors[] = {{bytes, 3}, {bytes + 3, sizeof(struct offset_record) - 3}};
+    if (readv(race->fd, vectors, 2) != (ssize_t)sizeof(struct offset_record))
+      race->error = 1;
+    sched_yield();
+  }
+  return NULL;
+}
+
+static void concurrent_shared_offset(int fd) {
+  current_case = "dup-concurrent-vector-shared-offset";
+  struct offset_record seed[2 * RaceRounds];
+  for (uint32_t i = 0; i < 2 * RaceRounds; ++i)
+    seed[i] = (struct offset_record){i, i ^ UINT32_C(0x9e3779b9)};
+  reset_file(fd, seed, sizeof(seed));
+  int alias = dup(fd);
+  pthread_barrier_t gate;
+  require(alias >= 0 && pthread_barrier_init(&gate, NULL, 2) == 0, "offset-race-setup");
+  struct offset_race readers[] = {{.gate = &gate, .fd = fd}, {.gate = &gate, .fd = alias}};
+  pthread_t worker;
+  require(pthread_create(&worker, NULL, read_shared_offset, &readers[1]) == 0,
+          "offset-race-thread");
+  read_shared_offset(&readers[0]);
+  require(pthread_join(worker, NULL) == 0 && pthread_barrier_destroy(&gate) == 0,
+          "offset-race-join");
+  unsigned char seen[2 * RaceRounds] = {0};
+  int error = readers[0].error || readers[1].error;
+  for (int reader = 0; reader < 2; ++reader) {
+    for (int round = 0; round < RaceRounds; ++round) {
+      struct offset_record record = readers[reader].records[round];
+      if (record.number >= 2 * RaceRounds ||
+          record.check != (record.number ^ UINT32_C(0x9e3779b9))) {
+        error = 1;
+      } else if (seen[record.number]++) {
+        error = 1;
+      }
+    }
+  }
+  for (int i = 0; i < 2 * RaceRounds; ++i)
+    if (seen[i] != 1)
+      error = 1;
+  struct offset_record last;
+  struct iovec eof = {&last, sizeof(last)};
+  require(lseek(fd, 0, SEEK_CUR) == (off_t)sizeof(seed) &&
+              lseek(alias, 0, SEEK_CUR) == (off_t)sizeof(seed) && readv(alias, &eof, 1) == 0 &&
+              close(alias) == 0,
+          "offset-race-final-position");
+  require(!error, "shared-offset-consumes-each-record-once");
   passed();
 }
 
@@ -498,6 +649,8 @@ int main(int argc, char** argv) {
   faults(fd, inaccessible);
   short_eof(fd);
   shared_offset(fd);
+  concurrent_replacement();
+  concurrent_shared_offset(fd);
   access_flags(fd, inaccessible);
   cache_mapping_lifetime(fd, (size_t)page);
   // Special descriptor vector writes and errors are Pedigree-specific contracts.

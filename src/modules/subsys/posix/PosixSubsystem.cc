@@ -23,6 +23,7 @@
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/SignalEvent.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -350,6 +351,7 @@ bool PosixSubsystem::publishUserImage(VirtualAddressSpace& space) {
 }
 
 PosixSubsystem::~PosixSubsystem() {
+  TerminationDeferral terminationDeferral;
   {
     MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
     if (m_pProcess && m_pProcess->isVforkChild()) {
@@ -482,6 +484,12 @@ PosixSubsystem::~PosixSubsystem() {
   MemoryMapManager::instance().releaseLock();
 }
 
+void PosixSubsystem::acquireFdLock() {
+  if (!m_FdLock.acquireForCompletion()) {
+    FATAL("PosixSubsystem could not acquire its descriptor table");
+  }
+}
+
 void PosixSubsystem::acquire() {
   Thread* me = Processor::information().getCurrentThread();
 
@@ -494,7 +502,7 @@ void PosixSubsystem::acquire() {
 
   // Ensure that no descriptor operations are taking place (and then, will
   // take place)
-  m_FdLock.acquire();
+  acquireFdLock();
 
   // Modifying signal handlers, ensure that they are not in use
   m_SignalHandlersLock.acquire();
@@ -1473,7 +1481,7 @@ size_t PosixSubsystem::getFd(size_t minimum) {
   Uninterruptible throughout;
 
   // Enter critical section for writing.
-  m_FdLock.acquire();
+  acquireFdLock();
 
   // Try to recycle if possible
   const bool advancesGlobalHint = minimum <= m_LastFd;
@@ -1504,7 +1512,7 @@ void PosixSubsystem::allocateFd(size_t fdNum) {
   Uninterruptible throughout;
 
   // Enter critical section for writing.
-  m_FdLock.acquire();
+  acquireFdLock();
 
   if (fdNum >= m_NextFd)
     m_NextFd = fdNum + 1;
@@ -1521,7 +1529,7 @@ void PosixSubsystem::freeFd(size_t fdNum) {
 
     // Unpublish atomically. Keep a private reference so the descriptor's
     // teardown cannot run while the table lock is held.
-    m_FdLock.acquire();
+    acquireFdLock();
 
     m_FdBitmap.clear(fdNum);
     m_FdMap.take(fdNum, retiring);
@@ -1554,8 +1562,8 @@ bool PosixSubsystem::copyDescriptors(PosixSubsystem* pSubsystem) {
 
     // Totally changing everything... Don't allow other functions to
     // meddle.
-    m_FdLock.acquire();
-    pSubsystem->m_FdLock.acquire();
+    acquireFdLock();
+    pSubsystem->acquireFdLock();
 
     // Copy each descriptor across from the original subsystem.
     FdMap& map = pSubsystem->m_FdMap;
@@ -1603,7 +1611,7 @@ void PosixSubsystem::freeMultipleFds(bool bOnlyCloExec, size_t iFirst, size_t iL
   {
     Uninterruptible throughout;
 
-    m_FdLock.acquire();  // Don't allow any access to the FD data
+    acquireFdLock();  // Don't allow any access to the FD data
 
     // Because removing FDs as we go from the Tree can actually leave the
     // Tree iterators in a dud state, remember all keys until traversal is
@@ -1660,9 +1668,9 @@ bool PosixSubsystem::acquireFileDescriptor(size_t fd, DescriptorLease& descripto
   descriptor.reset();
   {
     Uninterruptible throughout;
-    m_FdLock.enter();
+    acquireFdLock();
     SharedPointer<FileDescriptor> retained = m_FdMap.lookup(fd);
-    m_FdLock.leave();
+    m_FdLock.release();
     descriptor.retain(retained);
   }
   return static_cast<bool>(descriptor);
@@ -1675,14 +1683,14 @@ bool PosixSubsystem::acquireNextFileDescriptor(size_t minimum, size_t& fd,
   size_t selected = ~size_t(0);
   {
     Uninterruptible throughout;
-    m_FdLock.enter();
+    acquireFdLock();
     for (auto it = m_FdMap.begin(); it != m_FdMap.end(); ++it) {
       if (it.key() >= minimum && it.key() < selected && it.value()) {
         selected = it.key();
         retained = it.value();
       }
     }
-    m_FdLock.leave();
+    m_FdLock.release();
   }
   descriptor.retain(retained);
   if (!descriptor)
@@ -1699,10 +1707,10 @@ bool PosixSubsystem::descriptorMatchesOpenDescription(
 
   const SharedPointer<FileDescriptor> missing;
   Uninterruptible throughout;
-  m_FdLock.enter();
+  acquireFdLock();
   const SharedPointer<FileDescriptor>& current = m_FdMap.lookupRef(fd, missing);
   const bool matches = current && current->m_OpenFile.get() == expected.get();
-  m_FdLock.leave();
+  m_FdLock.release();
   return matches;
 }
 
@@ -1718,7 +1726,7 @@ bool PosixSubsystem::closeFileDescriptor(size_t fd, const DescriptorLease& descr
   {
     Uninterruptible throughout;
 
-    m_FdLock.acquire();
+    acquireFdLock();
     current = m_FdMap.lookup(fd);
     if (current == descriptor.m_Descriptor) {
       // Transfer the table owner rather than destroying it under the
@@ -1753,7 +1761,7 @@ void PosixSubsystem::addFileDescriptor(size_t fd, FileDescriptor* pFd) {
     // Publish the replacement and update allocation metadata in one
     // critical section. The old freeFd()/allocateFd() sequence briefly
     // exposed fd as available and allowed another allocator to steal it.
-    m_FdLock.acquire();
+    acquireFdLock();
 
     m_FdMap.take(fd, retiring);
     if (fd >= m_NextFd)
@@ -1781,7 +1789,7 @@ PosixSubsystem::DescriptorDuplicationResult PosixSubsystem::duplicateFileDescrip
   {
     Uninterruptible throughout;
 
-    m_FdLock.acquire();
+    acquireFdLock();
     source = m_FdMap.lookup(sourceFd);
     if (source) {
       currentTarget = m_FdMap.lookup(targetFd);
@@ -1831,7 +1839,7 @@ size_t PosixSubsystem::installFileDescriptor(FileDescriptor* descriptor, Descrip
   lease.reset();
 
   Uninterruptible throughout;
-  m_FdLock.acquire();
+  acquireFdLock();
 
   const bool advancesGlobalHint = minimum <= m_LastFd;
   const size_t firstCandidate = minimum > m_LastFd ? minimum : m_LastFd;
