@@ -23,6 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/DiskPaging.h"
+#include "pedigree/kernel/machine/DiskView.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/BufferView.h"
 
@@ -78,6 +79,9 @@ class EXPORTED_PUBLIC Disk : public Device {
    *       use. Larger I/O extents do not extend this ownership.
    * \param location The offset from the start of the device, in bytes,
    *        to start the read, must be multiple of 512.
+   * Prefer readView() for readers and writeView() for scoped mutation. This
+   * legacy interface treats every read()/pin() reference as potentially mutable
+   * until its matching unpin(). No derived pointers may survive that reference.
    * \return A writable view containing the data, or an empty view on failure.
    *         If the data is written, the page is marked as dirty and may be
    *         written back to disk at any time (or forced with \c write() or
@@ -85,6 +89,19 @@ class EXPORTED_PUBLIC Disk : public Device {
    */
   virtual BufferView read(uint64_t location);
 
+  /** Owning views release their pin automatically. Read views cannot modify cache data.
+   * Returning a write view records changes; use sync() or syncAll() for durability.
+   */
+  virtual DiskReadView readView(uint64_t location);
+  virtual DiskWriteView writeView(uint64_t location);
+
+ protected:
+  friend class DiskReadView;
+  // Acquisition runs inside the caller's endpoint admission and I/O termination scope.
+  virtual BufferView acquireView(uint64_t location, bool writable, uint64_t& token);
+  virtual void releaseView(uint64_t token, bool writable);
+
+ public:
   /**
    * Transfers exactly length bytes using caller-owned, pinned storage. The
    * buffer must remain valid until return and must not alias this disk's cache.

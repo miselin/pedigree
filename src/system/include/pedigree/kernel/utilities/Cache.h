@@ -219,6 +219,7 @@ class EXPORTED_PUBLIC Cache {
     /// threads having access to the page.
     size_t refcnt;
     size_t writebackPins;
+    size_t mutableLoans;
 
     bool callbackActive;
 #if THREADS
@@ -529,6 +530,14 @@ class EXPORTED_PUBLIC Cache {
    * The fallback remains active for this page's entire residency.
    */
   void markExternallyWritable(uintptr_t key);
+
+  /** Tracks a bounded writable alias. The caller already owns a page reference
+   * and must retain it until after the matching endMutableLoan(). Overlapping
+   * loans share checksum tracking; returning the last loan preserves any dirty
+   * data before removing temporary tracking. External mappings remain tracked.
+   */
+  MUST_USE_RESULT bool beginMutableLoan(uintptr_t key);
+  void endMutableLoan(uintptr_t key);
 
   /**
    * Enters a critical section with respect to this cache. That is, do not

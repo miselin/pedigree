@@ -10,10 +10,12 @@
 
 #include <algorithm>
 #include <limits>
+#include <utility>
 #include <vector>
 
 #include "modules/drivers/common/partition/Partition.h"
 #include <gtest/gtest.h>
+#include <type_traits>
 
 namespace {
 constexpr size_t PageBytes = TargetInfo::getPageSize();
@@ -135,6 +137,102 @@ class ForwardingDisk final : public Disk {
   size_t failedBatchIndex = std::numeric_limits<size_t>::max();
 };
 }  // namespace
+
+static_assert(!std::is_copy_constructible<DiskReadView>::value);
+static_assert(!std::is_copy_constructible<DiskWriteView>::value);
+static_assert(std::is_same<decltype(std::declval<DiskReadView>().data()), const void*>::value);
+
+TEST(DiskViews, CheckedUnalignedReadsAndMoveTransferOneReference) {
+  LegacyBufferDisk disk;
+  auto first = disk.readView(0);
+  ASSERT_TRUE(first);
+  uint32_t value = 0, expected = 0;
+  std::copy_n(disk.cached.data() + 1, sizeof(expected), reinterpret_cast<uint8_t*>(&expected));
+  ASSERT_TRUE(first.readAt(value, 1));
+  EXPECT_EQ(value, expected);
+  EXPECT_FALSE(first.readAt(value, first.size() - sizeof(value) + 1));
+  EXPECT_FALSE(first.readAt(value, ~size_t{0}));
+  EXPECT_FALSE(first.truncate(first.size() + 1));
+  EXPECT_FALSE(first.copyTo(nullptr, 1));
+  EXPECT_EQ(value, expected);
+
+  auto moved = std::move(first);
+  EXPECT_FALSE(first);
+  EXPECT_EQ(first.size(), 0U);
+  EXPECT_EQ(disk.loans[0], 1U);
+  moved = disk.readView(PageBytes);
+  EXPECT_EQ(disk.loans[0], 0U);
+  EXPECT_EQ(disk.loans[1], 1U);
+  moved.reset();
+  moved.reset();
+  disk.expectNoLoans();
+  EXPECT_TRUE(disk.writes.empty());
+}
+
+TEST(DiskViews, MutableReturnNotifiesLegacyOwnerAndPreservesBounds) {
+  LegacyBufferDisk disk;
+  const auto before = disk.cached;
+  const uint32_t value = 0x12345678;
+  {
+    auto view = disk.writeView(512);
+    ASSERT_TRUE(view);
+    ASSERT_TRUE(view.truncate(7));
+    EXPECT_TRUE(view.writeAt(value, 1));
+    EXPECT_FALSE(view.writeAt(value, 4));
+    EXPECT_FALSE(view.copyFrom(&value, sizeof(value), ~size_t{0}));
+    auto moved = std::move(view);
+    EXPECT_FALSE(view);
+    EXPECT_EQ(disk.loans[0], 1U);
+    EXPECT_TRUE(disk.writes.empty());
+    uint32_t actual = 0;
+    ASSERT_TRUE(moved.readAt(actual, 1));
+    EXPECT_EQ(actual, value);
+  }
+  EXPECT_EQ(disk.writes, (std::vector<uint64_t>{512}));
+  disk.expectNoLoans();
+  EXPECT_TRUE(std::equal(before.begin(), before.begin() + 513, disk.cached.begin()));
+  EXPECT_TRUE(std::equal(before.begin() + 517, before.end(), disk.cached.begin() + 517));
+}
+
+TEST(DiskViews, PartitionBoundsViewsAndReturnsLoanToPhysicalOwner) {
+  LegacyBufferDisk parent;
+  Partition partition(String("views"), 512, 600);
+  partition.setParent(&parent);
+  {
+    auto view = partition.readView(512);
+    ASSERT_TRUE(view);
+    EXPECT_EQ(view.size(), 88U);
+    EXPECT_EQ(view.data(), parent.cached.data() + 1024);
+    uint8_t byte;
+    EXPECT_TRUE(view.readAt(byte, 87));
+    EXPECT_FALSE(view.readAt(byte, 88));
+  }
+  EXPECT_TRUE(parent.writes.empty());
+  parent.expectNoLoans();
+  auto write = partition.writeView(512);
+  ASSERT_TRUE(write);
+  EXPECT_EQ(write.size(), 88U);
+  write.reset();
+  EXPECT_EQ(parent.writes, (std::vector<uint64_t>{1024}));
+  EXPECT_FALSE(partition.readView(1024));
+  parent.expectNoLoans();
+}
+
+TEST(DiskViews, FailedAndBorrowedViewsHaveNoDiskReference) {
+  LegacyBufferDisk disk;
+  disk.failedReadPage = 0;
+  EXPECT_FALSE(disk.readView(0));
+  EXPECT_FALSE(disk.writeView(0));
+  disk.expectNoLoans();
+  const uint32_t value = 0xabcdef01;
+  auto view = DiskReadView::borrowed(&value, sizeof(value));
+  uint32_t actual = 0;
+  EXPECT_TRUE(view.readAt(actual));
+  EXPECT_EQ(actual, value);
+  view.reset();
+  EXPECT_FALSE(view.readAt(actual));
+  EXPECT_TRUE(disk.writes.empty());
+}
 
 TEST(DiskProducerBuffers, ReadsExactUnalignedRangeAcrossPagesAndTerminalTail) {
   LegacyBufferDisk disk;

@@ -256,6 +256,7 @@ ScsiDisk::ScsiDisk()
       m_NativeBlockSize(0),
       m_DeviceType(NoDevice) {
   reserveEndpoint();
+  m_Cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
   m_Cache.setCallback(cacheCallback, this);
   m_Cache.setBackgroundWriteback(syncCacheBatch);
 }
@@ -460,7 +461,11 @@ BufferView ScsiDisk::read(uint64_t location) {
   DiskUse diskUse;
   if (!acquireUse(diskUse))
     return BufferView();
+  uint64_t token;
+  return acquireView(location, true, token);
+}
 
+BufferView ScsiDisk::acquireView(uint64_t location, bool writable, uint64_t& token) {
   ScsiController* pParent = static_cast<ScsiController*>(m_pParent);
   if (!pParent) {
     return BufferView();
@@ -490,6 +495,7 @@ BufferView ScsiDisk::read(uint64_t location) {
   const uint64_t alignPoint = getAlignmentPoint(location);
 
   const uint64_t pageLocation = location - ((location - alignPoint) % ScsiCachePageBytes);
+  token = pageLocation;
   const size_t pageOffset = location - pageLocation;
 
   // Cache extents follow the most recent alignment point, which may not be
@@ -509,6 +515,10 @@ BufferView ScsiDisk::read(uint64_t location) {
 
   uintptr_t buffer;
   if ((buffer = m_Cache.lookup(pageLocation))) {
+    if (writable && !m_Cache.beginMutableLoan(pageLocation)) {
+      m_Cache.release(pageLocation);
+      return {};
+    }
     return BufferView::fromAddress(buffer + pageOffset, validPageLength - pageOffset);
   }
 
@@ -544,6 +554,10 @@ BufferView ScsiDisk::read(uint64_t location) {
   buffer = m_Cache.lookup(pageLocation);
   if (!buffer) {
     return BufferView();
+  }
+  if (writable && !m_Cache.beginMutableLoan(pageLocation)) {
+    m_Cache.release(pageLocation);
+    return {};
   }
   return BufferView::fromAddress(buffer + pageOffset, validPageLength - pageOffset);
 }
@@ -1510,7 +1524,12 @@ bool ScsiDisk::pin(uint64_t location) {
   const uint64_t alignPoint = getAlignmentPoint(location);
 
   const uint64_t cacheLocation = location - ((location - alignPoint) % ScsiCachePageBytes);
-  return m_Cache.pin(cacheLocation);
+  if (!m_Cache.pin(cacheLocation))
+    return false;
+  if (m_Cache.beginMutableLoan(cacheLocation))
+    return true;
+  m_Cache.release(cacheLocation);
+  return false;
 }
 
 void ScsiDisk::unpin(uint64_t location) {
@@ -1520,6 +1539,13 @@ void ScsiDisk::unpin(uint64_t location) {
   const uint64_t alignPoint = getAlignmentPoint(location);
 
   const uint64_t cacheLocation = location - ((location - alignPoint) % ScsiCachePageBytes);
+  releaseView(cacheLocation, true);
+}
+
+void ScsiDisk::releaseView(uint64_t cacheLocation, bool writable) {
+  // A new partition may change alignment while an older view still owns its pin.
+  if (writable)
+    m_Cache.endMutableLoan(cacheLocation);
   m_Cache.release(cacheLocation);
 }
 

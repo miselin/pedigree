@@ -630,6 +630,14 @@ uintptr_t Ext2Filesystem::readBlock(uint32_t block) {
   return view.address();
 }
 
+DiskReadView Ext2Filesystem::readBlockView(uint32_t block) {
+  DiskReadView view = block ? m_pDisk->readView(static_cast<uint64_t>(m_BlockSize) * block)
+                            : DiskReadView::borrowed(g_pSparseBlock, sizeof(g_pSparseBlock));
+  if (!view || !view.truncate(m_BlockSize))
+    return DiskReadView();
+  return view;
+}
+
 void Ext2Filesystem::writeBlock(uint32_t block) {
   if (block == 0)
     return;

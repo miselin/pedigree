@@ -20,6 +20,7 @@
  */
 MUST_USE_RESULT inline uintptr_t ataTakeQueuedWritePage(Cache& cache, uint64_t location) {
   const uintptr_t buffer = cache.lookup(location);
+  cache.endMutableLoan(location);
   cache.release(location);
   return buffer;
 }

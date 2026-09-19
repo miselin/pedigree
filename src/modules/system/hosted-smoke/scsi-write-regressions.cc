@@ -1554,6 +1554,76 @@ bool scsiDeferredWrites() {
   return passed;
 }
 
+bool scsiScopedDiskViews() {
+  Fixture fixture;
+  if (!fixture.ready || !fixture.disk.preparePage(CheckedSyncLocation))
+    return false;
+  fixture.disk.pauseBackgroundWriteback();
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::Pass10);
+
+  auto reader = fixture.disk.readView(CheckedSyncLocation);
+  auto writer = fixture.disk.writeView(CheckedSyncLocation);
+  const BufferView legacy = fixture.disk.read(CheckedSyncLocation);
+  const bool pinned = fixture.disk.pin(CheckedSyncLocation);
+  const bool admitted = reader && writer && legacy && pinned;
+  const bool endpointHeld = admitted && !fixture.disk.tryCloseEndpoint();
+  const uint32_t value = 0x12345678;
+  const bool changed = writer && writer.writeAt(value, 1);
+  auto moved = pedigree_std::move(writer);
+  const bool transferred = !writer && moved;
+  moved.reset();
+  if (legacy)
+    fixture.disk.unpin(CheckedSyncLocation);
+  if (legacy && pinned)
+    static_cast<uint8_t*>(legacy.data())[7] = 0xc7;
+  if (pinned)
+    fixture.disk.unpin(CheckedSyncLocation);
+
+  uint32_t observed = 0;
+  uint8_t last = 0;
+  const bool coherent = reader && reader.readAt(observed, 1) && observed == value &&
+                        reader.readAt(last, 7) && last == 0xc7;
+  fixture.disk.resumeBackgroundWriteback();
+  const bool written =
+      fixture.disk.runBackgroundWriteback() && fixture.controller.directRequestCount() == 1;
+  const bool settled =
+      fixture.disk.runBackgroundWriteback() && fixture.controller.directRequestCount() == 1;
+  reader.reset();
+  const bool closed = fixture.disk.tryCloseEndpoint();
+  fixture.disk.reopenEndpoint();
+  const bool balanced =
+      fixture.disk.hasNoCacheLoans() && fixture.disk.evictPage(CheckedSyncLocation);
+  const bool passed = admitted && endpointHeld && changed && transferred && coherent && written &&
+                      settled && closed && balanced;
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-scoped-disk-views");
+  else
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-scoped-disk-views: admission="
+          << admitted << ", endpoint=" << endpointHeld << ", coherent=" << coherent
+          << ", written=" << written << ", settled=" << settled << ", balanced=" << balanced);
+  return passed;
+}
+
+bool scsiViewSurvivesAlignmentChange() {
+  Fixture fixture;
+  if (!fixture.ready || !fixture.disk.preparePage(0))
+    return false;
+  auto reader = fixture.disk.readView(2048);
+  auto writer = fixture.disk.writeView(2048);
+  const bool admitted = reader && writer;
+  fixture.disk.align(1536);
+  writer.reset();
+  reader.reset();
+  const bool balanced = fixture.disk.hasNoCacheLoans() && fixture.disk.evictPage(0);
+  const bool passed = admitted && balanced;
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-view-alignment-change");
+  else
+    ERROR("HOSTED-WAIT-TEST: FAIL scsi-view-alignment-change: view released a different cache key");
+  return passed;
+}
+
 bool scsiDeferredWriteRetry() {
   Fixture fixture;
   if (!fixture.ready || !fixture.disk.preparePage(CheckedSyncLocation))
@@ -1760,6 +1830,8 @@ bool scsiSyncBatch(bool failWrite, bool failFlush) {
   fixture.disk.pauseBackgroundWriteback();
   if (!fixture.disk.preparePage(Keys[0]) || !fixture.disk.preparePage(Keys[1]))
     return false;
+  for (uint64_t key : Keys)
+    fixture.disk.write(key);
   fixture.controller.beginWrites(failWrite ? WriteMode::FailAll : WriteMode::PassWrite12);
   fixture.controller.beginSync(failFlush ? SyncMode::FailAll : SyncMode::Pass10);
   const bool result = fixture.disk.syncPages(Keys, 2);
@@ -1784,15 +1856,18 @@ bool scsiSyncBatch(bool failWrite, bool failFlush) {
   fixture.controller.beginWrites(WriteMode::PassWrite12);
   fixture.controller.beginSync(SyncMode::Pass10);
   const bool pinned = fixture.disk.pin(Keys[0]);
-  const bool retried = fixture.disk.syncPages(Keys, 2) && fixture.controller.writeCount() == 8 &&
-                       fixture.controller.writesAtLastSync() == 8 &&
-                       fixture.controller.syncTraceMatches(Flush, sizeof(Flush));
+  const bool needsRetry = failWrite || failFlush;
+  const size_t retryWrites = needsRetry ? 8 : 0;
+  const bool retried = fixture.disk.syncPages(Keys, 2) &&
+                       fixture.controller.writeCount() == retryWrites &&
+                       fixture.controller.writesAtLastSync() == retryWrites &&
+                       fixture.controller.syncTraceMatches(Flush, needsRetry ? sizeof(Flush) : 0);
   const bool callerPin = pinned && !fixture.disk.evictPage(Keys[0]);
   if (pinned)
     fixture.disk.unpin(Keys[0]);
   const bool balanced = fixture.disk.evictPage(Keys[0]) && fixture.disk.evictPage(Keys[1]) &&
-                        fixture.controller.writeCount() == 8 &&
-                        fixture.controller.syncTraceMatches(Flush, sizeof(Flush));
+                        fixture.controller.writeCount() == retryWrites &&
+                        fixture.controller.syncTraceMatches(Flush, needsRetry ? sizeof(Flush) : 0);
   const bool passed = committed && retained && retried && callerPin && balanced;
   if (passed)
     NOTICE("HOSTED-WAIT-TEST: PASS scsi-sync-batch write-failure="
@@ -1831,6 +1906,8 @@ bool scsiOverlappingSyncBatches() {
   fixture.disk.pauseBackgroundWriteback();
   if (!fixture.disk.preparePage(First) || !fixture.disk.preparePage(Second))
     return false;
+  fixture.disk.write(First);
+  fixture.disk.write(Second);
   fixture.controller.beginWrites(WriteMode::PassWrite12);
   fixture.controller.beginSync(SyncMode::Pass10);
   fixture.controller.holdNextSync();
@@ -1863,6 +1940,8 @@ bool scsiOverlappingSyncBatches() {
   const bool excluded = held && waiting && !first.returned && !second.returned &&
                         fixture.controller.writeCount() == 8 && !fixture.disk.evictPage(First) &&
                         !fixture.disk.evictPage(Second);
+  fixture.disk.write(First);
+  fixture.disk.write(Second);
   fixture.controller.releaseHeldSync();
   const bool firstCompleted = waitUntilSet(first.returned);
   const bool secondCompleted = waiter && waitUntilSet(second.returned);
@@ -1908,6 +1987,7 @@ bool scsiSyncBatchValidation() {
                        fixture.disk.discardEditingPage(Key + PageBytes);
   const bool noIo =
       fixture.controller.hasNoDirectActivity() && fixture.controller.syncTraceMatches(nullptr, 0);
+  fixture.disk.write(Key);
   const bool deduplicated = fixture.disk.syncPages(Duplicate, 3) &&
                             fixture.controller.writeCount() == 4 &&
                             fixture.controller.writesAtLastSync() == 4 &&
@@ -1936,6 +2016,8 @@ bool scsiSyncBatchTerminalGeometry() {
   disk.pauseBackgroundWriteback();
   if (!disk.preparePage(Keys[0]) || !disk.preparePage(Keys[1]))
     return false;
+  for (uint64_t key : Keys)
+    disk.write(key);
   controller.beginWrites(WriteMode::PassWrite12);
   controller.beginSync(SyncMode::Pass10);
   const bool written =
@@ -2281,6 +2363,8 @@ bool scsiRejectsNativeBlocksLargerThanCachePages() {
 }  // namespace
 
 EXPORTED_PUBLIC bool runHostedScsiSyncRegressions() {
+  const bool scopedViews = scsiScopedDiskViews();
+  const bool viewAlignment = scsiViewSurvivesAlignmentChange();
   const bool deferredWrites = scsiDeferredWrites();
   const bool deferredRetry = scsiDeferredWriteRetry();
   const bool deferredShutdown = scsiDeferredWriteShutdown();
@@ -2295,10 +2379,10 @@ EXPORTED_PUBLIC bool runHostedScsiSyncRegressions() {
   const bool producerReads = scsiProducerReadBatchCoherence();
   const bool producerReadFailure = scsiProducerReadBatchFailure();
   const bool producerReadFallbacks = scsiProducerReadBatchFallbacks();
-  return deferredWrites && deferredRetry && deferredShutdown && syncAll && batch &&
-         batchWriteFailure && batchFlushFailure && overlappingBatches && batchValidation &&
-         batchTerminal && producerAlignment && producerReads && producerReadFailure &&
-         producerReadFallbacks;
+  return scopedViews && viewAlignment && deferredWrites && deferredRetry && deferredShutdown &&
+         syncAll && batch && batchWriteFailure && batchFlushFailure && overlappingBatches &&
+         batchValidation && batchTerminal && producerAlignment && producerReads &&
+         producerReadFailure && producerReadFallbacks;
 }
 
 EXPORTED_PUBLIC bool runHostedScsiWriteRegressions() {

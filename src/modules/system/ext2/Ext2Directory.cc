@@ -429,7 +429,7 @@ bool Ext2Directory::readBytes(uint64_t offset, size_t length, void* output) {
       return false;
     }
 
-    const uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[block]);
+    const DiskReadView buffer = m_pExt2Fs->readBlockView(m_Blocks[block]);
     if (!buffer) {
       return false;
     }
@@ -438,8 +438,8 @@ bool Ext2Directory::readBytes(uint64_t offset, size_t length, void* output) {
     if (available > length) {
       available = length;
     }
-    MemoryCopy(destination, reinterpret_cast<const void*>(buffer + blockOffset), available);
-    m_pExt2Fs->unpinBlock(m_Blocks[block]);
+    if (!buffer.copyTo(destination, available, blockOffset))
+      return false;
 
     destination += available;
     offset += available;

@@ -78,6 +78,28 @@ class Partition : public Disk {
     return parent->zero(m_Start + location, length);
   }
 
+  DiskReadView readView(uint64_t location) override {
+    if (!containsRange(location, 1))
+      return {};
+    auto* parent = static_cast<Disk*>(getParent());
+    ensureAligned(parent);
+    auto view = parent->readView(m_Start + location);
+    if (view && m_Length - location < view.size())
+      view.truncate(static_cast<size_t>(m_Length - location));
+    return view;
+  }
+
+  DiskWriteView writeView(uint64_t location) override {
+    if (!containsRange(location, 1))
+      return {};
+    auto* parent = static_cast<Disk*>(getParent());
+    ensureAligned(parent);
+    auto view = parent->writeView(m_Start + location);
+    if (view && m_Length - location < view.size())
+      view.truncate(static_cast<size_t>(m_Length - location));
+    return view;
+  }
+
   virtual void write(uint64_t location) override {
     if (!containsCachePage(location))
       return;

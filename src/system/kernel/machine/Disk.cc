@@ -21,6 +21,66 @@
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/utilities/String.h"
 
+DiskReadView::DiskReadView()
+    : m_Owner(nullptr), m_Location(0), m_Data(nullptr), m_Size(0), m_Writable(false), m_Use() {}
+
+DiskReadView::DiskReadView(Disk* owner, uint64_t location, BufferView view, bool writable,
+                           DiskUse&& use)
+    : m_Owner(owner),
+      m_Location(location),
+      m_Data(static_cast<const uint8_t*>(view.data())),
+      m_Size(view.size()),
+      m_Writable(writable),
+      m_Use(static_cast<DiskUse&&>(use)) {}
+
+DiskReadView::DiskReadView(DiskReadView&& other) noexcept : DiskReadView() {
+  *this = static_cast<DiskReadView&&>(other);
+}
+
+DiskReadView& DiskReadView::operator=(DiskReadView&& other) noexcept {
+  if (this != &other) {
+    reset();
+    m_Owner = other.m_Owner;
+    m_Location = other.m_Location;
+    m_Data = other.m_Data;
+    m_Size = other.m_Size;
+    m_Writable = other.m_Writable;
+    m_Use = static_cast<DiskUse&&>(other.m_Use);
+    other.m_Owner = nullptr;
+    other.m_Data = nullptr;
+    other.m_Size = 0;
+  }
+  return *this;
+}
+
+DiskReadView::~DiskReadView() {
+  reset();
+}
+
+DiskReadView DiskReadView::borrowed(const void* data, size_t size) {
+  DiskReadView view;
+  if (data) {
+    view.m_Data = static_cast<const uint8_t*>(data);
+    view.m_Size = size;
+  }
+  return view;
+}
+
+void DiskReadView::reset() {
+  if (m_Owner) {
+    TerminationDeferral lifetime;
+    m_Owner->releaseView(m_Location, m_Writable);
+    m_Owner = nullptr;
+    m_Data = nullptr;
+    m_Size = 0;
+    m_Use.reset();
+    return;
+  }
+  m_Data = nullptr;
+  m_Size = 0;
+  m_Use.reset();
+}
+
 Disk::Disk() : m_Endpoint(nullptr) {
   m_SpecificType.assign("Generic Disk", 13);
 }
@@ -94,6 +154,38 @@ BufferView Disk::read(uint64_t location) {
   return BufferView();
 }
 
+DiskReadView Disk::readView(uint64_t location) {
+  TerminationDeferral lifetime;
+  DiskUse use;
+  if (!acquireUse(use))
+    return {};
+  uint64_t token = location;
+  const auto view = acquireView(location, false, token);
+  return view ? DiskReadView(this, token, view, false, static_cast<DiskUse&&>(use))
+              : DiskReadView();
+}
+
+DiskWriteView Disk::writeView(uint64_t location) {
+  TerminationDeferral lifetime;
+  DiskUse use;
+  if (!acquireUse(use))
+    return {};
+  uint64_t token = location;
+  const auto view = acquireView(location, true, token);
+  return view ? DiskWriteView(this, token, view, static_cast<DiskUse&&>(use)) : DiskWriteView();
+}
+
+BufferView Disk::acquireView(uint64_t location, bool writable, uint64_t& token) {
+  token = location;
+  return read(location);
+}
+
+void Disk::releaseView(uint64_t location, bool writable) {
+  if (writable)
+    write(location);
+  unpin(location);
+}
+
 bool Disk::readIntoBatch(ReadBuffer* buffers, size_t count) {
   if (count > MaxReadBuffers || (count && !buffers))
     return false;
@@ -128,17 +220,15 @@ bool Disk::readInto(uint64_t location, void* buffer, size_t length) {
   while (length) {
     const uint64_t aligned = location - location % 512;
     const size_t offset = location - aligned;
-    const BufferView view = read(aligned);
+    const DiskReadView view = readView(aligned);
     if (!view)
       return false;
     if (view.size() <= offset) {
-      unpin(aligned);
       return false;
     }
     const size_t available = view.size() - offset;
     const size_t chunk = length < available ? length : available;
-    MemoryCopy(output, view.subview(offset, chunk).data(), chunk);
-    unpin(aligned);
+    view.copyTo(output, chunk, offset);
     output += chunk;
     location += chunk;
     length -= chunk;

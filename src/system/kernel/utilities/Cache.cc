@@ -1915,10 +1915,55 @@ void Cache::markExternallyWritable(uintptr_t key) {
     return;
   LockGuard<Spinlock> guard(m_Lock);
   CachePage* page = m_Pages.lookup(key);
-  if (!page || tracksChecksum(page))
+  if (!page || page->externallyWritable)
     return;
+  const bool tracked = tracksChecksum(page);
   page->externallyWritable = true;
-  calculateChecksum(page);
+  if (!tracked)
+    calculateChecksum(page);
+  updateWritebackIndex(page);
+}
+
+bool Cache::beginMutableLoan(uintptr_t key) {
+  if (!ensureUsable("beginMutableLoan"))
+    return false;
+  LockGuard<Spinlock> guard(m_Lock);
+  CachePage* page = m_Pages.lookup(key);
+  if (!page || page->evictionState == CachePage::EvictionState::Retiring ||
+      page->mutableLoans == ~size_t{0})
+    return false;
+
+  const bool tracked = tracksChecksum(page);
+  ++page->mutableLoans;
+  if (!tracked) {
+    calculateChecksum(page);
+    // This callback captured no checksum before the writable alias existed.
+    // Its older generation must not settle modifications made by this loan.
+    if (page->callbackActive)
+      recordMutation(page);
+  }
+  updateWritebackIndex(page);
+  return true;
+}
+
+void Cache::endMutableLoan(uintptr_t key) {
+  if (!ensureUsable("endMutableLoan"))
+    return;
+  LockGuard<Spinlock> guard(m_Lock);
+  CachePage* page = m_Pages.lookup(key);
+  assert(page && page->mutableLoans);
+  if (!page || !page->mutableLoans)
+    return;
+
+  if (page->mutableLoans == 1) {
+    // An active callback may publish its older checksum after tracking ends.
+    // A newer mutation generation keeps that completion from losing changes.
+    if (page->callbackActive ||
+        (!page->writebackFailed && page->mutationGeneration == page->writtenGeneration &&
+         !verifyChecksum(page)))
+      recordMutation(page);
+  }
+  --page->mutableLoans;
   updateWritebackIndex(page);
 }
 
@@ -2271,7 +2316,8 @@ bool Cache::verifyChecksum(CachePage* pPage, bool replace) {
 }
 
 bool Cache::tracksChecksum(const CachePage* page) const {
-  return m_DirtyTracking == DirtyTracking::Checksum || page->externallyWritable;
+  return m_DirtyTracking == DirtyTracking::Checksum || page->externallyWritable ||
+         page->mutableLoans;
 }
 
 bool Cache::needsWriteback(CachePage* page) {
@@ -2282,7 +2328,7 @@ bool Cache::needsWriteback(CachePage* page) {
 void Cache::updateWritebackIndex(CachePage* page) {
   if (m_DirtyTracking != DirtyTracking::Explicit)
     return;
-  const bool candidate = page->externallyWritable || page->writebackFailed ||
+  const bool candidate = page->externallyWritable || page->mutableLoans || page->writebackFailed ||
                          page->mutationGeneration != page->writtenGeneration ||
                          page->status == CachePage::Editing || page->callbackActive;
   if (candidate && !page->writebackIndexed) {

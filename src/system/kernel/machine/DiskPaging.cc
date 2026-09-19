@@ -58,9 +58,9 @@ DiskUse& DiskUse::operator=(DiskUse&& other) noexcept {
   return *this;
 }
 void DiskUse::reset() {
-  auto guard = endpointWaiters.acquire();
   if (!m_Endpoint)
     return;
+  auto guard = endpointWaiters.acquire();
   DiskEndpoint* endpoint = m_Endpoint;
   m_Endpoint = nullptr;
   if (!endpoint->users)
