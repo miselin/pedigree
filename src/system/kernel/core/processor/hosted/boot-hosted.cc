@@ -36,6 +36,7 @@
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/hosted/FunctionProfile.h"
 #include "pedigree/kernel/processor/hosted/smoke.h"
 
 extern "C" void _main(BootstrapStruct_t& bs);
@@ -109,6 +110,12 @@ extern "C" int main(int argc, char* argv[]) {
             "[diskimage [root|init|command|shutdown]]\n");
     goto fail;
   }
+
+#if PEDIGREE_HOSTED_FUNCTION_PROFILE
+  if (!hostedFunctionProfileInitialise()) {
+    goto fail;
+  }
+#endif
 
   if (argc == 5) {
     if (!strcmp(argv[4], "root"))

@@ -36,6 +36,7 @@ cmake -S . -B build-hosted-profile \
   -DPEDIGREE_BUILD_TRANSLATIONS=OFF \
   -DPEDIGREE_OPTIMIZE=ON \
   -DPEDIGREE_OPTIMIZE_SIZE=ON \
+  -DPEDIGREE_WARNINGS=ON \
   -DPEDIGREE_DEBUG_LOGGING=OFF \
   -DPEDIGREE_MEMORY_LOG=OFF \
   -DPEDIGREE_TRACING=OFF \
@@ -100,6 +101,57 @@ For workload attribution, filter sampled callchains to `hostedProfileGetuid`,
 checks, and shutdown. In particular, mapping allocation during ELF symbol loading
 is not syscall-loop work. Preserve unresolved sample addresses as unknown rather
 than attributing them to a nearby kernel function.
+
+## Unsampled function profiles
+
+Configure a separate build with the options above and
+`-DPEDIGREE_HOSTED_FUNCTION_PROFILE=ON`, then build `kernel configdb`. This adds
+GCC entry/exit hooks to the kernel and static modules while retaining normal
+optimization and inlining. The recorder itself is not instrumented.
+
+```sh
+scripts/profile-hosted.sh build-hosted-instrument /tmp/hosted-functions instrument 0
+callgrind_annotate --auto=no /tmp/hosted-functions/callgrind.getuid
+```
+
+The default capture caps each phase at 100 iterations, across three repetitions.
+Set `PEDIGREE_HOSTED_FUNCTION_PROFILE_LIMIT` (1 to 10000) to change the cap;
+`PEDIGREE_HOSTED_PROFILE_DIVISOR` still reduces the underlying workload first.
+The warmed loops mask hosted IRQs; setup, reporting, and teardown run normally.
+Scheduling, C++ context transfers, or IRQ-enable requests invalidate the capture
+instead of silently bypassing required work. These kernel-origin RamFS tests
+are expected to need none. This mode does not support general concurrent or
+userspace-origin workloads, and does not prevent Linux from preempting the host
+process. Synchronous exceptions remain deliverable.
+
+Each `<phase>-<repetition>.bin` contains raw little-endian records with four
+64-bit fields: TSC timestamp, function address, machine call site, and event kind
+(1 entry, 2 exit). The matching JSON records iteration/event counts, elapsed
+nanoseconds, dropped events, and invalidation reason (0 valid, 1 scheduling,
+2 IRQ enable, 3 context transfer). A pre-faulted 64 MiB buffer holds each capture;
+overflow is a failed capture, never silently accepted. The analyzer also rejects
+unbalanced events, invalid lengths, and backwards timestamps.
+
+`report.txt` and `callgrind.<phase>` aggregate repetitions into exact recorded
+invocation counts and inclusive/exclusive TSC ticks. KCachegrind can open these
+files without Valgrind. GCC emits logical inline-function boundaries, so the
+analyzer uses event nesting rather than the machine return address to reconstruct
+parents. Unknown function addresses remain hexadecimal. Assembly and host library
+internals are not instrumented; their time remains charged to the surrounding
+instrumented function.
+
+TSC ticks are elapsed instrumented time, not CPU cycles. Hook overhead, host
+preemption, and compiler changes affect timings, particularly tiny getters.
+Use these profiles to identify repeated work and call paths; verify performance
+changes with the ordinary build. An instrumented binary retains callback costs
+even when recording is off. Capture timings must not be compared to ordinary
+benchmark timings.
+
+To regenerate reports from saved captures:
+
+```sh
+uv run --no-project python scripts/analyze-hosted-functions.py /tmp/hosted-functions
+```
 
 ## Valgrind compatibility
 

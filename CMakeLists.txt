@@ -169,6 +169,12 @@ set(PEDIGREE_HOSTED_SYSTEM_MALLOC FALSE CACHE BOOL "Use the system malloc instea
 set(PEDIGREE_HOSTED_DYNAMIC_MODULES FALSE CACHE BOOL "Load modules from an initrd in hosted builds instead of linking them into the kernel.")
 set(PEDIGREE_HOSTED_SMOKE_TESTS FALSE CACHE BOOL "Build the hosted smoke-test module and userspace.")
 set(PEDIGREE_HOSTED_ASAN FALSE CACHE BOOL "Instrument hosted kernels and modules with AddressSanitizer.")
+set(PEDIGREE_HOSTED_FUNCTION_PROFILE FALSE CACHE BOOL "Instrument hosted kernel function entry and exit for bounded syscall profiles.")
+if (PEDIGREE_HOSTED_FUNCTION_PROFILE AND
+    (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" OR PEDIGREE_HOSTED_DARWIN OR
+     NOT PEDIGREE_HOSTED_SMOKE_TESTS OR PEDIGREE_HOSTED_DYNAMIC_MODULES))
+    message(FATAL_ERROR "Function profiling requires native Linux hosted smoke tests with static modules")
+endif ()
 set(PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS FALSE CACHE BOOL "Link the focused IRQ and scheduler closure regressions into a native Linux hosted kernel.")
 set(PEDIGREE_CONCURRENCY_SMOKE_TESTS FALSE CACHE BOOL "Build focused kernel concurrency smoke tests for QEMU.")
 set(PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS FALSE CACHE BOOL "Build focused VM ownership smoke tests for QEMU with a root filesystem.")

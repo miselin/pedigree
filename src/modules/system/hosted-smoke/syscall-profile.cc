@@ -9,6 +9,7 @@
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
+#include "pedigree/kernel/processor/hosted/FunctionProfile.h"
 #include "pedigree/kernel/processor/hosted/smoke.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/time/Time.h"
@@ -65,57 +66,69 @@ void reportPhase(const char* phase, size_t repetition, size_t count, Time::Times
 }
 
 NEVER_INLINE bool hostedProfileGetuid(size_t repetition, size_t count) {
+  hostedFunctionProfileBegin("getuid", repetition, count);
   const Time::Timestamp start = Time::getTicks();
   for (size_t i = 0; i < count; ++i) {
     if (!checkedCall(PedigreeLinuxAmd64Syscall_getuid, ProfileUid)) {
+      hostedFunctionProfileEnd();
       return false;
     }
   }
   const Time::Timestamp elapsed = Time::getTicks() - start;
+  const bool captured = hostedFunctionProfileEnd();
   reportPhase("getuid", repetition, count, elapsed);
-  return true;
+  return captured;
 }
 
 NEVER_INLINE bool hostedProfileLseek(size_t repetition, size_t count, int fd) {
+  hostedFunctionProfileBegin("lseek", repetition, count);
   const Time::Timestamp start = Time::getTicks();
   for (size_t i = 0; i < count; ++i) {
     if (!checkedCall(PedigreeLinuxAmd64Syscall_lseek, 0, fd, 0, SEEK_SET)) {
+      hostedFunctionProfileEnd();
       return false;
     }
   }
   const Time::Timestamp elapsed = Time::getTicks() - start;
+  const bool captured = hostedFunctionProfileEnd();
   reportPhase("lseek", repetition, count, elapsed);
-  return true;
+  return captured;
 }
 
 NEVER_INLINE bool hostedProfileWritev(size_t repetition, size_t count, int fd,
                                       const iovec* vectors) {
+  hostedFunctionProfileBegin("lseek-writev", repetition, count);
   const Time::Timestamp start = Time::getTicks();
   for (size_t i = 0; i < count; ++i) {
     if (!checkedCall(PedigreeLinuxAmd64Syscall_lseek, 0, fd, 0, SEEK_SET) ||
         !checkedCall(PedigreeLinuxAmd64Syscall_writev, PayloadSize, fd,
                      reinterpret_cast<uintptr_t>(vectors), 2)) {
+      hostedFunctionProfileEnd();
       return false;
     }
   }
   const Time::Timestamp elapsed = Time::getTicks() - start;
+  const bool captured = hostedFunctionProfileEnd();
   reportPhase("lseek-writev", repetition, count, elapsed);
-  return true;
+  return captured;
 }
 
 NEVER_INLINE bool hostedProfileReadv(size_t repetition, size_t count, int fd,
                                      const iovec* vectors) {
+  hostedFunctionProfileBegin("lseek-readv", repetition, count);
   const Time::Timestamp start = Time::getTicks();
   for (size_t i = 0; i < count; ++i) {
     if (!checkedCall(PedigreeLinuxAmd64Syscall_lseek, 0, fd, 0, SEEK_SET) ||
         !checkedCall(PedigreeLinuxAmd64Syscall_readv, PayloadSize, fd,
                      reinterpret_cast<uintptr_t>(vectors), 2)) {
+      hostedFunctionProfileEnd();
       return false;
     }
   }
   const Time::Timestamp elapsed = Time::getTicks() - start;
+  const bool captured = hostedFunctionProfileEnd();
   reportPhase("lseek-readv", repetition, count, elapsed);
-  return true;
+  return captured;
 }
 
 bool verifyPayload(int fd, const iovec* vectors, const uint8_t* expected, uint8_t* actual) {
@@ -235,6 +248,10 @@ bool hostedRunSyscallProfile() {
     queryCount = 1;
   if (!ioCount)
     ioCount = 1;
+#if PEDIGREE_HOSTED_FUNCTION_PROFILE
+  queryCount = hostedFunctionProfileCount(queryCount);
+  ioCount = hostedFunctionProfileCount(ioCount);
+#endif
   NOTICE("HOSTED-PROFILE: BEGIN scope=kernel-origin user-entry-return=excluded abi=linux");
   NOTICE("HOSTED-PROFILE: config uid=123 payload_bytes=4096 iov_count=2 repetitions=3 divisor="
          << Dec << divisor);

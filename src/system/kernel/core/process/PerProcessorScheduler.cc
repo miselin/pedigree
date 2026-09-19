@@ -46,6 +46,9 @@
 #if HOSTED
 #include "pedigree/kernel/processor/hosted/Processor.h"
 #endif
+#if PEDIGREE_HOSTED_FUNCTION_PROFILE
+#include "pedigree/kernel/processor/hosted/FunctionProfile.h"
+#endif
 
 #define VERBOSE_SCHEDULER 0
 
@@ -465,6 +468,9 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEve
 
 void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus,
                                                        bool dispatchEvents, bool bWasInterrupts) {
+#if PEDIGREE_HOSTED_FUNCTION_PROFILE
+  hostedFunctionProfileInvalidate(HostedProfileInvalidation::Schedule);
+#endif
   assert(!Processor::getInterrupts());
   ActivityDiagnostics::recordScheduleCall();
 

@@ -11,6 +11,9 @@ set(PEDIGREE_DEBUG_ALLOCATOR FALSE CACHE BOOL "Replace SLAM with a debug allocat
 set(GENERIC_KERNEL_FLAGS
     "-fno-common" "-fno-omit-frame-pointer" "-ggdb" "-g3" "-gdwarf-2")
 set(GENERIC_KERNEL_CFLAGS "")
+if (PEDIGREE_HOSTED_FUNCTION_PROFILE)
+    list(APPEND GENERIC_KERNEL_FLAGS "-finstrument-functions")
+endif ()
 # Slam's allocation ABI can return null; constructors must not run on failed storage.
 set(GENERIC_KERNEL_CXXFLAGS
     "-fno-exceptions" "-fno-rtti" "-fno-asynchronous-unwind-tables"
@@ -477,6 +480,14 @@ if (PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/IrqClosureRegressions.cc
         ${CMAKE_SOURCE_DIR}/src/modules/system/hosted-smoke/interrupt-manager-regressions.cc
         ${CMAKE_SOURCE_DIR}/src/modules/system/hosted-smoke/scheduler-regressions.cc)
+endif ()
+
+if (PEDIGREE_HOSTED_FUNCTION_PROFILE)
+    list(REMOVE_ITEM KERNEL_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/instrument.cc)
+    set(FUNCTION_PROFILE_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/FunctionProfile.cc)
+    list(APPEND KERNEL_SRCS ${FUNCTION_PROFILE_SOURCE})
+    set_source_files_properties(${FUNCTION_PROFILE_SOURCE} PROPERTIES
+        COMPILE_OPTIONS "-fno-instrument-functions")
 endif ()
 
 # We put Log at the very end of the source list so its constructors run last.
