@@ -45,7 +45,7 @@ class EXPORTED_PUBLIC RamFile : public File {
 
   virtual ~RamFile();
 
-  virtual Attributes getAttributes() const;
+  virtual Attributes getAttributes() const override;
 
   XattrStatus getExtendedAttribute(const StringView& name, void* buffer, size_t capacity,
                                    size_t& required) override;
@@ -54,20 +54,21 @@ class EXPORTED_PUBLIC RamFile : public File {
                                    unsigned flags) override;
   XattrStatus removeExtendedAttribute(const StringView& name) override;
 
-  virtual void truncate();
+  virtual void truncate() override;
 
   bool canWrite();
 
  protected:
-  virtual bool resizeFile(size_t size);
-  virtual bool allocateFileRange(size_t offset, size_t length);
-  virtual bool prepareShrink(const ShrinkContext& context, UniquePointer<PreparedShrink>& prepared);
-  virtual uintptr_t readBlock(uint64_t location);
+  virtual bool resizeFile(size_t size) override;
+  virtual bool allocateFileRange(size_t offset, size_t length) override;
+  virtual bool prepareShrink(const ShrinkContext& context,
+                             UniquePointer<PreparedShrink>& prepared) override;
+  virtual uintptr_t readBlock(uint64_t location) override;
 
-  virtual bool pinBlock(uint64_t location);
+  virtual bool pinBlock(uint64_t location) override;
   uintptr_t acquireCachedBlock(uint64_t location, bool retryChanged) override;
 
-  virtual void unpinBlock(uint64_t location);
+  virtual void unpinBlock(uint64_t location) override;
 
  private:
   class ShrinkPlan;
@@ -96,7 +97,7 @@ class EXPORTED_PUBLIC RamDir : public Directory {
                                    unsigned flags) override;
   XattrStatus removeExtendedAttribute(const StringView& name) override;
 
-  virtual void cacheDirectoryContents() {}
+  virtual void cacheDirectoryContents() override {}
 
   virtual bool addEntry(String filename, File* pFile);
 
@@ -115,7 +116,7 @@ class EXPORTED_PUBLIC RamFs : public Filesystem {
   RamFs();
   virtual ~RamFs();
 
-  virtual bool initialise(Disk* pDisk);
+  virtual bool initialise(Disk* pDisk) override;
 
   SyncStatus sync() override;
 
@@ -127,20 +128,20 @@ class EXPORTED_PUBLIC RamFs : public Filesystem {
     return m_bProcessOwners;
   }
 
-  virtual File* getRoot() const {
+  virtual File* getRoot() const override {
     return m_pRoot;
   }
-  virtual const String& getVolumeLabel() const {
+  virtual const String& getVolumeLabel() const override {
     return m_VolumeLabel;
   }
 
  protected:
-  virtual bool createFile(File* parent, const String& filename, uint32_t mask);
-  virtual bool createDirectory(File* parent, const String& filename, uint32_t mask);
-  virtual bool createSymlink(File* parent, const String& filename, const String& value);
-  virtual bool removeNode(File* parent, const String& filename, File* file);
+  virtual bool createFile(File* parent, const String& filename, uint32_t mask) override;
+  virtual bool createDirectory(File* parent, const String& filename, uint32_t mask) override;
+  virtual bool createSymlink(File* parent, const String& filename, const String& value) override;
+  virtual bool removeNode(File* parent, const String& filename, File* file) override;
   virtual bool renameNode(Directory* oldParent, const String& oldName, File* source,
-                          Directory* newParent, const String& newName, File* replaced);
+                          Directory* newParent, const String& newName, File* replaced) override;
 
   RamFs(const RamFs&);
   void operator=(const RamFs&);
