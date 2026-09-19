@@ -324,7 +324,7 @@ void CacheManager::timerTick(uint64_t delta, bool memoryPressure) {
   const uint64_t maximumId = m_NextCacheId - 1;
   Cache* cache = nullptr;
   uint64_t cacheId = 0;
-  while (findNextCache(afterId, maximumId, cache, cacheId)) {
+  while (findNextCache(afterId, maximumId, cache, cacheId, true)) {
     afterId = cacheId;
     dispatchTimer(cache, stamp);
   }
@@ -365,10 +365,14 @@ void CacheManager::dispatchTimer(Cache* cache, const TimerStamp& stamp) {
 }
 
 bool CacheManager::findNextCache(uint64_t afterId, uint64_t maximumId, Cache*& cache,
-                                 uint64_t& cacheId) {
-  if (afterId < maximumId && m_Caches.lowerBound(afterId + 1, cacheId, cache) &&
-      cacheId <= maximumId)
-    return true;
+                                 uint64_t& cacheId, bool timersOnly) {
+  while (afterId < maximumId && m_Caches.lowerBound(afterId + 1, cacheId, cache) &&
+         cacheId <= maximumId) {
+    if (!timersOnly || cache->needsPeriodicTimer())
+      return true;
+    // Retain the old timer stamp so late callback installation receives elapsed time.
+    afterId = cacheId;
+  }
   cache = nullptr;
   cacheId = 0;
   return false;
@@ -394,9 +398,10 @@ bool CacheManager::acquireCache(Cache* cache, uint64_t& generation,
 }
 
 bool CacheManager::acquireNextCache(uint64_t afterId, uint64_t maximumId, Cache*& cache,
-                                    uint64_t& cacheId, OperationBarrier::Lease& lease) {
+                                    uint64_t& cacheId, OperationBarrier::Lease& lease,
+                                    bool timersOnly) {
   LockGuard<Mutex> guard(m_CachesLock);
-  if (!findNextCache(afterId, maximumId, cache, cacheId)) {
+  if (!findNextCache(afterId, maximumId, cache, cacheId, timersOnly)) {
     lease = OperationBarrier::Lease();
     return false;
   }
@@ -575,7 +580,7 @@ void CacheManager::trimThread() {
         Cache* cache = nullptr;
         uint64_t cacheId = 0;
         OperationBarrier::Lease cacheLease;
-        if (!acquireNextCache(afterId, maximumId, cache, cacheId, cacheLease)) {
+        if (!acquireNextCache(afterId, maximumId, cache, cacheId, cacheLease, true)) {
           break;
         }
 
@@ -603,6 +608,7 @@ Cache::Cache(size_t pageConstraints)
 #endif
       m_ManagerId(0),
       m_ManagerTimerStamp(),
+      m_PeriodicTimerEnabled(false),
       m_Callback(0),
       m_BackgroundWriteback(nullptr),
       m_Nanoseconds(0),
@@ -2150,6 +2156,7 @@ void Cache::setCallback(Cache::writeback_t newCallback, void* meta) {
   }
   m_Callback = newCallback;
   m_CallbackMeta = meta;
+  __atomic_store_n(&m_PeriodicTimerEnabled, true, __ATOMIC_RELEASE);
 }
 
 void Cache::setBackgroundWriteback(writeback_batch_t callback) {

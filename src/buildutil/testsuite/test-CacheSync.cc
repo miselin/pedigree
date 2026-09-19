@@ -68,11 +68,32 @@ struct Observer {
 }  // namespace
 
 #if !THREADS
+class CacheManagerTestPeer {
+ public:
+  static bool selects(Cache& wanted, bool timersOnly) {
+    CacheManager& manager = CacheManager::instance();
+    const uint64_t maximumId = manager.m_NextCacheId - 1;
+    uint64_t afterId = 0;
+    uint64_t cacheId = 0;
+    Cache* cache = nullptr;
+    while (manager.findNextCache(afterId, maximumId, cache, cacheId, timersOnly)) {
+      if (cache == &wanted)
+        return true;
+      afterId = cacheId;
+    }
+    return false;
+  }
+};
+
 namespace {
 constexpr uint64_t ManagerPeriod = CACHE_WRITEBACK_PERIOD * 1000000ULL;
 
 class ManagerTimerProbe : public Cache {
  public:
+  bool needsPeriodicTimer() const override {
+    return true;
+  }
+
   void timer(uint64_t delta) override {
     deltas.push_back(delta);
     auto action = std::move(onTick);
@@ -84,7 +105,49 @@ class ManagerTimerProbe : public Cache {
   std::vector<uint64_t> deltas;
   std::function<void()> onTick;
 };
+
+class CallbackTimerProbe : public Cache {
+ public:
+  void timer(uint64_t delta) override {
+    deltas.push_back(delta);
+    Cache::timer(delta);
+  }
+
+  std::vector<uint64_t> deltas;
+};
 }  // namespace
+
+TEST(CacheManagerScan, SkipsInactiveTimersAndPreservesElapsedForLateCallbacks) {
+  CacheManager& manager = CacheManager::instance();
+  manager.timer(ManagerPeriod);
+  Observer observer;
+  CallbackTimerProbe cache;
+  observer.cache = &cache;
+  EXPECT_FALSE(cache.needsPeriodicTimer());
+  manager.timer(3 * ManagerPeriod);
+  EXPECT_TRUE(cache.deltas.empty());
+
+  cache.setCallback(Observer::callback, &observer);
+  cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  EXPECT_TRUE(cache.needsPeriodicTimer());
+  ASSERT_NE(publish(cache, 0), 0U);
+  manager.timer(ManagerPeriod / 2);
+  EXPECT_TRUE(cache.deltas.empty());
+  manager.timer(ManagerPeriod / 2);
+  EXPECT_EQ(cache.deltas, std::vector<uint64_t>{4 * ManagerPeriod});
+  EXPECT_EQ(observer.writes, 1U);
+  manager.timer(ManagerPeriod);
+  EXPECT_EQ(cache.deltas, (std::vector<uint64_t>{4 * ManagerPeriod, ManagerPeriod}));
+  EXPECT_EQ(observer.writes, 1U);
+}
+
+TEST(CacheManagerScan, ReclamationScanIncludesCachesWithoutPeriodicCallbacks) {
+  Cache cache;
+  EXPECT_FALSE(cache.needsPeriodicTimer());
+  // Standalone caches disable physical eviction; check the reclamation selector.
+  EXPECT_TRUE(CacheManagerTestPeer::selects(cache, false));
+  EXPECT_FALSE(CacheManagerTestPeer::selects(cache, true));
+}
 
 TEST(CacheManagerScan, CoalescesSubperiodTicksAndPreservesTheirElapsedTime) {
   CacheManager& manager = CacheManager::instance();
@@ -118,15 +181,19 @@ TEST(CacheManagerScan, NewCachesReceiveOnlyTimeAfterTheirRegistration) {
 TEST(CacheManagerScan, StableIdsSkipRemovalAndDeferAdmissionUntilNextScan) {
   CacheManager& manager = CacheManager::instance();
   manager.timer(ManagerPeriod);
+  CallbackTimerProbe inactive;
   ManagerTimerProbe first;
   auto removed = std::make_unique<ManagerTimerProbe>();
+  auto removedInactive = std::make_unique<CallbackTimerProbe>();
   ManagerTimerProbe last;
   std::unique_ptr<ManagerTimerProbe> added;
   first.onTick = [&] {
     removed.reset();
+    removedInactive.reset();
     added = std::make_unique<ManagerTimerProbe>();
   };
   manager.timer(ManagerPeriod);
+  EXPECT_TRUE(inactive.deltas.empty());
   EXPECT_EQ(first.deltas.size(), 1U);
   EXPECT_EQ(last.deltas.size(), 1U);
   ASSERT_NE(added, nullptr);

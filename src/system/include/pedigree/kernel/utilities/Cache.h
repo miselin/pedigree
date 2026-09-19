@@ -124,7 +124,8 @@ class EXPORTED_PUBLIC CacheManager :
   };
 
   /** Registry lock must be held in threaded builds. */
-  bool findNextCache(uint64_t afterId, uint64_t maximumId, Cache*& cache, uint64_t& cacheId);
+  bool findNextCache(uint64_t afterId, uint64_t maximumId, Cache*& cache, uint64_t& cacheId,
+                     bool timersOnly = false);
   /** Timer waiter lock must be held in threaded builds. */
   bool takeTimerStamp(TimerStamp& stamp);
   void dispatchTimer(Cache* cache, const TimerStamp& stamp);
@@ -147,7 +148,7 @@ class EXPORTED_PUBLIC CacheManager :
 
   /** Finds and pins the first registered cache after a stable manager ID. */
   bool acquireNextCache(uint64_t afterId, uint64_t maximumId, Cache*& cache, uint64_t& cacheId,
-                        OperationBarrier::Lease& lease);
+                        OperationBarrier::Lease& lease, bool timersOnly = false);
 
   /** Captures the last identity present at the start of a manager scan. */
   uint64_t cacheGenerationWatermark();
@@ -664,11 +665,19 @@ class EXPORTED_PUBLIC Cache {
 
  public:
   /**
+   * Called under the manager registry lock; overrides must not block or acquire
+   * cache locks. Custom timers independent of writeback must opt in here.
+   */
+  virtual bool needsPeriodicTimer() const {
+    return __atomic_load_n(&m_PeriodicTimerEnabled, __ATOMIC_ACQUIRE);
+  }
+
+  /**
    * Cache timer handler.
    *
    * Will call callbacks as needed to write dirty pages back to the backing
-   * store. If no callback is set for the Cache instance, the timer will
-   * not fire.
+   * store. The default eligibility predicate enables periodic dispatch after
+   * a writeback callback is installed.
    */
   virtual void timer(uint64_t delta);
 
@@ -727,6 +736,7 @@ class EXPORTED_PUBLIC Cache {
   /** Stable identity assigned while registered with CacheManager. */
   uint64_t m_ManagerId;
   CacheManager::TimerStamp m_ManagerTimerStamp;
+  bool m_PeriodicTimerEnabled;
 
   /** Callback to be called in the write-back timer handler. */
   writeback_t m_Callback;
