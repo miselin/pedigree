@@ -599,10 +599,11 @@ class Bootstrapper:
                         "installed libstdc++ is not usable from a shared library: "
                         + result.stderr.strip()
                     )
-                libgcc = (
-                    self.prefix
-                    / f"lib/gcc/{target}/{gcc_version}/libgcc.a"
-                )
+                # GCC's host configuration can select lib64 instead of lib.
+                libgcc = self.checked_output(
+                    [str(tools["gcc"]), "-print-libgcc-file-name"],
+                    environment=environment,
+                ).stdout.strip()
                 symbols = self.checked_output(
                     [str(tools["nm"]), "-A", str(libgcc)],
                     environment=environment,

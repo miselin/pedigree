@@ -277,7 +277,7 @@ add_executable(ext2img
     ext2img/stubs.cc)
 target_link_libraries(ext2img PRIVATE
     ext2 vfs partition utility kernel
-    $<$<BOOL:OPENSSL_FOUND>:OpenSSL::Crypto> Threads::Threads)
+    $<$<BOOL:${OPENSSL_FOUND}>:OpenSSL::Crypto> Threads::Threads)
 
 add_executable(instrument instrument/main.cc)
 target_include_directories(instrument PRIVATE

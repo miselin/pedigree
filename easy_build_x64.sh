@@ -137,6 +137,7 @@ $script_dir/run_pup.py install libpcre
 $script_dir/run_pup.py install harfbuzz
 $script_dir/run_pup.py install libffi
 $script_dir/run_pup.py install dialog
+$script_dir/run_pup.sh install protobuf
 
 # Install GCC to pull in shared libstdc++.
 $script_dir/run_pup.py install gcc

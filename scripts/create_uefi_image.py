@@ -33,6 +33,11 @@ def find_tool(*names: str) -> str | None:
         for directory in ("bin", "sbin")
         for name in names
     )
+    candidates.extend(
+        f"{directory}/{name}"
+        for directory in ("/usr/sbin", "/sbin")
+        for name in names
+    )
     return next((candidate for candidate in candidates if candidate and Path(candidate).is_file()), None)
 
 
