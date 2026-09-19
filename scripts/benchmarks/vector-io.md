@@ -35,7 +35,7 @@ Use matching userspace fixtures and record kernel/initrd hashes for each arm.
 
 ```sh
 compilers/dir/bin/x86_64-pedigree-gcc --sysroot="$PWD/build/musl/usr" \
-  -static -O2 -std=c11 -Wall -Wextra -Werror \
+  -static -O2 -std=c11 -Wall -Wextra -Werror -pthread \
   scripts/benchmarks/vector-io-contract.c -o /absolute/path/to/vector-io-contract
 ```
 
@@ -59,6 +59,12 @@ eventfd/timerfd reads, queued signalfd records with partial-record guards, and
 nonblocking, and timer readiness has a two-second limit. The optional Linux run
 prints an explicit `SKIP` for these Pedigree-specific contracts. Shared offsets
 through `dup`, `lseek`, `readv`, and `writev` are checked on both systems.
+Two bounded pthread cases also check coherent vector reads during concurrent
+`dup2` replacement and unique consumption of records through shared offsets.
+They use barriers and yields, with no sleeps treated as proof of syscall entry.
+
+See [the measured linker pass](../../docs/vector-io-link-performance.md) for
+the cumulative results and the separate size/speed compiler comparison.
 
 Keep the existing bounce capacities when adding local storage. Smaller chunks
 change partial-fault behavior, and splitting pipe writes can break atomicity.
