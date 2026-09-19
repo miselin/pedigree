@@ -199,9 +199,18 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void* virtu
       uint64_t* pageDirectoryEntry =
           TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry), pageDirectoryIndex);
 
+      // The full 2 MiB range was unmapped above. Replacing its retained table
+      // must release that storage only after invalidating the paging structure.
+      const physical_uintptr_t oldPageTable =
+          (*pageDirectoryEntry & PAGE_PRESENT) && !(*pageDirectoryEntry & PAGE_2MB)
+              ? PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryEntry)
+              : 0;
       *pageDirectoryEntry = physAddress | PAGE_2MB | Flags;
       if (!invalidateMapping(virtualAddress, mutation)) {
         mutation.panicInvalidationFailure();
+      }
+      if (oldPageTable) {
+        PhysicalMemoryManager::instance().freePage(oldPageTable);
       }
 
       virtualAddress = adjust_pointer(virtualAddress, twoMiB);
@@ -629,32 +638,9 @@ bool X64VirtualAddressSpace::unmapUnlocked(void* virtualAddress, X64MappingMutat
 
   trackPages(*this, -1, 0, 0);
 
-  // Detach empty paging structures before the invalidation, but retain their
-  // storage until every processor has discarded both translations and
-  // paging-structure-cache entries for this address.
-  physical_uintptr_t detachedTables[3] = {};
-  size_t detachedCount = 0;
-#if PEDIGREE_BENCHMARK_VM_ABLATIONS
-  Thread* benchmarkThread = Processor::information().getCurrentThread();
-  Process* benchmarkProcess = benchmarkThread ? benchmarkThread->getParent() : nullptr;
-  const bool deferTableRetirement =
-      benchmarkProcess && benchmarkThread->benchmarkVmMunmapActive() &&
-      benchmarkProcess->getAddressSpace() == this && virtualAddress < KERNEL_SPACE_START &&
-      benchmarkProcess->benchmarkVmAblationEnabled(Process::AblateTableRetirement);
-  if (deferTableRetirement) {
-#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
-    benchmarkProcess->recordBenchmarkVmCounter(Process::VmAblationTableRetirementScansSkipped);
-#endif
-  } else
-#endif
-  {
-    detachedCount = detachEmptyTables(virtualAddress, detachedTables);
-  }
+  // Keep empty paging structures for reuse; teardown releases private tables.
   if (!invalidateMapping(virtualAddress, mutation)) {
     return false;
-  }
-  for (size_t i = 0; i < detachedCount; ++i) {
-    PhysicalMemoryManager::instance().freePage(detachedTables[i]);
   }
   return true;
 }
