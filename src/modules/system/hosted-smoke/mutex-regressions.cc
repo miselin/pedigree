@@ -107,6 +107,43 @@ bool check(bool condition, const char* detail, const char* test = "mutex-ownersh
   return false;
 }
 
+bool mutexCompletionPreservesInterruption() {
+  constexpr const char* Test = "mutex-completion-preserves-interruption";
+  Thread* thread = Processor::information().getCurrentThread();
+  const Thread::InterruptionReason originalInterruption = thread->getInterruptionReason();
+  const bool originalInterrupts = Processor::getInterrupts();
+  const Thread::InterruptionReason reasons[] = {Thread::NotInterrupted, Thread::InterruptedBySignal,
+                                                Thread::InterruptedByTimeout};
+  const bool interruptStates[] = {false, true};
+  Mutex mutex;
+  bool passed = true;
+
+  for (bool interrupts : interruptStates) {
+    Processor::setInterrupts(interrupts);
+    for (Thread::InterruptionReason reason : reasons) {
+      thread->setInterruptionReason(reason);
+      const bool acquired = mutex.acquireForCompletion();
+      const bool owned = mutex.isOwnedByCurrentThread() && mutex.getValue() == 0;
+      const bool preserved =
+          thread->getInterruptionReason() == reason && Processor::getInterrupts() == interrupts;
+      if (acquired) {
+        mutex.release();
+      }
+      thread->setInterruptionReason(originalInterruption);
+      passed &=
+          check(acquired && owned && preserved && !mutex.isOwnedByCurrentThread() &&
+                    mutex.getValue() == 1 && Processor::getInterrupts() == interrupts,
+                "immediate completion lost ownership, interruption, or interrupt state", Test);
+    }
+  }
+  Processor::setInterrupts(originalInterrupts);
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS mutex-completion-preserves-interruption");
+  }
+  return passed;
+}
+
 void observeGuardedCriticalSection(MutexGuardContext* context) {
   Thread* thread = Processor::information().getCurrentThread();
   context->entered += 1;
@@ -366,6 +403,7 @@ bool runHostedMutexRegressions() {
   passed &= check(Processor::getInterrupts() == initialInterruptState,
                   "thread join or mutex teardown lost the caller interrupt state");
 
+  passed &= mutexCompletionPreservesInterruption();
   passed &= mutexGuardTerminalCompletion();
 
   if (passed) {

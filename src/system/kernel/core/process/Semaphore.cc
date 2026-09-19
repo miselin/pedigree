@@ -371,6 +371,17 @@ bool Semaphore::acquireForCompletion(size_t n, size_t timeoutSecs, size_t timeou
     return acquire(n, timeoutSecs, timeoutUsecs);
   }
   else {
+    if (!timeoutSecs && !timeoutUsecs && n == 1 && loadState(&magic) == MutexUnlocked) {
+      EMIT_IF(!PEDIGREE_BENCHMARK) {
+        if (!Processor::guardDeviceHardIrqOperation(DeviceHardIrqOperation::SemaphoreAcquire)) {
+          return false;
+        }
+      }
+      if (tryAcquire(n)) {
+        return true;
+      }
+    }
+
     Thread* thread = Processor::information().getCurrentThread();
     const bool hasTimeout = timeoutSecs || timeoutUsecs;
     const Time::Timestamp started = hasTimeout ? Time::getTicks() : 0;
