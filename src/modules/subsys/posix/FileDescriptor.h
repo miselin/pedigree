@@ -71,7 +71,9 @@ class EXPORTED_PUBLIC FileDescriptor {
       return m_AdvisoryOwner.identity();
     }
 
-    File* getFile() const;
+    File* getFile() const {
+      return path ? path->node() : anonymousFile;
+    }
     FilesystemPathRef openingPath() const;
     ReadyMask queryFileReady(bool reading, bool writing) const;
     ReadinessGenerations fileReadinessGenerations() const;
@@ -122,12 +124,30 @@ class EXPORTED_PUBLIC FileDescriptor {
   /** A serialized view of the offset shared by duplicated descriptors. */
   class PositionGuard {
    public:
-    uint64_t offset() const;
-    int statusFlags() const;
-    File* file() const;
-    bool isNoopSeekEndpoint() const;
-    void setOffset(uint64_t offset);
-    void advanceOffset(uint64_t amount);
+    uint64_t offset() const {
+      return m_Description->offset;
+    }
+
+    int statusFlags() const {
+      return m_Description->statusFlags;
+    }
+
+    File* file() const {
+      return m_Description->getFile();
+    }
+
+    bool isNoopSeekEndpoint() const {
+      return m_Description->timerFdImpl || m_Description->signalFdImpl ||
+             m_Description->fanotifyImpl;
+    }
+
+    void setOffset(uint64_t offset) {
+      m_Description->offset = offset;
+    }
+
+    void advanceOffset(uint64_t amount) {
+      m_Description->offset += amount;
+    }
 
    private:
     friend class FileDescriptor;
@@ -283,7 +303,9 @@ class EXPORTED_PUBLIC FileDescriptor {
   uint64_t readFile(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
   uint64_t writeFile(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
 
-  File* getFile() const;
+  File* getFile() const {
+    return m_OpenFile ? m_OpenFile->getFile() : nullptr;
+  }
   FilesystemPathRef openingPath() const;
 
   /// Descriptor number

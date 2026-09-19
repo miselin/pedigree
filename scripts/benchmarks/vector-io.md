@@ -53,6 +53,13 @@ committing; the test checks that a later fault leaves the file unchanged.
 Its optional Linux run accepts Linux's valid-prefix result after checking bytes
 and offsets. Passing there is not a substitute for Pedigree guest execution.
 
+Pedigree also checks eventfd writes with one 8-byte value per vector, split
+eventfd/timerfd reads, queued signalfd records with partial-record guards, and
+`EINVAL` from unsupported timerfd/signalfd vector writes. These descriptors are
+nonblocking, and timer readiness has a two-second limit. The optional Linux run
+prints an explicit `SKIP` for these Pedigree-specific contracts. Shared offsets
+through `dup`, `lseek`, `readv`, and `writev` are checked on both systems.
+
 Keep the existing bounce capacities when adding local storage. Smaller chunks
 change partial-fault behavior, and splitting pipe writes can break atomicity.
 Check generated stack usage with the target compiler's `-fstack-usage`; x64

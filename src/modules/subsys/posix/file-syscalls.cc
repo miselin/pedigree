@@ -1346,13 +1346,14 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
     return 0;
   }
 
-  if (descriptor->getTimerFdImpl() || descriptor->getSignalFdImpl() ||
-      descriptor->getFanotifyImpl()) {
+  if (!regularFile && (descriptor->getTimerFdImpl() || descriptor->getSignalFdImpl() ||
+                       descriptor->getFanotifyImpl())) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
 
-  SharedPointer<EventFd> eventFd = descriptor->getEventFdImpl();
+  SharedPointer<EventFd> eventFd =
+      regularFile ? SharedPointer<EventFd>() : descriptor->getEventFdImpl();
   if (eventFd) {
     const bool canBlock = !(descriptor->getStatusFlags() & O_NONBLOCK);
     descriptor.reset();
@@ -1549,12 +1550,12 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
       return -1;
     }
   }
-  auto timerFd = descriptor->getTimerFdImpl();
-  auto signalFd = descriptor->getSignalFdImpl();
-  auto fanotify = descriptor->getFanotifyImpl();
   const bool regularFile = descriptor->getFile() &&
                            descriptor->getFile()->supportsRegularFileOperations() &&
                            !descriptor->getFile()->isBlockDevice();
+  auto timerFd = regularFile ? SharedPointer<TimerFd>() : descriptor->getTimerFdImpl();
+  auto signalFd = regularFile ? SharedPointer<SignalFd>() : descriptor->getSignalFdImpl();
+  auto fanotify = regularFile ? SharedPointer<FanotifyInstance>() : descriptor->getFanotifyImpl();
   VectorPayloadValidation payloadValidation =
       regularFile ? VectorPayloadValidation::CopyTime : VectorPayloadValidation::BenchmarkEligible;
   if (timerFd || signalFd || fanotify) {
@@ -1621,7 +1622,8 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
                       : fanotify->readWithCopy(totalLength, canBlock, copy, &scatter);
   }
 
-  SharedPointer<EventFd> eventFd = descriptor->getEventFdImpl();
+  SharedPointer<EventFd> eventFd =
+      regularFile ? SharedPointer<EventFd>() : descriptor->getEventFdImpl();
   if (eventFd) {
     if (totalLength < sizeof(uint64_t)) {
       SYSCALL_ERROR(InvalidArgument);

@@ -1,15 +1,21 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
+#include <sys/eventfd.h>
 #include <sys/mman.h>
 #include <sys/mount.h>
+#include <sys/signalfd.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/timerfd.h>
 #include <sys/uio.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
@@ -198,6 +204,99 @@ static void short_eof(int fd) {
   passed();
 }
 
+static void shared_offset(int fd) {
+  current_case = "dup-vector-shared-offset";
+  reset_file(fd, source, 16);
+  int alias = dup(fd);
+  require(alias >= 0 && lseek(alias, 3, SEEK_SET) == 3 && lseek(fd, 0, SEEK_CUR) == 3,
+          "alias-seek-shared");
+  struct iovec reads[] = {{output[0], 2}, {output[1], 3}};
+  require(readv(fd, reads, 2) == 5 && !memcmp(output[0], source + 3, 2) &&
+              !memcmp(output[1], source + 5, 3) && lseek(alias, 0, SEEK_CUR) == 8,
+          "alias-readv-shared");
+  struct iovec writes[] = {{source + 20, 2}, {source + 22, 3}};
+  require(writev(alias, writes, 2) == 5 && lseek(fd, 0, SEEK_CUR) == 13 &&
+              lseek(alias, 0, SEEK_CUR) == 13 && pread(fd, output[2], 5, 8) == 5 &&
+              !memcmp(output[2], source + 20, 5),
+          "alias-writev-shared");
+  require(close(alias) == 0, "alias-close");
+  passed();
+}
+
+static void eventfd_vectors(void) {
+  current_case = "eventfd-vector-dispatch";
+  int fd = eventfd(0, EFD_NONBLOCK);
+  require(fd >= 0, "eventfd-create");
+  uint64_t values[] = {5, 9};
+  struct iovec writes[] = {{values, 8}, {values + 1, 8}};
+  require(writev(fd, writes, 2) == 16, "eventfd-writev-records");
+  uint64_t counts[] = {0, UINT64_C(0xa5a5a5a5a5a5a5a5)};
+  struct iovec reads[] = {{counts, 3}, {(unsigned char*)counts + 3, 5}};
+  require(readv(fd, reads, 2) == 8 && counts[0] == 14 && counts[1] == UINT64_C(0xa5a5a5a5a5a5a5a5),
+          "eventfd-readv-split-record");
+  errno = 0;
+  require(readv(fd, reads, 2) == -1 && errno == EAGAIN, "eventfd-drained");
+  // Pedigree eventfd writes consume one complete 8-byte value per nonempty vector.
+  struct iovec split[] = {{values, 3}, {(unsigned char*)values + 3, 5}};
+  errno = 0;
+  require(writev(fd, split, 2) == -1 && errno == EINVAL, "eventfd-writev-short-record");
+  errno = 0;
+  require(readv(fd, reads, 2) == -1 && errno == EAGAIN, "eventfd-short-write-uncommitted");
+  require(close(fd) == 0, "eventfd-close");
+  passed();
+}
+
+static void timerfd_vectors(void) {
+  current_case = "timerfd-vector-dispatch";
+  int fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
+  require(fd >= 0, "timerfd-create");
+  struct itimerspec setting = {.it_value = {0, 1000000}};
+  require(timerfd_settime(fd, 0, &setting, NULL) == 0, "timerfd-arm");
+  struct pollfd ready = {.fd = fd, .events = POLLIN};
+  require(poll(&ready, 1, 2000) == 1 && (ready.revents & POLLIN), "timerfd-expired");
+  uint64_t counts[] = {0, UINT64_C(0xa5a5a5a5a5a5a5a5)};
+  struct iovec vectors[] = {{counts, 3}, {(unsigned char*)counts + 3, 5}};
+  require(readv(fd, vectors, 2) == 8 && counts[0] == 1 && counts[1] == UINT64_C(0xa5a5a5a5a5a5a5a5),
+          "timerfd-readv-split-record");
+  errno = 0;
+  require(readv(fd, vectors, 2) == -1 && errno == EAGAIN, "timerfd-drained");
+  errno = 0;
+  require(writev(fd, vectors, 2) == -1 && errno == EINVAL, "timerfd-writev-rejected");
+  require(close(fd) == 0, "timerfd-close");
+  passed();
+}
+
+static void signalfd_vectors(void) {
+  current_case = "signalfd-vector-dispatch";
+  sigset_t signals, previous;
+  require(sigemptyset(&signals) == 0 && sigaddset(&signals, SIGUSR1) == 0 &&
+              sigprocmask(SIG_BLOCK, &signals, &previous) == 0,
+          "signalfd-block-signal");
+  int fd = signalfd(-1, &signals, SFD_NONBLOCK);
+  require(fd >= 0 && sigqueue(getpid(), SIGUSR1, (union sigval){.sival_int = 0x2345}) == 0,
+          "signalfd-queue-signal");
+  struct signalfd_siginfo record;
+  unsigned char bytes[sizeof(record) + 17];
+  memset(bytes, 0xa5, sizeof(bytes));
+  struct iovec short_record = {bytes, sizeof(record) - 1};
+  errno = 0;
+  require(readv(fd, &short_record, 1) == -1 && errno == EINVAL, "signalfd-short-record");
+  struct iovec vectors[] = {{bytes, 31}, {bytes + 31, sizeof(bytes) - 31}};
+  require(readv(fd, vectors, 2) == (ssize_t)sizeof(record), "signalfd-readv-split-record");
+  memcpy(&record, bytes, sizeof(record));
+  require(record.ssi_signo == SIGUSR1 && record.ssi_code == SI_QUEUE &&
+              record.ssi_pid == (unsigned)getpid() && record.ssi_int == 0x2345,
+          "signalfd-record-content");
+  for (size_t i = sizeof(record); i < sizeof(bytes); ++i)
+    require(bytes[i] == 0xa5, "signalfd-partial-record-untouched");
+  errno = 0;
+  require(readv(fd, vectors, 2) == -1 && errno == EAGAIN, "signalfd-drained");
+  errno = 0;
+  require(writev(fd, vectors, 2) == -1 && errno == EINVAL, "signalfd-writev-rejected");
+  require(close(fd) == 0 && sigprocmask(SIG_SETMASK, &previous, NULL) == 0, "signalfd-cleanup");
+  passed();
+}
+
 static void pipe_vectors(void) {
   current_case = "pipe-vector-atomic-records";
   int descriptors[2];
@@ -287,6 +386,18 @@ int main(int argc, char** argv) {
   empty_vectors(fd, inaccessible);
   faults(fd, inaccessible);
   short_eof(fd);
+  shared_offset(fd);
+  // Special descriptor vector writes and errors are Pedigree-specific contracts.
+  if (pedigree) {
+    eventfd_vectors();
+    timerfd_vectors();
+    signalfd_vectors();
+  } else {
+    printf(
+        "VECTORIO check=pedigree-special-descriptor-dispatch SKIP platform=%s "
+        "reason=pedigree-specific-contracts\n",
+        system.sysname);
+  }
   pipe_vectors();
   current_case = "cleanup";
   require(munmap(inaccessible, (size_t)page) == 0 && close(fd) == 0 && unlink("vectors") == 0,
