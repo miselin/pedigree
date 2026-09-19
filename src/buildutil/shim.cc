@@ -276,7 +276,11 @@ void Spinlock::exit(uintptr_t) {
  * actual wait remains unavailable in this single-threaded configuration.
  */
 WaitQueue::WaitQueue()
-    : m_Lock(false), m_pFirstWaiter(nullptr), m_pLastWaiter(nullptr), m_WaiterCount(0) {}
+    : m_Lock(false),
+      m_pFirstWaiter(nullptr),
+      m_pLastWaiter(nullptr),
+      m_WaiterCount(0),
+      m_WaitIntent(false) {}
 
 WaitQueue::~WaitQueue() = default;
 

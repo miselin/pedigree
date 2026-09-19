@@ -102,6 +102,7 @@ void finishSemaphoreTimeout(SemaphoreTimeoutDiscard& discard) {
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+Semaphore::BeforeWaitHook g_BeforeWaitHook = nullptr;
 Semaphore::MutexTransitionHook g_MutexTransitionHook = nullptr;
 Atomic<size_t> g_SemaphoreTimeoutCreates(0);
 Atomic<size_t> g_SemaphoreTimeoutDestroys(0);
@@ -261,6 +262,12 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
       }
 
       auto guard = m_Waiters.acquire();
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+      if (auto hook = __atomic_load_n(&g_BeforeWaitHook, __ATOMIC_ACQUIRE)) {
+        hook(this);
+      }
+#endif
+      guard.prepareToWait();
 
       // The predicate is checked while serialised with release(). The
       // WaitQueue publishes a persistent wait record before dropping this
@@ -268,6 +275,12 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
       if (tryAcquire(n)) {
         finishSemaphoreTimeout(timeoutDiscard);
         return result;
+      }
+
+      // A competing acquire can defeat tryAcquire's single CAS while
+      // leaving enough tokens. Only sleep after observing a shortage.
+      if (static_cast<ssize_t>(m_Counter) >= static_cast<ssize_t>(n)) {
+        continue;
       }
 
       // The handler may have completed after the entry check but before this
@@ -561,7 +574,7 @@ void Semaphore::release(size_t n) {
   EMIT_IF(THREADS) {
     // Waiters can request different counts, so wake all and let each retry
     // the counter predicate under the queue guard.
-    m_Waiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
+    m_Waiters.wakeAllIfWaiting(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
   }
 
   EMIT_IF(STRICT_LOCK_ORDERING) {
@@ -600,6 +613,10 @@ bool Semaphore::mutexOwnedByCurrentThread() const {
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void Semaphore::setBeforeWaitHook(BeforeWaitHook hook) {
+  __atomic_store_n(&g_BeforeWaitHook, hook, __ATOMIC_RELEASE);
+}
+
 void Semaphore::setMutexTransitionHook(MutexTransitionHook hook) {
   __atomic_store_n(&g_MutexTransitionHook, hook, __ATOMIC_RELEASE);
 }

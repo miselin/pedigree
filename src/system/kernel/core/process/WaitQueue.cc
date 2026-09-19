@@ -63,6 +63,7 @@ WaitQueue::Guard::~Guard() {
 
 void WaitQueue::Guard::release() {
   if (m_Queue && m_OwnsLock) {
+    m_Queue->clearWaitIntentIfEmpty();
     m_Queue->m_Lock.release();
     m_OwnsLock = false;
 
@@ -76,6 +77,15 @@ void WaitQueue::Guard::release() {
       WaitQueue::publishReady(waiter);
     }
     m_pLastReady = nullptr;
+  }
+}
+
+void WaitQueue::Guard::prepareToWait() {
+  if (m_OwnsLock) {
+    // Paired with the producer's predicate publication and intent load.
+    // Queue membership alone is too late: the final predicate check must
+    // already be protected against a producer skipping the queue lock.
+    __atomic_store_n(&m_Queue->m_WaitIntent, true, __ATOMIC_SEQ_CST);
   }
 }
 
@@ -180,7 +190,11 @@ size_t WaitQueue::Guard::wakeAndRequeue(const Channel& source, size_t wakeCount,
 }
 
 WaitQueue::WaitQueue()
-    : m_Lock(false), m_pFirstWaiter(nullptr), m_pLastWaiter(nullptr), m_WaiterCount(0) {}
+    : m_Lock(false),
+      m_pFirstWaiter(nullptr),
+      m_pLastWaiter(nullptr),
+      m_WaiterCount(0),
+      m_WaitIntent(false) {}
 
 WaitQueue::~WaitQueue() {
   if (waiterCount()) {
@@ -326,6 +340,24 @@ size_t WaitQueue::wakeAll(WakeReason reason, const Channel& channel) {
   return guard.wakeAll(reason, channel);
 }
 
+size_t WaitQueue::wakeAllIfWaiting(WakeReason reason, const Channel& channel) {
+  if (!Processor::guardDeviceHardIrqOperation(DeviceHardIrqOperation::WaitQueueAccess)) {
+    return 0;
+  }
+  if (!__atomic_load_n(&m_WaitIntent, __ATOMIC_SEQ_CST)) {
+    return 0;
+  }
+  return wakeAll(reason, channel);
+}
+
+void WaitQueue::clearWaitIntentIfEmpty() {
+  // The queue lock excludes another waiter publishing intent until unlock.
+  // Clear on both abandoned enrollment and retirement of the last waiter.
+  if (!m_WaiterCount && __atomic_load_n(&m_WaitIntent, __ATOMIC_RELAXED)) {
+    __atomic_store_n(&m_WaitIntent, false, __ATOMIC_SEQ_CST);
+  }
+}
+
 bool WaitQueue::wakeOneLocked(Guard& guard, WakeReason reason, const Channel& channel) {
   assert(reason == WakeReason::Signalled || reason == WakeReason::Event ||
          reason == WakeReason::Spurious);
@@ -460,6 +492,7 @@ void WaitQueue::removeWaiterLocked(Waiter* waiter) {
 
   assert(m_WaiterCount);
   --m_WaiterCount;
+  clearWaitIntentIfEmpty();
   waiter->previous = nullptr;
   waiter->next = nullptr;
   waiter->setQueued(false);

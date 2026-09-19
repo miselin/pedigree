@@ -735,6 +735,38 @@ void semaphoreReleaseHook(WaitQueue* queue, Thread* thread, const WaitQueue::Cha
   context->semaphore->release();
 }
 
+void semaphoreReleaseBeforeIntentHook(Semaphore* semaphore) {
+  SemaphoreHookContext* context = g_SemaphoreContext;
+  if (!context || semaphore != context->semaphore ||
+      Processor::information().getCurrentThread() != context->expectedWaiter) {
+    return;
+  }
+  context->hookCalls += 1;
+  if (semaphore->getValue() != 0) {
+    context->hookFailures += 1;
+  }
+  semaphore->release();
+}
+
+void semaphorePartialReleaseHook(WaitQueue* queue, Thread* thread,
+                                 const WaitQueue::Channel& channel, size_t debugState) {
+  SemaphoreHookContext* context = g_SemaphoreContext;
+  if (!context || thread != context->expectedWaiter || channel.owner != context->semaphore) {
+    return;
+  }
+  const size_t phase = context->hookCalls;
+  context->hookCalls += 1;
+  context->waiter = thread;
+  Thread::WaitDebugInfo wait = {};
+  if (phase >= 4 || !queue || channel.value || debugState != Thread::SemWait ||
+      !thread->getWaitDebugInfo(wait) || wait.queue != queue || !wait.queued ||
+      wait.reason != WaitQueue::WakeReason::Waiting || queue->waiterCount() != 1 ||
+      context->semaphore->getValue() != static_cast<ssize_t>(phase % 2)) {
+    context->hookFailures += 1;
+  }
+  context->semaphore->release(phase >= 4 ? 3 : (phase % 2 ? 2 : 1));
+}
+
 int waitForTerminalCancellation(void* parameter) {
   TerminalCancelContext* context = reinterpret_cast<TerminalCancelContext*>(parameter);
   StackDestructionCanary stackCanary(&context->destructed);
@@ -1334,6 +1366,54 @@ bool semaphoreReleaseBeforeBlock() {
 
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS semaphore-pre-block");
+  }
+  return passed;
+}
+
+bool semaphoreReleaseBeforeIntent() {
+  Semaphore semaphore(0);
+  SemaphoreHookContext context(&semaphore, Processor::information().getCurrentThread());
+  g_SemaphoreContext = &context;
+  Semaphore::setBeforeWaitHook(semaphoreReleaseBeforeIntentHook);
+
+  // Reuse the queue: a successful final predicate check must retire its intent.
+  const bool first = semaphore.acquire();
+  const bool second = semaphore.acquire();
+
+  Semaphore::setBeforeWaitHook(nullptr);
+  g_SemaphoreContext = nullptr;
+  const bool passed = check(first && second && context.hookCalls == 2 &&
+                                context.hookFailures == 0 && semaphore.getValue() == 0,
+                            "semaphore-pre-intent",
+                            "the final predicate missed a release or retained abandoned intent");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS semaphore-pre-intent");
+  }
+  return passed;
+}
+
+bool semaphorePartialReleaseBeforeBlock() {
+  Semaphore semaphore(0);
+  SemaphoreHookContext context(&semaphore, Processor::information().getCurrentThread());
+  g_SemaphoreContext = &context;
+  WaitQueue::setBeforeBlockHook(semaphorePartialReleaseHook);
+
+  bool acquired = true;
+  bool exactCounts = true;
+  for (size_t cycle = 0; cycle < 2 && acquired; ++cycle) {
+    acquired = semaphore.acquire(3);
+    exactCounts &= context.hookCalls == 2 * (cycle + 1) && semaphore.getValue() == 0;
+  }
+
+  WaitQueue::setBeforeBlockHook(nullptr);
+  g_SemaphoreContext = nullptr;
+  const bool passed =
+      check(acquired && exactCounts && context.hookCalls == 4 && context.hookFailures == 0 &&
+                context.waiter && context.waiter->getStatus() == Thread::Running,
+            "semaphore-partial-release-rearm",
+            "partial releases lost tokens, completed early, or failed to rearm the queue");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS semaphore-partial-release-rearm");
   }
   return passed;
 }
@@ -2608,7 +2688,8 @@ bool runHostedWaitRegressions() {
 #if !PEDIGREE_HOSTED_CORE_SMOKE
       runHostedPs2ControllerRegressions() &&
 #endif
-      wakeBeforeBlock() && semaphoreReleaseBeforeBlock() && terminalCancellationReturns() &&
+      wakeBeforeBlock() && semaphoreReleaseBeforeBlock() && semaphoreReleaseBeforeIntent() &&
+      semaphorePartialReleaseBeforeBlock() && terminalCancellationReturns() &&
       publishedWaitDiscardCleanup() && terminalCancelBeforeBlock() &&
       nestedTerminalShutdownBeforeBlock() && conditionVariableSignalBeforeBlock() &&
       runHostedRingBufferRegressions() && runHostedBufferRegressions() &&

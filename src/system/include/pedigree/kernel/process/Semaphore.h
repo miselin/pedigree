@@ -42,6 +42,9 @@ class EXPORTED_PUBLIC Semaphore {
   };
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  using BeforeWaitHook = void (*)(Semaphore*);
+  static void setBeforeWaitHook(BeforeWaitHook hook);
+
   enum MutexTransitionWindow {
     MutexCounterAcquired,
     MutexOwnerReleased,
