@@ -45,6 +45,11 @@ ProcessorInformation* ProcessorBase::informationAt(size_t cpu) {
 }
 
 namespace {
+// Keep addressable kernel exports for modules built against the IRQ guard API.
+bool (*const inDeviceHardIrqEntry)() USED = &ProcessorBase::inDeviceHardIrq;
+bool (*const guardDeviceHardIrqOperationEntry)(DeviceHardIrqOperation) USED =
+    &ProcessorBase::guardDeviceHardIrqOperation;
+
 #if HOSTED
 const char* deviceHardIrqViolationMessage(DeviceHardIrqOperation operation) {
   switch (operation) {
@@ -101,10 +106,6 @@ size_t ProcessorBase::isInitialised() {
   return m_Initialised;
 }
 
-bool ProcessorBase::inDeviceHardIrq() {
-  return information().m_DeviceHardIrqDepth != 0;
-}
-
 ExecutionContext ProcessorBase::executionContext() {
   Thread* current = information().getCurrentThread();
   if (!current) {
@@ -119,11 +120,7 @@ ExecutionContext ProcessorBase::executionContext() {
   return getInterrupts() ? ExecutionContext::WaitableThread : ExecutionContext::AtomicThread;
 }
 
-bool ProcessorBase::guardDeviceHardIrqOperation(DeviceHardIrqOperation operation) {
-  if (!inDeviceHardIrq()) {
-    return true;
-  }
-
+bool ProcessorBase::rejectDeviceHardIrqOperation(DeviceHardIrqOperation operation) {
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   DeviceHardIrqOperationHook hook =
       __atomic_load_n(&g_DeviceHardIrqOperationHook, __ATOMIC_ACQUIRE);

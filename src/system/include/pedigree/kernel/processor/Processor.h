@@ -475,6 +475,9 @@ class EXPORTED_PUBLIC ProcessorBase {
   static size_t m_Initialised;
 
  private:
+  static NEVER_INLINE __attribute__((cold)) bool rejectDeviceHardIrqOperation(
+      DeviceHardIrqOperation operation);
+
 #if X64
   // Constant-initialized independently of the BSP information constructor.
   static ProcessorInformation::KernelGsAnchor m_BootstrapKernelGsAnchor;
@@ -552,6 +555,18 @@ typedef HostedProcessor Processor;
 #else
 #error No Processor type could be defined.
 #endif
+
+ALWAYS_INLINE inline bool ProcessorBase::inDeviceHardIrq() {
+  return information().m_DeviceHardIrqDepth != 0;
+}
+
+ALWAYS_INLINE inline bool ProcessorBase::guardDeviceHardIrqOperation(
+    DeviceHardIrqOperation operation) {
+  if (LIKELY(!inDeviceHardIrq())) {
+    return true;
+  }
+  return rejectDeviceHardIrqOperation(operation);
+}
 
 /**
  * EnsureInterrupts ensures interrupts are enabled or disabled in an RAII way.
