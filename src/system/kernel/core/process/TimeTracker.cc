@@ -52,10 +52,6 @@ void TimeTracker::initialise(bool entryInterruptsAlreadyDisabled) {
   }
 }
 
-TimeTracker::~TimeTracker() {
-  finish();
-}
-
 void TimeTracker::attributeSyscall(size_t rawNumber) {
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
   if (!m_pProcess || !m_pThread || !m_bFromUserspace || m_bSyscallAttributed ||
@@ -86,10 +82,7 @@ void TimeTracker::finish() {
   thread->transitionTime(KernelTimeTransition::handler(),
                          KernelTimeTransition::resumed(m_bFromUserspace));
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
-  if (m_bSyscallAttributed) {
-    thread->restoreSyscallTimingSlot(m_PreviousSyscallTimingSlot);
-    m_bSyscallAttributed = false;
-  }
+  restoreSyscallTiming(thread);
 #endif
 }
 
@@ -107,27 +100,15 @@ void TimeTracker::finishInKernel() {
   // tail makes the eventual Kernel -> User transition.
   thread->transitionTime(KernelTimeTransition::handler(), KernelTimeTransition::handler());
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
-  if (m_bSyscallAttributed) {
-    thread->restoreSyscallTimingSlot(m_PreviousSyscallTimingSlot);
-    m_bSyscallAttributed = false;
-  }
+  restoreSyscallTiming(thread);
 #endif
 }
 
-void TimeTracker::finishForUserReturn() {
-  Thread* thread = m_pThread;
-  if (!m_pProcess || !thread)
-    return;
-
-  // The final Kernel -> User transition owns the complete interval for a
-  // clean syscall. Retire this object without publishing an intermediate
-  // sample or changing the thread's accounting mode.
-  m_pProcess = nullptr;
-  m_pThread = nullptr;
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+void TimeTracker::restoreSyscallTiming(Thread* thread) {
   if (m_bSyscallAttributed) {
     thread->restoreSyscallTimingSlot(m_PreviousSyscallTimingSlot);
     m_bSyscallAttributed = false;
   }
-#endif
 }
+#endif

@@ -78,9 +78,9 @@ void Thread::setUserReturnSignalParked(bool parked) {
 
 bool Thread::canSkipUserReturnWork() {
   Process* process = m_pParent;
-  const size_t work = __atomic_load_n(&m_UserReturnWorkPending, __ATOMIC_ACQUIRE);
-  return process && process->getState() == Process::Active &&
-         getUnwindState() == Continue && work == 0 && m_OriginalSyscallState == nullptr;
+  const bool workPending = userReturnWorkPending();
+  return process && process->getState() == Process::Active && getUnwindState() == Continue &&
+         !workPending && m_OriginalSyscallState == nullptr;
 }
 
 bool Thread::clearUserReturnWorkIfIdle() {

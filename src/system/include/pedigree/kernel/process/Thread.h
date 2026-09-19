@@ -128,7 +128,6 @@ class EXPORTED_PUBLIC Thread {
   enum UserReturnWorkFlag : size_t {
     UserReturnExternalWork = 1,
     UserReturnEventsDeferred = 1 << 1,
-    UserReturnTerminationDeferred = 1 << 2,
     UserReturnSignalFrames = 1 << 3,
     UserReturnDeferredException = 1 << 4,
     UserReturnOriginalSyscall = 1 << 5,
@@ -137,7 +136,8 @@ class EXPORTED_PUBLIC Thread {
   bool canSkipUserReturnWork();
   bool clearUserReturnWorkIfIdle();
   bool userReturnWorkPending() const {
-    return __atomic_load_n(&m_UserReturnWorkPending, __ATOMIC_ACQUIRE) != 0;
+    return __atomic_load_n(&m_UserReturnWorkPending, __ATOMIC_ACQUIRE) != 0 ||
+           isTerminationDeferred();
   }
   bool requiresSignalFrames() const {
     return __atomic_load_n(&m_SignalFramesRequired, __ATOMIC_ACQUIRE);

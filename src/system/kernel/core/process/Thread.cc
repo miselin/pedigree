@@ -1591,9 +1591,12 @@ bool Thread::runHostedStatePublicationRegression() {
 
 bool Thread::runHostedStateCleanupRegression() {
   const size_t initialLevel = getStateLevel();
-  const auto terminationFlagSet = [this]() {
-    return (__atomic_load_n(&m_UserReturnWorkPending, __ATOMIC_ACQUIRE) &
-            UserReturnTerminationDeferred) != 0;
+  if (!clearUserReturnWorkIfIdle() || userReturnWorkPending() || !canSkipUserReturnWork()) {
+    return false;
+  }
+  const auto terminationWorkPending = [this]() {
+    return isTerminationDeferred() && userReturnWorkPending() && !canSkipUserReturnWork() &&
+           !clearUserReturnWorkIfIdle();
   };
   HostedStateCleanupOrder order;
   HostedStateCleanupItem oldItem{&order, 0};
@@ -1623,7 +1626,7 @@ bool Thread::runHostedStateCleanupRegression() {
   const bool checkpointPassed = order.count == 2 && order.values[0] == 2 && order.values[1] == 1 &&
                                 oldRecord.armed && !firstRecord.armed && !secondRecord.armed &&
                                 !checkpointTerminationRecord.armed && !isTerminationDeferred() &&
-                                !terminationFlagSet();
+                                !userReturnWorkPending() && canSkipUserReturnWork();
   disarmStateCleanup(oldRecord);
 
   armStateCleanup(normalRecord, hostedStateCleanupCallback, &normalItem);
@@ -1653,13 +1656,14 @@ bool Thread::runHostedStateCleanupRegression() {
   const bool levelPassed = pushed && getStateLevel() == initialLevel && order.count == 3 &&
                            order.values[2] == 5 && baseRecord.armed && !levelRecord.armed &&
                            !levelTerminationRecord.armed && !isTerminationDeferred() &&
-                           !terminationFlagSet();
+                           !userReturnWorkPending() && canSkipUserReturnWork();
   disarmStateCleanup(baseRecord);
 
   registerDeferredScope(terminationRecord, true, false);
-  const bool explicitTerminationDefers = isTerminationDeferred();
+  const bool explicitTerminationDefers = terminationWorkPending();
   unregisterDeferredScope(terminationRecord);
-  const bool explicitTerminationRetired = !isTerminationDeferred() && !terminationRecord.armed;
+  const bool explicitTerminationRetired = !isTerminationDeferred() && !terminationRecord.armed &&
+                                          !userReturnWorkPending() && canSkipUserReturnWork();
 
   bool pureScopesPassed = true;
   DeferredScopeRecord* initialHead =
@@ -1675,14 +1679,14 @@ bool Thread::runHostedStateCleanupRegression() {
                       freshRecord->next == initialHead && freshRecord->stateLevel == initialLevel &&
                       freshSequence > pureCheckpoint && freshRecord->defersTermination &&
                       !freshRecord->defersEvents && !freshRecord->cleanup &&
-                      !freshRecord->context && isTerminationDeferred() && terminationFlagSet();
+                      !freshRecord->context && terminationWorkPending();
   {
     TerminationDeferral moved(pedigree_std::move(*fresh));
     fresh->~TerminationDeferral();
     DeferredScopeRecord* movedRecord =
         __atomic_load_n(&m_pDeferredScopes[initialLevel], __ATOMIC_ACQUIRE);
     pureScopesPassed &= movedRecord && movedRecord != freshRecord &&
-                        movedRecord->sequence == freshSequence && isTerminationDeferred();
+                        movedRecord->sequence == freshSequence && terminationWorkPending();
 
     // Reuse poisoned storage so adoption cannot rely on an accidentally zero stack.
     ByteSet(scopeStorage, 0x5a, sizeof(scopeStorage));
@@ -1692,7 +1696,8 @@ bool Thread::runHostedStateCleanupRegression() {
     *disabled = pedigree_std::move(moved);
     DeferredScopeRecord* adoptedRecord =
         __atomic_load_n(&m_pDeferredScopes[initialLevel], __ATOMIC_ACQUIRE);
-    pureScopesPassed &= adoptedRecord && adoptedRecord->sequence == freshSequence;
+    pureScopesPassed &=
+        adoptedRecord && adoptedRecord->sequence == freshSequence && terminationWorkPending();
 
     armStateCleanup(normalRecord, hostedStateCleanupCallback, &normalItem);
     {
@@ -1701,37 +1706,36 @@ bool Thread::runHostedStateCleanupRegression() {
       pureScopesPassed &=
           __atomic_load_n(&m_pDeferredScopes[initialLevel], __ATOMIC_ACQUIRE) == &normalRecord &&
           normalRecord.next == adoptedRecord && adoptedRecord &&
-          adoptedRecord->sequence == freshSequence && isTerminationDeferred();
+          adoptedRecord->sequence == freshSequence && terminationWorkPending();
     }
     disarmStateCleanup(normalRecord);
     *disabled = TerminationDeferral(false);
-    pureScopesPassed &= !isTerminationDeferred() &&
-                        __atomic_load_n(&m_pDeferredScopes[initialLevel], __ATOMIC_ACQUIRE) ==
-                            initialHead;
+    pureScopesPassed &=
+        !isTerminationDeferred() && !userReturnWorkPending() && canSkipUserReturnWork() &&
+        __atomic_load_n(&m_pDeferredScopes[initialLevel], __ATOMIC_ACQUIRE) == initialHead;
     disabled->~TerminationDeferral();
   }
 
-  bool nestedFlagsPassed = true;
+  bool nestedWorkPassed = true;
   DeferredScopeRecord eventOnlyRecord;
   {
     TerminationDeferral outer;
-    nestedFlagsPassed &=
-        isTerminationDeferred() && terminationFlagSet() && !clearUserReturnWorkIfIdle();
+    nestedWorkPassed &= terminationWorkPending();
     registerDeferredScope(eventOnlyRecord, false, true);
     {
       TerminationDeferral inner;
       outer = TerminationDeferral(false);
-      nestedFlagsPassed &= isTerminationDeferred() && terminationFlagSet();
+      nestedWorkPassed &= terminationWorkPending();
     }
-    nestedFlagsPassed &=
-        !isTerminationDeferred() && !terminationFlagSet() && eventsDeferred() &&
-        (__atomic_load_n(&m_UserReturnWorkPending, __ATOMIC_ACQUIRE) & UserReturnEventsDeferred);
+    nestedWorkPassed &= !isTerminationDeferred() && eventsDeferred() && userReturnWorkPending() &&
+                        !canSkipUserReturnWork() && !clearUserReturnWorkIfIdle();
   }
   unregisterDeferredScope(eventOnlyRecord);
+  nestedWorkPassed &= !userReturnWorkPending() && canSkipUserReturnWork();
 
   return cleanupDoesNotDeferTermination && checkpointPassed && normalPassed &&
          temporaryMaskCleanupPassed && levelPassed && explicitTerminationDefers &&
-         explicitTerminationRetired && pureScopesPassed && nestedFlagsPassed && order.count == 3;
+         explicitTerminationRetired && pureScopesPassed && nestedWorkPassed && order.count == 3;
 }
 
 bool Thread::runHostedExecStackOwnershipRegression() {
@@ -3205,10 +3209,7 @@ void Thread::resumeEvents() {
 }
 
 void Thread::deferTermination() {
-  if (__atomic_add_fetch(&m_TerminationDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL) ==
-      1) {
-    markUserReturnWorkFlag(UserReturnTerminationDeferred);
-  }
+  __atomic_add_fetch(&m_TerminationDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
 }
 
 void Thread::resumeTermination() {
@@ -3216,9 +3217,7 @@ void Thread::resumeTermination() {
   if (!depth) {
     FATAL("Unbalanced terminal-teardown deferral.");
   }
-  if (__atomic_sub_fetch(&m_TerminationDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL) == 0) {
-    clearUserReturnWorkFlag(UserReturnTerminationDeferred);
-  }
+  __atomic_sub_fetch(&m_TerminationDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
 }
 
 void Thread::registerFreshTerminationDeferral(DeferredScopeRecord& record) {

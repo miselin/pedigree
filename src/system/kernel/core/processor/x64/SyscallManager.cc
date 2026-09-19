@@ -141,13 +141,8 @@ bool X64SyscallManager::registerSyscallHandler(Service_t Service, SyscallHandler
   return registerHandler(Service, pHandler, registration, entry);
 }
 
-bool X64SyscallManager::syscall(SyscallState& syscallState) {
+void X64SyscallManager::syscall(SyscallState& syscallState) {
   captureUserEntry(syscallState);
-  syscallWithActions(syscallState);
-  return true;
-}
-
-void X64SyscallManager::syscallWithActions(SyscallState& syscallState) {
   // Restart handling consumes only the entry registers, not deferred FS/GS bases.
   const SyscallState originalState = syscallState;
 #if PEDIGREE_ACTIVITY_DIAGNOSTICS

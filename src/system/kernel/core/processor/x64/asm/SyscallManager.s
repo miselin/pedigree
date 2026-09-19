@@ -75,13 +75,9 @@ pedigree_syscall_kernel_stack:
 
   cli
 
-  ; A bounded call can retain the original user selectors and inactive GS base.
-  test al, al
-  jz .fast_return
   mov rdi, rsp
   call pedigree_restore_syscall_entry
 
-.fast_return:
   add rsp, 32
         
   pop r15

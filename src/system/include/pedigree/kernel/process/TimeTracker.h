@@ -50,7 +50,10 @@ class TimeTracker {
   {
     initialise(entryInterruptsAlreadyDisabled);
   }
-  virtual ~TimeTracker();
+  ALWAYS_INLINE ~TimeTracker() {
+    if (m_pProcess && m_pThread)
+      finish();
+  }
 
   /** Completes accounting before a no-return architectural transition. */
   void finish();
@@ -59,13 +62,28 @@ class TimeTracker {
   void finishInKernel();
 
   /** Retires the tracker while leaving the kernel interval for user return. */
-  void finishForUserReturn();
+  ALWAYS_INLINE void finishForUserReturn() {
+    Thread* thread = m_pThread;
+    if (!m_pProcess || !thread)
+      return;
+
+    // The architecture tail owns the final accounting sample. Keep retirement
+    // visible here so destruction can omit a second completion attempt.
+    m_pProcess = nullptr;
+    m_pThread = nullptr;
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+    restoreSyscallTiming(thread);
+#endif
+  }
 
   /** Attributes this userspace Linux syscall to the active Process. */
   void attributeSyscall(size_t rawNumber);
 
  private:
   void initialise(bool entryInterruptsAlreadyDisabled);
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  void restoreSyscallTiming(Thread* thread);
+#endif
 
   Process* m_pProcess;
   Thread* m_pThread;
