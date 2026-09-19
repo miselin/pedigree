@@ -19,34 +19,60 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include "pedigree/kernel/core/SlamAllocator.h"
-
-#include <iostream>
-#include <memory>
-
 #include <benchmark/benchmark.h>
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include <vector>
+
+extern "C" size_t slamBenchmarkObjectMinimumSize();
+extern "C" uintptr_t slamBenchmarkAllocate(size_t size);
+extern "C" void slamBenchmarkFree(uintptr_t object);
+extern "C" void slamBenchmarkClearAll();
+extern "C" size_t slamBenchmarkRecovery(size_t maxSlabs);
 
 static void BM_SlamAllocatorBackForthReference(benchmark::State& state) {
   while (state.KeepRunning()) {
-    void* mem = malloc(OBJECT_MINIMUM_SIZE);
+    void* mem = malloc(slamBenchmarkObjectMinimumSize());
     benchmark::DoNotOptimize(mem);
     free(mem);
   }
 
   state.SetItemsProcessed(int64_t(state.iterations()));
-  state.SetBytesProcessed(int64_t(state.iterations()) * OBJECT_MINIMUM_SIZE);
+  state.SetBytesProcessed(int64_t(state.iterations()) * slamBenchmarkObjectMinimumSize());
 }
 
 static void BM_SlamAllocatorBackForth(benchmark::State& state) {
   while (state.KeepRunning()) {
-    uintptr_t mem = SlamAllocator::instance().allocate(OBJECT_MINIMUM_SIZE);
+    uintptr_t mem = slamBenchmarkAllocate(slamBenchmarkObjectMinimumSize());
     benchmark::DoNotOptimize(mem);
-    SlamAllocator::instance().free(mem);
+    slamBenchmarkFree(mem);
   }
 
   state.SetItemsProcessed(int64_t(state.iterations()));
-  state.SetBytesProcessed(int64_t(state.iterations()) * OBJECT_MINIMUM_SIZE);
+  state.SetBytesProcessed(int64_t(state.iterations()) * slamBenchmarkObjectMinimumSize());
 }
 
 BENCHMARK(BM_SlamAllocatorBackForthReference);
 BENCHMARK(BM_SlamAllocatorBackForth);
+
+static void BM_SlamAllocatorRecovery(benchmark::State& state) {
+  std::vector<uintptr_t> objects(static_cast<size_t>(state.range(0)));
+
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    slamBenchmarkClearAll();
+    for (uintptr_t& object : objects)
+      object = slamBenchmarkAllocate(1);
+    for (uintptr_t object : objects)
+      slamBenchmarkFree(object);
+    state.ResumeTiming();
+
+    benchmark::DoNotOptimize(slamBenchmarkRecovery(1));
+  }
+
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()));
+}
+
+BENCHMARK(BM_SlamAllocatorRecovery)->RangeMultiplier(8)->Range(64, 1 << 14);

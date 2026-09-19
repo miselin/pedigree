@@ -485,7 +485,9 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-HashTable.cc
         testsuite/bench-List.cc
         testsuite/bench-SlamAllocator.cc
+        testsuite/bench-SlamAllocator-adapter.cc
         testsuite/bench-SlamBitmap.cc
+        testsuite/bench-SlamSlab.cc
         testsuite/bench-main.cc
         testsuite/bench-DirectoryStructures.cc
         testsuite/bench-RadixTree.cc

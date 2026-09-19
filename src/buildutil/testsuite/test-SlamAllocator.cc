@@ -203,7 +203,7 @@ TEST_F(SlamAllocatorCorrectnessTest, ReusesAndRecoversCrossCpuFreeLists) {
 
   SlamCache cache;
   cache.initialise(&allocator, TestObjectSize);
-  const size_t objectsPerSlab = SLAB_MINIMUM_SIZE / TestObjectSize;
+  const size_t objectsPerSlab = cache.slabObjectCount();
   uintptr_t allocations[SLAB_MINIMUM_SIZE / TestObjectSize] = {};
   const size_t pagesBefore = allocator.heapPageCount();
 
@@ -239,7 +239,7 @@ TEST_F(SlamAllocatorCorrectnessTest, RecoveryBudgetSkipsBusySlab) {
 
   SlamCache cache;
   cache.initialise(&allocator, TestObjectSize);
-  const size_t objectsPerSlab = SLAB_MINIMUM_SIZE / TestObjectSize;
+  const size_t objectsPerSlab = cache.slabObjectCount();
   uintptr_t allocations[2 * (SLAB_MINIMUM_SIZE / TestObjectSize)] = {};
   const size_t pagesBefore = allocator.heapPageCount();
 
