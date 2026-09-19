@@ -29,6 +29,8 @@ def phases(mode):
         return []
     if mode == "trace-link":
         return ["warm-link", "trace-link"]
+    if mode == "link":
+        return ["warm-link"] + [f"r{round}-link" for round in range(1, 6)]
     if mode == "prepare":
         return ["prepare-preprocess", "prepare-codegen", "prepare-assemble"]
     result = ["cpu-before"]
@@ -61,7 +63,7 @@ def validate_identities(identities, mode):
         stage[item["path"]] = (item["bytes"], item["fnv1a64"])
     expected = {"which.cc", "tiny.cc"}
     generated = {"which.ii", "which.s", "which.o"}
-    if mode in ("run", "trace-link"):
+    if mode in ("run", "trace-link", "link"):
         expected |= generated
         generated = set()
     if (set(stages["before"]) != expected or stages["before"] != stages["after"] or
@@ -118,14 +120,15 @@ def arguments():
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--os", choices=("linux", "pedigree"), required=True)
-    parser.add_argument("--mode", choices=("prepare", "run", "install", "trace-link"), default="run")
+    parser.add_argument("--mode", choices=("prepare", "run", "install", "trace-link", "link"), default="run")
     parser.add_argument("--storage", choices=("disk", "ramfs"), default="disk")
     parser.add_argument("--firmware-code", type=Path)
     parser.add_argument("--linux-root", type=Path)
     parser.add_argument("--linux-kernel", type=Path)
     parser.add_argument("--linux-initrd", type=Path)
     parser.add_argument("--setup-iso", type=Path)
-    parser.add_argument("--profile-phase", choices=phases("run") + phases("prepare") + ["trace-link"])
+    parser.add_argument("--profile-phase", choices=phases("run") + phases("prepare") +
+                        ["trace-link", "r4-link", "r5-link"])
     parser.add_argument("--plugin", action="append", default=[])
     parser.add_argument("--timeout", type=float, default=1800)
     parser.add_argument("--boot-timeout", type=float, default=240)
@@ -142,10 +145,12 @@ def arguments():
         parser.error("--mode install requires --setup-iso")
     if args.mode == "trace-link" and (args.os != "pedigree" or args.storage != "ramfs"):
         parser.error("--mode trace-link requires Pedigree and --storage ramfs")
-    if args.os == "pedigree" and args.mode not in ("run", "trace-link"):
+    if args.mode == "link" and args.storage != "ramfs":
+        parser.error("--mode link requires --storage ramfs")
+    if args.os == "pedigree" and args.mode not in ("run", "trace-link", "link"):
         parser.error("prepare/install runs on Linux so the shared fixture can be flushed")
-    if args.storage == "ramfs" and args.mode not in ("run", "trace-link"):
-        parser.error("--storage ramfs requires run or trace-link mode")
+    if args.storage == "ramfs" and args.mode not in ("run", "trace-link", "link"):
+        parser.error("--storage ramfs requires run, trace-link or link mode")
     if args.profile_phase and args.profile_phase not in phases(args.mode):
         parser.error("--profile-phase does not belong to the selected mode")
     if min(args.timeout, args.boot_timeout) <= 0:

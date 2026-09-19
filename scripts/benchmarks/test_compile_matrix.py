@@ -139,11 +139,14 @@ class TraceLinkProtocolTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.arguments("--profile-phase", "r1-link")
 
-    def test_trace_is_instrumented_without_profile_or_plugin(self):
-        for mode, expected in (("trace-link", True), ("run", False)):
-            with self.subTest(mode=mode), tempfile.TemporaryDirectory(
+    def test_reports_distinguish_plain_links_from_instrumented_runs(self):
+        cases = (("trace-link", (), True), ("run", (), False), ("link", (), False),
+                 ("link", ("--plugin", "profile.so"), True),
+                 ("link", ("--profile-phase", "r5-link"), True))
+        for mode, extra, expected in cases:
+            with self.subTest(mode=mode, extra=extra), tempfile.TemporaryDirectory(
                     prefix="compile-trace-test-") as directory:
-                args = self.arguments("--mode", mode)
+                args = self.arguments("--mode", mode, *extra)
                 args.image = Path(directory) / "fixture.qcow2"
                 args.image.touch()
                 args.output = Path(directory) / "report"
@@ -154,14 +157,16 @@ class TraceLinkProtocolTest(unittest.TestCase):
                 data = json.loads((args.output / "report.json").read_text())
                 self.assertIs(data["instrumented"], expected)
 
-    def test_trace_requires_all_unchanged_frozen_inputs(self):
-        identities = report("pedigree")["identities"]
-        RUNNER.validate_identities(identities, "trace-link")
-        with self.assertRaisesRegex(ValueError, "incomplete or changed"):
-            RUNNER.validate_identities(identities[:-1], "trace-link")
-        identities[-1]["fnv1a64"] = "aaaaaaaaaaaaaaaa"
-        with self.assertRaisesRegex(ValueError, "incomplete or changed"):
-            RUNNER.validate_identities(identities, "trace-link")
+    def test_link_modes_require_all_unchanged_frozen_inputs(self):
+        for mode in ("trace-link", "link"):
+            with self.subTest(mode=mode):
+                identities = report("pedigree")["identities"]
+                RUNNER.validate_identities(identities, mode)
+                with self.assertRaisesRegex(ValueError, "incomplete or changed"):
+                    RUNNER.validate_identities(identities[:-1], mode)
+                identities[-1]["fnv1a64"] = "aaaaaaaaaaaaaaaa"
+                with self.assertRaisesRegex(ValueError, "incomplete or changed"):
+                    RUNNER.validate_identities(identities, mode)
 
     def test_trace_is_rejected_by_timing_comparison(self):
         data = report("pedigree")
@@ -172,6 +177,44 @@ class TraceLinkProtocolTest(unittest.TestCase):
             path.write_text(json.dumps(data))
             with self.assertRaisesRegex(ValueError, "uninstrumented"):
                 SUMMARY.load_report(path, "pedigree")
+
+
+class LinkOnlyProtocolTest(unittest.TestCase):
+    def arguments(self, os_name="pedigree", *extra):
+        argv = ["run-compile-matrix.py", "--image", "fixture.qcow2", "--output", "link",
+                "--os", os_name, "--mode", "link", "--storage", "ramfs",
+                "--firmware-code", "firmware.fd", "--linux-root", "linux.img",
+                "--linux-kernel", "vmlinuz", "--linux-initrd", "initrd", *extra]
+        with patch("sys.argv", argv), patch("sys.stderr", new_callable=io.StringIO):
+            return RUNNER.arguments()
+
+    def test_warmup_and_five_links_have_exact_order(self):
+        self.assertEqual(RUNNER.phases("link"),
+                         ["warm-link", "r1-link", "r2-link", "r3-link", "r4-link", "r5-link"])
+        self.assertEqual(RUNNER.phases("trace-link"), ["warm-link", "trace-link"])
+
+    def test_link_supports_both_kernels_but_requires_ramfs(self):
+        for os_name in ("linux", "pedigree"):
+            with self.subTest(os=os_name):
+                self.assertEqual(self.arguments(os_name).mode, "link")
+                with self.assertRaises(SystemExit):
+                    self.arguments(os_name, "--storage", "disk")
+                with self.assertRaises(SystemExit):
+                    self.arguments(os_name, "--mode", "prepare")
+
+    def test_link_profiles_are_limited_to_its_six_phases(self):
+        for phase in RUNNER.phases("link"):
+            self.assertEqual(self.arguments("pedigree", "--profile-phase", phase).profile_phase,
+                             phase)
+        for phase in ("trace-link", "r1-full", "cpu-before"):
+            with self.subTest(phase=phase), self.assertRaises(SystemExit):
+                self.arguments("pedigree", "--profile-phase", phase)
+
+    def test_linux_link_bootstrap_uses_marker_aware_ram_driver(self):
+        script = RUNNER.linux_bootstrap(self.arguments("linux"))
+        self.assertIn("/root/compile-bench/compile-matrix-ramroot --stdio", script)
+        self.assertNotIn(" --link", script)
+        self.assertIn("umount /mnt/pedigree/tmp/compile-matrix-root/proc", script)
 
 
 if __name__ == "__main__":

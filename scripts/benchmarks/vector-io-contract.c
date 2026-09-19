@@ -1,0 +1,297 @@
+#define _GNU_SOURCE
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include <sys/mman.h>
+#include <sys/mount.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/uio.h>
+#include <sys/utsname.h>
+#include <sys/wait.h>
+
+static const char* current_case = "setup";
+static unsigned char source[8192];
+static unsigned char output[9][8194];
+static int pedigree;
+
+static void require(int condition, const char* check) {
+  if (!condition) {
+    printf("VECTORIO check=%s case=%s FAIL errno=%d\nVECTORIO FAIL END\n", check,
+           current_case, errno);
+    exit(1);
+  }
+}
+
+static void passed(void) {
+  printf("VECTORIO check=%s PASS\n", current_case);
+}
+
+static void reset_file(int fd, const void* bytes, size_t length) {
+  require(ftruncate(fd, 0) == 0 && lseek(fd, 0, SEEK_SET) == 0, "reset-file");
+  if (length)
+    require(write(fd, bytes, length) == (ssize_t)length, "seed-file");
+  require(lseek(fd, 0, SEEK_SET) == 0, "rewind-file");
+}
+
+static void verify_vectors(const struct iovec* vectors, int count, size_t total) {
+  size_t offset = 0;
+  for (int i = 0; i < count; ++i) {
+    const size_t length = vectors[i].iov_len;
+    require(!memcmp(output[i] + 1, source + offset, length), "scatter-bytes");
+    require(output[i][0] == 0xa5 && output[i][length + 1] == 0xa5, "scatter-guards");
+    offset += length;
+  }
+  require(offset == total, "scatter-total");
+}
+
+static void roundtrip(int fd, int count, size_t total) {
+  char label[64];
+  snprintf(label, sizeof(label), "vectors-%d-bytes-%zu", count, total);
+  current_case = label;
+  struct iovec writes[9], reads[9];
+  size_t offset = 0;
+  for (int i = 0; i < count; ++i) {
+    size_t length = total / count + ((size_t)i < total % count);
+    writes[i] = (struct iovec){source + offset, length};
+    reads[i] = (struct iovec){output[i] + 1, length};
+    offset += length;
+  }
+  reset_file(fd, NULL, 0);
+  require(writev(fd, writes, count) == (ssize_t)total, "writev-count");
+  require(lseek(fd, 0, SEEK_CUR) == (off_t)total, "writev-offset");
+  require(lseek(fd, 0, SEEK_SET) == 0, "readv-rewind");
+  memset(output, 0xa5, sizeof(output));
+  require(readv(fd, reads, count) == (ssize_t)total, "readv-count");
+  require(lseek(fd, 0, SEEK_CUR) == (off_t)total, "readv-offset");
+  verify_vectors(reads, count, total);
+
+  require(ftruncate(fd, 0) == 0 && lseek(fd, 7, SEEK_SET) == 7, "positional-setup");
+  require(pwritev(fd, writes, count, 13) == (ssize_t)total, "pwritev-count");
+  require(lseek(fd, 0, SEEK_CUR) == 7, "pwritev-preserves-offset");
+  memset(output, 0xa5, sizeof(output));
+  require(preadv(fd, reads, count, 13) == (ssize_t)total, "preadv-count");
+  require(lseek(fd, 0, SEEK_CUR) == 7, "preadv-preserves-offset");
+  verify_vectors(reads, count, total);
+  struct stat status;
+  require(fstat(fd, &status) == 0 && status.st_size == (off_t)(13 + total),
+          "positional-file-size");
+  passed();
+}
+
+static void empty_vectors(int fd, void* inaccessible) {
+  current_case = "empty-and-zero-length-vectors";
+  reset_file(fd, source, 16);
+  require(readv(fd, inaccessible, 0) == 0 && writev(fd, inaccessible, 0) == 0,
+          "zero-count-ignores-array");
+  struct iovec vectors[] = {{inaccessible, 0}, {inaccessible, 0}};
+  require(readv(fd, vectors, 2) == 0 && writev(fd, vectors, 2) == 0 &&
+              lseek(fd, 0, SEEK_CUR) == 0,
+          "zero-length-ignores-payload");
+  struct iovec mixed[] = {{inaccessible, 0}, {source, 4}, {inaccessible, 0}};
+  require(writev(fd, mixed, 3) == 4 && lseek(fd, 0, SEEK_CUR) == 4, "mixed-empty-write");
+  require(lseek(fd, 0, SEEK_SET) == 0, "mixed-empty-rewind");
+  mixed[1].iov_base = output[0];
+  require(readv(fd, mixed, 3) == 4 && !memcmp(output[0], source, 4) &&
+              lseek(fd, 0, SEEK_CUR) == 4,
+          "mixed-empty-read");
+  passed();
+}
+
+static void positional_snapshot(int fd, int count) {
+  current_case = count == 2 ? "preadv-snapshot-2" : "preadv-snapshot-9";
+  reset_file(fd, source, sizeof(struct iovec) + 4);
+  require(lseek(fd, 7, SEEK_SET) == 7, "snapshot-start-offset");
+  struct iovec vectors[9] = {{0}};
+  vectors[0] = (struct iovec){&vectors[count - 1], sizeof(struct iovec)};
+  vectors[count - 1] = (struct iovec){output[0], 4};
+  // The first output overwrites a later user descriptor after its snapshot.
+  require(preadv(fd, vectors, count, 0) == (ssize_t)(sizeof(struct iovec) + 4) &&
+              !memcmp(&vectors[count - 1], source, sizeof(struct iovec)) &&
+              !memcmp(output[0], source + sizeof(struct iovec), 4) &&
+              lseek(fd, 0, SEEK_CUR) == 7,
+          "snapshot-survives-descriptor-overwrite");
+  passed();
+}
+
+static void faults(int fd, void* inaccessible) {
+  reset_file(fd, source, 16);
+  const long operations[] = {SYS_readv, SYS_writev};
+  for (int i = 0; i < 2; ++i) {
+    current_case = i ? "writev-invalid-input" : "readv-invalid-input";
+    errno = 0;
+    require(syscall(operations[i], fd, inaccessible, 1025) == -1 && errno == EINVAL,
+            "over-limit-count");
+    errno = 0;
+    require(syscall(operations[i], fd, inaccessible, 1) == -1 && errno == EFAULT,
+            "inaccessible-vector-array");
+    struct iovec bad = {inaccessible, 4};
+    errno = 0;
+    require(syscall(operations[i], fd, &bad, 1) == -1 && errno == EFAULT,
+            "inaccessible-payload");
+    require(lseek(fd, 0, SEEK_CUR) == 0, "fault-preserves-offset");
+    require(pread(fd, output[0], 16, 0) == 16 && !memcmp(output[0], source, 16),
+            "fault-preserves-file");
+    passed();
+  }
+
+  current_case = "readv-prefix-before-fault";
+  memset(output[0], 0xa5, sizeof(output[0]));
+  struct iovec read_fault[] = {{output[0] + 1, 4}, {inaccessible, 4}};
+  require(readv(fd, read_fault, 2) == 4 && !memcmp(output[0] + 1, source, 4) &&
+              output[0][0] == 0xa5 && output[0][5] == 0xa5 &&
+              lseek(fd, 0, SEEK_CUR) == 4,
+          "partial-read-offset-and-bytes");
+  require(read(fd, output[1], 4) == 4 && !memcmp(output[1], source + 4, 4),
+          "partial-read-following-bytes");
+  passed();
+
+  const size_t prefixes[] = {4, 2048, 8191};
+  for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); ++i) {
+    size_t prefix = prefixes[i];
+    char label[64];
+    snprintf(label, sizeof(label), "writev-gather-fault-prefix-%zu", prefix);
+    current_case = label;
+    reset_file(fd, source, sizeof(source));
+    memset(output[2], 0x7e, sizeof(output[2]));
+    struct iovec write_fault[] = {{output[2], prefix}, {inaccessible, i ? 1 : 4}};
+    errno = 0;
+    ssize_t result = writev(fd, write_fault, 2);
+    int error = errno;
+    off_t position = lseek(fd, 0, SEEK_CUR);
+    struct stat status;
+    require(pread(fd, output[0], sizeof(source), 0) == (ssize_t)sizeof(source) &&
+                fstat(fd, &status) == 0 && status.st_size == (off_t)sizeof(source),
+            "fault-write-inspect");
+    // Linux may commit a prefix; Pedigree gathers all of these requests first.
+    if (!pedigree && result == (ssize_t)prefix) {
+      require(position == (off_t)prefix && !memcmp(output[0], output[2], prefix) &&
+                  !memcmp(output[0] + prefix, source + prefix, sizeof(source) - prefix),
+              "linux-partial-write-state");
+      printf("VECTORIO detail=linux-valid-prefix bytes=%zu\n", prefix);
+    } else {
+      require(result == -1 && error == EFAULT && position == 0 &&
+                  !memcmp(output[0], source, sizeof(source)),
+              "gather-fault-is-uncommitted");
+    }
+    passed();
+  }
+}
+
+static void short_eof(int fd) {
+  current_case = "short-eof-scatter";
+  reset_file(fd, "abcde", 5);
+  memset(output, 0xa5, sizeof(output));
+  struct iovec vectors[] = {{output[0] + 1, 3}, {output[1] + 1, 8}};
+  require(readv(fd, vectors, 2) == 5 && lseek(fd, 0, SEEK_CUR) == 5 &&
+              !memcmp(output[0] + 1, "abc", 3) && !memcmp(output[1] + 1, "de", 2),
+          "eof-count-bytes-offset");
+  require(output[0][0] == 0xa5 && output[0][4] == 0xa5 && output[1][0] == 0xa5,
+          "eof-leading-guards");
+  for (int i = 3; i <= 9; ++i)
+    require(output[1][i] == 0xa5, "eof-unused-destination");
+  require(readv(fd, vectors, 2) == 0 && lseek(fd, 0, SEEK_CUR) == 5, "eof-repeat");
+  passed();
+}
+
+static void pipe_vectors(void) {
+  current_case = "pipe-vector-atomic-records";
+  int descriptors[2];
+  require(pipe(descriptors) == 0, "pipe-create");
+  pid_t children[2];
+  for (int writer = 0; writer < 2; ++writer) {
+    children[writer] = fork();
+    require(children[writer] >= 0, "pipe-fork");
+    if (!children[writer]) {
+      close(descriptors[0]);
+      unsigned char first[2048], second[2048];
+      memset(first, 'A' + writer, sizeof(first));
+      memset(second, 'a' + writer, sizeof(second));
+      struct iovec vectors[] = {{first, sizeof(first)}, {second, sizeof(second)}};
+      for (int record = 0; record < 8; ++record)
+        if (writev(descriptors[1], vectors, 2) != 4096)
+          _exit(1);
+      close(descriptors[1]);
+      _exit(0);
+    }
+  }
+  require(close(descriptors[1]) == 0, "pipe-close-parent-writer");
+  unsigned counts[2] = {0};
+  unsigned char first[2048], second[2048];
+  struct iovec vectors[] = {{first, sizeof(first)}, {second, sizeof(second)}};
+  for (int record = 0; record < 16; ++record) {
+    require(readv(descriptors[0], vectors, 2) == 4096, "pipe-read-record");
+    require(first[0] == 'A' || first[0] == 'B', "pipe-record-writer");
+    int writer = first[0] - 'A';
+    for (size_t i = 0; i < sizeof(first); ++i)
+      require(first[i] == 'A' + writer && second[i] == 'a' + writer,
+              "pipe-record-not-interleaved");
+    ++counts[writer];
+  }
+  require(counts[0] == 8 && counts[1] == 8 && readv(descriptors[0], vectors, 2) == 0,
+          "pipe-counts-and-eof");
+  require(close(descriptors[0]) == 0, "pipe-close-reader");
+  for (int writer = 0; writer < 2; ++writer) {
+    int status;
+    require(waitpid(children[writer], &status, 0) == children[writer] &&
+                WIFEXITED(status) && WEXITSTATUS(status) == 0,
+            "pipe-child-status");
+  }
+  passed();
+}
+
+int main(int argc, char** argv) {
+  const int stdio_mode = argc == 2 && !strcmp(argv[1], "--stdio");
+  require(argc == 1 || stdio_mode, "arguments");
+  if (!stdio_mode) {
+    int serial = open("/dev/ttyS0", O_RDWR);
+    if (serial < 0 || dup2(serial, 0) < 0 || dup2(serial, 1) < 0 || dup2(serial, 2) < 0)
+      return 2;
+    if (serial > 2)
+      close(serial);
+  }
+  setvbuf(stdout, NULL, _IONBF, 0);
+  struct utsname system;
+  require(uname(&system) == 0, "uname");
+  pedigree = !strcmp(system.sysname, "Pedigree");
+  char directory[80] = "/tmp/vector-io-contract-XXXXXX";
+  if (stdio_mode) {
+    require(mkdtemp(directory) != NULL, "temporary-directory");
+  } else {
+    strcpy(directory, "/tmp/vector-io-contract");
+    require((mkdir(directory, 0700) == 0 || errno == EEXIST) &&
+                mount("none", directory, "ramfs", 0, NULL) == 0,
+            "fresh-ramfs");
+  }
+  require(chdir(directory) == 0, "fixture-directory");
+  int fd = open("vectors", O_CREAT | O_EXCL | O_RDWR, 0600);
+  require(fd >= 0, "fixture-open");
+  for (size_t i = 0; i < sizeof(source); ++i)
+    source[i] = (unsigned char)(i * 37 + 11);
+  const int counts[] = {1, 2, 8, 9};
+  const size_t totals[] = {16, 2048, 2049, 8192};
+  for (size_t i = 0; i < sizeof(counts) / sizeof(counts[0]); ++i)
+    for (size_t j = 0; j < sizeof(totals) / sizeof(totals[0]); ++j)
+      roundtrip(fd, counts[i], totals[j]);
+  positional_snapshot(fd, 2);
+  positional_snapshot(fd, 9);
+  current_case = "fault-mapping";
+  long page = sysconf(_SC_PAGESIZE);
+  require(page > 0, "page-size");
+  void* inaccessible = mmap(NULL, (size_t)page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  require(inaccessible != MAP_FAILED, "protected-page");
+  empty_vectors(fd, inaccessible);
+  faults(fd, inaccessible);
+  short_eof(fd);
+  pipe_vectors();
+  current_case = "cleanup";
+  require(munmap(inaccessible, (size_t)page) == 0 && close(fd) == 0 && unlink("vectors") == 0,
+          "fixture-cleanup");
+  require(chdir("/") == 0 && (!stdio_mode || rmdir(directory) == 0), "directory-cleanup");
+  puts("VECTORIO PASS END");
+  return 0;
+}

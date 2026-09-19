@@ -1108,9 +1108,21 @@ enum class VectorPayloadValidation {
   BenchmarkEligible,
 };
 
+struct IoVectorSnapshot {
+  static constexpr size_t InlineCount = 8;
+  struct iovec inlineVectors[InlineCount];
+  UniqueArray<struct iovec> heap;
+  struct iovec* vectors = nullptr;
+};
+
+constexpr size_t SmallVectorIoBounceCapacity = 2048;
+// Changing chunk sizes would change how much I/O precedes a later user-copy fault.
+static_assert(SmallVectorIoBounceCapacity <= ScalarIoBounceCapacity &&
+              SmallVectorIoBounceCapacity <= RegularReadBounceCapacity);
+
 static bool snapshotIoVectors(
     const struct iovec* userVectors, int vectorCount, bool writeOperation,
-    UniqueArray<struct iovec>& vectorOwner, size_t& totalLength,
+    IoVectorSnapshot& vectorOwner, size_t& totalLength,
     VectorPayloadValidation payloadValidation = VectorPayloadValidation::Full) {
   constexpr int MaximumIoVectors = 1024;
   if (vectorCount < 0 || vectorCount > MaximumIoVectors) {
@@ -1123,8 +1135,17 @@ static bool snapshotIoVectors(
     return true;
   }
 
-  vectorOwner = UniqueArray<struct iovec>::allocate(static_cast<size_t>(vectorCount));
-  struct iovec* vectors = vectorOwner.get();
+  if (static_cast<size_t>(vectorCount) <= IoVectorSnapshot::InlineCount) {
+    vectorOwner.vectors = vectorOwner.inlineVectors;
+  } else {
+    vectorOwner.heap = UniqueArray<struct iovec>::allocate(static_cast<size_t>(vectorCount));
+    vectorOwner.vectors = vectorOwner.heap.get();
+  }
+  struct iovec* vectors = vectorOwner.vectors;
+  if (!vectors) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
   if (!PosixSubsystem::copyFromUser(vectors, userVectors, static_cast<size_t>(vectorCount),
                                     sizeof(struct iovec))) {
     SYSCALL_ERROR(BadAddress);
@@ -1298,10 +1319,12 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
-  if (descriptor->getFile() && ((descriptor->getStatusFlags() & O_PATH) ||
-                                (descriptor->getStatusFlags() & O_ACCMODE) == O_RDONLY)) {
-    SYSCALL_ERROR(BadFileDescriptor);
-    return -1;
+  if (descriptor->getFile()) {
+    const int statusFlags = descriptor->getStatusFlags();
+    if ((statusFlags & O_PATH) || (statusFlags & O_ACCMODE) == O_RDONLY) {
+      SYSCALL_ERROR(BadFileDescriptor);
+      return -1;
+    }
   }
 
   const bool regularFile = descriptor->getFile() &&
@@ -1309,12 +1332,12 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
                            !descriptor->getFile()->isBlockDevice();
   const VectorPayloadValidation payloadValidation =
       regularFile ? VectorPayloadValidation::CopyTime : VectorPayloadValidation::BenchmarkEligible;
-  UniqueArray<struct iovec> vectorOwner;
+  IoVectorSnapshot vectorOwner;
   size_t totalLength = 0;
   if (!snapshotIoVectors(iov, iovcnt, true, vectorOwner, totalLength, payloadValidation)) {
     return -1;
   }
-  struct iovec* vectors = vectorOwner.get();
+  struct iovec* vectors = vectorOwner.vectors;
 
   if (!iovcnt) {
     return 0;
@@ -1399,7 +1422,17 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
 
     const size_t bounceLimit = regularFile ? RegularWriteBounceCapacity : ScalarIoBounceCapacity;
     const size_t bounceCapacity = totalLength < bounceLimit ? totalLength : bounceLimit;
-    UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
+    uint8_t smallBounce[SmallVectorIoBounceCapacity];
+    UniqueArray<uint8_t> bounceOwner;
+    uint8_t* bounce = smallBounce;
+    if (!regularFile || bounceCapacity > sizeof(smallBounce)) {
+      bounceOwner = UniqueArray<uint8_t>::allocate(bounceCapacity);
+      bounce = bounceOwner.get();
+    }
+    if (!bounce) {
+      SYSCALL_ERROR(OutOfMemory);
+      return -1;
+    }
     File::WriteGuard writeGuard = descriptor->getFile()->lockWrites();
     for (int i = 0; i < iovcnt; ++i) {
       F_NOTICE("writev: iov[" << i << "] is @ " << vectors[i].iov_base << ", " << vectors[i].iov_len
@@ -1430,7 +1463,7 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
             vectorRemaining < requested - gathered ? vectorRemaining : requested - gathered;
         const char* userSource = reinterpret_cast<const char*>(
             reinterpret_cast<uintptr_t>(vectors[vectorIndex].iov_base) + vectorOffset);
-        if (!PosixSubsystem::copyFromUser(bounce.get() + gathered, userSource, fragment)) {
+        if (!PosixSubsystem::copyFromUser(bounce + gathered, userSource, fragment)) {
           thread->clearInterruption();
           if (totalWritten) {
             return totalWritten;
@@ -1453,7 +1486,7 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
 
       bool signalInterrupted = false;
       const int r = writeFileVectorElement(thread, descriptor, position, statusFlags, writeGuard,
-                                           bounce.get(), requested, !regularFile, totalWritten == 0,
+                                           bounce, requested, !regularFile, totalWritten == 0,
                                            signalInterrupted, deliverPipeSignal);
       if (r < 0) {
         return totalWritten ? totalWritten : r;
@@ -1509,10 +1542,12 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
-  if (descriptor->getFile() && ((descriptor->getStatusFlags() & O_PATH) ||
-                                (descriptor->getStatusFlags() & O_ACCMODE) == O_WRONLY)) {
-    SYSCALL_ERROR(BadFileDescriptor);
-    return -1;
+  if (descriptor->getFile()) {
+    const int statusFlags = descriptor->getStatusFlags();
+    if ((statusFlags & O_PATH) || (statusFlags & O_ACCMODE) == O_WRONLY) {
+      SYSCALL_ERROR(BadFileDescriptor);
+      return -1;
+    }
   }
   auto timerFd = descriptor->getTimerFdImpl();
   auto signalFd = descriptor->getSignalFdImpl();
@@ -1525,14 +1560,14 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
   if (timerFd || signalFd || fanotify) {
     payloadValidation = VectorPayloadValidation::CommitTime;
   }
-  UniqueArray<struct iovec> vectorOwner;
+  IoVectorSnapshot vectorOwner;
   size_t totalLength = 0;
   // Record readers validate each destination at commit time. A later fault
   // must not suppress complete records copied before it.
   if (!snapshotIoVectors(iov, iovcnt, false, vectorOwner, totalLength, payloadValidation)) {
     return -1;
   }
-  struct iovec* vectors = vectorOwner.get();
+  struct iovec* vectors = vectorOwner.vectors;
   if (!iovcnt) {
     return 0;
   }
@@ -1664,9 +1699,14 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
     }
 
     if (regularFile && position) {
-      size_t bounceCapacity = 0;
-      UniqueArray<uint8_t> bounce =
-          allocateReadBounce(descriptor->getFile(), totalLength, bounceCapacity);
+      uint8_t smallBounce[SmallVectorIoBounceCapacity];
+      size_t bounceCapacity = totalLength;
+      UniqueArray<uint8_t> bounceOwner;
+      uint8_t* bounce = smallBounce;
+      if (totalLength > sizeof(smallBounce)) {
+        bounceOwner = allocateReadBounce(descriptor->getFile(), totalLength, bounceCapacity);
+        bounce = bounceOwner.get();
+      }
       if (!bounce) {
         SYSCALL_ERROR(OutOfMemory);
         return -1;
@@ -1685,7 +1725,7 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
         const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
         bool signalInterrupted = false;
         const int amount =
-            readFileVectorElement(thread, descriptor, position, statusFlags, bounce.get(),
+            readFileVectorElement(thread, descriptor, position, statusFlags, bounce,
                                   requested, totalRead == 0, signalInterrupted);
         if (amount < 0) {
           return totalRead ? static_cast<int>(totalRead) : amount;
@@ -1708,7 +1748,7 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
                                       : static_cast<size_t>(amount) - copied;
           void* userDestination = reinterpret_cast<void*>(
               reinterpret_cast<uintptr_t>(vectors[vectorIndex].iov_base) + vectorOffset);
-          if (!PosixSubsystem::copyToUser(userDestination, bounce.get() + copied, fragment)) {
+          if (!PosixSubsystem::copyToUser(userDestination, bounce + copied, fragment)) {
             thread->clearInterruption();
             if (totalRead) {
               return static_cast<int>(totalRead);
@@ -1845,7 +1885,7 @@ namespace {
 constexpr int LinuxRwfNoAppend = 0x20;
 
 ssize_t positionalReadVector(int fd, const struct iovec* iov, int iovcnt, off_t offset) {
-  UniqueArray<struct iovec> vectorOwner;
+  IoVectorSnapshot vectorOwner;
   size_t totalLength = 0;
   if (!snapshotIoVectors(iov, iovcnt, false, vectorOwner, totalLength,
                          VectorPayloadValidation::AddressRange)) {
@@ -1885,7 +1925,7 @@ ssize_t positionalReadVector(int fd, const struct iovec* iov, int iovcnt, off_t 
     return 0;
   }
 
-  struct iovec* vectors = vectorOwner.get();
+  struct iovec* vectors = vectorOwner.vectors;
   size_t bounceCapacity = 0;
   UniqueArray<uint8_t> bounce =
       allocateReadBounce(descriptor->getFile(), totalLength, bounceCapacity);
@@ -1966,7 +2006,7 @@ ssize_t positionalReadVector(int fd, const struct iovec* iov, int iovcnt, off_t 
 
 ssize_t positionalWriteVector(int fd, const struct iovec* iov, int iovcnt, off_t offset,
                               bool honorAppend) {
-  UniqueArray<struct iovec> vectorOwner;
+  IoVectorSnapshot vectorOwner;
   size_t totalLength = 0;
   if (!snapshotIoVectors(iov, iovcnt, true, vectorOwner, totalLength,
                          VectorPayloadValidation::AddressRange)) {
@@ -2006,7 +2046,7 @@ ssize_t positionalWriteVector(int fd, const struct iovec* iov, int iovcnt, off_t
     return 0;
   }
 
-  struct iovec* vectors = vectorOwner.get();
+  struct iovec* vectors = vectorOwner.vectors;
   const size_t bounceCapacity =
       totalLength < ScalarIoBounceCapacity ? totalLength : ScalarIoBounceCapacity;
   UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
