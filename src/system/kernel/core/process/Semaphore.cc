@@ -373,7 +373,7 @@ bool Semaphore::acquireForCompletion(size_t n, size_t timeoutSecs, size_t timeou
   else {
     Thread* thread = Processor::information().getCurrentThread();
     const bool hasTimeout = timeoutSecs || timeoutUsecs;
-    const Time::Timestamp started = Time::getTicks();
+    const Time::Timestamp started = hasTimeout ? Time::getTicks() : 0;
 
     Time::Timestamp timeout = 0;
     if (hasTimeout) {
@@ -447,20 +447,22 @@ bool Semaphore::acquireForCompletion(size_t n, size_t timeoutSecs, size_t timeou
         continue;
       }
 
-      const Time::Timestamp elapsed = Time::getTicks() - started;
-      if (elapsed >= timeout) {
-        thread->setInterruptionReason(retainedInterruption);
-        return false;
-      }
+      if (hasTimeout) {
+        const Time::Timestamp elapsed = Time::getTicks() - started;
+        if (elapsed >= timeout) {
+          thread->setInterruptionReason(retainedInterruption);
+          return false;
+        }
 
-      const Time::Timestamp remaining = timeout - elapsed;
-      const Time::Timestamp remainingMicroseconds =
-          (remaining / Time::Multiplier::Microsecond) +
-          ((remaining % Time::Multiplier::Microsecond) ? 1 : 0);
-      remainingSecs =
-          remainingMicroseconds / (Time::Multiplier::Second / Time::Multiplier::Microsecond);
-      remainingUsecs =
-          remainingMicroseconds % (Time::Multiplier::Second / Time::Multiplier::Microsecond);
+        const Time::Timestamp remaining = timeout - elapsed;
+        const Time::Timestamp remainingMicroseconds =
+            (remaining / Time::Multiplier::Microsecond) +
+            ((remaining % Time::Multiplier::Microsecond) ? 1 : 0);
+        remainingSecs =
+            remainingMicroseconds / (Time::Multiplier::Second / Time::Multiplier::Microsecond);
+        remainingUsecs =
+            remainingMicroseconds % (Time::Multiplier::Second / Time::Multiplier::Microsecond);
+      }
     }
   }
 }
