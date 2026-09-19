@@ -26,6 +26,12 @@ development builds use:
 cmake --build build -j8
 ```
 
+Compiler initialization of otherwise uninitialized automatic storage is off by
+default. Enable it with `cmake -S . -B build -DPEDIGREE_AUTO_VAR_INIT=ON` for
+debugging: Debug builds fill with a pattern, while Release, RelWithDebInfo and
+MinSizeRel builds fill with zeros. Set the option to `OFF` to disable these
+compiler-added fills; explicit initialization in the source is unaffected.
+
 The default boot image is `build/pedigree-uefi.img`. Its root filesystem is
 `build/pedigree-uefi-root.img`; the kernel and module archive are under
 `build/src/system/kernel` and `build/src/modules`.

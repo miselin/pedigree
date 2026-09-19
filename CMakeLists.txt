@@ -63,31 +63,34 @@ message(STATUS
     "Pedigree build role: ${PEDIGREE_EFFECTIVE_BUILD_ROLE} "
     "(requested ${PEDIGREE_BUILD_ROLE}, host ${CMAKE_HOST_SYSTEM_NAME})")
 
-check_c_compiler_flag(
-    "-ftrivial-auto-var-init=pattern"
-    PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN)
-check_c_compiler_flag(
-    "-ftrivial-auto-var-init=zero"
-    PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
-check_cxx_compiler_flag(
-    "-ftrivial-auto-var-init=pattern"
-    PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN)
-check_cxx_compiler_flag(
-    "-ftrivial-auto-var-init=zero"
-    PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
+option(PEDIGREE_AUTO_VAR_INIT "Enable compiler initialization of automatic variables." OFF)
+if (PEDIGREE_AUTO_VAR_INIT)
+    check_c_compiler_flag(
+        "-ftrivial-auto-var-init=pattern"
+        PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN)
+    check_c_compiler_flag(
+        "-ftrivial-auto-var-init=zero"
+        PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
+    check_cxx_compiler_flag(
+        "-ftrivial-auto-var-init=pattern"
+        PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN)
+    check_cxx_compiler_flag(
+        "-ftrivial-auto-var-init=zero"
+        PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
 
-if (NOT PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN OR
-    NOT PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO OR
-    NOT PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN OR
-    NOT PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
-    message(FATAL_ERROR
-        "The selected C and C++ compilers must support "
-        "-ftrivial-auto-var-init=pattern and =zero")
+    if (NOT PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN OR
+        NOT PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO OR
+        NOT PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN OR
+        NOT PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
+        message(FATAL_ERROR
+            "PEDIGREE_AUTO_VAR_INIT requires compiler support for "
+            "-ftrivial-auto-var-init=pattern and =zero")
+    endif ()
+
+    add_compile_options(
+        "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:C,CXX>>:-ftrivial-auto-var-init=pattern>"
+        "$<$<AND:$<CONFIG:Release,RelWithDebInfo,MinSizeRel>,$<COMPILE_LANGUAGE:C,CXX>>:-ftrivial-auto-var-init=zero>")
 endif ()
-
-add_compile_options(
-    "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:C,CXX>>:-ftrivial-auto-var-init=pattern>"
-    "$<$<AND:$<CONFIG:Release,RelWithDebInfo,MinSizeRel>,$<COMPILE_LANGUAGE:C,CXX>>:-ftrivial-auto-var-init=zero>")
 
 if (NOT CMAKE_CXX_COMPILER_VERSION)
     # Keep this aligned with the bootstrap toolchain manifest.
