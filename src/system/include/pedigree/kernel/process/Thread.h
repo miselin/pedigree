@@ -1012,6 +1012,8 @@ class EXPORTED_PUBLIC Thread {
   void disarmAtomicStateCleanup(AtomicStateCleanupRecord& record);
 
  private:
+  void registerFreshTerminationDeferral(DeferredScopeRecord& record);
+
   /** Kernel-owned start cleanup; unloadable code must use AdmittedThread. */
   Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
          bool semiUser, bool bDontPickCore, bool delayedStart, ThreadStartCleanup startCleanup,
