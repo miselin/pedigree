@@ -97,6 +97,11 @@ class TracePhasesTest(unittest.TestCase):
 
 
 class SerialLinesTest(unittest.TestCase):
+    def test_diagnostic_mode_accepts_kernel_records(self):
+        self.assertEqual(RUNNER.serial_lines(
+            bytearray(), b"(NN) [10.2] STRACE E id=0x1\n", allow_kernel_log=True),
+            ["(NN) [10.2] STRACE E id=0x1"])
+
     def test_observed_kernel_log_inside_metric_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "kernel serial logging is enabled"):
             RUNNER.serial_lines(bytearray(),

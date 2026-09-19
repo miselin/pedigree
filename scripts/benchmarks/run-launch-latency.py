@@ -24,9 +24,9 @@ EVENTS = ("process_ncq_command", "execute_ncq_command_read",
 KERNEL_LOG = re.compile(rb"\([A-Z]{2}\) \[\d+\.\d+\]")
 
 
-def serial_lines(wire, data):
+def serial_lines(wire, data, *, allow_kernel_log=False):
     wire.extend(data)
-    if KERNEL_LOG.search(wire):
+    if not allow_kernel_log and KERNEL_LOG.search(wire):
         raise ValueError("kernel serial logging is enabled; use --disable-log-to-serial "
                          "as a separate kernel command-line token without a trailing newline")
     if len(wire) > 1024 * 1024:

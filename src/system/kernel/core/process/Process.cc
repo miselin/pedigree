@@ -566,6 +566,9 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
   m_BenchmarkSyscallTiming = __atomic_load_n(&pParent->m_BenchmarkSyscallTiming, __ATOMIC_ACQUIRE);
 #endif
+#if PEDIGREE_BENCHMARK_SYSCALL_TRACE
+  m_BenchmarkSyscallTrace = __atomic_load_n(&pParent->m_BenchmarkSyscallTrace, __ATOMIC_ACQUIRE);
+#endif
 #if PEDIGREE_BENCHMARK_VM_ABLATIONS
   m_BenchmarkVmAblation = __atomic_load_n(&pParent->m_BenchmarkVmAblation, __ATOMIC_ACQUIRE);
 #endif

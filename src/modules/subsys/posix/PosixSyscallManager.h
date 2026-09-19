@@ -47,6 +47,9 @@ class PosixSyscallManager : public SyscallHandler {
 
  private:
   static uintptr_t syscallEntry(SyscallHandler* handler, SyscallState& state);
+#if PEDIGREE_BENCHMARK_SYSCALL_TRACE
+  static uintptr_t syscallDispatch(SyscallHandler* handler, SyscallState& state);
+#endif
 
   /** The copy-constructor
    *\note Not implemented (singleton) */

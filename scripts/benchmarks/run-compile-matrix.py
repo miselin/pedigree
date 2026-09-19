@@ -27,6 +27,8 @@ CASES = ["tiny", "tiny-pipe", "preprocess", "syntax", "codegen", "assemble",
 def phases(mode):
     if mode == "install":
         return []
+    if mode == "trace-link":
+        return ["warm-link", "trace-link"]
     if mode == "prepare":
         return ["prepare-preprocess", "prepare-codegen", "prepare-assemble"]
     result = ["cpu-before"]
@@ -59,7 +61,7 @@ def validate_identities(identities, mode):
         stage[item["path"]] = (item["bytes"], item["fnv1a64"])
     expected = {"which.cc", "tiny.cc"}
     generated = {"which.ii", "which.s", "which.o"}
-    if mode == "run":
+    if mode in ("run", "trace-link"):
         expected |= generated
         generated = set()
     if (set(stages["before"]) != expected or stages["before"] != stages["after"] or
@@ -116,14 +118,14 @@ def arguments():
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--os", choices=("linux", "pedigree"), required=True)
-    parser.add_argument("--mode", choices=("prepare", "run", "install"), default="run")
+    parser.add_argument("--mode", choices=("prepare", "run", "install", "trace-link"), default="run")
     parser.add_argument("--storage", choices=("disk", "ramfs"), default="disk")
     parser.add_argument("--firmware-code", type=Path)
     parser.add_argument("--linux-root", type=Path)
     parser.add_argument("--linux-kernel", type=Path)
     parser.add_argument("--linux-initrd", type=Path)
     parser.add_argument("--setup-iso", type=Path)
-    parser.add_argument("--profile-phase", choices=phases("run") + phases("prepare"))
+    parser.add_argument("--profile-phase", choices=phases("run") + phases("prepare") + ["trace-link"])
     parser.add_argument("--plugin", action="append", default=[])
     parser.add_argument("--timeout", type=float, default=1800)
     parser.add_argument("--boot-timeout", type=float, default=240)
@@ -138,10 +140,12 @@ def arguments():
         parser.error("--setup-iso requires Linux prepare or install mode")
     if args.mode == "install" and not args.setup_iso:
         parser.error("--mode install requires --setup-iso")
-    if args.os == "pedigree" and args.mode != "run":
+    if args.mode == "trace-link" and (args.os != "pedigree" or args.storage != "ramfs"):
+        parser.error("--mode trace-link requires Pedigree and --storage ramfs")
+    if args.os == "pedigree" and args.mode not in ("run", "trace-link"):
         parser.error("prepare/install runs on Linux so the shared fixture can be flushed")
-    if args.storage == "ramfs" and args.mode != "run":
-        parser.error("--storage ramfs requires run mode")
+    if args.storage == "ramfs" and args.mode not in ("run", "trace-link"):
+        parser.error("--storage ramfs requires run or trace-link mode")
     if args.profile_phase and args.profile_phase not in phases(args.mode):
         parser.error("--profile-phase does not belong to the selected mode")
     if min(args.timeout, args.boot_timeout) <= 0:
@@ -196,7 +200,8 @@ def main():
     report = {"result": "FAIL", "os": args.os, "mode": args.mode, "cpus": 1,
               "image": str(image), "overlay": str(disk), "expected_phases": expected,
               "storage": args.storage,
-              "profile_phase": args.profile_phase, "instrumented": bool(args.plugin or args.profile_phase),
+              "profile_phase": args.profile_phase,
+              "instrumented": args.mode == "trace-link" or bool(args.plugin or args.profile_phase),
               "phases": [], "identities": [], "records": [], "source_sha256": {
                   str(path.resolve()): hashlib.sha256(path.read_bytes()).hexdigest()
                   for path in source_files if path.exists()}}
@@ -300,7 +305,8 @@ def main():
                         bootstrapped = True
                 if b"Breakpoint exception." in wire + data or b"Page Fault Exception" in wire + data:
                     raise RuntimeError("guest entered the kernel debugger")
-                for line in LAUNCH.serial_lines(wire, data):
+                for line in LAUNCH.serial_lines(
+                        wire, data, allow_kernel_log=args.mode == "trace-link"):
                     if "PANIC:" in line or line.startswith("Kernel panic"):
                         raise RuntimeError(line)
                     if line.startswith("COMPILEBENCH FAIL"):

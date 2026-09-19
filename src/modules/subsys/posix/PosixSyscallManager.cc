@@ -89,6 +89,10 @@
 #include "wait-syscalls.h"
 #include "xattr-syscalls.h"
 
+#if PEDIGREE_BENCHMARK_SYSCALL_TRACE
+#include "syscall-trace.h"
+#endif
+
 namespace {
 off_t linuxAmd64VectorOffset(uintptr_t low, uintptr_t high) {
   const uint64_t bits =
@@ -165,6 +169,27 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
 }
 
 uintptr_t PosixSyscallManager::syscallEntry(SyscallHandler* handler, SyscallState& state) {
+#if PEDIGREE_BENCHMARK_SYSCALL_TRACE
+  Thread* thread = Processor::information().getCurrentThread();
+  Process* process = thread ? thread->getParent() : nullptr;
+  if (!process || !process->benchmarkSyscallTraceEnabled()) {
+    return syscallDispatch(handler, state);
+  }
+
+  const int entryError = thread->getErrno();
+  SyscallTrace trace(state, *thread);
+  thread->setErrno(entryError);
+  const Time::Timestamp start = Time::getTicks();
+  const uintptr_t result = syscallDispatch(handler, state);
+  const int error = thread->getErrno();
+  const Time::Timestamp elapsed = Time::getTicks() - start;
+  trace.finish(result, error, elapsed);
+  thread->setErrno(error);
+  return result;
+}
+
+uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallState& state) {
+#endif
   auto* manager = static_cast<PosixSyscallManager*>(handler);
 #if PEDIGREE_SYSCALL_COUNTER
   Process* syscallProcess = Processor::information().getCurrentThread()->getParent();

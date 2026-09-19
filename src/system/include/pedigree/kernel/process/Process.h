@@ -277,6 +277,16 @@ class EXPORTED_PUBLIC Process {
   }
 #endif
 
+#if PEDIGREE_BENCHMARK_SYSCALL_TRACE
+  void setBenchmarkSyscallTrace(bool enabled) {
+    __atomic_store_n(&m_BenchmarkSyscallTrace, enabled, __ATOMIC_RELEASE);
+  }
+
+  bool benchmarkSyscallTraceEnabled() const {
+    return __atomic_load_n(&m_BenchmarkSyscallTrace, __ATOMIC_ACQUIRE);
+  }
+#endif
+
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
   static constexpr size_t SyscallTimingRawSlotCount = 512;
   static constexpr size_t SyscallTimingOverflowSlot = SyscallTimingRawSlotCount;
@@ -1014,6 +1024,10 @@ class EXPORTED_PUBLIC Process {
   bool m_BenchmarkSyscallTiming = false;
   uint64_t m_SyscallTimingCalls[SyscallTimingSlotCount] = {};
   uint64_t m_SyscallTimingKernelNanoseconds[SyscallTimingSlotCount] = {};
+#endif
+
+#if PEDIGREE_BENCHMARK_SYSCALL_TRACE
+  bool m_BenchmarkSyscallTrace = false;
 #endif
 
 #if PEDIGREE_BENCHMARK_VM_ABLATIONS

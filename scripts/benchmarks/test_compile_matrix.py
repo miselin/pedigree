@@ -2,11 +2,13 @@
 """Check RAM matrix cleanup and rejection of incomplete disk-I/O evidence."""
 
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 
 def load(name, filename):
@@ -108,6 +110,68 @@ class RamMatrixEvidenceTest(unittest.TestCase):
         del data["phases"][1]["blocks_before"][0]["stats"]["wr_operations"]
         with self.assertRaises((ValueError, KeyError)):
             self.read_report(data)
+
+
+class TraceLinkProtocolTest(unittest.TestCase):
+    def arguments(self, *extra):
+        argv = ["run-compile-matrix.py", "--image", "fixture.qcow2", "--output", "trace",
+                "--os", "pedigree", "--firmware-code", "firmware.fd",
+                "--mode", "trace-link", "--storage", "ramfs", *extra]
+        with patch("sys.argv", argv), patch("sys.stderr", new_callable=io.StringIO):
+            return RUNNER.arguments()
+
+    def test_two_phases_are_distinct_from_normal_matrix(self):
+        self.assertEqual(RUNNER.phases("trace-link"), ["warm-link", "trace-link"])
+        self.assertEqual(len(RUNNER.phases("run")), 38)
+        self.assertNotIn("trace-link", RUNNER.phases("run"))
+
+    def test_trace_requires_pedigree_ramfs(self):
+        self.assertEqual(self.arguments().mode, "trace-link")
+        for extra in (("--storage", "disk"),
+                      ("--os", "linux", "--linux-root", "linux.img",
+                       "--linux-kernel", "vmlinuz", "--linux-initrd", "initrd")):
+            with self.subTest(arguments=extra), self.assertRaises(SystemExit):
+                self.arguments(*extra)
+
+    def test_profile_must_match_one_of_the_two_phases(self):
+        for phase in RUNNER.phases("trace-link"):
+            self.assertEqual(self.arguments("--profile-phase", phase).profile_phase, phase)
+        with self.assertRaises(SystemExit):
+            self.arguments("--profile-phase", "r1-link")
+
+    def test_trace_is_instrumented_without_profile_or_plugin(self):
+        for mode, expected in (("trace-link", True), ("run", False)):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory(
+                    prefix="compile-trace-test-") as directory:
+                args = self.arguments("--mode", mode)
+                args.image = Path(directory) / "fixture.qcow2"
+                args.image.touch()
+                args.output = Path(directory) / "report"
+                with patch.object(RUNNER, "arguments", return_value=args), patch.object(
+                        RUNNER.subprocess, "check_output", side_effect=RuntimeError("no guest")), \
+                        patch("sys.stdout", new_callable=io.StringIO):
+                    self.assertEqual(RUNNER.main(), 1)
+                data = json.loads((args.output / "report.json").read_text())
+                self.assertIs(data["instrumented"], expected)
+
+    def test_trace_requires_all_unchanged_frozen_inputs(self):
+        identities = report("pedigree")["identities"]
+        RUNNER.validate_identities(identities, "trace-link")
+        with self.assertRaisesRegex(ValueError, "incomplete or changed"):
+            RUNNER.validate_identities(identities[:-1], "trace-link")
+        identities[-1]["fnv1a64"] = "aaaaaaaaaaaaaaaa"
+        with self.assertRaisesRegex(ValueError, "incomplete or changed"):
+            RUNNER.validate_identities(identities, "trace-link")
+
+    def test_trace_is_rejected_by_timing_comparison(self):
+        data = report("pedigree")
+        data["mode"] = "trace-link"
+        data["instrumented"] = True
+        with tempfile.TemporaryDirectory(prefix="compile-trace-test-") as directory:
+            path = Path(directory) / "report.json"
+            path.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, "uninstrumented"):
+                SUMMARY.load_report(path, "pedigree")
 
 
 if __name__ == "__main__":

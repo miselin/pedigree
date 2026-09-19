@@ -142,6 +142,8 @@ set(PEDIGREE_FAST_USER_RETURN TRUE CACHE BOOL
     "Skip idle user-return policy work when no thread work is pending.")
 set(PEDIGREE_BENCHMARK_SYSCALL_TIMING FALSE CACHE BOOL
     "Attribute existing CPU-accounting intervals to benchmark process syscalls.")
+set(PEDIGREE_BENCHMARK_SYSCALL_TRACE FALSE CACHE BOOL
+    "Trace opt-in process syscalls and bounded path arguments for benchmark diagnostics.")
 set(PEDIGREE_BENCHMARK_VM_DIAGNOSTICS FALSE CACHE BOOL
     "Collect benchmark process VM lifecycle cardinality counters.")
 set(PEDIGREE_BENCHMARK_VM_ABLATIONS FALSE CACHE BOOL

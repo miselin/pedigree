@@ -1276,6 +1276,20 @@ int posix_linux_syslog(int type, char* buf, int len) {
       return 0;
     }
 #endif
+    case 20: {
+#if PEDIGREE_BENCHMARK_SYSCALL_TRACE
+      if (buf || (len != 0 && len != 1)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      process->setBenchmarkSyscallTrace(len != 0);
+      return 0;
+#else
+      SYSCALL_ERROR(Unimplemented);
+      return -1;
+#endif
+    }
     case 2:
     case 4:
     case 5:

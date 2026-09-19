@@ -13,10 +13,12 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/utsname.h>
 #include <sys/wait.h>
 
 static int serial_fd = -1;
 static int stdio_mode;
+static int trace_link;
 static const char* profile_phase;
 static unsigned profile_rows;
 extern char** environ;
@@ -99,7 +101,7 @@ static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
 }
 
 static int run_child(char* const args[], int log_fd, int null_fd, struct rusage* usage,
-                     uint64_t* start, uint64_t* end, int profile) {
+                     uint64_t* start, uint64_t* end, int profile, int trace) {
   *start = now_ns();
   if (profile)
     profile_compile_begin();
@@ -117,6 +119,11 @@ static int run_child(char* const args[], int log_fd, int null_fd, struct rusage*
     if (serial_fd > STDERR_FILENO)
       close(serial_fd);
     environ = child_environment;
+    // Arm only the compiler child, so warmup and output verification stay untraced.
+    if (trace && syscall(SYS_syslog, 20, NULL, 1) != 0) {
+      dprintf(STDERR_FILENO, "trace gate unsupported or failed: errno=%d\n", errno);
+      _exit(126);
+    }
     execvp(args[0], args);
     dprintf(STDERR_FILENO, "exec %s failed: errno=%d\n", args[0], errno);
     _exit(127);
@@ -151,7 +158,8 @@ static void command(const char* phase, char* const args[], int measured) {
   struct rusage usage = {0};
   uint64_t start, end;
   int rc = run_child(args, log_fd, null_fd, &usage, &start, &end,
-                    measured && wants_profile(phase));
+                    measured && wants_profile(phase),
+                    measured && trace_link && !strcmp(phase, "trace-link"));
   if (close(log_fd) || close(null_fd))
     fail("command-close");
   if (measured)
@@ -314,6 +322,8 @@ static void prepare(void) {
 static int valid_profile(int preparing) {
   if (!profile_phase)
     return 1;
+  if (trace_link)
+    return !strcmp(profile_phase, "warm-link") || !strcmp(profile_phase, "trace-link");
   if (preparing)
     return !strcmp(profile_phase, "prepare-preprocess") ||
            !strcmp(profile_phase, "prepare-codegen") ||
@@ -375,6 +385,26 @@ int main(int argc, char** argv) {
     fail("serial-termios");
   if (chdir("/root/compile-bench"))
     fail("setup");
+  FILE* trace_file = fopen("matrix-trace", "r");
+  if (trace_file) {
+    char selection[7];
+    size_t size = fread(selection, 1, sizeof(selection), trace_file);
+    if (ferror(trace_file) || fclose(trace_file))
+      fail("trace-file");
+    if (preparing || size < 4 || memcmp(selection, "link", 4) ||
+        !(size == 4 || (size == 5 && selection[4] == '\n') ||
+          (size == 6 && selection[4] == '\r' && selection[5] == '\n'))) {
+      errno = EINVAL;
+      fail("trace-selection");
+    }
+    struct utsname system;
+    if (uname(&system) || strcmp(system.sysname, "Pedigree")) {
+      errno = EOPNOTSUPP;
+      fail("trace-platform");
+    }
+    trace_link = 1;
+  } else if (errno != ENOENT)
+    fail("trace-open");
   char profile_buffer[64];
   profile_phase = getenv("MATRIX_PROFILE");
   if (!profile_phase) {
@@ -397,7 +427,8 @@ int main(int argc, char** argv) {
     fail("profile-phase");
   }
   printf("COMPILEBENCH BEGIN\n");
-  printf("COMPILEBENCH configuration mode=%s profile=%s\n", preparing ? "prepare" : "run",
+  printf("COMPILEBENCH configuration mode=%s profile=%s\n",
+         preparing ? "prepare" : trace_link ? "trace-link" : "run",
          profile_phase ? profile_phase : "none");
   module_addresses();
   if (preparing)
@@ -406,11 +437,16 @@ int main(int argc, char** argv) {
     struct identity before[5];
     for (unsigned i = 0; i < 5; ++i)
       before[i] = identify(inputs[i], "before");
-    cpu_control("cpu-before");
-    for (unsigned round = 0; round < 4; ++round)
-      for (unsigned i = 0; i < 9; ++i)
-        run_case(rounds[round], round == 2 ? 8 - i : i);
-    cpu_control("cpu-after");
+    if (trace_link) {
+      run_case("warm", 6);
+      run_case("trace", 6);
+    } else {
+      cpu_control("cpu-before");
+      for (unsigned round = 0; round < 4; ++round)
+        for (unsigned i = 0; i < 9; ++i)
+          run_case(rounds[round], round == 2 ? 8 - i : i);
+      cpu_control("cpu-after");
+    }
     for (unsigned i = 0; i < 5; ++i)
       unchanged(inputs[i], before[i]);
   }
