@@ -139,6 +139,79 @@ identities, and all phase metrics in each output directory. A timeout, failed
 phase, identity change, or incomplete protocol remains a failed run; retain its
 artifacts rather than replacing it with a successful retry.
 
+## Run the toolchain entirely from RAM
+
+Start with the prepared `MATRIX_IMAGE` above. `compile-matrix-ramroot.c` mounts
+a fresh `ramfs`, copies and verifies the paths in
+`compile-matrix-ramroot-paths.txt`, enters that root, then executes the unchanged
+matrix driver. The compiler, dynamic loader, libraries, headers, inputs, logs,
+outputs and temporary files are all memory-backed. The whitelist is specific
+to this GCC 15.3.0 C++ workload; it omits unused C/LTO frontends.
+
+```sh
+MATRIX_RAM=/absolute/path/to/new-ram-matrix-artifacts
+mkdir -p "$MATRIX_RAM/setup/root/usr/bin"
+mkdir -p "$MATRIX_RAM/setup/root/root/compile-bench"
+compilers/dir/bin/x86_64-pedigree-gcc --sysroot="$PWD/build/musl/usr" \
+  -static -O2 -std=c11 -Wall -Wextra -Werror \
+  scripts/benchmarks/compile-matrix-ramroot.c -o "$MATRIX_RAM/compile-matrix-ramroot"
+install -m 755 "$MATRIX_RAM/compile-matrix-ramroot" "$MATRIX_RAM/setup/root/usr/bin/init"
+install -m 755 "$MATRIX_RAM/compile-matrix-ramroot" \
+  "$MATRIX_RAM/setup/root/root/compile-bench/compile-matrix-ramroot"
+install -m 644 scripts/benchmarks/compile-matrix-ramroot-paths.txt \
+  "$MATRIX_RAM/setup/root/root/compile-bench/ramroot-paths"
+xorriso -as mkisofs -R -J -o "$MATRIX_RAM/setup.iso" "$MATRIX_RAM/setup"
+
+uv run --no-project python scripts/benchmarks/run-compile-matrix.py \
+  --os linux --mode install --image "$MATRIX_IMAGE" \
+  --linux-root "$MATRIX_LINUX_ROOT" --linux-kernel "$MATRIX_LINUX_KERNEL" \
+  --linux-initrd "$MATRIX_LINUX_INITRD" --setup-iso "$MATRIX_RAM/setup.iso" \
+  --output "$MATRIX_RAM/install"
+```
+
+Require installation PASS and clean Linux unmount before freezing
+`$MATRIX_RAM/install/pedigree.qcow2`. This installs only the bootstrap and path
+list; it preserves the existing driver and frozen intermediate files.
+
+```sh
+MATRIX_RAM_IMAGE="$MATRIX_RAM/install/pedigree.qcow2"
+chmod 444 "$MATRIX_RAM_IMAGE"
+uv run --no-project python scripts/benchmarks/run-compile-matrix.py \
+  --os pedigree --storage ramfs --image "$MATRIX_RAM_IMAGE" \
+  --firmware-code "$MATRIX_FIRMWARE" --boot-timeout 600 \
+  --output "$MATRIX_RAM/pedigree"
+uv run --no-project python scripts/benchmarks/run-compile-matrix.py \
+  --os linux --storage ramfs --image "$MATRIX_RAM_IMAGE" \
+  --linux-root "$MATRIX_LINUX_ROOT" --linux-kernel "$MATRIX_LINUX_KERNEL" \
+  --linux-initrd "$MATRIX_LINUX_INITRD" --boot-timeout 600 \
+  --output "$MATRIX_RAM/linux"
+uv run --no-project python scripts/benchmarks/summarize-compile-matrix.py \
+  --linux "$MATRIX_RAM/linux/report.json" --pedigree "$MATRIX_RAM/pedigree/report.json" \
+  --output "$MATRIX_RAM/comparison"
+```
+
+The bootstrap retains only standard descriptors and a real `/dev` directory
+descriptor at fd 3. A procfs descriptor link provides device access inside the
+root on both kernels; Pedigree does not support bind mounts. No source file or
+source-root directory descriptor remains. Copied regular files are read back
+and hashed, then audited again after chroot; symlink text, modes and target
+device identity are checked. A shared inventory hash verifies cross-OS equality.
+Pedigree's current `statfs` reports ext2's type even for RamFs; that field alone
+cannot establish filesystem identity.
+
+Copying, auditing, sync and settling occur before timing. The runner waits for
+two quiet one-second disk snapshots, then rejects read/write/flush requests
+on any QEMU block device throughout the matrix, including between phases.
+The summarizer independently validates those snapshots. Boot/setup still use
+disk, and disk drivers and caches still exist in the kernel; zero requests
+does not mean all background cache bookkeeping has ceased.
+
+The compact RAM root has fewer directory entries than the original full
+installation. Comparing their times tests removal of the disk-backed workload,
+but does not isolate directory-population effects from the filesystem backend.
+Use a matching compact disk-root control before assigning a precise gain to
+RamFs or a particular storage component.
+
 ## Observed baseline, 2026-09-18
 
 The unchanged kernel image from the disk-view pass was measured with QEMU
@@ -187,3 +260,46 @@ Full ranges, raw triples, guest CPU times, commands and logs are retained at
 `/private/tmp/pedigree-compile-matrix-20260918`; the comparison is
 `comparison/summary.md`. These warmed measurements use a different harness
 from earlier whole-build runs and are not evidence of a new kernel speedup.
+
+## RAM-root comparison, 2026-09-18
+
+Both RAM runs passed all 38 phases, with identical inventories of 2,328 regular
+files, 150 explicitly copied directories and 11 symlinks. File contents totaled
+117,900,568 bytes; the inventory hash was `a877f9b2461f6e89`. All QEMU devices
+showed zero read, write, flush and discard requests from initial settling
+through the final phase, including intervals between phases. The kernel image
+and matrix driver were unchanged from the disk-root comparison.
+
+Host-wall medians in seconds (three warmed repetitions):
+
+| Case | Linux disk | Linux RAM | Pedigree disk | Pedigree RAM | RAM ratio |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Preprocess | 0.867 | 0.796 | 2.705 | 1.948 | 2.45x |
+| Syntax only | 4.713 | 4.721 | 6.558 | 6.924 | 1.47x |
+| Compile `.ii` to assembly | 12.737 | 12.610 | 21.201 | 20.192 | 1.60x |
+| Assemble | 0.727 | 0.711 | 1.409 | 1.264 | 1.78x |
+| Link | 0.329 | 0.340 | 3.148 | 2.821 | 8.29x |
+| Full | 13.713 | 13.838 | 24.634 | 25.616 | 1.85x |
+| Full with `-pipe` | 14.493 | 14.196 | 24.850 | 25.640 | 1.81x |
+
+Pedigree preprocessing improved 28% and linking 10% in this comparison. The
+preprocessing ranges were 2.537–2.761 seconds on disk and 1.923–2.044 in RAM;
+linking was 3.103–3.223 versus 2.779–2.908. Full-build ranges overlap
+(24.619–25.921 versus 24.723–25.725), so no full-build improvement is established.
+These are observations across separate runs, not backend-only causal estimates:
+the compact tree also changes directory population and the copy changes cache
+and memory state. No matching compact disk-root control was run in this pass.
+
+Reported RAM-root system times remain disproportionately high for preprocessing
+(Pedigree 1.081 seconds, Linux 0.148) and linking (2.293 versus 0.124). This
+establishes substantial cost without disk requests, while leaving VFS/RamFs,
+file mapping, process lifecycle, interrupts and background bookkeeping as
+candidates. A link-only trace in this RAM fixture is the next compact probe;
+the matrix does not identify which candidate dominates.
+
+RAM artifacts: `/private/tmp/pedigree-ram-matrix-20260918`, including
+`comparison/summary.md` (all cases and raw triples), `storage-comparison.json`
+(old/new results and whole-matrix block deltas), and `frozen-fixture.json`.
+Boot/setup disks remain attached and kernel disk/cache services remain present;
+this experiment removes disk-backed benchmark files and requests, not every
+possible background storage-related CPU cost.

@@ -102,6 +102,18 @@ def load_report(path, os_name):
         for field in METRICS.values():
             number(metric[field], f"{label} {field}", integer=True)
         number(metric["checksum"], f"{label} checksum", integer=True)
+    if report.get("storage") == "ramfs":
+        def requests(snapshot):
+            counters = ("rd_operations", "wr_operations", "flush_operations")
+            values = {item["device"]: tuple(number(item["stats"][key], key, integer=True)
+                                             for key in counters) for item in snapshot}
+            if not values or len(values) != len(snapshot):
+                raise ValueError(f"{path}: missing or duplicate QMP block devices")
+            return values
+        baseline = requests(report["ramroot_settled_blocks"])
+        for phase in phases:
+            if any(requests(phase[key]) != baseline for key in ("blocks_before", "blocks_after")):
+                raise ValueError(f"{path}: disk requests during RAM matrix")
     return report, identities(report, str(path))
 
 
@@ -174,6 +186,7 @@ def triple(values):
 
 def markdown(summary):
     lines = ["# Compiler matrix comparison", "",
+             f"Storage: `{summary.get('storage', 'disk')}`.", "",
              "Times are seconds. Host cells show median [minimum, maximum]. "
              "Guest U/S/W cells show median reported user/system/wall time.", "",
              "| Case | Linux host | Pedigree host | Ped/Linux | Linux guest U/S/W | Pedigree guest U/S/W |",
@@ -228,7 +241,16 @@ def main():
             reports[os_name], fixtures[os_name] = load_report(path, os_name)
         if fixtures["linux"] != fixtures["pedigree"]:
             raise ValueError("Linux and Pedigree input identities do not match")
+        storage = reports["linux"].get("storage", "disk")
+        if storage != reports["pedigree"].get("storage", "disk"):
+            raise ValueError("Linux and Pedigree storage modes do not match")
+        if storage == "ramfs" and (not reports["linux"].get("ramroot") or
+                                    reports["linux"]["ramroot"] != reports["pedigree"].get("ramroot")):
+            raise ValueError("RAM-root file inventories do not match")
         summary = summarize(reports, fixtures["linux"], paths)
+        summary["storage"] = storage
+        if storage == "ramfs":
+            summary["ramroot"] = reports["linux"]["ramroot"]
         args.output.mkdir(parents=True, exist_ok=False)
         (args.output / "summary.json").write_text(json.dumps(summary, indent=2, allow_nan=False) + "\n")
         (args.output / "summary.md").write_text(markdown(summary))

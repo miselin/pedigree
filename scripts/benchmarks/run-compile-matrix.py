@@ -25,6 +25,8 @@ CASES = ["tiny", "tiny-pipe", "preprocess", "syntax", "codegen", "assemble",
 
 
 def phases(mode):
+    if mode == "install":
+        return []
     if mode == "prepare":
         return ["prepare-preprocess", "prepare-codegen", "prepare-assemble"]
     result = ["cpu-before"]
@@ -43,6 +45,10 @@ def input_identity(line):
 
 
 def validate_identities(identities, mode):
+    if mode == "install":
+        if identities:
+            raise ValueError("unexpected input identities during installation")
+        return
     stages = {stage: {} for stage in ("before", "after", "prepared")}
     for item in identities:
         if item["stage"] == "output":
@@ -67,6 +73,13 @@ def linux_bootstrap(args, partition=1):
     if args.setup_iso:
         setup += ["mkdir -p /mnt/setup", "mount -o ro /dev/sr0 /mnt/setup",
                   "cp -a /mnt/setup/root/. /mnt/pedigree/"]
+    if args.mode == "install":
+        setup += ["echo COMPILEBENCH configuration mode=install profile=none",
+                  "echo COMPILEBENCH PASS END"]
+        cleanup = ["sync", "umount /mnt/pedigree", "umount /mnt/setup"]
+        return ("MATRIX_RC=0; { " + " && ".join(setup) + "; } || MATRIX_RC=$?; " +
+                "; ".join(f"{command} || MATRIX_RC=$?" for command in cleanup) +
+                "; echo MATRIX-LINUX-CLEAN-END rc=$MATRIX_RC\n")
     setup += ["mkdir -p /mnt/pedigree/dev /mnt/pedigree/proc /mnt/pedigree/tmp",
               "mount --bind /dev /mnt/pedigree/dev",
               "mount -t proc proc /mnt/pedigree/proc",
@@ -77,13 +90,19 @@ def linux_bootstrap(args, partition=1):
                "/usr/include/c++/15.3.0/x86_64-pedigree"]
     if args.profile_phase:
         command.append(f"MATRIX_PROFILE={args.profile_phase}")
-    command += ["/usr/sbin/chroot", "/mnt/pedigree",
-                "/root/compile-bench/compile-matrix", f"--{args.mode}", "--stdio"]
+    command += ["/usr/sbin/chroot", "/mnt/pedigree"]
+    if args.storage == "ramfs":
+        command += ["/root/compile-bench/compile-matrix-ramroot", "--stdio"]
+    else:
+        command += ["/root/compile-bench/compile-matrix", f"--{args.mode}", "--stdio"]
     setup.append(shlex.join(command))
     # The prepared overlay becomes a shared backing image. PASS alone is not
     # sufficient: Linux must finish writeback and detach it before QEMU quits.
-    cleanup = ["sync"] + [f"umount /mnt/pedigree/{name}"
-                          for name in ("tmp", "proc", "dev")]
+    cleanup = ["sync"]
+    if args.storage == "ramfs":
+        cleanup += ["umount /mnt/pedigree/tmp/compile-matrix-root/proc",
+                    "umount /mnt/pedigree/tmp/compile-matrix-root"]
+    cleanup += [f"umount /mnt/pedigree/{name}" for name in ("tmp", "proc", "dev")]
     cleanup.append("umount /mnt/pedigree")
     if args.setup_iso:
         cleanup.append("umount /mnt/setup")
@@ -97,7 +116,8 @@ def arguments():
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--os", choices=("linux", "pedigree"), required=True)
-    parser.add_argument("--mode", choices=("prepare", "run"), default="run")
+    parser.add_argument("--mode", choices=("prepare", "run", "install"), default="run")
+    parser.add_argument("--storage", choices=("disk", "ramfs"), default="disk")
     parser.add_argument("--firmware-code", type=Path)
     parser.add_argument("--linux-root", type=Path)
     parser.add_argument("--linux-kernel", type=Path)
@@ -114,10 +134,14 @@ def arguments():
         parser.error("--firmware-code is required for Pedigree")
     if args.os == "linux" and not all((args.linux_root, args.linux_kernel, args.linux_initrd)):
         parser.error("Linux requires --linux-root, --linux-kernel and --linux-initrd")
-    if args.setup_iso and (args.os != "linux" or args.mode != "prepare"):
-        parser.error("--setup-iso requires Linux prepare mode")
-    if args.os == "pedigree" and args.mode == "prepare":
-        parser.error("prepare runs on Linux so frozen intermediates can be flushed")
+    if args.setup_iso and (args.os != "linux" or args.mode not in ("prepare", "install")):
+        parser.error("--setup-iso requires Linux prepare or install mode")
+    if args.mode == "install" and not args.setup_iso:
+        parser.error("--mode install requires --setup-iso")
+    if args.os == "pedigree" and args.mode != "run":
+        parser.error("prepare/install runs on Linux so the shared fixture can be flushed")
+    if args.storage == "ramfs" and args.mode != "run":
+        parser.error("--storage ramfs requires run mode")
     if args.profile_phase and args.profile_phase not in phases(args.mode):
         parser.error("--profile-phase does not belong to the selected mode")
     if min(args.timeout, args.boot_timeout) <= 0:
@@ -135,6 +159,28 @@ def create_overlay(args, backing, destination):
     return info
 
 
+def block_requests(snapshot):
+    fields = ("rd_operations", "wr_operations", "flush_operations")
+    result = {entry["device"]: tuple(entry["stats"][key] for key in fields)
+              for entry in snapshot}
+    if not result or len(result) != len(snapshot):
+        raise ValueError("missing or duplicate QMP block devices")
+    return result
+
+
+def settle_disks(guest):
+    before = guest.qmp("query-blockstats")
+    quiet = 0
+    for _ in range(30):
+        time.sleep(1)
+        after = guest.qmp("query-blockstats")
+        quiet = quiet + 1 if block_requests(before) == block_requests(after) else 0
+        if quiet == 2:
+            return after
+        before = after
+    raise RuntimeError("disk activity did not settle before RAM measurement")
+
+
 def main():
     args = arguments()
     image = args.image.resolve(strict=True)
@@ -144,8 +190,12 @@ def main():
     disk = output / "pedigree.qcow2"
     source_files = [Path(__file__), Path(COMPILE.__file__), Path(LAUNCH.__file__),
                     Path(LAUNCH.IO.__file__), Path(__file__).with_name("compile-matrix.c")]
+    if args.storage == "ramfs":
+        source_files += [Path(__file__).with_name("compile-matrix-ramroot.c"),
+                         Path(__file__).with_name("compile-matrix-ramroot-paths.txt")]
     report = {"result": "FAIL", "os": args.os, "mode": args.mode, "cpus": 1,
               "image": str(image), "overlay": str(disk), "expected_phases": expected,
+              "storage": args.storage,
               "profile_phase": args.profile_phase, "instrumented": bool(args.plugin or args.profile_phase),
               "phases": [], "identities": [], "records": [], "source_sha256": {
                   str(path.resolve()): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -259,6 +309,12 @@ def main():
                         report["identities"].append(input_identity(line))
                     elif line.startswith("COMPILEBENCH "):
                         report["records"].append(line)
+                    match = re.fullmatch(r"COMPILEBENCH RAMROOT READY files=(\d+) bytes=(\d+) fnv1a64=([0-9a-f]{16})", line)
+                    if match:
+                        if args.storage != "ramfs" or "ramroot" in report:
+                            raise RuntimeError("unexpected RAM-root readiness")
+                        report["ramroot"] = {"files": int(match[1]), "bytes": int(match[2]),
+                                             "fnv1a64": match[3]}
                     match = re.fullmatch(r"COMPILEBENCH configuration mode=(\S+) profile=(\S+)", line)
                     if match:
                         if ("configuration" in report or match[1] != args.mode or
@@ -272,6 +328,10 @@ def main():
                             raise RuntimeError(f"unexpected phase: {line}")
                         current = {"phase": match[1], "gate_acknowledged": False,
                                    "ready_host_s": time.monotonic() - boot}
+                        if args.storage == "ramfs" and index == 0:
+                            if "ramroot" not in report:
+                                raise RuntimeError("RAM-root setup was not verified")
+                            report["ramroot_settled_blocks"] = settle_disks(guest)
                         current["blocks_before"] = guest.qmp("query-blockstats")
                         current["irq_before"] = guest.qmp(
                             "human-monitor-command", {"command-line": "info irq"})
@@ -306,6 +366,8 @@ def main():
                                           **current["metric"]}), flush=True)
                         if current["metric"]["rc"]:
                             raise RuntimeError(f"nonzero phase exit status: {current['phase']}")
+                        if args.storage == "ramfs" and block_requests(current["blocks_before"]) != block_requests(current["blocks_after"]):
+                            raise RuntimeError(f"disk requests during RAM phase: {current['phase']}")
                         current = None
                     if line == "COMPILEBENCH PASS END":
                         if matrix_passed or current is not None or len(report["phases"]) != len(expected):
@@ -313,6 +375,8 @@ def main():
                         if "configuration" not in report:
                             raise RuntimeError("missing guest configuration")
                         validate_identities(report["identities"], args.mode)
+                        if args.storage == "ramfs" and block_requests(report["ramroot_settled_blocks"]) != block_requests(report["phases"][-1]["blocks_after"]):
+                            raise RuntimeError("disk requests between RAM phases")
                         matrix_passed = True
                         passed = args.os == "pedigree"
                     match = re.fullmatch(r"MATRIX-LINUX-CLEAN-END rc=(\d+)", line)
