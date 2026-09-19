@@ -592,6 +592,8 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
 
   void moveNamespace(const String& name, File* parent);
 
+  bool snapshotNamespace(ParentLease& parent, String& name, FileEventMask interest) const;
+
   String m_Name;
   Time::Timestamp m_AccessedTime;
   Time::Timestamp m_ModifiedTime;

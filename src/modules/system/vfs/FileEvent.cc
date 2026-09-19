@@ -15,6 +15,11 @@
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+namespace {
+// Closed subscriptions stay counted until reset, so this is conservative.
+size_t fileEventSubscriptions = 0;
+}
+
 class FileEventTarget {
  public:
   FileEventTarget(FileEventMask interest, FileEventObserver* observer)
@@ -28,6 +33,10 @@ class FileEventTarget {
 
   bool interestedIn(FileEventMask mask) const {
     return (mask & m_Interest) != 0;
+  }
+
+  FileEventMask interest() const {
+    return m_Interest;
   }
 
   bool admit() {
@@ -74,6 +83,8 @@ class FileEventState {
     if (m_NextSequence == ~size_t(0) || !m_Targets.tryPushBack(target))
       return false;
     target->sequence = m_NextSequence++;
+    __atomic_store_n(&m_Interest, m_Interest | target->interest(), __ATOMIC_RELEASE);
+    __atomic_add_fetch(&fileEventSubscriptions, size_t(1), __ATOMIC_RELEASE);
     return true;
   }
 
@@ -83,11 +94,23 @@ class FileEventState {
       for (auto it = m_Targets.begin(); it != m_Targets.end(); ++it) {
         if (*it == target) {
           m_Targets.erase(it);
+          FileEventMask interest = 0;
+          if (m_Open) {
+            for (const auto& remaining : m_Targets) {
+              interest |= remaining->interest();
+            }
+          }
+          __atomic_store_n(&m_Interest, interest, __ATOMIC_RELEASE);
+          __atomic_sub_fetch(&fileEventSubscriptions, size_t(1), __ATOMIC_RELEASE);
           break;
         }
       }
     }
     target->retire();
+  }
+
+  bool hasTargets(FileEventMask mask) const {
+    return (__atomic_load_n(&m_Interest, __ATOMIC_ACQUIRE) & mask) != 0;
   }
 
   void notify(const FileEvent& event) {
@@ -130,6 +153,7 @@ class FileEventState {
       if (!m_Open)
         return;
       m_Open = false;
+      __atomic_store_n(&m_Interest, FileEventMask(0), __ATOMIC_RELEASE);
       // The closing publisher is separately counted so a concurrent drain
       // cannot return before the final callbacks have been admitted.
       const bool admitted = m_ClosingPublication.tryEnter();
@@ -193,6 +217,7 @@ class FileEventState {
   Mutex m_Lock;
   List<SharedPointer<FileEventTarget>> m_Targets;
   bool m_Open;
+  FileEventMask m_Interest = 0;
   size_t m_NextSequence = 1;
   OperationBarrier m_Publications;
   OperationBarrier m_ClosingPublication;
@@ -262,10 +287,18 @@ bool FileEventSource::subscribeFileEvents(FileEventMask interest,
 }
 
 void FileEventSource::notifyFileEvent(const FileEvent& event) {
-  if (event.mask && m_FileEventState) {
+  if (hasFileEventObservers(event.mask)) {
     SharedPointer<FileEventState> state = m_FileEventState;
     state->notify(event);
   }
+}
+
+bool FileEventSource::anyFileEventObservers() {
+  return __atomic_load_n(&fileEventSubscriptions, __ATOMIC_ACQUIRE) != 0;
+}
+
+bool FileEventSource::hasFileEventObservers(FileEventMask mask) const {
+  return m_FileEventState && m_FileEventState->hasTargets(mask);
 }
 
 void FileEventSource::notifyFinalFileEvent(const FileEvent& event) {

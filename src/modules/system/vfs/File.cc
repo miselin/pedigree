@@ -747,6 +747,10 @@ void File::publishInodeEvent(const FileEvent&) {}
 void File::finishInodeRetirement() {}
 
 void File::publishEvent(FileEventMask mask, const StringView& name, bool targetIsDirectory) {
+  // Deletion must close admission even when no observer is currently registered.
+  if (!(mask & FileEvents::DeletedSelf) && !anyFileEventObservers()) {
+    return;
+  }
   uint32_t producer = 0;
 #if THREADS && !defined(STANDALONE_MUTEXES)
   Thread* thread = Processor::information().getCurrentThread();
@@ -771,8 +775,7 @@ void File::publishEvent(FileEventMask mask, const StringView& name, bool targetI
   if (!name.length() && (mask & ChildEvents)) {
     ParentLease parent;
     String childName;
-    getNamespace(parent, childName);
-    if (parent.get()) {
+    if (snapshotNamespace(parent, childName, mask)) {
       parent.get()->notifyFileEvent(FileEvent(mask, childName.view(), isDirectory(), producer));
     }
   }
@@ -859,10 +862,14 @@ File* File::getParent() const {
 }
 
 void File::getNamespace(ParentLease& parent, String& name) const {
+  snapshotNamespace(parent, name, FileEvents::None);
+}
+
+bool File::snapshotNamespace(ParentLease& parent, String& name, FileEventMask interest) const {
   ParentLease replacement;
+  bool captured = false;
   {
     LockGuard<Mutex> guard(m_MetadataLock);
-    name = m_Name;
     File* current = getParent();
     if (current) {
       replacement.m_Retained = VFS::instance().retainTrackedFile(current);
@@ -870,8 +877,15 @@ void File::getNamespace(ParentLease& parent, String& name) const {
         replacement.m_Parent = current;
       }
     }
+    // The raw parent pointer is only safe to inspect after acquiring its lease.
+    if (!interest ||
+        (replacement.m_Parent && replacement.m_Parent->hasFileEventObservers(interest))) {
+      name = m_Name;
+      captured = true;
+    }
   }
   parent.swap(replacement);
+  return captured;
 }
 
 void File::moveNamespace(const String& name, File* parent) {

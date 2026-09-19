@@ -177,7 +177,7 @@ class InotifyRoutingTests(unittest.TestCase):
 
         self.assertIn("public ReadinessSource, public FileEventSource", file_header)
         self.assertIn("publishEvent(FileEvents::Modify)", file_source)
-        self.assertIn("getNamespace(parent, childName)", file_source)
+        self.assertIn("snapshotNamespace(parent, childName, mask)", file_source)
         self.assertIn("parent.get()->notifyFileEvent", file_source)
         self.assertIn("publishEvent(FileEvents::Created", directory)
         self.assertIn("directory->publishEvent(FileEvents::Removed", filesystem)
@@ -185,10 +185,10 @@ class InotifyRoutingTests(unittest.TestCase):
         self.assertIn("FileEvents::CloseNoWrite", descriptors)
         self.assertIn("FileEvents::CloseWrite", descriptors)
         self.assertIn("target->admit()", file_events)
-        self.assertIn("target->notifyAdmitted(*finalEvent)", file_events)
+        self.assertIn("selected->notifyAdmitted(*finalEvent)", file_events)
         self.assertLess(
             file_events.index("target->admit()"),
-            file_events.index("target->notifyAdmitted(*finalEvent)"),
+            file_events.index("selected->notifyAdmitted(*finalEvent)"),
         )
 
     def test_target_probe_uses_public_musl_api_and_raw_legacy_number(self):
