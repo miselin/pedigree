@@ -1588,6 +1588,10 @@ bool Thread::runHostedStatePublicationRegression() {
 
 bool Thread::runHostedStateCleanupRegression() {
   const size_t initialLevel = getStateLevel();
+  const auto terminationFlagSet = [this]() {
+    return (__atomic_load_n(&m_UserReturnWorkPending, __ATOMIC_ACQUIRE) &
+            UserReturnTerminationDeferred) != 0;
+  };
   HostedStateCleanupOrder order;
   HostedStateCleanupItem oldItem{&order, 0};
   HostedStateCleanupItem firstItem{&order, 1};
@@ -1615,7 +1619,8 @@ bool Thread::runHostedStateCleanupRegression() {
 
   const bool checkpointPassed = order.count == 2 && order.values[0] == 2 && order.values[1] == 1 &&
                                 oldRecord.armed && !firstRecord.armed && !secondRecord.armed &&
-                                !checkpointTerminationRecord.armed && !isTerminationDeferred();
+                                !checkpointTerminationRecord.armed && !isTerminationDeferred() &&
+                                !terminationFlagSet();
   disarmStateCleanup(oldRecord);
 
   armStateCleanup(normalRecord, hostedStateCleanupCallback, &normalItem);
@@ -1644,7 +1649,8 @@ bool Thread::runHostedStateCleanupRegression() {
   }
   const bool levelPassed = pushed && getStateLevel() == initialLevel && order.count == 3 &&
                            order.values[2] == 5 && baseRecord.armed && !levelRecord.armed &&
-                           !levelTerminationRecord.armed && !isTerminationDeferred();
+                           !levelTerminationRecord.armed && !isTerminationDeferred() &&
+                           !terminationFlagSet();
   disarmStateCleanup(baseRecord);
 
   registerDeferredScope(terminationRecord, true, false);
@@ -1665,8 +1671,8 @@ bool Thread::runHostedStateCleanupRegression() {
   pureScopesPassed &= freshRecord && freshRecord != initialHead && freshRecord->armed &&
                       freshRecord->next == initialHead && freshRecord->stateLevel == initialLevel &&
                       freshSequence > pureCheckpoint && freshRecord->defersTermination &&
-                      !freshRecord->defersEvents && !freshRecord->cleanup && !freshRecord->context &&
-                      isTerminationDeferred() && userReturnWorkPending();
+                      !freshRecord->defersEvents && !freshRecord->cleanup &&
+                      !freshRecord->context && isTerminationDeferred() && terminationFlagSet();
   {
     TerminationDeferral moved(pedigree_std::move(*fresh));
     fresh->~TerminationDeferral();
@@ -1702,9 +1708,27 @@ bool Thread::runHostedStateCleanupRegression() {
     disabled->~TerminationDeferral();
   }
 
+  bool nestedFlagsPassed = true;
+  DeferredScopeRecord eventOnlyRecord;
+  {
+    TerminationDeferral outer;
+    nestedFlagsPassed &=
+        isTerminationDeferred() && terminationFlagSet() && !clearUserReturnWorkIfIdle();
+    registerDeferredScope(eventOnlyRecord, false, true);
+    {
+      TerminationDeferral inner;
+      outer = TerminationDeferral(false);
+      nestedFlagsPassed &= isTerminationDeferred() && terminationFlagSet();
+    }
+    nestedFlagsPassed &=
+        !isTerminationDeferred() && !terminationFlagSet() && eventsDeferred() &&
+        (__atomic_load_n(&m_UserReturnWorkPending, __ATOMIC_ACQUIRE) & UserReturnEventsDeferred);
+  }
+  unregisterDeferredScope(eventOnlyRecord);
+
   return cleanupDoesNotDeferTermination && checkpointPassed && normalPassed &&
          temporaryMaskCleanupPassed && levelPassed && explicitTerminationDefers &&
-         explicitTerminationRetired && pureScopesPassed && order.count == 3;
+         explicitTerminationRetired && pureScopesPassed && nestedFlagsPassed && order.count == 3;
 }
 
 bool Thread::runHostedExecStackOwnershipRegression() {
@@ -3178,8 +3202,10 @@ void Thread::resumeEvents() {
 }
 
 void Thread::deferTermination() {
-  __atomic_add_fetch(&m_TerminationDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
-  markUserReturnWorkFlag(UserReturnTerminationDeferred);
+  if (__atomic_add_fetch(&m_TerminationDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL) ==
+      1) {
+    markUserReturnWorkFlag(UserReturnTerminationDeferred);
+  }
 }
 
 void Thread::resumeTermination() {
