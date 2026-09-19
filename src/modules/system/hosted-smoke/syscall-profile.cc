@@ -16,6 +16,8 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "modules/subsys/posix/PosixProcess.h"
@@ -202,12 +204,24 @@ bool runMappedWork(uintptr_t address, size_t pageSize, size_t payloadSpan, size_
 struct ProfileContext {
   size_t queryCount;
   size_t ioCount;
+  bool getuidOnly;
   bool passed = false;
   Atomic<size_t> returned{0};
 };
 
 int profileWorker(void* parameter) {
   auto* context = static_cast<ProfileContext*>(parameter);
+  if (context->getuidOnly) {
+    context->passed = true;
+    for (size_t i = 0; i < 1000 && context->passed; ++i) {
+      context->passed = checkedCall(PedigreeLinuxAmd64Syscall_getuid, ProfileUid);
+    }
+    for (size_t repetition = 0; repetition < Repetitions && context->passed; ++repetition) {
+      context->passed = hostedProfileGetuid(repetition, context->queryCount);
+    }
+    context->returned += 1;
+    return context->passed ? 0 : 1;
+  }
   Thread* thread = Processor::information().getCurrentThread();
   Process* process = thread->getParent();
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
@@ -238,6 +252,12 @@ int profileWorker(void* parameter) {
 }  // namespace
 
 bool hostedRunSyscallProfile() {
+  const char* phase = getenv("PEDIGREE_HOSTED_PROFILE_PHASE");
+  const bool getuidOnly = phase && !strcmp(phase, "getuid");
+  if (phase && *phase && strcmp(phase, "all") && !getuidOnly) {
+    ERROR("HOSTED-PROFILE: FAIL phase must be all or getuid");
+    return false;
+  }
   if (!runHostedVasRegressions()) {
     ERROR("HOSTED-PROFILE: FAIL address-space regressions");
     return false;
@@ -259,7 +279,7 @@ bool hostedRunSyscallProfile() {
 #endif
   NOTICE("HOSTED-PROFILE: BEGIN scope=kernel-origin user-entry-return=excluded abi=linux");
   NOTICE("HOSTED-PROFILE: config uid=123 payload_bytes=4096 iov_count=2 repetitions=3 divisor="
-         << Dec << divisor);
+         << Dec << divisor << " phase=" << (getuidOnly ? "getuid" : "all"));
   Process* kernelProcess = Scheduler::instance().getKernelProcess();
   if (!kernelProcess) {
     ERROR("HOSTED-PROFILE: FAIL kernel-process");
@@ -280,7 +300,7 @@ bool hostedRunSyscallProfile() {
   process->setEffectiveUserId(ProfileUid);
   const bool contextInstalled = fixture.installContext(*process);
 
-  ProfileContext context{queryCount, ioCount};
+  ProfileContext context{queryCount, ioCount, getuidOnly};
   auto* worker = new Thread(process, profileWorker, &context, nullptr, false, true, true);
   worker->setName("hosted syscall profile");
   process->publish();

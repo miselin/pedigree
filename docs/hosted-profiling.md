@@ -80,6 +80,11 @@ Each of three repetitions performs one million `getuid` calls, 1,000 seeks,
 return values, errno, and payload contents are checked. UID 123 verifies that
 the real getuid handler executes. Phase durations use a host monotonic clock.
 
+Set `PEDIGREE_HOSTED_PROFILE_PHASE=getuid` to run only the three getuid loops,
+after 1,000 untimed warmup calls. This skips the I/O fixture's mappings and file
+operations, while retaining the startup regression checks and normal process
+setup. The default is `all`. The selector works in every profiling mode.
+
 `run.log` contains phase timings; `host-time.txt` contains Linux process wall,
 user, and system time including startup and shutdown. These are distinct from
 Pedigree's own user/system accounting. `perf.data` contains sampled user-mode CPU

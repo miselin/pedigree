@@ -13,6 +13,11 @@ output=$(realpath "$2")
 mode=${3:-perf}
 cpu=${4:-0}
 divisor=${PEDIGREE_HOSTED_PROFILE_DIVISOR:-1}
+phase=${PEDIGREE_HOSTED_PROFILE_PHASE:-all}
+[[ "$phase" == all || "$phase" == getuid ]] || {
+    echo "PEDIGREE_HOSTED_PROFILE_PHASE must be all or getuid." >&2
+    exit 2
+}
 kernel="$build/src/system/kernel/kernel"
 [[ -x "$kernel" && -f "$build/config.db" && ! -e "$output/run.log" ]] || {
     echo "Build kernel/configdb first, and choose an unused output directory." >&2
@@ -57,9 +62,11 @@ uname -a > "$output/host.txt"
 lscpu >> "$output/host.txt"
 printf 'mode=%s cpu=%s divisor=%s function_limit=%s\n' "$mode" "$cpu" "$divisor" \
     "${PEDIGREE_HOSTED_FUNCTION_PROFILE_LIMIT:-100}" >> "$output/host.txt"
+printf 'phase=%s\n' "$phase" >> "$output/host.txt"
 
 cd "$scratch"
 env PEDIGREE_HOSTED_SYSCALL_PROFILE=1 PEDIGREE_HOSTED_PROFILE_DIVISOR="$divisor" \
+    PEDIGREE_HOSTED_PROFILE_PHASE="$phase" \
     PEDIGREE_HOSTED_FUNCTION_PROFILE_DIR="$function_output" \
     uv run --no-project python "$repo/scripts/run-with-deadline.py" \
     --seconds 180 --label hosted-profile -- \
