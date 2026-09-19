@@ -103,3 +103,34 @@ TEST(IntrusiveList, ClearAllowsNodeReuse) {
   EXPECT_EQ(list.popFront(), &one);
   EXPECT_EQ(list.popFront(), &two);
 }
+
+TEST(IntrusiveList, ContainsAndUnlinkAreListSpecific) {
+  IntrusiveListItem one(1), two(2), three(3), other(4);
+  ItemList list, otherList;
+  list.pushBack(one);
+  list.pushBack(two);
+  list.pushBack(three);
+  otherList.pushBack(other);
+
+  EXPECT_TRUE(list.contains(one));
+  EXPECT_TRUE(list.contains(two));
+  EXPECT_FALSE(list.contains(other));
+  EXPECT_TRUE(otherList.contains(other));
+  EXPECT_FALSE(otherList.contains(two));
+
+  EXPECT_TRUE(list.unlink(two));
+  EXPECT_FALSE(list.contains(two));
+  EXPECT_FALSE(list.unlink(two));
+  EXPECT_FALSE(list.unlink(other));
+  EXPECT_TRUE(otherList.contains(other));
+  ASSERT_EQ(list.count(), 2U);
+
+  auto it = list.begin();
+  EXPECT_EQ((it++)->value, 1);
+  EXPECT_EQ((it++)->value, 3);
+  EXPECT_EQ(it, list.end());
+
+  list.pushFront(two);
+  EXPECT_TRUE(list.contains(two));
+  EXPECT_EQ(list.popFront(), &two);
+}

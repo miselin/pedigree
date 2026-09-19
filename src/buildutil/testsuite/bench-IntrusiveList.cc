@@ -20,6 +20,7 @@
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
 #include "pedigree/kernel/utilities/IntrusiveList.h"
+#include "pedigree/kernel/utilities/List.h"
 
 #include <vector>
 
@@ -112,8 +113,43 @@ static void BM_IntrusiveListPopBack(benchmark::State& state) {
   state.SetItemsProcessed(state.iterations() * state.range(0));
 }
 
+static void BM_IntrusiveListUnlinkAndRelink(benchmark::State& state) {
+  std::vector<IntrusiveListValue> values(state.range(0));
+  BenchList list;
+  IntrusiveListValue& target = values.back();
+  for (auto& value : values)
+    list.pushBack(value);
+
+  for (auto _ : state) {
+    benchmark::DoNotOptimize(list.unlink(target));
+    list.pushBack(target);
+  }
+
+  state.SetItemsProcessed(state.iterations());
+}
+
+static void BM_ListFindEraseAndRelink(benchmark::State& state) {
+  std::vector<IntrusiveListValue> values(state.range(0));
+  List<IntrusiveListValue*> list;
+  IntrusiveListValue* target = &values.back();
+  for (auto& value : values)
+    list.pushBack(&value);
+
+  for (auto _ : state) {
+    auto it = list.begin();
+    while (*it != target)
+      ++it;
+    benchmark::DoNotOptimize(list.erase(it));
+    list.pushBack(target);
+  }
+
+  state.SetItemsProcessed(state.iterations());
+}
+
 BENCHMARK(BM_IntrusiveListPushFront)->Range(8, 8 << 16);
 BENCHMARK(BM_IntrusiveListPushBack)->Range(8, 8 << 16);
 BENCHMARK(BM_IntrusiveListPushPop);
 BENCHMARK(BM_IntrusiveListPopFront)->Range(8, 8 << 16);
 BENCHMARK(BM_IntrusiveListPopBack)->Range(8, 8 << 16);
+BENCHMARK(BM_IntrusiveListUnlinkAndRelink)->Range(8, 8 << 12);
+BENCHMARK(BM_ListFindEraseAndRelink)->Range(8, 8 << 12);

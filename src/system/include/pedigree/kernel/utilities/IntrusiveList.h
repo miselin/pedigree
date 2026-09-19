@@ -37,16 +37,18 @@ struct IntrusiveListNode {
 
   IntrusiveListNode* m_Next = nullptr;
   IntrusiveListNode* m_Previous = nullptr;
+  /** Owning list's sentinel, used for constant-time membership checks. */
+  IntrusiveListNode* m_Owner = nullptr;
   T* value = nullptr;
 };
 
 /**
  * Allocation-free doubly-linked list.
  *
- * Elements remain owned by the caller and must outlive their membership in
- * the list. The selected node member belongs exclusively to one list while
- * linked. A type can participate in multiple lists by providing a distinct
- * node member for each list.
+ * Elements remain owned by the caller, must stay at a stable address, and
+ * must outlive their membership in the list. The selected node member belongs
+ * exclusively to one list while linked. A type can participate in multiple
+ * lists by providing a distinct node member for each list.
  */
 template <typename T, IntrusiveListNode<T> T::* Member>
 class EXPORTED_PUBLIC IntrusiveList {
@@ -141,6 +143,12 @@ class EXPORTED_PUBLIC IntrusiveList {
     return !m_Count;
   }
 
+  /** Returns true when value is linked into this list. */
+  bool contains(const T& value) const {
+    const node_t& node = value.*Member;
+    return node.m_Owner == &m_Empty;
+  }
+
   void pushBack(T& value) {
     insertBefore(m_Empty, value);
   }
@@ -161,6 +169,15 @@ class EXPORTED_PUBLIC IntrusiveList {
       return nullptr;
 
     return remove(*m_Empty.m_Next);
+  }
+
+  /** Removes value from this list in constant time. */
+  bool unlink(T& value) {
+    if (!contains(value))
+      return false;
+
+    remove(value.*Member);
+    return true;
   }
 
   Iterator erase(Iterator& iterator) {
@@ -223,9 +240,10 @@ class EXPORTED_PUBLIC IntrusiveList {
  private:
   void insertBefore(node_t& position, T& value) {
     node_t& node = value.*Member;
-    assert(!node.m_Next && !node.m_Previous);
+    assert(!node.m_Next && !node.m_Previous && !node.m_Owner);
 
     node.value = &value;
+    node.m_Owner = &m_Empty;
     node.m_Next = &position;
     node.m_Previous = position.m_Previous;
     position.m_Previous->m_Next = &node;
@@ -236,6 +254,7 @@ class EXPORTED_PUBLIC IntrusiveList {
   T* remove(node_t& node) {
     assert(&node != &m_Empty);
     assert(node.m_Next && node.m_Previous);
+    assert(node.m_Owner == &m_Empty);
 
     node.m_Previous->m_Next = node.m_Next;
     node.m_Next->m_Previous = node.m_Previous;
@@ -243,6 +262,7 @@ class EXPORTED_PUBLIC IntrusiveList {
     T* value = node.value;
     node.m_Next = nullptr;
     node.m_Previous = nullptr;
+    node.m_Owner = nullptr;
     node.value = nullptr;
     --m_Count;
     return value;
