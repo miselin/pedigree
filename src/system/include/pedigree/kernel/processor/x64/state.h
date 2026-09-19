@@ -37,6 +37,10 @@ struct X64UserEntryMetadata {
 
 static_assert(sizeof(X64UserEntryMetadata) == 32, "x64 entry metadata layout");
 
+#if X64 && !HOSTED
+extern "C" EXPORTED_PUBLIC void pedigree_materialize_user_entry();
+#endif
+
 /** x64 Interrupt State */
 class EXPORTED_PUBLIC X64InterruptState {
   friend class X64ProcessorState;
@@ -48,6 +52,9 @@ class EXPORTED_PUBLIC X64InterruptState {
     return m_UserEntry;
   }
   void setUserEntryMetadata(const X64UserEntryMetadata& metadata) {
+#if X64 && !HOSTED
+    pedigree_materialize_user_entry();
+#endif
     m_UserEntry = metadata;
   }
   void refreshUserTlsBase();
@@ -195,9 +202,15 @@ class X64SyscallState {
 
  public:
   const X64UserEntryMetadata& getUserEntryMetadata() const {
+#if X64 && !HOSTED
+    pedigree_materialize_user_entry();
+#endif
     return m_UserEntry;
   }
   void setUserEntryMetadata(const X64UserEntryMetadata& metadata) {
+#if X64 && !HOSTED
+    pedigree_materialize_user_entry();
+#endif
     m_UserEntry = metadata;
   }
   void refreshUserTlsBase();

@@ -38,11 +38,11 @@ X64SyscallManager X64SyscallManager::m_Instance;
 #define TIME_SYSCALLS 0
 
 extern void system_reboot(Machine::ShutdownType type);
-extern "C" void pedigree_capture_user_entry(X64UserEntryMetadata*);
+extern "C" void pedigree_defer_user_entry(X64UserEntryMetadata*);
 
 namespace {
 void captureUserEntry(SyscallState& state) {
-  pedigree_capture_user_entry(&const_cast<X64UserEntryMetadata&>(state.getUserEntryMetadata()));
+  pedigree_defer_user_entry(&state.m_UserEntry);
 }
 
 class SyscallReturnScope {
@@ -148,6 +148,7 @@ bool X64SyscallManager::syscall(SyscallState& syscallState) {
 }
 
 void X64SyscallManager::syscallWithActions(SyscallState& syscallState) {
+  // Restart handling consumes only the entry registers, not deferred FS/GS bases.
   const SyscallState originalState = syscallState;
 #if PEDIGREE_ACTIVITY_DIAGNOSTICS
   const bool diagnosticSample =

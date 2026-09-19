@@ -98,8 +98,11 @@ the complete C++ tail separately from its checkpoint, stop, deferred-fault,
 event, affinity, and accounting stages. Stage totals overlap with the complete
 tail and must not be summed together.
 
-The assembly entry diagnostic counts every metadata capture and restore, and
-samples one in 256 of each around the FS/GS-base MSR work. Its `activity_ue_*`
+The assembly entry diagnostic counts eager metadata captures and strict restores,
+and samples one in 256 of each around the FS/GS-base MSR work. Deferred syscall
+materialization and returns that preserve the live bases are outside these
+counters and samples; use an instruction trace to account for those paths.
+Its `activity_ue_*`
 durations are raw TSC deltas; compare their paired empty-bracket samples and use
 the boot log's `TSC calibration` ratio before converting them to nanoseconds.
 These opt-in probes add counters on every user boundary and timestamp work to

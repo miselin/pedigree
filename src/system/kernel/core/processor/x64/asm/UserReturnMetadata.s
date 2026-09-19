@@ -3,6 +3,9 @@
 [section .text]
 global pedigree_capture_user_entry:function protected
 global pedigree_restore_user_entry:function protected
+global pedigree_defer_user_entry:function protected
+global pedigree_materialize_user_entry:function protected
+global pedigree_restore_syscall_entry:function protected
 global pedigree_user_gs_restore_swapgs:function hidden
 global pedigree_user_gs_restore_user:function hidden
 global pedigree_user_gs_restore_kernel:function hidden
@@ -110,7 +113,53 @@ pedigree_user_gs_restore_kernel:
 
 ; RDI points at the 32-byte prefix. All clobbered GPRs are already saved.
 ; origRax belongs to the particular entry/construction path.
+pedigree_defer_user_entry:
+%ifndef PEDIGREE_BENCHMARK_ABLATE_X64_USER_ENTRY_METADATA
+  call pedigree_materialize_user_entry
+  mov [rdi], ds
+  mov [rdi+2], es
+  mov [rdi+4], fs
+  mov [rdi+6], gs
+  mov qword [rdi+8], 0
+  mov qword [rdi+16], 0
+  mov [gs:32], rdi
+%endif
+  ret
+
+; A pending frame borrows the live bases only until the first consumer or
+; hardware change. Nested interrupt entry materializes it before touching state.
+pedigree_materialize_user_entry:
+  cmp qword [gs:32], 0
+  je .return
+  pushfq
+  cli
+  mov r8, [gs:32]
+  test r8, r8
+  jz .done
+  mov ecx, 0xc0000100
+  rdmsr
+  shl rdx, 32
+  or rax, rdx
+  mov [r8+8], rax
+  mov ecx, 0xc0000102
+  rdmsr
+  shl rdx, 32
+  or rax, rdx
+  mov [r8+16], rax
+  mov qword [gs:32], 0
+.done:
+  popfq
+.return:
+  ret
+
+pedigree_restore_syscall_entry:
+  cmp [gs:32], rdi
+  jne pedigree_restore_user_entry
+  mov qword [gs:32], 0
+  ret
+
 pedigree_capture_user_entry:
+  call pedigree_materialize_user_entry
 %ifdef PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS
   inc qword [rel pedigree_user_entry_capture_calls]
   test byte [rel pedigree_user_entry_capture_calls], 0xff
@@ -155,6 +204,7 @@ pedigree_capture_user_entry:
 ; Selector loads may alter bases: restore the captured bases afterward.
 ; Active GS remains the local kernel anchor; inactive GS holds the user base.
 pedigree_restore_user_entry:
+  call pedigree_materialize_user_entry
 %ifdef PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS
   inc qword [rel pedigree_user_entry_restore_calls]
   test byte [rel pedigree_user_entry_restore_calls], 0xff

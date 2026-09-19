@@ -324,6 +324,10 @@ uintptr_t posix_brk(uintptr_t theBreak) {
 }
 
 SyscallState posix_copy_clone_state(const SyscallState& state) {
+#if X64 && !HOSTED
+  // The child's frame must own its metadata before it leaves this CPU.
+  state.getUserEntryMetadata();
+#endif
   SyscallState clonedState = state;
 #if HOSTED
   // The hosted bridge's errno destination is stack-local to the parent's

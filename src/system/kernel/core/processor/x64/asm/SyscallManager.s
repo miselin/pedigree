@@ -15,7 +15,7 @@
 ; ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-extern pedigree_restore_user_entry
+extern pedigree_restore_syscall_entry
 
 ; X64SyscallManager::syscall(SyscallState &syscallState)
 extern _ZN17X64SyscallManager7syscallER15X64SyscallState
@@ -79,7 +79,7 @@ pedigree_syscall_kernel_stack:
   test al, al
   jz .fast_return
   mov rdi, rsp
-  call pedigree_restore_user_entry
+  call pedigree_restore_syscall_entry
 
 .fast_return:
   add rsp, 32

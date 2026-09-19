@@ -127,6 +127,66 @@ __asm__(".text\n"
         "ret\n"
         ".size kernel_gs_fs_base_probe,.-kernel_gs_fs_base_probe\n");
 
+struct fs_selector_probe {
+  uintptr_t original, observed;
+  long number, result, prime_result, restore_result;
+  unsigned short original_selector, observed_selector, restored_selector, primed_selector;
+  struct timespec delay;
+};
+_Static_assert(SYS_getuid == 102 && SYS_nanosleep == 35, "selector probe syscall numbers");
+_Static_assert(offsetof(struct fs_selector_probe, original) == 0 &&
+                   offsetof(struct fs_selector_probe, observed) == 8 &&
+                   offsetof(struct fs_selector_probe, number) == 16 &&
+                   offsetof(struct fs_selector_probe, result) == 24 &&
+                   offsetof(struct fs_selector_probe, prime_result) == 32 &&
+                   offsetof(struct fs_selector_probe, restore_result) == 40 &&
+                   offsetof(struct fs_selector_probe, original_selector) == 48 &&
+                   offsetof(struct fs_selector_probe, observed_selector) == 50 &&
+                   offsetof(struct fs_selector_probe, restored_selector) == 52 &&
+                   offsetof(struct fs_selector_probe, primed_selector) == 54 &&
+                   offsetof(struct fs_selector_probe, delay) == 56,
+               "FS selector probe assembly layout");
+
+// Reloading the same selector can change its hidden base without changing its value.
+extern void kernel_gs_fs_selector_probe(struct fs_selector_probe* probe);
+__asm__(
+    ".text\n"
+    ".global kernel_gs_fs_selector_probe\n"
+    ".type kernel_gs_fs_selector_probe,@function\n"
+    "kernel_gs_fs_selector_probe:\n"
+    "push %rbx\n"
+    "mov %rdi,%rbx\n"
+    "mov %fs,48(%rbx)\n"
+    "mov $0x23,%eax\n"
+    "mov %ax,%fs\n"
+    "mov $158,%eax\n"
+    "mov $0x1002,%edi\n"
+    "mov 0(%rbx),%rsi\n"
+    "syscall\n"
+    "mov %rax,32(%rbx)\n"
+    "mov %fs,54(%rbx)\n"
+    "mov $0x23,%eax\n"
+    "mov %ax,%fs\n"
+    "mov 16(%rbx),%rax\n"
+    "lea 56(%rbx),%rdi\n"
+    "xor %esi,%esi\n"
+    "syscall\n"
+    "mov %rax,24(%rbx)\n"
+    "mov %fs,50(%rbx)\n"
+    "mov %fs:(%rbx),%rax\n"
+    "mov %rax,8(%rbx)\n"
+    "mov 48(%rbx),%ax\n"
+    "mov %ax,%fs\n"
+    "mov $158,%eax\n"
+    "mov $0x1002,%edi\n"
+    "mov 0(%rbx),%rsi\n"
+    "syscall\n"
+    "mov %rax,40(%rbx)\n"
+    "mov %fs,52(%rbx)\n"
+    "pop %rbx\n"
+    "ret\n"
+    ".size kernel_gs_fs_selector_probe,.-kernel_gs_fs_selector_probe\n");
+
 static unsigned load(unsigned* value) {
   return __atomic_load_n(value, __ATOMIC_ACQUIRE);
 }
@@ -251,32 +311,30 @@ static void user_gp_contract(uint64_t token) {
 }
 
 static void user_gs_selector_contract(uint64_t token) {
-  errno = EDOM;
-  require(state_valid(token, EDOM), "selector-before-reset");
-  // Pedigree's flat user data descriptor has base zero; avoid null-selector quirks.
-  __asm__ volatile("mov $0x23, %%eax\n\tmov %%ax, %%gs" : : : "rax", "memory");
-  // Do not dereference GS while its base is zero.
-  require(get_gs() == 0 && gs_selector() == 0x23 && tls_token == token &&
-              &errno == errno_address && errno == EDOM,
-          "selector-resets-base");
-  require(raw6(SYS_sched_yield, 0, 0, 0, 0, 0, 0) == 0, "selector-yield");
-  require(get_gs() == 0 && gs_selector() == 0x23 && tls_token == token &&
-              &errno == errno_address && errno == EDOM,
-          "selector-reset-survives-yield");
-  struct timespec delay = {0, 1000000};
-  while (nanosleep(&delay, &delay))
-    require(errno == EINTR, "selector-nanosleep");
-  errno = EDOM;
-  require(get_gs() == 0 && gs_selector() == 0x23 && tls_token == token &&
-              &errno == errno_address && errno == EDOM,
-          "selector-reset-survives-blocking");
+  const long numbers[] = {SYS_getuid, SYS_getuid, SYS_sched_yield, SYS_nanosleep};
+  const char* operations[] = {"selector-changed-query", "selector-same-query",
+                              "selector-same-yield", "selector-same-blocking"};
+  for (unsigned i = 0; i < sizeof(numbers) / sizeof(numbers[0]); ++i) {
+    install_gs(WORKERS, token);
+    // Later iterations retain 0x23 while arch_prctl restores a nonzero hidden base.
+    if (i)
+      require(gs_selector() == 0x23, "selector-before-same-reload");
+    __asm__ volatile("mov $0x23, %%eax\n\tmov %%ax, %%gs" : : : "rax", "memory");
+    struct timespec delay = {0, 1000000};
+    const long result = raw6(numbers[i], (long)&delay, 0, 0, 0, 0, 0);
+    // Do not dereference GS while its base is zero.
+    require(result == (numbers[i] == SYS_getuid ? expected_uid : 0) && get_gs() == 0 &&
+                gs_selector() == 0x23 && tls_token == token && &errno == errno_address &&
+                errno == EDOM,
+            operations[i]);
+  }
   install_gs(WORKERS, token);
   puts("KERNEL-GS-CONTRACT PASS phase=user-gs-selector");
 }
 
 static void user_fs_base_contract(uint64_t token) {
   uintptr_t original = 0;
-  require(raw6(SYS_arch_prctl, ARCH_GET_FS, (long)&original, 0, 0, 0, 0) == 0,
+  require(raw6(SYS_arch_prctl, ARCH_GET_FS, (long)&original, 0, 0, 0, 0) == 0 && original,
           "get-original-fs");
   sigset_t all, previous;
   require(sigfillset(&all) == 0 && pthread_sigmask(SIG_BLOCK, &all, &previous) == 0,
@@ -296,8 +354,24 @@ static void user_fs_base_contract(uint64_t token) {
                 probe.before_selector == probe.restored_selector,
             "fs-probe-selector-unchanged");
   }
+  const long numbers[] = {SYS_getuid, SYS_sched_yield, SYS_nanosleep};
+  const char* operations[] = {"fs-selector-same-query", "fs-selector-same-yield",
+                              "fs-selector-same-blocking"};
+  for (unsigned i = 0; i < sizeof(numbers) / sizeof(numbers[0]); ++i) {
+    struct fs_selector_probe probe = {
+        .original = original, .number = numbers[i], .delay = {0, 1000000}};
+    kernel_gs_fs_selector_probe(&probe);
+    require(probe.restore_result == 0 && state_valid(token, EDOM) &&
+                probe.original_selector == probe.restored_selector,
+            "fs-selector-restored-tls");
+    require(probe.prime_result == 0 && probe.primed_selector == 0x23 &&
+                probe.observed == original && probe.observed_selector == 0x23 &&
+                probe.result == (numbers[i] == SYS_getuid ? expected_uid : 0),
+            operations[i]);
+  }
   require(pthread_sigmask(SIG_SETMASK, &previous, NULL) == 0, "fs-probe-restore-signals");
   puts("KERNEL-GS-CONTRACT PASS phase=same-selector-fs-base");
+  puts("KERNEL-GS-CONTRACT PASS phase=same-selector-fs-reload");
 }
 
 // No syscalls: progress on one CPU requires IRQ-driven preemption of these loops.

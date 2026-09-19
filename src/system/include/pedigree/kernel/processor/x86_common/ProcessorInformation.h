@@ -50,12 +50,14 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
     uintptr_t userStack;
     X86CommonProcessorInformation* information;
     size_t processorIndex;
+    void* pendingUserEntry;
   };
   static_assert(__builtin_offsetof(KernelGsAnchor, kernelStack) == 0);
   static_assert(__builtin_offsetof(KernelGsAnchor, userStack) == 8);
   static_assert(__builtin_offsetof(KernelGsAnchor, information) == 16);
   static_assert(__builtin_offsetof(KernelGsAnchor, processorIndex) == 24);
-  static_assert(sizeof(KernelGsAnchor) == 32);
+  static_assert(__builtin_offsetof(KernelGsAnchor, pendingUserEntry) == 32);
+  static_assert(sizeof(KernelGsAnchor) == 40);
 
   KernelGsAnchor* kernelGsAnchor() {
     return &m_KernelGsAnchor;
@@ -166,7 +168,7 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
   bool m_TscClockAnchorInitialised;
 
 #if X64
-  KernelGsAnchor m_KernelGsAnchor{0, 0, this, 0};
+  KernelGsAnchor m_KernelGsAnchor{0, 0, this, 0, nullptr};
 #endif
 };
 

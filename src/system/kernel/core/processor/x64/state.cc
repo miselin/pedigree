@@ -233,10 +233,12 @@ uint64_t installedUserTlsBase() {
 }
 }  // namespace
 void X64InterruptState::refreshUserTlsBase() {
+  pedigree_materialize_user_entry();
   m_UserEntry.fsBase = installedUserTlsBase();
   m_UserEntry.gsBase = Processor::getUserGsBase();
 }
 void X64SyscallState::refreshUserTlsBase() {
+  pedigree_materialize_user_entry();
   m_UserEntry.fsBase = installedUserTlsBase();
   m_UserEntry.gsBase = Processor::getUserGsBase();
 }

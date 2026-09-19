@@ -23,6 +23,7 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/processor/x64/tss.h"
 #include "pedigree/kernel/processor/x86_common/ProcessorInformation.h"
@@ -76,6 +77,10 @@ uintptr_t X86CommonProcessorInformation::getKernelStack() const {
   return m_Tss->rsp0;
 }
 void X86CommonProcessorInformation::setKernelStack(uintptr_t stack) {
+#if X64
+  // Event-stack retirement and scheduling must not leave a borrowed frame behind.
+  pedigree_materialize_user_entry();
+#endif
   m_Tss->rsp0 = stack;
 #if X64
   m_KernelGsAnchor.kernelStack = stack;

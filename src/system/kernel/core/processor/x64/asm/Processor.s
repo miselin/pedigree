@@ -16,6 +16,7 @@
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 extern pedigree_restore_user_entry
+extern pedigree_materialize_user_entry
 
 ; uintptr_t ProcessorBase::getBasePointer()
 global _ZN13ProcessorBase14getBasePointerEv:function hidden
@@ -88,6 +89,7 @@ _ZN13ProcessorBase13contextSwitchEP17X64InterruptState:
 
 _ZN13ProcessorBase16switchToUserModeEmm:
   cli
+  call pedigree_materialize_user_entry
   mov ax, 0x23       ; Load the new data segment descriptor with an RPL of 3.
   mov ds, ax         ; Propagate the change to all segment registers.
   mov es, ax
