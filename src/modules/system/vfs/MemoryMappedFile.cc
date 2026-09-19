@@ -1024,17 +1024,19 @@ size_t MemoryMapManager::removeAndRelease(uintptr_t base, size_t length, VmStatu
       *status = removedStatus;
     return 0;
   }
-  raw.get()->commit();
-  auto* process = Processor::information().getCurrentThread()->getParent();
-  for (size_t i = 0; i < raw.get()->removedRangeCount(); ++i) {
-    const auto& range = raw.get()->removedRanges()[i];
-    releaseReservation(process, space, range.base, range.length);
-  }
-  if (auto* account = space.memoryLockAccount()) {
-    auto charge = account->charge();
-    assert(raw.get()->removedPages() <= charge.rawPages);
-    charge.rawPages -= raw.get()->removedPages();
-    account->publish(charge, account->futureMode());
+  if (raw) {
+    raw.get()->commit();
+    auto* process = Processor::information().getCurrentThread()->getParent();
+    for (size_t i = 0; i < raw.get()->removedRangeCount(); ++i) {
+      const auto& range = raw.get()->removedRanges()[i];
+      releaseReservation(process, space, range.base, range.length);
+    }
+    if (auto* account = space.memoryLockAccount()) {
+      auto charge = account->charge();
+      assert(raw.get()->removedPages() <= charge.rawPages);
+      charge.rawPages -= raw.get()->removedPages();
+      account->publish(charge, account->futureMode());
+    }
   }
   if (status)
     *status = VmStatus::Success;

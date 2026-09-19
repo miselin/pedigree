@@ -301,6 +301,22 @@ MemoryLockStatus RawUserMemory::prepareReplacement(uintptr_t base, size_t length
                                                    UniquePointer<PreparedMemoryLock>& result) {
   if (!validRange(base, length))
     return MemoryLockStatus::InvalidRange;
+  bool overlaps = false;
+  if (m_State && length) {
+    const uintptr_t end = base + length;
+    for (const auto& entry : m_State.get()->entries) {
+      if (entry.region.base >= end)
+        break;
+      if (base < entry.region.base + entry.region.length) {
+        overlaps = true;
+        break;
+      }
+    }
+  }
+  if (!overlaps) {
+    result.reset();
+    return MemoryLockStatus::Success;
+  }
   UniquePointer<PreparedMemoryLock> prepared;
   Plan* plan = Plan::create(*this, prepared);
   if (!plan)

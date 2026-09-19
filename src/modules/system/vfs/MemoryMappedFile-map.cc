@@ -330,9 +330,10 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     }
     auto charge = account ? account->charge() : MemoryLockCharge{};
     if (account) {
-      assert(removedPages <= charge.managedPages && raw.get()->removedPages() <= charge.rawPages);
+      const size_t rawRemovedPages = raw ? raw.get()->removedPages() : 0;
+      assert(removedPages <= charge.managedPages && rawRemovedPages <= charge.rawPages);
       charge.managedPages -= removedPages;
-      charge.rawPages -= raw.get()->removedPages();
+      charge.rawPages -= rawRemovedPages;
       if (mode != MemoryLockMode::None) {
         const size_t added = length / pageSize;
         if (added > ~size_t(0) - charge.managedPages)
@@ -389,7 +390,8 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
       object->discardRange(space, first, last - first);
       object->m_OwnsMappings = false;
     }
-    raw.get()->commit();
+    if (raw)
+      raw.get()->commit();
     for (auto* object : plan.staged)
       object->m_OwnsMappings = true;
     if (overlaps) {
