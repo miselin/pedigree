@@ -940,9 +940,9 @@ void LocalApic::interrupt(size_t nInterruptNumber, InterruptState& state) {
     SchedulerTimerHandlerSlot::DispatchGuard dispatch;
     if (LIKELY(m_Handlers.beginDispatch(getId(), dispatch))) {
       SchedulerTimerDispatchCleanup dispatchCleanup(dispatch);
-      // TODO: Delta is wrong.
       ExecutionContextGuard schedulerContext(ExecutionContext::SchedulerIrq);
-      dispatch.handler()->timer(0, state);
+      const uint64_t delta = nInterruptNumber == TIMER_VECTOR ? nominalQuantumNs() : 0;
+      dispatch.handler()->timer(delta, state);
     }
     return;
   }

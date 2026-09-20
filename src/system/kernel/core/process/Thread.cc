@@ -369,7 +369,7 @@ Thread::Thread(Process* pParent, SyscallState& state, bool delayedStart,
 }
 
 void Thread::recordTime(CpuTimeMode mode) {
-#if PEDIGREE_TIME_ACCOUNTING
+#if PEDIGREE_TIME_ACCOUNTING && !PEDIGREE_SAMPLED_TIME_ACCOUNTING
   const CpuTimeSample sample;
   m_TimeAccounting.recordAtInterruptDisabled(mode, sample.timestamp, sample.processor);
 #endif
@@ -377,7 +377,7 @@ void Thread::recordTime(CpuTimeMode mode) {
 }
 
 void Thread::trackTime(CpuTimeMode mode) {
-#if PEDIGREE_TIME_ACCOUNTING
+#if PEDIGREE_TIME_ACCOUNTING && !PEDIGREE_SAMPLED_TIME_ACCOUNTING
   const CpuTimeSample sample;
   const Time::Timestamp elapsed =
       m_TimeAccounting.elapsedAtInterruptDisabled(mode, sample.timestamp, sample.processor);
@@ -390,7 +390,7 @@ void Thread::trackTime(CpuTimeMode mode) {
 }
 
 void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to, bool interruptsAlreadyDisabled) {
-#if PEDIGREE_TIME_ACCOUNTING
+#if PEDIGREE_TIME_ACCOUNTING && !PEDIGREE_SAMPLED_TIME_ACCOUNTING
   const CpuTimeSample sample(interruptsAlreadyDisabled);
   const Time::Timestamp elapsed =
       m_TimeAccounting.elapsedAtInterruptDisabled(from, sample.timestamp, sample.processor);
@@ -403,6 +403,20 @@ void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to, bool interruptsAlr
   (void)from;
   (void)interruptsAlreadyDisabled;
   __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
+#endif
+}
+
+void Thread::accountTimerTick(Time::Timestamp delta, bool kernelMode) {
+#if PEDIGREE_TIME_ACCOUNTING && PEDIGREE_SAMPLED_TIME_ACCOUNTING
+  // Interrupt entry has already changed the logical mode. Only the saved
+  // frame tells us which mode was running when the timer arrived.
+  if (delta && m_pParent) {
+    publishTimeAccounting(kernelMode ? CpuTimeMode::Kernel : CpuTimeMode::User, delta,
+                          Processor::index());
+  }
+#else
+  (void)delta;
+  (void)kernelMode;
 #endif
 }
 

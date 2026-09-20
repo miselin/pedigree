@@ -1402,6 +1402,12 @@ Thread* PerProcessorScheduler::selectNext(Thread* current) {
 void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
   (void)delta;
   (void)state;
+#if PEDIGREE_TIME_ACCOUNTING && PEDIGREE_SAMPLED_TIME_ACCOUNTING
+  Thread* current = Processor::information().getCurrentThread();
+  if (current && current != m_pIdleThread && delta) {
+    current->accountTimerTick(delta, state.kernelMode());
+  }
+#endif
   ActivityDiagnostics::recordSchedulerTimer();
   Scheduler::instance().requestLoadAverageSample();
   // Device IRQs only publish atomic wake edges. The scheduler interrupt is a

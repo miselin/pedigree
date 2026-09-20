@@ -154,12 +154,21 @@ set(PEDIGREE_BENCHMARK_VM_ABLATIONS FALSE CACHE BOOL
     "Benchmark only: allow selected processes to bypass isolated VM hot-path work.")
 set(PEDIGREE_READY_QUEUE_COUNTS TRUE CACHE BOOL "Maintain ready-queue counts to bound scheduler selection scans.")
 set(PEDIGREE_TIME_ACCOUNTING TRUE CACHE BOOL "Collect per-thread and per-process CPU-time accounting.")
+option(PEDIGREE_SAMPLED_TIME_ACCOUNTING
+    "Estimate CPU time from scheduler ticks instead of timing each kernel transition." OFF)
 set(PEDIGREE_SCHEDULER_TICK_DIVISOR 1 CACHE STRING "Schedule once per this many scheduler timer ticks.")
 if (PEDIGREE_SCHEDULER_TICK_DIVISOR LESS 1)
     message(FATAL_ERROR "PEDIGREE_SCHEDULER_TICK_DIVISOR must be at least 1")
 endif ()
 if (PEDIGREE_BENCHMARK_SYSCALL_TIMING AND NOT PEDIGREE_TIME_ACCOUNTING)
     message(FATAL_ERROR "PEDIGREE_BENCHMARK_SYSCALL_TIMING requires PEDIGREE_TIME_ACCOUNTING")
+endif ()
+if (PEDIGREE_SAMPLED_TIME_ACCOUNTING AND PEDIGREE_BENCHMARK_SYSCALL_TIMING)
+    message(FATAL_ERROR "Per-syscall timing requires precise CPU-time accounting")
+endif ()
+if (PEDIGREE_SAMPLED_TIME_ACCOUNTING AND PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET"
+    AND NOT PEDIGREE_ARCH_TARGET MATCHES "^(X64|HOSTED)$")
+    message(FATAL_ERROR "Sampled CPU-time accounting requires an x64 or hosted scheduler timer")
 endif ()
 
 # init configuration

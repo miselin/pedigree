@@ -370,7 +370,7 @@ class EXPORTED_PUBLIC Thread {
    * physically masked.
    */
   ALWAYS_INLINE void transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to) {
-#if PEDIGREE_TIME_ACCOUNTING
+#if PEDIGREE_TIME_ACCOUNTING && !PEDIGREE_SAMPLED_TIME_ACCOUNTING
     ActivityDiagnostics::TimeAccountingScope accountingScope;
     // The architecture boundary owns the physical IRQ mask. Going
     // through CpuTimeSample here could momentarily undo that mask on hosted,
@@ -391,6 +391,9 @@ class EXPORTED_PUBLIC Thread {
 
   /** Current accounting owner; never used to classify interrupt origin. */
   CpuTimeMode currentTimeAccountingMode() const;
+
+  /** Charges a scheduler tick using the saved interrupt mode, with IRQs masked. */
+  void accountTimerTick(Time::Timestamp delta, bool kernelMode);
 
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
   static constexpr size_t NoSyscallTimingSlot = ~static_cast<size_t>(0);

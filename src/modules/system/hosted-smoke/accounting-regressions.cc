@@ -7,6 +7,7 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/time/Time.h"
 
 namespace {
 class HostedAccountingProcess : public Process {
@@ -65,7 +66,15 @@ struct AccountingThreadContext {
 
 int accountedKernelThread(void* parameter) {
   AccountingThreadContext* context = reinterpret_cast<AccountingThreadContext*>(parameter);
+#if PEDIGREE_TIME_ACCOUNTING && PEDIGREE_SAMPLED_TIME_ACCOUNTING
+  const Time::Timestamp deadline = Time::getTicks() + 2 * Time::Multiplier::Second;
+  while (context->process->getKernelTime() == context->kernelBefore &&
+         Time::getTicks() < deadline) {
+    Processor::pause();
+  }
+#else
   Scheduler::instance().yield();
+#endif
   context->firstSliceAccounted = context->process->getKernelTime() > context->kernelBefore;
   context->ran = 1;
   return 0;
@@ -88,6 +97,39 @@ bool runHostedAccountingRegressions() {
                                       driver->getKernelTime() == threadKernel + 7 &&
                                       driver->getParent()->getUserTime() == processUser + 13 &&
                                       driver->getParent()->getKernelTime() == processKernel + 7;
+  bool sampledTickAccounting = true;
+#if PEDIGREE_TIME_ACCOUNTING && PEDIGREE_SAMPLED_TIME_ACCOUNTING
+  const CpuTimeMode originalMode = driver->currentTimeAccountingMode();
+  driver->recordTime(CpuTimeMode::User);
+  driver->trackTime(CpuTimeMode::User);
+  driver->transitionTime(CpuTimeMode::User, CpuTimeMode::Kernel, true);
+  sampledTickAccounting &= driver->currentTimeAccountingMode() == CpuTimeMode::Kernel;
+  driver->trackTime(CpuTimeMode::Kernel);
+  driver->transitionTimeAtInterruptReturn(CpuTimeMode::Kernel, CpuTimeMode::User);
+  sampledTickAccounting &=
+      !Processor::getInterrupts() && driver->currentTimeAccountingMode() == CpuTimeMode::User &&
+      driver->getUserTime() == threadUser + 13 && driver->getKernelTime() == threadKernel + 7 &&
+      driver->getParent()->getUserTime() == processUser + 13 &&
+      driver->getParent()->getKernelTime() == processKernel + 7;
+
+  driver->recordTime(CpuTimeMode::Kernel);
+  driver->accountTimerTick(17, false);
+  sampledTickAccounting &= driver->currentTimeAccountingMode() == CpuTimeMode::Kernel &&
+                           driver->getUserTime() == threadUser + 30 &&
+                           driver->getKernelTime() == threadKernel + 7 &&
+                           driver->getParent()->getUserTime() == processUser + 30 &&
+                           driver->getParent()->getKernelTime() == processKernel + 7;
+  driver->accountTimerTick(0, false);
+  driver->accountTimerTick(0, true);
+  driver->recordTime(CpuTimeMode::User);
+  driver->accountTimerTick(23, true);
+  sampledTickAccounting &=
+      !Processor::getInterrupts() && driver->currentTimeAccountingMode() == CpuTimeMode::User &&
+      driver->getUserTime() == threadUser + 30 && driver->getKernelTime() == threadKernel + 30 &&
+      driver->getParent()->getUserTime() == processUser + 30 &&
+      driver->getParent()->getKernelTime() == processKernel + 30;
+  driver->recordTime(originalMode);
+#endif
   Processor::setInterrupts(interruptsWereEnabled);
 
   const bool loadRequestPassed = Scheduler::instance().runHostedLoadAverageRequestRegression();
@@ -185,13 +227,14 @@ bool runHostedAccountingRegressions() {
       process->getKernelTime() == kernelBeforeLatePublication + 211;
   delete process;
 
-  const bool passed = exactThreadPublication && loadRequestPassed && interestPassed &&
-                      exactWorkerBatch && zeroBatchDiscarded && firstKernelSliceAccounted &&
-                      latePublicationDiscarded;
+  const bool passed = exactThreadPublication && sampledTickAccounting && loadRequestPassed &&
+                      interestPassed && exactWorkerBatch && zeroBatchDiscarded &&
+                      firstKernelSliceAccounted && latePublicationDiscarded;
   if (!passed) {
     ERROR("HOSTED-WAIT-TEST: FAIL deferred-time-accounting-worker: exact="
-          << exactThreadPublication << " load=" << loadRequestPassed << " interest="
-          << interestPassed << " batch=" << exactWorkerBatch << " zero=" << zeroBatchDiscarded
+          << exactThreadPublication << " sampled=" << sampledTickAccounting
+          << " load=" << loadRequestPassed << " interest=" << interestPassed
+          << " batch=" << exactWorkerBatch << " zero=" << zeroBatchDiscarded
           << " first=" << firstKernelSliceAccounted << " late=" << latePublicationDiscarded);
   } else {
     NOTICE("HOSTED-WAIT-TEST: PASS deferred-time-accounting-worker");
