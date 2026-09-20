@@ -91,11 +91,12 @@ if [ ! -e "$script_dir/.easy_os" ]; then
             ;;
         opensuse)
             echo "Installing packages with zypper, please wait..."
-            set +e
-            sudo zypper install mpfr-devel mpc-devel gmp3-devel sqlite3 \
-                texinfo cmake bison flex autoconf automake nasm genisoimage \
-                zlib-devel
-            set -e
+            if [ "$nosudo" = 0 ]; then
+                sudo zypper install $confirm mpfr-devel mpc-devel gmp3-devel \
+                    sqlite3 texinfo cmake bison flex autoconf automake nasm \
+                    genisoimage zlib-devel clang gettext-tools mtools \
+                    dosfstools e2fsprogs
+            fi
             ;;
         fedora|redhat|centos|rhel)
             echo "Installing packages with YUM, please wait..."

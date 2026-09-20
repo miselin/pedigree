@@ -287,6 +287,10 @@ def build_file_list(all_sources):
 
             # This file might need to be copied from the build directory.
             target = os.path.join(target_dirpath, f)
+            canonical_source = os.path.join(imagesdir, target.lstrip("/"))
+            if source != canonical_source and os.path.lexists(canonical_source):
+                # New packages can coexist with an older staged layout.
+                continue
             if target_in_copylist(copies, target):
                 print(
                     "Target %s will be overridden by files in the build directory."
@@ -354,15 +358,31 @@ def build_file_list(all_sources):
     return list(sorted(cmdlist, key=commandlist_sorter))
 
 
-def create_base_image(target):
+def image_size(cmdlist):
+    block_size = 4096
+    payload = 0
+    for command in cmdlist:
+        if command.startswith("write "):
+            source = command[len("write ") :].rsplit(" ", 1)[0]
+            size = os.path.getsize(source)
+            payload += max(block_size, (size + block_size - 1) // block_size * block_size)
+        elif command.startswith(("mkdir ", "symlink ")):
+            payload += block_size
+
+    # Leave room for ext2 metadata, reserved blocks, and later package changes.
+    size = max(1 << 31, (payload * 5 + 3) // 4)
+    alignment = 256 << 20
+    return (size + alignment - 1) // alignment * alignment
+
+
+def create_base_image(target, size):
     # Offset into the image for the partition proper to start.
     partition_offset = 0  # 0x10000
 
     # Build file for creating the disk image.
     base_image = open(target, "w")
 
-    # Create image - 1GiB.
-    sz = (1 << 31) + partition_offset
+    sz = size + partition_offset
     base_image.truncate(sz)
 
     # Add a partition table to the front of the image.
@@ -442,18 +462,22 @@ def read_ext2_uuid(target):
 def main():
     targetfile = sys.argv[1]
     ext2img = sys.argv[2]
-    create_base_image(targetfile)
     sources = sys.argv[3:]
-    root_uuid = read_ext2_uuid(targetfile)
 
     with tempfile.TemporaryDirectory(prefix="pedigree-diskimage-") as temp_dir:
         rendered_grub = os.path.join(temp_dir, "menu.lst")
         with open(sources[6], "r") as source:
-            menu = source.read().replace("@PEDIGREE_ROOT_UUID@", root_uuid)
+            menu = source.read()
         with open(rendered_grub, "w") as destination:
-            destination.write(menu)
+            destination.write(menu.replace(
+                "@PEDIGREE_ROOT_UUID@", "00000000-0000-0000-0000-000000000000"
+            ))
         sources[6] = rendered_grub
         cmdlist = build_file_list(sources)
+        create_base_image(targetfile, image_size(cmdlist))
+        root_uuid = read_ext2_uuid(targetfile)
+        with open(rendered_grub, "w") as destination:
+            destination.write(menu.replace("@PEDIGREE_ROOT_UUID@", root_uuid))
 
         with open("/tmp/cmdlist", "w") as f:
             f.write("\n".join(cmdlist))
