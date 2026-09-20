@@ -1,5 +1,119 @@
 # I/O latency benchmark
 
+For native GCC compilation timing, kernel profiles, and comparison heatmaps,
+see the [compilation latency guide](compile-latency.md).
+For matched Linux/Pedigree stage timings and `-pipe` comparisons, see the
+[compiler stage matrix](compile-matrix.md).
+
+## Syscall framework contracts
+
+`syscall-abi-contract.c` issues raw Linux service-0 and native service-1 calls
+with their distinct register conventions. It checks zero-, one-, three-, and
+six-argument operations, unused-register sentinels, pipe contents, file mappings
+at a nonzero offset, both errno conventions, unmapped numbers, fchmodat's ABI
+differences, and global versus local thread IDs. Success is
+`ABI-CONTRACT PASS END` with exit status zero.
+
+`syscall-query-contract.c` checks real nonzero UIDs, stable process/thread IDs,
+errno preservation, and ordinary syscall fallback across four fork workers.
+The parent independently checks reported PIDs against `fork()` results. A
+separate child makes only raw `getuid`, `getpid`, and `gettid` calls in its steady
+loop; shared counters let the parent verify asynchronous signal delivery,
+stop/continue, and forced termination without making that child yield or block.
+It requires root to establish distinct real, effective, and saved UIDs. Success
+is `QUERY-CONTRACT PASS END workers=4` with exit status zero.
+
+`syscall-entry-contract.c` checks TLS/errno preservation, repeated syscalls in
+signal handlers, `sigreturn`, six-argument file mappings with a nonzero offset,
+anonymous mapping faults, and fork workers. It reports visited logical/APIC CPU
+IDs and requires nonzero GS-base support through `ARCH_SET_GS`/`ARCH_GET_GS`.
+It reads GS directly before querying the base again, to expose return corruption.
+Success is `ENTRY-CONTRACT PASS END workers=4` with exit status zero. Observing
+several CPUs does not prove forced thread migration.
+
+`kernel-gs-contract.c` checks distinct GS canaries and TLS/errno across four
+pthread workers, blocking reads, directed signals, and syscall-free user loops
+that require timer preemption on one CPU. It also checks fork inheritance,
+parent/child isolation, exec resetting GS, rejection of high GS addresses, and
+preserving an actual selector-loaded base across scheduling. A user CLI fault
+exercises #GP's IST frame and signal recovery in the parent and each worker.
+User #DB is explicitly skipped because vector 1 opens the kernel debugger.
+Success is `KERNEL-GS-CONTRACT PASS END workers=4` with exit status zero.
+The [kernel GS design](../../docs/x64-kernel-gs.md) describes entry invariants
+and the separate diagnostic NMI injection facility.
+
+`syscall-accounting-contract.c` checks live process/thread CPU totals after user
+work and a million raw `getuid` calls, monotonicity through exit, and agreement
+between `wait4` usage and the parent's reaped-child totals. Success is
+`RUSAGE-PROBE PASS` with exit status zero.
+
+`syscall-accounting-concurrency.c` checks live aggregation across four pthread
+workers, retained totals after joining, and exclusion of sleeping time from CPU
+usage. It verifies fresh child CPU totals after fork and retained totals across
+self-exec. It also checks periodic `ITIMER_VIRTUAL`/`ITIMER_PROF` delivery during
+raw-query-only loops and when one thread arms timers while another consumes CPU.
+Those loops make no accounting or clock queries that could force publication.
+Success is `ACCOUNTING-CONCURRENCY PASS END` with exit status zero. These tests
+exercise one- and four-CPU scheduling; forced migration and NMI injection are
+outside their scope.
+
+`parallel-getuid.c` runs four pthread workers, each issuing one million raw
+`getuid` calls and checking the returned UID. Its elapsed time starts before
+the barrier release and ends after all four joins, excluding thread creation.
+Use four guest CPUs for parallel comparisons. The metric is
+`phase=parallel_getuid operations=4000000`; success is `IOBENCH PASS END` with
+exit status zero. Run it separately from the correctness contracts.
+
+Build the static binaries from the repository root with the configured target
+compiler and musl sysroot:
+
+```sh
+contract_dir=/path/to/contracts
+target_cc="$PWD/pedigree-compiler-15.3.0-r2/bin/x86_64-pedigree-gcc"
+target_sysroot="$PWD/build/musl"
+mkdir -p "$contract_dir"
+"$target_cc" --sysroot="$target_sysroot" -I"$target_sysroot/include" \
+  -I"$PWD/src/modules/subsys/posix/syscalls" -L"$target_sysroot/usr/lib" \
+  -static -O2 -std=gnu11 -Wall -Wextra -Werror \
+  scripts/benchmarks/syscall-abi-contract.c -o "$contract_dir/syscall-abi-contract"
+for name in syscall-entry-contract syscall-query-contract syscall-accounting-contract; do
+  "$target_cc" --sysroot="$target_sysroot" -I"$target_sysroot/include" \
+    -L"$target_sysroot/usr/lib" -static -O2 -std=gnu11 -Wall -Wextra \
+    "scripts/benchmarks/$name.c" -o "$contract_dir/$name"
+done
+for name in syscall-accounting-concurrency parallel-getuid kernel-gs-contract; do
+  "$target_cc" --sysroot="$target_sysroot" -I"$target_sysroot/include" \
+    -L"$target_sysroot/usr/lib" -static -O2 -std=gnu11 -Wall -Wextra -pthread \
+    "scripts/benchmarks/$name.c" -o "$contract_dir/$name"
+done
+```
+
+Install the binaries into a disposable guest image. Run the correctness
+contracts as root, separately from timings, with one and four CPUs. All have
+alarm-based failure bounds; also use
+a host timeout and retain the complete serial log and exit status. The
+[syscall performance notes](../../docs/syscall-framework-performance.md) explain
+the dispatch contract and measurement limitations.
+
+## Synthetic VM syscall benchmark
+
+`vm-syscall-latency.c` measures mmap/munmap without rebuilding GCC. Compile it
+with the target static toolchain and install it, together with a marker file
+named `synthetic-vm`, in the existing compile-latency guest root. Put a single
+line such as this in `/vm-syscall-latency.conf`:
+
+```text
+gcc-pattern 100000 1
+```
+
+Run the disposable image with `run-compile-latency.py --synthetic-vm`. The
+available modes are `anonymous`, `anonymous-touch`, `staircase`, `file`,
+`fragmented`, `gcc-pattern`, `getuid`, and `getpid`. The last mapping mode
+approximates the dominant anonymous mapping sizes from the exact `which.cc`
+trace. The syscall modes issue direct basic syscalls without mapping work. Each
+run reports the guest wall, user, and system time, plus the benchmark's own
+elapsed time.
+
 Compile `io-latency.c` with the Pedigree userspace toolchain and install the binary as
 `/io-latency` in a bootable test image. The image must provide root/root console
 login, Bash, and `ls`; GNU nano is measured when installed. Use a build with

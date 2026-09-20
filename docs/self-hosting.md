@@ -24,8 +24,9 @@ substitute.
 
 That seed must be modern enough for the current source: the maintained
 toolchain is GCC 15.3.0, binutils 2.46.1, and NASM 3.02, and the root build
-requires C/C++23 plus both `-ftrivial-auto-var-init` modes. The GCC 8.3 files
-in the historical `images/local` snapshot are not a usable self-host seed.
+requires C/C++23. Enabling `PEDIGREE_AUTO_VAR_INIT` additionally requires the
+pattern and zero modes of `-ftrivial-auto-var-init`. The GCC 8.3 files in the
+historical `images/local` snapshot are not a usable self-host seed.
 
 Once those tools are available, this slice can rebuild:
 

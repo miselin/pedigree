@@ -52,6 +52,8 @@ You'll need at least the following to build Pedigree and its compilers:
 
 ## Building Pedigree with Easy Build
 
+For the current native Linux x64 workflow, see [the Linux build guide](docs/linux-build.md).
+
 We highly recommend you first try one of our Easy Build scripts before you try
 and run SCons manually. There's a little bit of work involved in setting up a
 build of Pedigree for the first time, which the Easy Build script handles for
