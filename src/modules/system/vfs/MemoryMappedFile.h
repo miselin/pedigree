@@ -40,6 +40,7 @@
 
 #include <config.h>
 
+#include "MappingList.h"
 #include "SwapStore.h"
 
 class File;
@@ -426,8 +427,8 @@ class EXPORTED_PUBLIC AnonymousMemoryMap : public MemoryMappedObject {
 
   void unmapUnlocked();
 
-  /** List of existing virtual addresses we've mapped in. */
-  List<Page> m_Mappings;
+  // Faults must not scan every previously populated page in a large mapping.
+  Tree<uintptr_t, Page> m_Mappings;
 };
 
 /**
@@ -724,6 +725,8 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   bool sharedBacking(Process* process, uintptr_t address, uintptr_t& identity, size_t& offset);
 
   bool faultIn(uintptr_t address, bool write);
+  /** Fault in and validate every page touched by a byte range. */
+  bool faultInRange(uintptr_t address, size_t length, bool write);
 
   enum class FaultResolution { Unhandled, Resolved, BackingFault };
   FaultResolution resolveUserFault(uintptr_t address, bool write, bool wasPresent, bool execute);
@@ -828,7 +831,6 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
     NOT_COPYABLE_OR_ASSIGNABLE(OperationGuard);
 
     Uninterruptible m_EventDeferral;
-    TerminationDeferral m_TerminationDeferral;
     MemoryMapManager& m_Manager;
     bool m_Acquired;
   };
@@ -859,7 +861,11 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
                         VmStatus* status = nullptr);
   void releaseReservation(Process* process, VirtualAddressSpace& addressSpace, uintptr_t base,
                           size_t length);
-  bool handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent, bool execute = false);
+  bool faultInUnlocked(uintptr_t address, bool write, MemoryMappedObject*& selected);
+  bool handleTrapUnlocked(uintptr_t address, bool bIsWrite, bool bWasPresent, bool execute,
+                          MemoryMappedObject* selected);
+  bool handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent, bool execute = false,
+                  MemoryMappedObject* selected = nullptr);
 
   enum Ops {
     Sync,
@@ -871,7 +877,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   /** Singleton instance. */
   static MemoryMapManager m_Instance;
 
-  typedef List<MemoryMappedObject*> MmObjectList;
+  typedef MappingList<MemoryMappedObject> MmObjectList;
 
   /** Cache of virtual address spaces -> MmObjectLists. */
   Tree<VirtualAddressSpace*, MmObjectList*> m_MmObjectLists;

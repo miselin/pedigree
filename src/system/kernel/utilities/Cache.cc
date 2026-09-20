@@ -292,6 +292,17 @@ bool CacheManager::trimAll(size_t count) {
 void CacheManager::timer(uint64_t delta) {
   if (static_cast<size_t>(m_TerminalState))
     return;
+  bool memoryPressure = false;
+#if THREADS
+  // Keep the pressure check at timer cadence without waking an idle worker.
+  // Sample before taking the waiter lock, as physical allocators can trim caches.
+  memoryPressure =
+      PhysicalMemoryManager::instance().freePageCount() <= MemoryPressureManager::getLowWatermark();
+#endif
+  timerTick(delta, memoryPressure);
+}
+
+void CacheManager::timerTick(uint64_t delta, bool memoryPressure) {
 #if THREADS
   auto guard = m_TrimWaiters.acquire();
 #endif
@@ -299,11 +310,13 @@ void CacheManager::timer(uint64_t delta) {
   const uint64_t maximum = ~static_cast<uint64_t>(0);
   m_TrimDelta = delta > (maximum - m_TrimDelta) ? maximum : m_TrimDelta + delta;
 #if THREADS
-  // Pressure checks retain their tick cadence. Only writeback enumeration is
-  // coalesced; the pending predicate survives a wake with no sleeping worker.
-  m_bTrimRequested = true;
-  guard.wakeOne(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
+  if (!m_bTrimRequested && (memoryPressure || m_TrimDelta >= CACHE_WRITEBACK_PERIOD * 1000000ULL)) {
+    // A running worker consumes this predicate before it can sleep again.
+    m_bTrimRequested = true;
+    guard.wakeOne(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
+  }
 #else
+  (void)memoryPressure;
   TimerStamp stamp;
   if (!takeTimerStamp(stamp))
     return;
@@ -311,7 +324,7 @@ void CacheManager::timer(uint64_t delta) {
   const uint64_t maximumId = m_NextCacheId - 1;
   Cache* cache = nullptr;
   uint64_t cacheId = 0;
-  while (findNextCache(afterId, maximumId, cache, cacheId)) {
+  while (findNextCache(afterId, maximumId, cache, cacheId, true)) {
     afterId = cacheId;
     dispatchTimer(cache, stamp);
   }
@@ -352,10 +365,14 @@ void CacheManager::dispatchTimer(Cache* cache, const TimerStamp& stamp) {
 }
 
 bool CacheManager::findNextCache(uint64_t afterId, uint64_t maximumId, Cache*& cache,
-                                 uint64_t& cacheId) {
-  if (afterId < maximumId && m_Caches.lowerBound(afterId + 1, cacheId, cache) &&
-      cacheId <= maximumId)
-    return true;
+                                 uint64_t& cacheId, bool timersOnly) {
+  while (afterId < maximumId && m_Caches.lowerBound(afterId + 1, cacheId, cache) &&
+         cacheId <= maximumId) {
+    if (!timersOnly || cache->needsPeriodicTimer())
+      return true;
+    // Retain the old timer stamp so late callback installation receives elapsed time.
+    afterId = cacheId;
+  }
   cache = nullptr;
   cacheId = 0;
   return false;
@@ -381,9 +398,10 @@ bool CacheManager::acquireCache(Cache* cache, uint64_t& generation,
 }
 
 bool CacheManager::acquireNextCache(uint64_t afterId, uint64_t maximumId, Cache*& cache,
-                                    uint64_t& cacheId, OperationBarrier::Lease& lease) {
+                                    uint64_t& cacheId, OperationBarrier::Lease& lease,
+                                    bool timersOnly) {
   LockGuard<Mutex> guard(m_CachesLock);
-  if (!findNextCache(afterId, maximumId, cache, cacheId)) {
+  if (!findNextCache(afterId, maximumId, cache, cacheId, timersOnly)) {
     lease = OperationBarrier::Lease();
     return false;
   }
@@ -562,7 +580,7 @@ void CacheManager::trimThread() {
         Cache* cache = nullptr;
         uint64_t cacheId = 0;
         OperationBarrier::Lease cacheLease;
-        if (!acquireNextCache(afterId, maximumId, cache, cacheId, cacheLease)) {
+        if (!acquireNextCache(afterId, maximumId, cache, cacheId, cacheLease, true)) {
           break;
         }
 
@@ -590,6 +608,7 @@ Cache::Cache(size_t pageConstraints)
 #endif
       m_ManagerId(0),
       m_ManagerTimerStamp(),
+      m_PeriodicTimerEnabled(false),
       m_Callback(0),
       m_BackgroundWriteback(nullptr),
       m_Nanoseconds(0),
@@ -1902,10 +1921,55 @@ void Cache::markExternallyWritable(uintptr_t key) {
     return;
   LockGuard<Spinlock> guard(m_Lock);
   CachePage* page = m_Pages.lookup(key);
-  if (!page || tracksChecksum(page))
+  if (!page || page->externallyWritable)
     return;
+  const bool tracked = tracksChecksum(page);
   page->externallyWritable = true;
-  calculateChecksum(page);
+  if (!tracked)
+    calculateChecksum(page);
+  updateWritebackIndex(page);
+}
+
+bool Cache::beginMutableLoan(uintptr_t key) {
+  if (!ensureUsable("beginMutableLoan"))
+    return false;
+  LockGuard<Spinlock> guard(m_Lock);
+  CachePage* page = m_Pages.lookup(key);
+  if (!page || page->evictionState == CachePage::EvictionState::Retiring ||
+      page->mutableLoans == ~size_t{0})
+    return false;
+
+  const bool tracked = tracksChecksum(page);
+  ++page->mutableLoans;
+  if (!tracked) {
+    calculateChecksum(page);
+    // This callback captured no checksum before the writable alias existed.
+    // Its older generation must not settle modifications made by this loan.
+    if (page->callbackActive)
+      recordMutation(page);
+  }
+  updateWritebackIndex(page);
+  return true;
+}
+
+void Cache::endMutableLoan(uintptr_t key) {
+  if (!ensureUsable("endMutableLoan"))
+    return;
+  LockGuard<Spinlock> guard(m_Lock);
+  CachePage* page = m_Pages.lookup(key);
+  assert(page && page->mutableLoans);
+  if (!page || !page->mutableLoans)
+    return;
+
+  if (page->mutableLoans == 1) {
+    // An active callback may publish its older checksum after tracking ends.
+    // A newer mutation generation keeps that completion from losing changes.
+    if (page->callbackActive ||
+        (!page->writebackFailed && page->mutationGeneration == page->writtenGeneration &&
+         !verifyChecksum(page)))
+      recordMutation(page);
+  }
+  --page->mutableLoans;
   updateWritebackIndex(page);
 }
 
@@ -2092,6 +2156,7 @@ void Cache::setCallback(Cache::writeback_t newCallback, void* meta) {
   }
   m_Callback = newCallback;
   m_CallbackMeta = meta;
+  __atomic_store_n(&m_PeriodicTimerEnabled, true, __ATOMIC_RELEASE);
 }
 
 void Cache::setBackgroundWriteback(writeback_batch_t callback) {
@@ -2258,7 +2323,8 @@ bool Cache::verifyChecksum(CachePage* pPage, bool replace) {
 }
 
 bool Cache::tracksChecksum(const CachePage* page) const {
-  return m_DirtyTracking == DirtyTracking::Checksum || page->externallyWritable;
+  return m_DirtyTracking == DirtyTracking::Checksum || page->externallyWritable ||
+         page->mutableLoans;
 }
 
 bool Cache::needsWriteback(CachePage* page) {
@@ -2269,7 +2335,7 @@ bool Cache::needsWriteback(CachePage* page) {
 void Cache::updateWritebackIndex(CachePage* page) {
   if (m_DirtyTracking != DirtyTracking::Explicit)
     return;
-  const bool candidate = page->externallyWritable || page->writebackFailed ||
+  const bool candidate = page->externallyWritable || page->mutableLoans || page->writebackFailed ||
                          page->mutationGeneration != page->writtenGeneration ||
                          page->status == CachePage::Editing || page->callbackActive;
   if (candidate && !page->writebackIndexed) {

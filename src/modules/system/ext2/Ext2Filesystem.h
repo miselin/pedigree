@@ -19,6 +19,7 @@
 
 #ifndef EXT2FILESYSTEM_H
 #define EXT2FILESYSTEM_H
+#include "pedigree/kernel/machine/DiskView.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -154,6 +155,7 @@ class Ext2Filesystem : public Filesystem {
 
   /** Reads a block of data from the disk. */
   uintptr_t readBlock(uint32_t block);
+  DiskReadView readBlockView(uint32_t block);
   /** Writes a block of data to the disk. */
   void writeBlock(uint32_t block);
 

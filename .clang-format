@@ -11,3 +11,5 @@ IncludeCategories:
     Priority: 1
   - Regex: '.*'
     Priority: 2
+Macros:
+  - "POSIX_CASE(target)=case target:"

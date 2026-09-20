@@ -99,6 +99,9 @@ class EXPORTED_PUBLIC FileEventSource {
                                            FileEventSubscription& subscription);
 
  protected:
+  /** Conservative hints; delivery still checks admission under the source lock. */
+  static bool anyFileEventObservers();
+  bool hasFileEventObservers(FileEventMask mask) const;
   /** Delivers synchronously; callers may still hold the mutation's VFS lock. */
   void notifyFileEvent(const FileEvent& event);
   /** Atomically closes subscription admission and delivers a final event. */

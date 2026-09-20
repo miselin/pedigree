@@ -78,6 +78,9 @@ extern "C" void* trampolinegdt64;
 extern "C" void* trampolinegdtr64;
 
 size_t Multiprocessor::initialise1() {
+  // Keep the BSP's early slot stable even if firmware lists an AP first.
+  Processor::m_ProcessorInformation.pushBack(&Processor::m_SafeBspProcessorInformation);
+
   if (!Pc::instance().localApicAvailable()) {
     NOTICE(
         "Multiprocessor: local APIC unavailable; keeping the bootstrap "
@@ -128,6 +131,9 @@ size_t Multiprocessor::initialise1() {
 
   volatile uintptr_t* trampolineStack;
   volatile uintptr_t* trampolineKernelEntry;
+#if X64
+  volatile uintptr_t* trampolineKernelGsAnchor = reinterpret_cast<volatile uintptr_t*>(0x7FE0);
+#endif
 
   // Parameters for the trampoline code
   EMIT_IF(X86) {
@@ -149,6 +155,15 @@ size_t Multiprocessor::initialise1() {
 
   LocalApic& localApic = Pc::instance().getLocalApic();
   VirtualAddressSpace& kernelSpace = VirtualAddressSpace::getKernelAddressSpace();
+  Processor::m_SafeBspProcessorInformation.setIds(0, localApic.getId());
+  for (size_t i = 0; i < Processors->count(); ++i) {
+    if ((*Processors)[i]->apicId == localApic.getId()) {
+      Processor::m_SafeBspProcessorInformation.setIds((*Processors)[i]->processorId,
+                                                      (*Processors)[i]->apicId);
+      break;
+    }
+  }
+
   // Startup the application processors through startup interprocessor
   // interrupt
   for (size_t i = 0; i < Processors->count(); i++) {
@@ -160,6 +175,9 @@ size_t Multiprocessor::initialise1() {
       // AP: set up a proper information structure
       pProcessorInfo =
           new ::ProcessorInformation((*Processors)[i]->processorId, (*Processors)[i]->apicId);
+#if X64
+      pProcessorInfo->kernelGsAnchor()->processorIndex = Processor::m_ProcessorInformation.count();
+#endif
       Processor::m_ProcessorInformation.pushBack(pProcessorInfo);
 
       // Allocate kernel stack
@@ -167,6 +185,9 @@ size_t Multiprocessor::initialise1() {
 
       // Set trampoline stack
       *trampolineStack = reinterpret_cast<uintptr_t>(pStack->getTop());
+#if X64
+      *trampolineKernelGsAnchor = reinterpret_cast<uintptr_t>(pProcessorInfo->kernelGsAnchor());
+#endif
 
       NOTICE(" Booting processor #" << Dec << (*Processors)[i]->processorId << ", stack at 0x"
                                     << Hex << reinterpret_cast<uintptr_t>(pStack->getTop()));
@@ -240,14 +261,10 @@ size_t Multiprocessor::initialise1() {
     } else {
       NOTICE("Currently running on CPU #" << Dec << localApic.getId() << Hex
                                           << ", skipping boot (not necessary)");
-
-      Processor::m_ProcessorInformation.pushBack(&Processor::m_SafeBspProcessorInformation);
-      Processor::m_SafeBspProcessorInformation.setIds((*Processors)[i]->processorId,
-                                                      (*Processors)[i]->apicId);
     }
   }
 
-  return Processors->count();
+  return Processor::m_ProcessorInformation.count();
 }
 
 void Multiprocessor::initialise2() {

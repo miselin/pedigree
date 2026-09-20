@@ -49,13 +49,15 @@ class RoundRobin : public SchedulingAlgorithm {
 
  private:
   static bool isReady(Thread* pThread);
-  static bool isEligible(Thread* pThread);
 
   void enqueue(Thread* pThread);
   void unlink(Thread* pThread);
 
   Thread* m_pReadyQueueHeads[MAX_PRIORITIES];
   Thread* m_pReadyQueueTails[MAX_PRIORITIES];
+#if PEDIGREE_READY_QUEUE_COUNTS
+  size_t m_ReadyQueueCounts[MAX_PRIORITIES];
+#endif
 
   Spinlock m_Lock;
 };

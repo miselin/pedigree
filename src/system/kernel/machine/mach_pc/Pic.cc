@@ -399,6 +399,10 @@ bool Pic::unregisterSchedulerIrqHandler(irq_id_t Id, SchedulerIrqHandler* handle
 
 void Pic::finishHandlerUnregisterLocked(uint8_t irq, IrqHandlerRegistry::UnregisterResult result,
                                         IrqHandlerRegistry::LineMode removedDelivery) {
+  if (UNLIKELY(irq >= PicIrqState::LineCount)) {
+    FATAL_NOLOCK("PIC handler unregister has an invalid IRQ.");
+    return;
+  }
   assert(m_UnregisterReservations[irq]);
   --m_UnregisterReservations[irq];
   if (result == IrqHandlerRegistry::UnregisterResult::Completed ||
@@ -1109,7 +1113,10 @@ void Pic::releaseControllerStateFromInterrupt() {
 }
 
 void Pic::admitThreadedOccurrenceLocked(uint8_t irq) {
-  assert(irq < PicIrqState::LineCount);
+  if (UNLIKELY(irq >= PicIrqState::LineCount)) {
+    FATAL_NOLOCK("PIC threaded occurrence has an invalid IRQ.");
+    return;
+  }
   assert(m_IrqState.delivery(irq) == IrqDelivery::Threaded);
 
   const IrqControllerAck controllerAck = m_IrqState.controllerAck(irq);
@@ -1343,6 +1350,10 @@ void Pic::interrupt(size_t interruptNumber, InterruptState& state) {
 
 void Pic::finishHardDispatchLocked(const PicHardTailRecord& record) {
   const uint8_t irq = record.irq;
+  if (UNLIKELY(irq >= PicIrqState::LineCount)) {
+    FATAL_NOLOCK("PIC hard dispatch completion has an invalid IRQ.");
+    return;
+  }
   const size_t dispatchGeneration = record.dispatchGeneration;
   const size_t threadedCookie = record.threadedCookie;
   const IrqControllerAck controllerAck = record.controllerAck;

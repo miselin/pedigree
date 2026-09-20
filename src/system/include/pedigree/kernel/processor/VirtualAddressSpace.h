@@ -155,13 +155,12 @@ class VirtualAddressSpace {
    */
   virtual bool mapHuge(physical_uintptr_t physAddress, void* virtualAddress, size_t count,
                        size_t flags);
-  /** Get the physical address and the flags associated with the specific
-   *virtual address. \note This function is only valid on memory that was
-   *mapped with VirtualAddressSpace::map() and that is still mapped or marked
-   *as swapped out. \param[in] virtualAddress the address in the virtual
-   *address space \param[out] flags the flags \param[out] physicalAddress the
-   *physical address */
-  virtual void getMapping(void* virtualAddress, physical_uintptr_t& physicalAddress,
+  /** Query the physical address and flags of a mapped or swapped-out page.
+   * Returns false without modifying the outputs when no mapping exists.
+   * The result does not pin the page; callers must protect its lifetime while
+   * using the returned physical address.
+   */
+  virtual bool getMapping(void* virtualAddress, physical_uintptr_t& physicalAddress,
                           size_t& flags) = 0;
 
   /**

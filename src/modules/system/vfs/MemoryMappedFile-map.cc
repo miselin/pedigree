@@ -76,7 +76,7 @@ Status place(Snapshot& snapshot, VirtualAddressSpace& space, uintptr_t& address,
   return Status::NoMemory;
 }
 struct MappingPlan {
-  List<MemoryMappedObject*>* replacement = nullptr;
+  MappingList<MemoryMappedObject>* replacement = nullptr;
   Vector<MemoryMappedObject*> staged, retired;
   MemoryMappedObject* inserted = nullptr;
   bool committed = false;
@@ -97,6 +97,71 @@ struct MappingPlan {
     return replacement->tryPushBack(object);
   }
 };
+
+class DirectReservation {
+ public:
+  DirectReservation()
+      : m_Process(nullptr),
+        m_Region(Process::UserRegion::Normal),
+        m_Base(0),
+        m_Length(0),
+        m_Committed(false) {}
+
+  void arm(Process* process, Process::UserRegion region, uintptr_t base, size_t length) {
+    m_Process = process;
+    m_Region = region;
+    m_Base = base;
+    m_Length = length;
+  }
+
+  void commit() {
+    m_Committed = true;
+  }
+
+  ~DirectReservation() {
+    if (m_Process && !m_Committed)
+      m_Process->freeUserRange(m_Region, m_Base, m_Length);
+  }
+
+ private:
+  Process* m_Process;
+  Process::UserRegion m_Region;
+  uintptr_t m_Base;
+  size_t m_Length;
+  bool m_Committed;
+};
+
+bool allocateDirect(Process& process, VirtualAddressSpace& space, size_t length, size_t mask,
+                    uintptr_t& address, Process::UserRegion& region) {
+  const size_t allocationLength = length + mask;
+  auto allocate = [&](Process::UserRegion candidate) {
+    uintptr_t allocation = 0;
+    if (!process.allocateUserRange(candidate, allocationLength, allocation))
+      return false;
+    if (allocation > ~uintptr_t(0) - mask) {
+      process.freeUserRange(candidate, allocation, allocationLength);
+      return false;
+    }
+    const uintptr_t aligned = (allocation + mask) & ~mask;
+    if (aligned > ~uintptr_t(0) - length || allocationLength > ~uintptr_t(0) - allocation) {
+      process.freeUserRange(candidate, allocation, allocationLength);
+      return false;
+    }
+    const uintptr_t allocationEnd = allocation + allocationLength;
+    const uintptr_t usedEnd = aligned + length;
+    if (aligned != allocation)
+      process.freeUserRange(candidate, allocation, aligned - allocation);
+    if (usedEnd != allocationEnd)
+      process.freeUserRange(candidate, usedEnd, allocationEnd - usedEnd);
+    address = aligned;
+    region = candidate;
+    return true;
+  };
+
+  if (space.getDynamicStart() && allocate(Process::UserRegion::Dynamic))
+    return true;
+  return allocate(Process::UserRegion::Normal);
+}
 }  // namespace
 
 MemoryMappedObject* MemoryMapManager::mapFile(File* file, uintptr_t& address, size_t length,
@@ -157,6 +222,9 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     return nullptr;
   auto& space = Processor::information().getVirtualAddressSpace();
   auto* process = Processor::information().getCurrentThread()->getParent();
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmPublishCalls);
+#endif
   auto* account = space.memoryLockAccount();
   const MemoryLockMode mode = requestedLock != MemoryLockMode::None ? requestedLock
                               : account                             ? account->futureMode()
@@ -176,17 +244,31 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
   constexpr size_t MaximumObjects = 4096;
   if (objects->count() > MaximumObjects)
     return nullptr;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmPublishObjectCount, objects->count());
+#endif
   const uintptr_t requested = address;
+  const bool directPlacement = requested == 0 && placement == Placement::Hint;
   for (size_t attempt = 0; attempt < 32; ++attempt) {
     Snapshot snapshot;
-    if (!process->snapshotUserReservations(snapshot))
-      return nullptr;
     uintptr_t destination = requested;
-    auto placementStatus = place(snapshot, space, destination, length, placement, mask);
-    if (placementStatus != MapStatus::Success) {
-      if (status)
-        *status = placementStatus;
-      return nullptr;
+    Process::UserRegion directRegion = Process::UserRegion::Normal;
+    DirectReservation directReservation;
+    bool direct = false;
+    if (directPlacement) {
+      direct = allocateDirect(*process, space, length, mask, destination, directRegion);
+      if (!direct)
+        return nullptr;
+      directReservation.arm(process, directRegion, destination, length);
+    } else {
+      if (!process->snapshotUserReservations(snapshot))
+        return nullptr;
+      auto placementStatus = place(snapshot, space, destination, length, placement, mask);
+      if (placementStatus != MapStatus::Success) {
+        if (status)
+          *status = placementStatus;
+        return nullptr;
+      }
     }
     if (space.runtimeMappingPages(destination, length)) {
       if (status)
@@ -197,37 +279,61 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     auto rawStatus = space.rawUserMemory().prepareReplacement(destination, length, raw);
     if (rawStatus != MemoryLockStatus::Success)
       return nullptr;
+    bool overlaps = false;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    size_t objectVisits = 0;
+#endif
+    if (!direct)
+      for (auto* object : *objects) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+        ++objectVisits;
+#endif
+        const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
+        if (destination < end && object->address() < destination + length) {
+          overlaps = true;
+          break;
+        }
+      }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmPublishOverlapProbeVisits, objectVisits);
+    if (overlaps)
+      process->recordBenchmarkVmCounter(Process::VmPublishOverlapHits);
+#endif
     MappingPlan plan;
-    if (!plan.staged.tryReserve(objects->count() * 2 + 1) ||
-        !plan.retired.tryReserve(objects->count()))
-      return nullptr;
-    plan.replacement = new MmObjectList;
-    if (!plan.replacement)
+    if (!plan.staged.tryReserve(overlaps ? objects->count() * 2 + 1 : 1))
       return nullptr;
     size_t removedPages = 0;
-    for (auto* object : *objects) {
-      const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
-      if (destination >= end || object->address() >= destination + length) {
-        if (!plan.replacement->tryPushBack(object))
+    if (overlaps) {
+      if (!plan.retired.tryReserve(objects->count()))
+        return nullptr;
+      plan.replacement = new MmObjectList;
+      if (!plan.replacement)
+        return nullptr;
+      for (auto* object : *objects) {
+        const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
+        if (destination >= end || object->address() >= destination + length) {
+          if (!plan.replacement->tryPushBack(object))
+            return nullptr;
+          continue;
+        }
+        if (placement != Placement::FixedReplace)
           return nullptr;
-        continue;
+        const uintptr_t first = object->address() > destination ? object->address() : destination;
+        const uintptr_t last = end < destination + length ? end : destination + length;
+        if (object->m_LockMode != MemoryLockMode::None)
+          removedPages += (last - first) / pageSize;
+        plan.retired.pushBack(object);
+        if (!plan.appendSlice(object, object->address(), first) ||
+            !plan.appendSlice(object, last, end))
+          return nullptr;
       }
-      if (placement != Placement::FixedReplace)
-        return nullptr;
-      const uintptr_t first = object->address() > destination ? object->address() : destination;
-      const uintptr_t last = end < destination + length ? end : destination + length;
-      if (object->m_LockMode != MemoryLockMode::None)
-        removedPages += (last - first) / pageSize;
-      plan.retired.pushBack(object);
-      if (!plan.appendSlice(object, object->address(), first) ||
-          !plan.appendSlice(object, last, end))
-        return nullptr;
     }
     auto charge = account ? account->charge() : MemoryLockCharge{};
     if (account) {
-      assert(removedPages <= charge.managedPages && raw.get()->removedPages() <= charge.rawPages);
+      const size_t rawRemovedPages = raw ? raw.get()->removedPages() : 0;
+      assert(removedPages <= charge.managedPages && rawRemovedPages <= charge.rawPages);
       charge.managedPages -= removedPages;
-      charge.rawPages -= raw.get()->removedPages();
+      charge.rawPages -= rawRemovedPages;
       if (mode != MemoryLockMode::None) {
         const size_t added = length / pageSize;
         if (added > ~size_t(0) - charge.managedPages)
@@ -258,10 +364,23 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
         *status = MapStatus::TextBusy;
       return nullptr;
     }
-    if (!plan.replacement->tryPushBack(plan.inserted) || plan.replacement->count() > MaximumObjects)
+    auto* publication = overlaps ? plan.replacement : objects;
+    if (publication->count() >= MaximumObjects || !publication->tryPushBack(plan.inserted))
       return nullptr;
-    if (!process->commitUserReservations(snapshot.generation, snapshot))
+    if (!direct && !process->commitUserReservations(snapshot.generation, snapshot)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      process->recordBenchmarkVmCounter(Process::VmPublishCommitRetries);
+#endif
+      // The operation gate excludes other executions; the allocation-free
+      // reservation commit cannot reenter this registry. Undo the provisional
+      // append before destroying the staged object.
+      if (!overlaps) {
+        [[maybe_unused]] auto* removed = objects->popBack();
+        assert(removed == plan.inserted);
+      }
       continue;
+    }
+    directReservation.commit();
     // Every recoverable preparation failure precedes retirement. Latest PTEs
     // are detached by each owner, preserving independent stale CoW cache loans.
     for (auto* object : plan.retired) {
@@ -271,16 +390,18 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
       object->discardRange(space, first, last - first);
       object->m_OwnsMappings = false;
     }
-    raw.get()->commit();
+    if (raw)
+      raw.get()->commit();
     for (auto* object : plan.staged)
       object->m_OwnsMappings = true;
-    {
+    if (overlaps) {
       LockGuard<Spinlock> guard(m_Lock);
       m_MmObjectLists.insert(&space, plan.replacement);
     }
     plan.replacement = nullptr;
     plan.committed = true;
-    delete objects;
+    if (overlaps)
+      delete objects;
     if (account)
       account->publish(charge, account->futureMode());
     address = destination;
@@ -314,15 +435,112 @@ size_t MemoryMapManager::removeInternal(uintptr_t base, size_t length, bool rele
   }
   if (status)
     *status = VmStatus::NoMemory;
+  if (objects->count() > 4096)
+    return 0;
+  auto* process = Processor::information().getCurrentThread()->getParent();
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmRemoveCalls);
+  process->recordBenchmarkVmCounter(Process::VmRemoveObjectCount, objects->count());
+  size_t objectVisits = 0;
+#endif
+
+  // Mmap users normally unmap the exact mapping they just created.
+  // The registry is append-ordered, so find and retire that common case from
+  // the tail without rebuilding a reservation or mapping snapshot.
+  for (auto it = objects->rbegin(); it != objects->rend(); ++it) {
+    auto* object = *it;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++objectVisits;
+#endif
+    const uintptr_t objectEnd = (object->address() + object->length() + mask) & ~mask;
+    if (object->address() != base || objectEnd != base + length)
+      continue;
+
+    const size_t removedPages =
+        object->m_LockMode == MemoryLockMode::None ? 0 : (objectEnd - base) / pageSize;
+    object->discardRange(space, base, length);
+    object->m_OwnsMappings = false;
+    if (releaseReservations)
+      releaseReservation(process, space, base, length);
+    objects->erase(it);
+    delete object;
+    retireLockedPages(space, removedPages);
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmRemoveObjectVisits, objectVisits);
+    process->recordBenchmarkVmCounter(Process::VmRemoveAffectedObjects, 1);
+#endif
+    if (status)
+      *status = VmStatus::Success;
+    return 1;
+  }
+
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  objectVisits = 0;
+#endif
+  bool needsSlices = false;
+  for (auto* object : *objects) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++objectVisits;
+#endif
+    const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
+    if (object->address() < base + length && base < end &&
+        (object->address() < base || end > base + length)) {
+      needsSlices = true;
+      break;
+    }
+  }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmRemoveObjectVisits, objectVisits);
+#endif
+  if (!needsSlices) {
+    size_t affected = 0, removedPages = 0;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    objectVisits = 0;
+#endif
+    for (auto it = objects->begin(); it != objects->end();) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      ++objectVisits;
+#endif
+      auto* object = *it;
+      const uintptr_t first = object->address();
+      const uintptr_t end = (first + object->length() + mask) & ~mask;
+      if (first >= base + length || end <= base) {
+        ++it;
+        continue;
+      }
+      if (object->m_LockMode != MemoryLockMode::None)
+        removedPages += (end - first) / pageSize;
+      object->discardRange(space, first, end - first);
+      object->m_OwnsMappings = false;
+      if (releaseReservations)
+        releaseReservation(process, space, first, end - first);
+      it = objects->erase(it);
+      delete object;
+      ++affected;
+    }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmRemoveObjectVisits, objectVisits);
+    process->recordBenchmarkVmCounter(Process::VmRemoveAffectedObjects, affected);
+#endif
+    retireLockedPages(space, removedPages);
+    if (status)
+      *status = VmStatus::Success;
+    return affected;
+  }
   MappingPlan plan;
-  if (objects->count() > 4096 || !plan.staged.tryReserve(objects->count() * 2) ||
-      !plan.retired.tryReserve(objects->count()))
+  if (!plan.staged.tryReserve(objects->count() * 2) || !plan.retired.tryReserve(objects->count()))
     return 0;
   plan.replacement = new MmObjectList;
   if (!plan.replacement)
     return 0;
   size_t removedPages = 0;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  objectVisits = 0;
+#endif
   for (auto* object : *objects) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++objectVisits;
+#endif
     const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
     const uintptr_t first = object->address() > base ? object->address() : base;
     const uintptr_t last = end < base + length ? end : base + length;
@@ -337,9 +555,13 @@ size_t MemoryMapManager::removeInternal(uintptr_t base, size_t length, bool rele
     if (!plan.appendSlice(object, object->address(), first) || !plan.appendSlice(object, last, end))
       return 0;
   }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmRemoveObjectVisits, objectVisits);
+  process->recordBenchmarkVmCounter(Process::VmRemoveSliceCalls);
+  process->recordBenchmarkVmCounter(Process::VmRemoveAffectedObjects, plan.retired.count());
+#endif
   if (plan.replacement->count() > 4096)
     return 0;
-  auto* process = Processor::information().getCurrentThread()->getParent();
   for (auto* object : plan.retired) {
     const uintptr_t end = (object->address() + object->length() + mask) & ~mask;
     const uintptr_t first = object->address() > base ? object->address() : base;

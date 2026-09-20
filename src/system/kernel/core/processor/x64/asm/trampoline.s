@@ -53,6 +53,7 @@ mp_trampoline32:
   ; Set cr4.PAE
   mov eax, cr4
   or eax, 0x20
+  btr eax, 16                 ; userspace cannot bypass the GS-base validation
   mov cr4, eax
 
   ; Set Cr3
@@ -88,6 +89,17 @@ pmode1:
 longmode:
   ; Load the stack
   mov rsp, [0x7FF0]
+
+  ; The BSP published this CPU's permanent anchor before sending the SIPI.
+  mov rax, [0x7FE0]
+  mov rdx, rax
+  shr rdx, 32
+  mov ecx, 0xc0000101
+  wrmsr
+  xor eax, eax
+  xor edx, edx
+  mov ecx, 0xc0000102
+  wrmsr
 
   ; Jump to the kernel's Multiprocessor::applicationProcessorStartup() function
   mov rax, [0x7FE8]

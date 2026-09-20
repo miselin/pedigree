@@ -102,6 +102,7 @@ void finishSemaphoreTimeout(SemaphoreTimeoutDiscard& discard) {
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+Semaphore::BeforeWaitHook g_BeforeWaitHook = nullptr;
 Semaphore::MutexTransitionHook g_MutexTransitionHook = nullptr;
 Atomic<size_t> g_SemaphoreTimeoutCreates(0);
 Atomic<size_t> g_SemaphoreTimeoutDestroys(0);
@@ -261,6 +262,12 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
       }
 
       auto guard = m_Waiters.acquire();
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+      if (auto hook = __atomic_load_n(&g_BeforeWaitHook, __ATOMIC_ACQUIRE)) {
+        hook(this);
+      }
+#endif
+      guard.prepareToWait();
 
       // The predicate is checked while serialised with release(). The
       // WaitQueue publishes a persistent wait record before dropping this
@@ -268,6 +275,12 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
       if (tryAcquire(n)) {
         finishSemaphoreTimeout(timeoutDiscard);
         return result;
+      }
+
+      // A competing acquire can defeat tryAcquire's single CAS while
+      // leaving enough tokens. Only sleep after observing a shortage.
+      if (static_cast<ssize_t>(m_Counter) >= static_cast<ssize_t>(n)) {
+        continue;
       }
 
       // The handler may have completed after the entry check but before this
@@ -358,9 +371,20 @@ bool Semaphore::acquireForCompletion(size_t n, size_t timeoutSecs, size_t timeou
     return acquire(n, timeoutSecs, timeoutUsecs);
   }
   else {
+    if (!timeoutSecs && !timeoutUsecs && n == 1 && loadState(&magic) == MutexUnlocked) {
+      EMIT_IF(!PEDIGREE_BENCHMARK) {
+        if (!Processor::guardDeviceHardIrqOperation(DeviceHardIrqOperation::SemaphoreAcquire)) {
+          return false;
+        }
+      }
+      if (tryAcquire(n)) {
+        return true;
+      }
+    }
+
     Thread* thread = Processor::information().getCurrentThread();
     const bool hasTimeout = timeoutSecs || timeoutUsecs;
-    const Time::Timestamp started = Time::getTicks();
+    const Time::Timestamp started = hasTimeout ? Time::getTicks() : 0;
 
     Time::Timestamp timeout = 0;
     if (hasTimeout) {
@@ -434,20 +458,22 @@ bool Semaphore::acquireForCompletion(size_t n, size_t timeoutSecs, size_t timeou
         continue;
       }
 
-      const Time::Timestamp elapsed = Time::getTicks() - started;
-      if (elapsed >= timeout) {
-        thread->setInterruptionReason(retainedInterruption);
-        return false;
-      }
+      if (hasTimeout) {
+        const Time::Timestamp elapsed = Time::getTicks() - started;
+        if (elapsed >= timeout) {
+          thread->setInterruptionReason(retainedInterruption);
+          return false;
+        }
 
-      const Time::Timestamp remaining = timeout - elapsed;
-      const Time::Timestamp remainingMicroseconds =
-          (remaining / Time::Multiplier::Microsecond) +
-          ((remaining % Time::Multiplier::Microsecond) ? 1 : 0);
-      remainingSecs =
-          remainingMicroseconds / (Time::Multiplier::Second / Time::Multiplier::Microsecond);
-      remainingUsecs =
-          remainingMicroseconds % (Time::Multiplier::Second / Time::Multiplier::Microsecond);
+        const Time::Timestamp remaining = timeout - elapsed;
+        const Time::Timestamp remainingMicroseconds =
+            (remaining / Time::Multiplier::Microsecond) +
+            ((remaining % Time::Multiplier::Microsecond) ? 1 : 0);
+        remainingSecs =
+            remainingMicroseconds / (Time::Multiplier::Second / Time::Multiplier::Microsecond);
+        remainingUsecs =
+            remainingMicroseconds % (Time::Multiplier::Second / Time::Multiplier::Microsecond);
+      }
     }
   }
 }
@@ -561,7 +587,7 @@ void Semaphore::release(size_t n) {
   EMIT_IF(THREADS) {
     // Waiters can request different counts, so wake all and let each retry
     // the counter predicate under the queue guard.
-    m_Waiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
+    m_Waiters.wakeAllIfWaiting(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
   }
 
   EMIT_IF(STRICT_LOCK_ORDERING) {
@@ -600,6 +626,10 @@ bool Semaphore::mutexOwnedByCurrentThread() const {
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void Semaphore::setBeforeWaitHook(BeforeWaitHook hook) {
+  __atomic_store_n(&g_BeforeWaitHook, hook, __ATOMIC_RELEASE);
+}
+
 void Semaphore::setMutexTransitionHook(MutexTransitionHook hook) {
   __atomic_store_n(&g_MutexTransitionHook, hook, __ATOMIC_RELEASE);
 }

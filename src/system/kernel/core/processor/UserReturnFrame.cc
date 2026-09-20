@@ -85,7 +85,7 @@ void capture(Amd64UserRegisters& output, const X64InterruptState& state) {
 bool UserReturnFrame::snapshot(UserRegisterSnapshot& output) const {
 #if X64 && !HOSTED && THREADS
   // Selection, scope validation and the bounded copy observe one current task.
-  // No hardware TLS read, allocator, user copy or blocking operation occurs here.
+  // A deferred syscall entry may need its live TLS bases captured here.
   EnsureInterrupts interrupts(false);
   if (Processor::information().getCurrentThread() != m_Owner ||
       m_Owner->currentUserReturnFrame() != this)

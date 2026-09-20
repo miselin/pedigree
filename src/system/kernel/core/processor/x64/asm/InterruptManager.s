@@ -25,6 +25,7 @@ extern _ZN19X64InterruptManager19returnFromInterruptER17X64InterruptState
 
 ; Export the array of interrupt handler addresses
 global interrupt_handler_array:function hidden
+global pedigree_interrupt_iret:function hidden
 
 ;##############################################################################
 ;### Code section #############################################################
@@ -59,8 +60,47 @@ interrupt_handler:
 
   sub rsp, 32
   mov qword [rsp+24], -1
+
+  ; RBX is saved in the public frame and survives every C++ call below.
+  ; Kernel-CS exceptions can interrupt a user-GS entry/exit window, so CS
+  ; alone cannot decide whether their entry needs SWAPGS.
+  xor ebx, ebx
+  test byte [rsp+176], 3
+  jnz .swap_gs
+  cmp qword [rsp+152], 32
+  jae .kernel_gs
+  mov ecx, 0xc0000101
+  rdmsr
+  test edx, edx
+  js .kernel_gs
+.swap_gs:
+  swapgs
+  mov ebx, 1
+.kernel_gs:
+  lfence
+
   mov rdi, rsp
   call pedigree_capture_user_entry
+
+  ; User debug/segment faults may run ordinary return work. Move their IST
+  ; frame to the thread's stack before any callback can block or migrate.
+  test byte [rsp+176], 3
+  jz .frame_ready
+  mov rax, [rsp+152]
+  cmp eax, 1
+  je .copy_ist_frame
+  cmp eax, 12
+  je .copy_ist_frame
+  cmp eax, 13
+  jne .frame_ready
+.copy_ist_frame:
+  mov rsi, rsp
+  mov rdi, [gs:0]
+  sub rdi, 208
+  mov ecx, 26
+  rep movsq
+  lea rsp, [rdi-208]
+.frame_ready:
 
   mov ax, 0x10
   mov ss, ax
@@ -80,8 +120,13 @@ interrupt_handler:
   mov rdi, rsp
   call _ZN19X64InterruptManager19returnFromInterruptER17X64InterruptState
 
+  cli
   mov rdi, rsp
   call pedigree_restore_user_entry
+  test ebx, ebx
+  jz .restore_registers
+  swapgs
+.restore_registers:
   add rsp, 32
 
   ; Restore the registers
@@ -104,6 +149,7 @@ interrupt_handler:
   ; Remove the errorcode and the interrupt number from the stack
   add rsp, 0x10
 
+pedigree_interrupt_iret:
   iretq
 
 ;##############################################################################

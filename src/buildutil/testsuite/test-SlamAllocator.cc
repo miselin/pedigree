@@ -142,6 +142,63 @@ TEST_F(SlamAllocatorCorrectnessTest, ExactSizeClassBoundaryIsNotRoundedUp) {
   allocator.free(allocation);
 }
 
+TEST_F(SlamAllocatorCorrectnessTest, LargeAllocationsAreValidAcrossReuse) {
+  SlamAllocator& allocator = SlamAllocator::instance();
+  const size_t framing = allocator.headerSize() + allocator.footerSize();
+  const size_t objectSizes[] = {SLAB_MINIMUM_SIZE, 2 * SLAB_MINIMUM_SIZE};
+
+  for (size_t objectSize : objectSizes) {
+    SCOPED_TRACE(objectSize);
+    const size_t requested = objectSize - framing;
+    uintptr_t allocation = allocator.allocate(requested);
+    ASSERT_NE(allocation, 0U);
+    EXPECT_TRUE(allocator.isPointerValid(allocation));
+    EXPECT_EQ(allocator.allocSize(allocation), requested);
+
+    allocator.free(allocation);
+    EXPECT_FALSE(allocator.isPointerValid(allocation));
+
+    uintptr_t reused = allocator.allocate(requested);
+    EXPECT_EQ(reused, allocation);
+    EXPECT_TRUE(allocator.isPointerValid(reused));
+    EXPECT_EQ(allocator.allocSize(reused), requested);
+
+    allocator.free(reused);
+    EXPECT_EQ(allocator.recovery(1), objectSize / SLAB_MINIMUM_SIZE);
+    EXPECT_EQ(allocator.heapPageCount(), 0U);
+  }
+}
+
+TEST_F(SlamAllocatorCorrectnessTest, LargeCachePublishesAndClearsAllocationOwnership) {
+  SlamAllocator& allocator = SlamAllocator::instance();
+  allocator.initialise();
+  const size_t objectSizes[] = {SLAB_MINIMUM_SIZE, 2 * SLAB_MINIMUM_SIZE};
+
+  for (size_t objectSize : objectSizes) {
+    SCOPED_TRACE(objectSize);
+    SlamCache cache;
+    cache.initialise(&allocator, objectSize);
+
+    uintptr_t allocation = cache.allocate();
+    ASSERT_NE(allocation, 0U);
+    auto* header = reinterpret_cast<SlamAllocator::AllocHeader*>(allocation);
+    EXPECT_EQ(header->cache, &cache);
+    prepareCacheAllocation(cache, allocation);
+
+    cache.free(allocation);
+    EXPECT_EQ(header->cache, nullptr);
+
+    uintptr_t reused = cache.allocate();
+    EXPECT_EQ(reused, allocation);
+    EXPECT_EQ(reinterpret_cast<SlamAllocator::AllocHeader*>(reused)->cache, &cache);
+    prepareCacheAllocation(cache, reused);
+
+    cache.free(reused);
+    EXPECT_EQ(cache.recovery(1), 1U);
+    EXPECT_EQ(allocator.heapPageCount(), 0U);
+  }
+}
+
 TEST_F(SlamAllocatorCorrectnessTest, RecoveryPreservesOtherSlabFreeObjects) {
   SlamAllocator& allocator = SlamAllocator::instance();
   uintptr_t allocations[SLAB_MINIMUM_SIZE / OBJECT_MINIMUM_SIZE + 1] = {};
@@ -203,7 +260,7 @@ TEST_F(SlamAllocatorCorrectnessTest, ReusesAndRecoversCrossCpuFreeLists) {
 
   SlamCache cache;
   cache.initialise(&allocator, TestObjectSize);
-  const size_t objectsPerSlab = SLAB_MINIMUM_SIZE / TestObjectSize;
+  const size_t objectsPerSlab = cache.slabObjectCount();
   uintptr_t allocations[SLAB_MINIMUM_SIZE / TestObjectSize] = {};
   const size_t pagesBefore = allocator.heapPageCount();
 
@@ -233,13 +290,37 @@ TEST_F(SlamAllocatorCorrectnessTest, ReusesAndRecoversCrossCpuFreeLists) {
   EXPECT_EQ(allocator.heapPageCount(), pagesBefore);
 }
 
+TEST_F(SlamAllocatorCorrectnessTest, RecoveryClearsSingleObjectSlabOnNonzeroList) {
+  SlamAllocator& allocator = SlamAllocator::instance();
+  allocator.initialise();
+
+  SlamCache cache;
+  cache.initialise(&allocator, SLAB_MINIMUM_SIZE / 2);
+  ASSERT_EQ(cache.slabObjectCount(), 1U);
+  cache.setListForTest(1);
+
+  for (size_t cycle = 0; cycle < 2; ++cycle) {
+    SCOPED_TRACE(cycle);
+    uintptr_t allocation = cache.allocate();
+    ASSERT_NE(allocation, 0U);
+    ASSERT_EQ(allocator.heapPageCount(), 1U);
+    EXPECT_EQ(reinterpret_cast<SlamAllocator::AllocHeader*>(allocation)->cache, &cache);
+    prepareCacheAllocation(cache, allocation);
+    EXPECT_TRUE(cache.isPointerValid(allocation));
+
+    cache.free(allocation);
+    ASSERT_EQ(cache.recovery(1), 1U);
+    ASSERT_EQ(allocator.heapPageCount(), 0U);
+  }
+}
+
 TEST_F(SlamAllocatorCorrectnessTest, RecoveryBudgetSkipsBusySlab) {
   SlamAllocator& allocator = SlamAllocator::instance();
   allocator.initialise();
 
   SlamCache cache;
   cache.initialise(&allocator, TestObjectSize);
-  const size_t objectsPerSlab = SLAB_MINIMUM_SIZE / TestObjectSize;
+  const size_t objectsPerSlab = cache.slabObjectCount();
   uintptr_t allocations[2 * (SLAB_MINIMUM_SIZE / TestObjectSize)] = {};
   const size_t pagesBefore = allocator.heapPageCount();
 
@@ -418,4 +499,31 @@ TEST_F(SlamAllocatorCorrectnessTest, LargeSlabCanStartMidBitmapEntry) {
   uintptr_t largeSlab = allocator.getSlab(65 * SLAB_MINIMUM_SIZE);
 
   EXPECT_EQ(largeSlab, firstPage + SLAB_MINIMUM_SIZE);
+}
+
+TEST_F(SlamAllocatorCorrectnessTest, FullBitmapEntrySeparatesFreeRuns) {
+  SlamAllocator& allocator = SlamAllocator::instance();
+  const size_t page = SLAB_MINIMUM_SIZE;
+  uintptr_t first = allocator.getSlab(128 * page);
+  allocator.freeSlab(first + page, 63 * page);
+
+  // The free suffix cannot continue across the fully reserved second word.
+  uintptr_t slab = allocator.getSlab(64 * page);
+
+  EXPECT_EQ(slab, first + 128 * page);
+  EXPECT_EQ(allocator.heapPageCount(), 129U);
+}
+
+TEST_F(SlamAllocatorCorrectnessTest, ReusesEarliestFittingHoleAcrossBitmapEntries) {
+  SlamAllocator& allocator = SlamAllocator::instance();
+  const size_t page = SLAB_MINIMUM_SIZE;
+  uintptr_t first = allocator.getSlab(256 * page);
+  allocator.freeSlab(first + 3 * page, page);
+  allocator.freeSlab(first + 70 * page, 2 * page);
+  allocator.freeSlab(first + 200 * page, 2 * page);
+
+  EXPECT_EQ(allocator.getSlab(2 * page), first + 70 * page);
+  EXPECT_EQ(allocator.getSlab(2 * page), first + 200 * page);
+  EXPECT_EQ(allocator.getSlab(page), first + 3 * page);
+  EXPECT_EQ(allocator.heapPageCount(), 256U);
 }

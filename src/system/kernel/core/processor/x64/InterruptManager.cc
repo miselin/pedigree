@@ -18,6 +18,7 @@
  */
 
 #include "InterruptManager.h"
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -36,6 +37,25 @@
 #include "pedigree/kernel/process/InterruptTimeAccounting.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
+#endif
+
+static_assert(sizeof(X64InterruptState) == 208, "IST frame copy must match the saved frame");
+
+#if PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS
+struct alignas(64) NmiEntryDiagnostic {
+  uint64_t count;
+  uint64_t rip;
+  uint64_t cs;
+  uint64_t rsp;
+  uint64_t information;
+  uint64_t index;
+  uint64_t activeGs;
+  uint64_t frame;
+};
+static_assert(sizeof(NmiEntryDiagnostic) == 64);
+extern "C" {
+SYMBOL_HIDDEN volatile NmiEntryDiagnostic pedigree_nmi_entry_diagnostics[256] = {};
+}
 #endif
 
 static const char* g_ExceptionNames[] = {"Divide Error",
@@ -127,8 +147,33 @@ size_t X64InterruptManager::getDebugInterruptNumber() {
 #endif
 
 void X64InterruptManager::interrupt(InterruptState& interruptState) {
+#if PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS
+  if (interruptState.getInterruptNumber() == 2) {
+    uintptr_t information;
+    size_t index;
+    asm volatile("movq %%gs:16, %0; movq %%gs:24, %1"
+                 : "=r"(information), "=r"(index)
+                 :
+                 : "memory");
+    uint32_t low, high;
+    asm volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(0xc0000101));
+    if (index < 256) {
+      auto& record = pedigree_nmi_entry_diagnostics[index];
+      record.rip = interruptState.m_Rip;
+      record.cs = interruptState.m_Cs;
+      record.rsp = interruptState.m_Rsp;
+      record.information = information;
+      record.index = index;
+      record.activeGs = (static_cast<uint64_t>(high) << 32) | low;
+      record.frame = reinterpret_cast<uintptr_t>(&interruptState);
+      __atomic_store_n(&record.count, record.count + 1, __ATOMIC_RELEASE);
+    }
+    return;
+  }
+#endif
   InterruptTimeAccounting accounting(!interruptState.kernelMode());
   size_t nIntNumber = interruptState.getInterruptNumber();
+  ActivityDiagnostics::InterruptScope activityScope(nIntNumber);
 
 #if DEBUGGER
   {
@@ -254,6 +299,10 @@ void X64InterruptManager::interrupt(InterruptState& interruptState) {
 
 void X64InterruptManager::returnFromInterrupt(InterruptState& interruptState) {
   const size_t vector = interruptState.getInterruptNumber();
+#if PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS
+  if (vector == 2)
+    return;
+#endif
   if (interruptState.kernelMode()) {
     return;
   }
@@ -272,23 +321,44 @@ void X64InterruptManager::returnFromInterrupt(InterruptState& interruptState) {
     return;
   }
 
+  PerProcessorScheduler& scheduler = Processor::information().getScheduler();
+  const bool diagnosticSample = scheduler.sampleUserReturnDiagnostics();
+  const uint64_t tailStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+
   // interrupt() has returned, so InterruptTimeAccounting and every raw
   // handler scope are complete. Finish the architecture accounting tail
   // before a terminal transition consumes this root stack.
   Processor::setInterrupts(true);
   bool terminal = false;
   while (true) {
-    terminal = Processor::information().getScheduler().serviceUserReturnWork(interruptState);
+    terminal = scheduler.serviceUserReturnWork(interruptState, UserReturnFrame::Origin::Interrupt,
+                                               diagnosticSample);
     if (terminal)
       break;
     bool waited = false;
+    const uint64_t affinityStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
     terminal = thread->completeAffinityAtSafePoint(&waited) == AffinityResult::Terminal;
+    if (diagnosticSample) {
+      ActivityDiagnostics::recordUserReturnStage(
+          ActivityDiagnostics::UserReturnStage::InterruptAffinity,
+          ActivityDiagnostics::timestamp() - affinityStart);
+      if (waited)
+        ActivityDiagnostics::recordUserReturnAffinityWait(false);
+    }
     if (terminal || !waited)
       break;
     Processor::setInterrupts(true);
   }
   Processor::setInterrupts(false);
+  const uint64_t accountingStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
   InterruptTimeAccounting::finishUserReturn(thread);
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(
+        ActivityDiagnostics::UserReturnStage::InterruptAccounting,
+        ActivityDiagnostics::timestamp() - accountingStart);
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::InterruptTail,
+                                               ActivityDiagnostics::timestamp() - tailStart);
+  }
   if (terminal) {
     Processor::setInterrupts(true);
     Processor::information().getScheduler().commitUserReturnTerminalState();
@@ -301,13 +371,22 @@ void X64InterruptManager::returnFromInterrupt(InterruptState& interruptState) {
 //
 
 void X64InterruptManager::initialiseProcessor() {
-  // Load the IDT
+  // BSP/AP bootstrap precedes the permanent GDT and LTR.
+  struct {
+    uint16_t size;
+    uint64_t idt;
+  } PACKED idtr = {4095, reinterpret_cast<uintptr_t>(&m_Instance.m_BootstrapIDT)};
+
+  asm volatile("lidt %0" ::"m"(idtr) : "memory");
+}
+
+void X64InterruptManager::initialiseProcessorIst() {
   struct {
     uint16_t size;
     uint64_t idt;
   } PACKED idtr = {4095, reinterpret_cast<uintptr_t>(&m_Instance.m_IDT)};
 
-  asm volatile("lidt %0" ::"m"(idtr));
+  asm volatile("lidt %0" ::"m"(idtr) : "memory");
 }
 
 void X64InterruptManager::setInterruptGate(size_t nInterruptNumber, uintptr_t interruptHandler) {
@@ -340,7 +419,16 @@ X64InterruptManager::X64InterruptManager() : m_Lock() {
   for (size_t i = 0; i < 256; i++)
     setInterruptGate(i, interrupt_handler_array[i]);
 
-  // Set double fault handler IST entry.
+  for (size_t i = 0; i < 256; i++)
+    m_BootstrapIDT[i] = m_IDT[i];
+
+  // Separate stacks keep asynchronous entry and faults in user-return windows
+  // away from an interrupted user RSP. CPL3 #DB/#SS/#GP frames move to rsp0.
   setIst(8, 1);
+  setIst(2, 2);
+  setIst(1, 3);
+  setIst(18, 4);
+  setIst(13, 5);
+  setIst(12, 6);
 }
 X64InterruptManager::~X64InterruptManager() {}

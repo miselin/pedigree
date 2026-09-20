@@ -2,6 +2,7 @@
 #ifndef POSIX_QUEUED_SIGNAL_H
 #define POSIX_QUEUED_SIGNAL_H
 
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Event.h"
@@ -69,10 +70,22 @@ class PendingSignalContext final : public ReadinessSource {
 class PendingSignalNotification {
  public:
   explicit PendingSignalNotification(const SharedPointer<PendingSignalContext>& context)
-      : m_Context(context), m_Version(context->version()) {}
+      : m_Context(context), m_Version(0) {
+    PendingSignalContext* retained = m_Context.get();
+    if (!retained) {
+      FATAL("Pending signal notification has no context.");
+      return;
+    }
+    m_Version = retained->version();
+  }
   ~PendingSignalNotification() {
-    if (m_Context->version() != m_Version)
-      m_Context->publish();
+    PendingSignalContext* retained = m_Context.get();
+    if (!retained) {
+      FATAL("Pending signal notification lost its context.");
+      return;
+    }
+    if (retained->version() != m_Version)
+      retained->publish();
   }
 
  private:

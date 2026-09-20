@@ -112,14 +112,16 @@ void Ext2InodeState::loadMappings(Ext2Filesystem* filesystem, uint32_t block, un
     return;
   }
   ++metadataBlocks;
-  const uintptr_t buffer = filesystem->readBlock(block);
+  const DiskReadView buffer = filesystem->readBlockView(block);
   if (!buffer) {
     return;
   }
   const size_t entries = filesystem->m_BlockSize / sizeof(uint32_t);
-  const uint32_t* children = reinterpret_cast<const uint32_t*>(buffer);
   for (size_t i = 0; i < entries; ++i) {
-    const uint32_t child = LITTLE_TO_HOST32(children[i]);
+    uint32_t child;
+    if (!buffer.readAt(child, i * sizeof(child)))
+      return;
+    child = LITTLE_TO_HOST32(child);
     if (depth > 1) {
       loadMappings(filesystem, child, depth - 1, first + i * (span / entries), span / entries);
     } else if (child || first + i < blocks.count()) {
@@ -129,7 +131,6 @@ void Ext2InodeState::loadMappings(Ext2Filesystem* filesystem, uint32_t block, un
       blocks[first + i] = child;
     }
   }
-  filesystem->unpinBlock(block);
 }
 
 Ext2Node::Ext2Node(uintptr_t inode_num, Inode* pInode, Ext2Filesystem* pFs)
@@ -358,16 +359,18 @@ bool Ext2Node::getBlockNumberIndirect(uint32_t inode_block, size_t nBlocks, size
     m_Blocks[nBlock] = 0;
     return true;
   }
-  uint32_t* buffer = reinterpret_cast<uint32_t*>(m_pExt2Fs->readBlock(inode_block));
+  const DiskReadView buffer = m_pExt2Fs->readBlockView(inode_block);
   if (!buffer) {
     return false;
   }
 
   for (size_t i = 0; i < m_pExt2Fs->m_BlockSize / 4 && nBlocks < m_Blocks.count(); i++) {
-    m_Blocks[nBlocks++] = LITTLE_TO_HOST32(buffer[i]);
+    uint32_t block;
+    if (!buffer.readAt(block, i * sizeof(block)))
+      return false;
+    m_Blocks[nBlocks++] = LITTLE_TO_HOST32(block);
   }
 
-  m_pExt2Fs->unpinBlock(inode_block);
   return true;
 }
 
@@ -378,7 +381,7 @@ bool Ext2Node::getBlockNumberBiindirect(uint32_t inode_block, size_t nBlocks, si
     m_Blocks[nBlock] = 0;
     return true;
   }
-  uint32_t* buffer = reinterpret_cast<uint32_t*>(m_pExt2Fs->readBlock(inode_block));
+  DiskReadView buffer = m_pExt2Fs->readBlockView(inode_block);
   if (!buffer) {
     return false;
   }
@@ -386,9 +389,12 @@ bool Ext2Node::getBlockNumberBiindirect(uint32_t inode_block, size_t nBlocks, si
   // What indirect block does nBlock exist on?
   size_t nIndirectBlock = (nBlock - nBlocks) / nPerBlock;
 
-  const uint32_t indirectBlock = LITTLE_TO_HOST32(buffer[nIndirectBlock]);
-  m_pExt2Fs->unpinBlock(inode_block);
-  return getBlockNumberIndirect(indirectBlock, nBlocks + nIndirectBlock * nPerBlock, nBlock);
+  uint32_t indirectBlock;
+  if (!buffer.readAt(indirectBlock, nIndirectBlock * sizeof(indirectBlock)))
+    return false;
+  buffer.reset();
+  return getBlockNumberIndirect(LITTLE_TO_HOST32(indirectBlock),
+                                nBlocks + nIndirectBlock * nPerBlock, nBlock);
 }
 
 bool Ext2Node::getBlockNumberTriindirect(uint32_t inode_block, size_t nBlocks, size_t nBlock) {
@@ -398,7 +404,7 @@ bool Ext2Node::getBlockNumberTriindirect(uint32_t inode_block, size_t nBlocks, s
     m_Blocks[nBlock] = 0;
     return true;
   }
-  uint32_t* buffer = reinterpret_cast<uint32_t*>(m_pExt2Fs->readBlock(inode_block));
+  DiskReadView buffer = m_pExt2Fs->readBlockView(inode_block);
   if (!buffer) {
     return false;
   }
@@ -406,9 +412,12 @@ bool Ext2Node::getBlockNumberTriindirect(uint32_t inode_block, size_t nBlocks, s
   // What biindirect block does nBlock exist on?
   size_t nBiBlock = (nBlock - nBlocks) / (nPerBlock * nPerBlock);
 
-  const uint32_t biBlock = LITTLE_TO_HOST32(buffer[nBiBlock]);
-  m_pExt2Fs->unpinBlock(inode_block);
-  return getBlockNumberBiindirect(biBlock, nBlocks + nBiBlock * nPerBlock * nPerBlock, nBlock);
+  uint32_t biBlock;
+  if (!buffer.readAt(biBlock, nBiBlock * sizeof(biBlock)))
+    return false;
+  buffer.reset();
+  return getBlockNumberBiindirect(LITTLE_TO_HOST32(biBlock),
+                                  nBlocks + nBiBlock * nPerBlock * nPerBlock, nBlock);
 }
 
 void Ext2Node::writeBlockOrQueue(uint32_t block, Vector<uint32_t>* pendingWrites) {

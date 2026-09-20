@@ -21,6 +21,7 @@
 
 #if THREADS
 
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Subsystem.h"
@@ -169,18 +170,25 @@ void requireThreadDestructionContext() {
 
 class CpuTimeSample {
  public:
-  CpuTimeSample()
-      : timestamp(0), processor(0), m_InterruptsWereEnabled(Processor::getInterrupts()) {
-    Processor::setInterrupts(false);
+  explicit CpuTimeSample(bool interruptsAlreadyDisabled = false)
+      : timestamp(0), processor(0), m_InterruptsWereEnabled(false),
+        m_RestoreInterrupts(!interruptsAlreadyDisabled) {
+    if (!interruptsAlreadyDisabled) {
+      m_InterruptsWereEnabled = Processor::getInterrupts();
+      Processor::setInterrupts(false);
+    }
 
     // Keep interrupts masked until the paired baseline/publication update
     // is complete, so migration cannot invalidate this CPU-clock sample.
-    processor = Processor::id();
-    timestamp = Time::getTicks();
+    const auto sample = Time::sampleCpuTime();
+    processor = sample.processor;
+    timestamp = sample.timestamp;
   }
 
   ~CpuTimeSample() {
-    Processor::setInterrupts(m_InterruptsWereEnabled);
+    if (m_RestoreInterrupts) {
+      Processor::setInterrupts(m_InterruptsWereEnabled);
+    }
   }
 
   Time::Timestamp timestamp;
@@ -188,6 +196,8 @@ class CpuTimeSample {
 
  private:
   bool m_InterruptsWereEnabled;
+  bool m_RestoreInterrupts;
+  ActivityDiagnostics::TimeAccountingScope m_ActivityScope;
 };
 }  // namespace
 
@@ -344,6 +354,9 @@ Thread::Thread(Process* pParent, SyscallState& state, bool delayedStart,
     m_bTlsBaseOverride = true;
     m_pTlsBase = pCurrent->m_pTlsBase;
   }
+#if X64 && !HOSTED
+  m_UserGsBase = state.getUserEntryMetadata().gsBase;
+#endif
 
   m_Lock.acquire();
 
@@ -356,55 +369,85 @@ Thread::Thread(Process* pParent, SyscallState& state, bool delayedStart,
 }
 
 void Thread::recordTime(CpuTimeMode mode) {
-  const CpuTimeSample sample;
-  m_TimeAccounting.record(mode, sample.timestamp, sample.processor);
+  if constexpr (PEDIGREE_TIME_ACCOUNTING && !PEDIGREE_SAMPLED_TIME_ACCOUNTING) {
+    const CpuTimeSample sample;
+    m_TimeAccounting.recordAtInterruptDisabled(mode, sample.timestamp, sample.processor);
+  }
   __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(mode), __ATOMIC_RELEASE);
 }
 
 void Thread::trackTime(CpuTimeMode mode) {
-  const CpuTimeSample sample;
-  const Time::Timestamp elapsed =
-      m_TimeAccounting.elapsed(mode, sample.timestamp, sample.processor);
-  if (elapsed) {
-    publishTimeAccounting(mode, elapsed);
+  if constexpr (PEDIGREE_TIME_ACCOUNTING && !PEDIGREE_SAMPLED_TIME_ACCOUNTING) {
+    const CpuTimeSample sample;
+    const Time::Timestamp elapsed =
+        m_TimeAccounting.elapsedAtInterruptDisabled(mode, sample.timestamp, sample.processor);
+    if (elapsed) {
+      publishTimeAccounting(mode, elapsed, sample.processor);
+    }
+  } else {
+    (void)mode;
   }
 }
 
-void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to) {
-  const CpuTimeSample sample;
-  const Time::Timestamp elapsed =
-      m_TimeAccounting.elapsed(from, sample.timestamp, sample.processor);
-  m_TimeAccounting.record(to, sample.timestamp, sample.processor);
-  __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
-  if (elapsed) {
-    publishTimeAccounting(from, elapsed);
+void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to, bool interruptsAlreadyDisabled) {
+  if constexpr (PEDIGREE_TIME_ACCOUNTING && !PEDIGREE_SAMPLED_TIME_ACCOUNTING) {
+    const CpuTimeSample sample(interruptsAlreadyDisabled);
+    const Time::Timestamp elapsed =
+        m_TimeAccounting.elapsedAtInterruptDisabled(from, sample.timestamp, sample.processor);
+    m_TimeAccounting.recordAtInterruptDisabled(to, sample.timestamp, sample.processor);
+    __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
+    if (elapsed) {
+      publishTimeAccounting(from, elapsed, sample.processor);
+    }
+  } else {
+    (void)from;
+    (void)interruptsAlreadyDisabled;
+    __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
   }
 }
 
-void Thread::transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to) {
-  // The architecture return boundary owns the physical IRQ mask. Going
-  // through CpuTimeSample here could momentarily undo that mask on hosted,
-  // where the logical state intentionally describes the pending sigreturn.
-  const size_t processor = Processor::id();
-  const Time::Timestamp timestamp = Time::getTicks();
-  const Time::Timestamp elapsed = m_TimeAccounting.elapsed(from, timestamp, processor);
-  m_TimeAccounting.record(to, timestamp, processor);
-  __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
-  if (elapsed) {
-    publishTimeAccounting(from, elapsed);
+void Thread::accountTimerTick(Time::Timestamp delta, bool kernelMode) {
+  if constexpr (PEDIGREE_TIME_ACCOUNTING && PEDIGREE_SAMPLED_TIME_ACCOUNTING) {
+    // Interrupt entry has already changed the logical mode. Only the saved
+    // frame tells us which mode was running when the timer arrived.
+    if (delta && m_pParent) {
+      publishTimeAccounting(kernelMode ? CpuTimeMode::Kernel : CpuTimeMode::User, delta,
+                            Processor::index());
+    }
+  } else {
+    (void)delta;
+    (void)kernelMode;
   }
 }
 
-void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
+void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed, size_t processor) {
   Time::Timestamp* total = mode == CpuTimeMode::User ? &m_UserTime : &m_KernelTime;
+#if X64
+  // IRQ masking and scheduler ownership exclude writers on other CPUs. Keep
+  // this one instruction so an NMI cannot interleave a load/add/store sequence.
+  asm volatile("addq %1, %0" : "+m"(*total) : "r"(elapsed) : "cc");
+#else
   __atomic_fetch_add(total, elapsed, __ATOMIC_RELAXED);
-  m_pParent->publishTimeAccounting(mode, elapsed);
+#endif
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  if (mode == CpuTimeMode::Kernel) {
+    const size_t slot = __atomic_load_n(&m_ActiveSyscallTimingSlot, __ATOMIC_ACQUIRE);
+    if (slot != NoSyscallTimingSlot) {
+      m_pParent->recordSyscallTimingKernel(slot, elapsed);
+    }
+  }
+#endif
+  m_pParent->publishTimeAccounting(mode, elapsed, processor);
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 void Thread::publishTimeAccountingForHostedTest(Time::Timestamp user, Time::Timestamp system) {
-  publishTimeAccounting(CpuTimeMode::User, user);
-  publishTimeAccounting(CpuTimeMode::Kernel, system);
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  const size_t processor = Processor::index();
+  publishTimeAccounting(CpuTimeMode::User, user, processor);
+  publishTimeAccounting(CpuTimeMode::Kernel, system, processor);
+  Processor::setInterrupts(interruptsWereEnabled);
 }
 #endif
 
@@ -629,9 +672,8 @@ void Thread::shutdown() {
   }
 
   // This is only an exit-announced scheduler state. Join completion is
-  // deliberately delayed until markReapable(). Predicate-backed workers
-  // can still be published on the ready queue while idle, so the status
-  // transition must also withdraw that scheduler publication.
+  // deliberately delayed until markReapable(). The status transition must
+  // also withdraw any ready-queue publication before the thread is retired.
   setStatus(Thread::AwaitingJoin);
 }
 
@@ -825,17 +867,6 @@ bool Thread::startDetached() {
 
   parent->endThreadJoin();
   return accepted;
-}
-
-bool Thread::setSchedulerReadyPredicate(SchedulerReadyPredicate predicate, void* context) {
-  LockGuard<Spinlock> guard(m_Lock);
-  if (m_Status != Created || m_bStartRequested) {
-    return false;
-  }
-
-  m_SchedulerReadyPredicate = predicate;
-  m_SchedulerReadyContext = context;
-  return true;
 }
 
 SchedulerState& Thread::state() {
@@ -1036,10 +1067,6 @@ void Thread::adoptInitialUserStackForExec(VirtualAddressSpace::Stack* stack) {
   m_StateLevels[0].m_pUserStack = stack;
 }
 
-size_t Thread::getStateLevel() const {
-  return __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
-}
-
 void Thread::threadExited() {
   Thread* thread = Processor::information().getCurrentThread();
   if (!thread) {
@@ -1177,6 +1204,7 @@ bool Thread::sendEvent(Event* pEvent) {
 
         if (!duplicate) {
           m_EventQueue.pushBack(pEvent);
+          markUserReturnWorkPending();
           wakeThread = hasDeliverableEventsUnlocked() &&
                        interruptWaitUnlocked(WaitQueue::WakeReason::Event, readyScheduler);
         }
@@ -1577,6 +1605,13 @@ bool Thread::runHostedStatePublicationRegression() {
 
 bool Thread::runHostedStateCleanupRegression() {
   const size_t initialLevel = getStateLevel();
+  if (!clearUserReturnWorkIfIdle() || userReturnWorkPending() || !canSkipUserReturnWork()) {
+    return false;
+  }
+  const auto terminationWorkPending = [this]() {
+    return isTerminationDeferred() && userReturnWorkPending() && !canSkipUserReturnWork() &&
+           !clearUserReturnWorkIfIdle();
+  };
   HostedStateCleanupOrder order;
   HostedStateCleanupItem oldItem{&order, 0};
   HostedStateCleanupItem firstItem{&order, 1};
@@ -1590,6 +1625,8 @@ bool Thread::runHostedStateCleanupRegression() {
   DeferredScopeRecord normalRecord;
   DeferredScopeRecord baseRecord;
   DeferredScopeRecord terminationRecord;
+  DeferredScopeRecord checkpointTerminationRecord;
+  DeferredScopeRecord levelTerminationRecord;
   AtomicStateCleanupRecord levelRecord;
 
   armStateCleanup(oldRecord, hostedStateCleanupCallback, &oldItem);
@@ -1597,10 +1634,13 @@ bool Thread::runHostedStateCleanupRegression() {
   armStateCleanup(firstRecord, hostedStateCleanupCallback, &firstItem);
   armAtomicStateCleanup(secondRecord, hostedStateCleanupCallback, &secondItem);
   const bool cleanupDoesNotDeferTermination = !isTerminationDeferred();
+  registerFreshTerminationDeferral(checkpointTerminationRecord);
   retireDeferredScopesAfter(checkpoint);
 
   const bool checkpointPassed = order.count == 2 && order.values[0] == 2 && order.values[1] == 1 &&
-                                oldRecord.armed && !firstRecord.armed && !secondRecord.armed;
+                                oldRecord.armed && !firstRecord.armed && !secondRecord.armed &&
+                                !checkpointTerminationRecord.armed && !isTerminationDeferred() &&
+                                !userReturnWorkPending() && canSkipUserReturnWork();
   disarmStateCleanup(oldRecord);
 
   armStateCleanup(normalRecord, hostedStateCleanupCallback, &normalItem);
@@ -1624,20 +1664,92 @@ bool Thread::runHostedStateCleanupRegression() {
   const bool pushed = pushState() != nullptr;
   if (pushed) {
     armAtomicStateCleanup(levelRecord, hostedStateCleanupCallback, &levelItem);
+    registerFreshTerminationDeferral(levelTerminationRecord);
     abandonCurrentState(false);
   }
   const bool levelPassed = pushed && getStateLevel() == initialLevel && order.count == 3 &&
-                           order.values[2] == 5 && baseRecord.armed && !levelRecord.armed;
+                           order.values[2] == 5 && baseRecord.armed && !levelRecord.armed &&
+                           !levelTerminationRecord.armed && !isTerminationDeferred() &&
+                           !userReturnWorkPending() && canSkipUserReturnWork();
   disarmStateCleanup(baseRecord);
 
   registerDeferredScope(terminationRecord, true, false);
-  const bool explicitTerminationDefers = isTerminationDeferred();
+  const bool explicitTerminationDefers = terminationWorkPending();
   unregisterDeferredScope(terminationRecord);
-  const bool explicitTerminationRetired = !isTerminationDeferred() && !terminationRecord.armed;
+  const bool explicitTerminationRetired = !isTerminationDeferred() && !terminationRecord.armed &&
+                                          !userReturnWorkPending() && canSkipUserReturnWork();
+
+  bool pureScopesPassed = true;
+  DeferredScopeRecord* initialHead =
+      __atomic_load_n(&m_pDeferredScopes[initialLevel], __ATOMIC_ACQUIRE);
+  const size_t pureCheckpoint = stateCleanupCheckpoint();
+  alignas(TerminationDeferral) uint8_t scopeStorage[sizeof(TerminationDeferral)];
+  ByteSet(scopeStorage, 0xa5, sizeof(scopeStorage));
+  TerminationDeferral* fresh = new (scopeStorage) TerminationDeferral();
+  DeferredScopeRecord* freshRecord =
+      __atomic_load_n(&m_pDeferredScopes[initialLevel], __ATOMIC_ACQUIRE);
+  const size_t freshSequence = freshRecord ? freshRecord->sequence : 0;
+  pureScopesPassed &= freshRecord && freshRecord != initialHead && freshRecord->armed &&
+                      freshRecord->next == initialHead && freshRecord->stateLevel == initialLevel &&
+                      freshSequence > pureCheckpoint && freshRecord->defersTermination &&
+                      !freshRecord->defersEvents && !freshRecord->cleanup &&
+                      !freshRecord->context && terminationWorkPending();
+  {
+    TerminationDeferral moved(pedigree_std::move(*fresh));
+    fresh->~TerminationDeferral();
+    DeferredScopeRecord* movedRecord =
+        __atomic_load_n(&m_pDeferredScopes[initialLevel], __ATOMIC_ACQUIRE);
+    pureScopesPassed &= movedRecord && movedRecord != freshRecord &&
+                        movedRecord->sequence == freshSequence && terminationWorkPending();
+
+    // Reuse poisoned storage so adoption cannot rely on an accidentally zero stack.
+    ByteSet(scopeStorage, 0x5a, sizeof(scopeStorage));
+    TerminationDeferral* disabled = new (scopeStorage) TerminationDeferral(false);
+    pureScopesPassed &=
+        __atomic_load_n(&m_pDeferredScopes[initialLevel], __ATOMIC_ACQUIRE) == movedRecord;
+    *disabled = pedigree_std::move(moved);
+    DeferredScopeRecord* adoptedRecord =
+        __atomic_load_n(&m_pDeferredScopes[initialLevel], __ATOMIC_ACQUIRE);
+    pureScopesPassed &=
+        adoptedRecord && adoptedRecord->sequence == freshSequence && terminationWorkPending();
+
+    armStateCleanup(normalRecord, hostedStateCleanupCallback, &normalItem);
+    {
+      TerminationDeferral newer;
+      *disabled = pedigree_std::move(newer);
+      pureScopesPassed &=
+          __atomic_load_n(&m_pDeferredScopes[initialLevel], __ATOMIC_ACQUIRE) == &normalRecord &&
+          normalRecord.next == adoptedRecord && adoptedRecord &&
+          adoptedRecord->sequence == freshSequence && terminationWorkPending();
+    }
+    disarmStateCleanup(normalRecord);
+    *disabled = TerminationDeferral(false);
+    pureScopesPassed &=
+        !isTerminationDeferred() && !userReturnWorkPending() && canSkipUserReturnWork() &&
+        __atomic_load_n(&m_pDeferredScopes[initialLevel], __ATOMIC_ACQUIRE) == initialHead;
+    disabled->~TerminationDeferral();
+  }
+
+  bool nestedWorkPassed = true;
+  DeferredScopeRecord eventOnlyRecord;
+  {
+    TerminationDeferral outer;
+    nestedWorkPassed &= terminationWorkPending();
+    registerDeferredScope(eventOnlyRecord, false, true);
+    {
+      TerminationDeferral inner;
+      outer = TerminationDeferral(false);
+      nestedWorkPassed &= terminationWorkPending();
+    }
+    nestedWorkPassed &= !isTerminationDeferred() && eventsDeferred() && userReturnWorkPending() &&
+                        !canSkipUserReturnWork() && !clearUserReturnWorkIfIdle();
+  }
+  unregisterDeferredScope(eventOnlyRecord);
+  nestedWorkPassed &= !userReturnWorkPending() && canSkipUserReturnWork();
 
   return cleanupDoesNotDeferTermination && checkpointPassed && normalPassed &&
          temporaryMaskCleanupPassed && levelPassed && explicitTerminationDefers &&
-         explicitTerminationRetired && order.count == 3;
+         explicitTerminationRetired && pureScopesPassed && nestedWorkPassed && order.count == 3;
 }
 
 bool Thread::runHostedExecStackOwnershipRegression() {
@@ -2030,6 +2142,8 @@ bool Thread::finishTemporarySignalMask(size_t stateLevel, bool deferForUserRetur
       }
     }
   }
+  if (deferRestore)
+    markUserReturnWorkPending();
   // Keep a temporarily unblocked signal eligible until the syscall boundary
   // can save the original mask in its handler's return frame.
   state.m_DeferredSignalMaskRestore = deferRestore;
@@ -2612,6 +2726,10 @@ void Thread::resetTlsBase() {
 #endif
   const uintptr_t tlsBase = getTlsBase();
   Processor::setTlsBase(tlsBase);
+#if X64 && !HOSTED
+  m_UserGsBase = 0;
+  Processor::setUserGsBase(0);
+#endif
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   if (hook && hookTarget == this) {
     hook(this, TlsResetRemapped, tlsBase);
@@ -2628,6 +2746,20 @@ void Thread::setTlsBase(uintptr_t base) {
     Processor::setTlsBase(getTlsBase());
   }
 }
+
+#if X64 && !HOSTED
+void Thread::setUserGsBase(uintptr_t base) {
+  EnsureInterrupts interrupts(false);
+  m_UserGsBase = base;
+  if (Processor::information().getCurrentThread() == this)
+    Processor::setUserGsBase(base);
+}
+
+void Thread::saveUserGsBase() {
+  // A userspace selector load can change the base without arch_prctl.
+  m_UserGsBase = Processor::getUserGsBase();
+}
+#endif
 
 bool Thread::join() {
   return joinInternal(false);
@@ -3042,7 +3174,7 @@ void Thread::markSignalInterruptedWait() {
   }
 }
 
-bool Thread::eventsDeferred() {
+bool Thread::eventsDeferred() const {
   return __atomic_load_n(&m_EventDeferralDepth, __ATOMIC_ACQUIRE) != 0;
 }
 
@@ -3077,6 +3209,7 @@ bool Thread::getWaitDebugInfo(WaitDebugInfo& info) {
 
 void Thread::deferEvents() {
   __atomic_add_fetch(&m_EventDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+  markUserReturnWorkFlag(UserReturnEventsDeferred);
 }
 
 void Thread::resumeEvents() {
@@ -3084,7 +3217,9 @@ void Thread::resumeEvents() {
   if (!depth) {
     FATAL("Unbalanced event-delivery deferral.");
   }
-  __atomic_sub_fetch(&m_EventDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+  if (__atomic_sub_fetch(&m_EventDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL) == 0) {
+    clearUserReturnWorkFlag(UserReturnEventsDeferred);
+  }
 }
 
 void Thread::deferTermination() {
@@ -3097,6 +3232,37 @@ void Thread::resumeTermination() {
     FATAL("Unbalanced terminal-teardown deferral.");
   }
   __atomic_sub_fetch(&m_TerminationDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+}
+
+void Thread::registerFreshTerminationDeferral(DeferredScopeRecord& record) {
+  // Only TerminationDeferral's constructor calls this with unpublished storage.
+  // Keep the normal record and publication protocol without zeroing it first.
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+
+  const size_t level = __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
+  const size_t sequence =
+      __atomic_add_fetch(&m_NextStateCleanupSequence, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+  if (!sequence) {
+    FATAL("Thread state cleanup sequence exhausted.");
+  }
+
+  record.stateLevel = level;
+  record.sequence = sequence;
+  record.defersTermination = true;
+  record.defersEvents = false;
+  record.cleanup = nullptr;
+  record.context = nullptr;
+  record.armed = true;
+  deferTermination();
+
+  DeferredScopeRecord* head = __atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE);
+  do {
+    record.next = head;
+  } while (!__atomic_compare_exchange_n(&m_pDeferredScopes[level], &head, &record, false,
+                                        __ATOMIC_RELEASE, __ATOMIC_ACQUIRE));
+
+  Processor::setInterrupts(interruptsWereEnabled);
 }
 
 void Thread::registerDeferredScope(DeferredScopeRecord& record, bool termination, bool events) {
@@ -3220,13 +3386,12 @@ void Thread::disarmStateCleanup(DeferredScopeRecord& record) {
 }
 
 void Thread::unregisterTerminationDeferral(DeferredScopeRecord& record) {
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
   if (!record.armed || !record.defersTermination || record.defersEvents || record.cleanup ||
       record.stateLevel >= MAX_NESTED_EVENTS) {
     FATAL("Invalid termination deferral retirement.");
   }
-
-  const bool interruptsWereEnabled = Processor::getInterrupts();
-  Processor::setInterrupts(false);
 
   DeferredScopeRecord* previous = nullptr;
   DeferredScopeRecord* current =
@@ -3411,10 +3576,6 @@ void Thread::setScheduler(class PerProcessorScheduler* pScheduler) {
   __atomic_store_n(&m_pScheduler, pScheduler, __ATOMIC_RELEASE);
 }
 
-PerProcessorScheduler* Thread::getScheduler() const {
-  return __atomic_load_n(&m_pScheduler, __ATOMIC_ACQUIRE);
-}
-
 void Thread::cleanStateLevel(size_t level) {
   if (__atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE)) {
     FATAL("Thread state stack freed with an armed cleanup record.");
@@ -3470,6 +3631,7 @@ void Thread::setUnwindState(UnwindType ut) {
     __atomic_store_n(&m_UnwindState, ut, __ATOMIC_RELEASE);
     queuedBeforeStart = m_Status == Created && ut == TerminateThread;
     if (ut != Continue) {
+      markUserReturnWorkPending();
       const bool terminating = ut == TerminateThread;
       becameReady = interruptWaitUnlocked(
           terminating ? WaitQueue::WakeReason::Terminating : WaitQueue::WakeReason::Unwinding,
@@ -3483,10 +3645,6 @@ void Thread::setUnwindState(UnwindType ut) {
   } else if (queuedBeforeStart) {
     Scheduler::instance().threadStatusChanged(this);
   }
-}
-
-Thread::UnwindType Thread::getUnwindState() {
-  return __atomic_load_n(&m_UnwindState, __ATOMIC_ACQUIRE);
 }
 
 void Thread::deferProcessExit(int code) {
@@ -3523,6 +3681,7 @@ bool Thread::deferSubsystemException(size_t type, uintptr_t faultAddress, uintpt
   m_DeferredSubsystemExceptionFaultAddress = faultAddress;
   m_DeferredSubsystemExceptionErrorCode = errorCode;
   __atomic_store_n(&m_DeferredSubsystemExceptionState, 2, __ATOMIC_RELEASE);
+  markUserReturnWorkFlag(UserReturnDeferredException);
   return true;
 }
 
@@ -3536,6 +3695,7 @@ bool Thread::takeDeferredSubsystemException(size_t& type, uintptr_t& faultAddres
   faultAddress = m_DeferredSubsystemExceptionFaultAddress;
   errorCode = m_DeferredSubsystemExceptionErrorCode;
   __atomic_store_n(&m_DeferredSubsystemExceptionState, 0, __ATOMIC_RELEASE);
+  clearUserReturnWorkFlag(UserReturnDeferredException);
   return true;
 }
 

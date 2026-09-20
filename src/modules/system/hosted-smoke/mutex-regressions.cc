@@ -107,6 +107,43 @@ bool check(bool condition, const char* detail, const char* test = "mutex-ownersh
   return false;
 }
 
+bool mutexCompletionPreservesInterruption() {
+  constexpr const char* Test = "mutex-completion-preserves-interruption";
+  Thread* thread = Processor::information().getCurrentThread();
+  const Thread::InterruptionReason originalInterruption = thread->getInterruptionReason();
+  const bool originalInterrupts = Processor::getInterrupts();
+  const Thread::InterruptionReason reasons[] = {Thread::NotInterrupted, Thread::InterruptedBySignal,
+                                                Thread::InterruptedByTimeout};
+  const bool interruptStates[] = {false, true};
+  Mutex mutex;
+  bool passed = true;
+
+  for (bool interrupts : interruptStates) {
+    Processor::setInterrupts(interrupts);
+    for (Thread::InterruptionReason reason : reasons) {
+      thread->setInterruptionReason(reason);
+      const bool acquired = mutex.acquireForCompletion();
+      const bool owned = mutex.isOwnedByCurrentThread() && mutex.getValue() == 0;
+      const bool preserved =
+          thread->getInterruptionReason() == reason && Processor::getInterrupts() == interrupts;
+      if (acquired) {
+        mutex.release();
+      }
+      thread->setInterruptionReason(originalInterruption);
+      passed &=
+          check(acquired && owned && preserved && !mutex.isOwnedByCurrentThread() &&
+                    mutex.getValue() == 1 && Processor::getInterrupts() == interrupts,
+                "immediate completion lost ownership, interruption, or interrupt state", Test);
+    }
+  }
+  Processor::setInterrupts(originalInterrupts);
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS mutex-completion-preserves-interruption");
+  }
+  return passed;
+}
+
 void observeGuardedCriticalSection(MutexGuardContext* context) {
   Thread* thread = Processor::information().getCurrentThread();
   context->entered += 1;
@@ -256,6 +293,98 @@ int attemptTimedMutexAcquire(void* parameter) {
 }
 }  // namespace
 
+bool runHostedSpinlockRegressions() {
+  constexpr const char* Test = "spinlock-interrupt-state";
+  const bool originalInterrupts = Processor::getInterrupts();
+  const bool interruptStates[] = {true, false};
+  bool passed = true;
+
+  Spinlock lock;
+  for (bool interrupts : interruptStates) {
+    Processor::setInterrupts(interrupts);
+    const bool initiallyUnlocked = !lock.acquired();
+    const bool acquired = lock.acquire();
+    const bool held =
+        lock.acquired() && !Processor::getInterrupts() && lock.interrupts() == interrupts;
+    lock.release();
+    const bool restored = !lock.acquired() && Processor::getInterrupts() == interrupts;
+    Processor::setInterrupts(originalInterrupts);
+    passed &= check(initiallyUnlocked && acquired && held && restored,
+                    "ordinary acquire/release lost ownership or interrupt state", Test);
+  }
+
+  Spinlock outer;
+  Spinlock inner;
+  for (bool interrupts : interruptStates) {
+    Processor::setInterrupts(interrupts);
+    outer.acquire();
+    inner.acquire();
+    const bool nested = outer.acquired() && inner.acquired() && !Processor::getInterrupts() &&
+                        outer.interrupts() == interrupts && !inner.interrupts();
+    inner.release();
+    const bool outerHeld = outer.acquired() && !inner.acquired() && !Processor::getInterrupts();
+    outer.release();
+    const bool restored = !outer.acquired() && Processor::getInterrupts() == interrupts;
+    Processor::setInterrupts(originalInterrupts);
+    passed &= check(nested && outerHeld && restored,
+                    "nested locks restored interrupts before the outer release", Test);
+  }
+
+  Spinlock recursive;
+  for (bool interrupts : interruptStates) {
+    Processor::setInterrupts(interrupts);
+    recursive.acquire(Spinlock::allow_recursion);
+    recursive.acquire(Spinlock::allow_recursion);
+    recursive.acquire(Spinlock::allow_recursion);
+    const bool nested =
+        recursive.acquired() && !Processor::getInterrupts() && recursive.interrupts() == interrupts;
+    recursive.release();
+    const bool innerHeld =
+        recursive.acquired() && !Processor::getInterrupts() && recursive.interrupts() == interrupts;
+    recursive.release();
+    const bool outerHeld =
+        recursive.acquired() && !Processor::getInterrupts() && recursive.interrupts() == interrupts;
+    recursive.release();
+    const bool restored = !recursive.acquired() && Processor::getInterrupts() == interrupts;
+    Processor::setInterrupts(originalInterrupts);
+    passed &= check(nested && innerHeld && outerHeld && restored,
+                    "recursive nesting lost the outer ownership or interrupt state", Test);
+  }
+
+  Processor::setInterrupts(true);
+  lock.acquire();
+  const bool savedInterrupts = lock.interrupts();
+  lock.exit();
+  const bool exitedMasked = !lock.acquired() && !Processor::getInterrupts();
+  lock.acquire();
+  const bool reacquiredMasked = lock.acquired() && !lock.interrupts();
+  lock.release();
+  const bool releasedMasked = !lock.acquired() && !Processor::getInterrupts();
+  Processor::setInterrupts(originalInterrupts);
+  passed &=
+      check(savedInterrupts && exitedMasked && reacquiredMasked && releasedMasked,
+            "exit restored interrupts or retained stale state for the next acquisition", Test);
+
+  // A constructed-locked lock has no acquisition for the tracker to retire.
+  Spinlock initiallyLocked(true, true);
+  Processor::setInterrupts(false);
+  const bool constructedLocked = initiallyLocked.acquired() && !initiallyLocked.interrupts();
+  initiallyLocked.release();
+  const bool initialRelease = !initiallyLocked.acquired() && !Processor::getInterrupts();
+  initiallyLocked.acquire();
+  const bool reacquired = initiallyLocked.acquired() && !initiallyLocked.interrupts();
+  initiallyLocked.release();
+  const bool finalRelease = !initiallyLocked.acquired() && !Processor::getInterrupts();
+  Processor::setInterrupts(originalInterrupts);
+  passed &= check(constructedLocked && initialRelease && reacquired && finalRelease,
+                  "an initially locked lock could not be released and acquired again", Test);
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS spinlock-interrupt-state");
+  }
+  return passed;
+}
+
 bool runHostedMutexRegressions() {
   Mutex mutex;
   ConditionVariable condition;
@@ -267,20 +396,6 @@ bool runHostedMutexRegressions() {
   g_TransitionInterruptFailures = 0;
 
   const bool initialInterruptState = Processor::getInterrupts();
-  {
-    Spinlock recursiveLock(false, true);
-    recursiveLock.acquire(Spinlock::allow_recursion);
-    const bool outerDisabled = !Processor::getInterrupts();
-    recursiveLock.acquire(Spinlock::allow_recursion);
-    const bool nestedDisabled = !Processor::getInterrupts();
-    recursiveLock.release();
-    const bool innerReleaseKeptDisabled = !Processor::getInterrupts();
-    recursiveLock.release();
-    passed &=
-        check(initialInterruptState && outerDisabled && nestedDisabled &&
-                  innerReleaseKeptDisabled && Processor::getInterrupts() == initialInterruptState,
-              "recursive spinlock acquisition lost the outer interrupt state");
-  }
 
   Semaphore::setMutexTransitionHook(mutexTransitionHook);
   passed &= check(mutex.acquire(), "the supervisor could not acquire the mutex");
@@ -366,6 +481,7 @@ bool runHostedMutexRegressions() {
   passed &= check(Processor::getInterrupts() == initialInterruptState,
                   "thread join or mutex teardown lost the caller interrupt state");
 
+  passed &= mutexCompletionPreservesInterruption();
   passed &= mutexGuardTerminalCompletion();
 
   if (passed) {

@@ -135,6 +135,8 @@ class EXPORTED_PUBLIC RawUserMemory {
   MemoryLockStatus prepareLocks(uintptr_t base, size_t length, MemoryLockMode mode,
                                 UniquePointer<PreparedMemoryLock>& result);
   MemoryLockStatus prepareAllLocks(MemoryLockMode mode, UniquePointer<PreparedMemoryLock>& result);
+  /** Keep the user-memory operation gate through commit. Success with no raw
+   * overlap clears result and needs no commit; failures leave result unchanged. */
   MemoryLockStatus prepareReplacement(uintptr_t base, size_t length,
                                       UniquePointer<PreparedMemoryLock>& result);
   MemoryLockStatus cloneInto(RawUserMemory& target);

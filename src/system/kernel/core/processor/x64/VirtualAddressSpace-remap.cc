@@ -46,10 +46,8 @@ class X64PreparedPageRemap final : public VirtualAddressSpace::PreparedPageRemap
         m_Detached(),
         m_AllowedVictim(),
         m_Spares(),
-        m_RetiredTables(),
         m_SpareCount(0),
         m_UsedSpares(0),
-        m_RetiredCount(0),
         m_Committed(false) {}
 
   ~X64PreparedPageRemap() override {
@@ -99,18 +97,6 @@ class X64PreparedPageRemap final : public VirtualAddressSpace::PreparedPageRemap
     m_Request.victims = nullptr;
     m_Request.victimCount = 0;
     const size_t spares = m_Moved ? tableCapacity(m_Request.destination, m_Preserved) : 0;
-    const size_t retireCapacity =
-        tableCapacity(m_Request.source, m_Request.oldLength) +
-        (m_Moved ? tableCapacity(m_Request.destination, m_Request.newLength) : 0);
-    if (retireCapacity) {
-      if (!permitAllocation(remaining)) {
-        return Status::NoMemory;
-      }
-      m_RetiredTables = UniqueArray<physical_uintptr_t>::allocate(retireCapacity);
-      if (!m_RetiredTables) {
-        return Status::NoMemory;
-      }
-    }
     if (spares) {
       if (!permitAllocation(remaining)) {
         return Status::NoMemory;
@@ -186,10 +172,6 @@ class X64PreparedPageRemap final : public VirtualAddressSpace::PreparedPageRemap
           __atomic_store_n(destination, value, __ATOMIC_RELEASE);
         }
       }
-      retireEmptyTables(m_Request.source, m_Request.oldLength);
-      if (m_Moved) {
-        retireEmptyTables(m_Request.destination, m_Request.newLength);
-      }
       for (size_t offset = 0; offset < m_Request.oldLength; offset += PageSize) {
         if (!m_Space.invalidateMapping(reinterpret_cast<void*>(m_Request.source + offset),
                                        mutation)) {
@@ -207,10 +189,6 @@ class X64PreparedPageRemap final : public VirtualAddressSpace::PreparedPageRemap
       }
       m_Committed = true;
     }
-    for (size_t i = 0; i < m_RetiredCount; ++i) {
-      PhysicalMemoryManager::instance().freePage(m_RetiredTables.get()[i]);
-    }
-    m_RetiredCount = 0;
     Thread* thread = Processor::information().getCurrentThread();
     if (thread && thread->getParent()) {
       Process* process = thread->getParent();
@@ -278,26 +256,14 @@ class X64PreparedPageRemap final : public VirtualAddressSpace::PreparedPageRemap
     return TABLE_ENTRY(table, (address >> 12) & 511);
   }
 
-  void retireEmptyTables(uintptr_t base, size_t length) {
-    const uintptr_t end = base + length;
-    while (base < end) {
-      physical_uintptr_t tables[3];
-      const size_t count = m_Space.detachEmptyTables(reinterpret_cast<void*>(base), tables);
-      for (size_t i = 0; i < count; ++i) {
-        m_RetiredTables.get()[m_RetiredCount++] = tables[i];
-      }
-      base = (base | ((uintptr_t{1} << 21) - 1)) + 1;
-    }
-  }
-
   X64VirtualAddressSpace& m_Space;
   Request m_Request;
   bool m_Moved;
   size_t m_Preserved;
   UniqueArray<Detached> m_Detached;
   UniqueArray<unsigned char> m_AllowedVictim;
-  UniqueArray<physical_uintptr_t> m_Spares, m_RetiredTables;
-  size_t m_SpareCount, m_UsedSpares, m_RetiredCount;
+  UniqueArray<physical_uintptr_t> m_Spares;
+  size_t m_SpareCount, m_UsedSpares;
   bool m_Committed;
 };
 

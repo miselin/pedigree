@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
@@ -45,6 +46,9 @@
 #if HOSTED
 #include "pedigree/kernel/processor/hosted/Processor.h"
 #endif
+#if PEDIGREE_HOSTED_FUNCTION_PROFILE
+#include "pedigree/kernel/processor/hosted/FunctionProfile.h"
+#endif
 
 #define VERBOSE_SCHEDULER 0
 
@@ -71,7 +75,10 @@ PerProcessorScheduler::PerProcessorScheduler()
       m_DeferredThreadReapPublicationState(DeferredReapPublicationClosed),
       m_StopTimeAccountingWorker(0),
       m_TimeAccountingWorker(),
+      m_TimeAccountingWorkerWaiters(),
+      m_TimeAccountingWorkerWake(),
       m_IrqWorkDoorbell(0),
+      m_IrqWorkLock(),
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       m_nDeferredThreadReapCompletions(0),
 #endif
@@ -104,9 +111,7 @@ void PerProcessorScheduler::startTimeAccountingWorker(Process* pParent) {
   m_StopTimeAccountingWorker = 0;
   Thread* worker = new Thread(pParent, timeAccountingWorkerEntry, this, nullptr, false, true, true);
   worker->setName("deferred process time accounting");
-  if (!worker->setSchedulerReadyPredicate(timeAccountingWorkerReady, this)) {
-    FATAL("Time accounting worker could not install its ready predicate.");
-  }
+  registerWorkerWake(m_TimeAccountingWorkerWake, m_TimeAccountingWorkerWaiters);
   m_TimeAccountingWorker.adopt(worker);
   if (!worker->start()) {
     FATAL("Time accounting worker could not be started.");
@@ -139,9 +144,10 @@ void PerProcessorScheduler::stopTimeAccountingWorker() {
   }
 
   m_StopTimeAccountingWorker = 1;
-  ringIrqWorkDoorbell();
+  ringIrqWorkDoorbell(m_TimeAccountingWorkerWake);
   serviceIrqWorkDoorbell();
   m_TimeAccountingWorker.join();
+  unregisterWorkerWake(m_TimeAccountingWorkerWake);
   if (m_nDeferredThreadReaps.value() || m_AffinityRequests.value()) {
     FATAL("Deferred Thread reap worker stopped with pending targets.");
   }
@@ -151,32 +157,38 @@ int PerProcessorScheduler::timeAccountingWorkerEntry(void* instance) {
   return reinterpret_cast<PerProcessorScheduler*>(instance)->runTimeAccountingWorker();
 }
 
-bool PerProcessorScheduler::timeAccountingWorkerReady(void* instance) {
-  PerProcessorScheduler* scheduler = reinterpret_cast<PerProcessorScheduler*>(instance);
-  return scheduler->m_TimeAccountingState.ready(scheduler->m_StopTimeAccountingWorker.value() !=
-                                                0) ||
-         scheduler->m_nDeferredThreadReaps.value() || scheduler->m_AffinityRequests.value();
-}
-
 int PerProcessorScheduler::runTimeAccountingWorker() {
   TerminationDeferral workerLifetime;
   while (true) {
+    const bool stopping = m_StopTimeAccountingWorker.value() != 0;
+    const bool pending = m_TimeAccountingState.ready() || m_nDeferredThreadReaps.value() ||
+                         m_AffinityRequests.value();
+    if (stopping && m_TimeAccountingState.caughtUp() && !m_nDeferredThreadReaps.value() &&
+        !m_AffinityRequests.value()) {
+      break;
+    }
+    if (!pending) {
+      auto guard = m_TimeAccountingWorkerWaiters.acquire();
+      const bool stillPending = m_TimeAccountingState.ready() || m_nDeferredThreadReaps.value() ||
+                                m_AffinityRequests.value() || m_StopTimeAccountingWorker.value();
+      if (!stillPending) {
+        const WaitQueue::WakeReason reason =
+            guard.wait(WaitQueue::Channel(), Thread::CondWait, reinterpret_cast<uintptr_t>(this));
+        (void)reason;
+      }
+      continue;
+    }
+
     const size_t target = m_TimeAccountingState.beginBatch();
     Scheduler::instance().drainDeferredTimeAccounting();
     Scheduler::instance().sampleLoadAverage();
     drainDeferredThreadReaps();
     drainAffinityRequests();
     // Sampling can be preempted while owning its global mutex. Keep this
-    // worker eligible until every operation in the batch has retired.
+    // worker accounted until every operation in the batch has retired.
     m_TimeAccountingState.finishBatch(target);
 
-    if (m_StopTimeAccountingWorker.value() && m_TimeAccountingState.caughtUp() &&
-        !m_nDeferredThreadReaps.value() && !m_AffinityRequests.value()) {
-      break;
-    }
-
-    // A newly published generation keeps the predicate true. Otherwise
-    // give ordinary peers a scheduling turn until another IRQ rings us.
+    // Give ordinary peers a scheduling turn before draining another batch.
     Scheduler::instance().yield();
   }
 
@@ -195,11 +207,11 @@ void PerProcessorScheduler::publishDeferredThreadReap(Thread* thread) {
     FATAL_NOLOCK("Deferred Thread reap node has invalid ownership.");
   }
 
-  // Make the worker eligible before the node is consumable. A transient pop
-  // simply leaves the nonzero count visible for its next scheduling turn.
+  // Make the worker wake edge visible before the node is consumable. A
+  // transient pop simply leaves the nonzero count visible for its next turn.
   m_nDeferredThreadReaps += 1;
   m_DeferredThreadReaps.push(node);
-  ringIrqWorkDoorbell();
+  ringIrqWorkDoorbell(m_TimeAccountingWorkerWake);
   m_DeferredThreadReapPublicationState -= 1;
 }
 
@@ -450,7 +462,11 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEve
 
 void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus,
                                                        bool dispatchEvents, bool bWasInterrupts) {
+#if PEDIGREE_HOSTED_FUNCTION_PROFILE
+  hostedFunctionProfileInvalidate(HostedProfileInvalidation::Schedule);
+#endif
   assert(!Processor::getInterrupts());
+  ActivityDiagnostics::recordScheduleCall();
 
   Thread* pCurrentThread = Processor::information().getCurrentThread();
   if (!pCurrentThread) {
@@ -494,31 +510,39 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
   // This will also get the lock for the returned thread.
   Thread* pNextThread = selectNext(pCurrentThread);
   if (pNextThread == 0) {
-    // No other thread in the scheduler - take a round trip through the
-    // idle thread before we schedule back to the yielding thread.
-    // In most cases a thread is yielding either because it needs to
-    // sleep to wait for something or because it has no work currently,
-    // so simply switching back to it makes no sense (and causes us to
-    // spin tightly rather than halting for an interrupt or other event)
-    if (m_pIdleThread == 0) {
+    ActivityDiagnostics::recordSchedulerIdleFallback(
+        pCurrentThread->m_Status == Thread::Ready,
+        __atomic_load_n(&pCurrentThread->m_ReadyPublicationPending, __ATOMIC_ACQUIRE));
+    // A tick or yield does not make a runnable thread idle. Workers which have
+    // no work park themselves on their WaitQueue before reaching this path.
+    if (nextStatus == Thread::Ready && pCurrentThread != m_pIdleThread &&
+        !pCurrentThread->m_ReadyPublicationPending) {
+      pNextThread = pCurrentThread;
+    } else if (m_pIdleThread == 0) {
       // The scheduler is still bootstrapping, so spinning is the only
       // available fallback.
       pCurrentThread->getLock().release();
       Processor::setInterrupts(bWasInterrupts);
       return;
     } else {
+      // Another CPU may publish ready work after selectNext releases the
+      // queue lock. It remains queued for the next scheduling interrupt.
       pNextThread = m_pIdleThread;
       if (pNextThread != pCurrentThread)
         pNextThread->getLock().acquire();
     }
   }
 
-  // The idle fallback can select an already-running idle thread. Saving and
-  // restoring the same hosted context does not yield and can strand the
-  // add-thread worker indefinitely, so treat that selection as a no-op.
+  // Saving and restoring the same hosted context does not yield and can
+  // strand the add-thread worker, so return directly when current stays on CPU.
   if (pNextThread == pCurrentThread) {
+    ActivityDiagnostics::recordSameThreadSelection();
+    const bool waitOwnsEventDispatch = pCurrentThread->hasActiveWaitUnlocked();
     pCurrentThread->getLock().release();
     Processor::setInterrupts(bWasInterrupts);
+    if (dispatchEvents && !waitOwnsEventDispatch) {
+      Processor::information().getScheduler().checkEventState(0);
+    }
     return;
   }
 
@@ -528,6 +552,9 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
 #endif
 
   // Now neither thread can be moved, we're safe to switch.
+  ActivityDiagnostics::recordContextSwitch();
+  if (pNextThread == m_pIdleThread)
+    ActivityDiagnostics::recordIdleSelection();
   if (pCurrentThread != m_pIdleThread)
     pCurrentThread->setStatusUnlocked(nextStatus);
   pNextThread->setStatusUnlocked(Thread::Running);
@@ -559,9 +586,8 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
   }
 
   EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH) {
-    pCurrentThread->getLock().unwind();
     Processor::switchState(bWasInterrupts, pCurrentThread->state(), pNextThread->state(),
-                           &pCurrentThread->getLock().m_Atom.m_Atom);
+                           pCurrentThread->getLock().deferredReleaseWord());
     const bool waitOwnsEventDispatch = pCurrentThread->hasActiveWaitUnlocked();
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     Processor::notifyHostedContextSwitchStage(
@@ -597,8 +623,7 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
 
     // Restore context, releasing the old thread's lock when we've switched
     // stacks.
-    pCurrentThread->getLock().unwind();
-    Processor::restoreState(pNextThread->state(), &pCurrentThread->getLock().m_Atom.m_Atom);
+    Processor::restoreState(pNextThread->state(), pCurrentThread->getLock().deferredReleaseWord());
     // Not reached.
   }
 }
@@ -950,11 +975,10 @@ void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc p
   // This thread is safe from being moved as its status is now "running".
   // It is worth noting that we can't just call exit() here, as the lock is
   // not necessarily actually taken.
-  if (pThread->getLock().m_bInterrupts)
+  if (pThread->getLock().interrupts())
     bWasInterrupts = true;
   bool bWas = pThread->getLock().acquired();
-  pThread->getLock().unwind();
-  pThread->getLock().m_Atom = true;
+  pThread->getLock().unlockForScheduler();
   EMIT_IF(TRACK_LOCKS) {
     // Satisfy the lock checker; we're releasing these out of order, so make
     // sure the checker sees them unlocked in order.
@@ -972,15 +996,14 @@ void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc p
   pThread->recordTime(bUsermode ? CpuTimeMode::User : CpuTimeMode::Kernel);
 
   EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH) {
-    pCurrentThread->getLock().unwind();
     if (bUsermode) {
       Processor::saveAndJumpUser(
-          bWasInterrupts, pCurrentThread->state(), &pCurrentThread->getLock().m_Atom.m_Atom,
+          bWasInterrupts, pCurrentThread->state(), pCurrentThread->getLock().deferredReleaseWord(),
           reinterpret_cast<uintptr_t>(pStartFunction), reinterpret_cast<uintptr_t>(pStack),
           reinterpret_cast<uintptr_t>(pParam));
     } else {
       Processor::saveAndJumpKernel(
-          bWasInterrupts, pCurrentThread->state(), &pCurrentThread->getLock().m_Atom.m_Atom,
+          bWasInterrupts, pCurrentThread->state(), pCurrentThread->getLock().deferredReleaseWord(),
           reinterpret_cast<uintptr_t>(pStartFunction), reinterpret_cast<uintptr_t>(pStack),
           reinterpret_cast<uintptr_t>(pParam));
     }
@@ -994,15 +1017,15 @@ void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc p
       return;
     }
 
-    pCurrentThread->getLock().unwind();
     if (bUsermode) {
-      Processor::jumpUser(&pCurrentThread->getLock().m_Atom.m_Atom,
+      Processor::jumpUser(pCurrentThread->getLock().deferredReleaseWord(),
                           reinterpret_cast<uintptr_t>(pStartFunction),
                           reinterpret_cast<uintptr_t>(pStack), reinterpret_cast<uintptr_t>(pParam));
     } else {
-      Processor::jumpKernel(
-          &pCurrentThread->getLock().m_Atom.m_Atom, reinterpret_cast<uintptr_t>(pStartFunction),
-          reinterpret_cast<uintptr_t>(pStack), reinterpret_cast<uintptr_t>(pParam));
+      Processor::jumpKernel(pCurrentThread->getLock().deferredReleaseWord(),
+                            reinterpret_cast<uintptr_t>(pStartFunction),
+                            reinterpret_cast<uintptr_t>(pStack),
+                            reinterpret_cast<uintptr_t>(pParam));
     }
   }
 }
@@ -1064,11 +1087,10 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
   // This thread is safe from being moved as its status is now "running".
   // It is worth noting that we can't just call exit() here, as the lock is
   // not necessarily actually taken.
-  if (pThread->getLock().m_bInterrupts)
+  if (pThread->getLock().interrupts())
     bWasInterrupts = true;
   bool bWas = pThread->getLock().acquired();
-  pThread->getLock().unwind();
-  pThread->getLock().m_Atom.m_Atom = 1;
+  pThread->getLock().unlockForScheduler();
   EMIT_IF(TRACK_LOCKS) {
     g_LocksCommand.lockReleased(&pCurrentThread->getLock());
     if (bWas) {
@@ -1100,10 +1122,9 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
   pThread->recordTime(CpuTimeMode::User);
 
   EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH) {
-    pCurrentThread->getLock().unwind();
     NOTICE("restoring (new) syscall state");
     Processor::switchState(bWasInterrupts, pCurrentThread->state(), newState,
-                           &pCurrentThread->getLock().m_Atom.m_Atom);
+                           pCurrentThread->getLock().deferredReleaseWord());
   }
   else {
     if (Processor::saveState(pCurrentThread->state())) {
@@ -1113,8 +1134,7 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
       return;
     }
 
-    pCurrentThread->getLock().unwind();
-    Processor::restoreState(newState, &pCurrentThread->getLock().m_Atom.m_Atom);
+    Processor::restoreState(newState, pCurrentThread->getLock().deferredReleaseWord());
   }
 }
 
@@ -1260,7 +1280,8 @@ void PerProcessorScheduler::finishCurrentThreadExit(Spinlock* pLock, bool transf
 
   // Pass in the lock atom we were given if possible, as the caller wants an
   // atomic release (i.e. once the thread is no longer able to be scheduled).
-  deleteThreadThenRestoreState(pThread, pNextThread->state(), pLock ? &pLock->m_Atom.m_Atom : 0);
+  deleteThreadThenRestoreState(pThread, pNextThread->state(),
+                               pLock ? pLock->deferredReleaseWord() : 0);
 }
 
 void PerProcessorScheduler::deleteThread(Thread* pThread) {
@@ -1289,8 +1310,7 @@ void PerProcessorScheduler::deleteThread(Thread* pThread) {
   // a joiner or detach owner can treat reapable as a true final-use boundary.
   // No Process lock is held here, so waking another same-core thread cannot
   // resume it into a conflicting terminal operation under that lock.
-  pThread->getLock().unwind();
-  pThread->getLock().m_Atom.m_Atom = 1;
+  pThread->getLock().unlockForScheduler();
 
   bool deleteTarget = false;
   bool completesProcessExit = false;
@@ -1373,54 +1393,125 @@ Thread* PerProcessorScheduler::selectNext(Thread* current) {
 void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
   (void)delta;
   (void)state;
-  // Hard IRQ publication only changes an atomic work predicate. Consume the
-  // reschedule request at the scheduler interrupt, where a context switch is
-  // already required and no arbitrary device IRQ frame is suspended.
-  m_IrqWorkDoorbell.compareAndSwap(1, 0);
+  if constexpr (PEDIGREE_TIME_ACCOUNTING && PEDIGREE_SAMPLED_TIME_ACCOUNTING) {
+    Thread* current = Processor::information().getCurrentThread();
+    if (current && current != m_pIdleThread && delta) {
+      current->accountTimerTick(delta, state.kernelMode());
+    }
+  }
+  ActivityDiagnostics::recordSchedulerTimer();
+  Scheduler::instance().requestLoadAverageSample();
+  // Device IRQs only publish atomic wake edges. The scheduler interrupt is a
+  // safe boundary to turn those edges into ordinary Sleeping -> Ready
+  // transitions before selecting the next thread.
+  if (m_IrqWorkDoorbell.compareAndSwap(1, 0)) {
+    serviceWorkerWakeups();
+  }
   // A scheduler tick may switch stacks, but it remains a hard interrupt
   // until this callback returns. Kernel Events can unwind into arbitrary
   // subsystem teardown, so leave their delivery to an ordinary syscall or
   // WaitQueue boundary.
-  schedule(Thread::Ready, false);
+  if (++m_SchedulerTickCounter >= PEDIGREE_SCHEDULER_TICK_DIVISOR) {
+    m_SchedulerTickCounter = 0;
+    schedule(Thread::Ready, false);
+  }
 }
 
 void PerProcessorScheduler::threadStatusChanged(Thread* pThread) {
   bool wakeWorker = false;
-  // Only Created threads can be parked in the add-worker predicate. Avoid
-  // taking a sleeping mutex from ordinary scheduling and interrupt paths.
-  if (pThread->getStatus() == Thread::Created) {
-    m_NewThreadDataLock.acquire();
-    for (List<void*>::Iterator it = m_DelayedNewThreadData.begin();
-         it != m_DelayedNewThreadData.end();) {
-      newThreadData* pData = reinterpret_cast<newThreadData*>(*it);
-      if (pData->pThread == pThread) {
-        void* p = *it;
-        it = m_DelayedNewThreadData.erase(it);
-        m_NewThreadData.pushBack(p);
-        wakeWorker = true;
-      } else {
-        ++it;
+  {
+    // The add worker holds the thread lock while moving a not-yet-started
+    // record to the delayed list. Take that lock before checking Created so a
+    // start notification cannot inspect the list between the worker's dequeue
+    // and its delayed-list publication.
+    LockGuard<Spinlock> guard(pThread->m_Lock);
+    if (pThread->m_Status == Thread::Created) {
+      m_NewThreadDataLock.acquire();
+      for (List<void*>::Iterator it = m_DelayedNewThreadData.begin();
+           it != m_DelayedNewThreadData.end();) {
+        newThreadData* pData = reinterpret_cast<newThreadData*>(*it);
+        if (pData->pThread == pThread) {
+          void* p = *it;
+          it = m_DelayedNewThreadData.erase(it);
+          m_NewThreadData.pushBack(p);
+          wakeWorker = true;
+        } else {
+          ++it;
+        }
       }
+      m_NewThreadDataLock.release();
     }
-    m_NewThreadDataLock.release();
+
+    PerProcessorScheduler* owner = pThread->getScheduler();
+    assert(owner);
+    owner->m_pSchedulingAlgorithm->threadStatusChanged(pThread);
   }
 
   if (wakeWorker) {
     m_NewThreadDataCondition.signal();
   }
-  LockGuard<Spinlock> guard(pThread->m_Lock);
-  PerProcessorScheduler* owner = pThread->getScheduler();
-  assert(owner);
-  owner->m_pSchedulingAlgorithm->threadStatusChanged(pThread);
 }
 
 void PerProcessorScheduler::ringIrqWorkDoorbell() {
   m_IrqWorkDoorbell = 1;
 }
 
+void PerProcessorScheduler::registerWorkerWake(SchedulerWorkerWake& worker, WaitQueue& waiters) {
+  LockGuard<Spinlock> guard(m_IrqWorkLock);
+  if (worker.m_pWaiters || worker.m_pNext) {
+    FATAL("Scheduler worker wake was registered twice.");
+  }
+  worker.m_Pending = 0;
+  worker.m_pWaiters = &waiters;
+  worker.m_pNext = m_pWorkerWakeHead;
+  m_pWorkerWakeHead = &worker;
+}
+
+void PerProcessorScheduler::unregisterWorkerWake(SchedulerWorkerWake& worker) {
+  LockGuard<Spinlock> guard(m_IrqWorkLock);
+  SchedulerWorkerWake** link = &m_pWorkerWakeHead;
+  while (*link && *link != &worker) {
+    link = &(*link)->m_pNext;
+  }
+  if (!*link) {
+    FATAL("Scheduler worker wake was not registered.");
+  }
+  *link = worker.m_pNext;
+  worker.m_pNext = nullptr;
+  worker.m_pWaiters = nullptr;
+  worker.m_Pending = 0;
+}
+
+void PerProcessorScheduler::ringIrqWorkDoorbell(SchedulerWorkerWake& worker) {
+  worker.m_Pending = 1;
+  ringIrqWorkDoorbell();
+}
+
+void PerProcessorScheduler::serviceWorkerWakeups() {
+  LockGuard<Spinlock> guard(m_IrqWorkLock);
+  bool retry = false;
+  for (SchedulerWorkerWake* worker = m_pWorkerWakeHead; worker; worker = worker->m_pNext) {
+    if (!worker->m_Pending.value() || !worker->m_pWaiters) {
+      continue;
+    }
+
+    if (worker->m_pWaiters->wakeOne()) {
+      worker->m_Pending.compareAndSwap(1, 0);
+    } else {
+      // A producer may publish between the worker's empty check and its
+      // WaitQueue enrollment. Keep the edge armed so the next scheduler
+      // boundary retries after the waiter is visible.
+      retry = true;
+    }
+  }
+  if (retry) {
+    m_IrqWorkDoorbell = 1;
+  }
+}
+
 void PerProcessorScheduler::publishDeferredTimeAccounting() {
   m_TimeAccountingState.publish();
-  ringIrqWorkDoorbell();
+  ringIrqWorkDoorbell(m_TimeAccountingWorkerWake);
 }
 
 void PerProcessorScheduler::serviceIrqWorkDoorbell() {
@@ -1429,9 +1520,9 @@ void PerProcessorScheduler::serviceIrqWorkDoorbell() {
   }
 
   // One bounded claim is enough: a racing ring remains set for the next
-  // scheduler tick, while the predicate-backed worker stays scheduler-
-  // visible in the meantime.
+  // scheduler tick.
   if (m_IrqWorkDoorbell.compareAndSwap(1, 0)) {
+    serviceWorkerWakeups();
     schedule();
   }
 }
@@ -1516,72 +1607,167 @@ bool PerProcessorScheduler::serviceProcessStopAtUserReturn(ProcessStopGateMode m
 }
 
 bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state,
-                                                  UserReturnFrame::Origin origin) {
+                                                  UserReturnFrame::Origin origin,
+                                                  bool diagnosticSample) {
+  const uint64_t workStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  auto finishWork = [diagnosticSample, workStart](bool terminal) {
+    if (diagnosticSample) {
+      ActivityDiagnostics::recordUserReturnStage(
+          ActivityDiagnostics::UserReturnStage::InterruptWork,
+          ActivityDiagnostics::timestamp() - workStart);
+    }
+    return terminal;
+  };
   Thread* owner = Processor::information().getCurrentThread();
   if (!owner)
-    return false;
+    return finishWork(false);
 #if X64 && !HOSTED
   {
     EnsureInterrupts interrupts(false);
     state.setFlags(state.getFlags() | 0x202);
   }
 #endif
+#if PEDIGREE_FAST_USER_RETURN
+  if ((origin == UserReturnFrame::Origin::Syscall || origin == UserReturnFrame::Origin::Interrupt) &&
+      owner->canSkipUserReturnWork()) {
+    return finishWork(false);
+  }
+#endif
   UserReturnFrame frame(*owner, state, origin);
   Thread::UserReturnFrameScope frameScope(*owner, frame);
+
   Subsystem* subsystem = owner->getParent() ? owner->getParent()->getSubsystem() : nullptr;
-  if (subsystem &&
-      subsystem->userReturnCheckpoint(*owner, frame) == Subsystem::UserReturnResult::Terminal)
-    return true;
+  if (subsystem) {
+    const uint64_t checkpointStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+    const bool terminal =
+        subsystem->userReturnCheckpoint(*owner, frame) == Subsystem::UserReturnResult::Terminal;
+    if (diagnosticSample) {
+      ActivityDiagnostics::recordUserReturnStage(
+          ActivityDiagnostics::UserReturnStage::Checkpoint,
+          ActivityDiagnostics::timestamp() - checkpointStart);
+    }
+    if (terminal)
+      return finishWork(true);
+  }
 
   // Terminal requests and process stops win over later work. The architecture
   // caller owns the final commit after its return-tail scopes and accounting
   // have retired.
-  if (Processor::information().getScheduler().serviceProcessStopAtUserReturn()) {
-    return true;
+  uint64_t stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  bool terminal = Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
+                                               ActivityDiagnostics::timestamp() - stageStart);
   }
-  Processor::information().getScheduler().serviceDeferredSubsystemException(state);
+  if (terminal)
+    return finishWork(true);
+
+  Processor::information().getScheduler().serviceDeferredSubsystemException(state,
+                                                                            diagnosticSample);
   Thread* current = Processor::information().getCurrentThread();
   if (current && !current->isTerminationDeferred() &&
       current->getUnwindState() != Thread::Continue) {
-    return true;
+    return finishWork(true);
   }
-  if (Processor::information().getScheduler().serviceProcessStopAtUserReturn()) {
-    return true;
+
+  stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  terminal = Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
+                                               ActivityDiagnostics::timestamp() - stageStart);
   }
+  if (terminal)
+    return finishWork(true);
+
+  stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
   Processor::information().getScheduler().checkEventState(
       state.getStackPointer(), Thread::EventSelection::AnyDeliverable, &state, nullptr);
-  return frame.m_Terminal ||
-         Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::Event,
+                                               ActivityDiagnostics::timestamp() - stageStart);
+  }
+
+  stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  terminal =
+      frame.m_Terminal || Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
+                                               ActivityDiagnostics::timestamp() - stageStart);
+  }
+  if (!terminal)
+    owner->clearUserReturnWorkIfIdle();
+  return finishWork(terminal);
 }
 
 bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
-                                                  UserReturnFrame::Origin origin) {
+                                                  UserReturnFrame::Origin origin,
+                                                  bool diagnosticSample) {
+  const uint64_t workStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  auto finishWork = [diagnosticSample, workStart](bool terminal) {
+    if (diagnosticSample) {
+      ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::SyscallWork,
+                                                 ActivityDiagnostics::timestamp() - workStart);
+    }
+    return terminal;
+  };
   Thread* owner = Processor::information().getCurrentThread();
   if (!owner)
-    return false;
+    return finishWork(false);
 #if X64 && !HOSTED
   {
     EnsureInterrupts interrupts(false);
     state.setFlags(state.getFlags() | 0x202);
   }
 #endif
+#if PEDIGREE_FAST_USER_RETURN
+  if (origin == UserReturnFrame::Origin::Syscall && owner->canSkipUserReturnWork())
+    return finishWork(false);
+#endif
+
   UserReturnFrame frame(*owner, state, origin);
   Thread::UserReturnFrameScope frameScope(*owner, frame);
   Subsystem* subsystem = owner->getParent() ? owner->getParent()->getSubsystem() : nullptr;
-  if (subsystem &&
-      subsystem->userReturnCheckpoint(*owner, frame) == Subsystem::UserReturnResult::Terminal)
-    return true;
-
-  if (Processor::information().getScheduler().serviceProcessStopAtUserReturn()) {
-    return true;
+  if (subsystem) {
+    const uint64_t checkpointStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+    const bool terminal =
+        subsystem->userReturnCheckpoint(*owner, frame) == Subsystem::UserReturnResult::Terminal;
+    if (diagnosticSample) {
+      ActivityDiagnostics::recordUserReturnStage(
+          ActivityDiagnostics::UserReturnStage::Checkpoint,
+          ActivityDiagnostics::timestamp() - checkpointStart);
+    }
+    if (terminal)
+      return finishWork(true);
   }
+  uint64_t stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  bool terminal = Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
+                                               ActivityDiagnostics::timestamp() - stageStart);
+  }
+  if (terminal)
+    return finishWork(true);
+  stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
   Processor::information().getScheduler().checkEventState(
       state.getStackPointer(), Thread::EventSelection::AnyDeliverable, nullptr, &state);
-  return frame.m_Terminal ||
-         Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::Event,
+                                               ActivityDiagnostics::timestamp() - stageStart);
+  }
+  stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+  terminal =
+      frame.m_Terminal || Processor::information().getScheduler().serviceProcessStopAtUserReturn();
+  if (diagnosticSample) {
+    ActivityDiagnostics::recordUserReturnStage(ActivityDiagnostics::UserReturnStage::ProcessStop,
+                                               ActivityDiagnostics::timestamp() - stageStart);
+  }
+  if (!terminal)
+    owner->clearUserReturnWorkIfIdle();
+  return finishWork(terminal);
 }
 
-void PerProcessorScheduler::serviceDeferredSubsystemException(InterruptState& state) {
+void PerProcessorScheduler::serviceDeferredSubsystemException(InterruptState& state,
+                                                              bool diagnosticSample) {
   Thread* thread = Processor::information().getCurrentThread();
   if (!thread) {
     return;
@@ -1603,9 +1789,18 @@ void PerProcessorScheduler::serviceDeferredSubsystemException(InterruptState& st
   // Disk-backed faults can only wait once the raw interrupt and accounting
   // scopes are gone. An unsuccessful retry retains ordinary signal delivery.
   if (rawType == static_cast<size_t>(Subsystem::PageFault) && !state.kernelMode() &&
-      Processor::getInterrupts() &&
-      subsystem->resolveUserPageFault(*thread, state, faultAddress, errorCode))
-    return;
+      Processor::getInterrupts()) {
+    const uint64_t faultStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
+    const bool handled = subsystem->resolveUserPageFault(*thread, state, faultAddress, errorCode);
+    if (diagnosticSample) {
+      ActivityDiagnostics::recordUserReturnStage(
+          ActivityDiagnostics::UserReturnStage::DeferredFault,
+          ActivityDiagnostics::timestamp() - faultStart);
+      ActivityDiagnostics::recordUserReturnFaultOutcome(handled);
+    }
+    if (handled)
+      return;
+  }
 
   subsystem->threadException(thread, static_cast<Subsystem::ExceptionType>(rawType), &state,
                              faultAddress, errorCode);
@@ -1635,6 +1830,26 @@ void PerProcessorScheduler::commitUserReturnTerminalState() {
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 namespace {
+struct HostedRunnableCurrentContext {
+  HostedRunnableCurrentContext(Thread* current, Thread* idleOwner)
+      : driver(current), idle(idleOwner), idleWhileRunnable(0) {}
+
+  Thread* driver;
+  Thread* idle;
+  Atomic<size_t> idleWhileRunnable;
+};
+
+HostedRunnableCurrentContext* g_HostedRunnableCurrentContext = nullptr;
+
+void observeHostedRunnableCurrent(ProcessorBase::HostedContextSwitchStage stage) {
+  auto* context = __atomic_load_n(&g_HostedRunnableCurrentContext, __ATOMIC_ACQUIRE);
+  if (context && stage == ProcessorBase::HostedContextSwitchStage::SwitchStateReturnedMasked &&
+      Processor::information().getCurrentThread() == context->idle &&
+      context->driver->getStatus() == Thread::Ready) {
+    context->idleWhileRunnable += 1;
+  }
+}
+
 struct HostedNewThreadContext {
   Atomic<size_t> calls;
   Atomic<size_t> cleanups;
@@ -1701,6 +1916,30 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
 
   Process* kernelProcess = Processor::information().getCurrentThread()->getParent();
   bool passed = true;
+
+  HostedRunnableCurrentContext runnableContext(Processor::information().getCurrentThread(),
+                                               m_pIdleThread);
+  if (!check(runnableContext.idle && runnableContext.idle != runnableContext.driver,
+             "runnable-current regression requires an ordinary thread and an idle owner")) {
+    return false;
+  }
+  __atomic_store_n(&g_HostedRunnableCurrentContext, &runnableContext, __ATOMIC_RELEASE);
+  Processor::setHostedContextSwitchHook(observeHostedRunnableCurrent);
+  for (size_t attempt = 0; attempt < 256; ++attempt) {
+    Scheduler::instance().yield();
+  }
+  Processor::setHostedContextSwitchHook(nullptr);
+  __atomic_store_n(&g_HostedRunnableCurrentContext,
+                   static_cast<HostedRunnableCurrentContext*>(nullptr), __ATOMIC_RELEASE);
+  const bool runnablePassed =
+      check(!runnableContext.idleWhileRunnable && Processor::getInterrupts() &&
+                Processor::information().getCurrentThread() == runnableContext.driver &&
+                runnableContext.driver->getStatus() == Thread::Running,
+            "scheduler entered idle while the yielding thread remained runnable");
+  passed &= runnablePassed;
+  if (runnablePassed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS scheduler-runnable-current-keeps-cpu");
+  }
 
   HostedNewThreadContext reapContext;
   const size_t reapBaseline = m_nDeferredThreadReapCompletions.value();

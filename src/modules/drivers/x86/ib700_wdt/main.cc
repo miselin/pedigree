@@ -25,6 +25,7 @@
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -67,6 +68,7 @@ class Ib700Watchdog : public Device, public TimerHandler {
  private:
   IoBase* m_pBase;
   Timer* m_pTimer;
+  uint64_t m_RefreshRemaining;
 };
 
 static Vector<Ib700Watchdog*> g_Watchdogs;
@@ -116,7 +118,11 @@ static void exit() {
 
 MODULE_INFO("ib700_wdt", &entry, &exit);
 
-Ib700Watchdog::Ib700Watchdog(Device* pDev) : Device(pDev), m_pBase(nullptr), m_pTimer(nullptr) {
+Ib700Watchdog::Ib700Watchdog(Device* pDev)
+    : Device(pDev),
+      m_pBase(nullptr),
+      m_pTimer(nullptr),
+      m_RefreshRemaining(Time::Multiplier::Second) {
   setSpecificType(String("watchdog-timer"));
 }
 
@@ -133,8 +139,8 @@ void Ib700Watchdog::shutdown() {
   }
 
   if (m_pBase) {
-    // Disable any existing timer.
-    m_pBase->write16(0, 2);
+    // Offset 2 arms the watchdog; only offset 0 disables it.
+    m_pBase->write8(0, 0);
     m_pBase = nullptr;
   }
 }
@@ -145,7 +151,7 @@ bool Ib700Watchdog::initialise() {
     return false;
 
   // Disable any existing timer.
-  m_pBase->write16(0, 0);
+  m_pBase->write8(0, 0);
 
   // Register ourselves with the core timer so we can continually
   // reset the watchdog timer as needed.
@@ -153,8 +159,9 @@ bool Ib700Watchdog::initialise() {
   if (t && t->registerHandler(this)) {
     m_pTimer = t;
 
-    // Enable our timer with a 10 second timeout.
-    m_pBase->write16(Seconds10, 2);
+    // A word write also touches the next byte port and rearms QEMU's IB700
+    // with the high byte, replacing the intended 10-second timeout.
+    m_pBase->write8(Seconds10, 2);
 
     return true;
   }
@@ -167,7 +174,12 @@ void Ib700Watchdog::getName(String& str) {
 }
 
 void Ib700Watchdog::timer(uint64_t delta) {
-  // Timer fired, push the watchdog back now (watchdog expects to be
-  // polled by the system regularly).
-  m_pBase->write16(Seconds10, 2);
+  if (delta < m_RefreshRemaining) {
+    m_RefreshRemaining -= delta;
+    return;
+  }
+  // RTC callbacks are serialized by their IRQ worker. A delayed callback
+  // needs one refresh now, followed by a full interval until the next write.
+  m_RefreshRemaining = Time::Multiplier::Second;
+  m_pBase->write8(Seconds10, 2);
 }

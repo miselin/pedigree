@@ -19,6 +19,10 @@
 
 #ifndef _PROCESS_TIME_TRACKER_H
 #define _PROCESS_TIME_TRACKER_H
+#include "pedigree/kernel/compiler.h"
+
+#include <config.h>
+#include <stddef.h>
 
 class Process;
 class Thread;
@@ -31,8 +35,26 @@ class Thread;
  */
 class TimeTracker {
  public:
-  TimeTracker(Process* pProcess, bool fromUserspace);
-  virtual ~TimeTracker();
+  // Expose member initialization so stack auto-initialization does not fill
+  // the whole object before the constructor writes the same fields.
+  ALWAYS_INLINE TimeTracker(Process* pProcess, bool fromUserspace,
+                            bool entryInterruptsAlreadyDisabled = false,
+                            Thread* currentThread = nullptr)
+      : m_pProcess(pProcess),
+        m_pThread(currentThread),
+        m_bFromUserspace(fromUserspace)
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+        ,
+        m_bSyscallAttributed(false),
+        m_PreviousSyscallTimingSlot(~static_cast<size_t>(0))
+#endif
+  {
+    initialise(entryInterruptsAlreadyDisabled);
+  }
+  ALWAYS_INLINE ~TimeTracker() {
+    if (m_pProcess && m_pThread)
+      finish();
+  }
 
   /** Completes accounting before a no-return architectural transition. */
   void finish();
@@ -40,10 +62,37 @@ class TimeTracker {
   /** Completes accounting before restoring a saved kernel continuation. */
   void finishInKernel();
 
+  /** Retires the tracker while leaving the kernel interval for user return. */
+  ALWAYS_INLINE void finishForUserReturn() {
+    Thread* thread = m_pThread;
+    if (!m_pProcess || !thread)
+      return;
+
+    // The architecture tail owns the final accounting sample. Keep retirement
+    // visible here so destruction can omit a second completion attempt.
+    m_pProcess = nullptr;
+    m_pThread = nullptr;
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+    restoreSyscallTiming(thread);
+#endif
+  }
+
+  /** Attributes this userspace Linux syscall to the active Process. */
+  void attributeSyscall(size_t rawNumber);
+
  private:
+  void initialise(bool entryInterruptsAlreadyDisabled);
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  void restoreSyscallTiming(Thread* thread);
+#endif
+
   Process* m_pProcess;
   Thread* m_pThread;
   bool m_bFromUserspace;
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  bool m_bSyscallAttributed;
+  size_t m_PreviousSyscallTimingSlot;
+#endif
 };
 
 #endif

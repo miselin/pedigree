@@ -448,9 +448,8 @@ class EXPORTED_PUBLIC ProcessorBase {
 
   /**
    * Get this processor's dense topology index for per-CPU storage.
-   * Once processor discovery is complete, successful results are strictly
-   * less than getCount(). An unmatched hardware identity returns getCount()
-   * so callers cannot alias another processor's slot.
+   * The bootstrap processor owns slot zero before discovery; each additional
+   * processor receives its permanent slot before it enters C++.
    */
   static size_t index();
 
@@ -467,10 +466,23 @@ class EXPORTED_PUBLIC ProcessorBase {
   /** Set a new TLS area base address. */
   static void setTlsBase(uintptr_t newBase);
 
+#if X64 && !HOSTED
+  static uintptr_t getUserGsBase();
+  static void setUserGsBase(uintptr_t newBase);
+#endif
+
   /** How far has the processor-specific interface been initialised */
   static size_t m_Initialised;
 
  private:
+  static NEVER_INLINE __attribute__((cold)) bool rejectDeviceHardIrqOperation(
+      DeviceHardIrqOperation operation);
+
+#if X64
+  // Constant-initialized independently of the BSP information constructor.
+  static ProcessorInformation::KernelGsAnchor m_BootstrapKernelGsAnchor;
+#endif
+
   /** Escalate an admitted mutation to terminal failure. */
   MUST_USE_RESULT static bool closeTlbInvalidationAdmissionForTerminalFailure(
       TlbInvalidationGuard& guard, TlbInvalidationResult result);
@@ -497,6 +509,24 @@ class EXPORTED_PUBLIC ProcessorBase {
 
   static size_t m_nProcessors;
 };
+
+#if X86_COMMON && !HOSTED && !PEDIGREE_BUILDUTILS && defined(IN_PEDIGREE_KERNEL) && \
+    !STANDALONE_MUTEXES
+ALWAYS_INLINE inline void ProcessorBase::setInterrupts(bool bEnable) {
+  if (bEnable) {
+    // Consume the STI shadow before the caller's next instruction.
+    asm volatile("sti\n\tnop" : : : "memory", "cc");
+  } else {
+    asm volatile("cli" : : : "memory", "cc");
+  }
+}
+
+ALWAYS_INLINE inline bool ProcessorBase::getInterrupts() {
+  size_t flags;
+  asm volatile("pushf\n\tpop %0" : "=r"(flags) : : "memory", "cc");
+  return (flags & 0x200) != 0;
+}
+#endif
 
 inline TlbInvalidationGuard::~TlbInvalidationGuard() {
   retire();
@@ -525,6 +555,18 @@ typedef HostedProcessor Processor;
 #else
 #error No Processor type could be defined.
 #endif
+
+ALWAYS_INLINE inline bool ProcessorBase::inDeviceHardIrq() {
+  return information().m_DeviceHardIrqDepth != 0;
+}
+
+ALWAYS_INLINE inline bool ProcessorBase::guardDeviceHardIrqOperation(
+    DeviceHardIrqOperation operation) {
+  if (LIKELY(!inDeviceHardIrq())) {
+    return true;
+  }
+  return rejectDeviceHardIrqOperation(operation);
+}
 
 /**
  * EnsureInterrupts ensures interrupts are enabled or disabled in an RAII way.

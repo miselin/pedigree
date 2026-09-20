@@ -28,6 +28,7 @@
 #include "pedigree/kernel/process/FilesystemCredentials.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
+#include "pedigree/kernel/process/PerCpuTimeAccounting.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
@@ -259,6 +260,134 @@ class EXPORTED_PUBLIC Process {
     Terminated,  /// Terminal wait status is visible; the owner may still be on-stack.
     Reaped,      /// Reaped means the process has had a status retrieved.
   };
+
+#if PEDIGREE_BENCHMARK_SYSCALL_TRACE
+  void setBenchmarkSyscallTrace(bool enabled) {
+    __atomic_store_n(&m_BenchmarkSyscallTrace, enabled, __ATOMIC_RELEASE);
+  }
+
+  bool benchmarkSyscallTraceEnabled() const {
+    return __atomic_load_n(&m_BenchmarkSyscallTrace, __ATOMIC_ACQUIRE);
+  }
+#endif
+
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  static constexpr size_t SyscallTimingRawSlotCount = 512;
+  static constexpr size_t SyscallTimingOverflowSlot = SyscallTimingRawSlotCount;
+  static constexpr size_t SyscallTimingSlotCount = SyscallTimingRawSlotCount + 1;
+
+  struct SyscallTimingEntry {
+    uint64_t calls;
+    uint64_t kernelNanoseconds;
+  };
+
+  static size_t syscallTimingSlot(size_t rawNumber) {
+    return rawNumber < SyscallTimingRawSlotCount ? rawNumber : SyscallTimingOverflowSlot;
+  }
+
+  void setBenchmarkSyscallTiming(bool enabled) {
+    __atomic_store_n(&m_BenchmarkSyscallTiming, enabled, __ATOMIC_RELEASE);
+  }
+
+  bool benchmarkSyscallTimingEnabled() const {
+    return __atomic_load_n(&m_BenchmarkSyscallTiming, __ATOMIC_ACQUIRE);
+  }
+
+  void recordSyscallTimingCall(size_t slot) {
+    __atomic_fetch_add(&m_SyscallTimingCalls[slot], static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+  }
+
+  void recordSyscallTimingKernel(size_t slot, Time::Timestamp elapsed) {
+    __atomic_fetch_add(&m_SyscallTimingKernelNanoseconds[slot], elapsed, __ATOMIC_RELAXED);
+  }
+
+  void getSyscallTimingEntry(size_t slot, SyscallTimingEntry& result) const {
+    result.calls = __atomic_load_n(&m_SyscallTimingCalls[slot], __ATOMIC_ACQUIRE);
+    result.kernelNanoseconds =
+        __atomic_load_n(&m_SyscallTimingKernelNanoseconds[slot], __ATOMIC_ACQUIRE);
+  }
+#endif
+
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  enum BenchmarkVmCounter : size_t {
+    VmMmapCalls,
+    VmMmapAnonymousCalls,
+    VmMmapFileCalls,
+    VmMmapPages,
+    VmMmapLength1,
+    VmMmapLength2To3,
+    VmMmapLength4To15,
+    VmMmapLength16To63,
+    VmMmapLength64To255,
+    VmMmapLength256Plus,
+    VmPublishCalls,
+    VmPublishObjectCount,
+    VmPublishOverlapProbeVisits,
+    VmPublishOverlapHits,
+    VmPublishCommitRetries,
+    VmReservationSnapshots,
+    VmReservationExtents,
+    VmReservationScratchAllocations,
+    VmMunmapCalls,
+    VmMunmapPages,
+    VmMunmapLength1,
+    VmMunmapLength2To3,
+    VmMunmapLength4To15,
+    VmMunmapLength16To63,
+    VmMunmapLength64To255,
+    VmMunmapLength256Plus,
+    VmRemoveCalls,
+    VmRemoveObjectCount,
+    VmRemoveObjectVisits,
+    VmRemoveSliceCalls,
+    VmRemoveAffectedObjects,
+    VmAllowsCalls,
+    VmAllowsObjectCount,
+    VmAllowsObjectVisits,
+    VmFaultInRangeCalls,
+    VmFaultInRangePages,
+    VmFaultInObjectVisits,
+    VmFaultInPresent,
+    VmFaultInCopyOnWrite,
+    VmFaultInTrap,
+    VmFaultCalls,
+    VmFaultObjectCount,
+    VmFaultObjectVisits,
+    VmFaultResolved,
+    VmFaultBacking,
+    VmFaultUnhandled,
+    VmGuardEntries,
+    VmGuardRecursiveEntries,
+    VmDiscardTrackedPages,
+    VmDiscardMappedPages,
+    VmTableRetirementScans,
+    VmDetachPteEntries,
+    VmDetachPdeEntries,
+    VmDetachPdptEntries,
+    VmDetachTables,
+    VmInvalidationActive,
+    VmInvalidationInactive,
+    BenchmarkVmCounterCount,
+  };
+
+  void setBenchmarkVmDiagnostics(bool enabled) {
+    __atomic_store_n(&m_BenchmarkVmDiagnostics, enabled, __ATOMIC_RELEASE);
+  }
+
+  bool benchmarkVmDiagnosticsEnabled() const {
+    return __atomic_load_n(&m_BenchmarkVmDiagnostics, __ATOMIC_ACQUIRE);
+  }
+
+  void recordBenchmarkVmCounter(BenchmarkVmCounter counter, uint64_t amount = 1) {
+    if (benchmarkVmDiagnosticsEnabled() && amount) {
+      __atomic_fetch_add(&m_BenchmarkVmCounters[counter], amount, __ATOMIC_RELAXED);
+    }
+  }
+
+  uint64_t getBenchmarkVmCounter(size_t counter) const {
+    return __atomic_load_n(&m_BenchmarkVmCounters[counter], __ATOMIC_ACQUIRE);
+  }
+#endif
 
   /** Default constructor. */
   Process();
@@ -525,9 +654,8 @@ class EXPORTED_PUBLIC Process {
     return m_pSubsystem;
   }
 
-  /** Gets the type of the Process (subsystems may override) */
-  virtual ProcessType getType() {
-    return Stock;
+  ProcessType getType() const {
+    return m_Type;
   }
 
   /**
@@ -599,6 +727,13 @@ class EXPORTED_PUBLIC Process {
 
   /** Closes worker admission exactly as process teardown does. */
   void closeTimeAccountingForHostedTest();
+
+  bool timeAccountingPendingForHostedTest() const {
+    return m_DeferredTimeAccounting.pending();
+  }
+  size_t timeAccountingInterestForHostedTest() const {
+    return __atomic_load_n(&m_TimeAccountingReportInterest, __ATOMIC_ACQUIRE);
+  }
 #endif
 
   void trackHeap(ssize_t nBytes) {
@@ -620,10 +755,12 @@ class EXPORTED_PUBLIC Process {
 
   /** Gets timestamps. */
   Time::Timestamp getUserTime() const {
-    return __atomic_load_n(&m_Metadata.userTime, __ATOMIC_ACQUIRE);
+    return m_PerCpuTimeAccounting.total(CpuTimeMode::User) +
+           __atomic_load_n(&m_Metadata.userTime, __ATOMIC_ACQUIRE);
   }
   Time::Timestamp getKernelTime() const {
-    return __atomic_load_n(&m_Metadata.kernelTime, __ATOMIC_ACQUIRE);
+    return m_PerCpuTimeAccounting.total(CpuTimeMode::Kernel) +
+           __atomic_load_n(&m_Metadata.kernelTime, __ATOMIC_ACQUIRE);
   }
   Time::Timestamp getReapedChildrenUserTime() const {
     return __atomic_load_n(&m_Metadata.reapedChildrenUserTime, __ATOMIC_ACQUIRE);
@@ -631,6 +768,54 @@ class EXPORTED_PUBLIC Process {
   Time::Timestamp getReapedChildrenKernelTime() const {
     return __atomic_load_n(&m_Metadata.reapedChildrenKernelTime, __ATOMIC_ACQUIRE);
   }
+
+#if PEDIGREE_SYSCALL_COUNTER
+  static constexpr size_t SyscallLatencyBucketCount = 16;
+
+  struct SyscallLatencySnapshot {
+    uint64_t buckets[SyscallLatencyBucketCount];
+  };
+
+  /** Records one syscall handled by this process for benchmark diagnostics. */
+  void recordSyscall() {
+    __atomic_fetch_add(&m_Metadata.syscallCount, static_cast<uint64_t>(1), __ATOMIC_RELAXED);
+  }
+
+  /** Records a POSIX syscall dispatch latency in a coarse diagnostic bucket. */
+  void recordSyscallDuration(Time::Timestamp duration) {
+    size_t bucket = 0;
+    Time::Timestamp limit = Time::Multiplier::Microsecond;
+    while (bucket + 1 < SyscallLatencyBucketCount && duration >= limit) {
+      ++bucket;
+      limit <<= 1;
+    }
+    __atomic_fetch_add(&m_Metadata.syscallLatencyBuckets[bucket], static_cast<uint64_t>(1),
+                       __ATOMIC_RELAXED);
+  }
+
+  uint64_t getSyscallCount() const {
+    return __atomic_load_n(&m_Metadata.syscallCount, __ATOMIC_ACQUIRE);
+  }
+
+  uint64_t getReapedChildrenSyscallCount() const {
+    return __atomic_load_n(&m_Metadata.reapedChildrenSyscallCount, __ATOMIC_ACQUIRE);
+  }
+
+  void getSyscallLatencySnapshot(SyscallLatencySnapshot& snapshot) const {
+    for (size_t i = 0; i < SyscallLatencyBucketCount; ++i) {
+      snapshot.buckets[i] =
+          __atomic_load_n(&m_Metadata.syscallLatencyBuckets[i], __ATOMIC_ACQUIRE) +
+          __atomic_load_n(&m_Metadata.reapedChildrenSyscallLatencyBuckets[i], __ATOMIC_ACQUIRE);
+    }
+  }
+
+  void getReapedChildrenSyscallLatencySnapshot(SyscallLatencySnapshot& snapshot) const {
+    for (size_t i = 0; i < SyscallLatencyBucketCount; ++i) {
+      snapshot.buckets[i] =
+          __atomic_load_n(&m_Metadata.reapedChildrenSyscallLatencyBuckets[i], __ATOMIC_ACQUIRE);
+    }
+  }
+#endif
 
   /**
    * Adds a reaped child's final self and descendant CPU totals to this
@@ -686,10 +871,10 @@ class EXPORTED_PUBLIC Process {
    */
   struct DeferredPublication {};
 
-  Process(DeferredPublication);
+  Process(DeferredPublication, ProcessType type = Stock);
   Process(DeferredPublication, Process* pParent, bool bCopyOnWrite = true,
           FilesystemContextMode filesystemContext = FilesystemContextMode::Inherit,
-          bool emptyAddressSpace = false);
+          bool emptyAddressSpace = false, ProcessType type = Stock);
 
   /** Makes a completely constructed Process visible to enumeration. */
   void publish();
@@ -711,7 +896,10 @@ class EXPORTED_PUBLIC Process {
   void prepareForDestruction();
 
   /** Enables deferred timer reporting for a derived process type. */
-  void enableTimeAccountingReports();
+  void enableTimeAccountingReports(size_t initialInterest = ~size_t(0));
+
+  /** Changes independently owned report-interest bits without losing pending work. */
+  void setTimeAccountingReportInterest(size_t interest, bool enabled);
 
  private:
   void finishTermination(bool abandonStack, bool notifyParent) NORETURN;
@@ -731,11 +919,27 @@ class EXPORTED_PUBLIC Process {
   /** Stops timer-report admission and discards any unpublished residue. */
   void closeDeferredTimeAccounting();
 
-  /** Adds one Thread's elapsed monotonic time to Process-wide totals. */
-  void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed);
+  /** Adds elapsed time while the caller still holds its sampled CPU's IRQ mask. */
+  ALWAYS_INLINE void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed,
+                                           size_t processor) {
+    if (!m_PerCpuTimeAccounting.add(mode, elapsed, processor)) {
+      Time::Timestamp* total =
+          mode == CpuTimeMode::User ? &m_Metadata.userTime : &m_Metadata.kernelTime;
+      __atomic_fetch_add(total, elapsed, __ATOMIC_RELAXED);
+    }
+    reportTimeAccounting(elapsed);
+  }
 
-  /** Common fixed-cost accumulator publication after aggregate accounting. */
-  void publishTimeAccountingBatch(Time::Timestamp user, Time::Timestamp system);
+  ALWAYS_INLINE void reportTimeAccounting(Time::Timestamp elapsed) {
+    // Most processes have no armed CPU-time timer. Keep that path free of
+    // worker publication and its lifecycle-admission load.
+    if (__atomic_load_n(&m_TimeAccountingReportInterest, __ATOMIC_ACQUIRE) &&
+        __atomic_load_n(&m_bTimeAccountingReportsEnabled, __ATOMIC_ACQUIRE)) {
+      queueTimeAccountingReport(elapsed);
+    }
+  }
+
+  void queueTimeAccountingReport(Time::Timestamp elapsed);
 
   /** Called when the process is terminated to allow for subclass cleanup. */
   virtual void processTerminated() {}
@@ -787,6 +991,21 @@ class EXPORTED_PUBLIC Process {
   MemoryAllocator m_DynamicSpaceAllocator;
   Spinlock m_UserReservationLock;
   uint64_t m_UserReservationGeneration;
+
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  bool m_BenchmarkSyscallTiming = false;
+  uint64_t m_SyscallTimingCalls[SyscallTimingSlotCount] = {};
+  uint64_t m_SyscallTimingKernelNanoseconds[SyscallTimingSlotCount] = {};
+#endif
+
+#if PEDIGREE_BENCHMARK_SYSCALL_TRACE
+  bool m_BenchmarkSyscallTrace = false;
+#endif
+
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  bool m_BenchmarkVmDiagnostics = false;
+  uint64_t m_BenchmarkVmCounters[BenchmarkVmCounterCount] = {};
+#endif
 
   /** Current user. */
   FilesystemCredentials m_NativeFilesystemCredentials;
@@ -848,6 +1067,9 @@ class EXPORTED_PUBLIC Process {
 
   /** Our current state. */
   ProcessState m_State;
+
+  // Construction selects the actual class, independently of the parent's type.
+  const ProcessType m_Type;
 
   /**
    * Changes process state only if it still matches the expected state.
@@ -956,6 +1178,22 @@ class EXPORTED_PUBLIC Process {
 
   /** Stores metadata about this process. */
   struct ProcessMetadata {
+#if PEDIGREE_SYSCALL_COUNTER
+    ProcessMetadata()
+        : heapUsage(0),
+          virtualPages(0),
+          physicalPages(0),
+          sharedPages(0),
+          userTime(0),
+          kernelTime(0),
+          reapedChildrenUserTime(0),
+          reapedChildrenKernelTime(0),
+          syscallCount(0),
+          reapedChildrenSyscallCount(0),
+          syscallLatencyBuckets{},
+          reapedChildrenSyscallLatencyBuckets{},
+          startTime(0) {}
+#else
     ProcessMetadata()
         : heapUsage(0),
           virtualPages(0),
@@ -966,6 +1204,7 @@ class EXPORTED_PUBLIC Process {
           reapedChildrenUserTime(0),
           reapedChildrenKernelTime(0),
           startTime(0) {}
+#endif
 
     /// Bytes used in the kernel heap by this process.
     ssize_t heapUsage;
@@ -977,18 +1216,35 @@ class EXPORTED_PUBLIC Process {
     /// Shared pages consumed.
     ssize_t sharedPages;
 
-    /// Time spent in userspace as this process.
+    /// CPU time published without an allocated local shard.
     Time::Timestamp userTime;
-    /// Time spent in the kernel as this process.
     Time::Timestamp kernelTime;
     /// Time spent in userspace by children this process has reaped.
     Time::Timestamp reapedChildrenUserTime;
     /// Time spent in the kernel by children this process has reaped.
     Time::Timestamp reapedChildrenKernelTime;
 
+#if PEDIGREE_SYSCALL_COUNTER
+    /// Number of syscalls handled by this process.
+    uint64_t syscallCount;
+    /// Number of syscalls handled by children and descendants this process reaped.
+    uint64_t reapedChildrenSyscallCount;
+    /// Duration buckets for syscalls handled by this process.
+    uint64_t syscallLatencyBuckets[SyscallLatencyBucketCount];
+    /// Duration buckets for syscalls handled by children and descendants this process reaped.
+    uint64_t reapedChildrenSyscallLatencyBuckets[SyscallLatencyBucketCount];
+#endif
+
     /// Time at which process started.
     Time::Timestamp startTime;
   } m_Metadata;
+
+  /**
+   * Persistent shards retain exited threads' totals without a transfer.
+   * Bootstrap processes use the fallback: an AP NMI can still see BSP state
+   * before the CPU identity and scheduler startup gates are published.
+   */
+  PerCpuTimeAccounting m_PerCpuTimeAccounting;
 
   /** Lock-free IRQ/scheduler publication consumed by an ordinary worker. */
   DeferredTimeAccounting m_DeferredTimeAccounting;
@@ -1001,6 +1257,8 @@ class EXPORTED_PUBLIC Process {
 
   /** Stock kernel processes do not need timer-report worker publications. */
   bool m_bTimeAccountingReportsEnabled;
+
+  size_t m_TimeAccountingReportInterest;
 
   /** Is our address space shared with the parent? */
   bool m_bSharedAddressSpace;

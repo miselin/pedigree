@@ -47,4 +47,27 @@ class X86CommonProcessor : public ProcessorBase {
   static physical_uintptr_t readCr3();
 };
 
+#if X86_COMMON && !X64
+#if MULTIPROCESSOR
+EXPORTED_PUBLIC NEVER_INLINE __attribute__((cold))
+ProcessorInformation* currentProcessorInformationFromApic(
+    const Vector<ProcessorInformation*>& processors, size_t* processorIndex = nullptr);
+#endif
+
+inline ProcessorInformation& ProcessorBase::information() {
+#if MULTIPROCESSOR
+  if (m_Initialised < 2)
+    return m_SafeBspProcessorInformation;
+
+  if (m_ProcessorInformation.count() == 1)
+    return **m_ProcessorInformation.begin();
+
+  if (auto* information = currentProcessorInformationFromApic(m_ProcessorInformation))
+    return *information;
+#endif
+
+  return m_SafeBspProcessorInformation;
+}
+#endif
+
 #endif

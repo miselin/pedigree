@@ -24,6 +24,7 @@ global pml4:data hidden
 [EXTERN _main]
 [EXTERN kernel_start]
 [EXTERN kernel_end]
+[EXTERN _ZN13ProcessorBase25m_BootstrapKernelGsAnchorE]
 
 ; Virtual base of the kernel
 KERNEL_BASE        equ 0xFFFFFFFF7FF00000
@@ -169,6 +170,21 @@ callmain:
   mov es, ax
   mov fs, ax
   mov gs, ax
+
+  ; Establish kernel GS before constructors can ask for their current CPU.
+  ; Userspace GS must remain low canonical, including through CPU instructions.
+  mov rax, cr4
+  btr rax, 16
+  mov cr4, rax
+  mov rax, _ZN13ProcessorBase25m_BootstrapKernelGsAnchorE
+  mov rdx, rax
+  shr rdx, 32
+  mov ecx, 0xc0000101
+  wrmsr
+  xor eax, eax
+  xor edx, edx
+  mov ecx, 0xc0000102
+  wrmsr
   
   ; Get the FPU and SSE going
   call ___startup_init_fpu_sse

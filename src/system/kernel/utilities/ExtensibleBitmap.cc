@@ -106,15 +106,20 @@ void ExtensibleBitmap::set(size_t n) {
 
   // Check we have enough space to handle the bit.
   if (n / 8 >= m_DynamicMapSize) {
-    // Add another 8 bytes as a performance hint.
-    size_t sz = n / 8 + 8;
+    // Double the size of the map to avoid so many allocations/copies/zeroes
+    // ... unless the bit itself is well beyond that range!
+    size_t sz = max(n / 8 + 8, m_DynamicMapSize * 2);
     uint8_t* pMap = new uint8_t[sz];
-    ByteSet(pMap, 0, sz);
-    if (m_DynamicMapSize) {
-      MemoryCopy(pMap, m_pDynamicMap, m_DynamicMapSize);
-      delete[] m_pDynamicMap;
+    uint8_t* oldMap = m_pDynamicMap;
+    if (m_DynamicMapSize && oldMap) {
+      MemoryCopy(pMap, oldMap, m_DynamicMapSize);
     }
+    // zero out the rest of the new memory now
+    ByteSet(pMap + m_DynamicMapSize, 0, sz - m_DynamicMapSize);
     m_pDynamicMap = pMap;
+    if (oldMap) {
+      delete[] oldMap;
+    }
     m_DynamicMapSize = sz;
   }
 

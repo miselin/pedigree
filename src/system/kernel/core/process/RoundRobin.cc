@@ -20,6 +20,7 @@
 #include <config.h>
 
 #if THREADS
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/RoundRobin.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -31,6 +32,9 @@ RoundRobin::RoundRobin() : m_Lock(false) {
   for (size_t i = 0; i < MAX_PRIORITIES; ++i) {
     m_pReadyQueueHeads[i] = nullptr;
     m_pReadyQueueTails[i] = nullptr;
+#if PEDIGREE_READY_QUEUE_COUNTS
+    m_ReadyQueueCounts[i] = 0;
+#endif
   }
 }
 
@@ -52,6 +56,7 @@ void RoundRobin::removeThread(Thread* pThread) {
 
 void RoundRobin::enqueue(Thread* pThread) {
   assert(pThread);
+  assert(isReady(pThread));
   assert(!pThread->m_bReadyQueued);
   assert(!pThread->m_pReadyPrevious);
   assert(!pThread->m_pReadyNext);
@@ -67,6 +72,9 @@ void RoundRobin::enqueue(Thread* pThread) {
     m_pReadyQueueHeads[priority] = pThread;
   }
   m_pReadyQueueTails[priority] = pThread;
+#if PEDIGREE_READY_QUEUE_COUNTS
+  ++m_ReadyQueueCounts[priority];
+#endif
 }
 
 void RoundRobin::unlink(Thread* pThread) {
@@ -93,22 +101,34 @@ void RoundRobin::unlink(Thread* pThread) {
   pThread->m_pReadyNext = nullptr;
   pThread->m_ReadyQueuePriority = MAX_PRIORITIES;
   pThread->m_bReadyQueued = false;
+#if PEDIGREE_READY_QUEUE_COUNTS
+  assert(m_ReadyQueueCounts[priority]);
+  --m_ReadyQueueCounts[priority];
+#endif
 }
 
 Thread* RoundRobin::getNext(Thread* pCurrentThread) {
+  ActivityDiagnostics::ReadyQueueSelectionScope selectionScope;
   LockGuard<Spinlock> guard(m_Lock);
 
   Thread* pThread = 0;
   for (size_t i = 0; i < MAX_PRIORITIES; i++) {
     // Bound the scan so a stale entry whose priority changes cannot be
+#if PEDIGREE_READY_QUEUE_COUNTS
+    // requeued forever in the same selection pass. The maintained count
+    // avoids walking this list once merely to determine that bound.
+    size_t candidates = m_ReadyQueueCounts[i];
+#else
+    // Bound the scan so a stale entry whose priority changes cannot be
     // requeued forever in the same selection pass.
     size_t candidates = 0;
-    for (pThread = m_pReadyQueueHeads[i]; pThread; pThread = pThread->m_pReadyNext) {
+    for (pThread = m_pReadyQueueHeads[i]; pThread; pThread = pThread->m_pReadyNext)
       ++candidates;
-    }
+#endif
     while (candidates--) {
       pThread = m_pReadyQueueHeads[i];
       assert(pThread);
+      ActivityDiagnostics::recordReadyQueueCandidateVisit();
       unlink(pThread);
 
       if (pThread == pCurrentThread || !isReady(pThread)) {
@@ -120,16 +140,10 @@ Thread* RoundRobin::getNext(Thread* pCurrentThread) {
         continue;
       }
 
-      if (!isEligible(pThread)) {
-        // Predicate-backed workers stay published without making the
-        // hard producer touch this queue when work arrives.
-        enqueue(pThread);
-        continue;
-      }
-
       return pThread;
     }
   }
+  ActivityDiagnostics::recordSchedulerNoEligibleSelection();
   return 0;
 }
 
@@ -154,20 +168,7 @@ bool RoundRobin::isReady(Thread* pThread) {
          !__atomic_load_n(&pThread->m_ReadyPublicationPending, __ATOMIC_ACQUIRE);
 }
 
-bool RoundRobin::isEligible(Thread* pThread) {
-  return isReady(pThread) && (!pThread->m_SchedulerReadyPredicate ||
-                              pThread->m_SchedulerReadyPredicate(pThread->m_SchedulerReadyContext));
-}
-
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-namespace {
-bool g_HostedSchedulerPredicateReady = false;
-
-bool hostedSchedulerPredicate(void*) {
-  return g_HostedSchedulerPredicateReady;
-}
-}  // namespace
-
 bool RoundRobin::runHostedIntrusiveQueueRegressions(Thread* pThread) {
   if (!pThread || pThread->m_bReadyQueued || pThread->m_pReadyPrevious || pThread->m_pReadyNext) {
     return false;
@@ -177,8 +178,6 @@ bool RoundRobin::runHostedIntrusiveQueueRegressions(Thread* pThread) {
   Processor::setInterrupts(false);
   const Thread::Status status = pThread->m_Status;
   const size_t priority = pThread->m_Priority;
-  const Thread::SchedulerReadyPredicate predicate = pThread->m_SchedulerReadyPredicate;
-  void* predicateContext = pThread->m_SchedulerReadyContext;
   bool passed = true;
 
   {
@@ -217,28 +216,8 @@ bool RoundRobin::runHostedIntrusiveQueueRegressions(Thread* pThread) {
     passed &= reused.getNext(nullptr) == pThread && !pThread->m_bReadyQueued;
   }
 
-  {
-    RoundRobin predicateQueue;
-    g_HostedSchedulerPredicateReady = false;
-    pThread->m_Status = Thread::Ready;
-    pThread->m_Priority = 0;
-    pThread->m_SchedulerReadyPredicate = hostedSchedulerPredicate;
-    pThread->m_SchedulerReadyContext = nullptr;
-    predicateQueue.threadStatusChanged(pThread);
-    passed &= !predicateQueue.getNext(nullptr) && pThread->m_bReadyQueued;
-    pThread->m_Status = Thread::AwaitingJoin;
-    predicateQueue.threadStatusChanged(pThread);
-    passed &= !pThread->m_bReadyQueued && !pThread->m_pReadyPrevious && !pThread->m_pReadyNext;
-    pThread->m_Status = Thread::Ready;
-    predicateQueue.threadStatusChanged(pThread);
-    g_HostedSchedulerPredicateReady = true;
-    passed &= predicateQueue.getNext(nullptr) == pThread && !pThread->m_bReadyQueued;
-  }
-
   pThread->m_Status = status;
   pThread->m_Priority = priority;
-  pThread->m_SchedulerReadyPredicate = predicate;
-  pThread->m_SchedulerReadyContext = predicateContext;
   Processor::setInterrupts(interrupts);
   return passed;
 }

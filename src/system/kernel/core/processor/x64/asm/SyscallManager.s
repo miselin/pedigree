@@ -15,14 +15,18 @@
 ; ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-extern pedigree_capture_user_entry
-extern pedigree_restore_user_entry
+extern pedigree_restore_syscall_entry
 
 ; X64SyscallManager::syscall(SyscallState &syscallState)
 extern _ZN17X64SyscallManager7syscallER15X64SyscallState
 
 ; Export the syscall handler
 global syscall_handler:function hidden
+global pedigree_syscall_entry_swapgs:function hidden
+global pedigree_syscall_entry_kernel_gs:function hidden
+global pedigree_syscall_kernel_stack:function hidden
+global pedigree_syscall_exit_swapgs:function hidden
+global pedigree_syscall_exit_user_gs:function hidden
 
 ;##############################################################################
 ;### Code section #############################################################
@@ -33,50 +37,38 @@ global syscall_handler:function hidden
 ;##############################################################################
 ;### assembler stub for syscalls ##############################################
 ;##############################################################################
-; TODO: we might want to use the highest (or 8byte lower, to allow rsp saving) 8byte
-;       of gs.base to save the gs.base value, interrupts would just ignore this value
 syscall_handler:
   ; Preserve the user's saved RFLAGS in R11 while establishing the kernel ABI.
   cld
 
-  ; Load kernel stack into gs base
+  ; IA32_FMASK masks IRQs; paranoid IST entry covers the NMI/exception windows.
+pedigree_syscall_entry_swapgs:
   swapgs
+pedigree_syscall_entry_kernel_gs:
+  lfence
+  mov [gs: 8], rsp
+  mov rsp, [gs: 0]
+pedigree_syscall_kernel_stack:
+  push qword [gs: 8]
+  push rcx
+  push r11
+  push rax
+  push rbx
+  push rdx
+  push rdi
+  push rsi
+  push rbp
+  push r8
+  push r9
+  push r10
+  push r12
+  push r13
+  push r14
+  push r15
 
-  ; Save the registers
-  mov [gs: -0x08], rsp      ; rsp
-  mov [gs: -0x10], rcx      ; rip/rcx
-  mov [gs: -0x18], r11      ; rflags/r11
-  mov [gs: -0x20], rax      ; rax
-  mov [gs: -0x28], rbx      ; rbx
-  mov [gs: -0x30], rdx      ; rdx
-  mov [gs: -0x38], rdi      ; rdi
-  mov [gs: -0x40], rsi      ; rsi
-  mov [gs: -0x48], rbp      ; rbp
-  mov [gs: -0x50], r8       ; r8
-  mov [gs: -0x58], r9       ; r9
-  mov [gs: -0x60], r10      ; r10
-  mov [gs: -0x68], r12      ; r12
-  mov [gs: -0x70], r13      ; r13
-  mov [gs: -0x78], r14      ; r14
-  mov [gs: -0x80], r15      ; r15
-
-  ; Restore the original gs base
-  swapgs
-
-  ; Switch to the kernel stack
-  mov rcx, 0xC0000102
-  rdmsr
-  mov esp, edx
-  shl rsp, 32
-  mov rcx, 0xFFFFFFFF
-  and rax, rcx
-  add rsp, rax
-  sub rsp, 0xa0
+  sub rsp, 32
   mov rax, [rsp+128]
   mov [rsp+24], rax
-  mov rdi, rsp
-  call pedigree_capture_user_entry
-
   ; Call the C++ handler function
   mov rdi, rsp
   call _ZN17X64SyscallManager7syscallER15X64SyscallState
@@ -84,7 +76,8 @@ syscall_handler:
   cli
 
   mov rdi, rsp
-  call pedigree_restore_user_entry
+  call pedigree_restore_syscall_entry
+
   add rsp, 32
         
   pop r15
@@ -104,7 +97,8 @@ syscall_handler:
   pop rcx
   pop rsp
 
-
+pedigree_syscall_exit_swapgs:
+  swapgs
+pedigree_syscall_exit_user_gs:
   db 0x48
   sysret
-        

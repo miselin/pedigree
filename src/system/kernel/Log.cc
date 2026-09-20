@@ -21,6 +21,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -703,6 +704,19 @@ void Log::addEntry(const LogEntry& source, bool lock) {
   // Panic if that was a fatal error.
   if (shouldPanic) {
     const char* panicstr = static_cast<const char*>(entry.str);
+
+    // Fatal errors must remain visible even when normal serial logging is off
+    // and the debugger cannot quiesce the other processors.
+    EMIT_IF(!UTILITY_LINUX) {
+      if (Machine::instance().getNumSerial()) {
+        Serial* serial = Machine::instance().getSerial(0);
+        if (serial) {
+          serial->write_str("\nFATAL before debugger: ");
+          serial->write_str(panicstr);
+          serial->write_str("\n");
+        }
+      }
+    }
 
     // Attempt to trap to debugger, panic if that fails.
     EMIT_IF(DEBUGGER) {

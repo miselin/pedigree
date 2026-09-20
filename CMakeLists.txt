@@ -63,31 +63,34 @@ message(STATUS
     "Pedigree build role: ${PEDIGREE_EFFECTIVE_BUILD_ROLE} "
     "(requested ${PEDIGREE_BUILD_ROLE}, host ${CMAKE_HOST_SYSTEM_NAME})")
 
-check_c_compiler_flag(
-    "-ftrivial-auto-var-init=pattern"
-    PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN)
-check_c_compiler_flag(
-    "-ftrivial-auto-var-init=zero"
-    PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
-check_cxx_compiler_flag(
-    "-ftrivial-auto-var-init=pattern"
-    PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN)
-check_cxx_compiler_flag(
-    "-ftrivial-auto-var-init=zero"
-    PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
+option(PEDIGREE_AUTO_VAR_INIT "Enable compiler initialization of automatic variables." OFF)
+if (PEDIGREE_AUTO_VAR_INIT)
+    check_c_compiler_flag(
+        "-ftrivial-auto-var-init=pattern"
+        PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN)
+    check_c_compiler_flag(
+        "-ftrivial-auto-var-init=zero"
+        PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
+    check_cxx_compiler_flag(
+        "-ftrivial-auto-var-init=pattern"
+        PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN)
+    check_cxx_compiler_flag(
+        "-ftrivial-auto-var-init=zero"
+        PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
 
-if (NOT PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN OR
-    NOT PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO OR
-    NOT PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN OR
-    NOT PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
-    message(FATAL_ERROR
-        "The selected C and C++ compilers must support "
-        "-ftrivial-auto-var-init=pattern and =zero")
+    if (NOT PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN OR
+        NOT PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO OR
+        NOT PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN OR
+        NOT PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
+        message(FATAL_ERROR
+            "PEDIGREE_AUTO_VAR_INIT requires compiler support for "
+            "-ftrivial-auto-var-init=pattern and =zero")
+    endif ()
+
+    add_compile_options(
+        "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:C,CXX>>:-ftrivial-auto-var-init=pattern>"
+        "$<$<AND:$<CONFIG:Release,RelWithDebInfo,MinSizeRel>,$<COMPILE_LANGUAGE:C,CXX>>:-ftrivial-auto-var-init=zero>")
 endif ()
-
-add_compile_options(
-    "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:C,CXX>>:-ftrivial-auto-var-init=pattern>"
-    "$<$<AND:$<CONFIG:Release,RelWithDebInfo,MinSizeRel>,$<COMPILE_LANGUAGE:C,CXX>>:-ftrivial-auto-var-init=zero>")
 
 if (NOT CMAKE_CXX_COMPILER_VERSION)
     # Keep this aligned with the bootstrap toolchain manifest.
@@ -117,7 +120,8 @@ set(PEDIGREE_SERIAL_IS_FILE TRUE CACHE BOOL "Set to true if the serial port will
 set(PEDIGREE_MEMORY_LOG TRUE CACHE BOOL "Enable periodic memory usage reporting to the second serial port.")
 set(PEDIGREE_MEMORY_LOG_INLINE FALSE CACHE BOOL "Enable the periodic memory usage report on the primary serial port.")
 set(PEDIGREE_MEMORY_TRACING FALSE CACHE BOOL "Enable tracing memory allocations and frees for use with the 'memorytracer' utility.")
-set(PEDIGREE_TRACK_LOCKS TRUE CACHE BOOL "Enable lock tracking, which performs very rudimentary deadlock detection and lock state validation.")
+set(PEDIGREE_TRACK_LOCKS FALSE CACHE BOOL "Enable lock tracking, which performs very rudimentary deadlock detection and lock state validation.")
+option(PEDIGREE_SPINLOCK_DIAGNOSTICS "Check spinlock corruption, IRQ state and releases; retain acquisition call sites." OFF)
 set(PEDIGREE_MULTIPROCESSOR TRUE CACHE BOOL "Enable multiprocessor support for processor targets that support it.")
 set(PEDIGREE_ACPI TRUE CACHE BOOL "Enable ACPI support for machine targets that support it.")
 set(PEDIGREE_GRAPHICS FALSE CACHE BOOL "Enable graphics, including the graphical splash screen.")
@@ -130,6 +134,41 @@ set(PEDIGREE_STRICT_LOCK_ORDERING FALSE CACHE BOOL "Enforce strict lock ordering
 set(PEDIGREE_LOGGING TRUE CACHE BOOL "Enable the kernel logging facility.")
 set(PEDIGREE_TRACK_PAGE_ALLOCS FALSE CACHE BOOL "Track physical page allocations in the debugger allocations command.")
 set(PEDIGREE_VERBOSE_MEMORY_MANAGER FALSE CACHE BOOL "Be more verbose in PhysicalMemoryManager.")
+set(PEDIGREE_SYSCALL_COUNTER FALSE CACHE BOOL "Count POSIX syscalls per process for benchmark diagnostics.")
+set(PEDIGREE_ACTIVITY_DIAGNOSTICS FALSE CACHE BOOL "Collect opt-in IRQ, scheduler, idle and framebuffer benchmark diagnostics.")
+set(PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS FALSE CACHE BOOL
+    "Sample x64 user-entry metadata capture and restore costs.")
+set(PEDIGREE_FAST_USER_RETURN TRUE CACHE BOOL
+    "Skip idle user-return policy work when no thread work is pending.")
+set(PEDIGREE_BENCHMARK_SYSCALL_TIMING FALSE CACHE BOOL
+    "Attribute existing CPU-accounting intervals to benchmark process syscalls.")
+set(PEDIGREE_BENCHMARK_SYSCALL_TRACE FALSE CACHE BOOL
+    "Trace opt-in process syscalls and bounded path arguments for benchmark diagnostics.")
+set(PEDIGREE_BENCHMARK_VM_DIAGNOSTICS FALSE CACHE BOOL
+    "Collect benchmark process VM lifecycle cardinality counters.")
+set(PEDIGREE_READY_QUEUE_COUNTS TRUE CACHE BOOL "Maintain ready-queue counts to bound scheduler selection scans.")
+set(PEDIGREE_TIME_ACCOUNTING TRUE CACHE BOOL "Collect per-thread and per-process CPU-time accounting.")
+set(PEDIGREE_SAMPLED_TIME_ACCOUNTING_DEFAULT OFF)
+if (PEDIGREE_ARCH_TARGET MATCHES "^(X64|HOSTED)$")
+    set(PEDIGREE_SAMPLED_TIME_ACCOUNTING_DEFAULT ON)
+endif ()
+option(PEDIGREE_SAMPLED_TIME_ACCOUNTING
+    "Estimate CPU time from scheduler ticks instead of timing each kernel transition."
+    ${PEDIGREE_SAMPLED_TIME_ACCOUNTING_DEFAULT})
+set(PEDIGREE_SCHEDULER_TICK_DIVISOR 1 CACHE STRING "Schedule once per this many scheduler timer ticks.")
+if (PEDIGREE_SCHEDULER_TICK_DIVISOR LESS 1)
+    message(FATAL_ERROR "PEDIGREE_SCHEDULER_TICK_DIVISOR must be at least 1")
+endif ()
+if (PEDIGREE_BENCHMARK_SYSCALL_TIMING AND NOT PEDIGREE_TIME_ACCOUNTING)
+    message(FATAL_ERROR "PEDIGREE_BENCHMARK_SYSCALL_TIMING requires PEDIGREE_TIME_ACCOUNTING")
+endif ()
+if (PEDIGREE_SAMPLED_TIME_ACCOUNTING AND PEDIGREE_BENCHMARK_SYSCALL_TIMING)
+    message(FATAL_ERROR "Per-syscall timing requires precise CPU-time accounting")
+endif ()
+if (PEDIGREE_SAMPLED_TIME_ACCOUNTING AND PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET"
+    AND NOT PEDIGREE_ARCH_TARGET MATCHES "^(X64|HOSTED)$")
+    message(FATAL_ERROR "Sampled CPU-time accounting requires an x64 or hosted scheduler timer")
+endif ()
 
 # init configuration
 set(PEDIGREE_WITH_INIT TRUE CACHE BOOL "Build and run the init module at startup. It can be useful to skip running init to test without having the system start an entire userspace.")
@@ -141,6 +180,12 @@ set(PEDIGREE_HOSTED_SYSTEM_MALLOC FALSE CACHE BOOL "Use the system malloc instea
 set(PEDIGREE_HOSTED_DYNAMIC_MODULES FALSE CACHE BOOL "Load modules from an initrd in hosted builds instead of linking them into the kernel.")
 set(PEDIGREE_HOSTED_SMOKE_TESTS FALSE CACHE BOOL "Build the hosted smoke-test module and userspace.")
 set(PEDIGREE_HOSTED_ASAN FALSE CACHE BOOL "Instrument hosted kernels and modules with AddressSanitizer.")
+set(PEDIGREE_HOSTED_FUNCTION_PROFILE FALSE CACHE BOOL "Instrument hosted kernel function entry and exit for bounded syscall profiles.")
+if (PEDIGREE_HOSTED_FUNCTION_PROFILE AND
+    (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" OR PEDIGREE_HOSTED_DARWIN OR
+     NOT PEDIGREE_HOSTED_SMOKE_TESTS OR PEDIGREE_HOSTED_DYNAMIC_MODULES))
+    message(FATAL_ERROR "Function profiling requires native Linux hosted smoke tests with static modules")
+endif ()
 set(PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS FALSE CACHE BOOL "Link the focused IRQ and scheduler closure regressions into a native Linux hosted kernel.")
 set(PEDIGREE_CONCURRENCY_SMOKE_TESTS FALSE CACHE BOOL "Build focused kernel concurrency smoke tests for QEMU.")
 set(PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS FALSE CACHE BOOL "Build focused VM ownership smoke tests for QEMU with a root filesystem.")
@@ -275,6 +320,17 @@ if (NOT PEDIGREE_NASM_FORMAT)
 endif ()
 set(PEDIGREE_NASM_FLAGS
     "-DPEDIGREE_TARGET_PAGE_SIZE=${PEDIGREE_TARGET_PAGE_SIZE}")
+if (PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS)
+    if (NOT PEDIGREE_ARCH_TARGET STREQUAL "X64")
+        message(FATAL_ERROR "PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS requires the x64 target")
+    endif ()
+    if (NOT PEDIGREE_ACTIVITY_DIAGNOSTICS)
+        message(FATAL_ERROR
+            "PEDIGREE_X64_USER_ENTRY_DIAGNOSTICS requires PEDIGREE_ACTIVITY_DIAGNOSTICS")
+    endif ()
+    string(APPEND PEDIGREE_NASM_FLAGS
+        " -DPEDIGREE_X64_USER_ENTRY_DIAGNOSTICS=1")
+endif ()
 if (PEDIGREE_NASM_GLOBAL_PREFIX)
     string(APPEND PEDIGREE_NASM_FLAGS
         " --gprefix ${PEDIGREE_NASM_GLOBAL_PREFIX}")

@@ -158,6 +158,9 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   virtual void unpin(uint64_t location);
 
  protected:
+  BufferView acquireView(uint64_t location, bool writable, uint64_t& token) override;
+  void releaseView(uint64_t token, bool writable) override;
+
   virtual bool supportsBufferTransfers() const {
     return false;
   }

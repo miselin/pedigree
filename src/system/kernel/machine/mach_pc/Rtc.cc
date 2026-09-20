@@ -18,6 +18,7 @@
  */
 
 #include "Rtc.h"
+#include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/TargetInfo.h"
@@ -37,6 +38,9 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/StringView.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -44,6 +48,7 @@
 #include "RtcTimeAccounting.h"
 
 class Event;
+extern BootstrapStruct_t* g_pBootstrapInfo;
 
 // RTC frequency to set at startup - tradeoff between precision of timers
 // against constant RTC noise.
@@ -70,7 +75,7 @@ constexpr Time::Timestamp RtcUpdateTimeout = 25 * Time::Multiplier::Millisecond;
 constexpr size_t RtcUpdateMaximumPolls = 1000000;
 constexpr size_t RtcCalibrationMaximumPolls = 100000000;
 
-uint64_t readOrderedTsc() {
+ALWAYS_INLINE inline uint64_t readOrderedTsc() {
   uint32_t edx = 0;
   uint32_t eax = 0;
   asm volatile("lfence\nrdtsc" : "=d"(edx), "=a"(eax) : : "memory");
@@ -289,6 +294,25 @@ uint64_t Rtc::getTickCountNano() {
 
   return m_MonotonicTicks.publish(candidate);
 }
+
+uint64_t Rtc::getTickCountNanoFast() {
+  return Rtc::sampleCpuTime().timestamp;
+}
+
+Time::CpuTimeSample Rtc::sampleCpuTime() {
+  // The RTC cursor advances in its worker, after the measured thread has
+  // switched out. Accounting needs a clock which advances on this thread.
+  // Callers already mask IRQs and reset their baselines on CPU migration,
+  // so the immutable local anchor needs no global monotonic publication.
+  uint64_t anchorTsc = m_Tsc0;
+  uint64_t anchorNanoseconds = 0;
+  const ProcessorInformation& processor = Processor::information();
+  processor.getTscClockAnchor(anchorTsc, anchorNanoseconds);
+  const uint64_t timestamp =
+      PcTscClock::fromAnchor(readOrderedTsc(), anchorTsc, anchorNanoseconds, m_TscCalibration);
+  return {timestamp, Processor::index()};
+}
+
 bool Rtc::initialise1(uint8_t centuryIndex) {
   NOTICE("Rtc::initialise1");
 
@@ -418,6 +442,49 @@ void Rtc::initialiseProcessorClock() {
 }
 
 bool Rtc::initialise3() {
+  size_t selectedIndex = m_PeriodicIrqInfoIndex;
+  bool rateSpecified = false;
+  const char* commandLine = g_pBootstrapInfo->getCommandLine();
+  if (commandLine) {
+    Vector<String> arguments = String(commandLine).tokenise(' ');
+    for (const auto& argument : arguments) {
+      const StringView view = argument.view();
+      constexpr size_t PrefixLength = 9;
+      if (!(view == "--rtc-hz") &&
+          (view.length() < PrefixLength || !(view.substring(0, PrefixLength) == "--rtc-hz=")))
+        continue;
+
+      size_t hz = 0;
+      bool valid = !rateSpecified && view.length() > PrefixLength;
+      for (size_t i = PrefixLength; valid && i < view.length(); ++i) {
+        const char digit = view[i];
+        valid = digit >= '0' && digit <= '9' && hz <= 8192;
+        if (valid)
+          hz = hz * 10 + static_cast<size_t>(digit - '0');
+      }
+      size_t index = 0;
+      while (index < 12 && periodicIrqInfo[index].Hz != hz)
+        ++index;
+      if (!valid || index == 12) {
+        ERROR("RTC: invalid or repeated --rtc-hz option: " << argument);
+        return false;
+      }
+      selectedIndex = index;
+      rateSpecified = true;
+    }
+  }
+
+  // Keep boot TSC calibration identical across runtime-rate experiments.
+  // Periodic interrupts are still disabled and IRQ8 has no handler yet.
+  const uint8_t statusA = 0x20 | periodicIrqInfo[selectedIndex].rateBits;
+  uint8_t verifiedA = 0;
+  if (!write(0x0A, statusA) || !read(0x0A, verifiedA) || (verifiedA & 0x7f) != statusA) {
+    ERROR("RTC: runtime interrupt frequency did not stick");
+    return false;
+  }
+  m_PeriodicIrqInfoIndex = selectedIndex;
+  NOTICE("RTC: periodic interrupt frequency " << Dec << periodicIrqInfo[selectedIndex].Hz << " Hz");
+
   IrqManager& irqManager = *Machine::instance().getIrqManager();
   m_IrqId = irqManager.registerIsaIrqHandler(8, this, IrqPolicy::levelThreaded());
   if (!m_IrqId) {

@@ -315,6 +315,17 @@ int swapWorker(void* opaque) {
                    !manager.swapSnapshot().usedPages,
                "permitted fetch restores execute-only swapped page"))
       return false;
+    const bool splitMappingCreated =
+        manager.setPermissions(base + PageSize, PageSize,
+                               MemoryMappedObject::Read | MemoryMappedObject::Write) == 1;
+    if (!check(splitMappingCreated &&
+                   manager.pageOutRange(base + PageSize, PageSize) == SwapStatus::Success &&
+                   manager.resolveUserFault(base + PageSize, false, false, false) ==
+                       Resolution::Resolved &&
+                   *reinterpret_cast<unsigned char*>(base + PageSize) == 0x41 &&
+                   !manager.swapSnapshot().usedPages,
+               "split mapping fault resolver reuses selected object"))
+      return false;
     uintptr_t empty = 0;
     if (!check(
             manager.mapFile(&emptyFile, empty, PageSize, MemoryMappedObject::Read) &&

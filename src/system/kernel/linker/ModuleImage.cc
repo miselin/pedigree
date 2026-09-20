@@ -85,7 +85,9 @@ bool ModuleImage::findSymbol(const char* wanted, Symbol& result, bool dynamic) c
   const size_t count = (dynamic ? symbolBytes : fullSymbolBytes) / sizeof(Symbol);
   for (size_t i = 0; i < count; ++i) {
     Symbol candidate;
-    symbol(i, candidate, dynamic);
+    if (!symbol(i, candidate, dynamic)) {
+      return false;
+    }
     const char* name = symbolName(candidate, dynamic);
     if (candidate.shndx && name && !StringCompare(name, wanted)) {
       if (found) {

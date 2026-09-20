@@ -139,7 +139,7 @@ bool TimerHandlerRegistry::unpublishDispatch(void* token, HandlerSlot& slot,
     return false;
   }
 
-  if (!committed || hasActiveDispatch(slot)) {
+  if (!committed) {
     return true;
   }
 
@@ -153,6 +153,12 @@ bool TimerHandlerRegistry::unpublishDispatch(void* token, HandlerSlot& slot,
 
   const SlotMode mode = modeOf(publication);
   if (mode != SlotMode::Draining && mode != SlotMode::Deferred && !selfRemovalOf(publication)) {
+    // The pin was cleared before this publication sample. A later remover
+    // will see that release in its own hazard scan; only an existing drain
+    // needs callback-return help, so ordinary ticks need no table scan.
+    return true;
+  }
+  if (hasActiveDispatch(slot)) {
     return true;
   }
 

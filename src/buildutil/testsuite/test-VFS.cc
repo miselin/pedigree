@@ -551,6 +551,10 @@ class LifetimeTestFile final : public File {
     retainDetachedParent();
   }
 
+  void renameForTest(const String& name) {
+    moveNamespace(name, getParent());
+  }
+
  private:
   std::atomic<size_t>& m_Destructions;
 };
@@ -1330,6 +1334,9 @@ class InodeTestObserver final : public FileEventObserver {
       changed.notify_all();
       changed.wait(guard, [&] { return released; });
     }
+    std::lock_guard<std::mutex> guard(lock);
+    lastName =
+        event.name.length() ? std::string(event.name.str(), event.name.length()) : std::string();
   }
   bool waitUntilEntered() {
     std::unique_lock<std::mutex> guard(lock);
@@ -1340,6 +1347,10 @@ class InodeTestObserver final : public FileEventObserver {
     released = true;
     changed.notify_all();
   }
+  std::string name() {
+    std::lock_guard<std::mutex> guard(lock);
+    return lastName;
+  }
   std::atomic<size_t> calls{0};
   std::atomic<FileEventMask> masks{0};
   std::atomic<uint32_t> pid{0};
@@ -1349,6 +1360,7 @@ class InodeTestObserver final : public FileEventObserver {
   std::mutex lock;
   std::condition_variable changed;
   bool entered = false, released = false;
+  std::string lastName;
 };
 
 class InodeAliasFile final : public File {
@@ -1442,6 +1454,119 @@ TEST(VFS, InodeEventsFollowAliasesWithoutNamespaceRetirement) {
   EXPECT_EQ(observed->calls.load(), 3U);
   namespaceEvents.reset();
   inode.reset();
+}
+
+TEST(VFS, InodeEventsResumeAfterLastSubscriptionRemoved) {
+  InodeEventSource source;
+  source.publish(FileEvent(FileEvents::Modify, StringView(), false, 1));
+  auto* observed = new InodeTestObserver;
+  SharedPointer<FileEventObserver> observer(observed);
+  FileEventSubscription subscription;
+  ASSERT_TRUE(source.subscribeFileEvents(FileEvents::Modify | FileEvents::SourceRetired, observer,
+                                         subscription));
+  EXPECT_EQ(observed->calls.load(), 0U);
+  source.publish(FileEvent(FileEvents::Modify, StringView(), false, 2));
+  EXPECT_EQ(observed->calls.load(), 1U);
+  EXPECT_EQ(observed->masks.load(), FileEvents::Modify);
+  EXPECT_EQ(observed->pid.load(), 2U);
+
+  subscription.reset();
+  source.publish(FileEvent(FileEvents::Modify, StringView(), false, 3));
+  EXPECT_EQ(observed->calls.load(), 1U);
+  EXPECT_EQ(observed->pid.load(), 2U);
+  ASSERT_TRUE(source.subscribeFileEvents(FileEvents::Modify | FileEvents::SourceRetired, observer,
+                                         subscription));
+  EXPECT_EQ(observed->calls.load(), 1U);
+  source.publish(FileEvent(FileEvents::Modify, StringView(), false, 4));
+  EXPECT_EQ(observed->calls.load(), 2U);
+  EXPECT_EQ(observed->pid.load(), 4U);
+
+  source.beginRetirement();
+  source.finishRetirement();
+  EXPECT_EQ(observed->calls.load(), 3U);
+  EXPECT_EQ(observed->masks.load(), FileEvents::Modify | FileEvents::SourceRetired);
+  source.publish(FileEvent(FileEvents::Modify, StringView(), false, 5));
+  EXPECT_EQ(observed->calls.load(), 3U);
+  subscription.reset();
+  EXPECT_FALSE(source.subscribeFileEvents(FileEvents::Modify, observer, subscription));
+}
+
+TEST(VFS, ParentEventsRespectInterestAndSubscriptionChanges) {
+  SparseMutationFilesystem filesystem;
+  File child(String("child"), 0, 0, 0, 0, &filesystem, 0, filesystem.root());
+  child.publishEvent(FileEvents::Modify);
+
+  auto* attributes = new InodeTestObserver;
+  auto* modifications = new InodeTestObserver;
+  SharedPointer<FileEventObserver> attributeObserver(attributes);
+  SharedPointer<FileEventObserver> modificationObserver(modifications);
+  FileEventSubscription attributeSubscription, modificationSubscription;
+  ASSERT_TRUE(filesystem.root()->subscribeFileEvents(FileEvents::Attributes, attributeObserver,
+                                                     attributeSubscription));
+  child.publishEvent(FileEvents::Modify);
+  EXPECT_EQ(attributes->calls.load(), 0U);
+  child.publishEvent(FileEvents::Attributes);
+  EXPECT_EQ(attributes->calls.load(), 1U);
+  EXPECT_EQ(attributes->name(), "child");
+
+  ASSERT_TRUE(filesystem.root()->subscribeFileEvents(FileEvents::Modify, modificationObserver,
+                                                     modificationSubscription));
+  attributeSubscription.reset();
+  child.publishEvent(FileEvents::Attributes);
+  child.publishEvent(FileEvents::Modify);
+  EXPECT_EQ(attributes->calls.load(), 1U);
+  EXPECT_EQ(modifications->calls.load(), 1U);
+  EXPECT_EQ(modifications->name(), "child");
+
+  modificationSubscription.reset();
+  child.publishEvent(FileEvents::Modify);
+  EXPECT_EQ(modifications->calls.load(), 1U);
+  ASSERT_TRUE(filesystem.root()->subscribeFileEvents(FileEvents::Modify, modificationObserver,
+                                                     modificationSubscription));
+  child.publishEvent(FileEvents::Modify);
+  EXPECT_EQ(modifications->calls.load(), 2U);
+}
+
+TEST(VFS, UnobservedDeletionStillClosesSubscriptionAdmission) {
+  File file;
+  file.publishEvent(FileEvents::DeletedSelf);
+  SharedPointer<FileEventObserver> observer(new InodeTestObserver);
+  FileEventSubscription subscription;
+  EXPECT_FALSE(file.subscribeFileEvents(FileEvents::Modify, observer, subscription));
+  EXPECT_FALSE(subscription);
+}
+
+TEST(VFS, ParentEventNameSurvivesConcurrentRename) {
+  SparseMutationFilesystem filesystem;
+  std::atomic<size_t> destructions{0};
+  LifetimeTestFile child(String("original"), &filesystem, filesystem.root(), destructions);
+  auto* observed = new InodeTestObserver(FileEvents::Modify);
+  SharedPointer<FileEventObserver> observer(observed);
+  FileEventSubscription subscription;
+  ASSERT_TRUE(filesystem.root()->subscribeFileEvents(FileEvents::Modify, observer, subscription));
+  std::thread publisher([&] { child.publishEvent(FileEvents::Modify); });
+  const bool entered = observed->waitUntilEntered();
+  EXPECT_TRUE(entered);
+  if (!entered) {
+    observed->release();
+    publisher.join();
+    return;
+  }
+
+  std::atomic<bool> renamed{false};
+  std::thread renamer([&] {
+    child.renameForTest(String("a-longer-replacement-name"));
+    renamed.store(true);
+  });
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (!renamed.load() && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::yield();
+  EXPECT_TRUE(renamed.load());
+  observed->release();
+  publisher.join();
+  renamer.join();
+  EXPECT_EQ(observed->name(), "original");
+  EXPECT_EQ(child.getName(), String("a-longer-replacement-name"));
 }
 
 TEST(VFS, InodeRetirementClosesAdmissionBeforeCallbackDrain) {

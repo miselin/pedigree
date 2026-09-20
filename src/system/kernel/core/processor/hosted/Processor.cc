@@ -27,6 +27,9 @@
 #include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/state.h"
+#if PEDIGREE_HOSTED_FUNCTION_PROFILE
+#include "pedigree/kernel/processor/hosted/FunctionProfile.h"
+#endif
 
 #include "HostedPlatform.h"
 #include "InterruptManager.h"
@@ -173,6 +176,9 @@ bool ProcessorBase::saveState(SchedulerState& state) {
 }
 
 void ProcessorBase::restoreState(SchedulerState& state, volatile uintptr_t* pLock) {
+#if PEDIGREE_HOSTED_FUNCTION_PROFILE
+  hostedFunctionProfileInvalidate(HostedProfileInvalidation::ContextTransfer);
+#endif
   if (pLock)
     *pLock = 1;
 
@@ -211,6 +217,9 @@ void ProcessorBase::jumpUser(volatile uintptr_t* pLock, uintptr_t address, uintp
 #if SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
 void ProcessorBase::switchState(bool bInterrupts, SchedulerState& a, SchedulerState& b,
                                 volatile uintptr_t* pLock) {
+#if PEDIGREE_HOSTED_FUNCTION_PROFILE
+  hostedFunctionProfileInvalidate(HostedProfileInvalidation::ContextTransfer);
+#endif
   void* fake_stack_save = nullptr;
 
   ucontext_t* a_ctx = reinterpret_cast<ucontext_t*>(a.state);
@@ -235,6 +244,9 @@ static void syscallStateWrapper(uintptr_t state, uintptr_t lock, uintptr_t sourc
 
 void ProcessorBase::switchState(bool bInterrupts, SchedulerState& a, SyscallState& b,
                                 volatile uintptr_t* pLock) {
+#if PEDIGREE_HOSTED_FUNCTION_PROFILE
+  hostedFunctionProfileInvalidate(HostedProfileInvalidation::ContextTransfer);
+#endif
   Thread* target = Processor::information().getCurrentThread();
   size_t stackSize = 0;
   void* stackBase = target ? target->getKernelStackBase(&stackSize) : nullptr;
@@ -351,6 +363,9 @@ void ProcessorBase::jumpKernel(volatile uintptr_t* pLock, uintptr_t address, uin
 void ProcessorBase::saveAndJumpKernel(bool bInterrupts, SchedulerState& s,
                                       volatile uintptr_t* pLock, uintptr_t address, uintptr_t stack,
                                       uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4) {
+#if PEDIGREE_HOSTED_FUNCTION_PROFILE
+  hostedFunctionProfileInvalidate(HostedProfileInvalidation::ContextTransfer);
+#endif
   assert(stack);
 
   uintptr_t stackBottom = stack - KERNEL_STACK_SIZE;
@@ -381,6 +396,9 @@ void ProcessorBase::saveAndJumpKernel(bool bInterrupts, SchedulerState& s,
 void ProcessorBase::saveAndJumpUser(bool bInterrupts, SchedulerState& s, volatile uintptr_t* pLock,
                                     uintptr_t address, uintptr_t stack, uintptr_t p1, uintptr_t p2,
                                     uintptr_t p3, uintptr_t p4) {
+#if PEDIGREE_HOSTED_FUNCTION_PROFILE
+  hostedFunctionProfileInvalidate(HostedProfileInvalidation::ContextTransfer);
+#endif
   assert(stack);
 
   ucontext_t new_context;
@@ -438,6 +456,11 @@ void ProcessorBase::disableDebugBreakpoint(size_t nBpNumber) {
 }
 
 void ProcessorBase::setInterrupts(bool bEnable) {
+#if PEDIGREE_HOSTED_FUNCTION_PROFILE
+  if (bEnable) {
+    hostedFunctionProfileInvalidate(HostedProfileInvalidation::InterruptEnable);
+  }
+#endif
   // Block signals to toggle "interrupts".
   sigset_t set;
   if (bEnable) {

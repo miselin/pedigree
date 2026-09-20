@@ -26,6 +26,7 @@
 #include "pedigree/kernel/processor/SyscallHandler.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/new"
 
 SyscallManager::HandlerSlot::HandlerSlot()
     : handler(nullptr),
@@ -35,9 +36,6 @@ SyscallManager::HandlerSlot::HandlerSlot()
       draining(false),
       dispatches(nullptr),
       drainWaiters() {}
-
-SyscallManager::PostSyscallAction::PostSyscallAction()
-    : kind(NoPostSyscallAction), value(0), state() {}
 
 SyscallManager::Registration::Registration()
     : m_pManager(nullptr), m_Service(serviceEnd), m_pHandler(nullptr), m_Generation(0) {}
@@ -113,6 +111,7 @@ SyscallManager::HandlerLease::~HandlerLease() {
 SyscallManager::SyscallManager()
     : m_HandlerLock(),
       m_HandlerSlots(),
+      m_FastEntries(),
       m_NextDispatchSequence(0)
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
@@ -124,10 +123,16 @@ SyscallManager::SyscallManager()
 
 SyscallManager::~SyscallManager() = default;
 
-void SyscallManager::clearSlot(HandlerSlot& slot) {
+uintptr_t SyscallManager::dispatchVirtual(SyscallHandler* handler, SyscallState& state) {
+  return handler->syscall(state);
+}
+
+void SyscallManager::clearSlot(Service_t service) {
+  HandlerSlot& slot = m_HandlerSlots[service];
   assert(!slot.inFlight);
   assert(!slot.dispatches);
-  slot.handler = nullptr;
+  __atomic_store_n(&slot.handler, static_cast<SyscallHandler*>(nullptr), __ATOMIC_RELEASE);
+  __atomic_store_n(&m_FastEntries[service], static_cast<FastEntry>(nullptr), __ATOMIC_RELAXED);
   slot.enabled = false;
   slot.draining = false;
 }
@@ -151,7 +156,7 @@ bool SyscallManager::callbackContextLocked(void* owner) const {
 }
 
 bool SyscallManager::registerHandler(Service_t service, SyscallHandler* pHandler,
-                                     Registration& registration) {
+                                     Registration& registration, FastEntry entry) {
   if (UNLIKELY(service >= serviceEnd) || !pHandler || registration) {
     return false;
   }
@@ -159,6 +164,10 @@ bool SyscallManager::registerHandler(Service_t service, SyscallHandler* pHandler
   m_HandlerLock.acquire();
   HandlerSlot& slot = m_HandlerSlots[service];
 
+  if (entry && m_FastEntries[service] && m_FastEntries[service] != dispatchVirtual) {
+    FATAL("Syscall fast entry already registered for service " << Dec
+                                                               << static_cast<size_t>(service));
+  }
   if (slot.handler) {
     m_HandlerLock.release();
     return false;
@@ -168,7 +177,9 @@ bool SyscallManager::registerHandler(Service_t service, SyscallHandler* pHandler
   if (!slot.generation) {
     ++slot.generation;
   }
-  slot.handler = pHandler;
+  // Choose the fallback once so registered services need no entry-null check.
+  __atomic_store_n(&m_FastEntries[service], entry ? entry : dispatchVirtual, __ATOMIC_RELAXED);
+  __atomic_store_n(&slot.handler, pHandler, __ATOMIC_RELEASE);
   slot.enabled = true;
   slot.draining = false;
   registration.m_pManager = this;
@@ -209,7 +220,7 @@ bool SyscallManager::dispatchHandlerForTest(Service_t service, uintptr_t& result
   }
 
   SyscallState state = {};
-  result = handler.handler()->syscall(state);
+  result = dispatchHandler(service, handler.handler(), state);
   return action.kind == NoPostSyscallAction;
 }
 #endif
@@ -236,7 +247,7 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
 
   const size_t targetGeneration = registration.m_Generation;
   if (!slot.inFlight) {
-    clearSlot(slot);
+    clearSlot(registration.m_Service);
     m_HandlerLock.release();
     return true;
   }
@@ -271,7 +282,7 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
     if (!slot.inFlight) {
       if (slot.handler) {
         assert(slot.draining);
-        clearSlot(slot);
+        clearSlot(registration.m_Service);
       }
       m_HandlerLock.release();
       return true;
@@ -386,34 +397,23 @@ void SyscallManager::abandonedHandlerCleanup(void* context) {
 
 bool SyscallManager::requestPostSyscallAction(PostSyscallActionKind kind, intptr_t value,
                                               const ProcessorState* state) {
-  void* owner = currentDispatchOwner();
-  HandlerDispatch* target = nullptr;
-
-  m_HandlerLock.acquire();
-  for (size_t i = 0; i < serviceEnd; ++i) {
-    for (HandlerDispatch* dispatch = m_HandlerSlots[i].dispatches; dispatch;
-         dispatch = dispatch->next) {
-      if (dispatch->owner == owner && (!target || dispatch->sequence > target->sequence)) {
-        target = dispatch;
-      }
-    }
-  }
-
-  if (!target || !target->action || target->action->kind != NoPostSyscallAction) {
-    m_HandlerLock.release();
+  Thread* thread = Processor::information().getCurrentThread();
+  PostSyscallAction* action = thread
+                                  ? static_cast<PostSyscallAction*>(
+                                        thread->getSyscallDispatchContext())
+                                  : nullptr;
+  if (!action || action->kind != NoPostSyscallAction) {
     return false;
   }
-  if ((kind == ReturnFromEvent || kind == PopEventState) && !target->stateLevel) {
-    m_HandlerLock.release();
+  if ((kind == ReturnFromEvent || kind == PopEventState) && !thread->getStateLevel()) {
     return false;
   }
 
-  target->action->kind = kind;
-  target->action->value = value;
   if (state) {
-    target->action->state = *state;
+    new (&action->state) ProcessorState(*state);
   }
-  m_HandlerLock.release();
+  action->value = value;
+  action->kind = kind;
   return true;
 }
 
@@ -459,6 +459,9 @@ void SyscallManager::setPostSyscallHook(PostSyscallHook hook) {
 
 bool SyscallManager::postSyscallHookHandled(const PostSyscallAction& action) {
   PostSyscallHook hook = __atomic_load_n(&m_PostSyscallHook, __ATOMIC_ACQUIRE);
-  return hook && hook(action.kind, action.value);
+  const ProcessorState* state =
+      action.kind == RestoreProcessorState || action.kind == JumpToUserspace ? &action.state
+                                                                             : nullptr;
+  return hook && hook(action.kind, action.value, state);
 }
 #endif

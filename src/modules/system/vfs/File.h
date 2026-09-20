@@ -102,8 +102,12 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /** Holds this file's write transaction lock across one or more fragments. */
   class WriteGuard {
    public:
-    uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
-    uint64_t append(uint64_t size, uintptr_t buffer, uint64_t& location, bool bCanBlock = true);
+    ~WriteGuard();
+
+    uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true,
+                   bool publishMetadata = true);
+    uint64_t append(uint64_t size, uintptr_t buffer, uint64_t& location, bool bCanBlock = true,
+                    bool publishMetadata = true);
 
    private:
     friend class File;
@@ -112,6 +116,7 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
 
     File& m_File;
     LockGuard<Mutex> m_Guard;
+    bool m_MetadataPending = false;
   };
 
   /** Constructor, creates an invalid file. */
@@ -551,6 +556,14 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   MUST_USE_RESULT virtual bool pinBlock(uint64_t location);
 
   /**
+   * Returns an existing block's exact address with one caller-owned reference,
+   * or zero without a reference. The aligned byte location must be released
+   * with one unpinBlock(). No backend population occurs on a miss.
+   * retryChanged retries when the File index changes while acquiring the pin.
+   */
+  MUST_USE_RESULT virtual uintptr_t acquireCachedBlock(uint64_t location, bool retryChanged);
+
+  /**
    * Unpins the given page.
    */
   virtual void unpinBlock(uint64_t location);
@@ -578,6 +591,8 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   void retainDetachedParent();
 
   void moveNamespace(const String& name, File* parent);
+
+  bool snapshotNamespace(ParentLease& parent, String& name, FileEventMask interest) const;
 
   String m_Name;
   Time::Timestamp m_AccessedTime;
@@ -659,6 +674,8 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   List<MonitorTarget*> m_MonitorTargets;
 
  private:
+  void publishWriteMetadata();
+
   /** Performs a write while m_WriteLock is already held. */
   uint64_t writeUnlocked(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock);
 

@@ -1,5 +1,7 @@
 /* Copyright (c) 2026, Pedigree Developers. */
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -54,6 +56,9 @@ void MemoryMappedFile::releaseDetachedPage(uintptr_t oldAddress,
 
 void MemoryMappedFile::discardRange(VirtualAddressSpace& space, uintptr_t base, size_t length) {
   LockGuard<Mutex> guard(m_Lock);
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  size_t trackedPages = 0, mappedPages = 0;
+#endif
   uintptr_t cursor = base;
   uintptr_t address = 0;
   physical_uintptr_t tracked = 0;
@@ -62,10 +67,22 @@ void MemoryMappedFile::discardRange(VirtualAddressSpace& space, uintptr_t base, 
       break;
     // The copied key survives rotations when retirement removes the entry.
     cursor = address + 1;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++trackedPages;
+#endif
     VirtualAddressSpace::DetachedPage page{address, 0, 0, false};
     page.mapped = space.detachMapping(reinterpret_cast<void*>(address), page.physical, page.flags);
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    if (page.mapped)
+      ++mappedPages;
+#endif
     releaseDetachedPageUnlocked(address, page);
   }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  process->recordBenchmarkVmCounter(Process::VmDiscardTrackedPages, trackedPages);
+  process->recordBenchmarkVmCounter(Process::VmDiscardMappedPages, mappedPages);
+#endif
 }
 
 MemoryMapManager::VmStatus MemoryMapManager::residency(uintptr_t base, size_t length,

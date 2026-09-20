@@ -81,6 +81,7 @@ int main(int argc, char** argv) {
     int (*test)(void);
   } suites[] = {{"signals", signal_timer_test_signals},
                 {"timers", signal_timer_test_timers},
+                {"cpu-itimers", signal_timer_test_cpu_itimers},
                 {"clock", signal_timer_test_clock},
                 {"raw-clock", signal_timer_test_raw_clock}};
   int selected = 0;

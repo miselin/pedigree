@@ -1,3 +1,5 @@
+#include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -12,6 +14,123 @@
 namespace {
 constexpr size_t PageSize = 4096;
 using Status = VirtualAddressSpace::RemapStatus;
+
+bool retainedTablesRegression() {
+  auto space = UniquePointer<VirtualAddressSpace>::adopt(VirtualAddressSpace::create());
+  auto& memory = PhysicalMemoryManager::instance();
+  const auto physical = memory.allocatePage();
+  if (!space || !physical) {
+    if (physical)
+      memory.freePage(physical);
+    return false;
+  }
+  void* address = reinterpret_cast<void*>(space.get()->getDynamicStart());
+  bool ownsPhysical = true, passed = true;
+  const size_t expectedTables[] = {3, 0, 3};
+  for (size_t expected : expectedTables) {
+    size_t tables = 0;
+    if (!space.get()->tryMapUserPage(physical, address,
+                                     VirtualAddressSpace::Write | VirtualAddressSpace::NoAccess,
+                                     &tables)) {
+      passed = false;
+      break;
+    }
+    ownsPhysical = false;
+    if (!space.get()->tryDetachUserPage(address, physical)) {
+      passed = false;
+      break;
+    }
+    ownsPhysical = true;
+    if (tables != expected ||
+        !space.get()->map(physical, address,
+                          VirtualAddressSpace::Write | VirtualAddressSpace::Borrowed)) {
+      passed = false;
+      break;
+    }
+    physical_uintptr_t detached = 0;
+    size_t flags = 0;
+    if (!space.get()->detachMapping(address, detached, flags) || detached != physical ||
+        space.get()->isMapped(address)) {
+      passed = false;
+      break;
+    }
+    if (!expected) {
+      // A global free-page count is stable only without another CPU or thread.
+      const bool singleProcessor = Processor::getCount() == 1;
+      const bool interrupts = Processor::getInterrupts();
+      Processor::setInterrupts(false);
+      const size_t before = singleProcessor ? memory.freePageCount() : 0;
+      space.get()->revertToKernelAddressSpace();
+      const size_t after = singleProcessor ? memory.freePageCount() : 0;
+      Processor::setInterrupts(interrupts);
+      if (singleProcessor && after != before + 3) {
+        passed = false;
+        break;
+      }
+    }
+  }
+  space.reset();
+  if (ownsPhysical)
+    memory.freePage(physical);
+  return passed;
+}
+
+bool hugePageTableReplacementRegression() {
+  constexpr size_t HugePageSize = 2 * 1024 * 1024;
+  physical_uintptr_t hugePhysical = 0;
+  bool found = false;
+  if (!g_pBootstrapInfo)
+    return false;
+  for (void* entry = g_pBootstrapInfo->getMemoryMap(); entry;
+       entry = g_pBootstrapInfo->nextMemoryMapEntry(entry)) {
+    const uint64_t base = g_pBootstrapInfo->getMemoryMapEntryAddress(entry);
+    const uint64_t length = g_pBootstrapInfo->getMemoryMapEntryLength(entry);
+    if (g_pBootstrapInfo->getMemoryMapEntryType(entry) != 1 || length < HugePageSize ||
+        base > ~uint64_t{0} - (HugePageSize - 1) || length > ~uint64_t{0} - base)
+      continue;
+    const uint64_t aligned = (base + HugePageSize - 1) & ~(uint64_t{HugePageSize} - 1);
+    if (aligned - base <= length - HugePageSize) {
+      hugePhysical = aligned;
+      found = true;
+      break;
+    }
+  }
+  if (!found)
+    return false;
+
+  auto space = UniquePointer<VirtualAddressSpace>::adopt(VirtualAddressSpace::create());
+  auto& memory = PhysicalMemoryManager::instance();
+  const auto physical = memory.allocatePage();
+  if (!space || !physical) {
+    if (physical)
+      memory.freePage(physical);
+    return false;
+  }
+  const uintptr_t base = space.get()->getDynamicStart();
+  void* address = reinterpret_cast<void*>(base);
+  const size_t flags = VirtualAddressSpace::Write | VirtualAddressSpace::Borrowed;
+  bool passed = !(base & (HugePageSize - 1)) && !(hugePhysical & (HugePageSize - 1)) &&
+                space.get()->map(physical, address, flags);
+  if (passed) {
+    // This private address space is never activated. Both mappings borrow RAM,
+    // so destroying it cannot release the backing range or the test's data page.
+    const bool singleProcessor = Processor::getCount() == 1;
+    const bool interrupts = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    const size_t before = singleProcessor ? memory.freePageCount() : 0;
+    passed = space.get()->mapHuge(hugePhysical, address, HugePageSize / PageSize, flags);
+    const size_t after = singleProcessor ? memory.freePageCount() : 0;
+    Processor::setInterrupts(interrupts);
+    passed = passed && (!singleProcessor || after == before + 1) &&
+             space.get()->isMapped(address) &&
+             space.get()->isMapped(reinterpret_cast<void*>(base + HugePageSize - PageSize)) &&
+             !space.get()->isMapped(reinterpret_cast<void*>(base - PageSize)) &&
+             !space.get()->isMapped(reinterpret_cast<void*>(base + HugePageSize));
+  }
+  space.reset();
+  memory.freePage(physical);
+  return passed;
+}
 
 bool reserveAligned(Process& process, size_t length, uintptr_t& result) {
   for (;;) {
@@ -181,6 +300,16 @@ extern "C" EXPORTED_PUBLIC bool x64RemapCoreRegression() {
   if (!thread || !thread->getParent()) {
     return false;
   }
+  if (!retainedTablesRegression()) {
+    ERROR("VM-REMAP-CORE: FAIL retained-tables");
+    return false;
+  }
+  NOTICE("VM-REMAP-CORE: PASS retained-tables");
+  if (!hugePageTableReplacementRegression()) {
+    ERROR("VM-REMAP-CORE: FAIL huge-table-replacement");
+    return false;
+  }
+  NOTICE("VM-REMAP-CORE: PASS huge-table-replacement");
   RemapFixture fixture(*thread->getParent());
   if (!fixture.initialise()) {
     return false;

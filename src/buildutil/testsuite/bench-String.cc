@@ -22,6 +22,7 @@
 #include "pedigree/kernel/utilities/String.h"
 
 #include <string.h>
+#include <string>
 
 #include <benchmark/benchmark.h>
 
@@ -41,6 +42,18 @@ static void BM_CxxStringCreationConstexpr(benchmark::State& state) {
   }
 
   state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_StdStringCopy(benchmark::State& state) {
+  const std::string source("Hello, world!");
+
+  while (state.KeepRunning()) {
+    std::string copy(source);
+    benchmark::DoNotOptimize(copy);
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetBytesProcessed(int64_t(state.iterations()) * source.size());
 }
 
 static void BM_CxxStringCopyToStatic(benchmark::State& state) {
@@ -438,6 +451,7 @@ static void BM_CxxStringCompareRawFuncWorstCase(benchmark::State& state) {
 
 BENCHMARK(BM_CxxStringCreation);
 BENCHMARK(BM_CxxStringCreationConstexpr);
+BENCHMARK(BM_StdStringCopy);
 BENCHMARK(BM_CxxStringCopyToStatic);
 BENCHMARK(BM_CxxStringCopyToDynamic);
 BENCHMARK(BM_CxxStringCopyLength);

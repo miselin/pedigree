@@ -100,12 +100,11 @@ void Pit::uninitialise() {
 Pit::Pit() : m_IoPort("PIT"), m_IrqId(0), m_Handler() {}
 
 void Pit::schedulerIrq(irq_id_t number, InterruptState& state) {
-  // TODO: Delta is wrong
   SchedulerTimerHandlerSlot::DispatchGuard dispatch;
   if (LIKELY(m_Handler.beginDispatch(0, dispatch))) {
     SchedulerTimerDispatchCleanup dispatchCleanup(dispatch);
     ExecutionContextGuard schedulerContext(ExecutionContext::SchedulerIrq);
-    dispatch.handler()->timer(0, state);
+    dispatch.handler()->timer(nominalQuantumNs(), state);
   }
 
   // Processor::information().getScheduler().checkEventState(state.getStackPointer());

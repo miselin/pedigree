@@ -63,6 +63,13 @@ class EXPORTED_PUBLIC WaitQueue {
     ~Guard();
 
     /**
+     * Enables wakeAllIfWaiting for this wait. Call before the final
+     * sequentially consistent predicate check, keeping this guard held
+     * until either abandoning the wait or enrolling with wait().
+     */
+    void prepareToWait();
+
+    /**
      * Enrols and blocks the current thread. The Guard is consumed.
      */
     MUST_USE_RESULT WakeReason wait(const Channel& channel = Channel(), size_t debugState = 0,
@@ -135,6 +142,14 @@ class EXPORTED_PUBLIC WaitQueue {
 
   bool wakeOne(WakeReason reason = WakeReason::Signalled, const Channel& channel = Channel());
   size_t wakeAll(WakeReason reason = WakeReason::Signalled, const Channel& channel = Channel());
+
+  /**
+   * Skips an empty queue. Every matching waiter must use prepareToWait(),
+   * and the caller must publish its predicate with sequential consistency
+   * before calling this method. Ordinary wakeAll has no such requirement.
+   */
+  size_t wakeAllIfWaiting(WakeReason reason = WakeReason::Signalled,
+                         const Channel& channel = Channel());
 
   size_t waiterCount();
 
@@ -222,12 +237,14 @@ class EXPORTED_PUBLIC WaitQueue {
   bool completeWaiter(Guard& guard, Waiter* waiter, WakeReason reason);
   static void publishReady(Waiter* waiter);
   void removeWaiterLocked(Waiter* waiter);
+  void clearWaitIntentIfEmpty();
   void cancel(Waiter* waiter, WakeReason reason);
 
   Spinlock m_Lock;
   Waiter* m_pFirstWaiter;
   Waiter* m_pLastWaiter;
   size_t m_WaiterCount;
+  bool m_WaitIntent;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   static BeforeBlockHook m_BeforeBlockHook;

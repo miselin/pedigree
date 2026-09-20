@@ -131,6 +131,8 @@ class EXPORTED_PUBLIC Scheduler {
   SystemActivity systemActivity();
   /** Called by an ordinary accounting worker after its batch is complete. */
   void sampleLoadAverage();
+  /** Coalesces the next due load sample from a scheduler tick. */
+  void requestLoadAverageSample();
 
   /** Returns the number of processes currently in operation. */
   size_t getNumProcesses();
@@ -181,6 +183,7 @@ class EXPORTED_PUBLIC Scheduler {
 
   /** Observes calls which still require the long-term scheduler lookup. */
   static EXPORTED_PUBLIC void setGenericThreadStatusHook(GenericThreadStatusHook hook);
+  bool runHostedLoadAverageRequestRegression();
 #endif
 
   Process* getKernelProcess() const {
@@ -214,6 +217,7 @@ class EXPORTED_PUBLIC Scheduler {
   static void releaseActivityEntry(Process* process, Thread* thread);
   Mutex m_ActivityLock;
   uint64_t m_NextActivityAttempt = 0;
+  bool m_ActivitySamplePending = false;
   LoadAverage m_LoadAverage;
 
   /** The Scheduler instance. */

@@ -59,9 +59,14 @@ void AnonymousMemoryMap::setCloneFailureForTest(ssize_t after) {
 #endif
 AnonymousMemoryMap::~AnonymousMemoryMap() {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  if (m_OwnsMappings)
-    for (auto& page : m_Mappings)
-      SwapStore::instance().release(page.slot);
+  if (!m_OwnsMappings)
+    return;
+  uintptr_t cursor = 0, address;
+  Page page;
+  while (m_Mappings.lowerBound(cursor, address, page)) {
+    SwapStore::instance().release(page.slot);
+    cursor = address + 1;
+  }
 }
 MemoryMappedObject* AnonymousMemoryMap::clone() {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
@@ -70,7 +75,9 @@ MemoryMappedObject* AnonymousMemoryMap::clone() {
     return nullptr;
   result->m_OwnerProcess = m_OwnerProcess;
   result->m_MaximumPermissions = m_MaximumPermissions;
-  for (const auto& page : m_Mappings) {
+  uintptr_t cursor = 0, address;
+  Page page;
+  while (m_Mappings.lowerBound(cursor, address, page)) {
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     if (!anonymousCloneFailure) {
       delete result;
@@ -79,15 +86,16 @@ MemoryMappedObject* AnonymousMemoryMap::clone() {
     if (anonymousCloneFailure > 0)
       --anonymousCloneFailure;
 #endif
-    if (!result->m_Mappings.tryPushBack(page)) {
+    if (!result->m_Mappings.tryInsert(page.address, page)) {
       delete result;
       return nullptr;
     }
     if (page.slot && !SwapStore::instance().retain(page.slot)) {
-      result->m_Mappings.popBack();
+      result->m_Mappings.remove(page.address);
       delete result;
       return nullptr;
     }
+    cursor = address + 1;
   }
   return result;
 }
@@ -108,15 +116,16 @@ MemoryMappedObject* AnonymousMemoryMap::stageSlice(uintptr_t source, size_t sour
   result->m_MaximumPermissions = m_MaximumPermissions;
   result->m_Attachment = m_Attachment;
   const size_t preserved = sourceLength < destinationLength ? sourceLength : destinationLength;
-  for (const auto& page : m_Mappings) {
-    if (page.address < source || page.address - source >= preserved)
-      continue;
+  uintptr_t cursor = source, address;
+  Page page;
+  while (m_Mappings.lowerBound(cursor, address, page) && address - source < preserved) {
     Page moved = page;
     moved.address = destination + page.address - source;
-    if (!result->m_Mappings.tryPushBack(moved)) {
+    if (!result->m_Mappings.tryInsert(moved.address, moved)) {
       delete result;
       return nullptr;
     }
+    cursor = address + 1;
   }
   return result;
 }
@@ -128,11 +137,10 @@ MemoryMappedObject* AnonymousMemoryMap::split(uintptr_t at) {
       stageSlice(at, m_Address + m_Length - at, at, m_Address + m_Length - at));
   if (!result)
     return nullptr;
-  for (auto it = m_Mappings.begin(); it != m_Mappings.end();)
-    if ((*it).address >= at)
-      it = m_Mappings.erase(it);
-    else
-      ++it;
+  uintptr_t address;
+  Page page;
+  while (m_Mappings.lowerBound(at, address, page))
+    m_Mappings.remove(address);
   m_Length = at - m_Address;
   result->m_OwnsMappings = m_OwnsMappings;
   return result;
@@ -140,31 +148,40 @@ MemoryMappedObject* AnonymousMemoryMap::split(uintptr_t at) {
 void AnonymousMemoryMap::releaseDetachedPage(uintptr_t oldAddress,
                                              const VirtualAddressSpace::DetachedPage& page) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it) {
-    if ((*it).address == oldAddress) {
-      SwapStore::instance().release((*it).slot);
-      m_Mappings.erase(it);
-      break;
-    }
+  Page* tracked = m_Mappings.find(oldAddress);
+  if (tracked) {
+    SwapStore::instance().release(tracked->slot);
+    m_Mappings.remove(oldAddress);
   }
   if (page.mapped)
     PhysicalMemoryManager::instance().freePage(page.physical);
 }
 void AnonymousMemoryMap::discardRange(VirtualAddressSpace& space, uintptr_t base, size_t length) {
-  MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  for (auto it = m_Mappings.begin(); it != m_Mappings.end();) {
-    const uintptr_t address = (*it).address;
-    if (address < base || address - base >= length) {
-      ++it;
-      continue;
-    }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  size_t trackedPages = 0, mappedPages = 0;
+#endif
+  uintptr_t address;
+  Page tracked;
+  while (m_Mappings.lowerBound(base, address, tracked) && address - base < length) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++trackedPages;
+#endif
     VirtualAddressSpace::DetachedPage page{address, 0, 0, false};
     page.mapped = space.detachMapping(reinterpret_cast<void*>(address), page.physical, page.flags);
-    SwapStore::instance().release((*it).slot);
-    it = m_Mappings.erase(it);
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    if (page.mapped)
+      ++mappedPages;
+#endif
+    SwapStore::instance().release(tracked.slot);
+    m_Mappings.remove(address);
     if (page.mapped)
       PhysicalMemoryManager::instance().freePage(page.physical);
   }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  process->recordBenchmarkVmCounter(Process::VmDiscardTrackedPages, trackedPages);
+  process->recordBenchmarkVmCounter(Process::VmDiscardMappedPages, mappedPages);
+#endif
 }
 bool AnonymousMemoryMap::remove(size_t length) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
@@ -183,7 +200,11 @@ bool AnonymousMemoryMap::remove(size_t length) {
 void AnonymousMemoryMap::setPermissions(Permissions permissions) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
   auto& space = Processor::information().getVirtualAddressSpace();
-  for (auto& page : m_Mappings) {
+  uintptr_t cursor = 0, address;
+  Page tracked;
+  while (m_Mappings.lowerBound(cursor, address, tracked)) {
+    cursor = address + 1;
+    Page& page = *m_Mappings.find(address);
     if (page.slot || !space.isMapped(reinterpret_cast<void*>(page.address)))
       continue;
     physical_uintptr_t physical;
@@ -248,13 +269,12 @@ bool AnonymousMemoryMap::trap(VirtualAddressSpace& space, uintptr_t address, boo
   address &= ~(bytes - 1);
   if ((write && !(m_Permissions & Write)) || (!write && !(m_Permissions & Read) && !population))
     return false;
-  for (auto& page : m_Mappings) {
-    if (page.address == address && (page.slot || page.pagingBlocked)) {
-      const auto status = restorePage(space, page);
-      if (population)
-        *population = populationStatus(status);
-      return status == SwapStatus::Success;
-    }
+  Page* entry = m_Mappings.find(address);
+  if (entry && (entry->slot || entry->pagingBlocked)) {
+    const auto status = restorePage(space, *entry);
+    if (population)
+      *population = populationStatus(status);
+    return status == SwapStatus::Success;
   }
   Scheduler::ProcessLease owner;
   if (!admitOwner(m_OwnerProcess, space, owner))
@@ -270,10 +290,7 @@ bool AnonymousMemoryMap::trap(VirtualAddressSpace& space, uintptr_t address, boo
       memory.freePage(m_Zero);
       return false;
     }
-    bool tracked = false;
-    for (const auto& page : m_Mappings)
-      tracked = tracked || page.address == address;
-    if (!tracked && !m_Mappings.tryPushBack({address, {}, false})) {
+    if (!entry && !m_Mappings.tryInsert(address, Page{address, {}, false})) {
       space.unmap(virtualAddress);
       memory.freePage(m_Zero);
       return false;
@@ -292,16 +309,9 @@ bool AnonymousMemoryMap::trap(VirtualAddressSpace& space, uintptr_t address, boo
     }
     // Reserve tracking before replacing a zero-page mapping. The existing
     // address entry is reused, so allocation failure cannot orphan the PTE.
-    Page* entry = nullptr;
-    for (auto& page : m_Mappings)
-      if (page.address == address)
-        entry = &page;
-    if (!entry) {
-      if (!m_Mappings.tryPushBack({address, {}, false})) {
-        memory.freePage(physical);
-        return false;
-      }
-      entry = &*m_Mappings.rbegin();
+    if (!entry && !m_Mappings.tryInsert(address, Page{address, {}, false})) {
+      memory.freePage(physical);
+      return false;
     }
     if (space.isMapped(virtualAddress)) {
       physical_uintptr_t old;
@@ -338,12 +348,11 @@ bool AnonymousMemoryMap::supportsPageOut(VirtualAddressSpace& space, uintptr_t a
   if (!m_OwnerProcess || !m_OwnsMappings || m_LockMode != MemoryLockMode::None || !m_bCopyOnWrite ||
       m_Attachment)
     return false;
-  for (auto& page : m_Mappings) {
-    if (page.address != address)
-      continue;
-    if (page.slot)
+  Page* page = m_Mappings.find(address);
+  if (page) {
+    if (page->slot)
       return true;
-    if (page.pagingBlocked)
+    if (page->pagingBlocked)
       return false;
     auto* at = reinterpret_cast<void*>(address);
     if (!space.isMapped(at))
@@ -369,23 +378,22 @@ SwapStatus AnonymousMemoryMap::pageOutAt(VirtualAddressSpace& space, uintptr_t a
   Scheduler::ProcessLease owner;
   if (!admitOwner(m_OwnerProcess, space, owner))
     return SwapStatus::Busy;
-  for (auto& page : m_Mappings) {
-    auto* at = reinterpret_cast<void*>(address);
-    if (page.address != address || page.slot || !space.isMapped(at))
-      continue;
+  Page* page = m_Mappings.find(address);
+  auto* at = reinterpret_cast<void*>(address);
+  if (page && !page->slot && space.isMapped(at)) {
     physical_uintptr_t physical;
     size_t flags;
     space.getMapping(at, physical, flags);
     if (!space.trySetFlags(at, flags | VirtualAddressSpace::NoAccess))
       return SwapStatus::IoError;
-    page.pagingBlocked = true;
+    page->pagingBlocked = true;
     SwapReference slot;
     const bool zero = physical == m_Zero;
     const auto status =
         zero ? SwapStatus::Success : SwapStore::instance().writePage(physical, slot);
     if (status == SwapStatus::Success && space.tryDetachUserPage(at, physical)) {
-      page.slot = slot;
-      page.pagingBlocked = false;
+      page->slot = slot;
+      page->pagingBlocked = false;
       PhysicalMemoryManager::instance().freePage(physical);
       accountPages(*owner.get(), -1, zero ? 0 : -1);
       released = !zero;
@@ -393,7 +401,7 @@ SwapStatus AnonymousMemoryMap::pageOutAt(VirtualAddressSpace& space, uintptr_t a
     }
     SwapStore::instance().release(slot);
     if (space.trySetFlags(at, flags))
-      page.pagingBlocked = false;
+      page->pagingBlocked = false;
     return status == SwapStatus::Success ? SwapStatus::IoError : status;
   }
   return SwapStatus::Success;
@@ -402,11 +410,14 @@ bool AnonymousMemoryMap::pageOut(VirtualAddressSpace& space) {
   if (!MemoryMapManager::instance().operationOwnedByCurrentExecution() ||
       !SwapStore::instance().snapshot().active)
     return false;
-  for (auto& page : m_Mappings) {
-    if (!supportsPageOut(space, page.address))
+  uintptr_t cursor = 0, address;
+  Page page;
+  while (m_Mappings.lowerBound(cursor, address, page)) {
+    cursor = address + 1;
+    if (!supportsPageOut(space, address))
       continue;
     bool released = false;
-    if (pageOutAt(space, page.address, released) != SwapStatus::Success)
+    if (pageOutAt(space, address, released) != SwapStatus::Success)
       return false;
     if (released)
       return true;
@@ -414,19 +425,30 @@ bool AnonymousMemoryMap::pageOut(VirtualAddressSpace& space) {
   return false;
 }
 SwapStatus AnonymousMemoryMap::restoreAll(VirtualAddressSpace& space) {
-  for (auto& page : m_Mappings) {
-    const auto status = restorePage(space, page);
+  uintptr_t cursor = 0, address;
+  Page page;
+  while (m_Mappings.lowerBound(cursor, address, page)) {
+    const auto status = restorePage(space, *m_Mappings.find(address));
     if (status != SwapStatus::Success)
       return status;
+    cursor = address + 1;
   }
   return SwapStatus::Success;
 }
 
 PopulationStatus AnonymousMemoryMap::prepareResidentAccess(VirtualAddressSpace& space,
                                                            uintptr_t address) {
+  auto restoreResidentPage = [&]() {
+    Page* page = m_Mappings.find(address);
+    if (page && page->pagingBlocked)
+      return populationStatus(restorePage(space, *page));
+    return PopulationStatus::Success;
+  };
+  // User copies already hold the manager operation gate; avoid rebuilding the
+  // interrupt and termination deferral scopes for every resident page.
+  if (MemoryMapManager::instance().operationOwnedByCurrentExecution())
+    return restoreResidentPage();
+
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  for (auto& page : m_Mappings)
-    if (page.address == address && page.pagingBlocked)
-      return populationStatus(restorePage(space, page));
-  return PopulationStatus::Success;
+  return restoreResidentPage();
 }

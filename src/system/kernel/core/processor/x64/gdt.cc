@@ -26,12 +26,14 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "InterruptManager.h"
+
 namespace {
-struct alignas(16) DoubleFaultStack {
+struct alignas(16) ExceptionStack {
   uint8_t bytes[8192];
 };
 static_assert(offsetof(X64TaskStateSegment, ist) == 0x24, "IST1 must be at TSS offset 0x24");
-static_assert(sizeof(DoubleFaultStack) % 16 == 0, "IST stack top must be aligned");
+static_assert(sizeof(ExceptionStack) % 16 == 0, "IST stack top must be aligned");
 }  // namespace
 
 X64GdtManager X64GdtManager::m_Instance;
@@ -94,6 +96,7 @@ void X64GdtManager::initialiseProcessor() {
   asm volatile("ltr %%ax" ::"a"(Processor::information().getTssSelector()));
 
   loadSegmentRegisters();
+  X64InterruptManager::initialiseProcessorIst();
 }
 
 X64GdtManager::X64GdtManager() : m_Gdt(0), m_DescriptorCount(0) {}
@@ -119,9 +122,12 @@ void X64GdtManager::initialiseTss(X64TaskStateSegment* pTss) {
 
   // Each permanent TSS needs its own resident stack: simultaneous faults must
   // not overwrite another CPU's frame. Touch every page before emergency use.
-  auto* stack = new DoubleFaultStack{};
+  // Match the independent #DF/NMI/#DB/#MC/#GP/#SS entries in the permanent IDT.
   // The IDT's IST selector is one-based, while the TSS array is zero-based.
-  pTss->ist[0] = reinterpret_cast<uint64_t>(stack + 1);
+  for (size_t i = 0; i < 6; ++i) {
+    auto* stack = new ExceptionStack{};
+    pTss->ist[i] = reinterpret_cast<uint64_t>(stack + 1);
+  }
 
   // All entries will be zero by default (all ports accessible to all IOPLs)
   /// \todo this should change

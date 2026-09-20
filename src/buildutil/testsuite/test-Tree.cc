@@ -303,6 +303,62 @@ TEST(PedigreeTree, LowerBoundCursorSurvivesRemoval) {
   EXPECT_EQ(x.count(), 0U);
 }
 
+TEST(PedigreeTree, FloorBoundOrderingAndAbsentOutputs) {
+  Tree<int, int> tree;
+  int key = 91, value = 92;
+  EXPECT_FALSE(tree.floorBound(0, key, value));
+  EXPECT_EQ(key, 91);
+  EXPECT_EQ(value, 92);
+  for (int inserted : {40, 10, 70, 20, 60, 30, 50})
+    tree.insert(inserted, inserted == 40 ? 0 : inserted + 100);
+  const int queries[] = {10, 11, 20, 35, 40, 69, 70, 100};
+  const int expected[] = {10, 10, 20, 30, 40, 60, 70, 70};
+  for (size_t i = 0; i < sizeof(queries) / sizeof(queries[0]); ++i) {
+    ASSERT_TRUE(tree.floorBound(queries[i], key, value));
+    EXPECT_EQ(key, expected[i]);
+    EXPECT_EQ(value, expected[i] == 40 ? 0 : expected[i] + 100);
+  }
+  key = 91;
+  value = 92;
+  EXPECT_FALSE(tree.floorBound(9, key, value));
+  EXPECT_EQ(key, 91);
+  EXPECT_EQ(value, 92);
+  for (int expectedKey = 70; expectedKey >= 10; expectedKey -= 10) {
+    ASSERT_TRUE(tree.floorBound(100, key, value));
+    EXPECT_EQ(key, expectedKey);
+    tree.remove(key);
+  }
+  EXPECT_FALSE(tree.floorBound(100, key, value));
+}
+
+TEST(PedigreeTree, FloorBoundComparisonCost) {
+  struct Key {
+    int number;
+    size_t* comparisons;
+    bool operator==(const Key& other) const {
+      ++*comparisons;
+      return number == other.number;
+    }
+    bool operator>(const Key& other) const {
+      ++*comparisons;
+      return number > other.number;
+    }
+  };
+  size_t comparisons = 0;
+  Tree<Key, int> tree;
+  for (int i = 0; i < 4096; ++i)
+    tree.insert(Key{i * 2, &comparisons}, i);
+  for (int i : {0, 1, 511, 4095}) {
+    Key key{-1, &comparisons};
+    int value = -1;
+    comparisons = 0;
+    ASSERT_TRUE(tree.floorBound(Key{i * 2 + 1, &comparisons}, key, value));
+    EXPECT_EQ(key.number, i * 2);
+    EXPECT_EQ(value, i);
+    EXPECT_LE(comparisons, 52U);
+  }
+}
+
 TEST(PedigreeTree, InsertMove) {
   Tree<int, SharedPointer<int>> x;
   auto y = SharedPointer<int>::allocate();
@@ -350,6 +406,33 @@ TEST(PedigreeTree, FallibleInsertionMovesOwnership) {
   EXPECT_EQ(tree.lookup(1).get(), retained);
   tree.clear();
   EXPECT_EQ(tree.count(), 0U);
+}
+
+TEST(PedigreeTree, MutableValueSurvivesRotationsAndUnrelatedRemoval) {
+  struct Value {
+    int content = 0;
+  };
+  Tree<int, Value> tree;
+  EXPECT_EQ(tree.find(32), nullptr);
+  ASSERT_TRUE(tree.tryInsert(32, Value{123}));
+  Value* retained = tree.find(32);
+  ASSERT_NE(retained, nullptr);
+  for (int i = 0; i < 128; ++i)
+    if (i != 32)
+      ASSERT_TRUE(tree.tryInsert(i, Value{i}));
+  EXPECT_EQ(tree.find(32), retained);
+  retained->content = 456;
+  for (int i = 0; i < 128; i += 2)
+    if (i != 32)
+      tree.remove(i);
+  ASSERT_EQ(tree.find(32), retained);
+  EXPECT_EQ(tree.find(32)->content, 456);
+  EXPECT_EQ(tree.find(30), nullptr);
+  EXPECT_EQ(tree.find(31)->content, 31);
+  tree.remove(32);
+  EXPECT_EQ(tree.find(32), nullptr);
+  tree.clear();
+  EXPECT_EQ(tree.find(31), nullptr);
 }
 
 TEST(PedigreeTree, EmptyIteratorEqualityIsSymmetric) {

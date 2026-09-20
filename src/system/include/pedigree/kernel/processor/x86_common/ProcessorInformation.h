@@ -44,6 +44,27 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
  public:
   typedef struct X64TaskStateSegment TaskStateSegment;
 
+#if X64
+  struct KernelGsAnchor {
+    uintptr_t kernelStack;
+    uintptr_t userStack;
+    X86CommonProcessorInformation* information;
+    size_t processorIndex;
+    void* pendingUserEntry;
+  };
+  static_assert(__builtin_offsetof(KernelGsAnchor, kernelStack) == 0);
+  static_assert(__builtin_offsetof(KernelGsAnchor, userStack) == 8);
+  static_assert(__builtin_offsetof(KernelGsAnchor, information) == 16);
+  static_assert(__builtin_offsetof(KernelGsAnchor, processorIndex) == 24);
+  static_assert(__builtin_offsetof(KernelGsAnchor, pendingUserEntry) == 32);
+  static_assert(sizeof(KernelGsAnchor) == 40);
+
+  KernelGsAnchor* kernelGsAnchor() {
+    return &m_KernelGsAnchor;
+  }
+  void activateKernelGsAnchor(size_t processorIndex);
+#endif
+
   /** Get the current processor's VirtualAddressSpace
    *\return reference to the current processor's VirtualAddressSpace */
   VirtualAddressSpace& getVirtualAddressSpace() const;
@@ -70,7 +91,9 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
 
   uintptr_t getKernelStack() const;
   void setKernelStack(uintptr_t stack);
-  Thread* getCurrentThread() const;
+  Thread* getCurrentThread() const {
+    return m_pCurrentThread;
+  }
   void setCurrentThread(Thread* pThread);
 
   PerProcessorScheduler& getScheduler();
@@ -86,7 +109,15 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
   void initialiseTscClockAnchor(uint64_t tsc, uint64_t nanoseconds);
 
   /** Reads this processor's clock anchor after its release publication. */
-  bool getTscClockAnchor(uint64_t& tsc, uint64_t& nanoseconds) const;
+  ALWAYS_INLINE bool getTscClockAnchor(uint64_t& tsc, uint64_t& nanoseconds) const {
+    if (!__atomic_load_n(&m_TscClockAnchorInitialised, __ATOMIC_ACQUIRE)) {
+      return false;
+    }
+
+    tsc = __atomic_load_n(&m_TscClockAnchor, __ATOMIC_RELAXED);
+    nanoseconds = __atomic_load_n(&m_TscClockAnchorNanoseconds, __ATOMIC_RELAXED);
+    return true;
+  }
 
  protected:
   /** Construct a X86CommonProcessor object
@@ -135,6 +166,10 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
   uint64_t m_TscClockAnchorNanoseconds;
   /** Release-published after both anchor values have been installed. */
   bool m_TscClockAnchorInitialised;
+
+#if X64
+  KernelGsAnchor m_KernelGsAnchor{0, 0, this, 0, nullptr};
+#endif
 };
 
 /** @} */

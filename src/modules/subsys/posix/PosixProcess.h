@@ -98,6 +98,7 @@ class IntervalTimer : public TimerHandler {
 
   Time::Timestamp absoluteCpuTotal() const;
   bool advanceCpuTimeLocked(Time::Timestamp absoluteTotal);
+  void setArmedLocked(bool armed);
   void signal();
 
   PosixProcess* m_Process;
@@ -112,6 +113,7 @@ class IntervalTimer : public TimerHandler {
 
 class EXPORTED_PUBLIC PosixProcess : public Process {
   friend class ProcessGroup;
+  friend class IntervalTimer;
 
  public:
   /** Defines what status this Process has within its group */
@@ -160,8 +162,6 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   int createSession();
   int changeProcessGroup(PosixProcess& caller, int groupId);
 
-  virtual ProcessType getType();
-
   void setMask(uint32_t mask);
   uint32_t getMask() const;
 
@@ -182,7 +182,9 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   void setDumpable(bool);
   void commitExecCredentials(Thread&, bool allExecutableFilesReadable);
 
-  virtual int64_t getUserId() const;
+  int64_t getUserId() const final {
+    return static_cast<int64_t>(__atomic_load_n(&m_RealUserId, __ATOMIC_ACQUIRE));
+  }
   virtual int64_t getGroupId() const;
   virtual int64_t getEffectiveUserId() const;
   virtual int64_t getEffectiveGroupId() const;
@@ -213,6 +215,7 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   PosixProcess& operator=(const PosixProcess&);
 
   void initializeJobControl(Process* parent);
+  void publishCredentialReadCache();
   ProcessAccountingLifetime m_AccountingLifetime;
   size_t m_SessionId;
   ProcessGroup* m_pProcessGroup;
@@ -227,6 +230,9 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   IntervalTimer m_ProfileIntervalTimer;
 
   CredentialSnapshot m_Credentials;
+  // Read-only identity syscalls need one scalar and should not copy the full
+  // credential snapshot or contend on its mutation lock.
+  volatile uint32_t m_RealUserId;
   bool m_bRegistered;
 };
 

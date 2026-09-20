@@ -18,14 +18,32 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 extern "C" void _assert(bool b, const char* file, int line, const char* func) {
   if (b)
     return;
 
   if (Processor::m_Initialised) {
+    // Ordinary log sinks may be disabled, and debugger entry may itself fail.
+    if (Machine::instance().getNumSerial()) {
+      Serial* serial = Machine::instance().getSerial(0);
+      if (serial) {
+        TinyStaticString location;
+        location.append(line, 10);
+        serial->write_str("\nASSERT: ");
+        serial->write_str(file);
+        serial->write_str(":");
+        serial->write_str(location);
+        serial->write_str(" in ");
+        serial->write_str(func);
+        serial->write_str("\n");
+      }
+    }
     ERROR_NOLOCK("Assertion failed in file " << file);
     ERROR_NOLOCK("In function '" << func << "'");
     ERROR_NOLOCK("On line " << Dec << line << Hex << ".");

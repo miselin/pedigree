@@ -15,6 +15,27 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
 
+class CacheManagerTestPeer {
+ public:
+  static void start(CacheManager& manager) {
+    auto guard = manager.m_TrimWaiters.acquire();
+    manager.m_bActive = true;
+  }
+
+  static void stop(CacheManager& manager) {
+    manager.stopPeriodicWork();
+  }
+
+  static void tick(CacheManager& manager, uint64_t delta, bool pressure) {
+    manager.timerTick(delta, pressure);
+  }
+
+  static bool state(CacheManager& manager, bool requested, uint64_t delta) {
+    auto guard = manager.m_TrimWaiters.acquire();
+    return manager.m_bTrimRequested == requested && manager.m_TrimDelta == delta;
+  }
+};
+
 namespace {
 constexpr size_t PageSize = TargetInfo::getPageSize();
 
@@ -57,6 +78,84 @@ bool waitUntilQueuedAt(Thread* thread, size_t debugState, uintptr_t debugAddress
     Scheduler::instance().yield();
   }
   return false;
+}
+
+struct CacheTrimWakeContext {
+  CacheManager manager;
+  size_t blocks = 0;
+  bool passed = true;
+};
+
+CacheTrimWakeContext* g_CacheTrimWakeContext = nullptr;
+
+void cacheTrimBeforeBlock(WaitQueue*, Thread* thread, const WaitQueue::Channel& channel, size_t) {
+  CacheTrimWakeContext* context = g_CacheTrimWakeContext;
+  if (!context || channel.owner != &context->manager)
+    return;
+
+  constexpr const char* Test = "cache-manager-trim-wake-gating";
+  constexpr uint64_t Tick = 1000000ULL;
+  constexpr uint64_t Period = CACHE_WRITEBACK_PERIOD * Tick;
+  CacheManager& manager = context->manager;
+  const size_t block = ++context->blocks;
+  const uint64_t expectedDelta = block == 2 ? Period - Tick : 0;
+  context->passed &= checkNamed(CacheManagerTestPeer::state(manager, false, expectedDelta), Test,
+                                "worker lost elapsed time or did not consume pending work");
+
+  Thread::WaitDebugInfo info = {};
+  if (block == 1) {
+    for (size_t tick = 1; tick < CACHE_WRITEBACK_PERIOD; ++tick)
+      CacheManagerTestPeer::tick(manager, Tick, false);
+    context->passed &= checkNamed(CacheManagerTestPeer::state(manager, false, Period - Tick) &&
+                                      thread->getWaitDebugInfo(info) && info.queued &&
+                                      info.reason == WaitQueue::WakeReason::Waiting,
+                                  Test, "healthy subperiod ticks woke the worker");
+
+    CacheManagerTestPeer::tick(manager, 0, true);
+    CacheManagerTestPeer::tick(manager, 0, false);
+    context->passed &= checkNamed(
+        CacheManagerTestPeer::state(manager, true, Period - Tick) &&
+            thread->getWaitDebugInfo(info) && info.reason == WaitQueue::WakeReason::Signalled,
+        Test, "pressure did not wake the worker or a later tick erased the request");
+  } else if (block == 2) {
+    CacheManagerTestPeer::tick(manager, Tick, false);
+    context->passed &= checkNamed(
+        CacheManagerTestPeer::state(manager, true, Period) && thread->getWaitDebugInfo(info) &&
+            info.reason == WaitQueue::WakeReason::Signalled,
+        Test, "writeback did not wake at the accumulated period boundary");
+  } else {
+    context->passed &= checkNamed(block == 3, Test, "worker woke more often than requested");
+    CacheManagerTestPeer::stop(manager);
+    context->passed &= checkNamed(
+        thread->getWaitDebugInfo(info) && info.reason == WaitQueue::WakeReason::Signalled, Test,
+        "stopping periodic work did not wake the idle worker");
+  }
+
+  // Always release the published wait, including when the assertion fails.
+  if (!context->passed)
+    CacheManagerTestPeer::stop(manager);
+}
+
+bool cacheManagerTrimWakeGating() {
+  constexpr const char* Test = "cache-manager-trim-wake-gating";
+  constexpr uint64_t Period = CACHE_WRITEBACK_PERIOD * 1000000ULL;
+  CacheTrimWakeContext context;
+  CacheManagerTestPeer::tick(context.manager, Period, false);
+  CacheManagerTestPeer::tick(context.manager, 0, false);
+  context.passed = checkNamed(CacheManagerTestPeer::state(context.manager, true, Period), Test,
+                              "due work was lost while no worker was waiting");
+  CacheManagerTestPeer::start(context.manager);
+  g_CacheTrimWakeContext = &context;
+  WaitQueue::setBeforeBlockHook(cacheTrimBeforeBlock);
+  context.manager.trimThread();
+  WaitQueue::setBeforeBlockHook(nullptr);
+  g_CacheTrimWakeContext = nullptr;
+
+  context.passed &= checkNamed(context.blocks == 3, Test,
+                               "worker did not complete pressure, writeback and stop transitions");
+  if (context.passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  return context.passed;
 }
 
 struct CacheLifetimeContext {
@@ -1581,8 +1680,8 @@ bool runHostedCacheSyncRegressions() {
 }
 
 bool runHostedCacheTimerRegressions() {
-  return timerWritebackCoalescing(false, false) && timerWritebackCoalescing(true, false) &&
-         timerWritebackCoalescing(false, true);
+  return cacheManagerTrimWakeGating() && timerWritebackCoalescing(false, false) &&
+         timerWritebackCoalescing(true, false) && timerWritebackCoalescing(false, true);
 }
 
 bool runHostedCacheRegressions() {

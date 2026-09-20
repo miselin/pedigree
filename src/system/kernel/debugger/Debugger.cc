@@ -53,6 +53,7 @@
 #include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/machine/Keyboard.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -115,6 +116,21 @@ void Debugger::initialise() {
 
 /// \todo OZMFGBARBIE, this needs major cleanup. Look at the state of it!! :O
 void Debugger::start(InterruptState& state, LargeStaticString& description) {
+  // Quiescing another CPU can fail while it holds an IRQ-disabling lock.
+  // Preserve the initiating exception before entering that barrier.
+  if (Machine::instance().getNumSerial()) {
+    Serial* serial = Machine::instance().getSerial(0);
+    if (serial) {
+      LargeStaticString entry("\nDebugger entry RIP=");
+      entry.append(state.getInstructionPointer(), 16);
+      entry += " CPU=";
+      entry.append(Processor::index(), 10);
+      entry += ": ";
+      entry += description;
+      entry += "\n";
+      serial->write_str(entry);
+    }
+  }
 #if MULTIPROCESSOR
   const bool processorsQuiesced = Machine::instance().quiesceAllOtherProcessors();
   if (!processorsQuiesced) {

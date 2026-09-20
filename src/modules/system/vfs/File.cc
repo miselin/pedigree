@@ -367,35 +367,46 @@ File::WriteGuard File::lockWrites() {
 
 File::WriteGuard::WriteGuard(File& file) : m_File(file), m_Guard(file.writeSerializationLock()) {}
 
-uint64_t File::WriteGuard::write(uint64_t location, uint64_t size, uintptr_t buffer,
-                                 bool bCanBlock) {
+File::WriteGuard::~WriteGuard() {
+  if (m_MetadataPending) {
+    m_File.publishWriteMetadata();
+  }
+}
+
+void File::publishWriteMetadata() {
+  if (!isBytewise() && !isDirectory() && !isSymlink() && isSeekable()) {
+    Attributes attributes;
+    attributes.modified = attributes.changed = Time::getTime();
+    updateAttributes(attributes, ModifyTime | ChangeTime);
+  }
+  publishEvent(FileEvents::Modify);
+}
+
+uint64_t File::WriteGuard::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock,
+                                 bool publishMetadata) {
   LockGuard<Mutex> guard(m_File.dataMutationLock());
   const uint64_t written = m_File.writeUnlocked(location, size, buffer, bCanBlock);
   if (written) {
-    if (!m_File.isBytewise() && !m_File.isDirectory() && !m_File.isSymlink() &&
-        m_File.isSeekable()) {
-      Attributes attributes;
-      attributes.modified = attributes.changed = Time::getTime();
-      m_File.updateAttributes(attributes, ModifyTime | ChangeTime);
+    if (publishMetadata) {
+      m_File.publishWriteMetadata();
+    } else {
+      m_MetadataPending = true;
     }
-    m_File.publishEvent(FileEvents::Modify);
   }
   return written;
 }
 
 uint64_t File::WriteGuard::append(uint64_t size, uintptr_t buffer, uint64_t& location,
-                                  bool bCanBlock) {
+                                  bool bCanBlock, bool publishMetadata) {
   LockGuard<Mutex> guard(m_File.dataMutationLock());
   location = m_File.getSize();
   const uint64_t written = m_File.writeUnlocked(location, size, buffer, bCanBlock);
   if (written) {
-    if (!m_File.isBytewise() && !m_File.isDirectory() && !m_File.isSymlink() &&
-        m_File.isSeekable()) {
-      Attributes attributes;
-      attributes.modified = attributes.changed = Time::getTime();
-      m_File.updateAttributes(attributes, ModifyTime | ChangeTime);
+    if (publishMetadata) {
+      m_File.publishWriteMetadata();
+    } else {
+      m_MetadataPending = true;
     }
-    m_File.publishEvent(FileEvents::Modify);
   }
   return written;
 }
@@ -432,18 +443,11 @@ physical_uintptr_t File::getPhysicalPage(size_t offset) {
   uintptr_t vaddr = FILE_BAD_BLOCK;
   bool pinned = false;
   if (LIKELY(!useFillCache())) {
-    // A key can be evicted and replaced between the address snapshot and
-    // pinBlock(). Validate that the address still names the pinned page.
-    vaddr = getCachedPage(offset / blockSize);
-    if ((!vaddr) || (vaddr == FILE_BAD_BLOCK) || !pinBlock(offset)) {
+    vaddr = acquireCachedBlock(offset, false);
+    if (!vaddr) {
       return ~0UL;
     }
     pinned = true;
-
-    if (getCachedPage(offset / blockSize) != vaddr) {
-      unpinBlock(offset);
-      return ~0UL;
-    }
   } else {
     // Using the fill cache, because the filesystem has a block size
     // smaller than our native page size. lookup() itself acquires the
@@ -743,6 +747,10 @@ void File::publishInodeEvent(const FileEvent&) {}
 void File::finishInodeRetirement() {}
 
 void File::publishEvent(FileEventMask mask, const StringView& name, bool targetIsDirectory) {
+  // Deletion must close admission even when no observer is currently registered.
+  if (!(mask & FileEvents::DeletedSelf) && !anyFileEventObservers()) {
+    return;
+  }
   uint32_t producer = 0;
 #if THREADS && !defined(STANDALONE_MUTEXES)
   Thread* thread = Processor::information().getCurrentThread();
@@ -767,8 +775,7 @@ void File::publishEvent(FileEventMask mask, const StringView& name, bool targetI
   if (!name.length() && (mask & ChildEvents)) {
     ParentLease parent;
     String childName;
-    getNamespace(parent, childName);
-    if (parent.get()) {
+    if (snapshotNamespace(parent, childName, mask)) {
       parent.get()->notifyFileEvent(FileEvent(mask, childName.view(), isDirectory(), producer));
     }
   }
@@ -855,10 +862,14 @@ File* File::getParent() const {
 }
 
 void File::getNamespace(ParentLease& parent, String& name) const {
+  snapshotNamespace(parent, name, FileEvents::None);
+}
+
+bool File::snapshotNamespace(ParentLease& parent, String& name, FileEventMask interest) const {
   ParentLease replacement;
+  bool captured = false;
   {
     LockGuard<Mutex> guard(m_MetadataLock);
-    name = m_Name;
     File* current = getParent();
     if (current) {
       replacement.m_Retained = VFS::instance().retainTrackedFile(current);
@@ -866,8 +877,15 @@ void File::getNamespace(ParentLease& parent, String& name) const {
         replacement.m_Parent = current;
       }
     }
+    // The raw parent pointer is only safe to inspect after acquiring its lease.
+    if (!interest ||
+        (replacement.m_Parent && replacement.m_Parent->hasFileEventObservers(interest))) {
+      name = m_Name;
+      captured = true;
+    }
   }
   parent.swap(replacement);
+  return captured;
 }
 
 void File::moveNamespace(const String& name, File* parent) {
@@ -1260,6 +1278,21 @@ void File::extend(size_t newSize, uint64_t location, uint64_t size) {
 
 bool File::pinBlock(uint64_t location) {
   return false;
+}
+
+uintptr_t File::acquireCachedBlock(uint64_t location, bool retryChanged) {
+  const size_t block = location / getBlockSize();
+  do {
+    const uintptr_t address = getCachedPage(block);
+    if (!address || address == FILE_BAD_BLOCK || !pinBlock(location))
+      return 0;
+    // A key can be replaced between the address snapshot and pinBlock().
+    // Only return an address which still names the pinned page.
+    if (getCachedPage(block) == address)
+      return address;
+    unpinBlock(location);
+  } while (retryChanged);
+  return 0;
 }
 
 void File::unpinBlock(uint64_t location) {}
@@ -1696,30 +1729,20 @@ uintptr_t File::readIntoCache(uintptr_t block, bool overwriteWholePage, size_t r
     return vaddr ? vaddr : FILE_BAD_BLOCK;
   }
 
-  uintptr_t buff = FILE_BAD_BLOCK;
   if (!m_bDirect) {
-    while ((buff = getCachedPage(block)) != FILE_BAD_BLOCK) {
-      if (!pinBlock(offset)) {
-        buff = FILE_BAD_BLOCK;
-        break;
-      }
-      if (getCachedPage(block) == buff) {
-        return buff;
-      }
-      unpinBlock(offset);
-    }
+    const uintptr_t cached = acquireCachedBlock(offset, true);
+    if (cached)
+      return cached;
   }
-  if (buff == FILE_BAD_BLOCK) {
-    buff = readBlock(offset);
-    if (!buff) {
-      ERROR("File::readIntoCache - bad read (" << (block * blockSize) << " - block size is "
-                                               << blockSize << ")");
-      return FILE_BAD_BLOCK;
-    }
+  const uintptr_t buff = readBlock(offset);
+  if (!buff) {
+    ERROR("File::readIntoCache - bad read (" << (block * blockSize) << " - block size is "
+                                             << blockSize << ")");
+    return FILE_BAD_BLOCK;
+  }
 
-    if (!m_bDirect) {
-      setCachedPage(block, buff);
-    }
+  if (!m_bDirect) {
+    setCachedPage(block, buff);
   }
 
   return buff;

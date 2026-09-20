@@ -199,9 +199,18 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void* virtu
       uint64_t* pageDirectoryEntry =
           TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry), pageDirectoryIndex);
 
+      // The full 2 MiB range was unmapped above. Replacing its retained table
+      // must release that storage only after invalidating the paging structure.
+      const physical_uintptr_t oldPageTable =
+          (*pageDirectoryEntry & PAGE_PRESENT) && !(*pageDirectoryEntry & PAGE_2MB)
+              ? PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryEntry)
+              : 0;
       *pageDirectoryEntry = physAddress | PAGE_2MB | Flags;
       if (!invalidateMapping(virtualAddress, mutation)) {
         mutation.panicInvalidationFailure();
+      }
+      if (oldPageTable) {
+        PhysicalMemoryManager::instance().freePage(oldPageTable);
       }
 
       virtualAddress = adjust_pointer(virtualAddress, twoMiB);
@@ -302,18 +311,20 @@ bool X64VirtualAddressSpace::mapUnlocked(physical_uintptr_t physAddress, void* v
   return true;
 }
 
-void X64VirtualAddressSpace::getMapping(void* virtualAddress, physical_uintptr_t& physAddress,
+bool X64VirtualAddressSpace::getMapping(void* virtualAddress, physical_uintptr_t& physAddress,
                                         size_t& flags) {
   // Get a pointer to the page-table entry (Also checks whether the page is
   // actually present or marked swapped out)
   uint64_t* pageTableEntry = 0;
   if (getPageTableEntry(virtualAddress, pageTableEntry) == false) {
-    panic("VirtualAddressSpace::getMapping(): function misused");
+    return false;
   }
 
   // Extract the physical address and the flags
   physAddress = PAGE_GET_PHYSICAL_ADDRESS(pageTableEntry);
   flags = fromFlags(PAGE_GET_FLAGS(pageTableEntry), true);
+
+  return true;
 }
 
 bool X64VirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, bool userMode) {
@@ -629,16 +640,9 @@ bool X64VirtualAddressSpace::unmapUnlocked(void* virtualAddress, X64MappingMutat
 
   trackPages(*this, -1, 0, 0);
 
-  // Detach empty paging structures before the invalidation, but retain their
-  // storage until every processor has discarded both translations and
-  // paging-structure-cache entries for this address.
-  physical_uintptr_t detachedTables[3] = {};
-  const size_t detachedCount = detachEmptyTables(virtualAddress, detachedTables);
+  // Keep empty paging structures for reuse; teardown releases private tables.
   if (!invalidateMapping(virtualAddress, mutation)) {
     return false;
-  }
-  for (size_t i = 0; i < detachedCount; ++i) {
-    PhysicalMemoryManager::instance().freePage(detachedTables[i]);
   }
   return true;
 }
@@ -1306,6 +1310,15 @@ bool X64VirtualAddressSpace::getPageTableEntry(void* virtualAddress,
 
 bool X64VirtualAddressSpace::invalidateMapping(void* virtualAddress,
                                                X64MappingMutationScope& mutation) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Thread* diagnosticThread = Processor::information().getCurrentThread();
+  Process* diagnosticProcess = diagnosticThread ? diagnosticThread->getParent() : nullptr;
+  if (diagnosticProcess && virtualAddress < KERNEL_SPACE_START) {
+    diagnosticProcess->recordBenchmarkVmCounter(diagnosticProcess->getAddressSpace() == this
+                                                    ? Process::VmInvalidationActive
+                                                    : Process::VmInvalidationInactive);
+  }
+#endif
   // Upper-half mappings are shared by every address space. Lower-half
   // mappings can also be active on more than one processor, and no residency
   // mask currently identifies a narrower destination set. Use the same
@@ -1315,9 +1328,31 @@ bool X64VirtualAddressSpace::invalidateMapping(void* virtualAddress,
 
 size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,
                                                  physical_uintptr_t* detachedTables) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Thread* diagnosticThread = Processor::information().getCurrentThread();
+  Process* diagnosticProcess = diagnosticThread ? diagnosticThread->getParent() : nullptr;
+  if (diagnosticProcess && diagnosticProcess->getAddressSpace() != this) {
+    diagnosticProcess = nullptr;
+  }
+  size_t pteEntries = 0, pdeEntries = 0, pdptEntries = 0;
+  if (diagnosticProcess) {
+    diagnosticProcess->recordBenchmarkVmCounter(Process::VmTableRetirementScans);
+  }
+  auto publishDiagnostics = [&](size_t detachedCount) {
+    if (!diagnosticProcess)
+      return;
+    diagnosticProcess->recordBenchmarkVmCounter(Process::VmDetachPteEntries, pteEntries);
+    diagnosticProcess->recordBenchmarkVmCounter(Process::VmDetachPdeEntries, pdeEntries);
+    diagnosticProcess->recordBenchmarkVmCounter(Process::VmDetachPdptEntries, pdptEntries);
+    diagnosticProcess->recordBenchmarkVmCounter(Process::VmDetachTables, detachedCount);
+  };
+#endif
   const size_t pml4Index = PML4_INDEX(virtualAddress);
   uint64_t* pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
   if ((*pml4Entry & PAGE_PRESENT) != PAGE_PRESENT) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    publishDiagnostics(0);
+#endif
     return 0;
   }
 
@@ -1325,6 +1360,9 @@ size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,
   uint64_t* pageDirectoryPointerEntry =
       TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pml4Entry), pageDirectoryPointerIndex);
   if ((*pageDirectoryPointerEntry & PAGE_PRESENT) != PAGE_PRESENT) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    publishDiagnostics(0);
+#endif
     return 0;
   }
 
@@ -1333,12 +1371,21 @@ size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,
       TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry), pageDirectoryIndex);
   if ((*pageDirectoryEntry & PAGE_PRESENT) != PAGE_PRESENT ||
       (*pageDirectoryEntry & PAGE_2MB) == PAGE_2MB) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    publishDiagnostics(0);
+#endif
     return 0;
   }
 
   for (size_t i = 0; i < 0x200; ++i) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++pteEntries;
+#endif
     uint64_t* entry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryEntry), i);
     if (*entry & (PAGE_PRESENT | PAGE_SWAPPED | PAGE_NO_ACCESS)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      publishDiagnostics(0);
+#endif
       return 0;
     }
   }
@@ -1348,8 +1395,14 @@ size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,
   *pageDirectoryEntry = 0;
 
   for (size_t i = 0; i < 0x200; ++i) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++pdeEntries;
+#endif
     uint64_t* entry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry), i);
     if ((*entry & PAGE_PRESENT) == PAGE_PRESENT) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      publishDiagnostics(detachedCount);
+#endif
       return detachedCount;
     }
   }
@@ -1362,18 +1415,30 @@ size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,
   // at freed storage.
   if (reinterpret_cast<uintptr_t>(virtualAddress) >=
       reinterpret_cast<uintptr_t>(KERNEL_SPACE_START)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    publishDiagnostics(detachedCount);
+#endif
     return detachedCount;
   }
 
   for (size_t i = 0; i < 0x200; ++i) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    ++pdptEntries;
+#endif
     uint64_t* entry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pml4Entry), i);
     if ((*entry & PAGE_PRESENT) == PAGE_PRESENT) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      publishDiagnostics(detachedCount);
+#endif
       return detachedCount;
     }
   }
 
   detachedTables[detachedCount++] = PAGE_GET_PHYSICAL_ADDRESS(pml4Entry);
   *pml4Entry = 0;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  publishDiagnostics(detachedCount);
+#endif
   return detachedCount;
 }
 

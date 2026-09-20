@@ -41,6 +41,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
+#include "pedigree/kernel/processor/hosted/smoke.h"
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -51,6 +52,7 @@
 #include "modules/subsys/posix/syscalls/posixSyscallNumbers.h"
 
 extern void system_reset();
+extern bool hostedRunSyscallProfile();
 extern "C" bool posixDuplicateInitRollbackPreservesProcessForTest(Process* processIdentity);
 extern "C" void posixSetCloneBeforeStartHookForTest(void (*hook)(Thread*, size_t, void*),
                                                     void* context);
@@ -4065,9 +4067,7 @@ struct CloneVmExitRaceContext {
         ownershipStartObserved(0),
         controlledHookRelease(0),
         electionTimedOut(0),
-        schedulerPredicateInstalled(0),
-        schedulerPredicateInstallFailed(0),
-        schedulerPredicateReleased(0),
+        childCancellationPublished(0),
         cloneResult(static_cast<size_t>(-1)),
         childCancellationRequested(0),
         childCancellationReapable(0),
@@ -4103,9 +4103,7 @@ struct CloneVmExitRaceContext {
   Atomic<size_t> ownershipStartObserved;
   Atomic<size_t> controlledHookRelease;
   Atomic<size_t> electionTimedOut;
-  Atomic<size_t> schedulerPredicateInstalled;
-  Atomic<size_t> schedulerPredicateInstallFailed;
-  Atomic<size_t> schedulerPredicateReleased;
+  Atomic<size_t> childCancellationPublished;
   Atomic<size_t> cloneResult;
   Atomic<size_t> childCancellationRequested;
   Atomic<size_t> childCancellationReapable;
@@ -4154,15 +4152,6 @@ int terminateCloneVmProcess(void* parameter) {
   return 1;
 }
 
-bool cloneVmChildReady(void* parameter) {
-  CloneVmExitRaceContext* context = reinterpret_cast<CloneVmExitRaceContext*>(parameter);
-  if (!context || !context->schedulerPredicateReleased) {
-    return false;
-  }
-  Thread* child = context->child.value();
-  return child && child->getUnwindState() == Thread::TerminateThread;
-}
-
 void terminateCloneVmBeforeStart(Thread* child, size_t threadId, void* parameter) {
   CloneVmExitRaceContext* context = reinterpret_cast<CloneVmExitRaceContext*>(parameter);
   if (!context || !child || child->getParent() != context->process) {
@@ -4183,15 +4172,6 @@ void terminateCloneVmBeforeStart(Thread* child, size_t threadId, void* parameter
     context->tidsReady += 1;
   }
   context->hookCalls += 1;
-
-  if (context->action == WaitForProcessExit) {
-    if (child->setSchedulerReadyPredicate(cloneVmChildReady, context)) {
-      context->schedulerPredicateInstalled += 1;
-    } else {
-      context->schedulerPredicateInstallFailed += 1;
-      context->rescueCancellation = 1;
-    }
-  }
 
   bool cancelChild = context->action == CancelChildBeforeStart || context->rescueCancellation;
   if (!cancelChild) {
@@ -4216,22 +4196,16 @@ void terminateCloneVmBeforeStart(Thread* child, size_t threadId, void* parameter
   }
 
   child->setUnwindState(Thread::TerminateThread);
-  context->schedulerPredicateReleased = 1;
+  context->childCancellationPublished = 1;
   context->childCancellationRequested += 1;
   for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
     if (child->isReapableForHostedTest()) {
       context->childCancellationReapable += 1;
-      if (context->schedulerPredicateInstallFailed) {
-        context->child = nullptr;
-      }
       return;
     }
     Scheduler::instance().yield();
   }
   context->hookTimedOut += 1;
-  if (context->schedulerPredicateInstallFailed) {
-    context->child = nullptr;
-  }
 }
 
 void observeCloneVmTerminationElection(Process* process, Thread* owner) {
@@ -4239,10 +4213,6 @@ void observeCloneVmTerminationElection(Process* process, Thread* owner) {
   if (!context || process != context->process || owner != context->terminator) {
     return;
   }
-  if (context->schedulerPredicateInstallFailed) {
-    return;
-  }
-
   context->terminationElectionCalls += 1;
   context->ownershipWindowReleased = 1;
   context->beforeStart.release();
@@ -4255,13 +4225,13 @@ void observeCloneVmTerminationElection(Process* process, Thread* owner) {
       } else {
         context->ownershipStartObserved += 1;
       }
-      context->schedulerPredicateReleased = 1;
+      context->childCancellationPublished = 1;
       return;
     }
     Scheduler::instance().yield();
   }
   context->electionTimedOut += 1;
-  context->schedulerPredicateReleased = 1;
+  context->childCancellationPublished = 1;
 }
 
 void clearCloneVmHooks() {
@@ -4473,13 +4443,13 @@ bool cloneVmTerminalStartCancellation(Process* kernelProcess) {
     bool publishedChildSafe = !rescueExpectedChild;
     if (pausedChildPinned) {
       pausedChild->setUnwindState(Thread::TerminateThread);
-      context->schedulerPredicateReleased = 1;
+      context->childCancellationPublished = 1;
       publishedChildSafe = true;
     } else if (rescueExpectedChild) {
       Process::ThreadLease rescueChild;
       if (process->acquireThread(rescueChild, rescueExpectedChild)) {
         rescueChild->setUnwindState(Thread::TerminateThread);
-        context->schedulerPredicateReleased = 1;
+        context->childCancellationPublished = 1;
         publishedChildSafe = true;
       } else {
         for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
@@ -4569,8 +4539,7 @@ bool cloneVmTerminalStartCancellation(Process* kernelProcess) {
       context->tidsReady == 1 && context->terminationElectionCalls == 1 &&
       context->ownershipWindowReleased == 1 && context->ownershipCancellationObserved == 1 &&
       !context->ownershipStartObserved && context->controlledHookRelease == 1 &&
-      !context->electionTimedOut && context->schedulerPredicateInstalled == 1 &&
-      !context->schedulerPredicateInstallFailed && context->schedulerPredicateReleased == 1 &&
+      !context->electionTimedOut && context->childCancellationPublished == 1 &&
       context->terminatorStarted == 1 && !context->terminalCancellation &&
       !context->unexpectedHookRelease && !context->hookTimedOut && context->observedTid &&
       context->cloneResult == context->observedTid &&
@@ -5312,7 +5281,7 @@ bool runRegressions() {
 }
 
 bool entry() {
-  const bool passed = runRegressions();
+  const bool passed = hostedSyscallProfileRequested() ? hostedRunSyscallProfile() : runRegressions();
   system_reset();
   return passed;
 }

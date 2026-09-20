@@ -41,7 +41,10 @@ int change(PosixProcess::CredentialChange type, uint32_t first, uint32_t second 
 }  // namespace
 
 uid_t posix_getuid() {
-  return Processor::information().getCurrentThread()->getParent()->getUserId();
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  if (process->getType() == Process::Posix)
+    return static_cast<PosixProcess*>(process)->getUserId();
+  return process->getUserId();
 }
 gid_t posix_getgid() {
   return Processor::information().getCurrentThread()->getParent()->getGroupId();

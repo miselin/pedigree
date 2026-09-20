@@ -592,8 +592,13 @@ bool VFS::retireOwnedFilesystem(Filesystem* filesystem) {
   // drains. Inert identities survive retirement without retaining the backend.
   auto state = removed->state;
   delete removed;
-  state->ownedRetirement = true;
-  state->finishOwnedRetirement();
+  VfsMountState* retained = state.get();
+  if (!retained) {
+    FATAL("Owned filesystem retirement lost its mount state.");
+    return false;
+  }
+  retained->ownedRetirement = true;
+  retained->finishOwnedRetirement();
   return true;
 }
 

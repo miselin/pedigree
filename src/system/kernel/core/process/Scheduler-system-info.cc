@@ -46,7 +46,19 @@ Scheduler::SystemActivity Scheduler::systemActivity() {
   return result;
 }
 
+void Scheduler::requestLoadAverageSample() {
+  if (Time::getTicks() < __atomic_load_n(&m_NextActivityAttempt, __ATOMIC_ACQUIRE))
+    return;
+  bool pending = false;
+  if (__atomic_compare_exchange_n(&m_ActivitySamplePending, &pending, true, false, __ATOMIC_ACQ_REL,
+                                  __ATOMIC_ACQUIRE))
+    Processor::information().getScheduler().publishDeferredTimeAccounting();
+}
+
 void Scheduler::sampleLoadAverage() {
+  // Claim before checking the deadline: a tick that saw an older deadline
+  // can publish after another worker has already advanced it.
+  __atomic_store_n(&m_ActivitySamplePending, false, __ATOMIC_RELEASE);
   const uint64_t now = Time::getTicks();
   if (now < __atomic_load_n(&m_NextActivityAttempt, __ATOMIC_ACQUIRE))
     return;
@@ -98,17 +110,29 @@ void Scheduler::sampleLoadAverage() {
       continue;
     LockGuard<Spinlock> state(thread->m_Lock);
     const auto status = thread->getStatus();
-    // Eligibility predicates are the same nonblocking predicates used by the
-    // run queue. Evaluate them only after dropping the global registry lock.
-    // Exclude this observer, whose eligibility protects the sampling work.
+    // The ready queue contains only threads which can run. Exclude this
+    // observer, whose own execution protects the sampling work.
     if ((status == Thread::Ready || status == Thread::Running) &&
-        !__atomic_load_n(&thread->m_ReadyPublicationPending, __ATOMIC_ACQUIRE) &&
-        (!thread->m_SchedulerReadyPredicate ||
-         thread->m_SchedulerReadyPredicate(thread->m_SchedulerReadyContext)))
+        !__atomic_load_n(&thread->m_ReadyPublicationPending, __ATOMIC_ACQUIRE))
       if (active != ~uint32_t(0))
         ++active;
   }
   // Sleeping tasks have no distinct uninterruptible-I/O classification yet.
   m_LoadAverage.update(now, active);
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+bool Scheduler::runHostedLoadAverageRequestRegression() {
+  sampleLoadAverage();
+  const uint64_t deadline = __atomic_load_n(&m_NextActivityAttempt, __ATOMIC_ACQUIRE);
+  if (Time::getTicks() >= deadline)
+    return false;
+  // Replay a tick whose due check preceded the sample, but whose request
+  // publication arrived after it. The early return must retire that request.
+  __atomic_store_n(&m_ActivitySamplePending, true, __ATOMIC_RELEASE);
+  sampleLoadAverage();
+  return !__atomic_load_n(&m_ActivitySamplePending, __ATOMIC_ACQUIRE) &&
+         __atomic_load_n(&m_NextActivityAttempt, __ATOMIC_ACQUIRE) == deadline;
+}
+#endif
 #endif

@@ -764,6 +764,7 @@ struct VectorFaultContext {
         readError(0),
         firstReadFaultResult(-2),
         firstReadFaultError(0),
+        validationSemantics(false),
         returned(0) {}
 
   Process* process;
@@ -781,6 +782,7 @@ struct VectorFaultContext {
   int readError;
   int firstReadFaultResult;
   int firstReadFaultError;
+  bool validationSemantics;
   Atomic<size_t> returned;
 };
 
@@ -811,6 +813,67 @@ int vectorFaultWorker(void* parameter) {
   MemoryMapManager::instance().remove(writeAddress, mappingLength);
   context->process->freeUserRange(Process::UserRegion::Normal, writeAddress, mappingLength);
 
+  const size_t progressMappingLength = pageSize * 3;
+  uintptr_t writeProgressAddress = 0;
+  if (!allocateUserMapping(context->process, progressMappingLength, writeProgressAddress)) {
+    context->returned += 1;
+    return 1;
+  }
+  ByteSet(reinterpret_cast<void*>(writeProgressAddress), 'p', progressMappingLength);
+  MemoryMapManager::instance().setPermissions(writeProgressAddress + pageSize * 2, pageSize,
+                                              MemoryMappedObject::None);
+  context->writeFile->configure(writeProgressAddress, pageSize);
+  struct iovec writeProgressVectors[2] = {
+      {reinterpret_cast<void*>(writeProgressAddress), BounceCapacity},
+      {reinterpret_cast<void*>(writeProgressAddress + pageSize * 2), 1}};
+  thread->setErrno(PreservedErrno);
+  const int writeProgressResult =
+      posix_writev(static_cast<int>(context->writeFd), writeProgressVectors, 2);
+  const int writeProgressError = thread->getErrno();
+
+  struct iovec inaccessibleWriteVector = {
+      reinterpret_cast<void*>(writeProgressAddress + pageSize * 2), 1};
+  thread->setErrno(0);
+  const int inaccessibleWriteResult =
+      posix_writev(static_cast<int>(context->writeFd), &inaccessibleWriteVector, 1);
+  const int inaccessibleWriteError = thread->getErrno();
+
+  struct iovec laterInvalidWriteVectors[2] = {{reinterpret_cast<void*>(writeProgressAddress), 1},
+                                              {reinterpret_cast<void*>(kernelStart), 1}};
+  thread->setErrno(0);
+  const int laterInvalidWriteResult =
+      posix_writev(static_cast<int>(context->writeFd), laterInvalidWriteVectors, 2);
+  const int laterInvalidWriteError = thread->getErrno();
+
+  const struct iovec* invalidVectorArray = reinterpret_cast<const struct iovec*>(kernelStart);
+  thread->setErrno(0);
+  const int invalidWriteArrayResult =
+      posix_writev(static_cast<int>(context->writeFd), invalidVectorArray, 1);
+  const int invalidWriteArrayError = thread->getErrno();
+
+  struct iovec zeroLengthInvalidVector = {reinterpret_cast<void*>(kernelStart), 0};
+  thread->setErrno(PreservedErrno);
+  const int zeroLengthWriteResult =
+      posix_writev(static_cast<int>(context->writeFd), &zeroLengthInvalidVector, 1);
+  const int zeroLengthWriteError = thread->getErrno();
+
+  thread->setErrno(0);
+  const int badWriteDescriptorResult = posix_writev(-1, invalidVectorArray, 1);
+  const int badWriteDescriptorError = thread->getErrno();
+
+  bool validationSemantics =
+      writeProgressResult == static_cast<int>(BounceCapacity) &&
+      writeProgressError == PreservedErrno && inaccessibleWriteResult == -1 &&
+      inaccessibleWriteError == Error::BadAddress && laterInvalidWriteResult == -1 &&
+      laterInvalidWriteError == Error::BadAddress && invalidWriteArrayResult == -1 &&
+      invalidWriteArrayError == Error::BadAddress && zeroLengthWriteResult == 0 &&
+      zeroLengthWriteError == PreservedErrno && badWriteDescriptorResult == -1 &&
+      badWriteDescriptorError == Error::BadFileDescriptor;
+
+  MemoryMapManager::instance().remove(writeProgressAddress, progressMappingLength);
+  context->process->freeUserRange(Process::UserRegion::Normal, writeProgressAddress,
+                                  progressMappingLength);
+
   uintptr_t readAddress = 0;
   if (!allocateUserMapping(context->process, mappingLength, readAddress)) {
     context->returned += 1;
@@ -835,6 +898,69 @@ int vectorFaultWorker(void* parameter) {
   MemoryMapManager::instance().remove(readAddress, mappingLength);
   context->process->freeUserRange(Process::UserRegion::Normal, readAddress, mappingLength);
 
+  uintptr_t readProgressAddress = 0;
+  if (!allocateUserMapping(context->process, progressMappingLength, readProgressAddress)) {
+    context->returned += 1;
+    return 1;
+  }
+  ByteSet(reinterpret_cast<void*>(readProgressAddress), 0, progressMappingLength);
+  MemoryMapManager::instance().setPermissions(readProgressAddress + pageSize * 2, pageSize,
+                                              MemoryMappedObject::Read);
+  context->readFile->configure(readProgressAddress, pageSize);
+  struct iovec readProgressVectors[2] = {
+      {reinterpret_cast<void*>(readProgressAddress), pageSize},
+      {reinterpret_cast<void*>(readProgressAddress + pageSize * 2), 1}};
+  thread->setErrno(PreservedErrno);
+  const int readProgressResult =
+      posix_readv(static_cast<int>(context->readFd), readProgressVectors, 2);
+  const int readProgressError = thread->getErrno();
+  bool readProgressContentsValid = true;
+  for (size_t i = 0; i < pageSize && readProgressContentsValid; ++i) {
+    readProgressContentsValid = reinterpret_cast<char*>(readProgressAddress)[i] == 'r';
+  }
+
+  struct iovec inaccessibleReadVector = {
+      reinterpret_cast<void*>(readProgressAddress + pageSize * 2), 1};
+  thread->setErrno(0);
+  const int inaccessibleReadResult =
+      posix_readv(static_cast<int>(context->readFd), &inaccessibleReadVector, 1);
+  const int inaccessibleReadError = thread->getErrno();
+
+  struct iovec laterInvalidReadVectors[2] = {{reinterpret_cast<void*>(readProgressAddress), 1},
+                                             {reinterpret_cast<void*>(kernelStart), 1}};
+  thread->setErrno(0);
+  const int laterInvalidReadResult =
+      posix_readv(static_cast<int>(context->readFd), laterInvalidReadVectors, 2);
+  const int laterInvalidReadError = thread->getErrno();
+
+  thread->setErrno(0);
+  const int invalidReadArrayResult =
+      posix_readv(static_cast<int>(context->readFd), invalidVectorArray, 1);
+  const int invalidReadArrayError = thread->getErrno();
+
+  thread->setErrno(PreservedErrno);
+  const int zeroLengthReadResult =
+      posix_readv(static_cast<int>(context->readFd), &zeroLengthInvalidVector, 1);
+  const int zeroLengthReadError = thread->getErrno();
+
+  thread->setErrno(0);
+  const int badReadDescriptorResult = posix_readv(-1, invalidVectorArray, 1);
+  const int badReadDescriptorError = thread->getErrno();
+
+  validationSemantics =
+      readProgressResult == static_cast<int>(pageSize) && readProgressError == PreservedErrno &&
+      readProgressContentsValid && inaccessibleReadResult == -1 &&
+      inaccessibleReadError == Error::BadAddress && laterInvalidReadResult == -1 &&
+      laterInvalidReadError == Error::BadAddress && invalidReadArrayResult == -1 &&
+      invalidReadArrayError == Error::BadAddress && zeroLengthReadResult == 0 &&
+      zeroLengthReadError == PreservedErrno && badReadDescriptorResult == -1 &&
+      badReadDescriptorError == Error::BadFileDescriptor && validationSemantics;
+
+  MemoryMapManager::instance().remove(readProgressAddress, progressMappingLength);
+  context->process->freeUserRange(Process::UserRegion::Normal, readProgressAddress,
+                                  progressMappingLength);
+
+  context->validationSemantics = validationSemantics;
   context->setup = true;
   context->returned += 1;
   return 0;
@@ -869,13 +995,14 @@ bool vectorUsercopyFaultProgress(Process* kernelProcess) {
   bool passed = started && joined && context.returned == 1 && context.setup &&
                 context.writeResult == static_cast<int>(BounceCapacity) &&
                 context.writeError == PreservedErrno && context.firstWriteFaultResult == -1 &&
-                context.firstWriteFaultError == Error::BadAddress && writeFile.calls() == 1 &&
-                !writeFile.sawRawPointer() && writer->getOffset() == BounceCapacity &&
+                context.firstWriteFaultError == Error::BadAddress && writeFile.calls() == 2 &&
+                !writeFile.sawRawPointer() && writer->getOffset() == BounceCapacity * 2 &&
                 context.readResult == static_cast<int>(pageSize) &&
                 context.readError == PreservedErrno && context.firstReadPageValid &&
                 context.firstReadFaultResult == -1 &&
-                context.firstReadFaultError == Error::BadAddress && readFile.calls() == 2 &&
-                !readFile.sawRawPointer() && reader->getOffset() == pageSize;
+                context.firstReadFaultError == Error::BadAddress && readFile.calls() == 3 &&
+                !readFile.sawRawPointer() && reader->getOffset() == pageSize * 2 &&
+                context.validationSemantics;
   passed = closeDescriptor(subsystem, WriteDescriptor) &&
            closeDescriptor(subsystem, ReadDescriptor) && passed;
   writeDescription.reset();
@@ -885,11 +1012,114 @@ bool vectorUsercopyFaultProgress(Process* kernelProcess) {
   if (!passed) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL vector-usercopy-fault-progress: "
-        "writev/readv lost partial progress or advanced the offset past a failed copy");
+        "writev/readv validation, partial progress, or offsets regressed");
     return false;
   }
 
   NOTICE("HOSTED-SYSCALL-TEST: PASS vector-usercopy-fault-progress");
+  return true;
+}
+
+struct VectorPipeFaultContext {
+  VectorPipeFaultContext(Process* process, size_t readFd, size_t writeFd)
+      : process(process),
+        readFd(readFd),
+        writeFd(writeFd),
+        writeResult(-2),
+        writeError(0),
+        readResult(-2),
+        readError(0),
+        setup(false),
+        returned(0) {}
+
+  Process* process;
+  size_t readFd;
+  size_t writeFd;
+  int writeResult;
+  int writeError;
+  int readResult;
+  int readError;
+  bool setup;
+  Atomic<size_t> returned;
+};
+
+int vectorPipeFaultWorker(void* parameter) {
+  VectorPipeFaultContext* context = reinterpret_cast<VectorPipeFaultContext*>(parameter);
+  Thread* thread = Processor::information().getCurrentThread();
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const size_t mappingLength = pageSize * 2;
+  uintptr_t address = 0;
+  if (!allocateUserMapping(context->process, mappingLength, address)) {
+    context->returned += 1;
+    return 1;
+  }
+
+  ByteSet(reinterpret_cast<void*>(address), 'v', mappingLength);
+  MemoryMapManager::instance().setPermissions(address + pageSize, pageSize,
+                                              MemoryMappedObject::None);
+  struct iovec writeVectors[2] = {{reinterpret_cast<void*>(address), 1},
+                                  {reinterpret_cast<void*>(address + pageSize), 1}};
+  thread->setErrno(0);
+  context->writeResult = posix_writev(static_cast<int>(context->writeFd), writeVectors, 2);
+  context->writeError = thread->getErrno();
+
+  struct iovec readVectors[2] = {{reinterpret_cast<void*>(address + 16), 1},
+                                 {reinterpret_cast<void*>(address + pageSize), 1}};
+  thread->setErrno(0);
+  context->readResult = posix_readv(static_cast<int>(context->readFd), readVectors, 2);
+  context->readError = thread->getErrno();
+
+  MemoryMapManager::instance().remove(address, mappingLength);
+  context->process->freeUserRange(Process::UserRegion::Normal, address, mappingLength);
+  context->setup = true;
+  context->returned += 1;
+  return 0;
+}
+
+bool vectorPipePayloadPrevalidation(Process* kernelProcess) {
+  constexpr size_t ReadDescriptor = 99;
+  constexpr size_t WriteDescriptor = 100;
+
+  Process* process = new Process(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  Pipe* pipe = new Pipe;
+  FileDescriptor* reader = new FileDescriptor(pipe, 0, ReadDescriptor, 0, O_RDONLY | O_NONBLOCK);
+  FileDescriptor* writer = new FileDescriptor(pipe, 0, WriteDescriptor, 0, O_WRONLY | O_NONBLOCK);
+  subsystem->addFileDescriptor(ReadDescriptor, reader);
+  subsystem->addFileDescriptor(WriteDescriptor, writer);
+
+  char contents[2] = {'x', 'y'};
+  const bool filled = writer->write(sizeof(contents), reinterpret_cast<uintptr_t>(contents),
+                                    true) == sizeof(contents);
+  VectorPipeFaultContext context(process, ReadDescriptor, WriteDescriptor);
+  Thread* worker = new Thread(process, vectorPipeFaultWorker, &context, nullptr, false, true, true);
+  worker->setName("hosted vector pipe payload prevalidation");
+  const bool started = filled && worker->start();
+  const bool joined = started && worker->joinForCompletion();
+  if (!started) {
+    delete worker;
+  }
+
+  char drained[4] = {};
+  const uint64_t drainResult =
+      joined ? reader->read(sizeof(drained), reinterpret_cast<uintptr_t>(drained), false) : 0;
+  bool passed = started && joined && context.returned == 1 && context.setup &&
+                context.writeResult == -1 && context.writeError == Error::BadAddress &&
+                context.readResult == -1 && context.readError == Error::BadAddress &&
+                drainResult == sizeof(contents) && drained[0] == 'x' && drained[1] == 'y';
+  passed = closeDescriptor(subsystem, WriteDescriptor) &&
+           closeDescriptor(subsystem, ReadDescriptor) && passed;
+  delete process;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL vector-pipe-payload-prevalidation: "
+        "faulting vectors changed pipe contents");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS vector-pipe-payload-prevalidation");
   return true;
 }
 
@@ -1175,6 +1405,6 @@ bool vectorSigpipeAfterWriteGuard(Process* kernelProcess) {
 bool runHostedVectorIoRegressions(Process* process) {
   return vectorWriteBounceAndLifetime(process) && vectorReadBounceAndScatter(process) &&
          diskVectorReadBatching(process) && vectorUsercopyFaultProgress(process) &&
-         vectorSignalProgress(process) && vectorPipeBoundaryIndependentPartial(process) &&
-         vectorSigpipeAfterWriteGuard(process);
+         vectorPipePayloadPrevalidation(process) && vectorSignalProgress(process) &&
+         vectorPipeBoundaryIndependentPartial(process) && vectorSigpipeAfterWriteGuard(process);
 }

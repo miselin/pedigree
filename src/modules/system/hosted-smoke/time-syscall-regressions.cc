@@ -9,6 +9,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/errors.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -92,6 +93,74 @@ bool runningTimerMatches(const struct itimerval& observed, const struct itimerva
          observed.it_value.tv_sec >= 0 && observed.it_value.tv_usec >= 0 &&
          observed.it_value.tv_usec < 1000000 && positive &&
          timeNotGreater(observed.it_value, requested.it_value);
+}
+
+bool cpuTimerReportInterest(Process* kernelProcess) {
+  // No runnable thread belongs to this process, so only explicit publications
+  // change its totals and an expiry cannot deliver a signal to the driver.
+  auto* process = new PosixProcess(kernelProcess);
+  process->publish();
+  auto& virtualTimer = process->getVirtualIntervalTimer();
+  auto& profileTimer = process->getProfileIntervalTimer();
+  constexpr size_t VirtualInterest = size_t(1) << IntervalTimer::Virtual;
+  constexpr size_t ProfileInterest = size_t(1) << IntervalTimer::Profile;
+  process->publishTimeAccountingForHostedTest(100, 200);
+  bool passed = !process->timeAccountingInterestForHostedTest() &&
+                !process->timeAccountingPendingForHostedTest() && process->getUserTime() == 100 &&
+                process->getKernelTime() == 200;
+
+  virtualTimer.setIntervalAndValue(0, 30);
+  profileTimer.setIntervalAndValue(50, 80);
+  passed &= process->timeAccountingInterestForHostedTest() == (VirtualInterest | ProfileInterest);
+  process->publishTimeAccountingForHostedTest(11, 7);
+  virtualTimer.disarm();
+  passed &= process->timeAccountingInterestForHostedTest() == ProfileInterest;
+  virtualTimer.setTimerValue(30);
+  process->publishTimeAccountingForHostedTest(31, 0);
+  for (size_t attempt = 0;
+       (process->timeAccountingInterestForHostedTest() & VirtualInterest) && attempt < 10000;
+       ++attempt) {
+    Scheduler::instance().yield();
+  }
+  // Only the worker can expire the one-shot here. The periodic timer must
+  // retain its independent interest and all CPU time across the other arm.
+  passed &= process->timeAccountingInterestForHostedTest() == ProfileInterest;
+  Time::Timestamp interval = 0, value = 0;
+  profileTimer.getIntervalAndValue(interval, value);
+  passed &= interval == 50 && value == 31;
+  process->publishTimeAccountingForHostedTest(0, 40);
+  profileTimer.getIntervalAndValue(interval, value);
+  passed &= interval == 50 && value == 41 &&
+            process->timeAccountingInterestForHostedTest() == ProfileInterest;
+  profileTimer.disarm();
+  for (size_t attempt = 0; process->timeAccountingPendingForHostedTest() && attempt < 10000;
+       ++attempt) {
+    Scheduler::instance().yield();
+  }
+  process->publishTimeAccountingForHostedTest(500, 700);
+  passed &= !process->timeAccountingInterestForHostedTest() &&
+            !process->timeAccountingPendingForHostedTest() && process->getUserTime() == 642 &&
+            process->getKernelTime() == 947;
+
+  virtualTimer.setTimerValue(9);
+  virtualTimer.getIntervalAndValue(interval, value);
+  passed &= value == 9;
+  process->publishTimeAccountingForHostedTest(8, 0);
+  virtualTimer.getIntervalAndValue(interval, value);
+  passed &= value == 1;
+  process->publishTimeAccountingForHostedTest(1, 0);
+  for (size_t attempt = 0; process->timeAccountingInterestForHostedTest() && attempt < 10000;
+       ++attempt) {
+    Scheduler::instance().yield();
+  }
+  passed &= !process->timeAccountingInterestForHostedTest();
+  delete process;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS cpu-timer-report-interest");
+  } else {
+    ERROR("HOSTED-WAIT-TEST: FAIL cpu-timer-report-interest");
+  }
+  return passed;
 }
 
 int armAlarmAndExit(void* parameter) {
@@ -411,6 +480,7 @@ int exerciseTimeSyscalls(void* parameter) {
 }  // namespace
 
 bool runHostedTimeSyscallRegressions(Process* kernelProcess) {
+  const bool interestPassed = cpuTimerReportInterest(kernelProcess);
   PosixProcess* process = new PosixProcess(kernelProcess);
   process->setSubsystem(new PosixSubsystem);
   TimeSyscallContext context;
@@ -423,7 +493,8 @@ bool runHostedTimeSyscallRegressions(Process* kernelProcess) {
   if (!started) {
     delete worker;
   }
-  const bool passed = started && joined && context.returned == 1 && context.passed;
+  const bool passed =
+      interestPassed && started && joined && context.returned == 1 && context.passed;
   delete process;
 
   if (!passed) {

@@ -21,7 +21,9 @@
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/processor/x64/tss.h"
 #include "pedigree/kernel/processor/x86_common/ProcessorInformation.h"
@@ -75,19 +77,35 @@ uintptr_t X86CommonProcessorInformation::getKernelStack() const {
   return m_Tss->rsp0;
 }
 void X86CommonProcessorInformation::setKernelStack(uintptr_t stack) {
+#if X64
+  // Event-stack retirement and scheduling must not leave a borrowed frame behind.
+  pedigree_materialize_user_entry();
+#endif
   m_Tss->rsp0 = stack;
-  // Can't use Procesor::writeMachineSpecificRegister as Processor is
-  // undeclared here!
-  uint32_t eax = stack, edx = stack >> 32;
-  asm volatile("wrmsr" ::"a"(eax), "d"(edx), "c"(0xc0000102));
+#if X64
+  m_KernelGsAnchor.kernelStack = stack;
+#endif
 }
 
-Thread* X86CommonProcessorInformation::getCurrentThread() const {
-  return m_pCurrentThread;
+#if X64
+void X86CommonProcessorInformation::activateKernelGsAnchor(size_t processorIndex) {
+  m_KernelGsAnchor.processorIndex = processorIndex;
+  const uintptr_t entry = reinterpret_cast<uintptr_t>(&m_KernelGsAnchor);
+  uint32_t eax = entry, edx = entry >> 32;
+  // Kernel GS stays local to the CPU; the alternate MSR belongs to userspace.
+  asm volatile("wrmsr" ::"a"(eax), "d"(edx), "c"(0xc0000101) : "memory");
 }
+#endif
 
 void X86CommonProcessorInformation::setCurrentThread(Thread* pThread) {
+#if X64
+  if (m_pCurrentThread)
+    m_pCurrentThread->saveUserGsBase();
+#endif
   m_pCurrentThread = pThread;
+#if X64
+  Processor::setUserGsBase(pThread->getUserGsBase());
+#endif
   InfoBlockManager::instance().setPid(pThread->getParent()->getId());
 }
 
@@ -103,16 +121,6 @@ void X86CommonProcessorInformation::initialiseTscClockAnchor(uint64_t tsc, uint6
   __atomic_store_n(&m_TscClockAnchor, tsc, __ATOMIC_RELAXED);
   __atomic_store_n(&m_TscClockAnchorNanoseconds, nanoseconds, __ATOMIC_RELAXED);
   __atomic_store_n(&m_TscClockAnchorInitialised, true, __ATOMIC_RELEASE);
-}
-
-bool X86CommonProcessorInformation::getTscClockAnchor(uint64_t& tsc, uint64_t& nanoseconds) const {
-  if (!__atomic_load_n(&m_TscClockAnchorInitialised, __ATOMIC_ACQUIRE)) {
-    return false;
-  }
-
-  tsc = __atomic_load_n(&m_TscClockAnchor, __ATOMIC_RELAXED);
-  nanoseconds = __atomic_load_n(&m_TscClockAnchorNanoseconds, __ATOMIC_RELAXED);
-  return true;
 }
 
 X86CommonProcessorInformation::X86CommonProcessorInformation(ProcessorId processorId,

@@ -22,7 +22,12 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/process/InfoBlock.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
+
+#if X64 && MACH_PC && !HOSTED
+#include "machine/mach_pc/Rtc.h"
+#endif
 
 namespace Time {
 namespace {
@@ -79,6 +84,28 @@ Timestamp getTicks() {
     return 0;
   }
   return pTimer->getTickCountNano();
+}
+
+Timestamp getTicksFast() {
+  Timer* pTimer = Machine::instance().getTimer();
+  if (!pTimer) {
+    return 0;
+  }
+  return pTimer->getTickCountNanoFast();
+}
+
+CpuTimeSample sampleCpuTime() {
+#if X64 && MACH_PC && !HOSTED
+  // Pc::getTimer() always selects this clock, including before calibration.
+  // Qualifying the call avoids virtual dispatch at every accounting boundary.
+  return Rtc::instance().Rtc::sampleCpuTime();
+#else
+  Timer* timer = Machine::instance().getTimer();
+  if (!timer) {
+    return {0, Processor::index()};
+  }
+  return timer->sampleCpuTime();
+#endif
 }
 
 }  // namespace Time

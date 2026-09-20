@@ -135,6 +135,7 @@ set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/memory.c
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/vsprintf.c
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/SlamAllocator.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/SlamBitmap.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/PhysicalMemoryManager.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/MemoryRegion.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/UserMemoryPolicy.cc
@@ -276,7 +277,7 @@ add_executable(ext2img
     ext2img/stubs.cc)
 target_link_libraries(ext2img PRIVATE
     ext2 vfs partition utility kernel
-    $<$<BOOL:OPENSSL_FOUND>:OpenSSL::Crypto> Threads::Threads)
+    $<$<BOOL:${OPENSSL_FOUND}>:OpenSSL::Crypto> Threads::Threads)
 
 add_executable(instrument instrument/main.cc)
 target_include_directories(instrument PRIVATE
@@ -346,8 +347,10 @@ set(TESTSUITE_SRCS
     testsuite/test-FileMetadata.cc
     testsuite/test-MemoryExtendedAttributes.cc
     testsuite/test-Tree.cc
+    testsuite/test-MappingList.cc
     testsuite/test-ObjectPool.cc
     testsuite/test-SlamAllocator.cc
+    testsuite/test-SlamBitmap.cc
     testsuite/test-ScsiCommands.cc
     testsuite/test-utility.cc
     testsuite/test-SharedPointerCopy.cc
@@ -362,7 +365,9 @@ set(TESTSUITE_SRCS
     testsuite/test-RtcCalendar.cc
     testsuite/test-IrqDiagnosticRenderer.cc
     testsuite/test-LocksCommand.cc
+    testsuite/test-SpinlockWord.cc
     testsuite/test-ThreadWaitDiagnostic.cc
+    testsuite/test-IntrusiveList.cc
     testsuite/test-List.cc
     testsuite/test-SharedPointer.cc
     testsuite/test-UniquePointer.cc
@@ -376,6 +381,7 @@ set(TESTSUITE_SRCS
     testsuite/test-Time.cc
     testsuite/test-Atomic.cc
     testsuite/test-DeferredTimeAccounting.cc
+    testsuite/test-PerCpuTimeAccounting.cc
     testsuite/test-ExecutionContextState.cc
     testsuite/test-IntervalTimerState.cc
     testsuite/test-PosixTimerState.cc
@@ -475,9 +481,16 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-SymbolTableConcepts.cc
         testsuite/bench-stringlib.cc
         testsuite/bench-RangeList.cc
+        testsuite/bench-Buffer.cc
+        testsuite/bench-RingBuffer.cc
+        testsuite/bench-ProcessorMemory.cc
         testsuite/bench-HashTable.cc
+        testsuite/bench-IntrusiveList.cc
         testsuite/bench-List.cc
         testsuite/bench-SlamAllocator.cc
+        testsuite/bench-SlamAllocator-adapter.cc
+        testsuite/bench-SlamBitmap.cc
+        testsuite/bench-SlamSlab.cc
         testsuite/bench-main.cc
         testsuite/bench-DirectoryStructures.cc
         testsuite/bench-RadixTree.cc
@@ -487,6 +500,7 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-String.cc
         testsuite/bench-memory.cc
         testsuite/bench-Tree.cc
+        testsuite/bench-Scheduler.cc
         testsuite/bench-VFS.cc
         testsuite/bench-LruCache.cc
         testsuite/bench-Log.cc)
@@ -516,7 +530,6 @@ if (BENCHMARK_LIBRARY)
         ramfs vfs utility kernel Threads::Threads ${BENCHMARK_LIBRARY})
     target_compile_options(benchmarker-native PRIVATE "-O3" "-march=native" "-mtune=native" "-Wno-vla-cxx-extension")
     target_compile_definitions(benchmarker-native PRIVATE -DTESTSUITE)
-
 
     export(
         TARGETS benchmarker

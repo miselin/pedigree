@@ -38,7 +38,7 @@ class HostedSyscallManager : public ::SyscallManager {
   }
 
   virtual bool registerSyscallHandler(Service_t Service, SyscallHandler* pHandler,
-                                      Registration& registration);
+                                      Registration& registration, FastEntry entry = nullptr);
 
   /** Initialises this processors syscall handling
    *\note This should only be called from Processor::initialise1() and
@@ -48,6 +48,12 @@ class HostedSyscallManager : public ::SyscallManager {
   /** Called to execute a syscall. */
   uintptr_t syscall(Service_t service, uintptr_t function, uintptr_t p1, uintptr_t p2, uintptr_t p3,
                     uintptr_t p4, uintptr_t p5);
+
+#if HOSTED_SMOKE_TESTS
+  static void dispatchStateForTest(SyscallState& state) {
+    syscall(state);
+  }
+#endif
 
  private:
   /** Called when a syscall was called

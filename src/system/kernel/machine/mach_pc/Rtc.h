@@ -67,6 +67,8 @@ class Rtc : public Timer, private IrqHandler {
   virtual uint64_t getNanosecond();
   virtual uint64_t getTickCount();
   virtual uint64_t getTickCountNano();
+  virtual uint64_t getTickCountNanoFast();
+  Time::CpuTimeSample sampleCpuTime() override;
 
   /** Initialises the class
    *\return true, if successful, false otherwise */

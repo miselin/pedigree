@@ -108,7 +108,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
   bool tryDetachUserPage(void* address, physical_uintptr_t expected) override;
   virtual bool mapHuge(physical_uintptr_t physAddress, void* virtualAddress, size_t count,
                        size_t flags);
-  virtual void getMapping(void* virtualAddress, physical_uintptr_t& physAddress, size_t& flags);
+  virtual bool getMapping(void* virtualAddress, physical_uintptr_t& physAddress, size_t& flags);
   virtual bool handleCopyOnWriteFault(void* virtualAddress, bool userMode);
   ResidentCopyStatus copyResidentUserPage(uintptr_t userAddress, void* kernelBuffer, size_t bytes,
                                           bool write) override;

@@ -203,6 +203,21 @@ class EXPORTED_PUBLIC Tree {
     return 0;
   }
 
+  /** Returns a mutable value, or nullptr if the key is absent. Insertions and
+   * rotations preserve the pointer; removing its key or clearing the tree does not. */
+  E* find(const K& key) {
+    Node* n = root;
+    while (n) {
+      if (n->key == key)
+        return &n->element;
+      if (n->key > key)
+        n = n->leftChild;
+      else
+        n = n->rightChild;
+    }
+    return nullptr;
+  }
+
   /** Attempts to find an element with the given key.
    *\return a reference to the element found. */
   const E& lookupRef(const K& key, const E& failed = E()) const {
@@ -232,6 +247,30 @@ class EXPORTED_PUBLIC Tree {
         bound = n;
         n = n->leftChild;
       } else {
+        n = n->rightChild;
+      }
+    }
+    if (!bound)
+      return false;
+
+    foundKey = bound->key;
+    foundValue = bound->element;
+    return true;
+  }
+
+  /** Copies the greatest key less than or equal to the query and its value.
+   * Returns false without changing outputs if absent. */
+  bool floorBound(const K& key, K& foundKey, E& foundValue) const {
+    const Node* n = root;
+    const Node* bound = nullptr;
+    while (n) {
+      if (n->key == key) {
+        bound = n;
+        break;
+      } else if (n->key > key) {
+        n = n->leftChild;
+      } else {
+        bound = n;
         n = n->rightChild;
       }
     }

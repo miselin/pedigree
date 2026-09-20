@@ -229,3 +229,182 @@ TEST(CacheDirtyTracking, StableLookupDistinguishesBusyPagesFromMissesAndPreserve
   EXPECT_TRUE(cache.lookupStable(0, result));
   EXPECT_EQ(result, 0U);
 }
+
+TEST(CacheDirtyTracking, OverlappingMutableLoansShareTheirBaselineUntilLastReturn) {
+  Observer observer;
+  Cache cache;
+  cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  cache.setCallback(Observer::write, &observer);
+  const uintptr_t location = fill(cache, 0);
+  ASSERT_NE(location, 0U);
+  ASSERT_EQ(cache.lookup(0), location);
+  ASSERT_TRUE(cache.beginMutableLoan(0));
+  *reinterpret_cast<unsigned char*>(location) = 0xA6;
+  ASSERT_EQ(cache.lookup(0), location);
+  ASSERT_TRUE(cache.beginMutableLoan(0));
+  cache.endMutableLoan(0);
+  cache.release(0);
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_EQ(observer.writtenBytes, (std::vector<unsigned char>{0xA6}));
+
+  *reinterpret_cast<unsigned char*>(location) = 0xB7;
+  cache.endMutableLoan(0);
+  cache.release(0);
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_EQ(observer.writtenBytes, (std::vector<unsigned char>{0xA6, 0xB7}));
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_EQ(observer.writes.size(), 2U);
+}
+
+TEST(CacheDirtyTracking, MutableReturnPreservesKnownDirtyDataAndFailedWriteback) {
+  Observer observer;
+  Cache cache;
+  cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  cache.setCallback(Observer::write, &observer);
+  const uintptr_t location = fill(cache, 0, true);
+  ASSERT_NE(location, 0U);
+  ASSERT_EQ(cache.lookup(0), location);
+  ASSERT_TRUE(cache.beginMutableLoan(0));
+  observer.succeed = false;
+  EXPECT_FALSE(cache.syncAll());
+  cache.endMutableLoan(0);
+  cache.release(0);
+  observer.succeed = true;
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_EQ(observer.writtenBytes, (std::vector<unsigned char>{0x57, 0x57}));
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_EQ(observer.writes.size(), 2U);
+}
+
+TEST(CacheDirtyTracking, LoanBeginningDuringUntrackedWritebackRetainsLaterRestoration) {
+  Observer observer;
+  Cache cache;
+  cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  cache.setCallback(Observer::write, &observer);
+  const uintptr_t location = fill(cache, 0, true);
+  ASSERT_NE(location, 0U);
+  observer.onWrite = [&](uintptr_t key, uintptr_t page) {
+    ASSERT_EQ(cache.lookup(key), page);
+    ASSERT_TRUE(cache.beginMutableLoan(key));
+    *reinterpret_cast<unsigned char*>(page) = 0xA6;
+    // Model the backend sampling after the loan's write, not at callback entry.
+    observer.writtenBytes.back() = 0xA6;
+  };
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_EQ(observer.writtenBytes, (std::vector<unsigned char>{0xA6}));
+
+  *reinterpret_cast<unsigned char*>(location) = 0x57;
+  cache.endMutableLoan(0);
+  cache.release(0);
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_EQ(observer.writtenBytes, (std::vector<unsigned char>{0xA6, 0x57}));
+}
+
+TEST(CacheDirtyTracking, LastLoanReturnCannotBeSettledByAnOlderActiveWriteback) {
+  Observer observer;
+  Cache cache;
+  cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  cache.setCallback(Observer::write, &observer);
+  const uintptr_t location = fill(cache, 0, true);
+  ASSERT_NE(location, 0U);
+  ASSERT_EQ(cache.lookup(0), location);
+  ASSERT_TRUE(cache.beginMutableLoan(0));
+  observer.onWrite = [&](uintptr_t key, uintptr_t page) {
+    *reinterpret_cast<unsigned char*>(page) = 0xA6;
+    observer.writtenBytes.back() = 0xA6;
+    *reinterpret_cast<unsigned char*>(page) = 0x57;
+    cache.endMutableLoan(key);
+    cache.release(key);
+  };
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_EQ(observer.writtenBytes, (std::vector<unsigned char>{0xA6}));
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_EQ(observer.writtenBytes, (std::vector<unsigned char>{0xA6, 0x57}));
+}
+
+TEST(CacheDirtyTracking, PermanentWritableMappingOutlivesTemporaryMutableLoan) {
+  Observer observer;
+  Cache cache;
+  cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  cache.setCallback(Observer::write, &observer);
+  const uintptr_t location = fill(cache, 0);
+  ASSERT_NE(location, 0U);
+  ASSERT_EQ(cache.lookup(0), location);
+  ASSERT_TRUE(cache.beginMutableLoan(0));
+  *reinterpret_cast<unsigned char*>(location) = 0xA6;
+  cache.markExternallyWritable(0);
+  cache.endMutableLoan(0);
+  cache.release(0);
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_EQ(observer.writtenBytes, (std::vector<unsigned char>{0xA6}));
+
+  *reinterpret_cast<unsigned char*>(location) = 0xB7;
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_EQ(observer.writtenBytes, (std::vector<unsigned char>{0xA6, 0xB7}));
+}
+
+TEST(CacheDirtyTracking, BatchCompletionRetainsChangesAtLastMutableReturn) {
+  Observer observer;
+  Cache cache;
+  observer.cache = &cache;
+  cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  cache.setCallback(Observer::write, &observer);
+  const uintptr_t key = 0;
+  const uintptr_t location = fill(cache, key, true);
+  ASSERT_NE(location, 0U);
+  ASSERT_EQ(cache.lookup(key), location);
+  ASSERT_TRUE(cache.beginMutableLoan(key));
+  observer.onWrite = [&](uintptr_t writtenKey, uintptr_t page) {
+    *reinterpret_cast<unsigned char*>(page) = 0xA6;
+    cache.endMutableLoan(writtenKey);
+    cache.release(writtenKey);
+  };
+  EXPECT_TRUE(cache.syncBatch(&key, 1, Observer::batch, &observer));
+  EXPECT_EQ(observer.writtenBytes, (std::vector<unsigned char>{0x57}));
+  EXPECT_TRUE(cache.syncBatch(&key, 1, Observer::batch, &observer));
+  EXPECT_EQ(observer.writtenBytes, (std::vector<unsigned char>{0x57, 0xA6}));
+}
+
+#if STANDALONE_CACHE && (defined(__unix__) || defined(__APPLE__))
+TEST(CacheDirtyTracking, CleanReturnedMutableLoanStopsReadingPayload) {
+  size_t writes = 0;
+  Cache cache;
+  cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  cache.setCallback(
+      [](CacheConstants::CallbackCause cause, uintptr_t, uintptr_t, void* context) {
+        if (cause == CacheConstants::WriteBack)
+          ++*static_cast<size_t*>(context);
+        return true;
+      },
+      &writes);
+  const long hostPageSize = sysconf(_SC_PAGESIZE);
+  ASSERT_GT(hostPageSize, 0);
+  const size_t protectionSize = static_cast<size_t>(hostPageSize);
+  ASSERT_EQ(protectionSize % Page, 0U);
+  const size_t allocationSize = 2 * protectionSize;
+  const uintptr_t location = cache.insert(0, allocationSize);
+  ASSERT_NE(location, 0U);
+  const uintptr_t protectedLocation =
+      ((location + protectionSize - 1) / protectionSize) * protectionSize;
+  const uintptr_t key = protectedLocation - location;
+  cache.markNoLongerEditing(0, allocationSize);
+  ASSERT_EQ(cache.lookup(key), protectedLocation);
+  ASSERT_TRUE(cache.beginMutableLoan(key));
+  cache.endMutableLoan(key);
+  cache.release(key);
+
+  ASSERT_EQ(mprotect(reinterpret_cast<void*>(protectedLocation), protectionSize, PROT_NONE), 0);
+  struct RestoreProtection {
+    uintptr_t location;
+    size_t length;
+    ~RestoreProtection() {
+      EXPECT_EQ(mprotect(reinterpret_cast<void*>(location), length, PROT_READ | PROT_WRITE), 0);
+    }
+  } restore{protectedLocation, protectionSize};
+  cache.timer(Period);
+  EXPECT_TRUE(cache.sync(key, false));
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_TRUE(cache.evict(key));
+  EXPECT_EQ(writes, 0U);
+}
+#endif

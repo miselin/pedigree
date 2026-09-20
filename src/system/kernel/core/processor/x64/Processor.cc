@@ -22,6 +22,7 @@
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "../x86_common/Multiprocessor.h"
@@ -37,6 +38,9 @@
 #define PAT_WP 0x05
 #define PAT_WB 0x06
 #define PAT_UCMINUS 0x07
+
+constinit ProcessorInformation::KernelGsAnchor ProcessorBase::m_BootstrapKernelGsAnchor = {
+    0, 0, &m_SafeBspProcessorInformation, 0, nullptr};
 
 union pat {
   struct {
@@ -102,6 +106,9 @@ void ProcessorBase::deinitialise() {
 }
 
 void ProcessorBase::initialise1(const BootstrapStruct_t& Info) {
+  // Global constructors have completed; retire the constructor-independent anchor.
+  m_SafeBspProcessorInformation.activateKernelGsAnchor(0);
+
   // Initialise this processor's interrupt handling
   X64InterruptManager::initialiseProcessor();
 
@@ -200,6 +207,22 @@ void ProcessorBase::identify(HugeStaticString& str) {
 }
 
 void ProcessorBase::setTlsBase(uintptr_t newBase) {
+  pedigree_materialize_user_entry();
   // Set FS.base MSR.
   asm volatile("wrmsr" ::"a"(newBase), "d"(newBase >> 32ULL), "c"(0xC0000100));
+}
+
+uintptr_t ProcessorBase::getUserGsBase() {
+  uint32_t low, high;
+  asm volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(0xc0000102) : "memory");
+  return low | (static_cast<uintptr_t>(high) << 32);
+}
+
+void ProcessorBase::setUserGsBase(uintptr_t newBase) {
+  pedigree_materialize_user_entry();
+  asm volatile("wrmsr"
+               :
+               : "a"(static_cast<uint32_t>(newBase)), "d"(static_cast<uint32_t>(newBase >> 32)),
+                 "c"(0xc0000102)
+               : "memory");
 }

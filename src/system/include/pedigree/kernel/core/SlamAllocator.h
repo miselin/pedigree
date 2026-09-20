@@ -31,6 +31,8 @@
 #include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/core/SlamBitmap.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #if PEDIGREE_BENCHMARK
 namespace SlamSupport {
@@ -109,7 +111,7 @@ class SlamCache;
 /// Scribble in freed memory; can be useful for finding bugs which are caused
 /// by reuse of freed objects (that would otherwise look like valid objects).
 /// It can also avoid leaking information in heap objects.
-#define SCRIBBLE_FREED_BLOCKS 1
+#define SCRIBBLE_FREED_BLOCKS 0
 
 /// Block allocations larger than or equal to the native page size.
 #define WARN_PAGE_SIZE_OR_LARGER 0
@@ -192,12 +194,27 @@ class SlamCache {
     return m_SlabSize;
   }
 
+  inline size_t slabObjectCount() const {
+    return m_SlabObjectCount;
+  }
+
   void trackSlab(uintptr_t slab);
   void check();
 
  private:
   SlamCache(const SlamCache&);
   const SlamCache& operator=(const SlamCache&);
+
+  struct Slab {
+    Node* freeHead;
+    Slab* next;
+    Slab* previous;
+    SlamCache* cache;
+    size_t freeObjects;
+    size_t objectCount;
+    size_t list;
+    bool onList;
+  };
 
   static constexpr const int NUM_LISTS =
 #if defined(PEDIGREE_BUILDUTILS)
@@ -206,12 +223,18 @@ class SlamCache {
       MULTIPROCESSOR ? 256 : 1;
 #endif
 
-  typedef volatile Node* alignedNode;
-  alignedNode m_PartialLists[NUM_LISTS];
+  Slab* m_PartialLists[NUM_LISTS];
+  Slab* m_FastSlabs[NUM_LISTS];
+  Node* m_LargeFreeList;
 
-  Node* pop(alignedNode* head);
-  /* newHead = 0 to use newTail. */
-  void push(alignedNode* head, Node* newTail, Node* newHead = 0);
+  void addSlab(Slab* slab, size_t list);
+  void removeSlab(Slab* slab);
+  bool beginFastPath();
+  void endFastPath();
+  Node* popFreeObject(Slab* slab);
+  void pushFreeObject(Slab* slab, Node* node);
+  Node* objectAt(uintptr_t slab, size_t index) const;
+  Slab* slabForObject(uintptr_t object) const;
 
   uintptr_t getSlab();
   void freeSlab(uintptr_t slab);
@@ -221,25 +244,24 @@ class SlamCache {
 
   size_t m_ObjectSize;
   size_t m_SlabSize;
+  size_t m_SlabObjectOffset;
+  size_t m_SlabObjectCount;
 
   // This version of the allocator doesn't have a free list, instead
   // the reap() function returns memory directly to the VMM. This
   // avoids needing to lock the free list on MP systems.
 
   uintptr_t m_FirstSlab;
+  size_t m_FastPathState;
 
   /**
-   * Recovery cannot be done trivially.
-   * Spinlock disables interrupts as part of its operation. Allocation and
-   * free-list publication also take this lock, allowing recovery to inspect
-   * every CPU-local list without a dangling-node window.
+   * Protects slab-list transitions and the slow paths. Recovery quiesces the
+   * lock-free fast path before inspecting or reclaiming slabs.
    */
   Spinlock m_RecoveryLock;
 
   /** Pointer back to the associated SlamAllocator. */
   SlamAllocator* m_pParentAllocator;
-
-  struct Node m_EmptyNode;
 
 #if defined(PEDIGREE_BUILDUTILS)
   size_t m_TestList = 0;
@@ -369,13 +391,7 @@ class SlamAllocator {
 
   size_t m_HeapPageCount;
 
-  struct SlabBitmapEntry {
-    uint64_t reserved;
-    uint64_t mapped;
-    uint64_t ready;
-  };
-
-  SlabBitmapEntry* m_SlabRegionBitmap;
+  SlamBitmap m_SlabRegionBitmap;
   size_t m_SlabRegionBitmapEntries;
   size_t m_SlabRegionPages;
 

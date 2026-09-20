@@ -168,6 +168,8 @@ void Pc::initialise() {
   Rtc& rtc = Rtc::instance();
   if (rtc.initialise1(rtcCenturyIndex) == false)
     panic("Pc: Rtc initialisation phase 1 failed");
+  if (rtc.initialise2() == false)
+    panic("Pc: Rtc initialisation phase 2 failed");
 
 // Initialise SMP
 #if SMP
@@ -236,10 +238,6 @@ void Pc::initialise() {
   m_pSerial[1]->setBase(0x2F8);
   m_pSerial[2]->setBase(0x3E8);
   m_pSerial[3]->setBase(0x2E8);
-
-  // Initialse the Real-time Clock / CMOS IRQs.
-  if (rtc.initialise2() == false)
-    panic("Pc: Rtc initialisation phase 2 failed");
 
   if (m_SchedulerTimerSelection.usesPit()) {
     NOTICE("Using PIT scheduler timer fallback");

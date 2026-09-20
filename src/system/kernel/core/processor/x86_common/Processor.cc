@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -139,21 +140,10 @@ void ProcessorBase::disableDebugBreakpoint(size_t nBpNumber) {
   asm volatile("mov %0, %%db7" ::"r"(nStatus));
 }
 
-void ProcessorBase::setInterrupts(bool bEnable) {
-  if (bEnable)
-    asm volatile("sti");
-  else
-    asm volatile("cli");
-}
-
-bool ProcessorBase::getInterrupts() {
-  size_t result;
-  asm volatile(
-      "pushf\n"
-      "pop %0\n"
-      "and $0x200, %0\n"
-      : "=r"(result));
-  return (result != 0);
+namespace {
+// Keep addressable kernel exports for modules built against the interrupt API.
+void (*const setInterruptsEntry)(bool) USED = &ProcessorBase::setInterrupts;
+bool (*const getInterruptsEntry)() USED = &ProcessorBase::getInterrupts;
 }
 
 void ProcessorBase::setSingleStep(bool bEnable, InterruptState& state) {
@@ -320,105 +310,69 @@ void X86CommonProcessor::cpuid(uint32_t inEax, uint32_t inEcx, uint32_t& eax, ui
   asm volatile("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "a"(inEax), "c"(inEcx));
 }
 
-#if MULTIPROCESSOR && X64
-namespace {
-size_t currentProcessorIndexFromTss(const Vector<ProcessorInformation*>& processors) {
-  uint16_t selector;
-  asm volatile("str %0" : "=r"(selector));
+#if MULTIPROCESSOR && !X64
+NEVER_INLINE __attribute__((cold)) ProcessorInformation* currentProcessorInformationFromApic(
+    const Vector<ProcessorInformation*>& processors, size_t* processorIndex) {
+  Pc& pc = Pc::instance();
+  if (!pc.localApicAvailable()) {
+    if (processorIndex)
+      *processorIndex = 0;
+    return nullptr;
+  }
 
-  // The permanent GDT assigns two entries per CPU, starting at entry 7.
-  // Before its LTR, an AP still has the null TR established by INIT and must
-  // use the APIC fallback. The BSP loads its TSS before m_Initialised reaches 2.
-  constexpr uint16_t firstTssSelector = 7 << 3;
-  if (selector < firstTssSelector || ((selector - firstTssSelector) & 0xF))
-    return processors.count();
+  const uint8_t apicId = pc.getLocalApic().getId();
+  for (size_t i = 0; i < processors.count(); ++i) {
+    ProcessorInformation* information = processors.begin()[i];
+    if (information->localApicId() == apicId) {
+      if (processorIndex)
+        *processorIndex = i;
+      return information;
+    }
+  }
 
-  const size_t index = (selector - firstTssSelector) >> 4;
-  if (index >= processors.count() || processors[index]->getTssSelector() != selector)
-    return processors.count();
-  return index;
+  // IRQ publication must reject an unknown identity rather than use the BSP.
+  if (processorIndex)
+    *processorIndex = processors.count();
+  return nullptr;
 }
-}  // namespace
 #endif
 
 ProcessorId ProcessorBase::id() {
+#if X64
+  return information().processorId();
+#else
   if (m_Initialised < 2)
     return 0;
 
 #if MULTIPROCESSOR
-  Pc& pc = Pc::instance();
-  if (!pc.localApicAvailable())
-    return 0;
+  if (m_ProcessorInformation.count() == 1)
+    return (*m_ProcessorInformation.begin())->m_ProcessorId;
 
-#if X64
-  const size_t index = currentProcessorIndexFromTss(m_ProcessorInformation);
-  if (index < m_ProcessorInformation.count())
-    return m_ProcessorInformation[index]->m_ProcessorId;
-#endif
-
-  uint8_t apicId = pc.getLocalApic().getId();
-
-  for (size_t i = 0; i < m_ProcessorInformation.count(); i++)
-    if (m_ProcessorInformation[i]->m_LocalApicId == apicId)
-      return m_ProcessorInformation[i]->m_ProcessorId;
+  if (auto* information = currentProcessorInformationFromApic(m_ProcessorInformation))
+    return information->m_ProcessorId;
 #endif
 
   return 0;
+#endif
 }
 
+#if !X64
 size_t ProcessorBase::index() {
   if (m_Initialised < 2)
     return 0;
 
 #if MULTIPROCESSOR
-  Pc& pc = Pc::instance();
-  if (!pc.localApicAvailable())
+  if (m_ProcessorInformation.count() == 1)
     return 0;
 
-#if X64
-  const size_t index = currentProcessorIndexFromTss(m_ProcessorInformation);
-  if (index < m_ProcessorInformation.count())
-    return index;
-#endif
-
-  const uint8_t apicId = pc.getLocalApic().getId();
-  for (size_t i = 0; i < m_ProcessorInformation.count(); ++i) {
-    if (m_ProcessorInformation[i]->m_LocalApicId == apicId)
-      return i;
-  }
-
-  // Never alias an unrecognised hardware identity onto the BSP slot. IRQ
-  // publication treats this sentinel as a topology failure and rejects it.
-  return m_ProcessorInformation.count();
+  size_t index;
+  currentProcessorInformationFromApic(m_ProcessorInformation, &index);
+  return index;
 #else
   return 0;
 #endif
 }
-
-ProcessorInformation& ProcessorBase::information() {
-#if MULTIPROCESSOR
-  if (m_Initialised < 2)
-    return m_SafeBspProcessorInformation;
-
-  Pc& pc = Pc::instance();
-  if (!pc.localApicAvailable())
-    return m_SafeBspProcessorInformation;
-
-#if X64
-  const size_t index = currentProcessorIndexFromTss(m_ProcessorInformation);
-  if (index < m_ProcessorInformation.count())
-    return *m_ProcessorInformation[index];
 #endif
-
-  uint8_t apicId = pc.getLocalApic().getId();
-
-  for (size_t i = 0; i < m_ProcessorInformation.count(); i++)
-    if (m_ProcessorInformation[i]->m_LocalApicId == apicId)
-      return *m_ProcessorInformation[i];
-#endif
-
-  return m_SafeBspProcessorInformation;
-}
 
 size_t ProcessorBase::getCount() {
 #if MULTIPROCESSOR
@@ -463,6 +417,9 @@ void ProcessorBase::reset() {
 }
 
 void ProcessorBase::haltUntilInterrupt() {
+#if PEDIGREE_ACTIVITY_DIAGNOSTICS
+  ActivityDiagnostics::recordIdleHalt();
+#endif
   bool bWasInterrupts = getInterrupts();
   __asm__ __volatile__("sti; hlt");
   if (!bWasInterrupts)

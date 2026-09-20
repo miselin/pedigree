@@ -230,7 +230,75 @@ out:
   return failed;
 }
 
+static int fragmented_lookup(void) {
+  enum { Mappings = 64 };
+  const size_t p = vm_page, length = Mappings * 3 * p;
+  int failed = 0, fd = -1;
+  unsigned char* arena = MAP_FAILED;
+  CHECK((fd = vm_file(1, NULL)) >= 0);
+  CHECK((arena = mmap(NULL, length, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)) != MAP_FAILED);
+  // Publication order differs from address order, with a guard page between
+  // mappings. Exercise both user faults and kernel copies into untouched pages.
+  for (size_t n = 0; n < Mappings; ++n) {
+    const size_t i = (n * 37) % Mappings;
+    unsigned char* base = arena + i * 3 * p;
+    CHECK(mmap(base, 2 * p, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1,
+               0) == base);
+  }
+  for (size_t i = 0; i < Mappings; ++i) {
+    unsigned char* base = arena + i * 3 * p;
+    CHECK(base[0] == 0);
+    base[0] = (unsigned char)(i + 1);
+    CHECK(pread(fd, base + p - 1, 2, 0) == 2);
+    CHECK(base[p - 1] == 0x20 && base[p] == 0x20);
+    base[2 * p - 1] = (unsigned char)(i + 65);
+    if (!(i % 8))
+      CHECK(mprotect(base + p, p, PROT_READ) == 0);
+  }
+  CHECK(vm_fault(arena + 2 * p, 0, SIGSEGV) == 0);
+  CHECK(vm_fault(arena + 32 * 3 * p + p, 1, SIGSEGV) == 0);
+  CHECK(munmap(arena + 17 * 3 * p + 2 * p, p) == 0);
+  CHECK(vm_fault(arena + 17 * 3 * p + 2 * p, 0, SIGSEGV) == 0);
+
+  pid_t child = fork();
+  CHECK(child >= 0);
+  if (!child) {
+    for (size_t i = 0; i < Mappings; ++i) {
+      unsigned char* base = arena + i * 3 * p;
+      if (base[0] != i + 1 || base[2 * p - 1] != i + 65)
+        _exit(1);
+      base[0] = 0xee;
+      if (base[0] != 0xee)
+        _exit(2);
+    }
+    _exit(0);
+  }
+  CHECK(vm_reap(child, 4000) == 0);
+  for (size_t i = 0; i < Mappings; ++i) {
+    unsigned char* base = arena + i * 3 * p;
+    CHECK(base[0] == i + 1 && base[2 * p - 1] == i + 65);
+  }
+
+  unsigned char* source = arena + 32 * 3 * p;
+  unsigned char* destination = arena + 33 * 3 * p + 2 * p;
+  CHECK(mremap(source, p, p, MREMAP_FIXED | MREMAP_MAYMOVE, destination) == destination);
+  CHECK(destination[0] == 33 && destination[p - 1] == 0x20);
+  CHECK(source[p] == 0x20 && source[2 * p - 1] == 97);
+  CHECK(vm_fault(source, 0, SIGSEGV) == 0);
+  CHECK(mmap(source, p, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) ==
+        source);
+  CHECK(source[0] == 0 && source[p - 1] == 0);
+  CHECK(pread(fd, source, 1, 0) == 1 && source[0] == 0x20);
+  CHECK(destination[0] == 33);
+out:
+  if (arena != MAP_FAILED)
+    munmap(arena, length);
+  if (fd >= 0)
+    close(fd);
+  return failed;
+}
+
 int vm_test_remap(void) {
   return anonymous_resize() || growth_and_rejection() || fixed_victims() || vm_test_remap_file() ||
-         vm_test_remap_shm() || fork_cow() || allocation_and_tls();
+         vm_test_remap_shm() || fork_cow() || allocation_and_tls() || fragmented_lookup();
 }

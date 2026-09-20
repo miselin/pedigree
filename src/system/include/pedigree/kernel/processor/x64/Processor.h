@@ -26,4 +26,18 @@
 
 class X64Processor : public X86CommonProcessor {};
 
+#if X64
+ALWAYS_INLINE inline ProcessorInformation& ProcessorBase::information() {
+  ProcessorInformation* information;
+  asm volatile("movq %%gs:16, %0" : "=r"(information) : : "memory");
+  return *information;
+}
+
+ALWAYS_INLINE inline size_t ProcessorBase::index() {
+  size_t index;
+  asm volatile("movq %%gs:24, %0" : "=r"(index) : : "memory");
+  return index;
+}
+#endif
+
 #endif

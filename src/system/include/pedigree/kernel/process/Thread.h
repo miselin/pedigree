@@ -19,6 +19,7 @@
 
 #ifndef THREAD_H
 #define THREAD_H
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
@@ -38,6 +39,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
+#include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/new"
 
 #include <config.h>
@@ -122,6 +124,21 @@ class EXPORTED_PUBLIC Thread {
   bool tryRequireSignalFrames();
   void clearSignalFrameRequirement();
   void setUserReturnSignalParked(bool parked);
+
+  enum UserReturnWorkFlag : size_t {
+    UserReturnExternalWork = 1,
+    UserReturnEventsDeferred = 1 << 1,
+    UserReturnSignalFrames = 1 << 3,
+    UserReturnDeferredException = 1 << 4,
+    UserReturnOriginalSyscall = 1 << 5,
+  };
+
+  bool canSkipUserReturnWork();
+  bool clearUserReturnWorkIfIdle();
+  bool userReturnWorkPending() const {
+    return __atomic_load_n(&m_UserReturnWorkPending, __ATOMIC_ACQUIRE) != 0 ||
+           isTerminationDeferred();
+  }
   bool requiresSignalFrames() const {
     return __atomic_load_n(&m_SignalFramesRequired, __ATOMIC_ACQUIRE);
   }
@@ -173,16 +190,6 @@ class EXPORTED_PUBLIC Thread {
   /** Releases a start parameter if a delayed thread retires before entry. */
   typedef void (*ThreadStartCleanup)(void*);
 
-  /**
-   * Optional scheduler-side admission predicate for a ready kernel worker.
-   *
-   * The thread remains on its processor's ready queue while the predicate is
-   * false, but the scheduler skips it. This lets an IRQ publish an atomic
-   * work predicate without mutating a wait queue or ready queue from hard
-   * context. It must be installed before start() on a delayed thread.
-   */
-  typedef bool (*SchedulerReadyPredicate)(void*);
-
   /** Creates a new Thread belonging to the given Process. It shares the
    Process' * virtual address space.
    *
@@ -228,6 +235,9 @@ class EXPORTED_PUBLIC Thread {
    * interrupts disabled, including Terminal. Ordinary waits are not gates.
    */
   AffinityResult completeAffinityAtSafePoint(bool* waited = nullptr);
+  bool affinityWorkPending() const {
+    return __atomic_load_n(&m_AffinityReturnPending, __ATOMIC_ACQUIRE) != 0;
+  }
   /** Placement inhibition only; the registration retains its own lifetime. */
   bool tryPinLegacyUserCallbacks();
   void unpinLegacyUserCallbacks();
@@ -301,7 +311,16 @@ class EXPORTED_PUBLIC Thread {
   void adoptInitialUserStackForExec(VirtualAddressSpace::Stack* stack);
 
   /** Returns the state nesting level. */
-  size_t getStateLevel() const;
+  size_t getStateLevel() const {
+    return __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
+  }
+
+  void* getSyscallDispatchContext() const {
+    return m_SyscallDispatchContext;
+  }
+  void setSyscallDispatchContext(void* context) {
+    m_SyscallDispatchContext = context;
+  }
 
   /** Allocates a new stack for a specific nesting level, if required */
   void allocateStackAtLevel(size_t stateLevel);
@@ -343,16 +362,50 @@ class EXPORTED_PUBLIC Thread {
   void trackTime(CpuTimeMode mode);
 
   /** Accounts one CPU-mode transition from a single monotonic sample. */
-  void transitionTime(CpuTimeMode from, CpuTimeMode to);
+  void transitionTime(CpuTimeMode from, CpuTimeMode to,
+                      bool interruptsAlreadyDisabled = false);
 
   /**
-   * Accounts the final interrupt return transition while the architecture
-   * already has IRQ delivery physically masked.
+   * Accounts a transition while the architecture already has IRQ delivery
+   * physically masked.
    */
-  void transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to);
+  ALWAYS_INLINE void transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to) {
+    if constexpr (PEDIGREE_TIME_ACCOUNTING && !PEDIGREE_SAMPLED_TIME_ACCOUNTING) {
+      ActivityDiagnostics::TimeAccountingScope accountingScope;
+      // The architecture boundary owns the physical IRQ mask. Going
+      // through CpuTimeSample here could momentarily undo that mask on hosted,
+      // where the logical state intentionally describes the pending sigreturn.
+      const auto sample = Time::sampleCpuTime();
+      const Time::Timestamp elapsed =
+          m_TimeAccounting.elapsedAtInterruptDisabled(from, sample.timestamp, sample.processor);
+      m_TimeAccounting.recordAtInterruptDisabled(to, sample.timestamp, sample.processor);
+      __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
+      if (elapsed) {
+        publishTimeAccounting(from, elapsed, sample.processor);
+      }
+    } else {
+      (void)from;
+      __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
+    }
+  }
 
   /** Current accounting owner; never used to classify interrupt origin. */
   CpuTimeMode currentTimeAccountingMode() const;
+
+  /** Charges a scheduler tick using the saved interrupt mode, with IRQs masked. */
+  void accountTimerTick(Time::Timestamp delta, bool kernelMode);
+
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  static constexpr size_t NoSyscallTimingSlot = ~static_cast<size_t>(0);
+
+  size_t installSyscallTimingSlot(size_t slot) {
+    return __atomic_exchange_n(&m_ActiveSyscallTimingSlot, slot, __ATOMIC_ACQ_REL);
+  }
+
+  void restoreSyscallTimingSlot(size_t slot) {
+    __atomic_store_n(&m_ActiveSyscallTimingSlot, slot, __ATOMIC_RELEASE);
+  }
+#endif
 
   /** Gets CPU time charged specifically to this Thread. */
   Time::Timestamp getUserTime() const {
@@ -395,8 +448,6 @@ class EXPORTED_PUBLIC Thread {
    * call returns, so callers must not access it afterward.
    */
   bool startDetached();
-
-  bool setSchedulerReadyPredicate(SchedulerReadyPredicate predicate, void* context);
 
   /** Retrieves the exit status of the Thread. */
   int getExitCode() {
@@ -478,7 +529,9 @@ class EXPORTED_PUBLIC Thread {
 
       Whether to adopt option A or B depends on whether this thread or not has
      been asked to terminate, given by the return value. **/
-  UnwindType getUnwindState();
+  UnwindType getUnwindState() {
+    return __atomic_load_n(&m_UnwindState, __ATOMIC_ACQUIRE);
+  }
   /** Sets the above unwind state. */
   void setUnwindState(UnwindType ut);
 
@@ -501,6 +554,10 @@ class EXPORTED_PUBLIC Thread {
    * allocating from its raw interrupt frame.
    */
   bool deferSubsystemException(size_t type, uintptr_t faultAddress, uintptr_t errorCode);
+
+  bool hasDeferredSubsystemException() const {
+    return __atomic_load_n(&m_DeferredSubsystemExceptionState, __ATOMIC_ACQUIRE) != 0;
+  }
 
   /** Claims a synchronous exception at an IRQ-enabled return boundary. */
   bool takeDeferredSubsystemException(size_t& type, uintptr_t& faultAddress, uintptr_t& errorCode);
@@ -666,6 +723,12 @@ class EXPORTED_PUBLIC Thread {
 
   void setOriginalSyscallState(const SyscallState* state) {
     m_OriginalSyscallState = state;
+    if (state) {
+      __atomic_fetch_or(&m_UserReturnWorkPending, UserReturnOriginalSyscall, __ATOMIC_RELEASE);
+    } else {
+      __atomic_fetch_and(&m_UserReturnWorkPending, ~static_cast<size_t>(UserReturnOriginalSyscall),
+                         __ATOMIC_RELEASE);
+    }
   }
 
   /** Records trusted metadata for the signal dispatched at the current level. */
@@ -781,6 +844,14 @@ class EXPORTED_PUBLIC Thread {
    */
   void setTlsBase(uintptr_t base);
 
+#if X64 && !HOSTED
+  uintptr_t getUserGsBase() const {
+    return m_UserGsBase;
+  }
+  void setUserGsBase(uintptr_t base);
+  void saveUserGsBase();
+#endif
+
   /** Gets this thread's CPU ID */
   inline
 #if MULTIPROCESSOR
@@ -846,13 +917,15 @@ class EXPORTED_PUBLIC Thread {
   static void threadExited() NORETURN;
 
   /** Gets whether event delivery is currently deferred. */
-  bool eventsDeferred();
+  bool eventsDeferred() const;
 
   /** Returns this Thread's explicit logical execution context. */
   ExecutionContext executionContext() const;
 
   /** Gets the per-processor scheduler for this Thread. */
-  class PerProcessorScheduler* getScheduler() const;
+  class PerProcessorScheduler* getScheduler() const {
+    return __atomic_load_n(&m_pScheduler, __ATOMIC_ACQUIRE);
+  }
 
   const String& getName() const {
     return m_Name;
@@ -888,6 +961,15 @@ class EXPORTED_PUBLIC Thread {
   void resumeEvents();
   void deferTermination();
   void resumeTermination();
+  void markUserReturnWorkFlag(UserReturnWorkFlag flag) {
+    __atomic_fetch_or(&m_UserReturnWorkPending, static_cast<size_t>(flag), __ATOMIC_RELEASE);
+  }
+  void clearUserReturnWorkFlag(UserReturnWorkFlag flag) {
+    __atomic_fetch_and(&m_UserReturnWorkPending, ~static_cast<size_t>(flag), __ATOMIC_RELEASE);
+  }
+  void markUserReturnWorkPending() {
+    markUserReturnWorkFlag(UserReturnExternalWork);
+  }
   void registerDeferredScope(DeferredScopeRecord& record, bool termination, bool events);
   void armStateCleanup(DeferredScopeRecord& record, DeferredScopeRecord::Cleanup cleanup,
                        void* context);
@@ -905,6 +987,8 @@ class EXPORTED_PUBLIC Thread {
   void disarmAtomicStateCleanup(AtomicStateCleanupRecord& record);
 
  private:
+  void registerFreshTerminationDeferral(DeferredScopeRecord& record);
+
   /** Kernel-owned start cleanup; unloadable code must use AdmittedThread. */
   Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
          bool semiUser, bool bDontPickCore, bool delayedStart, ThreadStartCleanup startCleanup,
@@ -916,7 +1000,7 @@ class EXPORTED_PUBLIC Thread {
   Thread& operator=(const Thread&);
 
   /** Adds one elapsed interval to this Thread and its Process aggregate. */
-  void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed);
+  void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed, size_t processor);
 
   void initialisePlacement(const ThreadPlacement* placement);
   void publishReadyNotification();
@@ -1109,6 +1193,10 @@ class EXPORTED_PUBLIC Thread {
   /** Mode owning time since the most recent accounting baseline. */
   size_t m_CurrentTimeAccountingMode = static_cast<size_t>(CpuTimeMode::Kernel);
 
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  size_t m_ActiveSyscallTimingSlot = NoSyscallTimingSlot;
+#endif
+
   /** The stack that we allocated from the VMM. This may or may not also be
       the kernel stack - depends on whether we are a user or kernel mode
       thread. This is used solely for housekeeping/cleaning up purposes. */
@@ -1134,9 +1222,11 @@ class EXPORTED_PUBLIC Thread {
   bool m_AffinityPending = false;
   bool m_AffinityGatePending = false;
   bool m_AffinityWorkQueued = false;
+  size_t m_AffinityReturnPending = 0;
   size_t m_LegacyUserCallbackPins = 0;
   bool m_SignalFramesRequired = false;
   bool m_UserReturnSignalParked = false;
+  size_t m_UserReturnWorkPending = 0;
   Thread* m_AffinityNext = nullptr;
   bool m_HasSchedulerContext = false;
   bool m_ReadyPublicationPending = false;
@@ -1149,12 +1239,13 @@ class EXPORTED_PUBLIC Thread {
   Thread* m_pReadyNext = nullptr;
   size_t m_ReadyQueuePriority = MAX_PRIORITIES;
   bool m_bReadyQueued = false;
-  SchedulerReadyPredicate m_SchedulerReadyPredicate = nullptr;
-  void* m_SchedulerReadyContext = nullptr;
 
   /** Memory mapping for the TLS base of this thread (userspace-only) */
   VirtualAddressSpace::Stack* m_pInputUserStack = nullptr;
   void* m_pTlsBase = nullptr;
+#if X64 && !HOSTED
+  uintptr_t m_UserGsBase = 0;
+#endif
 
 #if MULTIPROCESSOR
   ProcessorId
@@ -1207,6 +1298,7 @@ class EXPORTED_PUBLIC Thread {
   AlternateSignalStack m_AlternateSignalStack;
 
   const SyscallState* m_OriginalSyscallState = nullptr;
+  void* m_SyscallDispatchContext = nullptr;
 
   /** Our current status. Sleeping is reserved for an active WaitQueue. */
   volatile Status m_Status = Ready;

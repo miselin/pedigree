@@ -28,6 +28,7 @@
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/time/Time.h"
 
 #include "LocalApic.h"
 #include "LocalApicIcrTransaction.h"
@@ -164,7 +165,9 @@ bool LocalApic::initialiseProcessor() {
     // rolling over.
     m_IoSpace.write32(0xFFFFFFFF, LAPIC_REG_INITIAL_COUNT);
 
-    // This should be approximately 10000 useconds (10 ms).
+    // Measure the delay with the RTC-calibrated monotonic clock instead of
+    // assuming a platform-specific port-0x80 delay.
+    const Time::Timestamp calibrationStart = Time::getTicks();
     for (size_t i = 0; i < 10000; ++i) {
       uint8_t a = 0;
       __asm__ __volatile__("outb %0, %1" ::"a"(a), "Nd"(0x80));
@@ -172,9 +175,20 @@ bool LocalApic::initialiseProcessor() {
     uint32_t out = m_IoSpace.read32(LAPIC_REG_CURRENT_COUNT);
 
     uint32_t ticks = 0xFFFFFFFFU - out;
+    const Time::Timestamp calibrationElapsed = Time::getTicks() - calibrationStart;
+    if (!ticks || !calibrationElapsed) {
+      ERROR("Local APIC: timer calibration produced no elapsed interval");
+      return false;
+    }
 
-    // We want the bus frequency to be in Hz (ticks/second).
-    m_BusFrequency = ticks * 100U;
+    // The counter is already divided by 16 above, and m_BusFrequency is the
+    // rate consumed by the initial-count register.
+    m_BusFrequency = static_cast<size_t>(
+        (static_cast<unsigned __int128>(ticks) * Time::Multiplier::Second) / calibrationElapsed);
+    if (!m_BusFrequency) {
+      ERROR("Local APIC: timer calibration produced a zero frequency");
+      return false;
+    }
   }
 
   // Set the LVT timer register.
@@ -926,9 +940,9 @@ void LocalApic::interrupt(size_t nInterruptNumber, InterruptState& state) {
     SchedulerTimerHandlerSlot::DispatchGuard dispatch;
     if (LIKELY(m_Handlers.beginDispatch(getId(), dispatch))) {
       SchedulerTimerDispatchCleanup dispatchCleanup(dispatch);
-      // TODO: Delta is wrong.
       ExecutionContextGuard schedulerContext(ExecutionContext::SchedulerIrq);
-      dispatch.handler()->timer(0, state);
+      const uint64_t delta = nInterruptNumber == TIMER_VECTOR ? nominalQuantumNs() : 0;
+      dispatch.handler()->timer(delta, state);
     }
     return;
   }

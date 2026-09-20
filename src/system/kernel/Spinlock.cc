@@ -17,7 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 
@@ -25,245 +27,210 @@
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
 #endif
 
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/panic.h"
-
-class Thread;
-
-static Atomic<size_t> x(0);
-
 Spinlock::Spinlock() = default;
 
-Spinlock::Spinlock(bool bLocked, bool bAvoidTracking) : Spinlock() {
-  m_Atom = !bLocked;
-  m_bAvoidTracking = bAvoidTracking;
-}
+Spinlock::Spinlock(bool bLocked, bool bAvoidTracking)
+    : m_Lock(bLocked), m_bAvoidTracking(bAvoidTracking) {}
 
 bool Spinlock::acquire(bool recurse, bool safe) {
-  Thread* pThread = Processor::information().getCurrentThread();
-  bool reentered = false;
-
-  // Save the current irq status.
-
-  // This save to local variable prevents a heinous race condition where the
-  // thread is preempted between the getInterrupts and setInterrupts, then
-  // this same spinlock is called in the new thread with interrupts disabled.
-  // It gets back to us, and m_bInterrupts==false. Oh dear, hanging time.
-  //
-  // We write to a local so the interrupt value is saved onto the stack until
-  // interrupts are definately disabled; then we can write it back to the
-  // member variable.
-  bool bInterrupts = Processor::getInterrupts();
-
-  // Disable irqs if not already done
-  if (bInterrupts)
+  // Keep this local until we own the lock: another CPU (or a preempting
+  // thread before CLI) must not overwrite the owner's restoration state.
+  const bool interrupts = Processor::getInterrupts();
+  if (interrupts)
     Processor::setInterrupts(false);
 
-  const ProcessorId processorId = Processor::id();
+  uintptr_t ra = 0;
+#if SPINLOCK_DIAGNOSTICS
+  ra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+  if (UNLIKELY(m_Magic != 0xdeadbaba))
+    badMagic(ra);
+#endif
 
-  if (m_Magic != 0xdeadbaba) {
-    uintptr_t myra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
-    WARNING(" --> fail: thread=" << pThread);
-    WARNING(" --> fail: sentinels: before=" << Hex << m_Sentinel << " after=" << m_MagicAlign << " "
-                                            << m_pOwner);
-    FATAL_NOLOCK("Wrong magic in acquire [" << Hex << m_Magic << " should be 0xdeadbaba] [this="
-                                            << reinterpret_cast<uintptr_t>(this)
-                                            << "] return=" << myra);
+#if TRACK_LOCKS
+  if (!m_bAvoidTracking) {
+    g_LocksCommand.clearFatal();
+    if (!g_LocksCommand.lockAttempted(this, Processor::index(), interrupts))
+      panic("Lock checker disallowed spinlock acquisition");
+    g_LocksCommand.setFatal();
+  }
+#endif
+
+  const bool reentered = UNLIKELY(!m_Lock.tryAcquire()) && acquireContended(recurse, safe, ra);
+  if (!reentered) {
+    m_bInterrupts = interrupts;
+    __atomic_store_n(&m_OwnedProcessor, Processor::index(), __ATOMIC_RELAXED);
+    if (recurse) {
+      m_pOwner = Processor::information().getCurrentThread();
+      m_Level = 1;
+    }
+#if SPINLOCK_DIAGNOSTICS
+    m_Ra = ra;
+#endif
   }
 
 #if TRACK_LOCKS
   if (!m_bAvoidTracking) {
     g_LocksCommand.clearFatal();
-    if (!g_LocksCommand.lockAttempted(this, processorId, bInterrupts)) {
-      uintptr_t myra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
-      FATAL_NOLOCK("Spinlock: LocksCommand disallows this acquire [return=" << Hex << myra << "].");
-    }
+    if (!g_LocksCommand.lockAcquired(this, Processor::index(), interrupts))
+      panic("Lock checker disallowed acquired spinlock");
     g_LocksCommand.setFatal();
   }
 #endif
+  return true;
+}
 
-  while (m_Atom.compareAndSwap(true, false) == false) {
-    // Couldn't take the lock - can we re-enter the critical section?
-    // Until scheduler startup, every CPU has a null current thread.
-    // Processor identity therefore remains part of recursive ownership.
-    if (m_bOwned && (m_pOwner == pThread) && (m_OwnedProcessor == processorId) && recurse) {
-      // Yes.
+bool Spinlock::acquireContended(bool recurse, bool safe, uintptr_t ra) {
+  const size_t processorId = Processor::index();
+  do {
+    const size_t owner = __atomic_load_n(&m_OwnedProcessor, __ATOMIC_RELAXED);
+    // Test CPU identity first: other CPUs must not inspect recursion state
+    // which only its owner can access. Early boot threads may all be null.
+    if (owner == processorId && recurse && m_Level &&
+        m_pOwner == Processor::information().getCurrentThread()) {
       ++m_Level;
-      reentered = true;
-      break;
+      return true;
     }
-
-    Processor::pause();
 
 #if TRACK_LOCKS
     if (!m_bAvoidTracking) {
       g_LocksCommand.clearFatal();
-      if (!g_LocksCommand.checkState(this)) {
-        uintptr_t myra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
-        FATAL_NOLOCK("Spinlock: LocksCommand failed a state check [return=" << Hex << myra << "].");
-      }
+      if (!g_LocksCommand.checkState(this, processorId))
+        panic("Lock checker rejected contended spinlock");
       g_LocksCommand.setFatal();
     }
 #endif
 
 #if MULTIPROCESSOR
-    if (Processor::getCount() > 1) {
-      if (safe) {
-        // If the other locker is in fact this CPU, we're trying to
-        // re-enter and that won't work at all.
-        if (processorId != m_OwnedProcessor) {
-          // OK, the other CPU could still release the lock.
-          continue;
-        }
-      } else {
-        // Unsafe mode, so we don't detect obvious re-entry.
-        continue;
-      }
+    if (Processor::getCount() > 1 && (!safe || owner != processorId)) {
+      // Read while occupied instead of repeatedly issuing locked RMWs.
+      Processor::pause();
+      continue;
     }
 #endif
-
-    /// \note When we hit this breakpoint, we're not able to backtrace as
-    /// backtracing
-    ///       depends on the log spinlock, which may have deadlocked. So we
-    ///       actually force the spinlock to release here, then hit the
-    ///       breakpoint.
-    auto atom = m_Atom.value();
-    m_Atom = true;
-
-    uintptr_t myra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
-    ERROR_NOLOCK("Spinlock has deadlocked in acquire");
-    ERROR_NOLOCK(" -> level is " << m_Level);
-    ERROR_NOLOCK(" -> my return address is " << Hex << myra);
-    ERROR_NOLOCK(" -> return address of other locker is " << Hex << m_Ra);
-    FATAL_NOLOCK("Spinlock has deadlocked, spinlock is " << Hex << reinterpret_cast<uintptr_t>(this)
-                                                         << ", atom is " << atom << ".");
-
-    // Panic in case there's a return from the debugger (or the debugger
-    // isn't available)
-    panic("Spinlock has deadlocked");
-  }
-  if (!reentered) {
-    m_Ra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
-  }
-
-#if TRACK_LOCKS
-  if (!m_bAvoidTracking) {
-    g_LocksCommand.clearFatal();
-    if (!g_LocksCommand.lockAcquired(this, processorId, bInterrupts)) {
-      uintptr_t myra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
-      FATAL_NOLOCK("Spinlock: LocksCommand disallows this acquire [return=" << Hex << myra << "].");
-    }
-    g_LocksCommand.setFatal();
-  }
-#endif
-
-  if (!reentered && recurse && !m_bOwned) {
-    m_pOwner = static_cast<void*>(pThread);
-    m_bOwned = true;
-    m_Level = 1;
-  }
-
-  if (!reentered) {
-    // A recursive acquisition occurs with interrupts already disabled by
-    // the outer level. Preserve that outer level's restoration state.
-    m_bInterrupts = bInterrupts;
-    m_OwnedProcessor = processorId;
-  }
-
-  return true;
+    deadlock(ra, false);
+  } while (m_Lock.acquired() || !m_Lock.tryAcquire());
+  return false;
 }
 
-void Spinlock::trackRelease() const {
+void Spinlock::trackRelease(uintptr_t ra) const {
 #if TRACK_LOCKS
   if (!m_bAvoidTracking) {
     g_LocksCommand.clearFatal();
-    if (!g_LocksCommand.lockReleased(this)) {
-      uintptr_t myra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
-      FATAL_NOLOCK("Spinlock: LocksCommand disallows this release [return=" << Hex << myra << "].");
-    }
+    const size_t processorId = m_OwnedProcessor == ~size_t(0) ? ~0U : m_OwnedProcessor;
+    if (!g_LocksCommand.lockReleased(this, processorId))
+      panic("Lock checker disallowed spinlock release");
     g_LocksCommand.setFatal();
   }
+#endif
+}
+
+inline void Spinlock::unlock(uintptr_t ra) {
+#if SPINLOCK_DIAGNOSTICS
+  if (UNLIKELY(Processor::getInterrupts()))
+    badReleaseInterrupts();
+  if (UNLIKELY(m_Magic != 0xdeadbaba))
+    badMagic(ra);
+#endif
+
+#if TRACK_LOCKS
+  // Cross-CPU releases retire the acquisition CPU's entry before clearing it.
+  trackRelease(ra);
+#endif
+  if (m_Level && --m_Level)
+    return;
+
+  m_pOwner = nullptr;
+  __atomic_store_n(&m_OwnedProcessor, ~size_t(0), __ATOMIC_RELAXED);
+#if SPINLOCK_DIAGNOSTICS
+  // Save diagnostic data before publishing unlock: a new owner may immediately
+  // overwrite the lock's fields. Nothing may touch them after publication.
+  const uintptr_t acquiredAt = m_Ra;
+  m_Ra = 0;
+  if (UNLIKELY(!m_Lock.releaseChecked())) {
+    deadlock(ra, true, acquiredAt);
+  }
+#else
+  m_Lock.release();
 #endif
 }
 
 void Spinlock::exit(uintptr_t ra) {
-  bool bWasInterrupts = Processor::getInterrupts();
-  if (bWasInterrupts == true) {
-    FATAL_NOLOCK("Spinlock: release() called with interrupts enabled.");
-  }
-
-  if (m_Magic != 0xdeadbaba) {
-    FATAL_NOLOCK("Wrong magic in release.");
-  }
-
-  // Don't actually release the lock if we re-entered the critical section.
-  if (m_Level) {
-    if (--m_Level) {
-      // Recursive acquire() still tracks, so we still need to track its
-      // release or else we'll run into false positive "out-of-order
-      // release"s.
-      trackRelease();
-      return;
-    }
-  }
-
-  m_pOwner = 0;
-  m_bOwned = false;
-  m_OwnedProcessor = ~0;
-
-  // Track the release just before we actually release the lock to avoid an
-  // immediate reschedule screwing with the tracking.
-  trackRelease();
-
-  if (m_Atom.compareAndSwap(false, true) == false) {
-    /// \note When we hit this breakpoint, we're not able to backtrace as
-    /// backtracing
-    ///       depends on the log spinlock, which may have deadlocked. So we
-    ///       actually force the spinlock to release here, then hit the
-    ///       breakpoint.
-    auto atom = m_Atom.value();
-    m_Atom = true;
-
-    FATAL_NOLOCK("Spinlock has deadlocked in release, my return address is "
-                 << Hex << ra << ", return address of other locker is " << m_Ra << ", spinlock is "
-                 << reinterpret_cast<uintptr_t>(this) << ", atom is " << Dec << atom << ".");
-
-    // Panic in case there's a return from the debugger (or the debugger
-    // isn't available)
-    panic("Spinlock has deadlocked");
-  }
-
-  m_Ra = 0;
+  unlock(ra);
 }
 
 void Spinlock::release() {
-  // Only the outermost recursive release owns the saved interrupt state.
-  bool bInterrupts = m_bInterrupts && m_Level <= 1;
-
-  // Grab return address to push into exit() so failures are more useful
-  uintptr_t myra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
-
-  exit(myra);
-
-  // Reenable irqs if they were enabled before
-  if (bInterrupts) {
+  // Only the outermost recursive release restores IRQs. Capture before unlock,
+  // since another CPU can acquire and change the saved state immediately.
+  const bool interrupts = m_bInterrupts && m_Level <= 1;
+  uintptr_t ra = 0;
+#if SPINLOCK_DIAGNOSTICS
+  ra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+#endif
+  unlock(ra);
+  if (interrupts)
     Processor::setInterrupts(true);
-  }
 }
 
-void Spinlock::unwind() {
-  // We're about to be forcefully unlocked, so we must unwind entirely.
+inline void Spinlock::unwind() {
   m_Level = 0;
-  m_bOwned = false;
-  m_pOwner = 0;
-  m_OwnedProcessor = ~0;
+  m_pOwner = nullptr;
+  __atomic_store_n(&m_OwnedProcessor, ~size_t(0), __ATOMIC_RELAXED);
+#if SPINLOCK_DIAGNOSTICS
   m_Ra = 0;
+#endif
+}
+
+volatile processor_register_t* Spinlock::deferredReleaseWord() {
+  unwind();
+  return &m_Lock.m_Value;
+}
+
+void Spinlock::unlockForScheduler() {
+  unwind();
+  m_Lock.release();
 }
 
 bool Spinlock::acquired() {
-  return !m_Atom;
+  return m_Lock.acquired();
 }
 
 bool Spinlock::interrupts() const {
   return m_bInterrupts;
+}
+
+uintptr_t Spinlock::acquisitionAddress() const {
+#if SPINLOCK_DIAGNOSTICS
+  return m_Ra;
+#else
+  return 0;
+#endif
+}
+
+void Spinlock::badMagic(uintptr_t ra) const {
+#if SPINLOCK_DIAGNOSTICS
+  WARNING(" --> fail: sentinels: before=" << Hex << m_Sentinel << " after=" << m_MagicAlign);
+  FATAL_NOLOCK("Wrong magic in Spinlock [" << Hex << m_Magic << " should be 0xdeadbaba] [this="
+                                           << reinterpret_cast<uintptr_t>(this)
+                                           << "] return=" << ra);
+#endif
+  panic("Corrupt spinlock");
+}
+
+void Spinlock::badReleaseInterrupts() const {
+  FATAL_NOLOCK("Spinlock: release() called with interrupts enabled.");
+  panic("Spinlock released with interrupts enabled");
+}
+
+void Spinlock::deadlock(uintptr_t ra, bool releasing, uintptr_t acquiredAt) {
+  // Logging/debugger backtraces may themselves need the deadlocked lock.
+  const bool locked = m_Lock.acquired();
+  if (!releasing)
+    acquiredAt = acquisitionAddress();
+  m_Lock.release();
+  ERROR_NOLOCK("Spinlock deadlocked in " << (releasing ? "release" : "acquire"));
+  ERROR_NOLOCK(" -> my return address is " << Hex << ra);
+  ERROR_NOLOCK(" -> return address of other locker is " << Hex << acquiredAt);
+  FATAL_NOLOCK("Spinlock has deadlocked, spinlock is " << Hex << reinterpret_cast<uintptr_t>(this)
+                                                       << ", locked=" << locked << ".");
+  panic("Spinlock has deadlocked");
 }

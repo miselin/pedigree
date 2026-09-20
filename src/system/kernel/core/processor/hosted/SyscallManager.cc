@@ -38,8 +38,8 @@ SyscallManager& SyscallManager::instance() {
 }
 
 bool HostedSyscallManager::registerSyscallHandler(Service_t Service, SyscallHandler* pHandler,
-                                                  Registration& registration) {
-  return registerHandler(Service, pHandler, registration);
+                                                  Registration& registration, FastEntry entry) {
+  return registerHandler(Service, pHandler, registration, entry);
 }
 
 void HostedSyscallManager::syscall(SyscallState& syscallState) {
@@ -60,17 +60,23 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
     }
 
     const size_t serviceNumber = syscallState.getSyscallService();
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+    if (fromUserspace && serviceNumber == linuxCompat) {
+      tracker.attributeSyscall(syscallState.getSyscallNumber());
+    }
+#endif
     bool handled = false;
     PostSyscallAction action;
     if (LIKELY(serviceNumber < serviceEnd)) {
-      // The lease must retire before the deferral allows a pending terminal
-      // request to consume this thread's stack.
-      TerminationDeferral callbackDeferral;
-      HandlerLease handler;
-      if (m_Instance.acquireHandler(static_cast<Service_t>(serviceNumber), handler, action)) {
+      SyscallHandler* handler = m_Instance.loadHandler(static_cast<Service_t>(serviceNumber));
+      if (handler) {
         handled = true;
-        syscallState.setSyscallReturnValue(handler.handler()->syscall(syscallState));
         Thread* thread = Processor::information().getCurrentThread();
+        void* previousContext = thread->getSyscallDispatchContext();
+        thread->setSyscallDispatchContext(&action);
+        syscallState.setSyscallReturnValue(m_Instance.dispatchHandler(
+            static_cast<Service_t>(serviceNumber), handler, syscallState));
+        thread->setSyscallDispatchContext(previousContext);
         syscallState.setSyscallErrno(thread->getErrno());
         thread->setErrno(0);
       }
@@ -139,6 +145,12 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
           shutdownType = static_cast<Machine::ShutdownType>(action.value);
           break;
         case NoPostSyscallAction:
+          if (fromUserspace) {
+            Thread* current = Processor::information().getCurrentThread();
+            if (current && current->canSkipUserReturnWork()) {
+              break;
+            }
+          }
           if (fromUserspace) {
             userReturnTerminal = scheduler.serviceUserReturnWork(syscallState);
           }

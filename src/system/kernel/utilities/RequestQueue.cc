@@ -201,8 +201,10 @@ RequestQueue::RequestQueue(const String& name)
 #if THREADS
       m_LifecycleMutex(),
       m_RequestQueueWaiters(),
+      m_WorkerWaiters(),
       m_pThread(nullptr),
       m_pWorkerScheduler(nullptr),
+      m_WorkerWake(),
       m_bWorkerReady(0),
       m_bWorkerActive(0),
       m_WorkerProgressGeneration(0),
@@ -288,9 +290,6 @@ bool RequestQueue::startWorker() {
   Thread* worker = new Thread(process, &trampoline, reinterpret_cast<void*>(this), nullptr, false,
                               true, true, explicitPlacement ? &placement : nullptr);
   worker->setName("RequestQueue worker");
-  if (!worker->setSchedulerReadyPredicate(workerReady, this)) {
-    FATAL("RequestQueue '" << m_Name << "' could not install its ready predicate");
-  }
 
   {
     auto guard = m_RequestQueueWaiters.acquire();
@@ -301,6 +300,7 @@ bool RequestQueue::startWorker() {
     m_OverrunChecker.resetBaselineLocked();
     m_pThread = worker;
     m_pWorkerScheduler = worker->getScheduler();
+    m_pWorkerScheduler.value()->registerWorkerWake(m_WorkerWake, m_WorkerWaiters);
   }
 
   // The delayed worker cannot observe partially published queue state.
@@ -338,8 +338,8 @@ bool RequestQueue::startWorker() {
       // publication lifetime.
       opened = m_PublicationState.compareAndSwap(PublicationClosed, 0);
       if (opened) {
-        // This is the final acceptance point. The worker, scheduler,
-        // and lock-free readiness predicate are already published.
+        // This is the final acceptance point. The worker, scheduler, and
+        // lock-free work publication are already established.
         m_State = static_cast<size_t>(LifecycleState::Accepting);
       }
     }
@@ -350,7 +350,7 @@ bool RequestQueue::startWorker() {
     Scheduler::instance().yield();
   }
 
-  m_pWorkerScheduler.value()->ringIrqWorkDoorbell();
+  m_pWorkerScheduler.value()->ringIrqWorkDoorbell(m_WorkerWake);
   return true;
 }
 
@@ -392,7 +392,7 @@ bool RequestQueue::stopWorker() {
 
   PerProcessorScheduler* scheduler = m_pWorkerScheduler.value();
   if (scheduler) {
-    scheduler->ringIrqWorkDoorbell();
+    scheduler->ringIrqWorkDoorbell(m_WorkerWake);
   }
 
   waitForPreallocatedPublishers();
@@ -400,6 +400,10 @@ bool RequestQueue::stopWorker() {
   if (!worker->joinForCompletion()) {
     ERROR("RequestQueue '" << m_Name << "' could not join its worker");
     return false;
+  }
+
+  if (scheduler) {
+    scheduler->unregisterWorkerWake(m_WorkerWake);
   }
 
   {
@@ -411,13 +415,6 @@ bool RequestQueue::stopWorker() {
     m_bWorkerActive = 0;
   }
   return true;
-}
-
-bool RequestQueue::workerReady(void* context) {
-  RequestQueue* queue = reinterpret_cast<RequestQueue*>(context);
-  return !queue->m_bWorkerReady.value() || queue->m_bWorkerActive.value() ||
-         queue->m_nTotalRequests.value() ||
-         static_cast<LifecycleState>(queue->m_State.value()) != LifecycleState::Accepting;
 }
 
 void RequestQueue::closePreallocatedAdmission() {
@@ -892,7 +889,7 @@ void RequestQueue::publishRequest(Request* request) {
 #if THREADS
   PerProcessorScheduler* scheduler = m_pWorkerScheduler.value();
   if (scheduler) {
-    scheduler->ringIrqWorkDoorbell();
+    scheduler->ringIrqWorkDoorbell(m_WorkerWake);
   }
 #endif
 }
@@ -1043,7 +1040,7 @@ void RequestQueue::releasePreallocatedRequest(Request* request) {
   }
 #if THREADS
   // Availability can immediately release token storage. All later accesses
-  // belong to the retained queue, including the notification predicate guard.
+  // belong to the retained queue, including the notification wait guard.
   auto guard = m_RequestQueueWaiters.acquire();
 #endif
   owner->m_ReleaseDepth -= 1;
@@ -1114,6 +1111,7 @@ int RequestQueue::work() {
   while (true) {
     Request* request = nullptr;
     NextRequestResult next = NextRequestResult::Empty;
+    bool accepting = false;
     m_bWorkerActive = 1;
     {
       auto guard = m_RequestQueueWaiters.acquire();
@@ -1125,9 +1123,10 @@ int RequestQueue::work() {
       }
       if (state == LifecycleState::Stopped) {
         // startWorker() has not yet reached its final acceptance
-        // point. Stay eligible long enough to publish readiness.
+        // point. Stay runnable long enough to publish readiness.
         m_bWorkerActive = 0;
-      } else {
+      } else if (state == LifecycleState::Accepting) {
+        accepting = true;
         next = getNextRequest(request);
         if (next == NextRequestResult::Item) {
           assert(request);
@@ -1142,10 +1141,21 @@ int RequestQueue::work() {
     }
 
     if (next != NextRequestResult::Item) {
-      // Empty workers remain published but scheduler-ineligible. Retry
-      // leaves them eligible because the producer accounted before its
-      // unfinished MPSC link became visible.
-      Scheduler::instance().yield();
+      // A transient MPSC link must be retried without sleeping. An empty
+      // accepting queue can sleep because every producer publishes its work
+      // count before ringing this worker's scheduler wake edge.
+      if (!accepting || next == NextRequestResult::Retry) {
+        Scheduler::instance().yield();
+        continue;
+      }
+
+      auto waitGuard = m_WorkerWaiters.acquire();
+      if (!m_nTotalRequests.value() &&
+          static_cast<LifecycleState>(m_State.value()) == LifecycleState::Accepting) {
+        const WaitQueue::WakeReason reason = waitGuard.wait(WaitQueue::Channel(), Thread::CondWait,
+                                                            reinterpret_cast<uintptr_t>(this));
+        (void)reason;
+      }
       continue;
     }
 

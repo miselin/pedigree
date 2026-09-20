@@ -26,6 +26,8 @@
 
 #include <config.h>
 
+#include "MappingIndex.h"
+
 //
 // Virtual address space layout
 //
@@ -88,7 +90,7 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace {
   bool tryMapUserPage(physical_uintptr_t physical, void* address, size_t flags,
                       size_t* committedTablePages = nullptr) override;
   bool tryDetachUserPage(void* address, physical_uintptr_t expected) override;
-  virtual void getMapping(void* virtualAddress, physical_uintptr_t& physAddress, size_t& flags);
+  virtual bool getMapping(void* virtualAddress, physical_uintptr_t& physAddress, size_t& flags);
   virtual bool handleCopyOnWriteFault(void* virtualAddress, bool userMode);
   virtual bool tryWriteUser32(uintptr_t address, uint32_t value);
   virtual bool tryReadUser32(uintptr_t address, uint32_t& value);
@@ -231,6 +233,9 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace {
     size_t flags;  // Real flags, not the mmap-specific ones.
   } mapping_t;
 
+  // Mapping records can move during growth; the index stores array slots.
+  mapping_t* findMapping(void* address);
+
   /** Current top of the stacks */
   void* m_pStackTop;
   /** List of free stacks */
@@ -243,6 +248,7 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace {
   Spinlock m_StacksLock;
   /** Tracks the current mappings made in this address space. */
   mapping_t* m_pKnownMaps;
+  HostedMappingIndex m_MappingIndex;
   /** Tracks the size of the known mappings list. */
   size_t m_KnownMapsSize;
   /** Tracks the number of known mappings we have. */

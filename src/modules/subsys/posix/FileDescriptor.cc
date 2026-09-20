@@ -110,6 +110,7 @@ FileDescriptor::OpenFileDescription::OpenFileDescription(File* newFile, uint64_t
                        ? static_cast<ConsoleFile*>(newFile)->captureOpenEpoch()
                        : SharedPointer<ConsoleIoState>()),
       offset(initialOffset),
+      accessFlags(initialStatusFlags & (O_PATH | O_ACCMODE)),
       statusFlags(initialStatusFlags),
       descriptorOwners(1),
       vfsLease(newFile && newFile->retainVfsReference()) {
@@ -132,9 +133,6 @@ FileDescriptor::OpenFileDescription::OpenFileDescription(const FilesystemPathRef
 FilesystemPathRef FileDescriptor::OpenFileDescription::openingPath() const {
   return path;
 }
-File* FileDescriptor::getFile() const {
-  return m_OpenFile ? m_OpenFile->getFile() : nullptr;
-}
 FilesystemPathRef FileDescriptor::openingPath() const {
   return m_OpenFile ? m_OpenFile->openingPath() : FilesystemPathRef();
 }
@@ -145,10 +143,6 @@ FileDescriptor::OpenFileDescription::~OpenFileDescription() {
   if (vfsLease) {
     getFile()->releaseVfsReference();
   }
-}
-
-File* FileDescriptor::OpenFileDescription::getFile() const {
-  return path ? path->node() : anonymousFile;
 }
 
 SharedPointer<ConsoleIoState> FileDescriptor::OpenFileDescription::terminalEpoch(
@@ -529,6 +523,7 @@ bool FileDescriptor::networkPublished() const {
 void FileDescriptor::setEventFdImpl(const SharedPointer<EventFd>& implementation) {
   {
     LockGuard<Mutex> guard(m_OpenFile->lock);
+    assert(!m_OpenFile->getFile());
     assert(!m_OpenFile->eventFdImpl);
     m_OpenFile->eventFdImpl = implementation;
   }
@@ -550,6 +545,7 @@ bool FileDescriptor::eventFdPublished() const {
 void FileDescriptor::setTimerFdImpl(const SharedPointer<TimerFd>& implementation) {
   {
     LockGuard<Mutex> guard(m_OpenFile->lock);
+    assert(!m_OpenFile->getFile());
     assert(!m_OpenFile->timerFdImpl);
     m_OpenFile->timerFdImpl = implementation;
   }
@@ -570,6 +566,7 @@ bool FileDescriptor::timerFdPublished() const {
 void FileDescriptor::setSignalFdImpl(const SharedPointer<SignalFd>& implementation) {
   {
     LockGuard<Mutex> guard(m_OpenFile->lock);
+    assert(!m_OpenFile->getFile());
     assert(!m_OpenFile->signalFdImpl);
     m_OpenFile->signalFdImpl = implementation;
   }
@@ -599,6 +596,7 @@ SharedPointer<InotifyInstance> FileDescriptor::getInotifyImpl() const {
 
 void FileDescriptor::setFanotifyImpl(const SharedPointer<FanotifyInstance>& implementation) {
   LockGuard<Mutex> guard(m_OpenFile->lock);
+  assert(!m_OpenFile->getFile());
   assert(!m_OpenFile->fanotifyImpl);
   m_OpenFile->fanotifyImpl = implementation;
 }
@@ -656,22 +654,6 @@ void FileDescriptor::unpublish() {
 
 FileDescriptor::PositionGuard::PositionGuard(const SharedPointer<OpenFileDescription>& description)
     : m_Description(description), m_Guard(m_Description->lock) {}
-
-uint64_t FileDescriptor::PositionGuard::offset() const {
-  return m_Description->offset;
-}
-
-int FileDescriptor::PositionGuard::statusFlags() const {
-  return m_Description->statusFlags;
-}
-
-void FileDescriptor::PositionGuard::setOffset(uint64_t offset) {
-  m_Description->offset = offset;
-}
-
-void FileDescriptor::PositionGuard::advanceOffset(uint64_t amount) {
-  m_Description->offset += amount;
-}
 
 FileDescriptor::PositionGuard FileDescriptor::lockPosition() const {
   return PositionGuard(m_OpenFile);

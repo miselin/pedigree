@@ -189,13 +189,14 @@ static bool range_failure() {
     CHECK(!ranges.allocateSpecific(140, 20));
     CHECK(allocation_attempts() == 1 && ranges.size() == 1);
     CHECK(ranges.getRange(0, observed) && observed.address == 100 && observed.length == 100);
-    CHECK(live_allocations() == baseline + 2);
+    CHECK(live_allocations() == baseline + 1);
 
-    allocation_limit(1);
-    CHECK(!ranges.allocateSpecific(140, 20));
-    CHECK(allocation_attempts() == 2 && ranges.size() == 1);
+    // A disjoint free must preserve the original range if its value buffer cannot grow.
+    allocation_limit(0);
+    CHECK(!ranges.tryFree(300, 20, false));
+    CHECK(allocation_attempts() == 1 && ranges.size() == 1);
     CHECK(ranges.getRange(0, observed) && observed.address == 100 && observed.length == 100);
-    CHECK(live_allocations() == baseline + 2);
+    CHECK(live_allocations() == baseline + 1);
 
     allocation_limit(0);
     CHECK(ranges.allocateSpecific(100, 20));
@@ -203,9 +204,10 @@ static bool range_failure() {
     CHECK(allocation_attempts() == 0 && ranges.size() == 1);
     CHECK(ranges.getRange(0, observed) && observed.address == 100 && observed.length == 100);
 
-    allocation_limit(-1);
+    allocation_limit(1);
     CHECK(ranges.allocateSpecific(140, 20));
     CHECK(allocation_attempts() == 1 && ranges.size() == 2);
+    CHECK(live_allocations() == baseline + 1);
     CHECK(ranges.getRange(0, observed) && observed.address == 100 && observed.length == 40);
     CHECK(ranges.getRange(1, observed) && observed.address == 160 && observed.length == 40);
     allocation_limit(0);

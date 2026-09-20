@@ -11,6 +11,9 @@ set(PEDIGREE_DEBUG_ALLOCATOR FALSE CACHE BOOL "Replace SLAM with a debug allocat
 set(GENERIC_KERNEL_FLAGS
     "-fno-common" "-fno-omit-frame-pointer" "-ggdb" "-g3" "-gdwarf-2")
 set(GENERIC_KERNEL_CFLAGS "")
+if (PEDIGREE_HOSTED_FUNCTION_PROFILE)
+    list(APPEND GENERIC_KERNEL_FLAGS "-finstrument-functions")
+endif ()
 # Slam's allocation ABI can return null; constructors must not run on failed storage.
 set(GENERIC_KERNEL_CXXFLAGS
     "-fno-exceptions" "-fno-rtti" "-fno-asynchronous-unwind-tables"
@@ -20,6 +23,10 @@ if (PEDIGREE_HOSTED_DARWIN)
 else ()
     set(GENERIC_KERNEL_LINKFLAGS
         "-Wl,--discard-all" "-static-libgcc")
+    if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_HOSTED_SMOKE_TESTS)
+        # Keep local workload and implementation names visible to host profilers.
+        list(REMOVE_ITEM GENERIC_KERNEL_LINKFLAGS "-Wl,--discard-all")
+    endif ()
 endif ()
 set(GENERIC_KERNEL_LINKFLAGS_NOLINKSCRIPT ${GENERIC_KERNEL_LINKFLAGS})
 if (PEDIGREE_LINKERSCRIPT)
@@ -158,6 +165,7 @@ elseif (PEDIGREE_ARCHDIR STREQUAL "hosted")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/state.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/SyscallManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/VirtualAddressSpace.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/MappingIndex.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/PhysicalMemoryManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/ProcessorInformation.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/Processor.cc
@@ -252,7 +260,8 @@ set(HASH_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/spooky/spooky.cc)
 
 set(SLAM_SRCS
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/SlamAllocator.cc)
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/SlamAllocator.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/SlamBitmap.cc)
 
 set(KERNEL_SRCS
     # /
@@ -275,6 +284,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/BootIO.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/BootstrapInfo.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/KernelCoreSyscallManager.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/ActivityDiagnostics.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/main.cc
     # /core/process/
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Completion.cc
@@ -472,6 +482,14 @@ if (PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS)
         ${CMAKE_SOURCE_DIR}/src/modules/system/hosted-smoke/scheduler-regressions.cc)
 endif ()
 
+if (PEDIGREE_HOSTED_FUNCTION_PROFILE)
+    list(REMOVE_ITEM KERNEL_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/core/lib/instrument.cc)
+    set(FUNCTION_PROFILE_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/FunctionProfile.cc)
+    list(APPEND KERNEL_SRCS ${FUNCTION_PROFILE_SOURCE})
+    set_source_files_properties(${FUNCTION_PROFILE_SOURCE} PROPERTIES
+        COMPILE_OPTIONS "-fno-instrument-functions")
+endif ()
+
 # We put Log at the very end of the source list so its constructors run last.
 set(LOG_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/Log.cc)
@@ -486,6 +504,9 @@ target_compile_options(kernel_shared PRIVATE
 target_compile_definitions(kernel_shared PRIVATE -D__UD_STANDALONE__)
 target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS})
 target_include_directories(kernel_shared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if (PEDIGREE_HOSTED_DARWIN)
+    target_link_options(kernel_shared PRIVATE -Wl,-undefined,dynamic_lookup)
+endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     add_compile_options(

@@ -23,11 +23,11 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 
-TimeTracker::TimeTracker(Process* pProcess, bool fromUserspace)
-    : m_pProcess(pProcess), m_pThread(nullptr), m_bFromUserspace(fromUserspace) {
+void TimeTracker::initialise(bool entryInterruptsAlreadyDisabled) {
   // Accounting baselines belong to the exact interrupted Thread. A Process
   // can execute on multiple CPUs and cannot provide one shared baseline.
-  m_pThread = Processor::information().getCurrentThread();
+  if (!m_pThread)
+    m_pThread = Processor::information().getCurrentThread();
   if (!m_pThread) {
     // We can get called early, so ensure we don't make any
     // assumptions about what's present.
@@ -44,12 +44,29 @@ TimeTracker::TimeTracker(Process* pProcess, bool fromUserspace)
   m_pProcess = threadProcess;
 
   // Track time already spent wherever we were previously.
-  m_pThread->transitionTime(KernelTimeTransition::interrupted(m_bFromUserspace),
-                            KernelTimeTransition::handler());
+  if (entryInterruptsAlreadyDisabled) {
+    m_pThread->transitionTimeAtInterruptReturn(
+        KernelTimeTransition::interrupted(m_bFromUserspace), KernelTimeTransition::handler());
+  } else {
+    m_pThread->transitionTime(KernelTimeTransition::interrupted(m_bFromUserspace),
+                              KernelTimeTransition::handler());
+  }
 }
 
-TimeTracker::~TimeTracker() {
-  finish();
+void TimeTracker::attributeSyscall(size_t rawNumber) {
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  if (!m_pProcess || !m_pThread || !m_bFromUserspace || m_bSyscallAttributed ||
+      !m_pProcess->benchmarkSyscallTimingEnabled()) {
+    return;
+  }
+
+  const size_t slot = Process::syscallTimingSlot(rawNumber);
+  m_pProcess->recordSyscallTimingCall(slot);
+  m_PreviousSyscallTimingSlot = m_pThread->installSyscallTimingSlot(slot);
+  m_bSyscallAttributed = true;
+#else
+  (void)rawNumber;
+#endif
 }
 
 void TimeTracker::finish() {
@@ -65,6 +82,9 @@ void TimeTracker::finish() {
   // Track time spent in the RAII section.
   thread->transitionTime(KernelTimeTransition::handler(),
                          KernelTimeTransition::resumed(m_bFromUserspace));
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  restoreSyscallTiming(thread);
+#endif
 }
 
 void TimeTracker::finishInKernel() {
@@ -80,4 +100,16 @@ void TimeTracker::finishInKernel() {
   // Event return restores a saved kernel frame before the outer architecture
   // tail makes the eventual Kernel -> User transition.
   thread->transitionTime(KernelTimeTransition::handler(), KernelTimeTransition::handler());
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  restoreSyscallTiming(thread);
+#endif
 }
+
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+void TimeTracker::restoreSyscallTiming(Thread* thread) {
+  if (m_bSyscallAttributed) {
+    thread->restoreSyscallTimingSlot(m_PreviousSyscallTimingSlot);
+    m_bSyscallAttributed = false;
+  }
+}
+#endif

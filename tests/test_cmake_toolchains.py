@@ -60,6 +60,23 @@ class CMakeToolchainTests(unittest.TestCase):
             *extra_arguments,
         ]
 
+    def test_host_tools_configure_without_openssl(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = subprocess.run(
+                [
+                    CMAKE,
+                    "-S", str(ROOT),
+                    "-B", temporary,
+                    "-DPEDIGREE_BUILD_ROLE=HOST_TOOLS",
+                    "-DBUILD_TESTING=OFF",
+                    "-DPEDIGREE_REGENERATE_KEYMAP_SOURCES=OFF",
+                    "-DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_minimal_uefi_profile_discovers_python(self):
         toolchain = Path(
             os.environ.get("PEDIGREE_TEST_TOOLCHAIN_ROOT", ROOT / "compilers/dir")

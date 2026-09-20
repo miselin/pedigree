@@ -94,6 +94,8 @@ out:
 
 static int future_heap(void) {
   int failed = 0;
+  unsigned char* managed = MAP_FAILED;
+  size_t managed_length = 0;
   CHECK(ml_limit(2 * ml_page) == 0);
   uintptr_t original = (uintptr_t)syscall(SYS_brk, 0);
   CHECK(original && original != UINTPTR_MAX && original < UINTPTR_MAX - 5 * ml_page);
@@ -116,9 +118,47 @@ static int future_heap(void) {
   CHECK(bytes[0] == 0x53 && bytes[ml_page] == 0x76 && bytes[2 * ml_page] == 0);
   CHECK(munlockall() == 0);
   CHECK((uintptr_t)syscall(SYS_brk, start + 4 * ml_page) == start + 4 * ml_page);
+  bytes[2 * ml_page] = 0x29;
+  bytes[3 * ml_page] = 0x64;
+  CHECK(mlock((void*)start, 2 * ml_page) == 0);
+  managed =
+      mmap(NULL, 3 * ml_page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  CHECK(managed != MAP_FAILED);
+  managed_length = 3 * ml_page;
+  errno = 0;
+  CHECK(mlock(managed, ml_page) == -1 && errno == ENOMEM);
+  CHECK(munmap(managed + 2 * ml_page, ml_page) == 0);
+  managed_length = 2 * ml_page;
+  CHECK(bytes[0] == 0x53 && bytes[ml_page] == 0x76 && bytes[2 * ml_page] == 0x29 &&
+        bytes[3 * ml_page] == 0x64);
+  errno = 0;
+  CHECK(mlock(managed, ml_page) == -1 && errno == ENOMEM);
+
+  // Retiring a raw page must release only its own lock charge.
+  CHECK(munmap((void*)(start + ml_page), ml_page) == 0);
+  unsigned char resident;
+  errno = 0;
+  CHECK(mincore((void*)(start + ml_page), ml_page, &resident) == -1 && errno == ENOMEM);
+  CHECK(bytes[0] == 0x53 && bytes[2 * ml_page] == 0x29 && bytes[3 * ml_page] == 0x64);
+  CHECK(mlock(managed, ml_page) == 0);
+  errno = 0;
+  CHECK(mlock((void*)(start + 2 * ml_page), ml_page) == -1 && errno == ENOMEM);
+  CHECK(munmap((void*)start, ml_page) == 0);
+  CHECK(mlock((void*)(start + 2 * ml_page), ml_page) == 0);
+  errno = 0;
+  CHECK(mlock(managed + ml_page, ml_page) == -1 && errno == ENOMEM);
+  CHECK(bytes[2 * ml_page] == 0x29 && bytes[3 * ml_page] == 0x64);
+  CHECK(munmap((void*)(start + 3 * ml_page), ml_page) == 0);
+  errno = 0;
+  CHECK(mincore((void*)(start + 3 * ml_page), ml_page, &resident) == -1 && errno == ENOMEM);
+  CHECK(bytes[2 * ml_page] == 0x29);
+  errno = 0;
+  CHECK(mlock(managed + ml_page, ml_page) == -1 && errno == ENOMEM);
 out:
   // The public musl brk/sbrk wrappers do not grow this heap; the isolated child owns it.
   munlockall();
+  if (managed != MAP_FAILED)
+    munmap(managed, managed_length);
   return failed;
 }
 

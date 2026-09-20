@@ -39,6 +39,12 @@ struct DeferredScopeRecord {
   Cleanup cleanup;
   void* context;
   bool armed;
+
+ private:
+  friend class TerminationDeferral;
+  struct Uninitialised {};
+  // Pure deferral construction fills every field before publishing the record.
+  explicit DeferredScopeRecord(Uninitialised) {}
 };
 
 #endif

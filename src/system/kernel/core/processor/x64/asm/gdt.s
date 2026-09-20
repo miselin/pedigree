@@ -41,6 +41,5 @@ _ZN13X64GdtManager20loadSegmentRegistersEv:
   mov ds, ax
   mov es, ax
   mov fs, ax
-  mov gs, ax
 
   ret

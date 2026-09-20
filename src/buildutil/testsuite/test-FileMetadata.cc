@@ -43,6 +43,69 @@ class MetadataWriteFile final : public File {
   std::vector<uint8_t> m_Data;
 };
 
+class CachedPinFile final : public File {
+ public:
+  CachedPinFile()
+      : File(String("pin"), 0, 0, 0, 1, nullptr, kPageSize, nullptr),
+        oldData(kPageSize, 0x19),
+        newData(kPageSize, 0x72),
+        current(oldData.data()) {}
+
+  uintptr_t acquire(bool retryChanged) {
+    return acquireCachedBlock(0, retryChanged);
+  }
+
+  bool replaceOnPin = false;
+  bool rejectPin = false;
+  bool rejectRead = false;
+  size_t pins = 0;
+  size_t reads = 0;
+
+ protected:
+  bool useFillCache() const override {
+    return false;
+  }
+
+  uintptr_t readBlock(uint64_t) override {
+    ++reads;
+    if (rejectRead)
+      return 0;
+    ++pins;
+    return reinterpret_cast<uintptr_t>(current);
+  }
+
+  bool pinBlock(uint64_t location) override {
+    if (rejectPin)
+      return false;
+    if (replaceOnPin) {
+      replaceOnPin = false;
+      current = newData.data();
+      evict(location);
+    }
+    ++pins;
+    return true;
+  }
+
+  void unpinBlock(uint64_t) override {
+    ASSERT_GT(pins, 0U);
+    --pins;
+  }
+
+ private:
+  std::vector<uint8_t> oldData;
+  std::vector<uint8_t> newData;
+  uint8_t* current;
+};
+
+class PinnedRamFile final : public RamFile {
+ public:
+  explicit PinnedRamFile(RamFs& filesystem)
+      : RamFile(String("pinned-ram"), 1, &filesystem, nullptr) {}
+
+  using RamFile::acquireCachedBlock;
+  using RamFile::unpinBlock;
+};
+
 void expectHistoricalTimes(const File& file) {
   const File::Attributes attributes = file.getAttributes();
   EXPECT_EQ(attributes.accessed, 11U);
@@ -105,6 +168,88 @@ TEST(FileMetadata, PartialWriteUpdatesTimesAfterAcceptedPrefix) {
   ASSERT_EQ(file.read(0, observed.size(), reinterpret_cast<uintptr_t>(observed.data())),
             observed.size());
   EXPECT_EQ(observed, std::vector<uint8_t>(kPageSize, 0x6b));
+}
+
+TEST(FileCachedPin, RejectsReplacedAddressAndBalancesReadFallback) {
+  for (bool directAcquisition : {false, true}) {
+    CachedPinFile file;
+    uint8_t value = 0;
+    ASSERT_EQ(file.read(0, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+    ASSERT_EQ(value, 0x19);
+    ASSERT_EQ(file.pins, 0U);
+    file.replaceOnPin = true;
+    if (directAcquisition) {
+      EXPECT_EQ(file.acquire(false), 0U);
+      EXPECT_EQ(file.pins, 0U);
+      EXPECT_EQ(file.reads, 1U);
+    }
+    EXPECT_EQ(file.read(0, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+    EXPECT_EQ(value, 0x72);
+    EXPECT_EQ(file.pins, 0U);
+    EXPECT_EQ(file.reads, 2U);
+  }
+}
+
+TEST(FileCachedPin, RejectedPinAndBackendMissOwnNoReference) {
+  CachedPinFile file;
+  uint8_t value = 0;
+  ASSERT_EQ(file.read(0, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  file.rejectPin = true;
+  EXPECT_EQ(file.acquire(false), 0U);
+  EXPECT_EQ(file.pins, 0U);
+  file.rejectRead = true;
+  value = 0xa5;
+  EXPECT_EQ(file.read(0, 1, reinterpret_cast<uintptr_t>(&value)), 0U);
+  EXPECT_EQ(value, 0xa5);
+  EXPECT_EQ(file.pins, 0U);
+}
+
+TEST(RamFileCachedPin, MissDoesNotAllocateAndOneReleaseAllowsShrink) {
+  RamFs filesystem;
+  filesystem.setProcessOwnership(false);
+  PinnedRamFile file(filesystem);
+  ASSERT_TRUE(file.resize(2 * kPageSize));
+  EXPECT_EQ(file.acquireCachedBlock(0, false), 0U);
+  EXPECT_EQ(file.getAttributes().blocks, 0U);
+  const uint8_t value = 0x6b;
+  ASSERT_EQ(file.write(17, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  const uintptr_t address = file.acquireCachedBlock(0, false);
+  ASSERT_NE(address, 0U);
+  EXPECT_EQ(reinterpret_cast<const uint8_t*>(address)[17], value);
+  EXPECT_FALSE(file.resize(0));
+  file.unpinBlock(0);
+  EXPECT_TRUE(file.resize(0));
+  EXPECT_EQ(file.acquireCachedBlock(0, false), 0U);
+  EXPECT_EQ(file.getAttributes().blocks, 0U);
+}
+
+TEST(RamFileCachedPin, RepeatedReadsReleasePinsAcrossShrinkAndRewrite) {
+  RamFs filesystem;
+  filesystem.setProcessOwnership(false);
+  RamFile file(String("rewrite"), 1, &filesystem, nullptr);
+  std::vector<uint8_t> bytes(kPageSize + 2);
+  std::vector<uint8_t> observed(bytes.size());
+  for (uint8_t value : {0x19, 0x72, 0x3c}) {
+    bytes.assign(bytes.size(), value);
+    ASSERT_EQ(file.write(0, bytes.size(), reinterpret_cast<uintptr_t>(bytes.data())), bytes.size());
+    ASSERT_EQ(file.read(0, observed.size(), reinterpret_cast<uintptr_t>(observed.data())),
+              observed.size());
+    EXPECT_EQ(observed, bytes);
+  }
+  ASSERT_TRUE(file.resize(1));
+  ASSERT_TRUE(file.resize(bytes.size()));
+  bytes.assign(bytes.size(), 0);
+  bytes[0] = 0x3c;
+  ASSERT_EQ(file.read(0, observed.size(), reinterpret_cast<uintptr_t>(observed.data())),
+            observed.size());
+  EXPECT_EQ(observed, bytes);
+  ASSERT_TRUE(file.resize(0));
+  bytes.assign(bytes.size(), 0x95);
+  ASSERT_EQ(file.write(0, bytes.size(), reinterpret_cast<uintptr_t>(bytes.data())), bytes.size());
+  ASSERT_EQ(file.read(0, observed.size(), reinterpret_cast<uintptr_t>(observed.data())),
+            observed.size());
+  EXPECT_EQ(observed, bytes);
+  EXPECT_TRUE(file.resize(0));
 }
 
 TEST(RamFileMetadata, AllocationTracksTouchedPagesAndTruncation) {

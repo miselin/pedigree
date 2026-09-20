@@ -12,6 +12,7 @@
 
 extern void system_reset();
 extern bool runHostedWaitRegressions();
+extern bool runHostedAccountingRegressions();
 extern bool runHostedPagingRequestRegressions();
 extern bool runHostedModuleAdmissionRegressions();
 #if defined(PEDIGREE_HOSTED_GLOBAL_SYNC_TESTS)
@@ -29,7 +30,7 @@ extern bool runPtraceFrameRegressions();
 #endif
 
 static bool entry() {
-  bool passed = runHostedWaitRegressions();
+  bool passed = runHostedWaitRegressions() && runHostedAccountingRegressions();
   if (passed)
     passed = runHostedPagingRequestRegressions() && runHostedModuleAdmissionRegressions();
 #if defined(PEDIGREE_HOSTED_GLOBAL_SYNC_TESTS)

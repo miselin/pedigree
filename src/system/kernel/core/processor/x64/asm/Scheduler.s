@@ -127,6 +127,7 @@ _ZN13ProcessorBase12restoreStateER17X64SchedulerStatePVm:
 ; [rsi] Lock
 ; [rdi] State pointer.
 _ZN13ProcessorBase12restoreStateER15X64SyscallStatePVm:
+    cli
     ;; There is no SchedulerState in this return path. Force the new current
     ;; thread to activate its own image before its first FPU instruction.
     mov     rdx, cr0
@@ -165,6 +166,7 @@ _ZN13ProcessorBase12restoreStateER15X64SyscallStatePVm:
     pop     rcx
     pop     rsp
 
+    swapgs
     db 0x48
     sysret
 
@@ -270,6 +272,7 @@ _ZN13ProcessorBase8jumpUserEPVmmmmmmm:
     ;; Enable interrupts and jump.
     mov     rcx, rax
 
+    swapgs
     db 0x48
     sysret
 

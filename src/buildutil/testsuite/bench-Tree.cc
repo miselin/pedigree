@@ -95,6 +95,21 @@ static void BM_TreeInsertReverse(benchmark::State& state) {
   state.SetComplexityN(state.range(0));
 }
 
+static void BM_TreeInsertManyStdMap(benchmark::State& state) {
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    std::map<int64_t, int64_t> tree;
+    state.ResumeTiming();
+
+    for (int64_t i = 0; i < state.range(0); ++i) {
+      tree.emplace(i, 1);
+    }
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range(0)));
+  state.SetComplexityN(state.range(0));
+}
+
 static void BM_TreeLookupSingle(benchmark::State& state) {
   Tree<int64_t, int64_t> tree;
 
@@ -120,6 +135,26 @@ static void BM_TreeLookupMany(benchmark::State& state) {
   while (state.KeepRunning()) {
     benchmark::DoNotOptimize(tree.lookup(a++ % state.range(0)));
   }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(state.range(0));
+}
+
+static void BM_TreeLookupManyStdMap(benchmark::State& state) {
+  std::map<int64_t, int64_t> tree;
+  for (int64_t i = 0; i < state.range(0); ++i) {
+    tree.emplace(i, i * 17 + 3);
+  }
+
+  int64_t index = 0;
+  volatile int64_t observed = 0;
+  while (state.KeepRunning()) {
+    int64_t key = index++ % state.range(0);
+    benchmark::DoNotOptimize(key);
+    auto result = tree.find(key);
+    observed ^= result->second;
+  }
+  benchmark::DoNotOptimize(observed);
 
   state.SetItemsProcessed(int64_t(state.iterations()));
   state.SetComplexityN(state.range(0));
@@ -205,7 +240,9 @@ static void BM_TreeLookupDoesNotExist(benchmark::State& state) {
 
 BENCHMARK(BM_TreeInsertContinuous)->Complexity();
 BENCHMARK(BM_TreeInsertMany)->Range(4, 1 << 15)->Complexity();
+BENCHMARK(BM_TreeInsertManyStdMap)->Range(4, 1 << 15)->Complexity();
 BENCHMARK(BM_TreeLookupMany)->Range(4, 1 << 15)->Complexity();
+BENCHMARK(BM_TreeLookupManyStdMap)->Range(4, 1 << 15)->Complexity();
 BENCHMARK(BM_TreeInsertReverse)->Range(4, 1 << 15)->Complexity();
 BENCHMARK(BM_TreeLookupSingle)->Range(4, 1 << 15)->Complexity();
 BENCHMARK(BM_TreeLookupDoesNotExist)->Range(4, 1 << 15);

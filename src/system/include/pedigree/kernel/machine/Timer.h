@@ -64,6 +64,13 @@ class Timer {
   virtual uint64_t getTickCountNano() {
     return getTickCount() * Time::Multiplier::Millisecond;
   }
+  /** Get the tick count while the caller already owns the IRQ-disabled window. */
+  virtual uint64_t getTickCountNanoFast() {
+    return getTickCountNano();
+  }
+
+  /** Samples nanoseconds and CPU identity while the caller keeps interrupts disabled. */
+  virtual Time::CpuTimeSample sampleCpuTime();
 
   /** Get the time in UNIX timestamp form (seconds since Jan 1st, 1970). */
   virtual Time::Timestamp getUnixTimestamp();

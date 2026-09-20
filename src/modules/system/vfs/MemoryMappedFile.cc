@@ -699,14 +699,16 @@ bool MemoryMappedFile::compact() {
       continue;
     }
     void* page = reinterpret_cast<void*>(address);
-    if (!va.isMapped(page)) {
-      continue;
-    }
     if (!m_pBacking->tryBeginMappingRelease()) {
       break;
     }
     const size_t offset = m_Offset + (address - m_Address);
-    va.unmap(page);
+    size_t flags = 0;
+    physical_uintptr_t physical = 0;
+    if (!va.detachMapping(page, physical, flags)) {
+      m_pBacking->endMappingRelease();
+      continue;
+    }
     if (!m_bCopyOnWrite) {
       m_pBacking->sync(offset, false);
     }
@@ -777,7 +779,6 @@ void MemoryMappedFile::clearMappings() {
 
 MemoryMapManager::OperationGuard::OperationGuard(MemoryMapManager& manager, bool tryOnly)
     : m_EventDeferral(),
-      m_TerminationDeferral(),
       m_Manager(manager),
       m_Acquired(!tryOnly || manager.tryEnterOperation()) {
   if (!tryOnly) {
@@ -805,9 +806,21 @@ MemoryMapManager::MemoryMapManager()
 
 void MemoryMapManager::enterOperation() {
   void* owner = currentOperationOwner();
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Thread* diagnosticThread = Processor::information().getCurrentThread();
+  Process* diagnosticProcess = diagnosticThread ? diagnosticThread->getParent() : nullptr;
+  if (diagnosticProcess) {
+    diagnosticProcess->recordBenchmarkVmCounter(Process::VmGuardEntries);
+  }
+#endif
   {
     LockGuard<Spinlock> guard(m_LifecycleStateLock);
     if (m_pLifecycleOwner == owner) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      if (diagnosticProcess) {
+        diagnosticProcess->recordBenchmarkVmCounter(Process::VmGuardRecursiveEntries);
+      }
+#endif
       ++m_LifecycleDepth;
       return;
     }
@@ -896,7 +909,7 @@ bool MemoryMapManager::clone(Process* pProcess) {
   for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin(); it != pMmObjectList->end();
        it++) {
     MemoryMappedObject* obj = *it;
-    if (!pMmObjectList2->tryPushBack(nullptr))
+    if (!pMmObjectList2->reserveBack(obj->address()))
       return false;
     MemoryMappedObject* pNewObject = obj->clone();
     if (!pNewObject) {
@@ -904,7 +917,7 @@ bool MemoryMapManager::clone(Process* pProcess) {
       return false;
     }
     pNewObject->m_OwnerProcess = pProcess;
-    *pMmObjectList2->rbegin() = pNewObject;
+    pMmObjectList2->publishBack(pNewObject);
     if (obj->m_Attachment) {
       auto attachment = clonedAttachments.lookup(obj->m_Attachment.get());
       if (!attachment) {
@@ -952,17 +965,19 @@ size_t MemoryMapManager::removeAndRelease(uintptr_t base, size_t length, VmStatu
       *status = removedStatus;
     return 0;
   }
-  raw.get()->commit();
-  auto* process = Processor::information().getCurrentThread()->getParent();
-  for (size_t i = 0; i < raw.get()->removedRangeCount(); ++i) {
-    const auto& range = raw.get()->removedRanges()[i];
-    releaseReservation(process, space, range.base, range.length);
-  }
-  if (auto* account = space.memoryLockAccount()) {
-    auto charge = account->charge();
-    assert(raw.get()->removedPages() <= charge.rawPages);
-    charge.rawPages -= raw.get()->removedPages();
-    account->publish(charge, account->futureMode());
+  if (raw) {
+    raw.get()->commit();
+    auto* process = Processor::information().getCurrentThread()->getParent();
+    for (size_t i = 0; i < raw.get()->removedRangeCount(); ++i) {
+      const auto& range = raw.get()->removedRanges()[i];
+      releaseReservation(process, space, range.base, range.length);
+    }
+    if (auto* account = space.memoryLockAccount()) {
+      auto charge = account->charge();
+      assert(raw.get()->removedPages() <= charge.rawPages);
+      charge.rawPages -= raw.get()->removedPages();
+      account->publish(charge, account->futureMode());
+    }
   }
   if (status)
     *status = VmStatus::Success;
@@ -1118,7 +1133,7 @@ size_t MemoryMapManager::setPermissions(uintptr_t base, size_t length,
       continue;
     }
     if (object->address() < base) {
-      if (!objects->tryPushBack(nullptr)) {
+      if (!objects->reserveBack(base)) {
         if (status)
           *status = ProtectStatus::NoMemory;
         return affected;
@@ -1130,11 +1145,11 @@ size_t MemoryMapManager::setPermissions(uintptr_t base, size_t length,
           *status = ProtectStatus::NoMemory;
         return affected;
       }
-      *objects->rbegin() = split;
+      objects->publishBack(split);
       object = split;
     }
     if (objectEnd > end) {
-      if (!objects->tryPushBack(nullptr)) {
+      if (!objects->reserveBack(end)) {
         if (status)
           *status = ProtectStatus::NoMemory;
         return affected;
@@ -1146,7 +1161,7 @@ size_t MemoryMapManager::setPermissions(uintptr_t base, size_t length,
           *status = ProtectStatus::NoMemory;
         return affected;
       }
-      *objects->rbegin() = split;
+      objects->publishBack(split);
     }
     object->setPermissions(perms);
     ++affected;
@@ -1197,28 +1212,50 @@ bool MemoryMapManager::allows(uintptr_t base, size_t length,
     return false;
   }
 
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  process->recordBenchmarkVmCounter(Process::VmAllowsCalls);
+  process->recordBenchmarkVmCounter(Process::VmAllowsObjectCount, pMmObjectList->count());
+  size_t objectVisits = 0;
+#endif
+
+  const size_t pageMask = PhysicalMemoryManager::getPageSize() - 1;
   uintptr_t cursor = base;
   while (cursor < end) {
     uintptr_t coveredUntil = cursor;
     for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin();
          it != pMmObjectList->end(); ++it) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      ++objectVisits;
+#endif
       MemoryMappedObject* pObject = *it;
-      const size_t pageMask = PhysicalMemoryManager::getPageSize() - 1;
       uintptr_t objectEnd = (pObject->address() + pObject->length() + pageMask) & ~pageMask;
       if (cursor >= pObject->address() && cursor < objectEnd &&
           (pObject->permissions() & permissions) == permissions) {
         if (objectEnd > coveredUntil) {
           coveredUntil = objectEnd;
         }
+        if (coveredUntil >= end) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+          process->recordBenchmarkVmCounter(Process::VmAllowsObjectVisits, objectVisits);
+#endif
+          return true;
+        }
       }
     }
 
     if (coveredUntil == cursor) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      process->recordBenchmarkVmCounter(Process::VmAllowsObjectVisits, objectVisits);
+#endif
       return false;
     }
     cursor = coveredUntil < end ? coveredUntil : end;
   }
 
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmAllowsObjectVisits, objectVisits);
+#endif
   return true;
 }
 
@@ -1298,47 +1335,117 @@ bool MemoryMapManager::sharedBacking(Process* process, uintptr_t address, uintpt
   if (!objects) {
     return false;
   }
-  for (auto it = objects->begin(); it != objects->end(); ++it) {
-    if ((*it)->matches(address)) {
-      return (*it)->sharedBacking(address, identity, offset);
-    }
-  }
-  return false;
+  auto* object = objects->find(address);
+  return object && object->sharedBacking(address, identity, offset);
 }
 
-bool MemoryMapManager::faultIn(uintptr_t address, bool write) {
-  OperationGuard operation(*this);
+bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write,
+                                       MemoryMappedObject*& selected) {
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-  void* page = reinterpret_cast<void*>(address & ~(PhysicalMemoryManager::getPageSize() - 1));
-  auto* objects = m_MmObjectLists.lookup(&va);
-  if (objects)
-    for (auto* object : *objects)
-      if (object->matches(address)) {
-        const auto required = write ? MemoryMappedObject::Write : MemoryMappedObject::Read;
-        if (!(object->permissions() & required) ||
-            object->prepareResidentAccess(va, reinterpret_cast<uintptr_t>(page)) !=
-                PopulationStatus::Success)
-          return false;
-        break;
-      }
-  const bool present = va.isMapped(page);
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Process* diagnosticProcess = Processor::information().getCurrentThread()->getParent();
+#endif
+  const uintptr_t pageAddress = address & ~(PhysicalMemoryManager::getPageSize() - 1);
+  void* page = reinterpret_cast<void*>(pageAddress);
+  const bool pageAligned = address == pageAddress;
+
+  if (!selected || !selected->matches(address)) {
+    selected = nullptr;
+    auto* objects = m_MmObjectLists.lookup(&va);
+    if (objects) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      size_t objectVisits = 0;
+#endif
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      selected = objects->find(address, &objectVisits);
+      Processor::information().getCurrentThread()->getParent()->recordBenchmarkVmCounter(
+          Process::VmFaultInObjectVisits, objectVisits);
+#else
+      selected = objects->find(address);
+#endif
+    }
+  }
+
+  const auto required = write ? MemoryMappedObject::Write : MemoryMappedObject::Read;
+  if (selected && !(selected->permissions() & required))
+    return false;
+
+  physical_uintptr_t physical = 0;
+  size_t flags = 0;
+  bool present = va.getMapping(page, physical, flags);
+  if (selected && (!present || (flags & VirtualAddressSpace::NoAccess))) {
+    if (selected->prepareResidentAccess(va, reinterpret_cast<uintptr_t>(page)) !=
+        PopulationStatus::Success)
+      return false;
+    present = va.getMapping(page, physical, flags);
+  }
   if (present) {
-    physical_uintptr_t physical;
-    size_t flags;
-    va.getMapping(page, physical, flags);
     if ((flags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::NoAccess |
                   VirtualAddressSpace::Swapped)) ||
         (write && (flags & VirtualAddressSpace::WriteProtected))) {
       return false;
     }
     if (!write || (flags & VirtualAddressSpace::Write)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      diagnosticProcess->recordBenchmarkVmCounter(Process::VmFaultInPresent);
+#endif
       return true;
     }
     if (flags & VirtualAddressSpace::CopyOnWrite) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+      diagnosticProcess->recordBenchmarkVmCounter(Process::VmFaultInCopyOnWrite);
+#endif
       return va.handleCopyOnWriteFault(page, true);
     }
   }
-  return handleTrap(address, write, present);
+
+  // A page-aligned range keeps the selected object aligned with handleTrap's
+  // own mapping lookup. Preserve the old fallback for unaligned direct calls.
+  MemoryMappedObject* trapObject = pageAligned ? selected : nullptr;
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  diagnosticProcess->recordBenchmarkVmCounter(Process::VmFaultInTrap);
+#endif
+  return handleTrapUnlocked(address, write, present, false, trapObject);
+}
+
+bool MemoryMapManager::faultIn(uintptr_t address, bool write) {
+  OperationGuard operation(*this);
+  MemoryMappedObject* selected = nullptr;
+  return faultInUnlocked(address, write, selected);
+}
+
+bool MemoryMapManager::faultInRange(uintptr_t address, size_t length, bool write) {
+  if (!length) {
+    return true;
+  }
+  if (length - 1 > (~static_cast<uintptr_t>(0) - address)) {
+    return false;
+  }
+
+  auto faultRange = [&]() {
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    const uintptr_t lastPage = (address + length - 1) & ~(pageSize - 1);
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    Process* process = Processor::information().getCurrentThread()->getParent();
+    process->recordBenchmarkVmCounter(Process::VmFaultInRangeCalls);
+    process->recordBenchmarkVmCounter(Process::VmFaultInRangePages,
+                                      (lastPage - (address & ~(pageSize - 1))) / pageSize + 1);
+#endif
+    MemoryMappedObject* selected = nullptr;
+    for (uintptr_t page = address & ~(pageSize - 1);; page += pageSize) {
+      if (!faultInUnlocked(page, write, selected)) {
+        return false;
+      }
+      if (page == lastPage) {
+        return true;
+      }
+    }
+  };
+
+  if (operationOwnedByCurrentExecution())
+    return faultRange();
+  OperationGuard operation(*this);
+  return faultRange();
 }
 
 MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t address, bool write,
@@ -1349,33 +1456,70 @@ MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t a
     return FaultResolution::Unhandled;
   OperationGuard operation(*this);
   VirtualAddressSpace& space = Processor::information().getVirtualAddressSpace();
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  Process* process = Processor::information().getCurrentThread()->getParent();
+#endif
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmFaultCalls);
+#endif
   const bool normal = address >= space.getUserStart() && address < space.getUserReservedStart();
   const bool dynamic = space.getDynamicStart() && address >= space.getDynamicStart() &&
                        address < space.getDynamicEnd();
-  if (!normal && !dynamic)
+  if (!normal && !dynamic) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmFaultUnhandled);
+#endif
     return FaultResolution::Unhandled;
+  }
   auto* objects = m_MmObjectLists.lookup(&space);
-  if (!objects)
+  if (!objects) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmFaultUnhandled);
+#endif
     return FaultResolution::Unhandled;
+  }
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmFaultObjectCount, objects->count());
+  size_t objectVisits = 0;
+#endif
   const uintptr_t pageAddress = address & ~(PhysicalMemoryManager::getPageSize() - 1);
   const auto required = execute ? MemoryMappedObject::Exec
                         : write ? MemoryMappedObject::Write
                                 : MemoryMappedObject::Read;
   MemoryMappedObject* selected = nullptr;
-  for (auto* object : *objects)
-    if (object->matches(pageAddress)) {
-      selected = object;
-      break;
-    }
-  if (!selected || !(selected->permissions() & required))
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  selected = objects->find(pageAddress, &objectVisits);
+#else
+  selected = objects->find(pageAddress);
+#endif
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(Process::VmFaultObjectVisits, objectVisits);
+#endif
+  if (!selected || !(selected->permissions() & required)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmFaultUnhandled);
+#endif
     return FaultResolution::Unhandled;
-  if (selected->beyondBackingEnd(pageAddress))
+  }
+  if (selected->beyondBackingEnd(pageAddress)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmFaultBacking);
+#endif
     return FaultResolution::BackingFault;
-  if (!handleTrap(address, write, wasPresent, execute))
+  }
+  if (!handleTrapUnlocked(address, write, wasPresent, execute, selected)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmFaultUnhandled);
+#endif
     return FaultResolution::Unhandled;
+  }
   void* page = reinterpret_cast<void*>(pageAddress);
-  if (!space.isMapped(page))
+  if (!space.isMapped(page)) {
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    process->recordBenchmarkVmCounter(Process::VmFaultUnhandled);
+#endif
     return FaultResolution::Unhandled;
+  }
   physical_uintptr_t physical;
   size_t flags;
   space.getMapping(page, physical, flags);
@@ -1385,6 +1529,10 @@ MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t a
       (!write ||
        ((flags & VirtualAddressSpace::Write) && !(flags & VirtualAddressSpace::WriteProtected))) &&
       (!execute || (flags & VirtualAddressSpace::Execute));
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  process->recordBenchmarkVmCounter(accessible ? Process::VmFaultResolved
+                                               : Process::VmFaultUnhandled);
+#endif
   return accessible ? FaultResolution::Resolved : FaultResolution::Unhandled;
 }
 
@@ -1440,12 +1588,20 @@ bool MemoryMapManager::trapForHostedTest(uintptr_t address, bool bIsWrite, bool 
 }
 #endif
 
-bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent,
-                                  bool execute) {
+bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent, bool execute,
+                                  MemoryMappedObject* selected) {
   // Can't take an event while we're trapping, as the event would otherwise
   // be in a minefield (can't touch *any* trap pages in userspace).
   Uninterruptible while_trapping;
   OperationGuard operation(*this);
+
+  return handleTrapUnlocked(address, bIsWrite, bWasPresent, execute, selected);
+}
+
+bool MemoryMapManager::handleTrapUnlocked(uintptr_t address, bool bIsWrite, bool bWasPresent,
+                                          bool execute, MemoryMappedObject* selected) {
+  // Callers already own OperationGuard, so do not re-enter the event and
+  // lifetime deferral scopes for every page fault in a user copy.
 
 #ifdef DEBUG_MMOBJECTS
   NOTICE("Trap start: " << Hex << address << ", pid:tid " << Dec
@@ -1457,44 +1613,28 @@ bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPre
   size_t pageSz = PhysicalMemoryManager::getPageSize();
   const uintptr_t pageAddress = address & ~(pageSz - 1);
 
-  m_Lock.acquire();
+  MemoryMappedObject* pObject = selected;
+  if (!pObject) {
+    m_Lock.acquire();
 #ifdef DEBUG_MMOBJECTS
-  NOTICE_NOLOCK("trap: got lock");
+    NOTICE_NOLOCK("trap: got lock");
 #endif
 
-  MmObjectList* pMmObjectList = m_MmObjectLists.lookup(&va);
-  if (!pMmObjectList) {
+    MmObjectList* pMmObjectList = m_MmObjectLists.lookup(&va);
+    if (!pMmObjectList) {
+      m_Lock.release();
+      return false;
+    }
+
+#ifdef DEBUG_MMOBJECTS
+    NOTICE_NOLOCK("trap: lookup complete " << reinterpret_cast<uintptr_t>(pMmObjectList));
+#endif
+
+    // The final page can extend beyond the stored byte length of a file.
+    pObject = pMmObjectList->find(pageAddress);
+
     m_Lock.release();
-    return false;
   }
-
-#ifdef DEBUG_MMOBJECTS
-  NOTICE_NOLOCK("trap: lookup complete " << reinterpret_cast<uintptr_t>(pMmObjectList));
-#endif
-
-  MemoryMappedObject* pObject = nullptr;
-  for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin(); it != pMmObjectList->end();
-       it++) {
-    MemoryMappedObject* candidate = *it;
-#ifdef DEBUG_MMOBJECTS
-    NOTICE_NOLOCK("mmobj=" << reinterpret_cast<uintptr_t>(candidate));
-    if (!candidate) {
-      NOTICE_NOLOCK("bad mmobj, should create a real #PF and backtrace");
-      break;
-    }
-#endif
-
-    // Passing in a page-aligned address means we handle the case where
-    // a mapping ends midway through a page and a trap happens after this.
-    // Because we map in terms of pages, but store unaligned 'actual'
-    // lengths (for proper page zeroing etc), this is necessary.
-    if (candidate->matches(pageAddress)) {
-      pObject = candidate;
-      break;
-    }
-  }
-
-  m_Lock.release();
   if (!pObject) {
 #ifdef DEBUG_MMOBJECTS
     ERROR("MemoryMapManager::trap() could not find an object for " << address);

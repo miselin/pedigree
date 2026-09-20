@@ -402,7 +402,7 @@ Process::Process() : Process(DeferredPublication()) {
   publish();
 }
 
-Process::Process(DeferredPublication)
+Process::Process(DeferredPublication, ProcessType type)
     : m_Threads(),
       m_NextTid(0),
       m_Id(Scheduler::instance().reserveProcessId()),
@@ -438,6 +438,7 @@ Process::Process(DeferredPublication)
       m_bExternalLeaseReleaseInProgress(false),
       m_PendingChildTransition(),
       m_State(Active),
+      m_Type(type),
       m_bDestroying(false),
       m_bPublished(false),
       m_bUnregistered(false),
@@ -452,9 +453,12 @@ Process::Process(DeferredPublication)
       m_ReaperState(ReaperUnclaimed),
       m_Lock(false),
       m_Metadata(),
+      m_PerCpuTimeAccounting(
+          PEDIGREE_TIME_ACCOUNTING && Processor::isInitialised() >= 2 ? Processor::getCount() : 0),
       m_DeferredTimeAccounting(),
       m_TimeAccountingReports(),
       m_bTimeAccountingReportsEnabled(false),
+      m_TimeAccountingReportInterest(0),
       m_bSharedAddressSpace(false) {
   resetCounts();
   m_Metadata.startTime = Time::getTimeNanoseconds();
@@ -468,7 +472,7 @@ Process::Process(Process* pParent, bool bCopyOnWrite)
 }
 
 Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
-                 FilesystemContextMode filesystemContext, bool emptyAddressSpace)
+                 FilesystemContextMode filesystemContext, bool emptyAddressSpace, ProcessType type)
     : m_Threads(),
       m_NextTid(0),
       m_Id(Scheduler::instance().reserveProcessId()),
@@ -504,6 +508,7 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
       m_bExternalLeaseReleaseInProgress(false),
       m_PendingChildTransition(),
       m_State(Active),
+      m_Type(type),
       m_bDestroying(false),
       m_bPublished(false),
       m_bUnregistered(false),
@@ -518,9 +523,12 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
       m_ReaperState(ReaperUnclaimed),
       m_Lock(false),
       m_Metadata(),
+      m_PerCpuTimeAccounting(
+          PEDIGREE_TIME_ACCOUNTING && Processor::isInitialised() >= 2 ? Processor::getCount() : 0),
       m_DeferredTimeAccounting(),
       m_TimeAccountingReports(),
       m_bTimeAccountingReportsEnabled(false),
+      m_TimeAccountingReportInterest(0),
       m_bSharedAddressSpace(!bCopyOnWrite) {
   UserReservationSnapshot inheritedReservations;
   if (!pParent->snapshotUserReservations(inheritedReservations)) {
@@ -550,6 +558,16 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
   m_Metadata.physicalPages = pParent->getPhysicalPageCount();
   m_Metadata.sharedPages = pParent->getSharedPageCount();
   m_Metadata.startTime = Time::getTimeNanoseconds();
+
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  m_BenchmarkSyscallTiming = __atomic_load_n(&pParent->m_BenchmarkSyscallTiming, __ATOMIC_ACQUIRE);
+#endif
+#if PEDIGREE_BENCHMARK_SYSCALL_TRACE
+  m_BenchmarkSyscallTrace = __atomic_load_n(&pParent->m_BenchmarkSyscallTrace, __ATOMIC_ACQUIRE);
+#endif
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  m_BenchmarkVmDiagnostics = __atomic_load_n(&pParent->m_BenchmarkVmDiagnostics, __ATOMIC_ACQUIRE);
+#endif
 
   m_pAddressSpace = emptyAddressSpace ? VirtualAddressSpace::create()
                                       : pParent->m_pAddressSpace->clone(bCopyOnWrite);
@@ -703,18 +721,22 @@ bool Process::setCtty(File* file) {
   return true;
 }
 
-void Process::enableTimeAccountingReports() {
+void Process::enableTimeAccountingReports(size_t initialInterest) {
+  __atomic_store_n(&m_TimeAccountingReportInterest, initialInterest, __ATOMIC_RELEASE);
   __atomic_store_n(&m_bTimeAccountingReportsEnabled, true, __ATOMIC_RELEASE);
 }
 
-void Process::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
-  const bool userspace = mode == CpuTimeMode::User;
-  Time::Timestamp* total = userspace ? &m_Metadata.userTime : &m_Metadata.kernelTime;
-  __atomic_fetch_add(total, elapsed, __ATOMIC_RELAXED);
-
-  const Time::Timestamp user = userspace ? elapsed : 0;
-  const Time::Timestamp system = userspace ? 0 : elapsed;
-  publishTimeAccountingBatch(user, system);
+void Process::setTimeAccountingReportInterest(size_t interest, bool enabled) {
+  const size_t previous =
+      enabled ? __atomic_fetch_or(&m_TimeAccountingReportInterest, interest, __ATOMIC_ACQ_REL)
+              : __atomic_fetch_and(&m_TimeAccountingReportInterest, ~interest, __ATOMIC_ACQ_REL);
+  // Catch CPU time published between a timer's baseline snapshot and arming,
+  // even if no later mode transition publishes another batch.
+  if (enabled && interest && !previous &&
+      __atomic_load_n(&m_bTimeAccountingReportsEnabled, __ATOMIC_ACQUIRE) &&
+      m_DeferredTimeAccounting.publish(1)) {
+    Processor::information().getScheduler().publishDeferredTimeAccounting();
+  }
 }
 
 void Process::accountReapedChild(const Process* child, Time::Timestamp& user,
@@ -727,14 +749,34 @@ void Process::accountReapedChild(const Process* child, Time::Timestamp& user,
   kernel = child->getKernelTime() + child->getReapedChildrenKernelTime();
   __atomic_fetch_add(&m_Metadata.reapedChildrenUserTime, user, __ATOMIC_RELAXED);
   __atomic_fetch_add(&m_Metadata.reapedChildrenKernelTime, kernel, __ATOMIC_RELAXED);
+#if PEDIGREE_SYSCALL_COUNTER
+  const uint64_t syscalls = child->getSyscallCount() + child->getReapedChildrenSyscallCount();
+  __atomic_fetch_add(&m_Metadata.reapedChildrenSyscallCount, syscalls, __ATOMIC_RELAXED);
+  SyscallLatencySnapshot latency;
+  child->getSyscallLatencySnapshot(latency);
+  for (size_t i = 0; i < SyscallLatencyBucketCount; ++i) {
+    __atomic_fetch_add(&m_Metadata.reapedChildrenSyscallLatencyBuckets[i], latency.buckets[i],
+                       __ATOMIC_RELAXED);
+  }
+#endif
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+  for (size_t i = 0; i < SyscallTimingSlotCount; ++i) {
+    const uint64_t calls = __atomic_load_n(&child->m_SyscallTimingCalls[i], __ATOMIC_ACQUIRE);
+    const uint64_t kernelNanoseconds =
+        __atomic_load_n(&child->m_SyscallTimingKernelNanoseconds[i], __ATOMIC_ACQUIRE);
+    __atomic_fetch_add(&m_SyscallTimingCalls[i], calls, __ATOMIC_RELAXED);
+    __atomic_fetch_add(&m_SyscallTimingKernelNanoseconds[i], kernelNanoseconds, __ATOMIC_RELAXED);
+  }
+#endif
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+  for (size_t i = 0; i < BenchmarkVmCounterCount; ++i) {
+    const uint64_t value = __atomic_load_n(&child->m_BenchmarkVmCounters[i], __ATOMIC_ACQUIRE);
+    __atomic_fetch_add(&m_BenchmarkVmCounters[i], value, __ATOMIC_RELAXED);
+  }
+#endif
 }
 
-void Process::publishTimeAccountingBatch(Time::Timestamp user, Time::Timestamp system) {
-  if (!__atomic_load_n(&m_bTimeAccountingReportsEnabled, __ATOMIC_ACQUIRE)) {
-    return;
-  }
-
-  const Time::Timestamp elapsed = user ? user : system;
+void Process::queueTimeAccountingReport(Time::Timestamp elapsed) {
   if (m_DeferredTimeAccounting.publish(elapsed)) {
     Processor::information().getScheduler().publishDeferredTimeAccounting();
   }
@@ -744,7 +786,7 @@ void Process::publishTimeAccountingBatch(Time::Timestamp user, Time::Timestamp s
 void Process::publishTimeAccountingForHostedTest(Time::Timestamp user, Time::Timestamp system) {
   __atomic_fetch_add(&m_Metadata.userTime, user, __ATOMIC_RELAXED);
   __atomic_fetch_add(&m_Metadata.kernelTime, system, __ATOMIC_RELAXED);
-  publishTimeAccountingBatch(user, system);
+  reportTimeAccounting(user ? user : system);
 }
 
 void Process::closeTimeAccountingForHostedTest() {

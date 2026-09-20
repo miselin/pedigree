@@ -23,6 +23,8 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/DeferredScope.h"
 
+#include <config.h>
+
 class Thread;
 
 /**

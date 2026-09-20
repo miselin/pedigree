@@ -207,11 +207,15 @@ inline void unmap(void* addr) {
 
 SlamCache::SlamCache()
     : m_PartialLists(),
+      m_FastSlabs(),
+      m_LargeFreeList(nullptr),
       m_ObjectSize(0),
       m_SlabSize(0),
+      m_SlabObjectOffset(0),
+      m_SlabObjectCount(0),
       m_FirstSlab(),
-      m_RecoveryLock(false, true),
-      m_EmptyNode() {}
+      m_FastPathState(0),
+      m_RecoveryLock(false, true) {}
 
 SlamCache::~SlamCache() {}
 
@@ -226,15 +230,25 @@ void SlamCache::initialise(SlamAllocator* parent, size_t objectSize) {
     m_SlabSize = SLAB_MINIMUM_SIZE;
 
   for (size_t i = 0; i < NUM_LISTS; i++)
-    m_PartialLists[i] = tagged(&m_EmptyNode);
+    m_PartialLists[i] = nullptr;
+  for (size_t i = 0; i < NUM_LISTS; i++)
+    m_FastSlabs[i] = nullptr;
+  m_LargeFreeList = nullptr;
+  m_FastPathState = 0;
 
-  // Make the empty node loop always, so it can be easily linked into place.
-  ByteSet(&m_EmptyNode, 0xAB, sizeof(m_EmptyNode));
-  m_EmptyNode.next = tagged(&m_EmptyNode);
+  if (m_ObjectSize < getPageSize()) {
+    m_SlabObjectOffset = ((sizeof(Slab) + m_ObjectSize - 1) / m_ObjectSize) * m_ObjectSize;
+    m_SlabObjectCount = (m_SlabSize - m_SlabObjectOffset) / m_ObjectSize;
+  }
 
   m_pParentAllocator = parent;
 
   assert((m_SlabSize % m_ObjectSize) == 0);
+  assert(m_ObjectSize >= sizeof(Node));
+  if (m_ObjectSize < getPageSize()) {
+    assert(m_SlabObjectOffset < m_SlabSize);
+    assert(m_SlabObjectCount);
+  }
 }
 
 size_t SlamCache::currentList() const {
@@ -257,44 +271,84 @@ void SlamCache::setListForTest(size_t list) {
 }
 #endif
 
-SlamCache::Node* SlamCache::pop(SlamCache::alignedNode* head) {
-  Node *N = 0, *pNext = 0;
-  alignedNode currentHead = __atomic_load_n(head, ATOMIC_POP_MEMORY_ORDER);
-  while (true) {
-    // Grab result.
-    N = untagged(const_cast<Node*>(currentHead));
-    pNext = N->next;
-
-    if (__atomic_compare_exchange_n(
-            head, &currentHead, next_tag(pNext, const_cast<Node*>(currentHead)), ATOMIC_CAS_WEAK,
-            ATOMIC_POP_MEMORY_ORDER, ATOMIC_POP_FAILURE_MEMORY_ORDER)) {
-      // Successful CAS, we have a node to use.
-      break;
-    }
-
-    // Unsuccessful CAS, pause for a bit to back off.
-    spin_pause();
-  }
-
-  return N;
+void SlamCache::addSlab(Slab* slab, size_t list) {
+  assert(!slab->onList);
+  slab->list = list;
+  slab->previous = nullptr;
+  slab->next = m_PartialLists[list];
+  if (slab->next)
+    slab->next->previous = slab;
+  m_PartialLists[list] = slab;
+  slab->onList = true;
 }
 
-void SlamCache::push(SlamCache::alignedNode* head, SlamCache::Node* newTail,
-                     SlamCache::Node* newHead) {
-  if (!newHead)
-    newHead = newTail;
+void SlamCache::removeSlab(Slab* slab) {
+  assert(slab->onList);
+  if (slab->previous)
+    slab->previous->next = slab->next;
+  else
+    m_PartialLists[slab->list] = slab->next;
+  if (slab->next)
+    slab->next->previous = slab->previous;
+  slab->next = nullptr;
+  slab->previous = nullptr;
+  slab->onList = false;
+}
 
-  alignedNode currentHead = __atomic_load_n(head, __ATOMIC_RELAXED);
-  while (true) {
-    newTail->next = const_cast<Node*>(currentHead);
-    if (__atomic_compare_exchange_n(head, &currentHead,
-                                    next_tag(newHead, const_cast<Node*>(currentHead)),
-                                    ATOMIC_CAS_WEAK, ATOMIC_PUSH_MEMORY_ORDER, __ATOMIC_RELAXED)) {
-      break;
-    }
-
-    spin_pause();
+bool SlamCache::beginFastPath() {
+  constexpr size_t writer = static_cast<size_t>(1) << ((sizeof(size_t) * 8) - 1);
+  size_t state = __atomic_load_n(&m_FastPathState, __ATOMIC_ACQUIRE);
+  while (!(state & writer)) {
+    if (__atomic_compare_exchange_n(&m_FastPathState, &state, state + 1, false, __ATOMIC_ACQUIRE,
+                                    __ATOMIC_RELAXED))
+      return true;
   }
+  return false;
+}
+
+void SlamCache::endFastPath() {
+  __atomic_fetch_sub(&m_FastPathState, static_cast<size_t>(1), __ATOMIC_RELEASE);
+}
+
+SlamCache::Node* SlamCache::popFreeObject(Slab* slab) {
+  if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE))
+    return nullptr;
+
+  Node* taggedHead = __atomic_load_n(&slab->freeHead, ATOMIC_POP_MEMORY_ORDER);
+  // An empty head still carries an ABA tag; the count can lag behind a pop.
+  while (reinterpret_cast<uintptr_t>(taggedHead) & POINTER_MASK) {
+    Node* head = untagged(taggedHead);
+    Node* next = head->next;
+    if (__atomic_compare_exchange_n(&slab->freeHead, &taggedHead, next_tag(next, taggedHead),
+                                    ATOMIC_CAS_WEAK, ATOMIC_POP_MEMORY_ORDER,
+                                    ATOMIC_POP_FAILURE_MEMORY_ORDER)) {
+      __atomic_fetch_sub(&slab->freeObjects, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+      return head;
+    }
+    if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE))
+      return nullptr;
+  }
+
+  return nullptr;
+}
+
+void SlamCache::pushFreeObject(Slab* slab, Node* node) {
+  Node* head = __atomic_load_n(&slab->freeHead, __ATOMIC_RELAXED);
+  do {
+    node->next = head;
+  } while (!__atomic_compare_exchange_n(&slab->freeHead, &head, next_tag(node, head),
+                                        ATOMIC_CAS_WEAK, ATOMIC_PUSH_MEMORY_ORDER,
+                                        __ATOMIC_RELAXED));
+  __atomic_fetch_add(&slab->freeObjects, static_cast<size_t>(1), __ATOMIC_RELEASE);
+}
+
+SlamCache::Node* SlamCache::objectAt(uintptr_t slab, size_t index) const {
+  return reinterpret_cast<Node*>(slab + m_SlabObjectOffset + (index * m_ObjectSize));
+}
+
+SlamCache::Slab* SlamCache::slabForObject(uintptr_t object) const {
+  assert(m_ObjectSize < getPageSize());
+  return reinterpret_cast<Slab*>(object & ~(getPageSize() - 1));
 }
 
 uintptr_t SlamCache::allocate() {
@@ -309,33 +363,81 @@ uintptr_t SlamCache::allocate() {
     }
   }
 
+  if (m_ObjectSize >= getPageSize()) {
+    {
+      LockGuard<Spinlock> guard(m_RecoveryLock);
+      if (m_LargeFreeList) {
+        Node* node = m_LargeFreeList;
+        m_LargeFreeList = node->next;
+        EMIT_IF(USING_MAGIC) {
+          assert(node->magic == MAGIC_VALUE);
+          node->magic = TEMP_MAGIC;
+        }
+        reinterpret_cast<SlamAllocator::AllocHeader*>(node)->cache = this;
+        return reinterpret_cast<uintptr_t>(node);
+      }
+    }
+    return reinterpret_cast<uintptr_t>(initialiseSlab(getSlab()));
+  }
+
   const size_t thisList = currentList();
-  Node* N = &m_EmptyNode;
-  {
+  Node* N = nullptr;
+  Slab* fastSlab = nullptr;
+  const bool fastPath = beginFastPath();
+  if (fastPath) {
+    fastSlab = __atomic_load_n(&m_FastSlabs[thisList], __ATOMIC_ACQUIRE);
+    if (fastSlab) {
+      N = popFreeObject(fastSlab);
+      if (N && !__atomic_load_n(&fastSlab->freeObjects, __ATOMIC_ACQUIRE))
+        __atomic_store_n(&m_FastSlabs[thisList], static_cast<Slab*>(nullptr), __ATOMIC_RELEASE);
+    }
+    endFastPath();
+  }
+
+  if (N && fastSlab && !__atomic_load_n(&fastSlab->freeObjects, __ATOMIC_ACQUIRE)) {
+    LockGuard<Spinlock> guard(m_RecoveryLock);
+    if (!__atomic_load_n(&fastSlab->freeObjects, __ATOMIC_ACQUIRE) && fastSlab->onList)
+      removeSlab(fastSlab);
+  }
+
+  if (N) {
+    assert(N->next != reinterpret_cast<Node*>(VIGILANT_MAGIC));
+    EMIT_IF(USING_MAGIC) {
+      assert(N->magic == TEMP_MAGIC || N->magic == MAGIC_VALUE);
+      N->magic = TEMP_MAGIC;
+    }
+    reinterpret_cast<SlamAllocator::AllocHeader*>(N)->cache = this;
+  }
+
+  if (!N) {
     LockGuard<Spinlock> guard(m_RecoveryLock);
     for (size_t offset = 0; offset < NUM_LISTS; ++offset) {
       const size_t list = (thisList + offset) % NUM_LISTS;
-      if (untagged(m_PartialLists[list]) == &m_EmptyNode) {
+      if (__atomic_load_n(&m_FastSlabs[list], __ATOMIC_ACQUIRE))
         continue;
-      }
-
-      N = pop(&m_PartialLists[list]);
-      if (N != &m_EmptyNode) {
+      for (Slab* slab = m_PartialLists[list]; slab; slab = slab->next) {
+        if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE))
+          continue;
+        N = popFreeObject(slab);
+        if (!N)
+          continue;
+        if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE))
+          removeSlab(slab);
+        else if (list == thisList)
+          __atomic_store_n(&m_FastSlabs[thisList], slab, __ATOMIC_RELEASE);
         break;
       }
+      if (N)
+        break;
     }
 
-    if (N != &m_EmptyNode) {
+    if (N) {
       // Check that the block was indeed free.
       assert(N->next != reinterpret_cast<Node*>(VIGILANT_MAGIC));
       EMIT_IF(USING_MAGIC) {
         assert(N->magic == TEMP_MAGIC || N->magic == MAGIC_VALUE);
         N->magic = TEMP_MAGIC;
       }
-
-      // Recovery uses the allocation header to decide whether the slab is
-      // wholly free. Publish ownership before releasing the same lock that
-      // removed this node from the free list.
       SlamAllocator::AllocHeader* header = reinterpret_cast<SlamAllocator::AllocHeader*>(N);
       header->cache = this;
     }
@@ -343,7 +445,7 @@ uintptr_t SlamCache::allocate() {
 
   // No CPU-local list had a free object. Allocate a new slab without holding
   // the cache lock across physical-memory and page-table work.
-  if (UNLIKELY(N == &m_EmptyNode)) {
+  if (UNLIKELY(!N)) {
     Node* pNode = initialiseSlab(getSlab());
     uintptr_t slab = reinterpret_cast<uintptr_t>(pNode);
     EMIT_IF(CRIPPLINGLY_VIGILANT) {
@@ -380,7 +482,6 @@ void SlamCache::free(uintptr_t object) {
   }
 
   Node* N = reinterpret_cast<Node*>(object);
-  LockGuard<Spinlock> guard(m_RecoveryLock);
 
   EMIT_IF(OVERRUN_CHECK) {
     // Grab the footer and check it.
@@ -399,7 +500,46 @@ void SlamCache::free(uintptr_t object) {
     N->magic = MAGIC_VALUE;
   }
 
-  push(&m_PartialLists[currentList()], N);
+  if (m_ObjectSize >= getPageSize()) {
+    LockGuard<Spinlock> guard(m_RecoveryLock);
+    N->next = m_LargeFreeList;
+    m_LargeFreeList = N;
+    return;
+  }
+
+  Slab* slab = slabForObject(object);
+  const bool fastPath = beginFastPath();
+  if (fastPath) {
+    if (__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE)) {
+      pushFreeObject(slab, N);
+      endFastPath();
+      return;
+    }
+    endFastPath();
+  }
+
+  if (!fastPath) {
+    LockGuard<Spinlock> guard(m_RecoveryLock);
+    pushFreeObject(slab, N);
+    if (!slab->onList)
+      addSlab(slab, slab->list);
+    if (slab->list == currentList())
+      __atomic_store_n(&m_FastSlabs[slab->list], slab, __ATOMIC_RELEASE);
+    return;
+  }
+
+  if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE)) {
+    LockGuard<Spinlock> guard(m_RecoveryLock);
+    if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE)) {
+      pushFreeObject(slab, N);
+      if (!slab->onList)
+        addSlab(slab, slab->list);
+      if (slab->list == currentList())
+        __atomic_store_n(&m_FastSlabs[slab->list], slab, __ATOMIC_RELEASE);
+      return;
+    }
+  }
+  pushFreeObject(slab, N);
 }
 
 bool SlamCache::isPointerValid(uintptr_t object) const {
@@ -458,130 +598,51 @@ size_t SlamCache::recovery(size_t maxSlabs) {
     }
   }
 
-  LockGuard<Spinlock> guard(m_RecoveryLock);
-
-  // Recovery owns all list mutation while this lock is held. Consolidating
-  // the CPU-local lists gives the slab scan a complete view of cross-CPU
-  // frees without allocating temporary bookkeeping.
-  for (size_t list = 1; list < NUM_LISTS; ++list) {
-    while (untagged(m_PartialLists[list]) != &m_EmptyNode) {
-      Node* node = pop(&m_PartialLists[list]);
-      if (node == &m_EmptyNode) {
-        break;
-      }
-      push(&m_PartialLists[0], node);
+  constexpr size_t writer = static_cast<size_t>(1) << ((sizeof(size_t) * 8) - 1);
+  size_t expected = 0;
+  while (true) {
+    expected = __atomic_load_n(&m_FastPathState, __ATOMIC_ACQUIRE);
+    if (expected & writer) {
+      spin_pause();
+      continue;
     }
+    const size_t requested = expected | writer;
+    if (__atomic_compare_exchange_n(&m_FastPathState, &expected, requested, false,
+                                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+      break;
   }
+  while (__atomic_load_n(&m_FastPathState, __ATOMIC_ACQUIRE) != writer)
+    spin_pause();
 
-  if (untagged(m_PartialLists[0]) == &m_EmptyNode) {
-    return 0;
-  }
+  LockGuard<Spinlock> guard(m_RecoveryLock);
 
   size_t freedSlabs = 0;
   if (m_ObjectSize < getPageSize()) {
-    Node* firstDeferred = nullptr;
-    while (freedSlabs < maxSlabs) {
-      Node* listHead = untagged(const_cast<Node*>(m_PartialLists[0]));
-      if (listHead == &m_EmptyNode || listHead == firstDeferred) {
-        break;
-      }
-
-      Node* N = pop(&m_PartialLists[0]);
-      uintptr_t slab = reinterpret_cast<uintptr_t>(N) & ~(getPageSize() - 1);
-
-      bool slabNotFree = false;
-      for (size_t i = 0; i < (m_SlabSize / m_ObjectSize); ++i) {
-        Node* pNode = reinterpret_cast<Node*>(slab + (i * m_ObjectSize));
-        SlamAllocator::AllocHeader* pHeader = reinterpret_cast<SlamAllocator::AllocHeader*>(pNode);
-        if (pHeader->cache == this) {
-          slabNotFree = true;
-          break;
+    for (size_t list = 0; list < NUM_LISTS && freedSlabs < maxSlabs; ++list) {
+      Slab* slab = m_PartialLists[list];
+      while (slab && freedSlabs < maxSlabs) {
+        Slab* next = slab->next;
+        if (__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE) == slab->objectCount) {
+          if (__atomic_load_n(&m_FastSlabs[slab->list], __ATOMIC_ACQUIRE) == slab)
+            __atomic_store_n(&m_FastSlabs[slab->list], static_cast<Slab*>(nullptr),
+                             __ATOMIC_RELEASE);
+          removeSlab(slab);
+          freeSlab(reinterpret_cast<uintptr_t>(slab));
+          ++freedSlabs;
         }
-        EMIT_IF(USING_MAGIC) {
-          if (pNode->magic != MAGIC_VALUE) {
-            slabNotFree = true;
-            break;
-          }
-        }
+        slab = next;
       }
-
-      // Partition the remaining list once so all free nodes from the
-      // candidate slab either disappear with it or rotate to the tail.
-      Node* remainingHead = &m_EmptyNode;
-      Node* remainingTail = nullptr;
-      Node* slabNodesHead = N;
-      Node* slabNodesTail = N;
-      Node* cursor = untagged(const_cast<Node*>(m_PartialLists[0]));
-      while (cursor != &m_EmptyNode) {
-        Node* next = untagged(cursor->next);
-        uintptr_t address = reinterpret_cast<uintptr_t>(cursor);
-        bool overlaps = address >= slab && address < (slab + m_SlabSize);
-        if (overlaps) {
-          slabNodesTail->next = tagged(cursor);
-          slabNodesTail = cursor;
-        } else {
-          if (remainingTail) {
-            remainingTail->next = tagged(cursor);
-          } else {
-            remainingHead = cursor;
-          }
-          remainingTail = cursor;
-        }
-        cursor = next;
-      }
-
-      if (remainingTail) {
-        remainingTail->next = tagged(&m_EmptyNode);
-      }
-      slabNodesTail->next = tagged(&m_EmptyNode);
-
-      Node* oldHead = const_cast<Node*>(m_PartialLists[0]);
-      m_PartialLists[0] = next_tag(remainingHead, oldHead);
-
-      if (!slabNotFree) {
-        freeSlab(slab);
-        ++freedSlabs;
-        continue;
-      }
-
-      // A rejected slab does not consume the recovery budget. Move all its
-      // free objects behind unexamined slabs so a busy head cannot starve a
-      // reclaimable slab on this or a later call.
-      if (!firstDeferred) {
-        firstDeferred = slabNodesHead;
-      }
-      if (remainingTail) {
-        remainingTail->next = tagged(slabNodesHead);
-      } else {
-        remainingHead = slabNodesHead;
-      }
-      oldHead = const_cast<Node*>(m_PartialLists[0]);
-      m_PartialLists[0] = next_tag(remainingHead, oldHead);
     }
   } else {
-    while (freedSlabs < maxSlabs) {
-      if (untagged(m_PartialLists[0]) == &m_EmptyNode)
-        break;
-
-      // Pop the first free node off the free list.
-      Node* N = pop(&m_PartialLists[0]);
-      if (N == &m_EmptyNode) {
-        // Emptied the partial list!
-        break;
-      }
-
-      EMIT_IF(USING_MAGIC) {
-        assert(N->magic == MAGIC_VALUE);
-      }
-
-      // Can just outright free - no need to do any further checks.
-      uintptr_t slab = reinterpret_cast<uintptr_t>(N);
-
-      freeSlab(slab);
+    while (m_LargeFreeList && freedSlabs < maxSlabs) {
+      Node* node = m_LargeFreeList;
+      m_LargeFreeList = node->next;
+      freeSlab(reinterpret_cast<uintptr_t>(node));
       ++freedSlabs;
     }
   }
 
+  __atomic_store_n(&m_FastPathState, static_cast<size_t>(0), __ATOMIC_RELEASE);
   return freedSlabs;
 }
 
@@ -592,49 +653,45 @@ SlamCache::Node* SlamCache::initialiseSlab(uintptr_t slab) {
     }
   }
 
-  size_t nObjects = m_SlabSize / m_ObjectSize;
+  if (m_ObjectSize >= getPageSize()) {
+    LockGuard<Spinlock> guard(m_RecoveryLock);
+    reinterpret_cast<SlamAllocator::AllocHeader*>(slab)->cache = this;
+    m_pParentAllocator->markSlabReady(slab, m_SlabSize);
+    return reinterpret_cast<Node*>(slab);
+  }
 
-  Node* N = reinterpret_cast<Node*>(slab);
-  N->next = tagged(&m_EmptyNode);
+  const size_t nObjects = m_SlabObjectCount;
+  Slab* slabState = reinterpret_cast<Slab*>(slab);
+  slabState->freeHead = nullptr;
+  slabState->next = nullptr;
+  slabState->previous = nullptr;
+  slabState->cache = this;
+  slabState->freeObjects = nObjects - 1;
+  slabState->objectCount = nObjects;
+  slabState->onList = false;
+
+  Node* N = objectAt(slab, 0);
   EMIT_IF(USING_MAGIC) {
     N->magic = TEMP_MAGIC;
   }
-
-  // Early exit if there's no other free objects in this slab. No recovery
-  // scan can discover the slab without a published free-list node.
-  if (nObjects <= 1) {
-    LockGuard<Spinlock> guard(m_RecoveryLock);
-    reinterpret_cast<SlamAllocator::AllocHeader*>(N)->cache = this;
-    m_pParentAllocator->markSlabReady(slab, m_SlabSize);
-    return N;
-  }
-
-  // All objects in slab are free, generate Node*'s for each (except the
-  // first) and link them together.
-  Node *pFirst = 0, *pLast = 0;
   for (size_t i = 1; i < nObjects; i++) {
-    Node* pNode = reinterpret_cast<Node*>(slab + (i * m_ObjectSize));
-    pNode->next = reinterpret_cast<Node*>(slab + ((i + 1) * m_ObjectSize));
-    pNode->next = tagged(pNode->next);
+    Node* pNode = objectAt(slab, i);
+    pNode->next = slabState->freeHead;
+    slabState->freeHead = next_tag(pNode, slabState->freeHead);
     EMIT_IF(USING_MAGIC) {
       pNode->magic = MAGIC_VALUE;
     }
     reinterpret_cast<SlamAllocator::AllocHeader*>(pNode)->cache = nullptr;
-
-    if (!pFirst)
-      pFirst = tagged(pNode);
-
-    pLast = pNode;
   }
-
-  N->next = pFirst;
 
   {
     LockGuard<Spinlock> guard(m_RecoveryLock);
-    // Publish the returned allocation before making the rest of its slab
-    // visible to recovery.
     reinterpret_cast<SlamAllocator::AllocHeader*>(N)->cache = this;
-    push(&m_PartialLists[currentList()], pLast, pFirst);
+    // Even an initially full slab can be cached and later recovered.
+    slabState->list = currentList();
+    if (slabState->freeObjects)
+      addSlab(slabState, slabState->list);
+    __atomic_store_n(&m_FastSlabs[slabState->list], slabState, __ATOMIC_RELEASE);
     m_pParentAllocator->markSlabReady(slab, m_SlabSize);
   }
 
@@ -656,7 +713,7 @@ void SlamCache::check() {
     return;
   rarp.acquire();
 
-  size_t nObjects = m_SlabSize / m_ObjectSize;
+  size_t nObjects = m_SlabObjectCount;
 
   size_t maxPerSlab = (m_SlabSize / sizeof(uintptr_t)) - 2;
 
@@ -672,7 +729,7 @@ void SlamCache::check() {
     for (size_t i = 0; i < numAlloced; i++) {
       uintptr_t slab = *reinterpret_cast<uintptr_t*>(curSlab + sizeof(uintptr_t) * (i + 2));
       for (size_t i = 0; i < nObjects; i++) {
-        uintptr_t addr = slab + i * m_ObjectSize;
+        uintptr_t addr = reinterpret_cast<uintptr_t>(objectAt(slab, i));
         Node* pNode = reinterpret_cast<Node*>(addr);
         if (pNode->magic == MAGIC_VALUE || pNode->magic == TEMP_MAGIC)
           // Free, continue.
@@ -772,7 +829,7 @@ void SlamAllocator::initialise() {
   uintptr_t heapEnd = getHeapEnd();
   size_t heapSize = heapEnd - bitmapBase;
   size_t heapPages = heapSize / getPageSize();
-  size_t bitmapBytes = ((heapPages + 63) / 64) * sizeof(SlabBitmapEntry);
+  size_t bitmapBytes = ((heapPages + 63) / 64) * sizeof(uint64_t) * 3;
 
   // Ensure the bitmap size is now page-aligned before we allocate it.
   if (bitmapBytes & (getPageSize() - 1)) {
@@ -783,7 +840,8 @@ void SlamAllocator::initialise() {
   // Keep reservation and mapping state adjacent. The bitmap is mostly CoW;
   // interleaving ensures the first mapping-state write is in the same early,
   // private page as its reservation state.
-  m_SlabRegionBitmap = reinterpret_cast<SlabBitmapEntry*>(bitmapBase);
+  m_SlabRegionBitmap.useMemory(reinterpret_cast<void*>(bitmapBase), (heapPages + 63) / 64,
+                               heapPages);
   m_Base = bitmapBase + bitmapBytes;
   m_SlabRegionPages = (heapEnd - m_Base) / getPageSize();
   m_SlabRegionBitmapEntries = (m_SlabRegionPages + 63) / 64;
@@ -831,7 +889,7 @@ void SlamAllocator::wipe() {
     return;
   }
 
-  if (!m_SlabRegionBitmap) {
+  if (!m_SlabRegionPages) {
     return;
   }
 
@@ -841,13 +899,13 @@ void SlamAllocator::wipe() {
 
   // Clean up all slabs we obtained.
   for (size_t entry = 0; entry < m_SlabRegionBitmapEntries; ++entry) {
-    if (!m_SlabRegionBitmap[entry].reserved) {
+    if (!m_SlabRegionBitmap.reservedBits(entry)) {
       continue;
     }
 
     for (size_t bit = 0; bit < 64; ++bit) {
       uint64_t test = 1ULL << bit;
-      if ((m_SlabRegionBitmap[entry].reserved & test) == 0) {
+      if ((m_SlabRegionBitmap.reservedBits(entry) & test) == 0) {
         continue;
       }
 
@@ -857,7 +915,7 @@ void SlamAllocator::wipe() {
   }
 
   // about to destroy the bitmap mappings
-  m_SlabRegionBitmap = nullptr;
+  m_SlabRegionBitmap.useMemory(nullptr, 0, 0);
   m_SlabRegionBitmapEntries = 0;
   m_SlabRegionPages = 0;
 
@@ -873,42 +931,10 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize) {
   }
   size_t nPages = fullSize / getPageSize();
 
+  SlamBitmap& bitmap = m_SlabRegionBitmap;
+
   auto findFreeRun = [&]() {
-    size_t pageIndex = ~0UL;
-    size_t runStart = 0;
-    size_t runLength = 0;
-    for (size_t entry = 0; entry < m_SlabRegionBitmapEntries; ++entry) {
-      const size_t entryBase = entry * 64;
-      const size_t bitsInEntry =
-          pedigree_std::min(static_cast<size_t>(64), m_SlabRegionPages - entryBase);
-      const uint64_t bitmap = m_SlabRegionBitmap[entry].reserved;
-
-      if (!bitmap) {
-        if (!runLength) {
-          runStart = entryBase;
-        }
-        runLength += bitsInEntry;
-        if (runLength >= nPages) {
-          return runStart;
-        }
-        continue;
-      }
-
-      for (size_t bit = 0; bit < bitsInEntry; ++bit) {
-        if (bitmap & (1ULL << bit)) {
-          runLength = 0;
-          continue;
-        }
-
-        if (!runLength) {
-          runStart = entryBase + bit;
-        }
-        if (++runLength >= nPages) {
-          return runStart;
-        }
-      }
-    }
-    return pageIndex;
+    return bitmap.findFreeRun(nPages);
   };
 
 #if X64 && !PEDIGREE_BENCHMARK
@@ -916,9 +942,9 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize) {
     const size_t firstEntry = pageIndex / 64;
     const size_t lastEntry = (pageIndex + nPages - 1) / 64;
     const uintptr_t firstAddress =
-        reinterpret_cast<uintptr_t>(&m_SlabRegionBitmap[firstEntry]) & ~(getPageSize() - 1);
+        bitmap.metadataAddress(firstEntry) & ~(getPageSize() - 1);
     const uintptr_t lastEntryByte =
-        reinterpret_cast<uintptr_t>(&m_SlabRegionBitmap[lastEntry]) + sizeof(SlabBitmapEntry) - 1;
+        bitmap.metadataAddress(lastEntry) + sizeof(uint64_t) * 3 - 1;
     const uintptr_t lastAddress = lastEntryByte & ~(getPageSize() - 1);
     VirtualAddressSpace& va = VirtualAddressSpace::getKernelAddressSpace();
     for (uintptr_t address = firstAddress; address <= lastAddress; address += getPageSize()) {
@@ -974,10 +1000,7 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize) {
         continue;
       }
 
-      for (size_t i = 0; i < nPages; ++i) {
-        const size_t currentPage = pageIndex + i;
-        m_SlabRegionBitmap[currentPage / 64].reserved |= 1ULL << (currentPage % 64);
-      }
+      bitmap.reserve(pageIndex, nPages);
       m_HeapPageCount += nPages;
       m_SlabRegionLock.release();
       PhysicalMemoryManager::instance().freePage(replacement);
@@ -985,10 +1008,7 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize) {
     }
 #endif
 
-    for (size_t i = 0; i < nPages; ++i) {
-      const size_t currentPage = pageIndex + i;
-      m_SlabRegionBitmap[currentPage / 64].reserved |= 1ULL << (currentPage % 64);
-    }
+    bitmap.reserve(pageIndex, nPages);
     m_HeapPageCount += nPages;
     m_SlabRegionLock.release();
     break;
@@ -1014,7 +1034,7 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize) {
   m_SlabRegionLock.acquire();
   for (size_t i = 0; i < nPages; ++i) {
     size_t currentPage = pageIndex + i;
-    m_SlabRegionBitmap[currentPage / 64].mapped |= 1ULL << (currentPage % 64);
+    bitmap.setMapped(currentPage);
   }
   m_SlabRegionLock.release();
 
@@ -1039,11 +1059,10 @@ void SlamAllocator::markSlabReady(uintptr_t address, size_t length) {
   for (size_t i = 0; i < nPages; ++i) {
     const size_t currentPage = firstPage + i;
     const uint64_t bit = 1ULL << (currentPage % 64);
-    SlabBitmapEntry& entry = m_SlabRegionBitmap[currentPage / 64];
-    if (!(entry.reserved & bit) || !(entry.mapped & bit)) {
+    if (!m_SlabRegionBitmap.isReserved(currentPage) || !m_SlabRegionBitmap.isMapped(currentPage)) {
       panic("Attempted to publish an unmapped slab.");
     }
-    entry.ready |= bit;
+    m_SlabRegionBitmap.setReady(currentPage);
   }
 }
 
@@ -1060,6 +1079,7 @@ void SlamAllocator::freeSlabUnlocked(uintptr_t address, size_t length) {
   }
   size_t nPages = length / getPageSize();
   size_t firstPage = (address - m_Base) / getPageSize();
+  SlamBitmap& bitmap = m_SlabRegionBitmap;
   if (firstPage >= m_SlabRegionPages || nPages > (m_SlabRegionPages - firstPage)) {
     panic("Attempted to free a slab outside the allocator bitmap.");
   }
@@ -1067,8 +1087,7 @@ void SlamAllocator::freeSlabUnlocked(uintptr_t address, size_t length) {
   for (size_t i = 0; i < nPages; ++i) {
     size_t currentPage = firstPage + i;
     const uint64_t bit = 1ULL << (currentPage % 64);
-    const SlabBitmapEntry& entry = m_SlabRegionBitmap[currentPage / 64];
-    if (!(entry.reserved & bit) || !(entry.mapped & bit)) {
+    if (!bitmap.isReserved(currentPage) || !bitmap.isMapped(currentPage)) {
       panic("Attempted to free an unallocated slab.");
     }
   }
@@ -1094,9 +1113,7 @@ void SlamAllocator::freeSlabUnlocked(uintptr_t address, size_t length) {
   for (size_t i = 0; i < nPages; ++i) {
     size_t currentPage = firstPage + i;
     const uint64_t bit = 1ULL << (currentPage % 64);
-    m_SlabRegionBitmap[currentPage / 64].mapped &= ~bit;
-    m_SlabRegionBitmap[currentPage / 64].ready &= ~bit;
-    m_SlabRegionBitmap[currentPage / 64].reserved &= ~bit;
+    bitmap.release(currentPage, 1);
   }
 
   m_HeapPageCount -= nPages;
@@ -1277,7 +1294,7 @@ size_t SlamAllocator::allocSize(uintptr_t mem) {
 }
 
 bool SlamAllocator::isAllocatedPage(uintptr_t address) const {
-  if (!m_bInitialised || !m_SlabRegionBitmap || address < m_Base || address >= getHeapEnd()) {
+  if (!m_bInitialised || !m_SlabRegionPages || address < m_Base || address >= getHeapEnd()) {
     return false;
   }
 
@@ -1287,8 +1304,8 @@ bool SlamAllocator::isAllocatedPage(uintptr_t address) const {
   }
 
   const uint64_t bit = 1ULL << (page % 64);
-  const SlabBitmapEntry& entry = m_SlabRegionBitmap[page / 64];
-  return (entry.reserved & bit) && (entry.mapped & bit) && (entry.ready & bit);
+  return m_SlabRegionBitmap.isReserved(page) && m_SlabRegionBitmap.isMapped(page) &&
+         m_SlabRegionBitmap.isReady(page);
 }
 
 #if defined(PEDIGREE_BUILDUTILS)

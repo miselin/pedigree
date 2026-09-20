@@ -9,6 +9,8 @@
 #define PEDIGREE_KERNEL_MACHINE_THREADEDIRQDISPATCHER_H
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/SchedulerWorkerWake.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -166,7 +168,6 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher {
     static constexpr size_t PublicationCountMask = ~PublicationClosed;
 
     static int workerEntry(void* context);
-    static bool workerReady(void* context);
     int run();
     bool hasPendingForWorker() const;
     size_t pendingCookieForWorker() const;
@@ -178,6 +179,8 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher {
     void* m_CallbackContext;
     Thread* m_Thread;
     PerProcessorScheduler* m_Scheduler;
+    WaitQueue m_WorkerWaiters;
+    SchedulerWorkerWake m_WorkerWake;
     size_t m_WorkerProcessor;
     uint8_t m_Line;
     size_t* m_PendingCookies;

@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/compiler.h"
@@ -90,8 +91,10 @@ static_assert(sizeof(struct rusage) == sizeof(LinuxRusage64) + 16 * sizeof(long)
 #endif
 
 // arch_prctl
+#define ARCH_SET_GS 0x1001
 #define ARCH_SET_FS 0x1002
 #define ARCH_GET_FS 0x1003
+#define ARCH_GET_GS 0x1004
 
 // Linux prctl operations used by musl's current-thread naming helpers.
 #define LINUX_PR_SET_NAME 15
@@ -321,6 +324,10 @@ uintptr_t posix_brk(uintptr_t theBreak) {
 }
 
 SyscallState posix_copy_clone_state(const SyscallState& state) {
+#if X64 && !HOSTED
+  // The child's frame must own its metadata before it leaves this CPU.
+  state.getUserEntryMetadata();
+#endif
   SyscallState clonedState = state;
 #if HOSTED
   // The hosted bridge's errno destination is stack-local to the parent's
@@ -1151,6 +1158,120 @@ int posix_linux_syslog(int type, char* buf, int len) {
       break;
     case 10:
       return static_cast<int>(Log::textCapacity());
+#if PEDIGREE_SYSCALL_COUNTER
+    case 11: {
+      if (len != static_cast<int>(sizeof(uint64_t))) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      const uint64_t count = process->getReapedChildrenSyscallCount();
+      if (!PosixSubsystem::copyToUser(buf, &count, sizeof(count))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      return static_cast<int>(sizeof(count));
+    }
+    case 12: {
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      Process::SyscallLatencySnapshot snapshot = {};
+      process->getReapedChildrenSyscallLatencySnapshot(snapshot);
+      if (len != static_cast<int>(sizeof(snapshot))) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      if (!PosixSubsystem::copyToUser(buf, &snapshot, sizeof(snapshot))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      return static_cast<int>(sizeof(snapshot));
+    }
+#endif
+#if PEDIGREE_ACTIVITY_DIAGNOSTICS
+    case 13: {
+      if (len != static_cast<int>(sizeof(ActivityDiagnostics::Snapshot))) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      ActivityDiagnostics::Snapshot snapshot = {};
+      ActivityDiagnostics::snapshot(snapshot);
+      if (!PosixSubsystem::copyToUser(buf, &snapshot, sizeof(snapshot))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      return static_cast<int>(sizeof(snapshot));
+    }
+#endif
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+    case 15: {
+      if (buf || (len != 0 && len != 1)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      process->setBenchmarkSyscallTiming(len != 0);
+      return 0;
+    }
+    case 16: {
+      constexpr size_t snapshotSize =
+          Process::SyscallTimingSlotCount * sizeof(Process::SyscallTimingEntry);
+      if (len != static_cast<int>(snapshotSize)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      for (size_t i = 0; i < Process::SyscallTimingSlotCount; ++i) {
+        Process::SyscallTimingEntry entry = {};
+        process->getSyscallTimingEntry(i, entry);
+        if (!PosixSubsystem::copyToUser(buf + i * sizeof(entry), &entry, sizeof(entry))) {
+          SYSCALL_ERROR(BadAddress);
+          return -1;
+        }
+      }
+      return static_cast<int>(snapshotSize);
+    }
+#endif
+#if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
+    case 17: {
+      if (buf || (len != 0 && len != 1)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      process->setBenchmarkVmDiagnostics(len != 0);
+      return 0;
+    }
+    case 18: {
+      constexpr size_t snapshotSize = Process::BenchmarkVmCounterCount * sizeof(uint64_t);
+      if (len != static_cast<int>(snapshotSize)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      for (size_t i = 0; i < Process::BenchmarkVmCounterCount; ++i) {
+        const uint64_t value = process->getBenchmarkVmCounter(i);
+        if (!PosixSubsystem::copyToUser(buf + i * sizeof(value), &value, sizeof(value))) {
+          SYSCALL_ERROR(BadAddress);
+          return -1;
+        }
+      }
+      return static_cast<int>(snapshotSize);
+    }
+#endif
+    case 20: {
+#if PEDIGREE_BENCHMARK_SYSCALL_TRACE
+      if (buf || (len != 0 && len != 1)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      Process* process = Processor::information().getCurrentThread()->getParent();
+      process->setBenchmarkSyscallTrace(len != 0);
+      return 0;
+#else
+      SYSCALL_ERROR(Unimplemented);
+      return -1;
+#endif
+    }
     case 2:
     case 4:
     case 5:
@@ -1335,6 +1456,27 @@ int posix_prctl(int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_
 int posix_arch_prctl(int code, unsigned long addr) {
   Thread* current = Processor::information().getCurrentThread();
   switch (code) {
+#if X64 && !HOSTED
+    case ARCH_SET_GS:
+      // Paranoid entry distinguishes kernel and user GS by the address half.
+      // FSGSBASE stays disabled, so userspace cannot bypass this restriction.
+      if (addr >= current->getParent()->getAddressSpace()->getKernelStart() ||
+          addr >= 0x0000800000000000ULL) {
+        SYSCALL_ERROR(NotEnoughPermissions);
+        return -1;
+      }
+      current->setUserGsBase(addr);
+      break;
+
+    case ARCH_GET_GS: {
+      const unsigned long base = Processor::getUserGsBase();
+      if (!PosixSubsystem::copyToUser(reinterpret_cast<void*>(addr), &base, sizeof(base))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      break;
+    }
+#endif
     case ARCH_SET_FS:
       if (addr >= current->getParent()->getAddressSpace()->getKernelStart()
 #if X64
