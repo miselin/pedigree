@@ -26,7 +26,8 @@
 void TimeTracker::initialise(bool entryInterruptsAlreadyDisabled) {
   // Accounting baselines belong to the exact interrupted Thread. A Process
   // can execute on multiple CPUs and cannot provide one shared baseline.
-  m_pThread = Processor::information().getCurrentThread();
+  if (!m_pThread)
+    m_pThread = Processor::information().getCurrentThread();
   if (!m_pThread) {
     // We can get called early, so ensure we don't make any
     // assumptions about what's present.

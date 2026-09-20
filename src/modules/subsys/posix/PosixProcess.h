@@ -182,7 +182,9 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   void setDumpable(bool);
   void commitExecCredentials(Thread&, bool allExecutableFilesReadable);
 
-  virtual int64_t getUserId() const;
+  int64_t getUserId() const final {
+    return static_cast<int64_t>(__atomic_load_n(&m_RealUserId, __ATOMIC_ACQUIRE));
+  }
   virtual int64_t getGroupId() const;
   virtual int64_t getEffectiveUserId() const;
   virtual int64_t getEffectiveGroupId() const;

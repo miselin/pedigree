@@ -166,7 +166,7 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     // SYSCALL entered with IF masked by IA32_FMASK. Let the first accounting
     // sample reuse that architectural state instead of masking and restoring
     // interrupts a second time.
-    TimeTracker tracker(0, true, true);
+    TimeTracker tracker(0, true, true, syscallThread);
 #if TIME_SYSCALLS
     Process* pProcess = syscallThread->getParent();
     Time::Stopwatch syscallTimer(true);

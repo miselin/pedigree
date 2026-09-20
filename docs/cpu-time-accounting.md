@@ -1,21 +1,23 @@
 # CPU-time accounting
 
 `PEDIGREE_TIME_ACCOUNTING` enables per-thread and per-process user/kernel CPU
-totals. Precise accounting is the default. It samples a monotonic clock at
+totals. Scheduler-tick accounting is the default on x64 and hosted targets.
+Other targets retain precise accounting. Precise mode samples a monotonic clock at
 kernel transitions and scheduler boundaries, publishing elapsed time without
 waiting for another timer interrupt. The x64 clock uses a calibrated TSC and
 precomputed multiply/shift conversion; it does not recalibrate on every syscall.
 
 ## Sampled mode
 
-For x64 and hosted builds, enable scheduler-tick accounting with:
+For x64 and hosted builds, opt into precise accounting with:
 
 ```sh
-cmake -S . -B build -DPEDIGREE_SAMPLED_TIME_ACCOUNTING=ON
+cmake -S . -B build -DPEDIGREE_SAMPLED_TIME_ACCOUNTING=OFF
 cmake --build build --target kernel initrd -j8
 ```
 
-Set the option to `OFF` to restore precise accounting. Sampling is incompatible
+Set the option to `ON` to restore sampled accounting. Existing CMake caches keep
+their configured value until explicitly changed. Sampling is incompatible
 with `PEDIGREE_BENCHMARK_SYSCALL_TIMING`, which attributes measured intervals to
 individual syscalls.
 

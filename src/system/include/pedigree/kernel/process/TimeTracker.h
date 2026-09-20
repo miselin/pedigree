@@ -38,9 +38,10 @@ class TimeTracker {
   // Expose member initialization so stack auto-initialization does not fill
   // the whole object before the constructor writes the same fields.
   ALWAYS_INLINE TimeTracker(Process* pProcess, bool fromUserspace,
-                            bool entryInterruptsAlreadyDisabled = false)
+                            bool entryInterruptsAlreadyDisabled = false,
+                            Thread* currentThread = nullptr)
       : m_pProcess(pProcess),
-        m_pThread(nullptr),
+        m_pThread(currentThread),
         m_bFromUserspace(fromUserspace)
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
         ,

@@ -163,9 +163,6 @@ bool PosixProcess::installUserIdentity(User* user, Group* group, const uint32_t*
   return true;
 }
 
-int64_t PosixProcess::getUserId() const {
-  return static_cast<int64_t>(__atomic_load_n(&m_RealUserId, __ATOMIC_ACQUIRE));
-}
 int64_t PosixProcess::getGroupId() const {
   return snapshotCredentials().rgid;
 }
