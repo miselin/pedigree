@@ -98,11 +98,12 @@ def read_object(path: Path) -> tuple[bytearray, int]:
             else:
                 raise ValueError(f"unresolved UEFI loader symbol: {symbol}")
             place = base + offset
-            addend = struct.unpack_from("<q", output, place)[0] if kind == 1 else 0
             if kind == 1:  # IMAGE_REL_AMD64_ADDR64
+                addend = struct.unpack_from("<q", output, place)[0]
                 struct.pack_into("<Q", output, place, IMAGE_BASE + target + addend)
                 relocations.append(place)
             elif 4 <= kind <= 9:  # IMAGE_REL_AMD64_REL32 through REL32_5
+                addend = struct.unpack_from("<i", output, place)[0]
                 variant = kind - 4
                 displacement = IMAGE_BASE + target + addend - (IMAGE_BASE + place + 4 + variant)
                 struct.pack_into("<i", output, place, displacement)
