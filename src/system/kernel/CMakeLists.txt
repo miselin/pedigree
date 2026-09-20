@@ -494,7 +494,10 @@ endif ()
 set(LOG_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/Log.cc)
 
-# TODO: no-debugger builds need to not pull in quite as much debugger stuff
+if (NOT PEDIGREE_DEBUGGER)
+    # Panic reporting still needs the I/O and backtrace helpers.
+    list(FILTER KERNEL_SRCS EXCLUDE REGEX "/debugger/(Debugger\\.cc|commands/.*\\.cc)$")
+endif ()
 
 add_library(kernel_shared SHARED
     ${KERNEL_SRCS} ${PROCESSOR_SRCS} ${MACHINE_SRCS} ${UDIS86_SRCS} ${X86EMU_SRCS} ${HASH_SRCS} ${SLAM_SRCS} ${LOG_SRCS} ${CMAKE_CURRENT_SOURCE_DIR}/sharedshim.cc)

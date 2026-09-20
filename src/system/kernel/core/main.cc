@@ -294,9 +294,9 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
 
   g_pBootstrapInfo = &bsInf;
 
-  EMIT_IF(TRACK_LOCKS) {
-    g_LocksCommand.setReady();
-  }
+#if DEBUGGER && TRACK_LOCKS
+  g_LocksCommand.setReady();
+#endif
 
   TRACE("Processor init");
 

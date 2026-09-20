@@ -52,8 +52,8 @@
 #endif
 
 #elif !defined(assert)
-#define assert(x)
-#define assert_heap_ptr_valid(x)
+#define assert(x) ((void)0)
+#define assert_heap_ptr_valid(x) ((void)0)
 #endif
 
 #ifndef __cplusplus

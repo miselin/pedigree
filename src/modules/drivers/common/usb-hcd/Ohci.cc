@@ -241,10 +241,11 @@ Ohci::Ohci(Device* pDev)
     }
   } else {
     // Chances are good that the BIOS has the thing running.
-    if (control & OhciControlStateFunctionalMask)
+    if (control & OhciControlStateFunctionalMask) {
       DEBUG_LOG("USB: OHCI: BIOS is currently in charge.");
-    else
+    } else {
       DEBUG_LOG("USB: OHCI: not yet operational.");
+    }
 
     // Throw the controller into operational mode if it isn't.
     if (!(control & OhciControlStateRunning))

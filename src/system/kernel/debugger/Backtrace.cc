@@ -138,9 +138,13 @@ void Backtrace::prettyPrint(HugeStaticString& buf, size_t nFrames, size_t nFromF
       row += "[";
       row.append(m_pReturnAddresses[i], 16);
       row += "] ";
+#if DEBUGGER
       StackFrame sf(m_pStates[i], m_pBasePointers[i], sym);
-
       sf.prettyPrint(row);
+#else
+      row += sym;
+      row += "\n";
+#endif
     }
 
     buf.append(row);
