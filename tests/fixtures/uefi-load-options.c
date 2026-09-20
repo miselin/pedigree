@@ -38,6 +38,9 @@ int main(void) {
   check_options("current", 7, UEFI_BOOT_DIRECTORY_CURRENT, "");
   check_options("current", 8, UEFI_BOOT_DIRECTORY_CURRENT, "");
   check_options("known-good", 11, UEFI_BOOT_DIRECTORY_KNOWN_GOOD, "");
+  check_options("debug", 6, UEFI_BOOT_DIRECTORY_DEBUG, "");
+  const char debug[] = "debug intelgfx=off";
+  check_options(debug, sizeof(debug), UEFI_BOOT_DIRECTORY_DEBUG, "intelgfx=off");
   check_options(" \t ", 4, UEFI_BOOT_DIRECTORY_DEFAULT, "");
   const char off[] = "current intelgfx=off";
   const char on[] = "known-good intelgfx=on";
@@ -57,6 +60,9 @@ int main(void) {
   uint8_t unaligned[128];
   uint8_t* wide = unaligned + 1;
   uint32_t size = utf16(off, wide);
+  uint32_t debug_size = utf16(debug, wide);
+  check_options(wide, debug_size, UEFI_BOOT_DIRECTORY_DEBUG, "intelgfx=off");
+  size = utf16(off, wide);
   check_options(wide, size, UEFI_BOOT_DIRECTORY_CURRENT, "intelgfx=off");
   check_options(wide, size - 2, UEFI_BOOT_DIRECTORY_CURRENT, "intelgfx=off");
   assert(!parse_load_options(wide, size - 1, &options));

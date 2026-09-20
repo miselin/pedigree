@@ -10,7 +10,8 @@
 enum uefi_boot_directory {
   UEFI_BOOT_DIRECTORY_DEFAULT,
   UEFI_BOOT_DIRECTORY_CURRENT,
-  UEFI_BOOT_DIRECTORY_KNOWN_GOOD
+  UEFI_BOOT_DIRECTORY_KNOWN_GOOD,
+  UEFI_BOOT_DIRECTORY_DEBUG
 };
 
 typedef struct uefi_load_options {
@@ -60,14 +61,16 @@ static int parse_load_options(const void* raw, uint32_t size, uefi_load_options_
   uint32_t end = start;
   while (end < length && options->text[end] != ' ')
     ++end;
-  static const char* selectors[] = {"current", "known-good"};
-  for (uint32_t selector = 0; selector < 2; ++selector) {
+  static const char* selectors[] = {"current", "known-good", "debug"};
+  static const enum uefi_boot_directory directories[] = {
+      UEFI_BOOT_DIRECTORY_CURRENT, UEFI_BOOT_DIRECTORY_KNOWN_GOOD, UEFI_BOOT_DIRECTORY_DEBUG};
+  for (uint32_t selector = 0; selector < 3; ++selector) {
     uint32_t matched = 0;
     while (start + matched < end && selectors[selector][matched] &&
            options->text[start + matched] == selectors[selector][matched])
       ++matched;
     if (start + matched == end && !selectors[selector][matched]) {
-      options->directory = selector ? UEFI_BOOT_DIRECTORY_KNOWN_GOOD : UEFI_BOOT_DIRECTORY_CURRENT;
+      options->directory = directories[selector];
       start = end;
       while (start < length && options->text[start] == ' ')
         ++start;

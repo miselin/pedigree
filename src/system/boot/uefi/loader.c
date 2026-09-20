@@ -245,6 +245,7 @@ static const efi_guid_t device_path_guid = {
     0x09576e91, 0x6d3f, 0x11d2, {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}};
 static const efi_char16_t current_prefix[] = L"\\EFI\\PEDIGREE\\current\\";
 static const efi_char16_t known_good_prefix[] = L"\\EFI\\PEDIGREE\\known-good\\";
+static const efi_char16_t debug_prefix[] = L"\\EFI\\PEDIGREE\\debug\\";
 static const efi_char16_t removable_prefix[] = L"\\EFI\\BOOT\\";
 
 static efi_system_table_t* g_system_table;
@@ -409,6 +410,9 @@ static int build_artifact_path(efi_loaded_image_t* loaded_image, const uefi_load
   } else if (options->directory == UEFI_BOOT_DIRECTORY_CURRENT) {
     prefix = current_prefix;
     prefix_length = sizeof(current_prefix) / sizeof(current_prefix[0]) - 1;
+  } else if (options->directory == UEFI_BOOT_DIRECTORY_DEBUG) {
+    prefix = debug_prefix;
+    prefix_length = sizeof(debug_prefix) / sizeof(debug_prefix[0]) - 1;
   }
 
   uint64_t name_length = 0;
