@@ -336,7 +336,6 @@ static bool init() {
   } attachments[] = {{"/dev", g_pDevFs},
                      {"/dev/shm", g_pDevShmFilesystem},
                      {"/run", g_pRunFilesystem},
-                     {"/var/run", g_pRunFilesystem},
                      {"/proc", g_pProcFs},
                      {"/sys", g_pSysFs},
                      {"/tmp", scratchfs}};
