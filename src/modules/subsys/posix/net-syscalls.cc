@@ -73,8 +73,6 @@ Tree<UnixSocket*, UnixSocket*> UnixSocketSyscalls::m_Peers;
 Tree<UnixSocket*, UnixSocket*> UnixSocketSyscalls::m_PendingListeners;
 Mutex UnixSocketSyscalls::m_SyscallObjectsLock;
 
-extern UnixFilesystem* g_pUnixFilesystem;
-
 namespace {
 struct NetbufReleaser {
   static void release(struct netbuf* buffer) {
@@ -3137,7 +3135,7 @@ bool UnixSocketSyscalls::create() {
 
   // Create an unnamed unix socket by default.
   replaceLocalEndpoint(
-      new UnixSocket(String(), g_pUnixFilesystem, nullptr, nullptr, getSocketType()), false);
+      new UnixSocket(String(), g_pUnixSocketBacking, nullptr, nullptr, getSocketType()), false);
 
   return true;
 }
@@ -3189,7 +3187,7 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
 
     // Create the remote for accept() on the server side.
     UnixSocket* remote =
-        new UnixSocket(String(), g_pUnixFilesystem, nullptr, nullptr, UnixSocket::Streaming);
+        new UnixSocket(String(), g_pUnixSocketBacking, nullptr, nullptr, UnixSocket::Streaming);
 
     // Pair first so accept can never observe an endpoint before its peer
     // exists. addSocket activates and queues the connection atomically;

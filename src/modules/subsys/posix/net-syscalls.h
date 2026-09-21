@@ -37,7 +37,7 @@
 // Must be after sys/types.h to avoid problems with endian.h
 #include "modules/system/lwip/include/lwip/api.h"
 
-extern UnixFilesystem* g_pUnixFilesystem;
+extern Filesystem* g_pUnixSocketBacking;
 
 struct sockaddr;
 struct pbuf;

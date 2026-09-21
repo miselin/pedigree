@@ -32,7 +32,6 @@
 #include "PosixSubsystem.h"
 #include "PosixSyscallManager.h"
 #include "ProcFs.h"
-#include "UnixFilesystem.h"
 #include "modules/Module.h"
 #include "modules/system/ramfs/RamFs.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
@@ -66,7 +65,7 @@ extern bool utsNamespaceRegression();
 
 static PosixSyscallManager g_PosixSyscallManager;
 
-UnixFilesystem* g_pUnixFilesystem = 0;
+Filesystem* g_pUnixSocketBacking = nullptr;
 static RamFs* g_pRunFilesystem = 0;
 
 DevFs* g_pDevFs = 0;
@@ -250,7 +249,7 @@ static bool terminalQuiesce() {
 #endif
   if (auto* view = VFS::instance().mountView()) {
     // A surviving attachment path keeps both its backend and this module mapped.
-    Filesystem* backings[] = {g_pUnixFilesystem, g_pProcFs, g_pDevFs, g_pRunFilesystem};
+    Filesystem* backings[] = {g_pProcFs, g_pDevFs, g_pRunFilesystem};
     for (auto* backing : backings)
       if (backing && !view->detachBackingForShutdown(backing))
         return false;
@@ -292,19 +291,17 @@ static bool init() {
   g_pProcFs = new ProcFs();
   g_pProcFs->initialise(0);
 
-  g_pUnixFilesystem = new UnixFilesystem();
-
   g_pRunFilesystem = new RamFs;
   g_pRunFilesystem->initialise(0);
+  g_pUnixSocketBacking = g_pRunFilesystem;
   VFS::instance().registerFilesystem(g_pRunFilesystem, String("posix-runtime"));
-  VFS::instance().registerFilesystem(g_pUnixFilesystem, String("unix"));
   VFS::instance().registerFilesystem(g_pDevFs, String("dev"));
   VFS::instance().registerFilesystem(g_pProcFs, String("proc"));
 
   Filesystem* scratchfs = VFS::instance().getFilesystemAt(String("/media/scratch"));
 
-  // Keep the socket namespace separate from ordinary runtime files while
-  // exposing it at a conventional path.
+  // Keep the conventional socket directory without giving it a special
+  // filesystem; pathname sockets work in any writable VFS directory.
   VFS::instance().createDirectory(String("/media/posix-runtime/sockets"), 0755);
 
   if (!KernelElf::instance().registerTerminalQuiesce(&init, &terminalQuiesce)) {
@@ -324,7 +321,6 @@ static bool init() {
     Filesystem* backing;
   } attachments[] = {{"/dev", g_pDevFs},
                      {"/run", g_pRunFilesystem},
-                     {"/run/sockets", g_pUnixFilesystem},
                      {"/var/run", g_pRunFilesystem},
                      {"/proc", g_pProcFs},
                      {"/tmp", scratchfs}};
@@ -420,19 +416,15 @@ static void destroy() {
   if (g_pDevFs && !VFS::instance().unregisterFilesystem(g_pDevFs, false)) {
     panic("POSIX shutdown could not retire devfs");
   }
-  if (g_pUnixFilesystem && !VFS::instance().unregisterFilesystem(g_pUnixFilesystem, false)) {
-    panic("POSIX shutdown could not retire unixfs");
-  }
   if (g_pRunFilesystem && !VFS::instance().unregisterFilesystem(g_pRunFilesystem, false)) {
     panic("POSIX shutdown could not retire runfs");
   }
 
+  g_pUnixSocketBacking = nullptr;
   delete g_pRunFilesystem;
-  delete g_pUnixFilesystem;
   delete g_pProcFs;
   delete g_pDevFs;
   g_pRunFilesystem = nullptr;
-  g_pUnixFilesystem = nullptr;
   g_pProcFs = nullptr;
   g_pDevFs = nullptr;
 }
