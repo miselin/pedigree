@@ -269,12 +269,16 @@ class EXPORTED_PUBLIC ConsolePhysicalFile : public ConsoleFile {
   }
 
   bool supportsReadinessNotifications() const override {
-    return false;
+    return true;
   }
+
+  void terminalReadinessChanged(ReadyMask mask);
 
  private:
   File* m_pTerminal;
   size_t m_TerminalNumber;
+  SharedPointer<ReadinessObserver> m_TerminalReadinessObserver;
+  ReadinessSubscription m_TerminalReadinessSubscription;
 
   uint64_t readIo(ConsoleIoState&, uint64_t, uintptr_t, bool) override;
   uint64_t writeIo(ConsoleIoState&, uint64_t, uintptr_t, bool) override;

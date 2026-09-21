@@ -32,9 +32,40 @@
 
 class Filesystem;
 
+namespace {
+class PhysicalTerminalReadinessObserver final : public ReadinessObserver {
+ public:
+  explicit PhysicalTerminalReadinessObserver(ConsolePhysicalFile* owner) : m_Owner(owner) {}
+
+  void readinessChanged(ReadyMask mask) override {
+    m_Owner->terminalReadinessChanged(mask);
+  }
+
+ private:
+  ConsolePhysicalFile* m_Owner;
+};
+}  // namespace
+
 ConsolePhysicalFile::ConsolePhysicalFile(size_t nth, File* pTerminal, String consoleName,
                                          Filesystem* pFs)
-    : ConsoleFile(~0U, consoleName, pFs), m_pTerminal(pTerminal), m_TerminalNumber(nth) {}
+    : ConsoleFile(~0U, consoleName, pFs),
+      m_pTerminal(pTerminal),
+      m_TerminalNumber(nth),
+      m_TerminalReadinessObserver(new PhysicalTerminalReadinessObserver(this)) {
+  if (m_pTerminal) {
+    if (!m_pTerminal->subscribeReadiness(ReadyAll, m_TerminalReadinessObserver,
+                                         m_TerminalReadinessSubscription)) {
+      ERROR(
+          "ConsolePhysicalFile failed to subscribe to readiness in its constructor - this is a "
+          "silent failure (console="
+          << consoleName << ")");
+    }
+  }
+}
+
+void ConsolePhysicalFile::terminalReadinessChanged(ReadyMask mask) {
+  notifyReadiness(mask);
+}
 
 namespace {
 // Physical sources without notifications retain their existing polling policy,
