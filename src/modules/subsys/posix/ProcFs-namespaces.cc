@@ -1,5 +1,6 @@
 /* Copyright (c) 2026, Pedigree Developers. */
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/StaticString.h"
@@ -187,21 +188,57 @@ class TaskDirectory final : public ProcFsDirectory {
   SharedPointer<PosixNamespaceContext> m_Context;
 };
 
-class ExecutableLink final : public Symlink {
+class ProcessPathLink final : public Symlink {
  public:
-  ExecutableLink(ProcFs& filesystem, File* parent)
-      : Symlink(String("exe"), 0, 0, 0, filesystem.getNextInode(), &filesystem, 0, parent) {
+  enum class Kind { Executable, Cwd, Root };
+
+  ProcessPathLink(ProcFs& filesystem, File* parent, size_t pid, Kind kind)
+      : Symlink(String(kind == Kind::Executable ? "exe" : kind == Kind::Cwd ? "cwd" : "root"), 0,
+                0, 0, filesystem.getNextInode(), &filesystem, 0, parent),
+        m_Pid(pid),
+        m_Kind(kind) {
     setPermissions(DirectoryPermissions | FILE_UW | FILE_GW | FILE_OW);
   }
 
+  bool isPathLink() const override {
+    return true;
+  }
+
+  bool followPath(FilesystemPathRef& result) override {
+    Scheduler::ProcessLease process;
+    if (!Scheduler::instance().acquireProcessByUserspaceId(process, m_Pid) ||
+        process->getType() != Process::Posix) {
+      SYSCALL_ERROR(DoesNotExist);
+      return false;
+    }
+    if (m_Kind == Kind::Executable) {
+      auto* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+      return subsystem && subsystem->executablePath(result);
+    }
+    auto context = process->acquireFilesystemContext();
+    FilesystemContextSnapshot snapshot;
+    if (!context || !context->snapshot(snapshot)) {
+      SYSCALL_ERROR(DoesNotExist);
+      return false;
+    }
+    result = m_Kind == Kind::Cwd ? snapshot.cwd : snapshot.root;
+    return static_cast<bool>(result);
+  }
+
   int followLink(char* buffer, size_t length) override {
-    auto* thread = Processor::information().getCurrentThread();
-    auto* process = thread ? thread->getParent() : nullptr;
-    auto* subsystem = process && process->getType() == Process::Posix
-                          ? static_cast<PosixSubsystem*>(process->getSubsystem())
-                          : nullptr;
+    FilesystemPathRef path;
+    if (!followPath(path))
+      return -1;
+    Scheduler::ProcessLease process;
+    if (!Scheduler::instance().acquireProcessByUserspaceId(process, m_Pid)) {
+      SYSCALL_ERROR(DoesNotExist);
+      return -1;
+    }
+    auto context = process->acquireFilesystemContext();
+    FilesystemContextSnapshot snapshot;
+    auto* view = VFS::instance().mountView();
     String target;
-    if (!subsystem || !subsystem->executablePath(target)) {
+    if (!context || !context->snapshot(snapshot) || !view || !view->formatPath(snapshot, path, target)) {
       SYSCALL_ERROR(DoesNotExist);
       return -1;
     }
@@ -209,6 +246,10 @@ class ExecutableLink final : public Symlink {
     MemoryCopy(buffer, target.cstr(), copied);
     return static_cast<int>(copied);
   }
+
+ private:
+  size_t m_Pid;
+  Kind m_Kind;
 };
 
 class ProcessDirectory final : public ProcFsDirectory {
@@ -237,11 +278,19 @@ class ProcessDirectory final : public ProcFsDirectory {
     if (!descriptors)
       return false;
     addEntry(String("fd"), descriptors);
-    auto* executable = new ExecutableLink(filesystem, this);
-    if (!executable)
+    auto* executable = new ProcessPathLink(filesystem, this, pid, ProcessPathLink::Kind::Executable);
+    auto* cwd = new ProcessPathLink(filesystem, this, pid, ProcessPathLink::Kind::Cwd);
+    auto* root = new ProcessPathLink(filesystem, this, pid, ProcessPathLink::Kind::Root);
+    if (!executable || !cwd || !root) {
+      delete executable;
+      delete cwd;
+      delete root;
       return false;
+    }
     addEntry(executable->getName(), executable);
-    return true;
+    addEntry(cwd->getName(), cwd);
+    addEntry(root->getName(), root);
+    return procfsAddProcessStatusFiles(filesystem, *this, pid);
   }
 
   void invalidate(const SharedPointer<PosixNamespaceContext>& context, size_t taskId) {
@@ -262,6 +311,36 @@ class SelfLink final : public Symlink {
                 &filesystem, 0, filesystem.getRoot()),
         m_Thread(thread) {
     setPermissions(DirectoryPermissions | FILE_UW | FILE_GW | FILE_OW);
+  }
+
+  bool isPathLink() const override {
+    return true;
+  }
+
+  bool followPath(FilesystemPathRef& result) override {
+    auto* thread = Processor::information().getCurrentThread();
+    auto* process = thread ? thread->getParent() : nullptr;
+    if (!process || process->getType() != Process::Posix) {
+      SYSCALL_ERROR(DoesNotExist);
+      return false;
+    }
+
+    auto context = process->acquireFilesystemContext();
+    auto* view = VFS::instance().mountView();
+    if (!context || !view) {
+      SYSCALL_ERROR(DoesNotExist);
+      return false;
+    }
+
+    NormalStaticString target("/proc/");
+    target.append(process->getUserspaceId());
+    if (m_Thread) {
+      target.append("/task/");
+      target.append(thread->getTaskId());
+    }
+
+    VfsMountView::ResolveOptions options;
+    return view->resolve(context, nullptr, String(target, target.length()), options, result);
   }
 
   int followLink(char* buffer, size_t length) override {

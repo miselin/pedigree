@@ -49,16 +49,9 @@ class MeminfoFile : public File {
 
   virtual size_t getSize();
 
-  static int run(void* p);
-
-  void updateThread();
-
  private:
   void updateContents();
 
-  Thread* m_pUpdateThread;
-  Atomic<bool> m_bRunning;
-  Semaphore m_UpdateWake;
   String m_Contents;
   Mutex m_Lock;
 
@@ -228,5 +221,8 @@ class ProcFs : public Filesystem {
 
 void procfsInvalidateNamespaceTask(const SharedPointer<PosixNamespaceContext>& context, size_t pid,
                                    size_t taskId);
+
+bool procfsAddSystemStatusFiles(ProcFs& filesystem, ProcFsDirectory& root);
+bool procfsAddProcessStatusFiles(ProcFs& filesystem, ProcFsDirectory& directory, size_t pid);
 
 #endif  // PROCFS_H

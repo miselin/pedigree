@@ -95,7 +95,12 @@ void Scheduler::ProcessLease::reset() {
 }
 
 Scheduler::Scheduler()
-    : m_Processes(),
+    : m_ActivityLock(),
+      m_LoadAverage(),
+      m_UserNanoseconds(0),
+      m_KernelNanoseconds(0),
+      m_IdleNanoseconds(0),
+      m_Processes(),
       m_NextPid(0),
       m_PTMap(),
       m_TPMap(),

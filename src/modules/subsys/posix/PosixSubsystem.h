@@ -218,7 +218,9 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
         m_Threads(),
         m_ThreadWaiters(),
         m_NextThreadWaiter(0),
+        m_ImageMetadataLock(),
         m_ExecutablePath(),
+        m_CommandLine(),
         m_Abi(PosixAbi),
         m_bAcquired(false),
         m_pAcquiredThread(nullptr) {}
@@ -242,7 +244,9 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
         m_Threads(),
         m_ThreadWaiters(),
         m_NextThreadWaiter(0),
+        m_ImageMetadataLock(),
         m_ExecutablePath(),
+        m_CommandLine(),
         m_Abi(PosixAbi),
         m_bAcquired(false),
         m_pAcquiredThread(nullptr) {}
@@ -252,6 +256,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   }
 
   bool executablePath(String& result) const;
+  bool executablePath(FilesystemPathRef& result) const;
+  bool commandLine(Vector<String>& result) const;
 
   PosixTraceContext& traceContext() {
     return m_TraceContext;
@@ -827,7 +833,9 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
    */
   Tree<void*, Semaphore*> m_ThreadWaiters;
   size_t m_NextThreadWaiter;
+  mutable Mutex m_ImageMetadataLock;
   FilesystemPathRef m_ExecutablePath;
+  Vector<String> m_CommandLine;
 
   /**
    * ABI for the subsystem

@@ -137,6 +137,69 @@ class NetworkFile final : public File {
     return contents;
   }
 };
+
+class NetworkDevFile final : public File {
+ public:
+  NetworkDevFile(size_t inode, Filesystem* filesystem, File* parent)
+      : File(String("dev"), 0, 0, 0, inode, filesystem, 0, parent) {
+    setPermissionsOnly(FILE_UR | FILE_GR | FILE_OR);
+    setUidOnly(0);
+    setGidOnly(0);
+  }
+
+  uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool = true) override {
+    String contents = generateString();
+    if (location >= contents.length())
+      return 0;
+    size = min(size, contents.length() - location);
+    MemoryCopy(reinterpret_cast<void*>(buffer), contents.cstr() + location, size);
+    return size;
+  }
+  uint64_t writeBytewise(uint64_t, uint64_t, uintptr_t, bool = true) override {
+    return 0;
+  }
+  size_t getSize() override {
+    return generateString().length();
+  }
+
+ private:
+  bool isBytewise() const override {
+    return true;
+  }
+
+  static String generateString() {
+    String contents(
+        "Inter-|   Receive                                                |  Transmit\n"
+        " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets "
+        "errs drop fifo colls carrier compressed\n");
+    auto* stack = NetworkStack::instanceIfAvailable();
+    if (!stack)
+      return contents;
+    TerminationDeferral lifetime;
+    for (size_t index = 0;; ++index) {
+      NetworkStack::DeviceLease device;
+      if (!stack->acquireDevice(index, device))
+        break;
+      struct Snapshot {
+        struct netif* interface;
+        char name[2];
+        unsigned number;
+      } snapshot = {device.interface(), {}, 0};
+      const auto copy = [](void* context) {
+        auto& result = *static_cast<Snapshot*>(context);
+        MemoryCopy(result.name, result.interface->name, sizeof(result.name));
+        result.number = result.interface->num;
+      };
+      if (tcpip_callback_wait(copy, &snapshot) != ERR_OK)
+        continue;
+      String line;
+      line.Format("%c%c%u: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n", snapshot.name[0],
+                  snapshot.name[1], snapshot.number);
+      contents += line;
+    }
+    return contents;
+  }
+};
 }  // namespace
 
 void ProcFs::initialiseNetworkFile() {
@@ -145,4 +208,6 @@ void ProcFs::initialiseNetworkFile() {
   m_pRoot->addEntry(directory->getName(), directory);
   auto* interfaces = new NetworkFile(getNextInode(), this, directory);
   directory->addEntry(interfaces->getName(), interfaces);
+  auto* devices = new NetworkDevFile(getNextInode(), this, directory);
+  directory->addEntry(devices->getName(), devices);
 }

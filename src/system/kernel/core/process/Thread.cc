@@ -438,6 +438,7 @@ void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed, si
   }
 #endif
   m_pParent->publishTimeAccounting(mode, elapsed, processor);
+  Scheduler::instance().recordCpuTime(*this, mode, elapsed);
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

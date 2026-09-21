@@ -244,10 +244,17 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s, bool clearSignalHandlers)
       m_Threads(),
       m_ThreadWaiters(),
       m_NextThreadWaiter(1),
-      m_ExecutablePath(s.m_ExecutablePath),
+      m_ImageMetadataLock(),
+      m_ExecutablePath(),
+      m_CommandLine(),
       m_Abi(s.m_Abi),
       m_bAcquired(false),
       m_pAcquiredThread(nullptr) {
+  {
+    LockGuard<Mutex> image(s.m_ImageMetadataLock);
+    m_ExecutablePath = s.m_ExecutablePath;
+    m_CommandLine = s.m_CommandLine;
+  }
   m_SignalHandlersLock.acquire();
   s.m_SignalHandlersLock.enter();
 
@@ -308,6 +315,7 @@ void PosixSubsystem::setProcess(Process* process) {
 }
 
 bool PosixSubsystem::executablePath(String& result) const {
+  LockGuard<Mutex> image(m_ImageMetadataLock);
   if (!m_ExecutablePath || !m_pProcess)
     return false;
   auto context = m_pProcess->acquireFilesystemContext();
@@ -315,6 +323,18 @@ bool PosixSubsystem::executablePath(String& result) const {
   auto* view = VFS::instance().mountView();
   return context && context->snapshot(snapshot) && view &&
          view->formatPath(snapshot, m_ExecutablePath, result);
+}
+
+bool PosixSubsystem::executablePath(FilesystemPathRef& result) const {
+  LockGuard<Mutex> image(m_ImageMetadataLock);
+  result = m_ExecutablePath;
+  return static_cast<bool>(result);
+}
+
+bool PosixSubsystem::commandLine(Vector<String>& result) const {
+  LockGuard<Mutex> image(m_ImageMetadataLock);
+  result = m_CommandLine;
+  return result.count() != 0;
 }
 
 bool PosixSubsystem::snapshotUserImage(UserImageToken& token) const {
@@ -2623,6 +2643,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     }
   }
 
+  Vector<String> committedCommandLine = argv;
+
   // Validation leaves the old process intact. Siblings must finish their
   // user-memory exit hooks and release their mappings before replacement.
   if (!execScope.commit()) {
@@ -2633,7 +2655,11 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   if (pProcess->getType() == Process::Posix)
     static_cast<PosixProcess*>(pProcess)->markExecCommitted();
 
-  m_ExecutablePath = originalTargetLease.path();
+  {
+    LockGuard<Mutex> image(m_ImageMetadataLock);
+    m_ExecutablePath = originalTargetLease.path();
+    m_CommandLine = pedigree_std::move(committedCommandLine);
+  }
 
   invalidateUserImage();
 

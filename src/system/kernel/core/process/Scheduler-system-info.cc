@@ -43,7 +43,21 @@ Scheduler::SystemActivity Scheduler::systemActivity() {
     LockGuard<Mutex> averages(m_ActivityLock);
     m_LoadAverage.snapshot(result.loads);
   }
+  result.userNanoseconds = m_UserNanoseconds;
+  result.kernelNanoseconds = m_KernelNanoseconds;
+  result.idleNanoseconds = m_IdleNanoseconds;
   return result;
+}
+
+void Scheduler::recordCpuTime(const Thread& thread, CpuTimeMode mode, Time::Timestamp elapsed) {
+  PerProcessorScheduler* owner = thread.getScheduler();
+  if (owner && &thread == __atomic_load_n(&owner->m_pIdleThread, __ATOMIC_ACQUIRE)) {
+    m_IdleNanoseconds += elapsed;
+  } else if (mode == CpuTimeMode::User) {
+    m_UserNanoseconds += elapsed;
+  } else {
+    m_KernelNanoseconds += elapsed;
+  }
 }
 
 void Scheduler::requestLoadAverageSample() {

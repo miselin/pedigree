@@ -20,12 +20,10 @@
 #include "ProcFs.h"
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/LockGuard.h"
-#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/machine/Device.h"
-#include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/time/Time.h"
 
 #include "PosixProcess.h"
@@ -39,9 +37,6 @@ extern size_t g_AllocedPages;
 
 MeminfoFile::MeminfoFile(size_t inode, Filesystem* pParentFS, File* pParent)
     : File(String("meminfo"), 0, 0, 0, inode, pParentFS, 0, pParent),
-      m_pUpdateThread(0),
-      m_bRunning(false),
-      m_UpdateWake(0),
       m_Contents(),
       m_Lock() {
   setPermissionsOnly(FILE_UR | FILE_GR | FILE_OR);
@@ -49,52 +44,40 @@ MeminfoFile::MeminfoFile(size_t inode, Filesystem* pParentFS, File* pParent)
   setGidOnly(0);
 
   updateContents();
-  m_bRunning = true;
-  m_pUpdateThread = new Thread(Processor::information().getCurrentThread()->getParent(), run, this);
-  m_pUpdateThread->setName("MeminfoFile updater thread");
 }
 
-MeminfoFile::~MeminfoFile() {
-  m_bRunning = false;
-  m_UpdateWake.release();
-  m_pUpdateThread->joinForCompletion();
-  m_pUpdateThread = nullptr;
-}
+MeminfoFile::~MeminfoFile() = default;
 
 size_t MeminfoFile::getSize() {
+  updateContents();
   LockGuard<Mutex> guard(m_Lock);
   return m_Contents.length();
 }
 
-int MeminfoFile::run(void* p) {
-  MeminfoFile* pFile = reinterpret_cast<MeminfoFile*>(p);
-  pFile->updateThread();
-  return 0;
-}
-
-void MeminfoFile::updateThread() {
-  while (m_bRunning) {
-    updateContents();
-
-    if (!m_UpdateWake.acquire(1, 1, 0) &&
-        Processor::information().getCurrentThread()->getUnwindState() != Thread::Continue) {
-      return;
-    }
-  }
-
-  NOTICE("MeminfoFile::updateThread completed");
-}
-
 void MeminfoFile::updateContents() {
+  const auto memory = PhysicalMemoryManager::instance().memorySnapshot();
+  const uint64_t totalPages = memory.available ? memory.totalPages : g_FreePages + g_AllocedPages;
+  const uint64_t freePages = memory.available ? memory.freePages : g_FreePages;
+  const uint64_t totalKb = (totalPages * PhysicalMemoryManager::getPageSize()) / 1024;
+  const uint64_t freeKb = (freePages * PhysicalMemoryManager::getPageSize()) / 1024;
+  String contents;
+  contents.Format(
+      "MemTotal:       %lu kB\n"
+      "MemFree:        %lu kB\n"
+      "MemAvailable:   %lu kB\n"
+      "Buffers:        0 kB\n"
+      "Cached:         0 kB\n"
+      "SwapCached:     0 kB\n"
+      "SwapTotal:      0 kB\n"
+      "SwapFree:       0 kB\n",
+      totalKb, freeKb, freeKb);
   LockGuard<Mutex> guard(m_Lock);
-  const uint64_t freeKb = (g_FreePages * TargetInfo::getPageSize()) / 1024;
-  const uint64_t allocKb = (g_AllocedPages * TargetInfo::getPageSize()) / 1024;
-  // Reclaimable cache memory is not measured by these page counters.
-  m_Contents.Format("MemTotal: %lu kB\nMemFree: %lu kB\n", freeKb + allocKb, freeKb);
+  m_Contents = contents;
 }
 
 uint64_t MeminfoFile::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                    bool bCanBlock) {
+  updateContents();
   LockGuard<Mutex> guard(m_Lock);
 
   if (location >= m_Contents.length()) {
@@ -282,11 +265,14 @@ size_t UptimeFile::getSize() {
 }
 
 String UptimeFile::generateString() {
-  Timer* pTimer = Machine::instance().getTimer();
-  uint64_t uptime = pTimer->getTickCount();
+  const uint64_t uptime = Time::getTicks();
+  const uint64_t idle = Scheduler::instance().systemActivity().idleNanoseconds;
 
   String f;
-  f.Format("%d.0 0.0", uptime);
+  f.Format("%lu.%02lu %lu.%02lu\n", uptime / Time::Multiplier::Second,
+           (uptime % Time::Multiplier::Second) / (Time::Multiplier::Second / 100),
+           idle / Time::Multiplier::Second,
+           (idle % Time::Multiplier::Second) / (Time::Multiplier::Second / 100));
 
   return f;
 }
@@ -374,6 +360,9 @@ bool ProcFs::initialise(Disk* pDisk) {
 
   UptimeFile* uptime = new UptimeFile(getNextInode(), this, m_pRoot);
   m_pRoot->addEntry(uptime->getName(), uptime);
+
+  if (!procfsAddSystemStatusFiles(*this, *m_pRoot))
+    return false;
 
   static String fs("\text2\nnodev\tproc\nnodev\tsysfs\nnodev\ttmpfs\n");
   ConstantFile* pFilesystems = new ConstantFile(String("filesystems"), fs.cstr(), fs.length(),

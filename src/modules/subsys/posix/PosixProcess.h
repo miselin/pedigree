@@ -158,6 +158,9 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   bool jobControlReady() const;
   void markExecCommitted();
   bool hasExecCommitted() const;
+  Time::Timestamp getStartTimeTicks() const {
+    return m_AccountingLifetime.started;
+  }
   void snapshotAccountingMemory();
   int createSession();
   int changeProcessGroup(PosixProcess& caller, int groupId);

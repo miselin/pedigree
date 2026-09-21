@@ -127,8 +127,13 @@ class EXPORTED_PUBLIC Scheduler {
   struct SystemActivity {
     uint64_t tasks = 0;
     uint64_t loads[3] = {};
+    uint64_t userNanoseconds = 0;
+    uint64_t kernelNanoseconds = 0;
+    uint64_t idleNanoseconds = 0;
   };
   SystemActivity systemActivity();
+  /** Records one interval after Thread has attributed it to its owner. */
+  void recordCpuTime(const Thread& thread, CpuTimeMode mode, Time::Timestamp elapsed);
   /** Called by an ordinary accounting worker after its batch is complete. */
   void sampleLoadAverage();
   /** Coalesces the next due load sample from a scheduler tick. */
@@ -220,6 +225,9 @@ class EXPORTED_PUBLIC Scheduler {
   uint64_t m_NextActivityAttempt = 0;
   bool m_ActivitySamplePending = false;
   LoadAverage m_LoadAverage;
+  Atomic<uint64_t> m_UserNanoseconds;
+  Atomic<uint64_t> m_KernelNanoseconds;
+  Atomic<uint64_t> m_IdleNanoseconds;
 
   /** The Scheduler instance. */
   static Scheduler m_Instance;
