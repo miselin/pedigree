@@ -24,6 +24,7 @@
 #include "PosixSubsystem.h"
 #include "descriptor-path.h"
 #include "modules/system/vfs/Pipe.h"
+#include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 
 #define MACHINE_FORWARD_DECL_ONLY
@@ -63,6 +64,28 @@ class CttySelectorFile final : public File {
  private:
   bool isBytewise() const override {
     return true;
+  }
+};
+
+class FullFile final : public ZeroFile {
+ public:
+  FullFile(size_t inode, Filesystem* filesystem, File* parent)
+      : ZeroFile(String("full"), inode, filesystem, parent) {}
+
+  uint64_t writeBytewise(uint64_t, uint64_t, uintptr_t, bool) override {
+    SYSCALL_ERROR(NoSpaceLeftOnDevice);
+    return 0;
+  }
+};
+
+class DeviceLink final : public Symlink {
+ public:
+  DeviceLink(const String& name, const String& target, size_t inode, Filesystem* filesystem,
+             File* parent)
+      : Symlink(name, 0, 0, 0, inode, filesystem, target.length(), parent) {
+    m_sTarget = target;
+    setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OW |
+                   FILE_OX);
   }
 };
 }  // namespace
@@ -581,8 +604,27 @@ bool DevFs::initialise(Disk* pDisk) {
   // Create /dev/null and /dev/zero nodes
   NullFile* pNull = new NullFile(String("null"), getNextInode(), this, m_pRoot);
   ZeroFile* pZero = new ZeroFile(String("zero"), getNextInode(), this, m_pRoot);
+  FullFile* pFull = new FullFile(getNextInode(), this, m_pRoot);
   m_pRoot->addEntry(pNull->getName(), pNull);
   m_pRoot->addEntry(pZero->getName(), pZero);
+  m_pRoot->addEntry(pFull->getName(), pFull);
+
+  auto* pShm = new DevFsDirectory(String("shm"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
+  pShm->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR |
+                       FILE_OW | FILE_OX | FILE_STICKY);
+  m_pRoot->addEntry(pShm->getName(), pShm);
+
+  const struct {
+    const char* name;
+    const char* target;
+  } standardStreams[] = {{"stdin", "/proc/self/fd/0"},
+                         {"stdout", "/proc/self/fd/1"},
+                         {"stderr", "/proc/self/fd/2"}};
+  for (const auto& stream : standardStreams) {
+    auto* link =
+        new DeviceLink(String(stream.name), String(stream.target), getNextInode(), this, m_pRoot);
+    m_pRoot->addEntry(link->getName(), link);
+  }
 
   if (Machine::instance().getNumSerial()) {
     SerialFile* pSerial = new SerialFile(String("ttyS0"), getNextInode(), this, m_pRoot,
@@ -614,12 +656,17 @@ bool DevFs::initialise(Disk* pDisk) {
 
   // Create /dev/fb for the framebuffer device.
   FramebufferFile* pFb = new FramebufferFile(String("fb"), getNextInode(), this, m_pRoot);
-  if (pFb->initialise())
+  const bool framebufferAvailable = pFb->initialise();
+  if (framebufferAvailable)
     m_pRoot->addEntry(pFb->getName(), pFb);
   else {
     WARNING("POSIX: no /dev/fb - framebuffer failed to initialise.");
     revertInode();
     delete pFb;
+  }
+  if (framebufferAvailable) {
+    auto* pFb0 = new DeviceLink(String("fb0"), String("fb"), getNextInode(), this, m_pRoot);
+    m_pRoot->addEntry(pFb0->getName(), pFb0);
   }
 
   m_VtManager = new VirtualTerminalManager(m_pRoot);

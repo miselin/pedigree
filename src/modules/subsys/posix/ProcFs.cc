@@ -375,7 +375,7 @@ bool ProcFs::initialise(Disk* pDisk) {
   UptimeFile* uptime = new UptimeFile(getNextInode(), this, m_pRoot);
   m_pRoot->addEntry(uptime->getName(), uptime);
 
-  static String fs("\text2\nnodev\tproc\nnodev\ttmpfs\n");
+  static String fs("\text2\nnodev\tproc\nnodev\tsysfs\nnodev\ttmpfs\n");
   ConstantFile* pFilesystems = new ConstantFile(String("filesystems"), fs.cstr(), fs.length(),
                                                 getNextInode(), this, m_pRoot);
   m_pRoot->addEntry(pFilesystems->getName(), pFilesystems);

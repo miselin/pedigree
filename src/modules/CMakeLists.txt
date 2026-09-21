@@ -1047,6 +1047,7 @@ pedigree_module(posix "" "pedigree-vterm-kernel"
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PosixSubsystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PosixSyscallManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/ProcFs.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/SysFs.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/ProcFs-resolver.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/ProcFs-network.cc
     $<$<BOOL:${PEDIGREE_MACHINE_HASPS2}>:${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PsAuxFile.cc>

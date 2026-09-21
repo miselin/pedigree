@@ -32,6 +32,7 @@
 #include "PosixSubsystem.h"
 #include "PosixSyscallManager.h"
 #include "ProcFs.h"
+#include "SysFs.h"
 #include "modules/Module.h"
 #include "modules/system/ramfs/RamFs.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
@@ -67,6 +68,8 @@ static PosixSyscallManager g_PosixSyscallManager;
 
 Filesystem* g_pUnixSocketBacking = nullptr;
 static RamFs* g_pRunFilesystem = 0;
+static RamFs* g_pDevShmFilesystem = nullptr;
+static SysFs* g_pSysFs = nullptr;
 
 DevFs* g_pDevFs = 0;
 ProcFs* g_pProcFs = 0;
@@ -249,7 +252,8 @@ static bool terminalQuiesce() {
 #endif
   if (auto* view = VFS::instance().mountView()) {
     // A surviving attachment path keeps both its backend and this module mapped.
-    Filesystem* backings[] = {g_pProcFs, g_pDevFs, g_pRunFilesystem};
+    Filesystem* backings[] = {g_pProcFs, g_pDevFs, g_pRunFilesystem, g_pDevShmFilesystem,
+                              g_pSysFs};
     for (auto* backing : backings)
       if (backing && !view->detachBackingForShutdown(backing))
         return false;
@@ -291,18 +295,28 @@ static bool init() {
   g_pProcFs = new ProcFs();
   g_pProcFs->initialise(0);
 
+  g_pSysFs = new SysFs();
+  if (!g_pSysFs || !g_pSysFs->initialise(nullptr))
+    return false;
+
   g_pRunFilesystem = new RamFs;
   g_pRunFilesystem->initialise(0);
+  g_pDevShmFilesystem = new RamFs;
+  if (!g_pDevShmFilesystem || !g_pDevShmFilesystem->initialise(nullptr))
+    return false;
   g_pUnixSocketBacking = g_pRunFilesystem;
   VFS::instance().registerFilesystem(g_pRunFilesystem, String("posix-runtime"));
+  VFS::instance().registerFilesystem(g_pDevShmFilesystem, String("posix-shm"));
   VFS::instance().registerFilesystem(g_pDevFs, String("dev"));
   VFS::instance().registerFilesystem(g_pProcFs, String("proc"));
+  VFS::instance().registerFilesystem(g_pSysFs, String("sysfs"));
 
   Filesystem* scratchfs = VFS::instance().getFilesystemAt(String("/media/scratch"));
 
   // Keep the conventional socket directory without giving it a special
   // filesystem; pathname sockets work in any writable VFS directory.
   VFS::instance().createDirectory(String("/media/posix-runtime/sockets"), 0755);
+  VFS::instance().createDirectory(String("/media/posix-runtime/lock"), 0755);
 
   if (!KernelElf::instance().registerTerminalQuiesce(&init, &terminalQuiesce)) {
     return false;
@@ -320,9 +334,11 @@ static bool init() {
     const char* path;
     Filesystem* backing;
   } attachments[] = {{"/dev", g_pDevFs},
+                     {"/dev/shm", g_pDevShmFilesystem},
                      {"/run", g_pRunFilesystem},
                      {"/var/run", g_pRunFilesystem},
                      {"/proc", g_pProcFs},
+                     {"/sys", g_pSysFs},
                      {"/tmp", scratchfs}};
   VfsMountView::ResolveOptions options;
   options.requireDirectory = true;
@@ -416,16 +432,27 @@ static void destroy() {
   if (g_pDevFs && !VFS::instance().unregisterFilesystem(g_pDevFs, false)) {
     panic("POSIX shutdown could not retire devfs");
   }
+  if (g_pSysFs && !VFS::instance().unregisterFilesystem(g_pSysFs, false)) {
+    panic("POSIX shutdown could not retire sysfs");
+  }
+  if (g_pDevShmFilesystem &&
+      !VFS::instance().unregisterFilesystem(g_pDevShmFilesystem, false)) {
+    panic("POSIX shutdown could not retire shmfs");
+  }
   if (g_pRunFilesystem && !VFS::instance().unregisterFilesystem(g_pRunFilesystem, false)) {
     panic("POSIX shutdown could not retire runfs");
   }
 
   g_pUnixSocketBacking = nullptr;
   delete g_pRunFilesystem;
+  delete g_pDevShmFilesystem;
   delete g_pProcFs;
+  delete g_pSysFs;
   delete g_pDevFs;
   g_pRunFilesystem = nullptr;
+  g_pDevShmFilesystem = nullptr;
   g_pProcFs = nullptr;
+  g_pSysFs = nullptr;
   g_pDevFs = nullptr;
 }
 

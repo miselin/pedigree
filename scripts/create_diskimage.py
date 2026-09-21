@@ -240,12 +240,15 @@ def build_file_list(all_sources):
     safe_dirs = set()
     for fhs_dir in (
         "/dev",
+        "/dev/shm",
         "/etc",
         "/home",
         "/media",
         "/proc",
         "/root",
         "/run",
+        "/run/lock",
+        "/sys",
         "/tmp",
         "/usr/bin",
         "/usr/include",
