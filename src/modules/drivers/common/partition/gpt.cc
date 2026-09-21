@@ -27,6 +27,40 @@ bool copy(Disk* disk, uint64_t offset, uint8_t* data, size_t bytes) {
   }
   return true;
 }
+String partitionName(const uint8_t* entry, size_t stride) {
+  String result;
+  if (stride <= 56)
+    return result;
+  const size_t units = min(static_cast<size_t>(36), (stride - 56) / 2);
+  for (size_t i = 0; i < units; ++i) {
+    uint32_t character = Gpt::little(entry + 56 + i * 2, 2);
+    if (!character)
+      break;
+    if (character >= 0xd800 && character <= 0xdbff) {
+      if (i + 1 < units) {
+        const uint32_t low = Gpt::little(entry + 56 + (i + 1) * 2, 2);
+        if (low >= 0xdc00 && low <= 0xdfff) {
+          character = 0x10000 + ((character - 0xd800) << 10) + (low - 0xdc00);
+          ++i;
+        } else {
+          character = '?';
+        }
+      } else {
+        character = '?';
+      }
+    } else if (character >= 0xdc00 && character <= 0xdfff) {
+      character = '?';
+    }
+    char utf8[5] = {};
+    size_t length = String::Utf32ToUtf8(character, utf8);
+    if (!length) {
+      utf8[0] = '?';
+      length = 1;
+    }
+    result += String(utf8, length, true);
+  }
+  return result;
+}
 bool candidate(Disk* disk, size_t sectorBytes, uint64_t sectors, bool backup) {
   uint8_t bytes[4096];
   Gpt::Header header;
@@ -48,6 +82,9 @@ bool candidate(Disk* disk, size_t sectorBytes, uint64_t sectors, bool backup) {
     const uint64_t first = Gpt::little(entry + 32, 8), last = Gpt::little(entry + 40, 8);
     auto* partition =
         new Partition(String(label), first * sectorBytes, (last - first + 1) * sectorBytes);
+    char uuid[37];
+    Gpt::formatGuid(entry + 16, uuid);
+    partition->setPartitionIdentity(String(uuid), partitionName(entry, header.stride));
     partition->setParent(disk);
     disk->addChild(partition);
   }

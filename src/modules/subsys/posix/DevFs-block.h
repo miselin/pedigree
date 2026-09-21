@@ -24,4 +24,5 @@ constexpr bool valid(uint64_t device, uint32_t expectedMajor) {
 }
 }  // namespace PosixBlock
 File* posix_make_block_directory(DevFs& filesystem, File* parent);
+File* posix_make_disk_directory(DevFs& filesystem, File* parent);
 #endif

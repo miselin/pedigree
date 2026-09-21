@@ -113,6 +113,16 @@ uint32_t Disk::endpointId() {
   return physical ? DiskEndpoints::id(physical->m_Endpoint, physical) : 0;
 }
 
+bool Disk::getPartitionUuid(String& uuid) const {
+  uuid.clear();
+  return false;
+}
+
+bool Disk::getPartitionLabel(String& label) const {
+  label.clear();
+  return false;
+}
+
 void Disk::reserveEndpoint() {
   if (!m_Endpoint)
     m_Endpoint = DiskEndpoints::reserve(this);

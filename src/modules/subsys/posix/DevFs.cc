@@ -591,6 +591,11 @@ bool DevFs::initialise(Disk* pDisk) {
     return false;
   m_pRoot->addEntry(block->getName(), block);
 
+  File* disk = posix_make_disk_directory(*this, m_pRoot);
+  if (!disk)
+    return false;
+  m_pRoot->addEntry(disk->getName(), disk);
+
   File* descriptors = posix_make_dev_fd_link(*this, m_pRoot);
   if (!descriptors)
     return false;

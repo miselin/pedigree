@@ -51,6 +51,13 @@ struct Fixture {
 TEST(Gpt, StandardChecksumVector) {
   EXPECT_EQ(Gpt::crc(reinterpret_cast<const uint8_t*>("123456789"), 9), 0xcbf43926U);
 }
+TEST(Gpt, FormatsPartitionGuidInCanonicalByteOrder) {
+  const uint8_t guid[] = {0xfd, 0x32, 0xab, 0x28, 0xa1, 0x96, 0xa8, 0x41,
+                          0xb1, 0x05, 0xed, 0x35, 0x4d, 0x91, 0x5b, 0xfd};
+  char formatted[37];
+  Gpt::formatGuid(guid, formatted);
+  EXPECT_STREQ(formatted, "28ab32fd-96a1-41a8-b105-ed354d915bfd");
+}
 TEST(Gpt, NativeGeometryAndBackup) {
   for (size_t sector : {512, 4096}) {
     for (bool backup : {false, true}) {

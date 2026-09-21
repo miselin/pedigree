@@ -44,6 +44,10 @@ class EXPORTED_PUBLIC Disk : public Device {
   bool acquireUse(DiskUse& use);
   uint32_t endpointId();
 
+  /** GPT-style partition identity, when this endpoint represents a partition. */
+  virtual bool getPartitionUuid(String& uuid) const;
+  virtual bool getPartitionLabel(String& label) const;
+
   /** Called while the endpoint excludes new ordinary users. */
   virtual PagingStatus preparePagingTransport(PagingTransport*& transport);
 

@@ -21,7 +21,13 @@
 #include "pedigree/kernel/processor/types.h"
 
 Partition::Partition(const String& type, uint64_t start, uint64_t length)
-    : m_Type(type), m_Start(start), m_Length(length), m_AlignmentLock(), m_bAligned(false) {
+    : m_Type(type),
+      m_Uuid(),
+      m_Label(),
+      m_Start(start),
+      m_Length(length),
+      m_AlignmentLock(),
+      m_bAligned(false) {
   setSpecificType(String("partition"));
 }
 

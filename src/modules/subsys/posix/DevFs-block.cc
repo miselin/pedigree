@@ -7,6 +7,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "DevFs.h"
+#include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 
 namespace {
@@ -184,7 +185,181 @@ class BlockDirectory final : public DevFsDirectory {
     }
   }
 };
+
+enum class AliasKind { FilesystemUuid, FilesystemLabel, PartitionUuid, PartitionLabel };
+
+struct AliasCandidate {
+  AliasCandidate() : key(0), name(), target() {}
+  AliasCandidate(uint32_t key, const String& name, const String& target)
+      : key(key), name(name), target(target) {}
+  uint32_t key;
+  String name;
+  String target;
+};
+
+String encodeAlias(const String& value) {
+  String result;
+  static constexpr char digits[] = "0123456789abcdef";
+  for (size_t i = 0; i < value.length(); ++i) {
+    const uint8_t character = value[i];
+    const bool safe = (character >= 'a' && character <= 'z') ||
+                      (character >= 'A' && character <= 'Z') ||
+                      (character >= '0' && character <= '9') || character == '#' ||
+                      character == '+' || character == '-' || character == '.' ||
+                      character == ':' || character == '=' || character == '@' || character == '_';
+    if (safe) {
+      char plain[2] = {static_cast<char>(character), 0};
+      result += plain;
+    } else {
+      char escaped[5] = {'\\', 'x', digits[character >> 4], digits[character & 0xf], 0};
+      result += escaped;
+    }
+  }
+  return result;
+}
+
+class BlockAlias final : public Symlink {
+ public:
+  BlockAlias(DevFs& filesystem, File* parent, const String& name, const String& target)
+      : Symlink(name, 0, 0, 0, filesystem.getNextInode(), &filesystem, target.length(), parent) {
+    m_sTarget = target;
+    setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OW |
+                   FILE_OX);
+  }
+};
+
+class AliasDirectory final : public DevFsDirectory {
+ public:
+  AliasDirectory(DevFs& filesystem, File* parent, const char* name, AliasKind kind)
+      : DevFsDirectory(String(name), 0, 0, 0, filesystem.getNextInode(), &filesystem, 0, parent),
+        m_Kind(kind) {
+    setPermissionsOnly(FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
+  }
+
+ protected:
+  bool cacheResolvedChildren() const override {
+    return false;
+  }
+
+  LookupStatus resolveChild(const StringView& name, File*& child) override {
+    child = nullptr;
+    Vector<AliasCandidate> candidates;
+    if (!snapshot(candidates))
+      return LookupStatus::IoError;
+    const AliasCandidate* selected = nullptr;
+    for (const auto& candidate : candidates) {
+      if (candidate.name.view() == name && (!selected || candidate.key < selected->key))
+        selected = &candidate;
+    }
+    if (!selected)
+      return LookupStatus::NotFound;
+    child = new BlockAlias(*static_cast<DevFs*>(getFilesystem()), this, selected->name,
+                           selected->target);
+    return child ? LookupStatus::Found : LookupStatus::IoError;
+  }
+
+  ReadStatus readDirectory(uint64_t& cookie, DirectoryEntryEmitter emitter,
+                           void* context) override {
+    Vector<AliasCandidate> candidates;
+    if (!snapshot(candidates))
+      return ReadStatus::IoError;
+    while (true) {
+      const AliasCandidate* selected = nullptr;
+      for (const auto& candidate : candidates) {
+        if (candidate.key < cookie || (selected && candidate.key >= selected->key))
+          continue;
+        bool shadowed = false;
+        for (const auto& other : candidates) {
+          if (other.key < candidate.key && other.name == candidate.name) {
+            shadowed = true;
+            break;
+          }
+        }
+        if (!shadowed)
+          selected = &candidate;
+      }
+      if (!selected)
+        return ReadStatus::Complete;
+      const DirectoryEntryView entry{selected->name.view(), selected->key, EntryType::Symlink,
+                                     selected->key, static_cast<uint64_t>(selected->key) + 1};
+      if (!emitter(context, entry))
+        return ReadStatus::Stopped;
+      cookie = static_cast<uint64_t>(selected->key) + 1;
+    }
+  }
+
+ private:
+  bool snapshot(Vector<AliasCandidate>& candidates) const {
+    Vector<VFS::MountIdentity> mounts;
+    if (!VFS::instance().snapshotDiskMounts(mounts))
+      return false;
+    for (const auto& mount : mounts) {
+      VFS::FilesystemPin pin;
+      if (!mount.pin(pin))
+        continue;
+      Filesystem* filesystem = pin.filesystem();
+      Disk* disk = filesystem ? filesystem->getDisk() : nullptr;
+      if (!disk)
+        continue;
+      String identity;
+      bool available = false;
+      switch (m_Kind) {
+        case AliasKind::FilesystemUuid:
+          available = filesystem->getUuid(identity);
+          break;
+        case AliasKind::FilesystemLabel:
+          identity = filesystem->getVolumeLabel();
+          available = identity.length() && !identity.startswith("no-volume-label@");
+          break;
+        case AliasKind::PartitionUuid:
+          available = disk->getPartitionUuid(identity);
+          break;
+        case AliasKind::PartitionLabel:
+          available = disk->getPartitionLabel(identity);
+          break;
+      }
+      if (!available || !identity.length())
+        continue;
+      String target;
+      target.Format("/dev/block/%u", mount.id());
+      candidates.createBack(mount.id(), encodeAlias(identity), target);
+    }
+    return true;
+  }
+
+  AliasKind m_Kind;
+};
+
+class DiskDirectory final : public DevFsDirectory {
+ public:
+  DiskDirectory(DevFs& filesystem, File* parent)
+      : DevFsDirectory(String("disk"), 0, 0, 0, filesystem.getNextInode(), &filesystem, 0, parent) {
+    setPermissionsOnly(FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
+  }
+};
 }  // namespace
 File* posix_make_block_directory(DevFs& filesystem, File* parent) {
   return new BlockDirectory(filesystem, parent);
+}
+
+File* posix_make_disk_directory(DevFs& filesystem, File* parent) {
+  auto* disk = new DiskDirectory(filesystem, parent);
+  if (!disk)
+    return nullptr;
+  struct DirectorySpec {
+    const char* name;
+    AliasKind kind;
+  } specs[] = {{"by-uuid", AliasKind::FilesystemUuid},
+               {"by-label", AliasKind::FilesystemLabel},
+               {"by-partuuid", AliasKind::PartitionUuid},
+               {"by-partlabel", AliasKind::PartitionLabel}};
+  for (const auto& spec : specs) {
+    auto* child = new AliasDirectory(filesystem, disk, spec.name, spec.kind);
+    if (!child) {
+      delete disk;
+      return nullptr;
+    }
+    disk->addEntry(child->getName(), child);
+  }
+  return disk;
 }

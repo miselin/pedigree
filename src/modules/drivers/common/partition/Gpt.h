@@ -62,6 +62,19 @@ inline bool decode(const uint8_t* data, size_t sectorBytes, uint64_t sectors, bo
 inline bool used(const uint8_t* entry) {
   return little(entry, 8) || little(entry + 8, 8);
 }
+inline void formatGuid(const uint8_t* value, char (&result)[37]) {
+  static constexpr char digits[] = "0123456789abcdef";
+  static constexpr uint8_t order[] = {3, 2, 1, 0, 5, 4, 7, 6, 8, 9, 10, 11, 12, 13, 14, 15};
+  size_t output = 0;
+  for (size_t i = 0; i < sizeof(order); ++i) {
+    if (i == 4 || i == 6 || i == 8 || i == 10)
+      result[output++] = '-';
+    const uint8_t byte = value[order[i]];
+    result[output++] = digits[byte >> 4];
+    result[output++] = digits[byte & 0xf];
+  }
+  result[output] = 0;
+}
 inline bool validEntries(const uint8_t* data, const Header& header) {
   if (crc(data, header.bytes) != header.checksum)
     return false;

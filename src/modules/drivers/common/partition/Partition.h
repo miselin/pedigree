@@ -199,6 +199,21 @@ class Partition : public Disk {
     return m_Type;
   }
 
+  void setPartitionIdentity(const String& uuid, const String& label) {
+    m_Uuid = uuid;
+    m_Label = label;
+  }
+
+  bool getPartitionUuid(String& uuid) const override {
+    uuid = m_Uuid;
+    return uuid.length() != 0;
+  }
+
+  bool getPartitionLabel(String& label) const override {
+    label = m_Label;
+    return label.length() != 0;
+  }
+
  private:
   bool containsRange(uint64_t location, size_t length) const;
 
@@ -223,6 +238,8 @@ class Partition : public Disk {
   }
 
   String m_Type;
+  String m_Uuid;
+  String m_Label;
   uint64_t m_Start;
   uint64_t m_Length;
   Mutex m_AlignmentLock;
