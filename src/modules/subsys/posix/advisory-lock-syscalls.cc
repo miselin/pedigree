@@ -120,7 +120,7 @@ int posix_advisory_fcntl(PosixSubsystem& subsystem, int fd, const DescriptorLeas
   request.type =
       wire.type == F_UNLCK ? Type::Unlock : (wire.type == F_RDLCK ? Type::Read : Type::Write);
   request.pid =
-      static_cast<int32_t>(Processor::information().getCurrentThread()->getParent()->getId());
+      static_cast<int32_t>(Processor::information().getCurrentThread()->getParent()->getUserspaceId());
   uint64_t position = 0, fileSize = 0;
   if (wire.whence == 1) {
     auto positionGuard = descriptor->lockPosition();

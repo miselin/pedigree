@@ -497,7 +497,7 @@ void ProcFs::revertInode() {
 }
 
 void ProcFs::addProcess(PosixProcess* proc) {
-  size_t pid = proc->getId();
+  size_t pid = proc->getUserspaceId();
 
   auto procDir = createProcessDirectory(proc);
   if (!procDir) {
@@ -521,7 +521,7 @@ void ProcFs::addProcess(PosixProcess* proc) {
 }
 
 void ProcFs::removeProcess(PosixProcess* proc) {
-  size_t pid = proc->getId();
+  size_t pid = proc->getUserspaceId();
 
   String s;
   s.Format("%d", pid);

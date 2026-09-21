@@ -49,6 +49,17 @@
 #include "modules/system/users/User.h"
 #include "modules/system/vfs/File.h"
 
+namespace {
+SharedPointer<UserspacePidNamespace> g_DefaultUserspacePidNamespace;
+
+SharedPointer<UserspacePidNamespace> defaultUserspacePidNamespace() {
+  if (!g_DefaultUserspacePidNamespace) {
+    g_DefaultUserspacePidNamespace = SharedPointer<UserspacePidNamespace>::tryAllocate();
+  }
+  return g_DefaultUserspacePidNamespace;
+}
+}  // namespace
+
 Process* Process::m_pInitProcess = 0;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -406,6 +417,8 @@ Process::Process(DeferredPublication, ProcessType type)
     : m_Threads(),
       m_NextTid(0),
       m_Id(Scheduler::instance().reserveProcessId()),
+      m_UserspaceNamespace(),
+      m_UserspaceId(0),
       str(),
       m_pParent(0),
       m_pAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
@@ -476,6 +489,10 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
     : m_Threads(),
       m_NextTid(0),
       m_Id(Scheduler::instance().reserveProcessId()),
+      m_UserspaceNamespace(pParent->m_UserspaceNamespace
+                               ? pParent->m_UserspaceNamespace
+                               : defaultUserspacePidNamespace()),
+      m_UserspaceId(m_UserspaceNamespace ? m_UserspaceNamespace->allocate() : 0),
       str(),
       m_pParent(pParent),
       m_pAddressSpace(0),

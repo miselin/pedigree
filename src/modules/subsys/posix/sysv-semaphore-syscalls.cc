@@ -207,7 +207,7 @@ int perform(Set& set, Process* process, UndoGroup* group, const Operation* opera
     set.semaphores[i].value = values[i];
   }
   for (size_t i = 0; i < count; ++i)
-    set.semaphores[operations[i].number].pid = process->getId();
+    set.semaphores[operations[i].number].pid = process->getUserspaceId();
   UndoRecord** link = &undoRecords;
   while (*link) {
     UndoRecord* record = *link;
@@ -499,7 +499,7 @@ int posix_semctl(int id, int number, int command, uintptr_t argument) {
         clearUndo(set->id);
         for (size_t i = 0; i < set->metadata.count; ++i) {
           set->semaphores[i].value = values[i];
-          set->semaphores[i].pid = process->getId();
+          set->semaphores[i].pid = process->getUserspaceId();
         }
         set->metadata.changeTime = Time::getTime();
         set->changed.broadcast();
@@ -534,7 +534,7 @@ int posix_semctl(int id, int number, int command, uintptr_t argument) {
       const int value = static_cast<int>(argument);
       clearUndo(set->id, number);
       semaphore.value = value;
-      semaphore.pid = process->getId();
+      semaphore.pid = process->getUserspaceId();
       set->metadata.changeTime = Time::getTime();
       set->changed.broadcast();
       return 0;
@@ -586,7 +586,7 @@ void posix_sem_thread_exit(Thread* thread) {
       const int value = semaphore.value + record->adjustment;
       // Exit must not block; Linux clips an adjustment which can no longer fit.
       semaphore.value = value < 0 ? 0 : value > MaximumValue ? MaximumValue : value;
-      semaphore.pid = thread->getParent()->getId();
+      semaphore.pid = thread->getParent()->getUserspaceId();
       set->metadata.operationTime = Time::getTime();
       set->changed.broadcast();
     }

@@ -281,7 +281,7 @@ class SelfLink final : public Symlink {
       SYSCALL_ERROR(DoesNotExist);
       return false;
     }
-    result.append(process->getId());
+    result.append(process->getUserspaceId());
     if (m_Thread) {
       result.append("/task/");
       result.append(thread->getTaskId());
@@ -309,9 +309,9 @@ ProcFsDirectory* ProcFs::createProcessDirectory(PosixProcess* process) {
   auto* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
   auto context = subsystem ? subsystem->namespaceContext() : SharedPointer<PosixNamespaceContext>();
   NormalStaticString name;
-  name.append(process->getId());
+  name.append(process->getUserspaceId());
   auto* directory = new ProcessDirectory(*this, String(name, name.length()), context);
-  if (directory && !directory->initialise(*this, process->getId())) {
+  if (directory && !directory->initialise(*this, process->getUserspaceId())) {
     delete directory;
     directory = nullptr;
   }

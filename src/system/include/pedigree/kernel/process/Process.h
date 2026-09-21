@@ -53,6 +53,19 @@ class ZombieProcess;
 class ZombieQueue;
 class Scheduler;
 
+/** IDs visible to processes start at one, independently of kernel process IDs. */
+class EXPORTED_PUBLIC UserspacePidNamespace {
+ public:
+  UserspacePidNamespace() : m_NextPid(0) {}
+
+  size_t allocate() {
+    return m_NextPid += 1;
+  }
+
+ private:
+  Atomic<size_t> m_NextPid;
+};
+
 /**
  * An abstraction of a Process - a container for one or more threads all running
  * in the same address space.
@@ -449,6 +462,11 @@ class EXPORTED_PUBLIC Process {
   /** Returns the process ID. */
   size_t getId() {
     return m_Id;
+  }
+
+  /** Returns the process ID exposed to userspace. */
+  size_t getUserspaceId() const {
+    return m_UserspaceId;
   }
 
   /** Returns the description string of this process. */
@@ -956,6 +974,10 @@ class EXPORTED_PUBLIC Process {
    * Our Process ID.
    */
   size_t m_Id;
+  /** Shared userspace PID namespace inherited by child processes. */
+  SharedPointer<UserspacePidNamespace> m_UserspaceNamespace;
+  /** PID assigned within m_UserspaceNamespace; zero for kernel-only processes. */
+  size_t m_UserspaceId;
   /**
    * Our description string.
    */

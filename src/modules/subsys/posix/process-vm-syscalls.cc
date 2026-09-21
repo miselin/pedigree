@@ -103,7 +103,7 @@ bool acquireTarget(int pid, Scheduler::ProcessLease& process) {
   if (pid <= 0)
     return false;
   auto& scheduler = Scheduler::instance();
-  if (scheduler.acquireProcessById(process, static_cast<size_t>(pid)))
+  if (scheduler.acquireProcessByUserspaceId(process, static_cast<size_t>(pid)))
     return true;
   Process::ThreadLease task;
   if (!scheduler.acquireThreadByTaskId(task, static_cast<size_t>(pid)))

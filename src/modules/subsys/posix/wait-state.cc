@@ -20,7 +20,7 @@ bool eligible(PosixProcess* parent, Process* child, const Request& request) {
   if (request.selector == Selector::All)
     return true;
   if (request.selector == Selector::Pid)
-    return child->getId() == static_cast<size_t>(request.id);
+    return child->getUserspaceId() == static_cast<size_t>(request.id);
   size_t group = 0;
   return request.id >= 0 && static_cast<PosixProcess*>(child)->getProcessGroupId(group) &&
          group == static_cast<size_t>(request.id);
@@ -120,7 +120,7 @@ int collect(const Request& request, Report& report) {
           snapshotTimes(child, selected);
           hasResult = true;
         }
-        selected.pid = static_cast<int32_t>(child->getId());
+        selected.pid = static_cast<int32_t>(child->getUserspaceId());
         selected.uid = static_cast<PosixProcess*>(child)->snapshotCredentials().ruid;
         break;
       }

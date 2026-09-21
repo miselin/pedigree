@@ -141,7 +141,7 @@ uint32_t parentId(PosixProcess& process) {
       return 0;
     }
     if (process.getParent() == parent.get())
-      return parent->getId();
+      return parent->getUserspaceId();
   }
   return 0;
 }
@@ -161,7 +161,7 @@ void posix_account_process_exit(PosixProcess& process, const ProcessAccountingLi
   const auto credentials = process.snapshotCredentials();
   record.uid = credentials.ruid;
   record.gid = credentials.rgid;
-  record.pid = process.getId();
+  record.pid = process.getUserspaceId();
   record.parentPid = parentId(process);
   const uint64_t birth = lifetime.birth / Time::Multiplier::Second;
   record.birthSeconds = birth > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(birth);

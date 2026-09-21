@@ -57,7 +57,7 @@ struct Segment {
         file(new RamFile(String("shm"), identifier, &filesystem, nullptr)) {
     PosixIpc::initialize(status.permission, key, mode, identifier / MaximumSegments);
     status.size = size;
-    status.creator = PosixIpc::process()->getId();
+    status.creator = PosixIpc::process()->getUserspaceId();
     status.changeTime = Time::getTime();
     VFS::instance().trackFile(file);
   }
@@ -138,7 +138,7 @@ class ShmAttachment final : public MappingAttachment {
     m_Active = true;
     ++m_Segment->status.attachments;
     m_Segment->status.attachTime = Time::getTime();
-    m_Segment->status.lastPid = PosixIpc::process()->getId();
+    m_Segment->status.lastPid = PosixIpc::process()->getUserspaceId();
     attachments.pushBack(this);
   }
   uintptr_t baseAddress() const override {
@@ -152,7 +152,7 @@ class ShmAttachment final : public MappingAttachment {
   }
   SharedPointer<MappingAttachment> clone(Process* target) override {
     auto* copy = new ShmAttachment(m_Segment);
-    copy->activate(m_Base, target->getId());
+    copy->activate(m_Base, target->getUserspaceId());
     return SharedPointer<MappingAttachment>(copy);
   }
 
@@ -280,7 +280,7 @@ void* posix_shmat(int id, const void* requestedAddress, int flags) {
     return failed;
   }
   size_t count = 0;
-  const size_t pid = PosixIpc::process()->getId();
+  const size_t pid = PosixIpc::process()->getUserspaceId();
   for (auto it = attachments.begin(); it != attachments.end(); ++it) {
     count += (*it)->pid() == pid;
   }

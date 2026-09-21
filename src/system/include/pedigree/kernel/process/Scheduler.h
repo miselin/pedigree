@@ -151,6 +151,7 @@ class EXPORTED_PUBLIC Scheduler {
    * Any previous lease is released; failure leaves \p lease empty.
    */
   MUST_USE_RESULT bool acquireProcessById(ProcessLease& lease, size_t id);
+  MUST_USE_RESULT bool acquireProcessByUserspaceId(ProcessLease& lease, size_t id);
 
   /** Pins a Linux task without nesting scheduler and process enumeration locks. */
   MUST_USE_RESULT bool acquireThreadByTaskId(Process::ThreadLease& lease, size_t id);

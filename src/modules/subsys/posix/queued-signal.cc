@@ -362,7 +362,7 @@ int posix_rt_sigqueueinfo(int pid, int signal, const LinuxQueuedSiginfo* info) {
     return -1;
   }
   Scheduler::ProcessLease target;
-  if (!Scheduler::instance().acquireProcessById(target, pid) || !subsystem(target.get())) {
+  if (!Scheduler::instance().acquireProcessByUserspaceId(target, pid) || !subsystem(target.get())) {
     SYSCALL_ERROR(NoSuchProcess);
     return -1;
   }

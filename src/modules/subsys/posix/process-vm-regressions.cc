@@ -114,8 +114,10 @@ bool generationCutoff(bool write) {
     setProcessVmAfterFragmentHookForTest(thread, replaceAfterFragment, &cutoff);
     thread->setErrno(Error::IoError);
     const ssize_t result =
-        write ? posix_process_vm_writev(process->getId(), &vectors->local, 1, vectors->remote, 2, 0)
-              : posix_process_vm_readv(process->getId(), &vectors->local, 1, vectors->remote, 2, 0);
+        write ? posix_process_vm_writev(process->getUserspaceId(), &vectors->local, 1,
+                                        vectors->remote, 2, 0)
+              : posix_process_vm_readv(process->getUserspaceId(), &vectors->local, 1,
+                                       vectors->remote, 2, 0);
     const size_t error = thread->getErrno();
     setProcessVmAfterFragmentHookForTest(nullptr, nullptr, nullptr);
     if (!check(result == static_cast<ssize_t>(page) && !error && cutoff.calls == 1 &&
@@ -135,8 +137,10 @@ bool generationCutoff(bool write) {
                "fresh user vector import setup"))
       return false;
     const ssize_t freshResult =
-        write ? posix_process_vm_writev(process->getId(), &vectors->local, 1, vectors->remote, 1, 0)
-              : posix_process_vm_readv(process->getId(), &vectors->local, 1, vectors->remote, 1, 0);
+        write ? posix_process_vm_writev(process->getUserspaceId(), &vectors->local, 1,
+                                        vectors->remote, 1, 0)
+              : posix_process_vm_readv(process->getUserspaceId(), &vectors->local, 1,
+                                       vectors->remote, 1, 0);
     const size_t freshError = thread->getErrno();
     const bool sameSpace = &Processor::information().getVirtualAddressSpace() == &space;
     const bool content =

@@ -25,8 +25,8 @@ void PosixProcess::initializeJobControl(Process* parent) {
   auto* group = new ProcessGroup;
   if (!group)
     return;
-  group->processGroupId = getId();
-  group->sessionId = getId();
+  group->processGroupId = getUserspaceId();
+  group->sessionId = getUserspaceId();
   group->Leader = this;
   setProcessGroup(group);
 }
@@ -59,7 +59,7 @@ void PosixProcess::setProcessGroup(ProcessGroup* group) {
       m_GroupNext->m_GroupPrevious = this;
     group->firstMember = this;
     ++group->memberCount;
-    m_GroupMembership = static_cast<size_t>(group->processGroupId) == getId() ? Leader : Member;
+    m_GroupMembership = static_cast<size_t>(group->processGroupId) == getUserspaceId() ? Leader : Member;
     if (!group->registered)
       ProcessGroupManager::instance().registerGroup(group->processGroupId, group);
   }
@@ -135,11 +135,11 @@ int PosixProcess::createSession() {
   int error = 0;
   {
     RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
-    if (ProcessGroupManager::instance().findGroup(getId())) {
+    if (ProcessGroupManager::instance().findGroup(getUserspaceId())) {
       error = Error::NotEnoughPermissions;
     } else {
-      prepared.get()->processGroupId = getId();
-      prepared.get()->sessionId = getId();
+      prepared.get()->processGroupId = getUserspaceId();
+      prepared.get()->sessionId = getUserspaceId();
       prepared.get()->Leader = this;
       setProcessGroup(prepared.releaseOwnership());
     }
@@ -147,14 +147,14 @@ int PosixProcess::createSession() {
   if (!error)
     setCttyContext(SharedPointer<Process::ControllingTerminal>());
   syscallError(error);
-  return error ? -1 : static_cast<int>(getId());
+  return error ? -1 : static_cast<int>(getUserspaceId());
 }
 
 int PosixProcess::changeProcessGroup(PosixProcess& caller, int id) {
   // Both the registry and memberships are intrusive: commit cannot allocate
   // while the group spinlock is held, or partially leave the original group.
   UniquePointer<ProcessGroup> prepared;
-  if (static_cast<size_t>(id) == getId())
+  if (static_cast<size_t>(id) == getUserspaceId())
     prepared = UniquePointer<ProcessGroup>::allocate();
   int error = 0;
   {
@@ -166,13 +166,13 @@ int PosixProcess::changeProcessGroup(PosixProcess& caller, int id) {
       error = Error::NotEnoughPermissions;
     else if (this != &caller && m_ExecCommitted)
       error = Error::PermissionDenied;
-    else if (m_SessionId == getId())
+    else if (m_SessionId == getUserspaceId())
       error = Error::NotEnoughPermissions;
     else if (existing && existing->sessionId != m_SessionId)
       error = Error::NotEnoughPermissions;
     else if (existing)
       setProcessGroup(existing);
-    else if (static_cast<size_t>(id) != getId())
+    else if (static_cast<size_t>(id) != getUserspaceId())
       error = Error::NotEnoughPermissions;
     else if (!prepared)
       error = Error::OutOfMemory;

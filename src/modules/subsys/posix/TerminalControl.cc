@@ -107,7 +107,7 @@ int TerminalControl::attach(ConsoleFile& console, bool steal, bool automatic,
   auto context = process->acquireCttyContext();
   File* existing = context ? context->file() : nullptr;
   const size_t session = process->getSessionId();
-  if (session != process->getId() || (existing && existing != &console)) {
+  if (session != process->getUserspaceId() || (existing && existing != &console)) {
     if (automatic)
       return 0;
     SYSCALL_ERROR(NotEnoughPermissions);
@@ -235,7 +235,7 @@ int TerminalControl::hangup() {
       return -1;
     }
     if (control && control->active()) {
-      if (Scheduler::instance().acquireProcessById(leader, control->m_Session) &&
+      if (Scheduler::instance().acquireProcessByUserspaceId(leader, control->m_Session) &&
           (leader->getType() != Process::Posix ||
            static_cast<PosixProcess*>(leader.get())->getSessionId() != control->m_Session))
         leader.reset();
@@ -272,7 +272,7 @@ void TerminalControl::processTerminated(PosixProcess& process) {
       auto* control = static_cast<TerminalControl*>(slot.get());
       // A PTY master must be able to drain output after its session leader exits.
       const bool preservePtyData = console->isPtySlave();
-      if (control && control->active() && control->m_Session == process.getId() &&
+      if (control && control->active() && control->m_Session == process.getUserspaceId() &&
           (preservePtyData || console->beginRevocation(retired))) {
         session = control->m_Session;
         foreground = __atomic_load_n(&control->m_Foreground, __ATOMIC_ACQUIRE);

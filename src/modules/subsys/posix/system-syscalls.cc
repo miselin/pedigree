@@ -692,7 +692,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   if (flags & CLONE_CHILD_SETTID) {
     VirtualAddressSpace& curr = Processor::information().getVirtualAddressSpace();
     VirtualAddressSpace* va = pProcess->getAddressSpace();
-    const int childId = static_cast<int>(pProcess->getId());
+    const int childId = static_cast<int>(pProcess->getUserspaceId());
     bool copied = false;
     {
       MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
@@ -708,7 +708,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   }
 
   if (flags & CLONE_PARENT_SETTID) {
-    const int childId = static_cast<int>(pProcess->getId());
+    const int childId = static_cast<int>(pProcess->getUserspaceId());
     if (!PosixSubsystem::copyToUser(ptid, &childId, sizeof(childId))) {
       delete pProcess;
       SYSCALL_ERROR(BadAddress);
@@ -756,7 +756,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   // Finish publishing the child-side POSIX state before it can execute.
   pedigree_copy_posix_thread(Processor::information().getCurrentThread(), pParentSubsystem, pThread,
                              pSubsystem);
-  const size_t childId = pProcess->getId();
+  const size_t childId = pProcess->getUserspaceId();
   Uninterruptible parentEvents;
   pProcess->publish();
   if (!pThread->start()) {
@@ -861,7 +861,7 @@ int posix_getpid() {
   SC_NOTICE("getpid");
 
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
-  return pProcess->getId();
+  return pProcess->getUserspaceId();
 }
 
 int posix_getppid() {
@@ -882,7 +882,7 @@ int posix_getppid() {
       return 0;
     }
     if (pProcess->getParent() == parent.get()) {
-      return parent->getId();
+      return parent->getUserspaceId();
     }
   }
 }
@@ -1548,11 +1548,11 @@ int posix_getpriority(int which, int who, bool linuxAbi) {
   // while the native POSIX service exposes the public value directly.
   const int priority = linuxAbi ? 20 : 0;
   if (which == PRIO_PROCESS) {
-    if (!who || static_cast<size_t>(who) == caller->getId()) {
+    if (!who || static_cast<size_t>(who) == caller->getUserspaceId()) {
       return priority;
     }
     Scheduler::ProcessLease candidate;
-    if (Scheduler::instance().acquireProcessById(candidate, static_cast<size_t>(who)) &&
+    if (Scheduler::instance().acquireProcessByUserspaceId(candidate, static_cast<size_t>(who)) &&
         candidate->getType() == Process::Posix && candidate->getState() != Process::Reaped) {
       return priority;
     }

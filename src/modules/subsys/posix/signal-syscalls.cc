@@ -529,7 +529,7 @@ int posix_tgkill(int tgid, int tid, int sig, bool linuxAbi) {
 
   Scheduler::ProcessLease process;
   Process::ThreadLease thread;
-  if (!Scheduler::instance().acquireProcessById(process, static_cast<size_t>(tgid)) ||
+  if (!Scheduler::instance().acquireProcessByUserspaceId(process, static_cast<size_t>(tgid)) ||
       process->getType() != Process::Posix ||
       !(linuxAbi ? process->acquireThreadByTaskId(thread, static_cast<size_t>(tid))
                  : process->acquireThreadById(thread, static_cast<size_t>(tid)))) {
@@ -604,7 +604,7 @@ int posix_kill(int pid, int sig) {
     PosixProcess* pPosixProcess = static_cast<PosixProcess*>(pProcess);
     bool selected = false;
     if (pid > 0) {
-      selected = static_cast<int>(pProcess->getId()) == pid;
+      selected = static_cast<int>(pProcess->getUserspaceId()) == pid;
     } else {
       size_t groupId = 0;
       const bool hasGroup = pPosixProcess->getProcessGroupId(groupId);
@@ -634,7 +634,7 @@ int posix_kill(int pid, int sig) {
       continue;
     }
 
-    processList.pushBack(pProcess->getId());
+    processList.pushBack(pProcess->getUserspaceId());
   }
 
   // No process(es) found?
@@ -660,9 +660,9 @@ int posix_kill(int pid, int sig) {
 
   // Go ahead and kill each process.
   for (List<size_t>::Iterator it = processList.begin(); it != processList.end(); ++it) {
-    if (*it != pThisProcess->getId()) {
+    if (*it != pThisProcess->getUserspaceId()) {
       Scheduler::ProcessLease member;
-      if (!Scheduler::instance().acquireProcessById(member, *it) ||
+      if (!Scheduler::instance().acquireProcessByUserspaceId(member, *it) ||
           member->getType() != Process::Posix) {
         continue;
       }

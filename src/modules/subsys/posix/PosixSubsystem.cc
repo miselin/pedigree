@@ -873,7 +873,7 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
   // Group membership must survive for wait's zombie selection. PosixProcess
   // retires it after removal from lookup and drainage of retained observers.
 
-  posix_mqueue_process_exit(pProcess->getId());
+  posix_mqueue_process_exit(pProcess->getUserspaceId());
 
   // Clean up the descriptor table
   freeMultipleFds();
@@ -1416,7 +1416,7 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(
     int32_t senderPid = 0;
     uint32_t senderUid = 0;
     if (senderProcess && senderProcess->getType() == Process::Posix) {
-      senderPid = static_cast<int32_t>(senderProcess->getId());
+      senderPid = static_cast<int32_t>(senderProcess->getUserspaceId());
       const int64_t uid = senderProcess->getUserId();
       if (uid >= 0) {
         senderUid = static_cast<uint32_t>(uid);
@@ -1902,7 +1902,7 @@ void PosixSubsystem::retireDescriptor(FileDescriptor* descriptor) {
   if (!descriptor->getFile()) {
     SharedPointer<PosixMessageQueue> queue = descriptor->getMqueueImpl();
     if (queue && m_pProcess) {
-      posix_mqueue_close(queue.get(), m_pProcess->getId());
+      posix_mqueue_close(queue.get(), m_pProcess->getUserspaceId());
     }
   }
   descriptor->unpublish();
@@ -1917,7 +1917,7 @@ void PosixSubsystem::threadExiting(Thread* pThread) {
   if (m_Namespaces) {
     const size_t taskId = pThread->getTaskId();
     m_Namespaces->retireThread(*pThread);
-    procfsInvalidateNamespaceTask(m_Namespaces, pThread->getParent()->getId(), taskId);
+    procfsInvalidateNamespaceTask(m_Namespaces, pThread->getParent()->getUserspaceId(), taskId);
   }
   m_PendingSignals->retireThread(pThread);
   posix_timer_thread_exit(pThread);
@@ -2641,7 +2641,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 
   // A descriptor can survive exec after clearing FD_CLOEXEC, but its old
   // image's notification registration must not target the replacement image.
-  posix_mqueue_process_exit(pProcess->getId());
+  posix_mqueue_process_exit(pProcess->getUserspaceId());
 
   // Wipe out old address space.
   // Earlier failures preserve the registration. From this irreversible
@@ -2660,8 +2660,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     if (m_TraceContext.acquireIncoming(trace))
       trace->imageCommitted();
   }
-  procfsInvalidateNamespaceTask(m_Namespaces, pProcess->getId(), previousTaskId);
-  procfsInvalidateNamespaceTask(m_Namespaces, pProcess->getId(), pProcess->getId());
+  procfsInvalidateNamespaceTask(m_Namespaces, pProcess->getUserspaceId(), previousTaskId);
+  procfsInvalidateNamespaceTask(m_Namespaces, pProcess->getUserspaceId(), pProcess->getId());
   DynamicLinker* oldLinker = pProcess->getLinker();
   pProcess->setLinker(nullptr);
   pThread->retireInputUserStack();

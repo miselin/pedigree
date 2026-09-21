@@ -157,8 +157,8 @@ int posix_prlimit64(int pid, int resource, const LinuxRlimit64* newLimit, LinuxR
     SYSCALL_ERROR(NoSuchProcess);
     return -1;
   }
-  if (pid && static_cast<size_t>(pid) != current->getId()) {
-    if (!Scheduler::instance().acquireProcessById(targetLease, static_cast<size_t>(pid)) ||
+  if (pid && static_cast<size_t>(pid) != current->getUserspaceId()) {
+    if (!Scheduler::instance().acquireProcessByUserspaceId(targetLease, static_cast<size_t>(pid)) ||
         targetLease->getType() != Process::Posix) {
       SYSCALL_ERROR(NoSuchProcess);
       return -1;

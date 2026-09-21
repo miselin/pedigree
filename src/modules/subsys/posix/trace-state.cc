@@ -106,7 +106,7 @@ TraceStatus PosixTraceRelation::resume(int signal, bool detach) {
   UniquePointer<SignalEvent> prepared;
   if (prepare) {
     const auto status = posix_trace_prepare_resume(m_Tracee, signal, inheritReservation,
-                                                   static_cast<int32_t>(caller->getId()),
+                                                   static_cast<int32_t>(caller->getUserspaceId()),
                                                    credentials.ruid, prepared);
     if (status != TraceStatus::Success)
       return status;
@@ -117,7 +117,7 @@ TraceStatus PosixTraceRelation::resume(int signal, bool detach) {
         m_State.get()->generation != generation)
       return TraceStatus::NotStopped;
     m_State.get()->prepared = pedigree_std::move(prepared);
-    m_State.get()->senderPid = static_cast<int32_t>(caller->getId());
+    m_State.get()->senderPid = static_cast<int32_t>(caller->getUserspaceId());
     m_State.get()->senderUid = credentials.ruid;
     m_State.get()->replacement = signal;
     m_State.get()->detached = detach;
@@ -178,7 +178,7 @@ void PosixTraceRelation::continued(Process& process) {
     return;
   }
   PosixWait::Report report;
-  report.pid = static_cast<int32_t>(process.getId());
+  report.pid = static_cast<int32_t>(process.getUserspaceId());
   report.uid = static_cast<PosixProcess&>(process).snapshotCredentials().ruid;
   report.cause = PosixWait::Continue;
   report.status = 18;
@@ -217,7 +217,7 @@ PosixTraceRelation::Resume PosixTraceRelation::stop(Thread& thread, UserReturnFr
     return {0, false, true};
   Process* process = thread.getParent();
   PosixWait::Report report;
-  report.pid = static_cast<int32_t>(process->getId());
+  report.pid = static_cast<int32_t>(process->getUserspaceId());
   report.uid = static_cast<PosixProcess*>(process)->snapshotCredentials().ruid;
   report.cause = 4;  // CLD_TRAPPED.
   report.status = signal;

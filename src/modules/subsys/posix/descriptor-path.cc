@@ -29,7 +29,8 @@ class DescriptorOwner {
   PosixSubsystem* acquire() const {
     auto* thread = Processor::information().getCurrentThread();
     auto* process = thread ? thread->getParent() : nullptr;
-    if (!process || process->getType() != Process::Posix || process->getId() != m_Pid) {
+    if (!process || process->getType() != Process::Posix ||
+        process->getUserspaceId() != m_Pid) {
       // Cross-process fd access needs a ptrace access policy; self access
       // remains safe without exposing another process's retained objects.
       SYSCALL_ERROR(PermissionDenied);

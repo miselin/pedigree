@@ -24,7 +24,7 @@ int identity(int pid, bool session) {
     PosixProcess* target = nullptr;
     if (!pid)
       target = caller();
-    else if (pid > 0 && Scheduler::instance().acquireProcessById(lease, pid) &&
+    else if (pid > 0 && Scheduler::instance().acquireProcessByUserspaceId(lease, pid) &&
              lease->getType() == Process::Posix)
       target = static_cast<PosixProcess*>(lease.get());
     else if (pid > 0 && Scheduler::instance().acquireThreadByTaskId(task, pid) &&
@@ -79,8 +79,8 @@ int posix_setpgid(int pid, int pgid) {
     else if (pgid < 0)
       error = Error::InvalidArgument;
     else {
-      if (pid && static_cast<size_t>(pid) != current->getId()) {
-        if (!Scheduler::instance().acquireProcessById(lease, pid) ||
+      if (pid && static_cast<size_t>(pid) != current->getUserspaceId()) {
+        if (!Scheduler::instance().acquireProcessByUserspaceId(lease, pid) ||
             lease->getType() != Process::Posix) {
           error = Scheduler::instance().acquireThreadByTaskId(task, pid) ? Error::InvalidArgument
                                                                          : Error::NoSuchProcess;
@@ -89,7 +89,7 @@ int posix_setpgid(int pid, int pgid) {
           target = static_cast<PosixProcess*>(lease.get());
       }
       if (target) {
-        result = target->changeProcessGroup(*current, pgid ? pgid : target->getId());
+        result = target->changeProcessGroup(*current, pgid ? pgid : target->getUserspaceId());
         error = result < 0 ? Processor::information().getCurrentThread()->getErrno() : 0;
       }
     }

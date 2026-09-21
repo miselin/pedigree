@@ -217,7 +217,7 @@ int posix_msgsnd(int id, const void* message, size_t size, int flags) {
       queue->messages.pushBack(snapshot);
       queue->status.bytes += size;
       ++queue->status.count;
-      queue->status.sender = PosixIpc::process()->getId();
+      queue->status.sender = PosixIpc::process()->getUserspaceId();
       queue->status.sendTime = Time::getTime();
       queue->changed.broadcast();
       return 0;
@@ -287,7 +287,7 @@ ssize_t posix_msgrcv(int id, void* message, size_t size, int64_t type, int flags
       if (!(flags & Copy)) {
         queue->status.bytes -= record.size;
         --queue->status.count;
-        queue->status.receiver = PosixIpc::process()->getId();
+        queue->status.receiver = PosixIpc::process()->getUserspaceId();
         queue->status.receiveTime = Time::getTime();
         queue->messages.erase(selected);
         queue->changed.broadcast();

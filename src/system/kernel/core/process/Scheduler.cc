@@ -340,6 +340,25 @@ bool Scheduler::acquireProcessById(ProcessLease& lease, size_t id) {
   return pResult != nullptr;
 }
 
+bool Scheduler::acquireProcessByUserspaceId(ProcessLease& lease, size_t id) {
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  Process* pResult = nullptr;
+  for (List<Process*>::Iterator it = m_Processes.begin(); it != m_Processes.end(); ++it) {
+    Process* candidate = *it;
+    if (candidate->getUserspaceId() == id) {
+      pResult = candidate;
+      break;
+    }
+  }
+
+  if (pResult && !pResult->beginExternalLease()) {
+    pResult = nullptr;
+  }
+  m_SchedulerLock.release();
+  lease = ProcessLease(pResult);
+  return pResult != nullptr;
+}
+
 bool Scheduler::acquireThreadByTaskId(Process::ThreadLease& lease, size_t id) {
   lease.reset();
   size_t afterId = 0;

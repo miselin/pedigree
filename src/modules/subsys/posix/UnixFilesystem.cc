@@ -1185,7 +1185,7 @@ void UnixSocket::setCreds() {
   Process* pCurrentProcess = Processor::information().getCurrentThread()->getParent();
   m_Creds.uid = pCurrentProcess->getUserId();
   m_Creds.gid = pCurrentProcess->getGroupId();
-  m_Creds.pid = pCurrentProcess->getId();
+  m_Creds.pid = pCurrentProcess->getUserspaceId();
 #endif
 }
 

@@ -325,7 +325,7 @@ int PosixMessageQueue::notify(const LinuxMqSigevent* userEvent) {
       notification.socket = socket->networkImpl;
     }
     notification.process = process;
-    notification.pid = process->getId();
+    notification.pid = process->getUserspaceId();
   }
   auto& state = *m_State;
   LockGuard<Mutex> guard(state.lock);
