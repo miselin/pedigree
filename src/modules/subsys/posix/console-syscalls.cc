@@ -354,8 +354,8 @@ int console_ttyname(int fd, char* buf) {
     return -1;
   }
 
-  File* tty = pFd->getFile();
-  String path("/dev/pts/");
+  auto* tty = static_cast<ConsoleFile*>(pFd->getFile());
+  String path(tty->isPtySlave() ? "/dev/pts/" : "/dev/");
   path += tty->getName();
   if (!PosixSubsystem::copyToUser(buf, path.cstr(), path.length() + 1)) {
     SYSCALL_ERROR(BadAddress);
