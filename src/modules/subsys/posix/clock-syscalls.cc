@@ -22,7 +22,9 @@
 #include "system-syscalls.h"
 #include "timerfd-syscalls.h"
 
+#ifndef SG_NOTICE
 #define SG_NOTICE(x)
+#endif
 
 namespace {
 constexpr Time::Timestamp MaximumLinuxSleepNanoseconds = 0x7FFFFFFFFFFFFFFFULL;

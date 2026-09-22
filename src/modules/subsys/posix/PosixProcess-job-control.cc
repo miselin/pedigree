@@ -129,6 +129,7 @@ int PosixProcess::createSession() {
   LockGuard<Mutex> terminalGuard(TerminalControl::lock());
   auto prepared = UniquePointer<ProcessGroup>::allocate();
   if (!prepared) {
+    ERROR("PosixProcess::createSession - out of memory!");
     SYSCALL_ERROR(OutOfMemory);
     return -1;
   }
@@ -136,6 +137,7 @@ int PosixProcess::createSession() {
   {
     RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
     if (ProcessGroupManager::instance().findGroup(getUserspaceId())) {
+      ERROR("PosixProcess::createSession - failed to find group for gid " << getUserspaceId());
       error = Error::NotEnoughPermissions;
     } else {
       prepared.get()->processGroupId = getUserspaceId();

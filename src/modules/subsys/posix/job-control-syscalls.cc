@@ -56,6 +56,8 @@ int posix_getpgrp() {
 }
 
 int posix_setsid() {
+  SC_NOTICE("setsid");
+
   TerminationDeferral lifetime;
   PosixProcess* process = caller();
   if (!process) {

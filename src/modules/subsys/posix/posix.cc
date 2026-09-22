@@ -346,9 +346,13 @@ static bool init() {
     if (!attachment.backing)
       continue;
     FilesystemPathRef covered;
-    if (!view->resolve(context, FilesystemPathRef(), String(attachment.path), options, covered) ||
-        !view->attach(context, covered, attachment.backing))
+    if (!view->resolve(context, FilesystemPathRef(), String(attachment.path), options, covered)) {
+      ERROR("failed to resolve attachment for " << attachment.path);
+    }
+    if (!view->attach(context, covered, attachment.backing)) {
+      ERROR("failed to finalize attachment for " << attachment.path);
       return false;
+    }
   }
   if (!Processor::information().getCurrentThread()->getParent()->installFilesystemContext(
           pedigree_std::move(bootstrap)))

@@ -329,6 +329,8 @@ int console_ptsname(int fd, char* buf) {
     SYSCALL_ERROR(BadAddress);
     return -1;
   }
+
+  F_NOTICE("ptsname(" << fd << ") -> " << path);
   return 0;
 }
 
@@ -361,6 +363,8 @@ int console_ttyname(int fd, char* buf) {
     SYSCALL_ERROR(BadAddress);
     return -1;
   }
+
+  F_NOTICE("ttyname(" << fd << ") -> " << path);
   return 0;
 }
 

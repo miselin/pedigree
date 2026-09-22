@@ -58,17 +58,40 @@ bool VfsMountView::State::attach(const FilesystemPathRef& covered, VFS::Filesyst
 bool VfsMountView::attach(const FilesystemContextRef& context, const FilesystemPathRef& covered,
                           Filesystem* backing, BackingOwnership ownership) {
   VFS::FilesystemPin pin;
-  if (!m_State || !m_Vfs.pinFilesystem(backing, pin)) {
+  if (!m_State) {
+    ERROR("VfsMountView::attach: no internal state");
+    SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+  if (!m_Vfs.pinFilesystem(backing, pin)) {
+    ERROR("VfsMountView::attach: failed to pin filesystem");
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
   FilesystemContextSnapshot snapshot;
   VFS::NamespaceMutation writer(m_Vfs);
-  if (!context || !context->snapshot(snapshot) || !m_State->beneath(covered, snapshot.root)) {
+  if (!context) {
+    ERROR("VfsMountView::attach: no context");
     SYSCALL_ERROR(InvalidArgument);
     return false;
   }
-  return m_State->attach(covered, pedigree_std::move(pin), writer, ownership);
+  if (!context->snapshot(snapshot)) {
+    ERROR("VfsMountView::attach: failed to snapshot");
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  if (!m_State->beneath(covered, snapshot.root)) {
+    ERROR("VfsMountView::attach: not an ancestor of " << snapshot.root->node()->getFullPath());
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+
+  if (!m_State->attach(covered, pedigree_std::move(pin), writer, ownership)) {
+    ERROR("VfsMountView::attach: internal attach failed");
+    return false;
+  }
+
+  return true;
 }
 
 void VfsMountView::State::reapDetached() {

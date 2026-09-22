@@ -110,6 +110,7 @@ int TerminalControl::attach(ConsoleFile& console, bool steal, bool automatic,
   if (session != process->getUserspaceId() || (existing && existing != &console)) {
     if (automatic)
       return 0;
+    NOTICE("TIOCSCTTY EPERM - session doesn't match");
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }
@@ -121,6 +122,7 @@ int TerminalControl::attach(ConsoleFile& console, bool steal, bool automatic,
       (!steal || process->getEffectiveUserId() != 0)) {
     if (automatic)
       return 0;
+    NOTICE("TIOCSCTTY EPERM - you are not root and a previous session is active");
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }

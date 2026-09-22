@@ -653,6 +653,7 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
+  F_NOTICE(" s = " << String(ptr, len));
 
   // Lookup this process.
   Thread* pThread = Processor::information().getCurrentThread();
@@ -1705,9 +1706,8 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
         const size_t remaining = totalLength - totalRead;
         const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
         bool signalInterrupted = false;
-        const int amount =
-            readFileVectorElement(thread, descriptor, position, statusFlags, bounce,
-                                  requested, totalRead == 0, signalInterrupted);
+        const int amount = readFileVectorElement(thread, descriptor, position, statusFlags, bounce,
+                                                 requested, totalRead == 0, signalInterrupted);
         if (amount < 0) {
           return totalRead ? static_cast<int>(totalRead) : amount;
         }
