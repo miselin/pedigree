@@ -1,16 +1,16 @@
 /* Copyright (c) 2026, Pedigree Developers. */
+#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
+#include "DevFs-block.h"
 #include "PosixProcess.h"
 #include "PosixSubsystem.h"
 #include "ProcFs.h"
-#include "DevFs-block.h"
 
 namespace {
 constexpr uint64_t ClockTicksPerSecond = 100;
@@ -137,11 +137,12 @@ class CpuInfoFile final : public GeneratedFile {
   bool generate(String& contents) const override {
     for (size_t processor = 0; processor < Processor::getCount(); ++processor) {
       String entry;
-      entry.Format("processor\t: %lu\n"
-                   "vendor_id\t: Pedigree\n"
-                   "model name\t: Pedigree virtual processor\n"
-                   "flags\t\t:\n\n",
-                   processor);
+      entry.Format(
+          "processor\t: %lu\n"
+          "vendor_id\t: Pedigree\n"
+          "model name\t: Pedigree virtual processor\n"
+          "flags\t\t:\n\n",
+          processor);
       contents += entry;
     }
     return true;

@@ -1,11 +1,11 @@
 #ifndef LIBUI_PROTOCOL_H
 #define LIBUI_PROTOCOL_H
 
-#include "protocol.pb.h"
-
 #include <cstdint>
 #include <string>
 #include <vector>
+
+#include "protocol.pb.h"
 
 namespace libui::protocol {
 
@@ -56,9 +56,9 @@ enum WindowStyleFlags : std::uint32_t {
   StyleClientResizeGrip = 1u << 7,
 };
 
-inline constexpr std::uint32_t StandardWindowStyle =
-    StyleCaption | StyleSystemMenu | StyleMinimizeBox | StyleMaximizeBox |
-    StyleThickFrame | StyleBorder;
+inline constexpr std::uint32_t StandardWindowStyle = StyleCaption | StyleSystemMenu |
+                                                     StyleMinimizeBox | StyleMaximizeBox |
+                                                     StyleThickFrame | StyleBorder;
 
 struct Message {
   Opcode opcode = Opcode::Error;
@@ -108,13 +108,13 @@ Message makePresent(std::uint32_t requestId, std::uint32_t windowId, std::uint32
                     std::uint64_t generation);
 bool readPresent(const Message& message, std::uint32_t& windowId, std::uint32_t& bufferId,
                  std::uint64_t& generation);
-Message makeReleaseBuffer(std::uint32_t requestId, std::uint32_t windowId,
-                          std::uint32_t bufferId, std::uint64_t generation);
-bool readReleaseBuffer(const Message& message, std::uint32_t& windowId,
-                       std::uint32_t& bufferId, std::uint64_t& generation);
+Message makeReleaseBuffer(std::uint32_t requestId, std::uint32_t windowId, std::uint32_t bufferId,
+                          std::uint64_t generation);
+bool readReleaseBuffer(const Message& message, std::uint32_t& windowId, std::uint32_t& bufferId,
+                       std::uint64_t& generation);
 Message makeConfigure(std::uint32_t windowId, std::int32_t outerX, std::int32_t outerY,
-                      std::int32_t outerWidth, std::int32_t outerHeight,
-                      std::int32_t clientWidth, std::int32_t clientHeight);
+                      std::int32_t outerWidth, std::int32_t outerHeight, std::int32_t clientWidth,
+                      std::int32_t clientHeight);
 bool readConfigure(const Message& message, ConfigureEvent& event);
 Message makeClose(std::uint32_t windowId);
 bool readClose(const Message& message, CloseEvent& event);
@@ -122,9 +122,8 @@ Message makePopupDismiss(std::uint32_t windowId);
 bool readPopupDismiss(const Message& message, PopupDismissEvent& event);
 Message makeGenerationRetired(std::uint32_t windowId, std::uint64_t generation);
 bool readGenerationRetired(const Message& message, GenerationRetiredEvent& event);
-Message makePointerInput(std::uint32_t windowId, wire::PointerInputType type,
-                         std::uint32_t button, std::uint32_t buttonBitmap,
-                         std::int32_t x, std::int32_t y);
+Message makePointerInput(std::uint32_t windowId, wire::PointerInputType type, std::uint32_t button,
+                         std::uint32_t buttonBitmap, std::int32_t x, std::int32_t y);
 Message makeKeyInput(std::uint32_t windowId, bool isDown, std::uint32_t scancode,
                      std::int32_t keycode, std::uint32_t modifiers);
 Message makeTextInput(std::uint32_t windowId, const std::string& text);

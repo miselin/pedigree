@@ -144,7 +144,7 @@ namespace {
 // Keep addressable kernel exports for modules built against the interrupt API.
 void (*const setInterruptsEntry)(bool) USED = &ProcessorBase::setInterrupts;
 bool (*const getInterruptsEntry)() USED = &ProcessorBase::getInterrupts;
-}
+}  // namespace
 
 void ProcessorBase::setSingleStep(bool bEnable, InterruptState& state) {
   uintptr_t eflags = state.getFlags();

@@ -607,8 +607,8 @@ size_t SlamCache::recovery(size_t maxSlabs) {
       continue;
     }
     const size_t requested = expected | writer;
-    if (__atomic_compare_exchange_n(&m_FastPathState, &expected, requested, false,
-                                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+    if (__atomic_compare_exchange_n(&m_FastPathState, &expected, requested, false, __ATOMIC_ACQUIRE,
+                                    __ATOMIC_RELAXED))
       break;
   }
   while (__atomic_load_n(&m_FastPathState, __ATOMIC_ACQUIRE) != writer)
@@ -933,18 +933,14 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize) {
 
   SlamBitmap& bitmap = m_SlabRegionBitmap;
 
-  auto findFreeRun = [&]() {
-    return bitmap.findFreeRun(nPages);
-  };
+  auto findFreeRun = [&]() { return bitmap.findFreeRun(nPages); };
 
 #if X64 && !PEDIGREE_BENCHMARK
   auto firstCowBitmapPage = [&](size_t pageIndex) {
     const size_t firstEntry = pageIndex / 64;
     const size_t lastEntry = (pageIndex + nPages - 1) / 64;
-    const uintptr_t firstAddress =
-        bitmap.metadataAddress(firstEntry) & ~(getPageSize() - 1);
-    const uintptr_t lastEntryByte =
-        bitmap.metadataAddress(lastEntry) + sizeof(uint64_t) * 3 - 1;
+    const uintptr_t firstAddress = bitmap.metadataAddress(firstEntry) & ~(getPageSize() - 1);
+    const uintptr_t lastEntryByte = bitmap.metadataAddress(lastEntry) + sizeof(uint64_t) * 3 - 1;
     const uintptr_t lastAddress = lastEntryByte & ~(getPageSize() - 1);
     VirtualAddressSpace& va = VirtualAddressSpace::getKernelAddressSpace();
     for (uintptr_t address = firstAddress; address <= lastAddress; address += getPageSize()) {

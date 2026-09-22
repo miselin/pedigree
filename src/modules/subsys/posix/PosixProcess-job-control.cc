@@ -59,7 +59,8 @@ void PosixProcess::setProcessGroup(ProcessGroup* group) {
       m_GroupNext->m_GroupPrevious = this;
     group->firstMember = this;
     ++group->memberCount;
-    m_GroupMembership = static_cast<size_t>(group->processGroupId) == getUserspaceId() ? Leader : Member;
+    m_GroupMembership =
+        static_cast<size_t>(group->processGroupId) == getUserspaceId() ? Leader : Member;
     if (!group->registered)
       ProcessGroupManager::instance().registerGroup(group->processGroupId, group);
   }

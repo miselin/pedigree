@@ -30,8 +30,8 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/core/SlamBitmap.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #if PEDIGREE_BENCHMARK

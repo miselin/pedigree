@@ -23,7 +23,6 @@
 #include "pedigree/kernel/process/InfoBlock.h"
 
 #include <config.h>
-
 #include <errno.h>
 #include <stdint.h>
 #include <time.h>
@@ -86,10 +85,7 @@ int __vdso_getcpu(unsigned* cpu, unsigned* node, struct getcpu_cache* cache) {
 #if X64
   if (infoBlock->vdso_features & INFO_BLOCK_VDSO_GETCPU_RDTSCP) {
     unsigned ignored_low, ignored_high, aux;
-    __asm__ volatile("rdtscp"
-                     : "=a"(ignored_low), "=d"(ignored_high), "=c"(aux)
-                     :
-                     : "memory");
+    __asm__ volatile("rdtscp" : "=a"(ignored_low), "=d"(ignored_high), "=c"(aux) : : "memory");
     if (cpu) {
       *cpu = aux;
     }

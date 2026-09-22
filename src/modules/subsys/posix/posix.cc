@@ -252,8 +252,7 @@ static bool terminalQuiesce() {
 #endif
   if (auto* view = VFS::instance().mountView()) {
     // A surviving attachment path keeps both its backend and this module mapped.
-    Filesystem* backings[] = {g_pProcFs, g_pDevFs, g_pRunFilesystem, g_pDevShmFilesystem,
-                              g_pSysFs};
+    Filesystem* backings[] = {g_pProcFs, g_pDevFs, g_pRunFilesystem, g_pDevShmFilesystem, g_pSysFs};
     for (auto* backing : backings)
       if (backing && !view->detachBackingForShutdown(backing))
         return false;
@@ -333,12 +332,9 @@ static bool init() {
   struct Attachment {
     const char* path;
     Filesystem* backing;
-  } attachments[] = {{"/dev", g_pDevFs},
-                     {"/dev/shm", g_pDevShmFilesystem},
-                     {"/run", g_pRunFilesystem},
-                     {"/proc", g_pProcFs},
-                     {"/sys", g_pSysFs},
-                     {"/tmp", scratchfs}};
+  } attachments[] = {{"/dev", g_pDevFs},         {"/dev/shm", g_pDevShmFilesystem},
+                     {"/run", g_pRunFilesystem}, {"/proc", g_pProcFs},
+                     {"/sys", g_pSysFs},         {"/tmp", scratchfs}};
   VfsMountView::ResolveOptions options;
   options.requireDirectory = true;
   options.crossFinalMount = false;
@@ -438,8 +434,7 @@ static void destroy() {
   if (g_pSysFs && !VFS::instance().unregisterFilesystem(g_pSysFs, false)) {
     panic("POSIX shutdown could not retire sysfs");
   }
-  if (g_pDevShmFilesystem &&
-      !VFS::instance().unregisterFilesystem(g_pDevShmFilesystem, false)) {
+  if (g_pDevShmFilesystem && !VFS::instance().unregisterFilesystem(g_pDevShmFilesystem, false)) {
     panic("POSIX shutdown could not retire shmfs");
   }
   if (g_pRunFilesystem && !VFS::instance().unregisterFilesystem(g_pRunFilesystem, false)) {

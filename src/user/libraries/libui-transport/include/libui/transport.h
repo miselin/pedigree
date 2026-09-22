@@ -22,8 +22,12 @@ class Connection {
 
   static Connection connect(const std::string& path);
 
-  bool valid() const { return m_fd >= 0; }
-  int descriptor() const { return m_fd; }
+  bool valid() const {
+    return m_fd >= 0;
+  }
+  int descriptor() const {
+    return m_fd;
+  }
   void close();
 
   bool setNonBlocking(bool enabled);
@@ -49,7 +53,9 @@ class Listener {
 
   static Listener bind(const std::string& path);
 
-  bool valid() const { return m_fd >= 0; }
+  bool valid() const {
+    return m_fd >= 0;
+  }
   void close();
   bool setNonBlocking(bool enabled);
   Connection accept() const;

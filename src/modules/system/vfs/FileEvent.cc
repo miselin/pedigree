@@ -18,7 +18,7 @@
 namespace {
 // Closed subscriptions stay counted until reset, so this is conservative.
 size_t fileEventSubscriptions = 0;
-}
+}  // namespace
 
 class FileEventTarget {
  public:

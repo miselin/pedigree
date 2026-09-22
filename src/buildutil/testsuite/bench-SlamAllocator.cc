@@ -19,12 +19,11 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <benchmark/benchmark.h>
-
 #include <stddef.h>
 #include <stdint.h>
-
 #include <vector>
+
+#include <benchmark/benchmark.h>
 
 extern "C" size_t slamBenchmarkObjectMinimumSize();
 extern "C" uintptr_t slamBenchmarkAllocate(size_t size);

@@ -15,12 +15,13 @@ struct Color {
   constexpr bool operator==(const Color& other) const {
     return r == other.r && g == other.g && b == other.b && a == other.a;
   }
-  constexpr bool operator!=(const Color& other) const { return !(*this == other); }
+  constexpr bool operator!=(const Color& other) const {
+    return !(*this == other);
+  }
 };
 
 constexpr std::uint32_t packColor(Color color) {
-  return (static_cast<std::uint32_t>(color.r) << 24) |
-         (static_cast<std::uint32_t>(color.g) << 16) |
+  return (static_cast<std::uint32_t>(color.r) << 24) | (static_cast<std::uint32_t>(color.g) << 16) |
          (static_cast<std::uint32_t>(color.b) << 8) | color.a;
 }
 

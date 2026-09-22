@@ -778,9 +778,7 @@ void MemoryMappedFile::clearMappings() {
 }
 
 MemoryMapManager::OperationGuard::OperationGuard(MemoryMapManager& manager, bool tryOnly)
-    : m_EventDeferral(),
-      m_Manager(manager),
-      m_Acquired(!tryOnly || manager.tryEnterOperation()) {
+    : m_EventDeferral(), m_Manager(manager), m_Acquired(!tryOnly || manager.tryEnterOperation()) {
   if (!tryOnly) {
     m_Manager.enterOperation();
   }

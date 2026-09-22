@@ -149,7 +149,7 @@ class EXPORTED_PUBLIC WaitQueue {
    * before calling this method. Ordinary wakeAll has no such requirement.
    */
   size_t wakeAllIfWaiting(WakeReason reason = WakeReason::Signalled,
-                         const Channel& channel = Channel());
+                          const Channel& channel = Channel());
 
   size_t waiterCount();
 

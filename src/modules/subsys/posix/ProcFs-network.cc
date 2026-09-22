@@ -193,8 +193,8 @@ class NetworkDevFile final : public File {
       if (tcpip_callback_wait(copy, &snapshot) != ERR_OK)
         continue;
       String line;
-      line.Format("%c%c%u: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n", snapshot.name[0],
-                  snapshot.name[1], snapshot.number);
+      line.Format("%c%c%u: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n", snapshot.name[0], snapshot.name[1],
+                  snapshot.number);
       contents += line;
     }
     return contents;

@@ -78,7 +78,7 @@ void initialiseVdsoCpuId() {
   }
   Processor::writeMachineSpecificRegister(Ia32TscAux, static_cast<uint32_t>(processor));
 }
-}
+}  // namespace
 #endif
 
 #if MULTIPROCESSOR

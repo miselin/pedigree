@@ -119,8 +119,8 @@ int posix_advisory_fcntl(PosixSubsystem& subsystem, int fd, const DescriptorLeas
   request.inode = file->futexIdentity();
   request.type =
       wire.type == F_UNLCK ? Type::Unlock : (wire.type == F_RDLCK ? Type::Read : Type::Write);
-  request.pid =
-      static_cast<int32_t>(Processor::information().getCurrentThread()->getParent()->getUserspaceId());
+  request.pid = static_cast<int32_t>(
+      Processor::information().getCurrentThread()->getParent()->getUserspaceId());
   uint64_t position = 0, fileSize = 0;
   if (wire.whence == 1) {
     auto positionGuard = descriptor->lockPosition();

@@ -57,9 +57,13 @@ bool removeStaleEndpoint(const std::string& path) {
 
 }  // namespace
 
-Connection::~Connection() { close(); }
+Connection::~Connection() {
+  close();
+}
 
-Connection::Connection(Connection&& other) noexcept : m_fd(other.m_fd) { other.m_fd = -1; }
+Connection::Connection(Connection&& other) noexcept : m_fd(other.m_fd) {
+  other.m_fd = -1;
+}
 
 Connection& Connection::operator=(Connection&& other) noexcept {
   if (this == &other) {
@@ -152,10 +156,11 @@ ReceiveStatus Connection::receive(std::vector<std::uint8_t>& bytes, bool waitFor
   return ReceiveStatus::Error;
 }
 
-Listener::~Listener() { close(); }
+Listener::~Listener() {
+  close();
+}
 
-Listener::Listener(Listener&& other) noexcept
-    : m_fd(other.m_fd), m_path(std::move(other.m_path)) {
+Listener::Listener(Listener&& other) noexcept : m_fd(other.m_fd), m_path(std::move(other.m_path)) {
   other.m_fd = -1;
 }
 

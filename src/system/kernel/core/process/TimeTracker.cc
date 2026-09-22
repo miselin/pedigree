@@ -45,8 +45,8 @@ void TimeTracker::initialise(bool entryInterruptsAlreadyDisabled) {
 
   // Track time already spent wherever we were previously.
   if (entryInterruptsAlreadyDisabled) {
-    m_pThread->transitionTimeAtInterruptReturn(
-        KernelTimeTransition::interrupted(m_bFromUserspace), KernelTimeTransition::handler());
+    m_pThread->transitionTimeAtInterruptReturn(KernelTimeTransition::interrupted(m_bFromUserspace),
+                                               KernelTimeTransition::handler());
   } else {
     m_pThread->transitionTime(KernelTimeTransition::interrupted(m_bFromUserspace),
                               KernelTimeTransition::handler());

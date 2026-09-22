@@ -1628,7 +1628,8 @@ bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state,
   }
 #endif
 #if PEDIGREE_FAST_USER_RETURN
-  if ((origin == UserReturnFrame::Origin::Syscall || origin == UserReturnFrame::Origin::Interrupt) &&
+  if ((origin == UserReturnFrame::Origin::Syscall ||
+       origin == UserReturnFrame::Origin::Interrupt) &&
       owner->canSkipUserReturnWork()) {
     return finishWork(false);
   }

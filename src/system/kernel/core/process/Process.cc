@@ -489,9 +489,8 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
     : m_Threads(),
       m_NextTid(0),
       m_Id(Scheduler::instance().reserveProcessId()),
-      m_UserspaceNamespace(pParent->m_UserspaceNamespace
-                               ? pParent->m_UserspaceNamespace
-                               : defaultUserspacePidNamespace()),
+      m_UserspaceNamespace(pParent->m_UserspaceNamespace ? pParent->m_UserspaceNamespace
+                                                         : defaultUserspacePidNamespace()),
       m_UserspaceId(m_UserspaceNamespace ? m_UserspaceNamespace->allocate() : 0),
       str(),
       m_pParent(pParent),

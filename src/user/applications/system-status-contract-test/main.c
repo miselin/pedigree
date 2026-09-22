@@ -74,8 +74,8 @@ static int process_status(void) {
 
   CHECK(read_status_file("/proc/loadavg", contents, sizeof(contents)) > 0);
   unsigned long long running = 0, tasks = 0, last_pid = 0;
-  CHECK(sscanf(contents, "%*u.%*u %*u.%*u %*u.%*u %llu/%llu %llu", &running, &tasks,
-               &last_pid) == 3);
+  CHECK(sscanf(contents, "%*u.%*u %*u.%*u %*u.%*u %llu/%llu %llu", &running, &tasks, &last_pid) ==
+        3);
   CHECK(tasks > 0 && running <= tasks && last_pid >= (unsigned long long)getpid());
 
   CHECK(read_status_file("/proc/cpuinfo", contents, sizeof(contents)) > 0);

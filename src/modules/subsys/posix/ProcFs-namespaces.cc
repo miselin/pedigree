@@ -1,6 +1,6 @@
 /* Copyright (c) 2026, Pedigree Developers. */
-#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/StaticString.h"
@@ -193,8 +193,10 @@ class ProcessPathLink final : public Symlink {
   enum class Kind { Executable, Cwd, Root };
 
   ProcessPathLink(ProcFs& filesystem, File* parent, size_t pid, Kind kind)
-      : Symlink(String(kind == Kind::Executable ? "exe" : kind == Kind::Cwd ? "cwd" : "root"), 0,
-                0, 0, filesystem.getNextInode(), &filesystem, 0, parent),
+      : Symlink(String(kind == Kind::Executable ? "exe"
+                       : kind == Kind::Cwd      ? "cwd"
+                                                : "root"),
+                0, 0, 0, filesystem.getNextInode(), &filesystem, 0, parent),
         m_Pid(pid),
         m_Kind(kind) {
     setPermissions(DirectoryPermissions | FILE_UW | FILE_GW | FILE_OW);
@@ -238,7 +240,8 @@ class ProcessPathLink final : public Symlink {
     FilesystemContextSnapshot snapshot;
     auto* view = VFS::instance().mountView();
     String target;
-    if (!context || !context->snapshot(snapshot) || !view || !view->formatPath(snapshot, path, target)) {
+    if (!context || !context->snapshot(snapshot) || !view ||
+        !view->formatPath(snapshot, path, target)) {
       SYSCALL_ERROR(DoesNotExist);
       return -1;
     }
@@ -278,7 +281,8 @@ class ProcessDirectory final : public ProcFsDirectory {
     if (!descriptors)
       return false;
     addEntry(String("fd"), descriptors);
-    auto* executable = new ProcessPathLink(filesystem, this, pid, ProcessPathLink::Kind::Executable);
+    auto* executable =
+        new ProcessPathLink(filesystem, this, pid, ProcessPathLink::Kind::Executable);
     auto* cwd = new ProcessPathLink(filesystem, this, pid, ProcessPathLink::Kind::Cwd);
     auto* root = new ProcessPathLink(filesystem, this, pid, ProcessPathLink::Kind::Root);
     if (!executable || !cwd || !root) {

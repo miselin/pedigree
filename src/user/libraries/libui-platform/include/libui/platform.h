@@ -1,12 +1,11 @@
 #ifndef LIBUI_PLATFORM_H
 #define LIBUI_PLATFORM_H
 
-#include "libui/types.h"
-
 #include <cairo.h>
-
 #include <memory>
 #include <string>
+
+#include "libui/types.h"
 
 namespace libui::platform {
 
@@ -28,7 +27,9 @@ struct DisplayDamage {
   int width = 0;
   int height = 0;
 
-  bool empty() const { return width <= 0 || height <= 0; }
+  bool empty() const {
+    return width <= 0 || height <= 0;
+  }
 };
 
 class Display {
@@ -41,7 +42,7 @@ class Display {
   virtual cairo_t* context() const = 0;
   // The backend may publish only this scene region; an empty region means
   // that the scene is unchanged and only transient overlays may move.
-  virtual void present(const DisplayDamage &damage = {}) = 0;
+  virtual void present(const DisplayDamage& damage = {}) = 0;
   virtual bool poll(input::Event& event) = 0;
   virtual bool waitForInput(int timeoutMilliseconds) = 0;
   // The selected cursor is composited during the following present.

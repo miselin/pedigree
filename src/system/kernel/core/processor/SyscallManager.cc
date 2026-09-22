@@ -398,10 +398,8 @@ void SyscallManager::abandonedHandlerCleanup(void* context) {
 bool SyscallManager::requestPostSyscallAction(PostSyscallActionKind kind, intptr_t value,
                                               const ProcessorState* state) {
   Thread* thread = Processor::information().getCurrentThread();
-  PostSyscallAction* action = thread
-                                  ? static_cast<PostSyscallAction*>(
-                                        thread->getSyscallDispatchContext())
-                                  : nullptr;
+  PostSyscallAction* action =
+      thread ? static_cast<PostSyscallAction*>(thread->getSyscallDispatchContext()) : nullptr;
   if (!action || action->kind != NoPostSyscallAction) {
     return false;
   }

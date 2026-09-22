@@ -407,8 +407,7 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     return;
   }
   if (exitCurrentProcess) {
-    syscallThread->getParent()->getSubsystem()->exit(
-        processExitCode, processExitCause);
+    syscallThread->getParent()->getSubsystem()->exit(processExitCode, processExitCause);
   }
   if (commitThreadExit) {
     Processor::information().getScheduler().commitCurrentThreadExit();

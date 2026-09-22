@@ -5281,7 +5281,8 @@ bool runRegressions() {
 }
 
 bool entry() {
-  const bool passed = hostedSyscallProfileRequested() ? hostedRunSyscallProfile() : runRegressions();
+  const bool passed =
+      hostedSyscallProfileRequested() ? hostedRunSyscallProfile() : runRegressions();
   system_reset();
   return passed;
 }

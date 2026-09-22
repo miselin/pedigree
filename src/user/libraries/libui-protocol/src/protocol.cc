@@ -24,8 +24,7 @@ bool get16(const std::vector<std::uint8_t>& in, std::size_t& offset, std::uint16
   if (offset + 2 > in.size()) {
     return false;
   }
-  value = static_cast<std::uint16_t>(in[offset]) |
-          static_cast<std::uint16_t>(in[offset + 1]) << 8;
+  value = static_cast<std::uint16_t>(in[offset]) | static_cast<std::uint16_t>(in[offset + 1]) << 8;
   offset += 2;
   return true;
 }
@@ -41,7 +40,9 @@ bool get32(const std::vector<std::uint8_t>& in, std::size_t& offset, std::uint32
   return true;
 }
 
-Message simple(Opcode opcode, std::uint32_t requestId) { return {opcode, requestId, {}}; }
+Message simple(Opcode opcode, std::uint32_t requestId) {
+  return {opcode, requestId, {}};
+}
 
 template <typename Proto>
 Message makeProto(Opcode opcode, std::uint32_t requestId, const Proto& payload) {
@@ -229,8 +230,8 @@ bool readPresent(const Message& message, std::uint32_t& windowId, std::uint32_t&
   return true;
 }
 
-Message makeReleaseBuffer(std::uint32_t requestId, std::uint32_t windowId,
-                          std::uint32_t bufferId, std::uint64_t generation) {
+Message makeReleaseBuffer(std::uint32_t requestId, std::uint32_t windowId, std::uint32_t bufferId,
+                          std::uint64_t generation) {
   ReleaseBufferRequest request;
   request.set_window_id(windowId);
   request.set_buffer_id(bufferId);
@@ -251,8 +252,8 @@ bool readReleaseBuffer(const Message& message, std::uint32_t& windowId, std::uin
 }
 
 Message makeConfigure(std::uint32_t windowId, std::int32_t outerX, std::int32_t outerY,
-                      std::int32_t outerWidth, std::int32_t outerHeight,
-                      std::int32_t clientWidth, std::int32_t clientHeight) {
+                      std::int32_t outerWidth, std::int32_t outerHeight, std::int32_t clientWidth,
+                      std::int32_t clientHeight) {
   ConfigureEvent event;
   event.set_window_id(windowId);
   event.set_outer_x(outerX);
@@ -299,9 +300,8 @@ bool readGenerationRetired(const Message& message, GenerationRetiredEvent& event
   return readProto(message, Opcode::GenerationRetired, event);
 }
 
-Message makePointerInput(std::uint32_t windowId, wire::PointerInputType type,
-                         std::uint32_t button, std::uint32_t buttonBitmap, std::int32_t x,
-                         std::int32_t y) {
+Message makePointerInput(std::uint32_t windowId, wire::PointerInputType type, std::uint32_t button,
+                         std::uint32_t buttonBitmap, std::int32_t x, std::int32_t y) {
   InputEvent event;
   event.set_window_id(windowId);
   PointerInput* pointer = event.mutable_pointer();

@@ -622,9 +622,8 @@ bool DevFs::initialise(Disk* pDisk) {
   const struct {
     const char* name;
     const char* target;
-  } standardStreams[] = {{"stdin", "/proc/self/fd/0"},
-                         {"stdout", "/proc/self/fd/1"},
-                         {"stderr", "/proc/self/fd/2"}};
+  } standardStreams[] = {
+      {"stdin", "/proc/self/fd/0"}, {"stdout", "/proc/self/fd/1"}, {"stderr", "/proc/self/fd/2"}};
   for (const auto& stream : standardStreams) {
     auto* link =
         new DeviceLink(String(stream.name), String(stream.target), getNextInode(), this, m_pRoot);

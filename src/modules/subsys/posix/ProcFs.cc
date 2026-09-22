@@ -36,9 +36,7 @@ extern size_t g_FreePages;
 extern size_t g_AllocedPages;
 
 MeminfoFile::MeminfoFile(size_t inode, Filesystem* pParentFS, File* pParent)
-    : File(String("meminfo"), 0, 0, 0, inode, pParentFS, 0, pParent),
-      m_Contents(),
-      m_Lock() {
+    : File(String("meminfo"), 0, 0, 0, inode, pParentFS, 0, pParent), m_Contents(), m_Lock() {
   setPermissionsOnly(FILE_UR | FILE_GR | FILE_OR);
   setUidOnly(0);
   setGidOnly(0);

@@ -1,9 +1,9 @@
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <benchmark/benchmark.h>
-
 #include <array>
 #include <vector>
+
+#include <benchmark/benchmark.h>
 
 namespace {
 
@@ -110,7 +110,5 @@ static void BM_SlamSlabRecoveryOwnedObjects(benchmark::State& state) {
 
 }  // namespace
 
-BENCHMARK(BM_SlamSlabRecoveryDistributedObjects)
-    ->RangeMultiplier(8)
-    ->Range(64, 1 << 14);
+BENCHMARK(BM_SlamSlabRecoveryDistributedObjects)->RangeMultiplier(8)->Range(64, 1 << 14);
 BENCHMARK(BM_SlamSlabRecoveryOwnedObjects)->RangeMultiplier(8)->Range(64, 1 << 14);

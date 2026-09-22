@@ -49,7 +49,6 @@ class SchedulingAlgorithm {
   /** Notifies us that the status of a thread has changed, and that we may
    * need to take action. */
   virtual void threadStatusChanged(Thread* pThread) = 0;
-
 };
 
 #endif

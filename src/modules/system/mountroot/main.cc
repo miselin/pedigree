@@ -144,8 +144,8 @@ static bool installHostedProfileRoot() {
   if (!root || !root.get()->initialise(nullptr))
     return false;
 
-  const char* directories[] = {"/etc",      "/dev", "/dev/shm", "/run", "/run/lock",
-                               "/run/sockets", "/sys", "/var", "/var/run", "/proc", "/tmp"};
+  const char* directories[] = {"/etc", "/dev", "/dev/shm", "/run",  "/run/lock", "/run/sockets",
+                               "/sys", "/var", "/var/run", "/proc", "/tmp"};
   for (const char* path : directories) {
     if (!root.get()->createDirectory(StringView(path), 0755))
       return false;

@@ -17,4 +17,4 @@ git ls-files -- \
     'src/*.h' \
     'src/*.hpp' > "$file_list"
 
-clang-format --style=file --files="$file_list" "$@"
+clang-format -i --style=file --files="$file_list" "$@"

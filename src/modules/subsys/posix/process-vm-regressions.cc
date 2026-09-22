@@ -113,11 +113,11 @@ bool generationCutoff(bool write) {
     Cutoff cutoff{subsystem, space, remote[1], scratch.get(), page};
     setProcessVmAfterFragmentHookForTest(thread, replaceAfterFragment, &cutoff);
     thread->setErrno(Error::IoError);
-    const ssize_t result =
-        write ? posix_process_vm_writev(process->getUserspaceId(), &vectors->local, 1,
-                                        vectors->remote, 2, 0)
-              : posix_process_vm_readv(process->getUserspaceId(), &vectors->local, 1,
-                                       vectors->remote, 2, 0);
+    const ssize_t result = write
+                               ? posix_process_vm_writev(process->getUserspaceId(), &vectors->local,
+                                                         1, vectors->remote, 2, 0)
+                               : posix_process_vm_readv(process->getUserspaceId(), &vectors->local,
+                                                        1, vectors->remote, 2, 0);
     const size_t error = thread->getErrno();
     setProcessVmAfterFragmentHookForTest(nullptr, nullptr, nullptr);
     if (!check(result == static_cast<ssize_t>(page) && !error && cutoff.calls == 1 &&

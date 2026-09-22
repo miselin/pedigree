@@ -7,7 +7,9 @@
 namespace libui::buffer {
 namespace {
 
-bool validSize(Size size) { return size.width > 0 && size.height > 0; }
+bool validSize(Size size) {
+  return size.width > 0 && size.height > 0;
+}
 
 bool byteSizeFor(Size size, std::size_t& bytes) {
   if (!validSize(size)) {
@@ -46,7 +48,9 @@ void* handleFrom(const BufferHandle& handle) {
 
 }  // namespace
 
-SharedBuffer::~SharedBuffer() { destroy(); }
+SharedBuffer::~SharedBuffer() {
+  destroy();
+}
 
 SharedBuffer::SharedBuffer(SharedBuffer&& other) noexcept
     : m_message(std::move(other.m_message)),
@@ -132,7 +136,9 @@ SharedBuffer SharedBuffer::open(const BufferHandle& handle, Size size, PixelForm
   return SharedBuffer(std::move(message), handle, size, format, stride, byteSize, data);
 }
 
-bool SharedBuffer::resize(Size) { return false; }
+bool SharedBuffer::resize(Size) {
+  return false;
+}
 
 void SharedBuffer::destroy() {
   m_message.reset();

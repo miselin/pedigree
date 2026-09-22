@@ -362,8 +362,7 @@ class EXPORTED_PUBLIC Thread {
   void trackTime(CpuTimeMode mode);
 
   /** Accounts one CPU-mode transition from a single monotonic sample. */
-  void transitionTime(CpuTimeMode from, CpuTimeMode to,
-                      bool interruptsAlreadyDisabled = false);
+  void transitionTime(CpuTimeMode from, CpuTimeMode to, bool interruptsAlreadyDisabled = false);
 
   /**
    * Accounts a transition while the architecture already has IRQ delivery

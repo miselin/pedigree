@@ -121,8 +121,7 @@ static int future_heap(void) {
   bytes[2 * ml_page] = 0x29;
   bytes[3 * ml_page] = 0x64;
   CHECK(mlock((void*)start, 2 * ml_page) == 0);
-  managed =
-      mmap(NULL, 3 * ml_page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  managed = mmap(NULL, 3 * ml_page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   CHECK(managed != MAP_FAILED);
   managed_length = 3 * ml_page;
   errno = 0;

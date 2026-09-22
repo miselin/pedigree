@@ -171,7 +171,9 @@ void requireThreadDestructionContext() {
 class CpuTimeSample {
  public:
   explicit CpuTimeSample(bool interruptsAlreadyDisabled = false)
-      : timestamp(0), processor(0), m_InterruptsWereEnabled(false),
+      : timestamp(0),
+        processor(0),
+        m_InterruptsWereEnabled(false),
         m_RestoreInterrupts(!interruptsAlreadyDisabled) {
     if (!interruptsAlreadyDisabled) {
       m_InterruptsWereEnabled = Processor::getInterrupts();

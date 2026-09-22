@@ -1,11 +1,10 @@
-#include "libui/platform.h"
-
-#include <cairo.h>
-#include <pedigree/log.h>
-
 #include <algorithm>
+#include <cairo.h>
 #include <cstdio>
 #include <memory>
+
+#include "libui/platform.h"
+#include <pedigree/log.h>
 
 namespace {
 
