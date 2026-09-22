@@ -6,11 +6,12 @@ on:
 
 permissions:
     contents: read
-    pages: write # to deploy to Pages
+    pages: write
+    id-token: write # for pages deploy
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: true
+    group: "pages"
+    cancel-in-progress: false
 
 jobs:
     build:
