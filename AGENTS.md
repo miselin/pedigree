@@ -3,6 +3,7 @@
 ## Source layout
 
 - `docs/` — kernel and subsystem documentation
+- `docs/ai` - put agent-generated documentation here please
 - `external/` — third-party dependencies and submodules
 - `images/` — disk-image files and build scripts
 - `scripts/` — development and QEMU helpers

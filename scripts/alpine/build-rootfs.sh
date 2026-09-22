@@ -25,6 +25,13 @@ rm -f "$ROOT/etc/securetty"
 
 sed -i 's/^root:[^:]*:/root::/' "$ROOT/etc/shadow"
 
+# fun fun fun
+apk \
+    --root "$ROOT" \
+    --initdb \
+    --repositories-file /etc/apk/repositories \
+    add xorg-server xf86-video-fbdev xinit
+
 # e.g. 512 MiB image
 truncate -s 512M "$IMG"
 
