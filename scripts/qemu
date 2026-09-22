@@ -68,4 +68,5 @@ fi
     -drive if=pflash,format=raw,readonly=on,file="$UEFI_RUN_DIR/OVMF_CODE.fd" \
     -drive if=pflash,format=raw,file="$UEFI_RUN_DIR/OVMF_VARS.fd" \
     -drive file=./build/pedigree-uefi.img,if=ide,media=disk,cache=writeback,aio=$AIO,index=0,format=raw \
+    -drive file=./build/pedigree-uefi-root.img,if=ide,media=disk,cache=writeback,aio=$AIO,index=1,format=raw \
     -vga cirrus $CONSOLE $SERIAL_PORTS -rtc base=utc -netdev user,id=net0 -device ne2k_pci,netdev=net0 -m 512 "$@"

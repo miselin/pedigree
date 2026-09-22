@@ -368,7 +368,9 @@ def image_size(cmdlist):
         if command.startswith("write "):
             source = command[len("write ") :].rsplit(" ", 1)[0]
             size = os.path.getsize(source)
-            payload += max(block_size, (size + block_size - 1) // block_size * block_size)
+            payload += max(
+                block_size, (size + block_size - 1) // block_size * block_size
+            )
         elif command.startswith(("mkdir ", "symlink ")):
             payload += block_size
 
@@ -446,6 +448,8 @@ def create_base_image(target, size):
         "-F",
         "-L",
         "pedigree",
+        "-U",
+        "50e5c7c0-b79c-4932-8cdc-c2b2c713ff97",
         target,
     ]
     subprocess.check_call(args)
@@ -472,9 +476,11 @@ def main():
         with open(sources[6], "r") as source:
             menu = source.read()
         with open(rendered_grub, "w") as destination:
-            destination.write(menu.replace(
-                "@PEDIGREE_ROOT_UUID@", "00000000-0000-0000-0000-000000000000"
-            ))
+            destination.write(
+                menu.replace(
+                    "@PEDIGREE_ROOT_UUID@", "00000000-0000-0000-0000-000000000000"
+                )
+            )
         sources[6] = rendered_grub
         cmdlist = build_file_list(sources)
         create_base_image(targetfile, image_size(cmdlist))

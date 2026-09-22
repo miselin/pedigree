@@ -33,6 +33,37 @@ class BootstrapToolchainContractTests(unittest.TestCase):
 
             self.assertEqual(bootstrapper.sysroot, ROOT / "build/musl/usr")
 
+    def test_build_tree_is_target_specific(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            prefix = Path(tempdir) / "compiler"
+            x64 = Bootstrapper(
+                parse_args(
+                    [
+                        "x86_64-pedigree",
+                        str(prefix),
+                        "--source-root",
+                        str(ROOT),
+                    ]
+                )
+            )
+            arm64 = Bootstrapper(
+                parse_args(
+                    [
+                        "arm64-elf",
+                        str(prefix),
+                        "--source-root",
+                        str(ROOT),
+                    ]
+                )
+            )
+
+            self.assertEqual(
+                x64.build_root, (prefix / "build_tmp/x86_64-pedigree").resolve()
+            )
+            self.assertEqual(
+                arm64.build_root, (prefix / "build_tmp/arm64-elf").resolve()
+            )
+
     def test_manifest_preserves_pinned_toolchain_inputs(self):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
@@ -243,6 +274,75 @@ class BootstrapToolchainContractTests(unittest.TestCase):
                     bootstrapper.installation_current(require_libcpp=True)
                 )
 
+    def test_state_is_kept_separately_for_each_target(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            prefix = Path(tempdir) / "compiler"
+            x64 = Bootstrapper(
+                parse_args(
+                    [
+                        "x86_64-pedigree",
+                        str(prefix),
+                        "--source-root",
+                        str(ROOT),
+                    ]
+                )
+            )
+            arm64 = Bootstrapper(
+                parse_args(
+                    [
+                        "arm64-elf",
+                        str(prefix),
+                        "--source-root",
+                        str(ROOT),
+                    ]
+                )
+            )
+
+            x64.write_state(libcpp=False)
+            arm64.write_state(libcpp=False)
+
+            self.assertEqual(x64.read_state()["target"], "x86_64-pedigree")
+            self.assertEqual(arm64.read_state()["target"], "arm64-elf")
+            self.assertTrue(x64.state_path.is_file())
+            self.assertTrue(arm64.state_path.is_file())
+
+    def test_active_prefix_only_blocks_rebuild_of_the_active_target(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            temp = Path(tempdir)
+            source_root = temp / "source"
+            (source_root / "compilers").mkdir(parents=True)
+            prefix = temp / "compiler"
+            prefix.mkdir()
+            (source_root / "compilers/dir").symlink_to(prefix)
+
+            x64 = Bootstrapper(
+                parse_args(
+                    [
+                        "x86_64-pedigree",
+                        str(prefix),
+                        "--source-root",
+                        str(ROOT),
+                    ]
+                )
+            )
+            x64.write_state(libcpp=False)
+            x64.source_root = source_root
+
+            arm64 = Bootstrapper(
+                parse_args(
+                    [
+                        "arm64-elf",
+                        str(prefix),
+                        "--source-root",
+                        str(ROOT),
+                    ]
+                )
+            )
+            arm64.source_root = source_root
+
+            self.assertTrue(x64.active_target_needs_rebuild())
+            self.assertFalse(arm64.active_target_needs_rebuild())
+
     def test_atomic_activation_switches_symlinks_and_refuses_directories(self):
         with tempfile.TemporaryDirectory() as tempdir:
             temp = Path(tempdir)
@@ -349,10 +449,17 @@ class BootstrapToolchainContractTests(unittest.TestCase):
                     ]
                 )
             )
+            gcc_startup = (
+                prefix / "lib/gcc/x86_64-pedigree/15.3.0/crti.o"
+            )
+            gcc_startup.parent.mkdir(parents=True)
+            gcc_startup.touch()
             with redirect_stdout(io.StringIO()):
                 bootstrapper.link_sysroot()
 
             target = prefix / "x86_64-pedigree"
+            self.assertTrue(gcc_startup.is_symlink())
+            self.assertEqual(gcc_startup.resolve(), (sysroot / "lib/crti.o").resolve())
             self.assertEqual(
                 (target / "include").resolve(), (sysroot / "include").resolve()
             )
