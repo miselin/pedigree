@@ -1,0 +1,77 @@
+#!/bin/bash
+
+if [ ! -f scripts/alpine/build/rootfs.img ]; then
+    echo "qemu-alpine requires a valid rootfs, run ./scripts/alpine/build.sh first!"
+    exit 1
+fi
+
+if [ "$1" = "--serial" ]; then
+    shift
+    CONSOLE="-display none -monitor none -serial stdio"
+else
+    CONSOLE="-monitor stdio"
+    SERIAL_PORTS="-serial file:build/serial.txt -serial file:build/memlog.txt"
+fi
+
+if [ ! -z "$NO_SERIAL_PORTS" ]; then
+    SERIAL_PORTS=""
+fi
+
+AIO="native,cache.direct=on"
+
+if [ ! "$(uname -s)" == "Linux" ]; then
+    AIO="threads"
+fi
+
+QEMU=${QEMU:-qemu-system-x86_64}
+OVMF_CODE=${OVMF_CODE:-}
+OVMF_VARS=${OVMF_VARS:-}
+if [ -z "$OVMF_CODE" ]; then
+    for candidate in \
+        /usr/share/OVMF/OVMF_CODE.fd \
+        /opt/homebrew/Cellar/qemu/*/share/qemu/edk2-x86_64-code.fd \
+        /opt/homebrew/share/qemu/edk2-x86_64-code.fd; do
+        if [ -f "$candidate" ]; then
+            OVMF_CODE="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -z "$OVMF_VARS" ]; then
+    for candidate in \
+        /usr/share/OVMF/OVMF_VARS.fd \
+        /opt/homebrew/Cellar/qemu/*/share/qemu/edk2-x86_64-vars.fd \
+        /opt/homebrew/Cellar/qemu/*/share/qemu/edk2-i386-vars.fd \
+        /opt/homebrew/share/qemu/edk2-x86_64-vars.fd; do
+        if [ -f "$candidate" ]; then
+            OVMF_VARS="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -z "$OVMF_CODE" ] || [ ! -f "$OVMF_CODE" ]; then
+    echo "OVMF_CODE is unavailable; pass OVMF_CODE=/path/to/firmware.fd" >&2
+    exit 1
+fi
+
+if [ -z "$OVMF_VARS" ] || [ ! -f "$OVMF_VARS" ]; then
+    echo "OVMF_VARS is unavailable; pass OVMF_VARS=/path/to/vars.fd" >&2
+    exit 1
+fi
+
+UEFI_RUN_DIR=./build/qemu-uefi
+mkdir -p "$UEFI_RUN_DIR"
+cp "$OVMF_CODE" "$UEFI_RUN_DIR/OVMF_CODE.fd"
+if [ ! -f "$UEFI_RUN_DIR/OVMF_VARS.fd" ]; then
+    cp "$OVMF_VARS" "$UEFI_RUN_DIR/OVMF_VARS.fd"
+fi
+
+"$QEMU" \
+    -machine q35 \
+    -drive if=pflash,format=raw,readonly=on,file="$UEFI_RUN_DIR/OVMF_CODE.fd" \
+    -drive if=pflash,format=raw,file="$UEFI_RUN_DIR/OVMF_VARS.fd" \
+    -drive file=./build/pedigree-uefi.img,if=ide,media=disk,cache=writeback,aio=$AIO,index=0,format=raw \
+    -drive file=./scripts/alpine/build/rootfs.img,if=ide,media=disk,cache=writeback,aio=$AIO,index=1,format=raw \
+    -vga cirrus $CONSOLE $SERIAL_PORTS -rtc base=utc -netdev user,id=net0 -device ne2k_pci,netdev=net0 -m 512 "$@"
