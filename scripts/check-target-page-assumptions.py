@@ -95,6 +95,18 @@ ALLOWED = {
         "uint32_t mask = LITTLE_TO_HOST16(inode->i_mode) & 0x0FFF;",
     ),
     ("src/system/kernel/utilities/Cache.cc", "m_PageFilter(4096, 4),"),
+    (
+        "src/modules/subsys/posix/file-syscalls.cc",
+        "constexpr size_t SmallVectorIoBounceCapacity = 4096;",
+    ),
+    (
+        "src/system/kernel/core/processor/hosted/FunctionProfile.cc",
+        "for (size_t offset = 0; offset < Capacity * sizeof(Event); offset += 4096) {",
+    ),
+    (
+        "src/system/kernel/core/processor/hosted/FunctionProfile.cc",
+        "char path[4096];",
+    ),
 }
 
 
