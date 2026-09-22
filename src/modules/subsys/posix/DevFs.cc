@@ -811,19 +811,19 @@ bool DevFs::initialise(Disk* pDisk) {
   RandomFile* pRandom = new RandomFile(String("random"), getNextInode(), this, m_pRoot);
   m_pRoot->addEntry(pRandom->getName(), pRandom);
 
-  // Create /dev/fb for the framebuffer device.
-  FramebufferFile* pFb = new FramebufferFile(String("fb"), getNextInode(), this, m_pRoot);
+  // Linux framebuffer userspace expects the primary device at /dev/fb0.
+  FramebufferFile* pFb = new FramebufferFile(String("fb0"), getNextInode(), this, m_pRoot);
   const bool framebufferAvailable = pFb->initialise();
   if (framebufferAvailable)
     m_pRoot->addEntry(pFb->getName(), pFb);
   else {
-    WARNING("POSIX: no /dev/fb - framebuffer failed to initialise.");
+    WARNING("POSIX: no /dev/fb0 - framebuffer failed to initialise.");
     revertInode();
     delete pFb;
   }
   if (framebufferAvailable) {
-    auto* pFb0 = new DeviceLink(String("fb0"), String("fb"), getNextInode(), this, m_pRoot);
-    m_pRoot->addEntry(pFb0->getName(), pFb0);
+    auto* pFbAlias = new DeviceLink(String("fb"), String("fb0"), getNextInode(), this, m_pRoot);
+    m_pRoot->addEntry(pFbAlias->getName(), pFbAlias);
   }
 
   m_VtManager = new VirtualTerminalManager(m_pRoot);

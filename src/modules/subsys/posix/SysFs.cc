@@ -8,6 +8,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "DevFs-block.h"
+#include "modules/system/vfs/Symlink.h"
 #include "modules/system/lwip/include/lwip/netif.h"
 #include "modules/system/lwip/include/lwip/tcpip.h"
 #include "modules/system/network-stack/NetworkStack.h"
@@ -43,6 +44,17 @@ class AttributeFile final : public File {
     return true;
   }
   String m_Contents;
+};
+
+class SysFsLink final : public Symlink {
+ public:
+  SysFsLink(const String& name, uintptr_t inode, Filesystem* filesystem, File* parent,
+            const String& target)
+      : Symlink(name, 0, 0, 0, inode, filesystem, target.length(), parent) {
+    m_sTarget = target;
+    setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR | FILE_OW |
+                   FILE_OX);
+  }
 };
 
 struct NetworkSnapshot {
@@ -95,6 +107,13 @@ void SysFs::attribute(SysFsDirectory* parent, const char* name, const String& co
   auto* file = new AttributeFile(String(name), allocateInode(), this, parent, contents);
   if (file)
     parent->addEntry(file->getName(), file);
+}
+
+void SysFs::symlink(SysFsDirectory* parent, const char* name, const String& target) {
+  auto* link = new SysFsLink(String(name), allocateInode(), this, parent, target);
+  if (link) {
+    parent->addEntry(link->getName(), link);
+  }
 }
 
 void SysFs::addPciDevices(SysFsDirectory* devices) {
@@ -201,12 +220,18 @@ bool SysFs::initialise(Disk*) {
   auto* classDirectory = directory(m_Root, "class");
   auto* block = classDirectory ? directory(classDirectory, "block") : nullptr;
   auto* network = classDirectory ? directory(classDirectory, "net") : nullptr;
+  auto* graphics = classDirectory ? directory(classDirectory, "graphics") : nullptr;
+  auto* framebuffer = graphics ? directory(graphics, "fb0") : nullptr;
+  auto* framebufferDevice = framebuffer ? directory(framebuffer, "device") : nullptr;
   auto* bus = directory(m_Root, "bus");
   auto* pci = bus ? directory(bus, "pci") : nullptr;
   auto* pciDevices = pci ? directory(pci, "devices") : nullptr;
+  auto* platform = bus ? directory(bus, "platform") : nullptr;
   auto* firmware = directory(m_Root, "firmware");
-  if (!block || !network || !pciDevices || !firmware)
+  if (!block || !network || !framebufferDevice || !pciDevices || !platform || !firmware)
     return false;
+
+  symlink(framebufferDevice, "subsystem", String("/sys/bus/platform"));
 
   addBlockDevices(block);
   addNetworkDevices(network);

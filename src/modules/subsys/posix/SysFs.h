@@ -54,6 +54,7 @@ class SysFs final : public Filesystem {
  private:
   SysFsDirectory* directory(SysFsDirectory* parent, const char* name);
   void attribute(SysFsDirectory* parent, const char* name, const String& contents);
+  void symlink(SysFsDirectory* parent, const char* name, const String& target);
   void addPciDevices(SysFsDirectory* devices);
   void addBlockDevices(SysFsDirectory* devices);
   void addNetworkDevices(SysFsDirectory* devices);
