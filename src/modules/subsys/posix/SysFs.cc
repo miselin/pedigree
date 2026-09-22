@@ -8,10 +8,10 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "DevFs-block.h"
-#include "modules/system/vfs/Symlink.h"
 #include "modules/system/lwip/include/lwip/netif.h"
 #include "modules/system/lwip/include/lwip/tcpip.h"
 #include "modules/system/network-stack/NetworkStack.h"
+#include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 
 namespace {
