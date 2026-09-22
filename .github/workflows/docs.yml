@@ -1,0 +1,58 @@
+name: Docs
+
+on:
+    push:
+        branches: [develop]
+
+permissions:
+    contents: read
+    pages: write # to deploy to Pages
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    build:
+        name: doxygen
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v4
+              with:
+                  submodules: recursive
+                  persist-credentials: false
+
+            - name: Install doxygen
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install --no-install-recommends -y \
+                    doxygen \
+                    doxygen-doc \
+                    doxygen-latex \
+                    doxygen-gui \
+                    graphviz
+
+            - name: Generate docs
+              run: ./easy_build_docs.sh
+
+            - name: Upload pages artifact
+              id: docs
+              uses: actions/upload-pages-artifact@v3
+              with:
+                  name: doxygen
+                  path: docs/doxygen/html
+
+    deploy:
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}
+        needs: build
+        runs-on: ubuntu-latest
+        name: Deploy
+        steps:
+            - name: Deploy to GitHub Pages
+              id: deployment
+              uses: actions/deploy-pages@v4
+              with:
+                  artifact_name: doxygen
