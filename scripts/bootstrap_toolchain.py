@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-TARGETS = {"x86_64-pedigree"}
+TARGETS = {"x86_64-pedigree", "arm64-elf"}
 GCC_PREREQUISITES = ("gmp", "mpfr", "mpc")
 REQUIRED_COMMANDS = ("cc", "c++", "make", "patch", "tar")
 TOOLCHAIN_STATE_SCHEMA = 1
@@ -47,10 +47,7 @@ class Archive:
 def load_archives(path: Path) -> dict[str, Archive]:
     with path.open(encoding="utf-8") as stream:
         raw = json.load(stream)
-    return {
-        name: Archive(name=name, **details)
-        for name, details in raw.items()
-    }
+    return {name: Archive(name=name, **details) for name, details in raw.items()}
 
 
 def positive_int(value: str) -> int:
@@ -119,7 +116,9 @@ class Bootstrapper:
         self.args = args
         self.source_root = args.source_root.resolve()
         self.prefix = args.prefix.resolve()
-        self.build_root = self.prefix / "build_tmp"
+        # Configure caches are target-specific; sharing this tree makes a
+        # target switch look like an unsafe in-place reconfigure.
+        self.build_root = self.prefix / "build_tmp" / self.args.target
         self.download_root = self.prefix / "dl_cache"
         self.manifest = load_archives(
             self.source_root / "build-etc/toolchain/pedigree-cross-toolchain.json"
@@ -181,7 +180,9 @@ class Bootstrapper:
             return
         temporary = link.with_name(f".{link.name}.{os.getpid()}.tmp")
         if temporary.exists() or temporary.is_symlink():
-            raise BootstrapError(f"temporary activation path already exists: {temporary}")
+            raise BootstrapError(
+                f"temporary activation path already exists: {temporary}"
+            )
         try:
             temporary.symlink_to(self.prefix)
             os.replace(temporary, link)
@@ -225,9 +226,7 @@ class Bootstrapper:
         environment["CXX"] = "c++ -std=gnu++14"
         return environment
 
-    def gcc_environment(
-        self, *, with_headers: bool, configure: bool
-    ) -> dict[str, str]:
+    def gcc_environment(self, *, with_headers: bool, configure: bool) -> dict[str, str]:
         environment = (
             self.host_configure_environment() if configure else self.environment()
         )
@@ -256,7 +255,10 @@ class Bootstrapper:
         self.download_root.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_suffix(destination.suffix + ".tmp")
         try:
-            with urllib.request.urlopen(archive.url) as response, temporary.open("wb") as output:
+            with (
+                urllib.request.urlopen(archive.url) as response,
+                temporary.open("wb") as output,
+            ):
                 shutil.copyfileobj(response, output)
             self.verify_hash(temporary, archive)
             temporary.replace(destination)
@@ -291,7 +293,10 @@ class Bootstrapper:
             marker = source / ".pedigree-patched"
             patch = self.source_root / PATCHES[name]
             patch_digest = hashlib.sha256(patch.read_bytes()).hexdigest()
-            if marker.exists() and marker.read_text(encoding="utf-8").strip() == patch_digest:
+            if (
+                marker.exists()
+                and marker.read_text(encoding="utf-8").strip() == patch_digest
+            ):
                 continue
             if marker.exists():
                 raise BootstrapError(
@@ -302,7 +307,9 @@ class Bootstrapper:
             if not self.dry_run:
                 marker.write_text(patch_digest + "\n", encoding="utf-8")
 
-    def link_gcc_prerequisites(self, gcc_source: Path, sources: dict[str, Path]) -> None:
+    def link_gcc_prerequisites(
+        self, gcc_source: Path, sources: dict[str, Path]
+    ) -> None:
         for name in GCC_PREREQUISITES:
             destination = gcc_source / name
             source = sources[name]
@@ -322,15 +329,18 @@ class Bootstrapper:
             self.gxx_include_dir / "concepts",
             self.gxx_include_dir / "memory",
             self.gxx_include_dir / "version",
-            self.gxx_include_dir
-            / f"{self.args.target}/bits/c++config.h",
+            self.gxx_include_dir / f"{self.args.target}/bits/c++config.h",
         )
-        return (
-            self.prefix / f"{self.args.target}/lib/libstdc++.a"
-        ).is_file() and all(header.is_file() for header in headers)
+        return (self.prefix / f"{self.args.target}/lib/libstdc++.a").is_file() and all(
+            header.is_file() for header in headers
+        )
 
     @property
     def state_path(self) -> Path:
+        return self.prefix / f".pedigree-toolchain-state-{self.args.target}.json"
+
+    @property
+    def legacy_state_path(self) -> Path:
         return self.prefix / ".pedigree-toolchain-state.json"
 
     def state_fingerprint(self, *, libcpp: bool) -> dict[str, object]:
@@ -339,9 +349,7 @@ class Bootstrapper:
             for name, archive in sorted(self.manifest.items())
         }
         patches = {
-            name: hashlib.sha256(
-                (self.source_root / relative).read_bytes()
-            ).hexdigest()
+            name: hashlib.sha256((self.source_root / relative).read_bytes()).hexdigest()
             for name, relative in sorted(PATCHES.items())
         }
         return {
@@ -358,12 +366,21 @@ class Bootstrapper:
         }
 
     def read_state(self) -> dict[str, object] | None:
-        try:
-            with self.state_path.open(encoding="utf-8") as stream:
-                state = json.load(stream)
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            return None
-        return state if isinstance(state, dict) else None
+        for path in (self.state_path, self.legacy_state_path):
+            try:
+                with path.open(encoding="utf-8") as stream:
+                    state = json.load(stream)
+            except (FileNotFoundError, json.JSONDecodeError, OSError):
+                continue
+            if isinstance(state, dict):
+                return state
+        return None
+
+    def active_target_needs_rebuild(self) -> bool:
+        if not self.prefix_is_active():
+            return False
+        state = self.read_state()
+        return state is not None and state.get("target") == self.args.target
 
     def write_state(self, *, libcpp: bool) -> None:
         state = self.state_fingerprint(libcpp=libcpp)
@@ -416,7 +433,9 @@ class Bootstrapper:
         target = self.args.target
         environment = self.validation_environment()
         tools = {
-            name: self.prefix / "bin" / ("nasm" if name == "nasm" else f"{target}-{name}")
+            name: self.prefix
+            / "bin"
+            / ("nasm" if name == "nasm" else f"{target}-{name}")
             for name in (
                 "gcc",
                 "g++",
@@ -462,7 +481,9 @@ class Bootstrapper:
         if not output.startswith(f"NASM version {nasm_version}"):
             raise BootstrapError(f"installed nasm is not NASM {nasm_version}")
 
-        with tempfile.TemporaryDirectory(prefix="pedigree-toolchain-check-") as temporary:
+        with tempfile.TemporaryDirectory(
+            prefix="pedigree-toolchain-check-"
+        ) as temporary:
             check_root = Path(temporary)
             compile_probes = (
                 (
@@ -582,9 +603,9 @@ class Bootstrapper:
                         "static_assert(memory_probe());\n"
                         "static_assert(std::byteswap(std::uint32_t{0x01020304}) == "
                         "0x04030201);\n"
-                        "extern \"C\" unsigned pedigree_cxx_probe() {\n"
+                        'extern "C" unsigned pedigree_cxx_probe() {\n'
                         "  volatile char stack_guard_probe[16] = {};\n"
-                        "  std::string value(\"ok\");\n"
+                        '  std::string value("ok");\n'
                         "  return identity(static_cast<unsigned>(value.size())) + "
                         "stack_guard_probe[0];\n"
                         "}\n"
@@ -775,7 +796,12 @@ class Bootstrapper:
         ]
         for destination in relative_targets:
             source = self.sysroot / "lib" / destination.name
-            self.link_path(source, destination, "startup object")
+            self.link_path(
+                source,
+                destination,
+                "startup object",
+                replace_regular=True,
+            )
         target_lib = self.prefix / self.args.target / "lib"
         sysroot_lib = self.sysroot / "lib"
         if self.dry_run:
@@ -787,14 +813,25 @@ class Bootstrapper:
         include = self.prefix / self.args.target / "include"
         self.link_path(self.sysroot / "include", include, "target include directory")
 
-    def link_path(self, source: Path, destination: Path, description: str) -> None:
+    def link_path(
+        self,
+        source: Path,
+        destination: Path,
+        description: str,
+        *,
+        replace_regular: bool = False,
+    ) -> None:
         self.log(f"link {destination} -> {source}")
         if self.dry_run:
             return
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.is_symlink() and destination.resolve() == source.resolve():
             return
-        if destination.exists() or destination.is_symlink():
+        if replace_regular and destination.is_file() and not destination.is_symlink():
+            # Bare-metal GCC installs its own crt objects in this exact
+            # location; the target libc startup objects must take precedence.
+            destination.unlink()
+        elif destination.exists() or destination.is_symlink():
             raise BootstrapError(f"refusing to replace {description}: {destination}")
         destination.symlink_to(source)
 
@@ -818,16 +855,14 @@ class Bootstrapper:
                 self.activate_prefix()
             self.log("Toolchain bootstrap complete.")
             return
-        if not self.dry_run and self.prefix_is_active():
+        if not self.dry_run and self.active_target_needs_rebuild():
             raise BootstrapError(
                 "refusing to rebuild the active toolchain; use a side-by-side prefix"
             )
 
         self.prefix.mkdir(parents=True, exist_ok=True) if not self.dry_run else None
         base_current = (
-            False
-            if self.dry_run
-            else self.installation_current(require_libcpp=False)
+            False if self.dry_run else self.installation_current(require_libcpp=False)
         )
         selected = ["gcc", *GCC_PREREQUISITES]
         if not base_current:

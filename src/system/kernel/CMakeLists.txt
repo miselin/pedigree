@@ -67,6 +67,8 @@ elseif (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
         list(APPEND ARCH_KERNEL_FLAGS "-fsanitize=address")
         list(APPEND ARCH_KERNEL_LINKFLAGS "-fsanitize=address")
     endif ()
+elseif (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    # TODO: ARM64 flags
 else ()
     message(SEND_ERROR "PEDIGREE_ARCH_TARGET is missing a target-specific flag section in the kernel CMakeLists.txt")
 endif ()

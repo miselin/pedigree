@@ -16,6 +16,7 @@
 .tags
 build/
 build-arm/
+build-arm64/
 build-host-linux/
 build-host/
 build-hosted/
