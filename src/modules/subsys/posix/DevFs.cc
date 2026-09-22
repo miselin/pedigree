@@ -23,6 +23,7 @@
 #include "InputFile.h"
 #include "PosixSubsystem.h"
 #include "descriptor-path.h"
+#include "linux-fb-abi.h"
 #include "modules/system/vfs/Pipe.h"
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
@@ -88,6 +89,75 @@ class DeviceLink final : public Symlink {
                    FILE_OX);
   }
 };
+
+void setLinuxBitfield(LinuxFbBitfield& field, uint32_t offset, uint32_t length) {
+  field.offset = offset;
+  field.length = length;
+}
+
+void setLinuxPixelFormat(LinuxFbVariableInfo& info, Graphics::PixelFormat format) {
+  switch (format) {
+    case Graphics::Bits32_Argb:
+      setLinuxBitfield(info.red, 16, 8);
+      setLinuxBitfield(info.green, 8, 8);
+      setLinuxBitfield(info.blue, 0, 8);
+      setLinuxBitfield(info.transparency, 24, 8);
+      break;
+    case Graphics::Bits32_Rgba:
+      setLinuxBitfield(info.red, 24, 8);
+      setLinuxBitfield(info.green, 16, 8);
+      setLinuxBitfield(info.blue, 8, 8);
+      setLinuxBitfield(info.transparency, 0, 8);
+      break;
+    case Graphics::Bits32_Rgb:
+    case Graphics::Bits24_Rgb:
+      setLinuxBitfield(info.red, 16, 8);
+      setLinuxBitfield(info.green, 8, 8);
+      setLinuxBitfield(info.blue, 0, 8);
+      break;
+    case Graphics::Bits32_Bgr:
+    case Graphics::Bits24_Bgr:
+      setLinuxBitfield(info.red, 0, 8);
+      setLinuxBitfield(info.green, 8, 8);
+      setLinuxBitfield(info.blue, 16, 8);
+      break;
+    case Graphics::Bits16_Argb:
+      setLinuxBitfield(info.red, 8, 4);
+      setLinuxBitfield(info.green, 4, 4);
+      setLinuxBitfield(info.blue, 0, 4);
+      setLinuxBitfield(info.transparency, 12, 4);
+      break;
+    case Graphics::Bits16_Rgb565:
+      setLinuxBitfield(info.red, 11, 5);
+      setLinuxBitfield(info.green, 5, 6);
+      setLinuxBitfield(info.blue, 0, 5);
+      break;
+    case Graphics::Bits16_Rgb555:
+      setLinuxBitfield(info.red, 10, 5);
+      setLinuxBitfield(info.green, 5, 5);
+      setLinuxBitfield(info.blue, 0, 5);
+      break;
+    case Graphics::Bits8_Idx:
+      info.red.length = info.green.length = info.blue.length = 8;
+      break;
+    case Graphics::Bits8_Rgb332:
+      setLinuxBitfield(info.red, 5, 3);
+      setLinuxBitfield(info.green, 2, 3);
+      setLinuxBitfield(info.blue, 0, 2);
+      break;
+  }
+}
+
+void fillLinuxVariableInfo(LinuxFbVariableInfo& info, Framebuffer& framebuffer, size_t depth) {
+  info.xResolution = framebuffer.getWidth();
+  info.yResolution = framebuffer.getHeight();
+  info.virtualXResolution = info.xResolution;
+  info.virtualYResolution = info.yResolution;
+  info.bitsPerPixel = depth ? depth : Graphics::bitsPerPixel(framebuffer.getFormat());
+  info.heightMillimeters = UINT32_MAX;
+  info.widthMillimeters = UINT32_MAX;
+  setLinuxPixelFormat(info, framebuffer.getFormat());
+}
 }  // namespace
 
 static void terminalSwitchHandler(InputManager::InputNotification& in) {
@@ -385,7 +455,9 @@ void FramebufferFile::returnPhysicalPage(size_t) {
 }
 
 bool FramebufferFile::supports(const size_t command) const {
-  return (PEDIGREE_FB_CMD_MIN <= command) && (command <= PEDIGREE_FB_CMD_MAX);
+  return ((PEDIGREE_FB_CMD_MIN <= command) && (command <= PEDIGREE_FB_CMD_MAX)) ||
+         command == LinuxFbGetVariableInfo || command == LinuxFbPutVariableInfo ||
+         command == LinuxFbGetFixedInfo || command == LinuxFbPanDisplay || command == LinuxFbBlank;
 }
 
 int FramebufferFile::command(const size_t command, void* buffer) {
@@ -398,6 +470,87 @@ int FramebufferFile::command(const size_t command, void* buffer) {
   Framebuffer* pFramebuffer = m_pGraphicsParameters->providerResult.pFramebuffer;
 
   switch (command) {
+    case LinuxFbGetFixedInfo: {
+      LinuxFbFixedInfo value = {};
+      MemoryCopy(value.id, "Pedigree fb", 11);
+      const uint64_t framebufferSize = getSize();
+      value.memoryLength =
+          framebufferSize > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(framebufferSize);
+      value.type = LinuxFbPackedPixels;
+      value.visual =
+          pFramebuffer->getFormat() == Graphics::Bits8_Idx ? LinuxFbPseudoColor : LinuxFbTrueColor;
+      value.lineLength = pFramebuffer->getBytesPerLine();
+      if (!PosixSubsystem::copyToUser(buffer, &value, sizeof(value))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      return 0;
+    }
+    case LinuxFbGetVariableInfo: {
+      LinuxFbVariableInfo value = {};
+      Display::ScreenMode currentMode;
+      size_t depth = m_nDepth;
+      if (pDisplay->getCurrentScreenMode(currentMode)) {
+        depth = currentMode.pf.nBpp;
+      }
+      fillLinuxVariableInfo(value, *pFramebuffer, depth);
+      if (!PosixSubsystem::copyToUser(buffer, &value, sizeof(value))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      return 0;
+    }
+    case LinuxFbPutVariableInfo: {
+      LinuxFbVariableInfo requested = {};
+      if (!PosixSubsystem::copyFromUser(&requested, buffer, sizeof(requested))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      if (!requested.xResolution || !requested.yResolution || requested.bitsPerPixel <= 8 ||
+          requested.xOffset || requested.yOffset ||
+          (requested.virtualXResolution && requested.virtualXResolution != requested.xResolution) ||
+          (requested.virtualYResolution && requested.virtualYResolution != requested.yResolution)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      if ((requested.activate & LinuxFbActivateMask) != LinuxFbActivateTest) {
+        if (!pDisplay->setScreenMode(requested.xResolution, requested.yResolution,
+                                     requested.bitsPerPixel)) {
+          SYSCALL_ERROR(InvalidArgument);
+          return -1;
+        }
+        m_nDepth = requested.bitsPerPixel;
+        m_bTextMode = false;
+        setSize(pFramebuffer->getHeight() * pFramebuffer->getBytesPerLine());
+      }
+      LinuxFbVariableInfo result = {};
+      fillLinuxVariableInfo(result, *pFramebuffer, m_nDepth);
+      if (!PosixSubsystem::copyToUser(buffer, &result, sizeof(result))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      return 0;
+    }
+    case LinuxFbPanDisplay: {
+      LinuxFbVariableInfo requested = {};
+      if (!PosixSubsystem::copyFromUser(&requested, buffer, sizeof(requested))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      if (requested.xOffset || requested.yOffset) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      LinuxFbVariableInfo result = {};
+      fillLinuxVariableInfo(result, *pFramebuffer, m_nDepth);
+      if (!PosixSubsystem::copyToUser(buffer, &result, sizeof(result))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      return 0;
+    }
+    case LinuxFbBlank:
+      return 0;
     case PEDIGREE_FB_SETMODE: {
       pedigree_fb_modeset value = {};
       if (!PosixSubsystem::copyFromUser(&value, buffer, sizeof(value))) {
