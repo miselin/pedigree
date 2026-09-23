@@ -119,7 +119,8 @@ RamFile::RamFile(const String& name, uintptr_t inode, Filesystem* pParentFS, Fil
     : File(name, 0, 0, 0, inode, pParentFS, 0, pParent),
       m_FileBlocks(),
       m_FileBlocksLock(),
-      m_nOwnerPid(0) {
+      m_nOwnerPid(0),
+      m_LinkCount(1) {
   // Full permissions.
   setPermissions(0777);
 
@@ -137,8 +138,32 @@ RamFile::~RamFile() {
 File::Attributes RamFile::getAttributes() const {
   LockGuard<Mutex> guard(m_FileBlocksLock);
   Attributes attributes = File::getAttributes();
+  attributes.links = m_LinkCount;
   attributes.blocks = static_cast<uint64_t>(m_BlockOffsets.count()) * (getBlockSize() / 512);
   return attributes;
+}
+
+bool RamFile::addLink() {
+  for (;;) {
+    size_t count = m_LinkCount;
+    if (count == ~static_cast<size_t>(0)) {
+      SYSCALL_ERROR(TooManyLinks);
+      return false;
+    }
+    if (m_LinkCount.compareAndSwap(count, count + 1)) {
+      return true;
+    }
+  }
+}
+
+void RamFile::removeLink() {
+  for (;;) {
+    size_t count = m_LinkCount;
+    assert(count);
+    if (m_LinkCount.compareAndSwap(count, count - 1)) {
+      return;
+    }
+  }
 }
 
 XattrStatus RamFile::getExtendedAttribute(const StringView& name, void* buffer, size_t capacity,
@@ -495,12 +520,45 @@ bool RamFs::createSymlink(File* parent, const String& filename, const String& va
   return true;
 }
 
+bool RamFs::createLink(File* parent, const String& filename, File* target) {
+  if (!parent->isDirectory()) {
+    SYSCALL_ERROR(NotADirectory);
+    return false;
+  }
+  if (target->isDirectory()) {
+    SYSCALL_ERROR(PermissionDenied);
+    return false;
+  }
+  if (target->isSymlink() || target->getFilesystem() != this) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return false;
+  }
+
+  auto* file = static_cast<RamFile*>(target);
+  if (!file->addLink()) {
+    return false;
+  }
+  if (!static_cast<RamDir*>(parent)->addEntry(filename, target)) {
+    file->removeLink();
+    return false;
+  }
+  file->setCreationTime(Time::getTime());
+  return true;
+}
+
 bool RamFs::removeNode(File* parent, const String& filename, File* file) {
   RamDir* p = static_cast<RamDir*>(parent);
   if (file->isDirectory()) {
     return static_cast<RamDir*>(file)->removeFromParent(p, filename);
   }
-  return p->removeEntry(filename, file);
+  if (!p->removeEntry(filename, file)) {
+    return false;
+  }
+  if (!file->isSymlink()) {
+    static_cast<RamFile*>(file)->removeLink();
+    file->setCreationTime(Time::getTime());
+  }
+  return true;
 }
 
 bool RamFs::renameNode(Directory*, const String&, File* source, Directory*, const String&,

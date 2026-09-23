@@ -624,6 +624,34 @@ TEST(VFS, RelativePathsStillRequireAStartingNode) {
   vfs.unregisterFilesystem(&root, false);
 }
 
+TEST(VFS, RamFsHardLinkSurvivesOriginalUnlink) {
+  VFS vfs;
+  RamFs root;
+  ASSERT_TRUE(root.initialise(nullptr));
+  vfs.registerFilesystem(&root, String("root"));
+  ASSERT_TRUE(vfs.setRootFilesystem(&root));
+
+  ASSERT_TRUE(vfs.createFile(String("/.X0-lock-tmp"), 0644));
+  File* temporary = vfs.find(String("/.X0-lock-tmp"));
+  ASSERT_NE(temporary, nullptr);
+  uint8_t value = 0x58;
+  ASSERT_EQ(temporary->write(0, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  ASSERT_EQ(temporary->getAttributes().links, 1U);
+  ASSERT_TRUE(vfs.createLink(String("/.X0-lock"), temporary));
+  EXPECT_EQ(vfs.find(String("/.X0-lock")), temporary);
+  EXPECT_EQ(temporary->getAttributes().links, 2U);
+
+  ASSERT_TRUE(vfs.remove(String("/.X0-lock-tmp")));
+  File* lock = vfs.find(String("/.X0-lock"));
+  ASSERT_EQ(lock, temporary);
+  EXPECT_EQ(lock->getAttributes().links, 1U);
+  value = 0;
+  ASSERT_EQ(lock->read(0, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  EXPECT_EQ(value, 0x58);
+
+  vfs.unregisterFilesystem(&root, false);
+}
+
 TEST(VFS, NonRootFilesystemsMountUnderMedia) {
   VFS vfs;
   RamFs root;

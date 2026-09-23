@@ -47,6 +47,9 @@ class EXPORTED_PUBLIC RamFile : public File {
 
   virtual Attributes getAttributes() const override;
 
+  bool addLink();
+  void removeLink();
+
   XattrStatus getExtendedAttribute(const StringView& name, void* buffer, size_t capacity,
                                    size_t& required) override;
   XattrStatus listExtendedAttributes(void* buffer, size_t capacity, size_t& required) override;
@@ -77,6 +80,7 @@ class EXPORTED_PUBLIC RamFile : public File {
   Vector<uint64_t> m_BlockOffsets;
 
   size_t m_nOwnerPid;
+  Atomic<size_t> m_LinkCount;
   MemoryExtendedAttributes m_ExtendedAttributes;
 };
 
@@ -139,6 +143,7 @@ class EXPORTED_PUBLIC RamFs : public Filesystem {
   virtual bool createFile(File* parent, const String& filename, uint32_t mask) override;
   virtual bool createDirectory(File* parent, const String& filename, uint32_t mask) override;
   virtual bool createSymlink(File* parent, const String& filename, const String& value) override;
+  virtual bool createLink(File* parent, const String& filename, File* target) override;
   virtual bool removeNode(File* parent, const String& filename, File* file) override;
   virtual bool renameNode(Directory* oldParent, const String& oldName, File* source,
                           Directory* newParent, const String& newName, File* replaced) override;
