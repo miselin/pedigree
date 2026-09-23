@@ -983,12 +983,35 @@ bool DevFs::initialise(Disk* pDisk) {
   RtcFile* rtc = new RtcFile(getNextInode(), this, m_pRoot);
   m_pRoot->addEntry(rtc->getName(), rtc);
 
-  InputFile* pInput = new InputFile(String("input"), getNextInode(), this, m_pRoot);
+  auto* pInputDirectory =
+      new DevFsDirectory(String("input"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
+  pInputDirectory->setPermissions(FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
+  m_pRoot->addEntry(pInputDirectory->getName(), pInputDirectory);
+
+  InputFile* pInput = new InputFile(String("pedigree"), getNextInode(), this, pInputDirectory);
   if (pInput && pInput->initialise()) {
-    m_pRoot->addEntry(pInput->getName(), pInput);
+    pInputDirectory->addEntry(pInput->getName(), pInput);
   } else {
     revertInode();
     delete pInput;
+  }
+
+  auto* keyboard =
+      new EvdevFile(String("event0"), getNextInode(), this, pInputDirectory, EvdevFile::Keyboard);
+  if (keyboard && keyboard->initialise()) {
+    pInputDirectory->addEntry(keyboard->getName(), keyboard);
+  } else {
+    revertInode();
+    delete keyboard;
+  }
+
+  auto* pointer =
+      new EvdevFile(String("event1"), getNextInode(), this, pInputDirectory, EvdevFile::Pointer);
+  if (pointer && pointer->initialise()) {
+    pInputDirectory->addEntry(pointer->getName(), pointer);
+  } else {
+    revertInode();
+    delete pointer;
   }
 
   EMIT_IF(X86_COMMON) {

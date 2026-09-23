@@ -220,6 +220,7 @@ bool SysFs::initialise(Disk*) {
   auto* classDirectory = directory(m_Root, "class");
   auto* block = classDirectory ? directory(classDirectory, "block") : nullptr;
   auto* network = classDirectory ? directory(classDirectory, "net") : nullptr;
+  auto* input = classDirectory ? directory(classDirectory, "input") : nullptr;
   auto* graphics = classDirectory ? directory(classDirectory, "graphics") : nullptr;
   auto* framebuffer = graphics ? directory(graphics, "fb0") : nullptr;
   auto* framebufferDevice = framebuffer ? directory(framebuffer, "device") : nullptr;
@@ -228,8 +229,21 @@ bool SysFs::initialise(Disk*) {
   auto* pciDevices = pci ? directory(pci, "devices") : nullptr;
   auto* platform = bus ? directory(bus, "platform") : nullptr;
   auto* firmware = directory(m_Root, "firmware");
-  if (!block || !network || !framebufferDevice || !pciDevices || !platform || !firmware)
+  if (!block || !network || !input || !framebufferDevice || !pciDevices || !platform || !firmware) {
     return false;
+  }
+
+  auto* keyboard = directory(input, "event0");
+  auto* keyboardDevice = keyboard ? directory(keyboard, "device") : nullptr;
+  auto* pointer = directory(input, "event1");
+  auto* pointerDevice = pointer ? directory(pointer, "device") : nullptr;
+  if (!keyboardDevice || !pointerDevice) {
+    return false;
+  }
+  attribute(keyboard, "dev", String("13:64\n"));
+  attribute(keyboardDevice, "name", String("Pedigree keyboard\n"));
+  attribute(pointer, "dev", String("13:65\n"));
+  attribute(pointerDevice, "name", String("Pedigree pointer\n"));
 
   symlink(framebufferDevice, "subsystem", String("/sys/bus/platform"));
 

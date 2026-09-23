@@ -47,7 +47,7 @@ void Input::removeCallback(callback_t cb) {
 }
 
 int Input::openEventStream() {
-  return ::open("/dev/input", O_RDONLY | O_NONBLOCK);
+  return ::open("/dev/input/pedigree", O_RDONLY | O_NONBLOCK);
 }
 
 ssize_t Input::readEvent(int fd, InputNotification& notification) {

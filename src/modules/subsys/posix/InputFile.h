@@ -24,6 +24,7 @@
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 
+#include "linux-input-abi.h"
 #include "modules/system/vfs/File.h"
 
 /** A pollable, per-open stream of raw keyboard and mouse notifications. */
@@ -60,6 +61,52 @@ class InputFile final : public File {
   const bool m_Endpoint;
   Mutex m_Lock;
   Buffer<uint8_t> m_Buffer;
+  size_t m_LifetimePins = 0;
+  bool m_Registered = false;
+};
+
+/** A Linux evdev-compatible keyboard or relative-pointer endpoint. */
+class EvdevFile final : public File {
+ public:
+  enum DeviceType { Keyboard, Pointer };
+
+  EvdevFile(String name, size_t inode, Filesystem* filesystem, File* parent, DeviceType type,
+            bool endpoint = false);
+  ~EvdevFile() override;
+
+  bool initialise();
+  File* open() override;
+
+  uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                        bool bCanBlock = true) override;
+  uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                         bool bCanBlock = true) override;
+  int select(bool bWriting = false, int timeout = 0) override;
+  bool supports(size_t command) const override;
+  int command(size_t command, void* buffer) override;
+
+  bool isSeekable() const override {
+    return false;
+  }
+
+  bool retainVfsReference() override;
+  void releaseVfsReference() override;
+
+ private:
+  static void subscriber(InputManager::InputNotification& notification);
+  void handleInput(const InputManager::InputNotification& notification);
+  void emit(const LinuxInputEvent* events, size_t count);
+
+  bool isBytewise() const override {
+    return true;
+  }
+
+  const DeviceType m_Type;
+  const bool m_Endpoint;
+  Mutex m_Lock;
+  Buffer<uint8_t> m_Buffer;
+  uint8_t m_KeyState[96];
+  bool m_ButtonState[5];
   size_t m_LifetimePins = 0;
   bool m_Registered = false;
 };
