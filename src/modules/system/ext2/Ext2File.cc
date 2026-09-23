@@ -535,7 +535,13 @@ void Ext2File::unpinBlock(uint64_t location) {
 }
 
 bool Ext2File::sync() {
-  bool succeeded = File::sync();
+  bool succeeded;
+  if (useFillCache()) {
+    LockGuard<Mutex> dataGuard(dataMutationLock());
+    succeeded = cacheState().fill.syncAll(sharedFillBatchCallback, m_State);
+  } else {
+    succeeded = File::sync();
+  }
   LockGuard<Mutex> guard(m_State->writebackLock);
   return m_pExt2Fs->syncInode(getInodeNumber(), *this) && succeeded;
 }

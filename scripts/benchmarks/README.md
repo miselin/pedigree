@@ -341,6 +341,25 @@ For sustained reads, use a 128 MiB fixture with 131072-byte requests. Read metri
 include `mib_per_s`, calculated from transferred bytes and guest read time; a
 zero-duration sample reports `null`. Keep cold and cached rates separate.
 
+For buffered overwrites, use `write` (or `pwrite`) and `/launch-input.bin` as the
+two guest config lines, with matching host `--mode write` (or `--mode pwrite`).
+Use a disposable, preallocated file whose size is a multiple of 128 KiB. Each
+iteration has separate, interleaved `write-N`, `write-sync-N`, and `write-verify-N`
+phases (prefixed `pwrite` for that mode). Requests are 128 KiB; allocation and
+source-pattern generation precede timing. Every iteration changes all bytes,
+calls `fsync`, then reads back and checks the complete file. Only the write phase
+reports buffered MiB/s; it excludes fsync and verification. The first pass starts
+without prewarming the file, and subsequent passes overwrite resident pages.
+Use real disk writes and fresh overlays. Readback through the same guest cache
+does not establish persistence across reboot.
+
+To verify persistence, retain the completed guest's disk and boot it again with
+`verify-write` and `/launch-input.bin` as the guest config lines. Set guest and
+host `--iterations` to the number of completed write passes, and host
+`--mode verify-write`. This opens the file read-only and checks every byte against
+the final write pattern in one `read-sequential-0` phase. Change only the benchmark
+arguments between boots; do not recreate the input file.
+
 For fault locality, use `mmap`, `/launch-input.bin`, and `sequential` as the three
 guest config lines, with host `--mode mmap-sequential`. Use `permuted` and host
 `--mode mmap-permuted` in a separate fresh guest. These modes map the same fixture

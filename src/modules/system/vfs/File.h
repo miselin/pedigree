@@ -142,6 +142,11 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
    */
   virtual uint64_t read(uint64_t location, uint64_t size, uintptr_t buffer,
                         bool bCanBlock = true) final;
+  /** Copies a bounded resident prefix without backend I/O. The destination must
+   * remain writable throughout the call. prepare runs under dataMutationLock;
+   * callers must acquire any outer mapping guard before entering. */
+  size_t readCached(uint64_t location, size_t size, uintptr_t buffer,
+                    bool (*prepare)(uintptr_t, size_t) = nullptr);
   /** Writes to the file.
    *  \param[in] bCanBlock Whether or not the File can block when reading
    */

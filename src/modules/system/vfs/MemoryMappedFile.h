@@ -727,6 +727,10 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   bool faultIn(uintptr_t address, bool write);
   /** Fault in and validate every page touched by a byte range. */
   bool faultInRange(uintptr_t address, size_t length, bool write);
+  /** Nonfaulting check for resident, writable anonymous pages. Retain an
+   * OperationGuard while using the result; file-backed and unmanaged mappings
+   * are excluded so a destination cannot alias file cache storage. */
+  bool writableAnonymousRange(uintptr_t address, size_t length);
 
   enum class FaultResolution { Unhandled, Resolved, BackingFault };
   FaultResolution resolveUserFault(uintptr_t address, bool write, bool wasPresent, bool execute);
@@ -861,7 +865,9 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
                         VmStatus* status = nullptr);
   void releaseReservation(Process* process, VirtualAddressSpace& addressSpace, uintptr_t base,
                           size_t length);
-  bool faultInUnlocked(uintptr_t address, bool write, MemoryMappedObject*& selected);
+  bool faultInUnlocked(uintptr_t address, bool write, MemoryMappedObject*& selected,
+                       bool residentAnonymousOnly = false);
+  bool accessRange(uintptr_t address, size_t length, bool write, bool residentAnonymousOnly);
   bool handleTrapUnlocked(uintptr_t address, bool bIsWrite, bool bWasPresent, bool execute,
                           MemoryMappedObject* selected);
   bool handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent, bool execute = false,

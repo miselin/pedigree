@@ -79,8 +79,26 @@ EXPORT int memcmp(const void* p1, const void* p2, size_t len) {
 EXPORT void* memset(void* buf, int c, size_t n) {
 #ifdef TARGET_IS_X86
   if (n >= STOSB_THRESHOLD) {
+#if defined(__x86_64__)
+    // Use qword transfers without requiring ERMS or per-call CPU dispatch.
+    void* destination = buf;
+    size_t head = (-(uintptr_t)buf) & 7;
+    const size_t words = (n - head) / 8;
+    const size_t tail = (n - head) & 7;
+    const uint64_t value = (unsigned char)c * 0x0101010101010101ULL;
+    __asm__ __volatile__(
+        "rep stosb\n\t"
+        "mov %[words], %%rcx\n\t"
+        "rep stosq\n\t"
+        "mov %[tail], %%rcx\n\t"
+        "rep stosb"
+        : "+&D"(destination), "+&c"(head)
+        : "a"(value), [words] "r"(words), [tail] "r"(tail)
+        : "memory");
+#else
     int a, b;
     __asm__ __volatile__("rep stosb" : "=&D"(a), "=&c"(b) : "0"(buf), "a"(c), "1"(n) : "memory");
+#endif
     return buf;
   }
 #endif
@@ -94,11 +112,28 @@ EXPORT void* memset(void* buf, int c, size_t n) {
 EXPORT void* memcpy(void* restrict s1, const void* restrict s2, size_t n) {
 #ifdef TARGET_IS_X86
   if (n >= STOSB_THRESHOLD) {
+#if defined(__x86_64__)
+    void* destination = s1;
+    const void* source = s2;
+    size_t head = (-(uintptr_t)s1) & 7;
+    const size_t words = (n - head) / 8;
+    const size_t tail = (n - head) & 7;
+    __asm__ __volatile__(
+        "rep movsb\n\t"
+        "mov %[words], %%rcx\n\t"
+        "rep movsq\n\t"
+        "mov %[tail], %%rcx\n\t"
+        "rep movsb"
+        : "+&D"(destination), "+&S"(source), "+&c"(head)
+        : [words] "r"(words), [tail] "r"(tail)
+        : "memory");
+#else
     int a, b, c;
     __asm__ __volatile__("rep movsb"
                          : "=&c"(a), "=&D"(b), "=&S"(c)
                          : "1"(s1), "2"(s2), "0"(n)
                          : "memory");
+#endif
     return s1;
   }
 #endif
@@ -111,15 +146,37 @@ EXPORT void* memcpy(void* restrict s1, const void* restrict s2, size_t n) {
 
 #ifdef TARGET_IS_X86
 static inline void* memmove_x86(void* s1, const void* s2, size_t n) {
-  // Perform rep movsb in reverse.
   const unsigned char* sp = (const unsigned char*)s2 + (n - 1);
   unsigned char* dp = (unsigned char*)s1 + (n - 1);
 
+#if defined(__x86_64__)
+  size_t head = ((uintptr_t)s1 + n) & 7;
+  const size_t words = (n - head) / 8;
+  const size_t tail = (n - head) & 7;
+  // Backward MOVSQ addresses the first byte of each qword, not its last.
+  // Keep DF set only inside this block and restore it before returning to C.
+  __asm__ __volatile__(
+      "std\n\t"
+      "rep movsb\n\t"
+      "sub $7, %%rdi\n\t"
+      "sub $7, %%rsi\n\t"
+      "mov %[words], %%rcx\n\t"
+      "rep movsq\n\t"
+      "add $7, %%rdi\n\t"
+      "add $7, %%rsi\n\t"
+      "mov %[tail], %%rcx\n\t"
+      "rep movsb\n\t"
+      "cld"
+      : "+&D"(dp), "+&S"(sp), "+&c"(head)
+      : [words] "r"(words), [tail] "r"(tail)
+      : "memory", "cc");
+#else
   int a, b, c;
   __asm__ __volatile__("std; rep movsb; cld"
                        : "=&c"(a), "=&D"(b), "=&S"(c)
                        : "1"(dp), "2"(sp), "0"(n)
                        : "memory");
+#endif
   return s1;
 }
 #endif

@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include <sys/eventfd.h>
+#include <sys/inotify.h>
 #include <sys/mman.h>
 #include <sys/mount.h>
 #include <sys/signalfd.h>
@@ -605,6 +606,171 @@ static void pipe_vectors(void) {
   passed();
 }
 
+struct read_protection_race {
+  void* buffer;
+  size_t length;
+  pthread_barrier_t gate;
+};
+
+static void* change_read_protection(void* opaque) {
+  struct read_protection_race* race = opaque;
+  race_gate(&race->gate);
+  for (size_t i = 0; i < 32; ++i) {
+    require(mprotect(race->buffer, race->length, PROT_NONE) == 0, "read-race-protect");
+    sched_yield();
+    require(mprotect(race->buffer, race->length, PROT_READ | PROT_WRITE) == 0, "read-race-restore");
+  }
+  return NULL;
+}
+
+static void scalar_writes(size_t page) {
+  current_case = "scalar-write-batches";
+  const size_t length = 128 * 1024 + 17, capacity = length + page;
+  const char* path = pedigree ? "/scalar-write-contract" : "scalar-write-contract";
+  int fd = open(path, O_CREAT | O_EXCL | O_RDWR, 0600);
+  unsigned char* buffer =
+      mmap(NULL, capacity, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  unsigned char* actual = malloc(capacity);
+  require(fd >= 0 && buffer != MAP_FAILED && actual, "write-fixture");
+  for (size_t i = 0; i < capacity; ++i)
+    buffer[i] = (unsigned char)(i * 37 + (i >> 8));
+  require(write(fd, buffer + 1, length) == (ssize_t)length &&
+              lseek(fd, 0, SEEK_CUR) == (off_t)length &&
+              pread(fd, actual, length, 0) == (ssize_t)length &&
+              !memcmp(actual, buffer + 1, length),
+          "write-unaligned-multiple-batches");
+  require(pwrite(fd, buffer, length, 13) == (ssize_t)length &&
+              lseek(fd, 0, SEEK_CUR) == (off_t)length &&
+              pread(fd, actual, length, 13) == (ssize_t)length &&
+              !memcmp(actual, buffer, length),
+          "pwrite-batches-preserve-offset");
+  int append = open(path, O_WRONLY | O_APPEND);
+  require(append >= 0 && write(append, buffer, length) == (ssize_t)length &&
+              lseek(append, 0, SEEK_CUR) == (off_t)(2 * length + 13) &&
+              pread(fd, actual, length, length + 13) == (ssize_t)length &&
+              !memcmp(actual, buffer, length) && close(append) == 0,
+          "append-multiple-batches");
+  passed();
+
+  current_case = "scalar-write-fault-progress";
+  int notify = inotify_init1(IN_NONBLOCK);
+  require(notify >= 0 && inotify_add_watch(notify, path, IN_MODIFY) >= 0, "write-watch");
+  char events[4096];
+  for (int positional = 0; positional < 2; ++positional) {
+    const size_t valid = (positional ? 64 * 1024 : 0) + 2 * page;
+    require(ftruncate(fd, 0) == 0 && lseek(fd, 13, SEEK_SET) == 13 &&
+                mprotect(buffer + valid, page, PROT_NONE) == 0,
+            "write-fault-setup");
+    while (read(notify, events, sizeof(events)) > 0) {}
+    ssize_t written = positional ? pwrite(fd, buffer, length, 13) : write(fd, buffer, length);
+    require(written >= (ssize_t)(valid - page + 1) && written <= (ssize_t)valid &&
+                lseek(fd, 0, SEEK_CUR) == (positional ? 13 : 13 + written),
+            "write-fault-retains-valid-prefix");
+    struct stat status;
+    require(fstat(fd, &status) == 0 && status.st_size == 13 + written &&
+                pread(fd, actual, written, 13) == written && !memcmp(actual, buffer, written),
+            "write-fault-bytes-and-size");
+    ssize_t n = read(notify, events, sizeof(events));
+    require(n >= (ssize_t)sizeof(struct inotify_event) &&
+                (((struct inotify_event*)events)->mask & IN_MODIFY),
+            "partial-write-publishes-modification");
+    const off_t saved_size = status.st_size;
+    const off_t saved_offset = lseek(fd, 0, SEEK_CUR);
+    errno = 0;
+    written = positional ? pwrite(fd, buffer + valid, page, 13)
+                         : write(fd, buffer + valid, page);
+    require(written == -1 && errno == EFAULT && fstat(fd, &status) == 0 &&
+                status.st_size == saved_size && lseek(fd, 0, SEEK_CUR) == saved_offset,
+            "initial-write-fault-uncommitted");
+    require(mprotect(buffer + valid, page, PROT_READ | PROT_WRITE) == 0, "write-unprotect");
+  }
+  require(fsync(fd) == 0 && close(notify) == 0 && close(fd) == 0 && unlink(path) == 0 &&
+              munmap(buffer, capacity) == 0,
+          "write-cleanup");
+  free(actual);
+  passed();
+}
+
+static void cached_scalar_reads(size_t page) {
+  current_case = "cached-scalar-read";
+  const size_t length = 256 * 1024 + 17, capacity = length + 2 * page;
+  const char* path = pedigree ? "/scalar-read-contract" : "scalar-read-contract";
+  int fd = open(path, O_CREAT | O_EXCL | O_RDWR, 0600);
+  unsigned char* expected = malloc(length);
+  unsigned char* buffer =
+      mmap(NULL, capacity, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  require(fd >= 0 && expected && buffer != MAP_FAILED, "scalar-fixture");
+  for (size_t i = 0; i < length; ++i)
+    expected[i] = (unsigned char)(i / page * 29 + i % 251);
+  reset_file(fd, expected, length);
+  require(pread(fd, buffer, length, 0) == (ssize_t)length && !memcmp(buffer, expected, length),
+          "scalar-demand-paged-destination");
+  memset(buffer, 0xA5, capacity);
+  pid_t child = fork();
+  require(child >= 0, "scalar-cow-fork");
+  if (!child) {
+    _exit(pread(fd, buffer, page, 0) == (ssize_t)page && !memcmp(buffer, expected, page) ? 0 : 1);
+  }
+  int status = 0;
+  require(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0 &&
+              buffer[0] == 0xA5 && buffer[page - 1] == 0xA5,
+          "scalar-cow-preserves-parent");
+  require(pread(fd, buffer + 7, length, 0) == (ssize_t)length &&
+              !memcmp(buffer + 7, expected, length) && buffer[6] == 0xA5 &&
+              buffer[length + 7] == 0xA5 && lseek(fd, 0, SEEK_CUR) == 0,
+          "scalar-unaligned-multiple-batches");
+  require(lseek(fd, 3, SEEK_SET) == 3 && read(fd, buffer, length) == (ssize_t)length - 3 &&
+              !memcmp(buffer, expected + 3, length - 3) && lseek(fd, 0, SEEK_CUR) == (off_t)length,
+          "scalar-read-eof-and-offset");
+  memset(buffer, 0xA5, capacity);
+  require(pread(fd, buffer, 128 * 1024, (off_t)length - 13) == 13 &&
+              !memcmp(buffer, expected + length - 13, 13) && buffer[13] == 0xA5,
+          "scalar-short-eof-guard");
+  require(mprotect(buffer, page, PROT_NONE) == 0 && lseek(fd, 0, SEEK_SET) == 0, "scalar-protect");
+  errno = 0;
+  require(read(fd, buffer, page) == -1 && errno == EFAULT && lseek(fd, 0, SEEK_CUR) == 0,
+          "scalar-fault-preserves-offset");
+  require(mprotect(buffer, page, PROT_READ | PROT_WRITE) == 0 &&
+              mprotect(buffer + 2 * page, page, PROT_NONE) == 0,
+          "scalar-protect-suffix");
+  ssize_t prefix = read(fd, buffer, 3 * page);
+  require(prefix > 0 && prefix <= (ssize_t)(2 * page) &&
+              !memcmp(buffer, expected, (size_t)prefix) && lseek(fd, 0, SEEK_CUR) == prefix,
+          "scalar-fault-delivers-prefix");
+  require(mprotect(buffer + 2 * page, page, PROT_READ | PROT_WRITE) == 0, "scalar-restore-suffix");
+  passed();
+
+  current_case = "cached-scalar-protection-race";
+  struct read_protection_race race = {.buffer = buffer, .length = 128 * 1024};
+  require(pthread_barrier_init(&race.gate, NULL, 2) == 0, "read-race-gate");
+  pthread_t worker;
+  require(pthread_create(&worker, NULL, change_read_protection, &race) == 0, "read-race-thread");
+  race_gate(&race.gate);
+  for (size_t i = 0; i < 64; ++i) {
+    errno = 0;
+    ssize_t result = pread(fd, buffer, race.length, 0);
+    require(result == (ssize_t)race.length || (result == -1 && errno == EFAULT),
+            "read-race-result");
+  }
+  require(pthread_join(worker, NULL) == 0 && pthread_barrier_destroy(&race.gate) == 0,
+          "read-race-join");
+  passed();
+
+  if (pedigree) {
+    current_case = "cached-scalar-file-mapping-alias";
+    unsigned char* alias = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    require(alias != MAP_FAILED, "scalar-map-source");
+    // Preserve Pedigree's existing request snapshot when the output aliases its source.
+    require(pread(fd, alias + page, 128 * 1024, 0) == 128 * 1024 &&
+                !memcmp(alias + page, expected, 128 * 1024),
+            "scalar-overlapping-source-snapshot");
+    require(munmap(alias, length) == 0, "scalar-unmap-source");
+    passed();
+  }
+  require(munmap(buffer, capacity) == 0 && close(fd) == 0 && unlink(path) == 0, "scalar-cleanup");
+  free(expected);
+}
+
 int main(int argc, char** argv) {
   const int stdio_mode = argc == 2 && !strcmp(argv[1], "--stdio");
   require(argc == 1 || stdio_mode, "arguments");
@@ -653,6 +819,8 @@ int main(int argc, char** argv) {
   concurrent_shared_offset(fd);
   access_flags(fd, inaccessible);
   cache_mapping_lifetime(fd, (size_t)page);
+  scalar_writes((size_t)page);
+  cached_scalar_reads((size_t)page);
   // Special descriptor vector writes and errors are Pedigree-specific contracts.
   if (pedigree) {
     eventfd_vectors();

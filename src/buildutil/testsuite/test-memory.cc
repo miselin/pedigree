@@ -63,6 +63,66 @@ TEST(PedigreeMemoryLibrary, ReversedMemoryCopy) {
   EXPECT_STREQ(buf, expected);
 }
 
+TEST(PedigreeMemoryLibrary, CopyAlignmentAndBounds) {
+  const size_t lengths[] = {0, 1, 7, 8, 9, 63, 64, 65, 71, 72, 73, 127, 128, 129, 4095, 4096, 4097};
+  unsigned char source[4128], actual[4128], expected[4128];
+  for (size_t i = 0; i < sizeof(source); ++i) {
+    source[i] = static_cast<unsigned char>(i * 37 + (i >> 8));
+  }
+  for (auto copy : {MemoryCopy, ForwardMemoryCopy}) {
+    for (size_t length : lengths) {
+      for (size_t src = 0; src < 8; ++src) {
+        for (size_t dest = 0; dest < 8; ++dest) {
+          memset(actual, 0xA5, sizeof(actual));
+          memset(expected, 0xA5, sizeof(expected));
+          memcpy(expected + 8 + dest, source + src, length);
+          ASSERT_EQ(copy(actual + 8 + dest, source + src, length), actual + 8 + dest);
+          ASSERT_EQ(memcmp(actual, expected, sizeof(actual)), 0)
+              << "length=" << length << " src=" << src << " dest=" << dest;
+        }
+      }
+    }
+  }
+}
+
+TEST(PedigreeMemoryLibrary, OverlappingCopyAlignmentAndBounds) {
+  const size_t lengths[] = {0, 1, 7, 8, 9, 63, 64, 65, 71, 72, 73, 127, 128, 129, 4095, 4096, 4097};
+  unsigned char original[4160], actual[4160], expected[4160];
+  for (size_t i = 0; i < sizeof(original); ++i) {
+    original[i] = static_cast<unsigned char>(i * 37 + (i >> 8));
+  }
+  for (size_t length : lengths) {
+    for (size_t src = 16; src < 24; ++src) {
+      for (int distance = -9; distance <= 9; ++distance) {
+        const size_t dest = static_cast<size_t>(static_cast<int>(src) + distance);
+        memcpy(actual, original, sizeof(actual));
+        memcpy(expected, original, sizeof(expected));
+        memmove(expected + dest, expected + src, length);
+        ASSERT_EQ(MemoryCopy(actual + dest, actual + src, length), actual + dest);
+        ASSERT_EQ(memcmp(actual, expected, sizeof(actual)), 0)
+            << "length=" << length << " src=" << src << " distance=" << distance;
+      }
+    }
+  }
+}
+
+TEST(PedigreeMemoryLibrary, ByteSetAlignmentAndBounds) {
+  const size_t lengths[] = {0, 1, 7, 8, 9, 63, 64, 65, 71, 72, 73, 127, 128, 129, 4095, 4096, 4097};
+  unsigned char actual[4128], expected[4128];
+  for (size_t length : lengths) {
+    for (size_t offset = 0; offset < 8; ++offset) {
+      for (int value : {0, -1, 0xAB, 0x12AB, 0x100}) {
+        memset(actual, 0xA5, sizeof(actual));
+        memset(expected, 0xA5, sizeof(expected));
+        memset(expected + 8 + offset, value, length);
+        ASSERT_EQ(ByteSet(actual + 8 + offset, value, length), actual + 8 + offset);
+        ASSERT_EQ(memcmp(actual, expected, sizeof(actual)), 0)
+            << "length=" << length << " offset=" << offset << " value=" << value;
+      }
+    }
+  }
+}
+
 TEST(PedigreeMemoryLibrary, MemoryCompareSame) {
   char buf1[32];
   char buf2[32];

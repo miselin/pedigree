@@ -21,6 +21,14 @@ were deferred because of their admission cost; the follow-up below revisits
 the lifetime protocol and measures that tradeoff explicitly.
 The retained gains, tradeoffs, and checks are recorded below.
 
+**2026-09-23: the measured post-checklist work is complete too.** This includes
+safe syscall-handler unloading, non-ERMS memory primitives, cached-read batching
+and direct copies, scalar-write batching, and writeback durability batching.
+The compiler follow-up and rejected experiments are recorded below. T420
+qualification and the recorded intermittent cold-read benchmark timeouts remain
+separate hardware and reliability follow-ups; neither keeps this performance
+sprint open.
+
 ### Measured outcome
 
 These results come from the matched comparisons recorded below. They measure
@@ -669,7 +677,7 @@ Final artifacts under the Stage 1 directory: `rcu-fd-control5`,
 `rcu-fd-linked`, `rcu-vector`, `rcu-fd.c`, and `rcu-final-summary.json`.
 Guest reports: `/private/tmp/perf-0922-rcu-final-{b1,a1,b4,a4}` and
 `/private/tmp/perf-0922-rcu-vector`. The normal build has
-`PEDIGREE_CONCURRENCY_SMOKE_TESTS=FALSE`. Changes remain uncommitted.
+`PEDIGREE_CONCURRENCY_SMOKE_TESTS=FALSE`.
 
 ### Descriptor compiler qualification
 
@@ -860,7 +868,7 @@ The normal kernel/initrd rebuild passes with concurrency smoke tests off and
 sampled accounting enabled. Kernel, initrd archive, all 50 archived payloads,
 and generated configuration exactly match the final timed fixture. Verification:
 `close-final-verification.json` under the Stage 1 artifact directory.
-`git diff --check` passes. All stages are closed; changes remain uncommitted.
+`git diff --check` passes. All stages are closed.
 
 
 ## Post-checklist: reads and syscall-handler unloading
@@ -969,7 +977,6 @@ exactly (`unload-final-verification.json`). `git diff --check` passes. Ruff repo
 the same six pre-existing runner findings (EXE001, I001, BLE001) before and after
 the throughput metric; no new finding is introduced. All follow-up checklist items above
 are complete, with the unrelated broader-smoke failure recorded explicitly.
-Changes remain uncommitted.
 
 ### Linux read control
 
@@ -1043,3 +1050,306 @@ unmap. This is a stronger but broader experiment than the mapping-membership
 change. Thread-start staging queues offer a smaller opportunity to embed a
 reusable hook in their existing startup record. None of these assessments
 establishes a measured speedup or removes the need for lifetime synchronization.
+
+### Non-ERMS copy and fill experiment
+
+The completed sprint is committed as `3c80233f53`, with the stage scorecard and
+validation limits in its commit message. The following copy/fill experiment is
+separate and stops at primitive and read measurements.
+
+The kernel has no existing boot-time code-patching or IFUNC facility for
+branch-free CPU selection. The experiment therefore uses the requested fixed
+non-ERMS fallback, with no per-call capability test or indirect dispatch.
+On x86-64, transfers of at least 64 bytes align the destination using byte REP,
+process the body using qword REP, and finish with byte REP. Backward overlapping
+copies use the same widths in reverse and restore DF before leaving assembly.
+Nonzero fills replicate the low byte into a qword. Zero-fill is the existing
+`ByteSet(destination, 0, length)` operation; no separate ByteZero API is added.
+Smaller operations and other architectures retain their existing paths.
+
+The SandyBridge TCG guest reports CPUID ERMS=0. This agrees with
+[Intel's ERMS documentation](https://www.intel.com/content/dam/doc/manual/64-ia-32-architectures-optimization-manual.pdf),
+which introduces enhanced byte REP at Ivy Bridge. No physical T420 or ERMS-capable
+CPU performance result is inferred from TCG.
+
+The primitive probe links old and new production `memory.c` objects compiled
+with the actual kernel flags, with symbols renamed to coexist in one Linux
+TCG guest. The same guest runs the existing memory test file, extended with
+alignment, bounds, large overlap, and fill-value regressions: all nine tests
+pass. Additional guard-page and DF checks pass. Buffers are prefaulted and
+each case has an untimed warmup; contents are checked outside the timer.
+Each timed round transfers 64 MiB through the selected buffer size. Three
+rounds alternate old/new ordering; the table gives median MiB/s.
+
+| Operation | Buffer size | Before (MiB/s) | After (MiB/s) | Throughput ratio |
+| --- | ---: | ---: | ---: | ---: |
+| MemoryCopy | 4 KiB | 593.8 | 4,365.3 | 7.35x |
+| MemoryCopy | 128 KiB | 572.2 | 3,836.9 | 6.71x |
+| MemoryCopy | 8 MiB | 568.4 | 3,494.0 | 6.15x |
+| ByteSet | 4 KiB | 881.2 | 5,245.9 | 5.95x |
+| ByteSet | 128 KiB | 912.8 | 6,909.9 | 7.57x |
+| ByteSet | 8 MiB | 878.8 | 6,069.8 | 6.91x |
+| Zero-fill | 4 KiB | 892.2 | 5,183.0 | 5.81x |
+| Zero-fill | 128 KiB | 906.9 | 7,074.1 | 7.80x |
+| Zero-fill | 8 MiB | 884.4 | 6,097.5 | 6.89x |
+
+With a destination misaligned by three bytes at 128 KiB, copy/set/zero ratios
+are 7.21x, 7.49x, and 7.46x respectively. These are guest userspace executions
+of the kernel's compiled primitives, not host-native or end-to-end kernel
+timings. The following read pairs exercise the rebuilt Pedigree kernel.
+
+One fresh guest per version and order uses the same 128 MiB fixtures, backing
+chains, firmware, SandyBridge vCPU, 4 GiB RAM, AHCI, TCG, benchmark binary,
+configuration, and disabled tracing as the preceding Linux comparison.
+Sequential requests are 128 KiB; permuted requests are 4 KiB. Each guest runs
+one cold and two cached passes. Cold is guest-cache cold, not host-cache cold.
+
+| Read workload | Before (MiB/s) | After (MiB/s) |
+| --- | ---: | ---: |
+| Sequential cold | 97.94 | 197.47 |
+| Sequential cached, first repeat | 243.02 | 664.31 |
+| Sequential cached, second repeat | 242.87 | 841.21 |
+| Random cold | 21.94 | 24.83 |
+| Random cached, first repeat | 157.33 | 314.59 |
+| Random cached, second repeat | 163.47 | 323.17 |
+
+Cold sequential throughput doubles; cached sequential is 2.73–3.46x higher.
+The cached candidate samples vary, so both are retained rather than reporting
+only the faster result. Cached random roughly doubles; cold random rises 13.2%.
+Every pass verifies all bytes, and cached phases issue no disk reads. Cold
+request counts remain 8,193 sequential and 32,768 random on both kernels.
+This establishes a large read-path benefit without changing read windows,
+transport batching, bounce-buffer ownership, or user-buffer validation.
+
+Reports: `/private/tmp/perf-0922-memory-primitives` and
+`/private/tmp/perf-0922-mem-{seq,random}-{old,new}`. Frozen fixtures, actual
+compile command, old/new objects, probe source, and checked summaries are under
+`/private/tmp/pedigree-memory-width`. Kernel/initrd builds pass. Final formatting
+preserves the tested memory object's `.text` exactly, and kernel configuration
+matches the control. No broader
+compiler/system benchmark was run after this experiment.
+
+### Cached read batching and direct user copies
+
+- [x] Batch resident page acquisition and release, retaining exact page pins
+  across the copy without holding the cache spinlock. The fill-cache read path
+  skips Bloom filters, the second tree lookup on release, and repeated updates
+  of the already-published File index. Cache drains publish wait intent before
+  checking their predicate, allowing batched page release to skip empty wake
+  queues. Ordinary cache releases retain their existing wakeup path.
+- [x] Avoid the bounce buffer for cached regular-file reads into resident,
+  writable anonymous memory. Both scalar read and pread hold the mapping guard
+  before the file lock, then validate only the resident source prefix. Validation
+  does not invoke the pager under the file lock. Cache misses, file-backed or
+  unmanaged destination mappings, demand paging, copy-on-write, direct mode, and
+  unsupported caches use the existing bounce path. File-backed destinations keep
+  request-snapshot semantics when they alias the source.
+- [x] Verify cache boundaries, unpublished pages, failed destination preparation,
+  and pin release in the existing native tests. All 93 focused cache/ext2 tests
+  pass. The extended vector-I/O contract passes in a four-vCPU guest, including
+  scalar read/pread offsets, unaligned multi-batch reads, EOF, EFAULT and partial
+  prefixes, demand-paged and CoW destinations, concurrent mprotect, and a shared
+  source/destination file mapping.
+
+The first batching-only experiment retained both copies and measured
+1,390.34/1,409.37 MiB/s cached sequential throughput. The direct-copy experiment
+then removed the second copy and per-request bounce allocation. The measured
+ext2 fixture uses the native-page fill cache; filesystems using other cache
+representations retain their existing fallback.
+
+- [x] Measure the final build against the preceding copy/fill candidate, with
+  the same 128 MiB fixtures, benchmark executable, firmware, kernel configuration,
+  SandyBridge vCPU, 4 GiB RAM, AHCI and single-vCPU TCG. Each timed guest runs one
+  cold and two cached passes; instruction profiling is separate from timing.
+
+| Read workload | Copy/fill control (MiB/s) | Final cached-read change (MiB/s) |
+| --- | ---: | ---: |
+| Sequential cold | 215.12 | 238.50 |
+| Sequential cached, first repeat | 799.26 | 2,129.57 |
+| Sequential cached, second repeat | 835.53 | 2,089.76 |
+| Random cold | 27.13 | 16.18; fresh-guest repeat 25.78 |
+| Random cached, first repeat | 342.63 | 661.80; fresh-guest repeat 602.38 |
+| Random cached, second repeat | 340.02 | 703.59; fresh-guest repeat 628.06 |
+
+Final cached sequential throughput improves 2.50–2.66x; all four final cached
+random samples improve 1.76–2.07x against the corresponding control pass. Cold
+timing is variable, and no stable cold-random gain is claimed. Cold reads still
+submit exactly 8,193 sequential or 32,768 random requests for 128 MiB; every
+cached pass submits zero disk reads. Every completed pass checks every byte.
+One unchanged-control cold-random run and one intermediate candidate run timed
+out before producing a metric. Those failures remain recorded and are excluded
+from throughput calculations; the cold-run liveness issue is not resolved by
+this cached-read work.
+
+The same one-syscall bracket (second 128 KiB pread of the first cached pass)
+falls from 70,726 to 17,063 kernel instruction dispatches, 1,951 to 290 calls,
+and 613 to 41 lock-prefixed instructions. Executed instruction bytes match both
+frozen builds. The final bracket has 32 page copies, no second whole-request
+copy, no allocator calls, no Bloom hashing, and no secondary File-index updates.
+It retains 33 destination page-table checks. Counts describe work, not elapsed
+time or the relative cost of REP instructions.
+
+Final reports are `/private/tmp/perf-0922-cache-complete-{sequential,random,contract,profile}`
+and `/private/tmp/perf-0922-cache-complete-random-repeat`; refreshed controls are
+`/private/tmp/perf-0922-cache-control-repeat` and
+`/private/tmp/perf-0922-cache-control-random-retry`. Frozen payloads, build/test
+logs and the verified profile are under `/private/tmp/pedigree-cached-read-work`.
+Kernel/initrd builds pass, final payloads match the build, and the configuration
+matches the control. No broad system benchmark
+or physical-hardware qualification is included.
+
+### Compiler check after memory and cached-read changes
+
+The September 23 comparison uses the committed sprint's frozen
+`unload2-candidate` kernel/initrd versus the current memory-width and cached-read
+changes. Configurations match, and current frozen payload hashes match the build.
+Both arms use GCC 15.3.0, QEMU 11.1.1 TCG, q35, one Sandy Bridge vCPU, 4 GiB RAM,
+the same firmware, and identical backing files within each workload. Fresh
+disposable overlays keep the disk-backed runs independent; disk writes remain
+enabled. The existing quick modes complete four guests in about 190 seconds.
+
+These are single samples, without the full matrix's warmup or repeated rounds.
+Host-wall seconds, comparing within each row:
+
+| Workload | Sprint checkpoint | Current | Elapsed-time change |
+| --- | ---: | ---: | ---: |
+| RAM-root tiny build | 0.556 | 0.558 | 0.4% longer |
+| RAM-root preprocess | 1.225 | 1.155 | 5.7% shorter |
+| RAM-root link | 1.047 | 0.870 | 16.9% shorter |
+| RAM-root full build | 19.821 | 18.361 | 7.4% shorter |
+| Disk-backed cold build | 21.087 | 23.320 | 10.6% longer |
+| Disk-backed warm build | 18.450 | 17.583 | 4.7% shorter |
+
+The full RAM-root build's sampled kernel CPU time falls from 4.84 to 3.60 seconds
+(25.6%), while userspace time is 13.92 to 14.16 seconds. The warm disk build's
+kernel time falls from 4.91 to 3.84 seconds (21.8%), with userspace at 12.60 to
+13.08 seconds. Guest elapsed times also decrease: 19.005 to 17.999 seconds for
+the RAM-root full build, and 17.716 to 17.097 seconds for the warm disk build.
+This pair shows lower kernel cost and modest whole-build gains; it does not
+separate the contributions of memory primitives and cached reads or establish
+statistical significance. The unchanged guest compiler and its libraries still
+account for most CPU time.
+
+All four guests pass, including execution of generated programs. RAM-root input
+and root identities match, with zero measured disk requests; CPU controls are
+175–187 ms. Disk-backed cold builds both read 34,877,440 bytes in 4,195 requests,
+and both warm builds issue zero reads. Cold elapsed time regresses in this pair,
+despite lower sampled kernel CPU time; no cold-compile improvement is claimed.
+Background writeback differs across phase boundaries, so the separate sync
+times are not treated as a write-throughput comparison. Both disk runs produce
+the same 1,980,136-byte executable hash and complete sync and the anonymous-memory
+contract. This run does not recheck persistence in a second boot.
+
+Reports: `/private/tmp/perf-0923-compile-{control,current}-{ram,disk}`.
+Frozen fixtures and a checked summary are under
+`/private/tmp/pedigree-compiler-current-20260923`. Write-path implementation is
+unchanged by this measurement.
+
+### Scalar write batching
+
+- [x] Regular-file `write` and `pwrite` use 64 KiB bounce buffers, matching the
+  existing regular-file `writev` capacity. Allocation failure falls back to
+  4,097 bytes. A failed larger user copy retries a small chunk to retain valid
+  partial progress. Pipe and device chunk sizes are unchanged.
+- [x] Timestamp and modification-event publication happens once per regular-file
+  operation through the existing WriteGuard, including early partial returns.
+- [x] Focused before/after QEMU measurement and guest correctness checks pass.
+
+The control includes the preceding memory-width and cached-read changes. Both
+arms use identical build configuration and the same preallocated 32 MiB ext2
+file, 128 KiB scalar `write` requests, one Sandy Bridge vCPU, 4 GiB RAM, and QEMU
+11.1.1 TCG. Writes are enabled, overlays are independent, and tracing is off.
+Each pass changes every byte, then separately times fsync and complete readback
+verification. The existing launch benchmark now supports `write` and `pwrite`
+with these three gated phases; only buffered writes report throughput.
+
+| Buffered overwrite | Before (MiB/s) | After (MiB/s) | Speedup |
+| --- | ---: | ---: | ---: |
+| First pass, cache initially cold | 23.73 | 317.03 | 13.36x |
+| Resident pages, first repeat | 224.44 | 795.49 | 3.54x |
+| Resident pages, second repeat | 242.84 | 786.92 | 3.24x |
+
+The first control pass reads 31 MiB in 7,936 requests to preserve partial pages
+created by its 4,097-byte internal chunks. Aligned full-page overwrites in the
+candidate eliminate all those reads. Both resident passes issue zero disk I/O
+during the buffered-write interval. An aligned 128 KiB request now needs two
+internal writes and 32 page visits, versus 32 writes and 63 page visits, with one
+metadata publication instead of 32. The user-to-bounce-to-cache copies remain.
+
+These are buffered-write gains, not equivalent durable-throughput gains. Fsync
+still takes 1.30–1.48 seconds per 32 MiB, with 8,193 write requests and 128–129
+flushes. Write plus fsync falls from 2.798 to 1.585 seconds on the first pass;
+the two resident passes fall from 1.501/1.470 to 1.343/1.373 seconds. Writeback
+and flush batching are measured separately in the next section.
+
+The four-vCPU vector/scalar contract passes large unaligned writes, append,
+positional-offset isolation, faults before and after a full batch, unchanged
+state on initial EFAULT, and modification notification after partial success,
+alongside its existing pipe, descriptor, mapping, and read checks. Kernel/initrd
+builds and 16 benchmark-driver tests pass. Offline extraction of the stopped
+candidate guest's disk verifies every final file byte, and e2fsck passes; this
+is disk-image readback rather than a second guest boot. Current frozen payloads
+match the build. No new Python lint findings were introduced.
+
+Reports: `/private/tmp/perf-0923-write-{control,candidate,contract}`. Frozen
+fixtures, logs, checked timings, and offline readback evidence are under
+`/private/tmp/pedigree-scalar-write-work`.
+
+### Writeback durability batching
+
+- [x] Full-cache sync submits one pinned dirty snapshot to its durable callback.
+  I/O submission remains bounded inside the callback. Pages are settled only
+  after the shared barrier succeeds; failure and concurrent redirty remain
+  retryable. Large snapshots use heap storage, keeping kernel stack use bounded.
+- [x] Ext2 full-file sync uses the authoritative shared fill cache directly,
+  then syncs inode metadata. Background writeback and ranged sync retain their
+  existing bounded batches. FAT and SCSI full-cache sync use the same facility.
+- [x] Measure adjacent AHCI write-command grouping and reject it when slower.
+- [x] Validate failure/retry behavior, SMP I/O contracts, and persistence in a
+  fresh guest.
+
+The September 23 control includes scalar-write batching. Both arms overwrite the
+same preallocated 32 MiB ext2 file using 128 KiB requests, QEMU 11.1.1 TCG, one
+Sandy Bridge vCPU, 4 GiB RAM, identical firmware/configuration, real disk writes,
+fresh overlays, and no tracing. Each pass separately times buffered write,
+fsync, and full-byte verification. Throughput below includes **write plus fsync**
+and excludes verification; it is not the earlier buffered-only rate.
+
+| Measurement | Before | After | Improvement |
+| --- | ---: | ---: | ---: |
+| First fsync | 1,445.7 ms | 211.2 ms | 6.85x faster |
+| Repeated fsync, first repeat | 1,333.9 ms | 171.1 ms | 7.80x faster |
+| Repeated fsync, second repeat | 1,335.7 ms | 172.8 ms | 7.73x faster |
+| First write plus fsync | 20.63 MiB/s | 100.18 MiB/s | 4.86x faster |
+| Repeated write plus fsync, first repeat | 23.26 MiB/s | 150.80 MiB/s | 6.48x faster |
+| Repeated write plus fsync, second repeat | 23.25 MiB/s | 143.32 MiB/s | 6.16x faster |
+| Device flushes per fsync | 129 | 2 | 98.4% fewer |
+
+Each fsync still writes 33,558,528 bytes in 8,193 commands: the payload and one
+inode page. The two remaining flushes preserve data-before-metadata ordering.
+A second candidate guest confirms 213.6/170.7/170.6 ms fsync and
+98.29/144.87/145.13 MiB/s write-plus-fsync throughput. Buffered write speed is
+not the target of this change.
+
+AHCI gathering into existing DMA buffers was tested separately and removed:
+64 KiB commands reduced writes to 522 but took 340/267/288 ms per fsync;
+16 KiB commands reduced writes to 2,050 but took 203/242/243 ms. Neither improves
+the repeated fsync workload over barrier batching alone. Reduced queue overlap
+is a possible explanation, not an established cause. The retained patch leaves
+AHCI command sizing unchanged.
+
+Validation passes 80 focused cache/ext2 tests, 36 FAT writeback/state tests, and
+16 benchmark-driver tests. A four-vCPU guest verifies all three 32 MiB overwrites,
+and the existing four-vCPU vector/scalar I/O contract passes. The writer is
+stopped without shutdown sync; offline extraction checks every final byte and
+e2fsck passes. A fresh guest then opens the retained file read-only and checks
+all 32 MiB using the existing launch driver's new `verify-write` operation.
+This establishes QEMU disk-image persistence, not physical power-loss behavior.
+
+Reports are `/private/tmp/perf-0923-writeback-{control,barrier,barrier-repeat,smp,contract,persisted}`.
+Experiments are `perf-0923-writeback-final` (64 KiB) and
+`perf-0923-writeback-group16`. Frozen payloads and logs are under
+`/private/tmp/pedigree-writeback-work`; `accepted` is the retained build.
+Its loadable kernel bytes and initrd match the measured barrier-only build
+(kernel debug information differs after formatting), and its full payloads
+match the current build.

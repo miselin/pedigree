@@ -1337,8 +1337,8 @@ bool MemoryMapManager::sharedBacking(Process* process, uintptr_t address, uintpt
   return object && object->sharedBacking(address, identity, offset);
 }
 
-bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write,
-                                       MemoryMappedObject*& selected) {
+bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write, MemoryMappedObject*& selected,
+                                       bool residentAnonymousOnly) {
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
   Process* diagnosticProcess = Processor::information().getCurrentThread()->getParent();
@@ -1364,6 +1364,9 @@ bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write,
     }
   }
 
+  if (residentAnonymousOnly && (!selected || selected->backingFile())) {
+    return false;
+  }
   const auto required = write ? MemoryMappedObject::Write : MemoryMappedObject::Read;
   if (selected && !(selected->permissions() & required))
     return false;
@@ -1371,6 +1374,12 @@ bool MemoryMapManager::faultInUnlocked(uintptr_t address, bool write,
   physical_uintptr_t physical = 0;
   size_t flags = 0;
   bool present = va.getMapping(page, physical, flags);
+  if (residentAnonymousOnly) {
+    return present && (flags & VirtualAddressSpace::Write) &&
+           !(flags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::NoAccess |
+                      VirtualAddressSpace::Swapped | VirtualAddressSpace::WriteProtected |
+                      VirtualAddressSpace::CopyOnWrite));
+  }
   if (selected && (!present || (flags & VirtualAddressSpace::NoAccess))) {
     if (selected->prepareResidentAccess(va, reinterpret_cast<uintptr_t>(page)) !=
         PopulationStatus::Success)
@@ -1413,6 +1422,15 @@ bool MemoryMapManager::faultIn(uintptr_t address, bool write) {
 }
 
 bool MemoryMapManager::faultInRange(uintptr_t address, size_t length, bool write) {
+  return accessRange(address, length, write, false);
+}
+
+bool MemoryMapManager::writableAnonymousRange(uintptr_t address, size_t length) {
+  return accessRange(address, length, true, true);
+}
+
+bool MemoryMapManager::accessRange(uintptr_t address, size_t length, bool write,
+                                   bool residentAnonymousOnly) {
   if (!length) {
     return true;
   }
@@ -1431,7 +1449,7 @@ bool MemoryMapManager::faultInRange(uintptr_t address, size_t length, bool write
 #endif
     MemoryMappedObject* selected = nullptr;
     for (uintptr_t page = address & ~(pageSize - 1);; page += pageSize) {
-      if (!faultInUnlocked(page, write, selected)) {
+      if (!faultInUnlocked(page, write, selected, residentAnonymousOnly)) {
         return false;
       }
       if (page == lastPage) {

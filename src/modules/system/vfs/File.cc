@@ -246,10 +246,23 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
     size = remaining;
   }
 
-  const size_t blockSize = useFillCache() ? PhysicalMemoryManager::getPageSize() : getBlockSize();
+  const bool filled = useFillCache();
+  const size_t blockSize = filled ? PhysicalMemoryManager::getPageSize() : getBlockSize();
 
   size_t n = 0;
   while (size) {
+    if (filled && !m_bDirect) {
+      const size_t cached = cacheState().fill.read(location, size, buffer);
+      if (cached) {
+        location += cached;
+        size -= cached;
+        n += cached;
+        if (buffer) {
+          buffer += cached;
+        }
+        continue;
+      }
+    }
     if (location >= fileSize)
       return n;
 
@@ -281,6 +294,22 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
     n += sz;
   }
   return n;
+}
+
+size_t File::readCached(uint64_t location, size_t size, uintptr_t buffer,
+                        bool (*prepare)(uintptr_t, size_t)) {
+  if (isBytewise() || !useFillCache() || m_bDirect) {
+    return 0;
+  }
+  LockGuard<Mutex> guard(dataMutationLock());
+  const size_t fileSize = getSize();
+  if (location >= fileSize) {
+    return 0;
+  }
+  if (size > fileSize - location) {
+    size = fileSize - location;
+  }
+  return cacheState().fill.read(location, size, buffer, prepare);
 }
 
 uint64_t File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {

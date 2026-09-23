@@ -762,6 +762,20 @@ bool PosixSubsystem::copyToUser(void* destination, const void* source, size_t co
   return true;
 }
 
+size_t PosixSubsystem::readCachedFile(File& file, uint64_t offset, void* destination,
+                                      size_t count) {
+  if (!count || !file.supportsRegularFileOperations() || file.isBlockDevice() ||
+      !validUserAddressRange(reinterpret_cast<uintptr_t>(destination), count)) {
+    return 0;
+  }
+  MemoryMapManager& mappings = MemoryMapManager::instance();
+  MemoryMapManager::OperationGuard mappingGuard(mappings);
+  return file.readCached(
+      offset, count, reinterpret_cast<uintptr_t>(destination), [](uintptr_t address, size_t bytes) {
+        return MemoryMapManager::instance().writableAnonymousRange(address, bytes);
+      });
+}
+
 PosixSubsystem::UserStringResult PosixSubsystem::copyUserString(const char* userString,
                                                                 String& copy, size_t maxLength) {
   copy.clear();

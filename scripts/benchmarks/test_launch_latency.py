@@ -194,6 +194,33 @@ class BenchmarkDriverTest(unittest.TestCase):
             "mmap", "permuted", 16 * 4096, read_size=131072)
         self.assert_phases(result, metrics, "mmap-permuted", 16 * 4096, checksum)
 
+    def test_scalar_writes_change_bytes_and_separate_sync_and_verification(self):
+        for operation in ("write", "pwrite"):
+            with self.subTest(operation=operation):
+                fixture = self.directory / "write-input.bin"
+                size = 256 * 1024
+                fixture.write_bytes(bytes(size))
+                result = subprocess.run(
+                    [str(self.binary), "--iterations", "2", operation, str(fixture)],
+                    capture_output=True, text=True, timeout=20, check=False)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("LAUNCHBENCH PASS END", result.stdout)
+                phases = re.findall(r"LAUNCHBENCH metric phase=(\S+)", result.stdout)
+                self.assertEqual(phases, [f"{operation}{suffix}-{i}" for i in range(2)
+                                          for suffix in ("", "-sync", "-verify")])
+                expected = bytes((i * 37 + (i >> 8) * 17 + 0x55) & 255 for i in range(size))
+                self.assertEqual(fixture.read_bytes(), expected)
+                command = [str(self.binary), "--iterations", "2", "verify-write", str(fixture)]
+                verified = subprocess.run(command, capture_output=True, text=True, check=False)
+                self.assertEqual(verified.returncode, 0, verified.stderr)
+                self.assertIn("LAUNCHBENCH PASS END", verified.stdout)
+                with fixture.open("r+b") as stream:
+                    stream.seek(4096 + 123)
+                    stream.write(bytes([expected[4096 + 123] ^ 1]))
+                corrupt = subprocess.run(command, capture_output=True, text=True, check=False)
+                self.assertNotEqual(corrupt.returncode, 0)
+                self.assertIn("fixture-pattern", corrupt.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

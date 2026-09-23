@@ -326,9 +326,7 @@ TEST_P(Ext2FillCacheWriteback, CachedReadPreservesBytesAndRefillsAfterEviction) 
   ASSERT_NE(address, 0U);
 
   fixture.disk.fill(locations[0], fixture.blockSize, 0xD3);
-  Ext2FillCacheTestPeer::setDataCacheSentinel(*fixture.file, 0, FILE_BAD_BLOCK);
-  Ext2FillCacheTestPeer::setDataCacheSentinel(*fixture.file, 0, FILE_BAD_BLOCK);
-  EXPECT_EQ(Ext2FillCacheTestPeer::dataCacheSentinel(*fixture.file, 0), FILE_BAD_BLOCK);
+  EXPECT_EQ(Ext2FillCacheTestPeer::dataCacheSentinel(*fixture.file, 0), address);
   fixture.disk.clearActivity();
   for (size_t i = 0; i < 4; ++i) {
     ASSERT_EQ(fixture.file->read(0, bytes.size(), reinterpret_cast<uintptr_t>(bytes.data())),

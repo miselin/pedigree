@@ -111,7 +111,7 @@ def main():
     parser.add_argument("--firmware-code", type=Path, required=True)
     parser.add_argument("--firmware-vars", type=Path)
     parser.add_argument("--cpus", type=int, choices=(1, 4), default=4)
-    parser.add_argument("--mode", choices=("launch", "read-sequential", "read-permuted",
+    parser.add_argument("--mode", choices=("launch", "read-sequential", "read-permuted", "write", "pwrite", "verify-write",
                                           "mmap-sequential", "mmap-permuted", "sync", "durability"),
                         default="launch")
     parser.add_argument("--iterations", type=int, default=3)
@@ -141,6 +141,12 @@ def main():
               ("launch", "fork", "exec") if args.mode == "launch" else
               ("sync-dirty", "sync-clean", "sync-redirty") if args.mode == "sync" else (args.mode,))
     expected += [f"{group}-{i}" for group in groups for i in range(args.iterations)]
+    if args.mode in ("write", "pwrite"):
+        expected = (["prewarm"] if args.prewarm else []) + [
+            f"{args.mode}{suffix}-{i}" for i in range(args.iterations)
+            for suffix in ("", "-sync", "-verify")]
+    if args.mode == "verify-write":
+        expected = (["prewarm"] if args.prewarm else []) + ["read-sequential-0"]
     if args.shutdown:
         expected.append("shutdown-0")
     image = args.image.resolve(strict=True)
@@ -247,7 +253,7 @@ def main():
                                                  else "transferred_bytes")
                         if not (0 <= current["metric"]["first_us"] <= current["metric"]["total_us"]):
                             raise RuntimeError("invalid guest timing interval")
-                        if match[1].startswith("read-"):
+                        if match[1].startswith("read-") or re.fullmatch(r"p?write-\d+", match[1]):
                             metric = current["metric"]
                             metric["mib_per_s"] = (metric["bytes"] * 1_000_000 /
                                                    (1024 * 1024 * metric["total_us"])

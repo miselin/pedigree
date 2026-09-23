@@ -389,6 +389,30 @@ UniqueArray<uint8_t> allocateReadBounce(File* file, size_t length, size_t& capac
   return bounce;
 }
 
+UniqueArray<uint8_t> allocateWriteBounce(bool regularFile, size_t length, size_t& capacity) {
+  const size_t limit = regularFile ? RegularWriteBounceCapacity : ScalarIoBounceCapacity;
+  capacity = length < limit ? length : limit;
+  UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(capacity);
+  if (!bounce && capacity > ScalarIoBounceCapacity) {
+    capacity = ScalarIoBounceCapacity;
+    bounce = UniqueArray<uint8_t>::allocate(capacity);
+  }
+  return bounce;
+}
+
+bool copyWriteSource(void* destination, const void* source, size_t& requested) {
+  if (PosixSubsystem::copyFromUser(destination, source, requested)) {
+    return true;
+  }
+  if (requested <= ScalarIoBounceCapacity) {
+    return false;
+  }
+
+  // Preserve partial progress when a later page rejects the larger user copy.
+  requested = ScalarIoBounceCapacity;
+  return PosixSubsystem::copyFromUser(destination, source, requested);
+}
+
 bool checkReadDestination(void* destination, size_t& requested) {
   if (PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(destination), requested, 1,
                                       PosixSubsystem::SafeWrite)) {
@@ -532,24 +556,50 @@ int posix_read(int fd, char* ptr, int len) {
     return -1;
   }
   size_t bounceCapacity = 0;
-  UniqueArray<uint8_t> bounce = allocateReadBounce(pFd->getFile(), length, bounceCapacity);
-  if (!bounce) {
-    SYSCALL_ERROR(OutOfMemory);
-    return -1;
-  }
+  UniqueArray<uint8_t> bounce;
 
   auto readFile = [&](FileDescriptor::PositionGuard* position, int statusFlags) -> int {
     const bool canBlock = !(statusFlags & O_NONBLOCK);
     size_t totalRead = 0;
 
     while (totalRead < length) {
-      if (totalRead && pThread->getInterruptionReason() == Thread::InterruptedBySignal) {
-        break;
+      if (pThread->getInterruptionReason() == Thread::InterruptedBySignal) {
+        if (totalRead) {
+          break;
+        }
+        pThread->clearInterruption();
+        SYSCALL_ERROR(Interrupted);
+        return -1;
       }
 
       const size_t remaining = length - totalRead;
-      size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+      size_t requested =
+          remaining < RegularReadBounceCapacity ? remaining : RegularReadBounceCapacity;
       char* userDestination = reinterpret_cast<char*>(reinterpret_cast<uintptr_t>(ptr) + totalRead);
+
+      if (position) {
+        const size_t cached = PosixSubsystem::readCachedFile(*pFd->getFile(), position->offset(),
+                                                             userDestination, requested);
+        if (cached) {
+          position->advanceOffset(cached);
+          totalRead += cached;
+          continue;
+        }
+      }
+      if (!bounce) {
+        bounce = allocateReadBounce(pFd->getFile(), remaining, bounceCapacity);
+        if (!bounce) {
+          pThread->clearInterruption();
+          if (totalRead) {
+            return static_cast<int>(totalRead);
+          }
+          SYSCALL_ERROR(OutOfMemory);
+          return -1;
+        }
+      }
+      if (requested > bounceCapacity) {
+        requested = bounceCapacity;
+      }
 
       // Avoid consuming data for an address which is already known to be
       // unusable. copyToUser repeats this check after a blocking operation.
@@ -737,8 +787,14 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
     SYSCALL_ERROR(BadAddress);
     return -1;
   }
-  const size_t bounceCapacity = length < ScalarIoBounceCapacity ? length : ScalarIoBounceCapacity;
-  UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
+  const bool regularFile =
+      pFd->getFile()->supportsRegularFileOperations() && !pFd->getFile()->isBlockDevice();
+  size_t bounceCapacity = 0;
+  UniqueArray<uint8_t> bounce = allocateWriteBounce(regularFile, length, bounceCapacity);
+  if (!bounce) {
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
   bool deliverPipeSignal = false;
 
   auto writeFile = [&](FileDescriptor::PositionGuard* position, int statusFlags) -> int {
@@ -752,13 +808,13 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
       }
 
       const size_t remaining = length - totalWritten;
-      const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+      size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
       const char* userSource =
           reinterpret_cast<const char*>(reinterpret_cast<uintptr_t>(ptr) + totalWritten);
 
       if (nocheck) {
         ForwardMemoryCopy(bounce.get(), userSource, requested);
-      } else if (!PosixSubsystem::copyFromUser(bounce.get(), userSource, requested)) {
+      } else if (!copyWriteSource(bounce.get(), userSource, requested)) {
         if (totalWritten) {
           pThread->clearInterruption();
           return static_cast<int>(totalWritten);
@@ -781,11 +837,12 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
       uint64_t amount = 0;
       if (position) {
         uint64_t location = position->offset();
-        amount = (statusFlags & O_APPEND)
-                     ? writeGuard.append(requested, reinterpret_cast<uintptr_t>(bounce.get()),
-                                         location, canBlock)
-                     : writeGuard.write(location, requested,
-                                        reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
+        amount =
+            (statusFlags & O_APPEND)
+                ? writeGuard.append(requested, reinterpret_cast<uintptr_t>(bounce.get()), location,
+                                    canBlock, !regularFile)
+                : writeGuard.write(location, requested, reinterpret_cast<uintptr_t>(bounce.get()),
+                                   canBlock, !regularFile);
         if (amount) {
           position->setOffset(location + amount);
         }
@@ -913,24 +970,46 @@ ssize_t posix_pread64(int fd, char* ptr, size_t len, off_t offset) {
   }
 
   size_t bounceCapacity = 0;
-  UniqueArray<uint8_t> bounce = allocateReadBounce(descriptor->getFile(), len, bounceCapacity);
-  if (!bounce) {
-    SYSCALL_ERROR(OutOfMemory);
-    return -1;
-  }
+  UniqueArray<uint8_t> bounce;
   const bool canBlock = !(statusFlags & O_NONBLOCK);
   const uint64_t startingOffset = static_cast<uint64_t>(offset);
   size_t totalRead = 0;
 
   thread->clearInterruption();
   while (totalRead < len) {
-    if (totalRead && thread->getInterruptionReason() == Thread::InterruptedBySignal) {
-      break;
+    if (thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+      if (totalRead) {
+        break;
+      }
+      thread->clearInterruption();
+      SYSCALL_ERROR(Interrupted);
+      return -1;
     }
 
     const size_t remaining = len - totalRead;
-    size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+    size_t requested =
+        remaining < RegularReadBounceCapacity ? remaining : RegularReadBounceCapacity;
     char* userDestination = reinterpret_cast<char*>(reinterpret_cast<uintptr_t>(ptr) + totalRead);
+    const size_t cached = PosixSubsystem::readCachedFile(
+        *descriptor->getFile(), startingOffset + totalRead, userDestination, requested);
+    if (cached) {
+      totalRead += cached;
+      continue;
+    }
+    if (!bounce) {
+      bounce = allocateReadBounce(descriptor->getFile(), remaining, bounceCapacity);
+      if (!bounce) {
+        thread->clearInterruption();
+        if (totalRead) {
+          return static_cast<ssize_t>(totalRead);
+        }
+        SYSCALL_ERROR(OutOfMemory);
+        return -1;
+      }
+    }
+    if (requested > bounceCapacity) {
+      requested = bounceCapacity;
+    }
     if (!checkReadDestination(userDestination, requested)) {
       if (totalRead) {
         thread->clearInterruption();
@@ -1026,8 +1105,14 @@ ssize_t posix_pwrite64(int fd, const char* ptr, size_t len, off_t offset) {
     return -1;
   }
 
-  const size_t bounceCapacity = len < ScalarIoBounceCapacity ? len : ScalarIoBounceCapacity;
-  UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
+  const bool regularFile = descriptor->getFile()->supportsRegularFileOperations() &&
+                           !descriptor->getFile()->isBlockDevice();
+  size_t bounceCapacity = 0;
+  UniqueArray<uint8_t> bounce = allocateWriteBounce(regularFile, len, bounceCapacity);
+  if (!bounce) {
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
   const bool canBlock = !(statusFlags & O_NONBLOCK);
   const uint64_t startingOffset = static_cast<uint64_t>(offset);
   File::WriteGuard writeGuard = descriptor->getFile()->lockWrites();
@@ -1040,10 +1125,10 @@ ssize_t posix_pwrite64(int fd, const char* ptr, size_t len, off_t offset) {
     }
 
     const size_t remaining = len - totalWritten;
-    const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+    size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
     const char* userSource =
         reinterpret_cast<const char*>(reinterpret_cast<uintptr_t>(ptr) + totalWritten);
-    if (!PosixSubsystem::copyFromUser(bounce.get(), userSource, requested)) {
+    if (!copyWriteSource(bounce.get(), userSource, requested)) {
       if (totalWritten) {
         thread->clearInterruption();
         return static_cast<ssize_t>(totalWritten);
@@ -1063,8 +1148,9 @@ ssize_t posix_pwrite64(int fd, const char* ptr, size_t len, off_t offset) {
     }
 
     thread->setErrno(0);
-    const uint64_t amount = writeGuard.write(startingOffset + totalWritten, requested,
-                                             reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
+    const uint64_t amount =
+        writeGuard.write(startingOffset + totalWritten, requested,
+                         reinterpret_cast<uintptr_t>(bounce.get()), canBlock, !regularFile);
     const bool signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
     const size_t backendError = thread->getErrno();
     if (!amount) {

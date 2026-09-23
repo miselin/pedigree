@@ -327,6 +327,15 @@ class EXPORTED_PUBLIC Cache {
   /** Looks for \p key , increasing \c refcnt by one if returned. */
   uintptr_t lookup(uintptr_t key);
 
+  /** Copies a resident prefix, stopping at an unpublished/missing page or after
+   * 32 pages. The caller keeps this Cache alive and serializes content changes;
+   * this operation pins storage while copying without holding the cache lock.
+   * A null buffer probes and promotes the same prefix without copying. prepare
+   * may validate/make the destination writable after pins are acquired and the
+   * cache lock is released. Returning false releases the pins without copying. */
+  size_t read(uintptr_t offset, size_t length, uintptr_t buffer,
+              bool (*prepare)(uintptr_t, size_t) = nullptr);
+
   /** Pins a published page, or returns true with location zero for a confirmed
    * miss. Optional waiting joins callbacks and eviction, never publication or
    * a drain of external loans. Callers must release backend range locks before
@@ -503,7 +512,10 @@ class EXPORTED_PUBLIC Cache {
   using writeback_batch_t = bool (*)(const WritebackPage*, size_t, void*);
   /** Optional durable timer callback, installed before pages; shares setCallback metadata. */
   void setBackgroundWriteback(writeback_batch_t callback);
-  /** Snapshot dirty pages into bounded durable callbacks, including checksum-tracked aliases. */
+  /** Submit the pinned dirty snapshot to one durable callback, including
+   * checksum-tracked aliases. The callback bounds its own I/O submission waves;
+   * no page is settled before its shared durability result.
+   */
   MUST_USE_RESULT bool syncAll(writeback_batch_t callback, void* metadata);
 
   /**

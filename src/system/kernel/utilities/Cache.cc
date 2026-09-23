@@ -734,6 +734,80 @@ uintptr_t Cache::lookup(uintptr_t key) {
   return ptr;
 }
 
+size_t Cache::read(uintptr_t offset, size_t length, uintptr_t buffer,
+                   bool (*prepare)(uintptr_t, size_t)) {
+  if (!length || length - 1 > ~uintptr_t(0) - offset || !ensureUsable("read")) {
+    return 0;
+  }
+#if THREADS
+  TerminationDeferral terminationDeferral;
+#endif
+  constexpr size_t MaxPages = 32;
+  CachePage* pages[MaxPages];
+  bool evict[MaxPages];
+  const size_t within = offset % CachePageSize;
+  const uintptr_t first = offset - within;
+  const size_t limit = MaxPages * CachePageSize - within;
+  if (length > limit) {
+    length = limit;
+  }
+  const size_t wanted = (within + length - 1) / CachePageSize + 1;
+  size_t count = 0;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    for (; count < wanted; ++count) {
+      // Hits need the tree anyway; hashing a Bloom filter adds no useful work.
+      CachePage* page = m_Pages.lookup(first + count * CachePageSize);
+      if (!page || page->status == CachePage::Editing ||
+          page->evictionState == CachePage::EvictionState::Draining ||
+          page->evictionState == CachePage::EvictionState::Retiring || page->refcnt == ~size_t(0)) {
+        break;
+      }
+      ++page->refcnt;
+      promotePage(page);
+      pages[count] = page;
+    }
+  }
+  if (!count) {
+    return 0;
+  }
+  const size_t available = count * CachePageSize - within;
+  size_t copied = length < available ? length : available;
+  if (prepare && !prepare(buffer, copied)) {
+    copied = 0;
+  }
+  if (buffer && copied) {
+    size_t remaining = copied;
+    for (size_t i = 0; i < count; ++i) {
+      const size_t start = i ? 0 : within;
+      const size_t bytes = remaining < CachePageSize - start ? remaining : CachePageSize - start;
+      ForwardMemoryCopy(reinterpret_cast<void*>(buffer),
+                        reinterpret_cast<void*>(pages[i]->location + start), bytes);
+      buffer += bytes;
+      remaining -= bytes;
+    }
+  }
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    for (size_t i = 0; i < count; ++i) {
+      assert(pages[i]->refcnt);
+      --pages[i]->refcnt;
+      evict[i] = !pages[i]->refcnt;
+    }
+  }
+  for (size_t i = 0; i < count; ++i) {
+#if THREADS
+    m_EvictionWaiters.wakeAllIfWaiting(WaitQueue::WakeReason::Signalled,
+                                       WaitQueue::Channel(pages[i]));
+#endif
+    if (evict[i]) {
+      CacheManager::instance().addCacheRequest(this, true, CacheConstants::PleaseEvict,
+                                               first + i * CachePageSize);
+    }
+  }
+  return copied;
+}
+
 bool Cache::lookupStable(uintptr_t key, uintptr_t& location, bool wait) {
   location = 0;
   if (!ensureUsable("lookupStable"))
@@ -1243,6 +1317,7 @@ bool Cache::retireWriteback(uintptr_t key, retirement_writeback_t callback, void
     bool invalidated = false;
     bool reopened = false;
     auto waitGuard = m_EvictionWaiters.acquire();
+    waitGuard.prepareToWait();
     {
       LockGuard<Spinlock> guard(m_Lock);
       CachePage* current = nullptr;
@@ -1339,6 +1414,7 @@ bool Cache::empty() {
     CachePage* waitPage = nullptr;
     {
       auto waitGuard = m_EvictionWaiters.acquire();
+      waitGuard.prepareToWait();
       {
         LockGuard<Spinlock> guard(m_Lock);
         Tree<uintptr_t, CachePage*>::Iterator it = m_Pages.begin();
@@ -1553,6 +1629,7 @@ bool Cache::syncAllInternal(writeback_batch_t callback, void* metadata, bool onl
     bool pinned;
   };
   Vector<Entry> entries;
+  Vector<uintptr_t> keys;
   auto& candidates = m_DirtyTracking == DirtyTracking::Explicit ? m_WritebackPages : m_Pages;
   bool snapshotted = false;
   // Allocation stays outside the cache lock; bounded retries avoid chasing
@@ -1569,12 +1646,12 @@ bool Cache::syncAllInternal(writeback_batch_t callback, void* metadata, bool onl
       }
       count = candidates.count();
     }
-    if (!entries.tryReserve(count)) {
+    if (!entries.tryReserve(count) || (callback && !keys.tryReserve(count))) {
       return false;
     }
     {
       LockGuard<Spinlock> guard(m_Lock);
-      if (candidates.count() > entries.size()) {
+      if (candidates.count() > entries.size() || (callback && candidates.count() > keys.size())) {
         continue;
       }
       for (auto it = candidates.begin(); it != candidates.end(); ++it) {
@@ -1612,16 +1689,6 @@ bool Cache::syncAllInternal(writeback_batch_t callback, void* metadata, bool onl
   }
 
   bool succeeded = true;
-  uintptr_t keys[MaxWritebackPages];
-  size_t pending = 0;
-  auto drain = [&] {
-    if (!pending)
-      return;
-    succeeded = syncBatchInternal(keys, pending, callback, metadata, true) && succeeded;
-    for (size_t n = 0; n < pending; ++n)
-      releaseWriteback(keys[n]);
-    pending = 0;
-  };
   for (size_t i = 0; i < entries.count(); ++i) {
     Entry& entry = entries[i];
     // Draining pages cannot be pinned: their retirement waits for pins to
@@ -1670,9 +1737,7 @@ bool Cache::syncAllInternal(writeback_batch_t callback, void* metadata, bool onl
     }
     if (entry.pinned) {
       if (callback) {
-        keys[pending++] = entry.key;
-        if (pending == MaxWritebackPages)
-          drain();
+        keys.pushBack(entry.key);
       } else {
         const bool written = writebackPage(entry.key, entry.location, true, onlyIfDirty);
         succeeded = written && succeeded;
@@ -1681,7 +1746,13 @@ bool Cache::syncAllInternal(writeback_batch_t callback, void* metadata, bool onl
       entry.pinned = false;
     }
   }
-  drain();
+  if (callback && keys.count()) {
+    // Keep the entire snapshot pinned until the callback's durability barrier.
+    succeeded = syncBatchInternal(&keys[0], keys.count(), callback, metadata, true) && succeeded;
+    for (uintptr_t key : keys) {
+      releaseWriteback(key);
+    }
+  }
   return succeeded;
 }
 
@@ -1693,12 +1764,14 @@ bool Cache::syncBatch(const uintptr_t* keys, size_t count, writeback_batch_t cal
 // syncAll owns snapshot pins before retirement can start draining these pages.
 bool Cache::syncBatchInternal(const uintptr_t* keys, size_t count, writeback_batch_t callback,
                               void* metadata, bool snapshot) {
-  if (!ensureUsable("syncBatch") || count > MaxWritebackPages || (count && (!keys || !callback))) {
+  if (!ensureUsable("syncBatch") || (!snapshot && count > MaxWritebackPages) ||
+      (count && (!keys || !callback))) {
     return false;
   }
   if (!count)
     return true;
-  for (size_t i = 0; i < count; ++i) {
+  // Snapshot keys come from the cache's unique-key tree.
+  for (size_t i = 0; !snapshot && i < count; ++i) {
     for (size_t j = 0; j < i; ++j) {
       if (keys[i] == keys[j])
         return false;
@@ -1712,11 +1785,27 @@ bool Cache::syncBatchInternal(const uintptr_t* keys, size_t count, writeback_bat
   Thread* currentThread = Processor::information().getCurrentThread();
   const bool canWait = currentThread && !CacheManager::instance().callbackContext();
 #endif
-  CachePage* pages[MaxWritebackPages] = {};
-  WritebackPage writes[MaxWritebackPages] = {};
-  uint64_t submittedChecksums[MaxWritebackPages][2] = {};
-  uint64_t submittedGenerations[MaxWritebackPages] = {};
-  bool submittedChecksumTracking[MaxWritebackPages] = {};
+  struct Submission {
+    CachePage* page;
+    uint64_t checksum[2];
+    uint64_t generation;
+    bool checksumTracking;
+  };
+  Submission smallSubmissions[MaxWritebackPages] = {};
+  WritebackPage smallWrites[MaxWritebackPages] = {};
+  UniqueArray<Submission> submissionsOwner;
+  UniqueArray<WritebackPage> writesOwner;
+  Submission* submissions = smallSubmissions;
+  WritebackPage* writes = smallWrites;
+  if (count > MaxWritebackPages) {
+    submissionsOwner = UniqueArray<Submission>::allocate(count);
+    writesOwner = UniqueArray<WritebackPage>::allocate(count);
+    if (!submissionsOwner || !writesOwner) {
+      return false;
+    }
+    submissions = submissionsOwner.get();
+    writes = writesOwner.get();
+  }
   size_t writeCount = 0;
   while (true) {
 #if THREADS
@@ -1746,12 +1835,12 @@ bool Cache::syncBatchInternal(const uintptr_t* keys, size_t count, writeback_bat
 #endif
           busy = page;
         }
-        pages[i] = page;
+        submissions[i].page = page;
       }
       if (!busy) {
         writeCount = 0;
         for (size_t i = 0; i < count; ++i) {
-          CachePage* page = pages[i];
+          CachePage* page = submissions[i].page;
           if ((snapshot || m_DirtyTracking == DirtyTracking::Explicit) && !needsWriteback(page))
             continue;
           ++page->refcnt;
@@ -1760,10 +1849,10 @@ bool Cache::syncBatchInternal(const uintptr_t* keys, size_t count, writeback_bat
 #if THREADS
           page->callbackOwner = currentThread;
 #endif
-          pages[writeCount] = page;
+          submissions[writeCount].page = page;
           writes[writeCount] = {keys[i], page->location};
-          submittedGenerations[writeCount] = page->mutationGeneration;
-          submittedChecksumTracking[writeCount] = tracksChecksum(page);
+          submissions[writeCount].generation = page->mutationGeneration;
+          submissions[writeCount].checksumTracking = tracksChecksum(page);
           ++writeCount;
           updateWritebackIndex(page);
           promotePage(page);
@@ -1781,21 +1870,21 @@ bool Cache::syncBatchInternal(const uintptr_t* keys, size_t count, writeback_bat
   if (!writeCount)
     return true;
   for (size_t i = 0; i < writeCount; ++i) {
-    if (submittedChecksumTracking[i])
+    if (submissions[i].checksumTracking)
       checksum(reinterpret_cast<const void*>(writes[i].location), CachePageSize,
-               submittedChecksums[i]);
+               submissions[i].checksum);
   }
   const bool succeeded = callback(writes, writeCount, metadata);
   {
     LockGuard<Spinlock> guard(m_Lock);
     for (size_t i = 0; i < writeCount; ++i) {
-      CachePage* page = pages[i];
+      CachePage* page = submissions[i].page;
       page->writebackFailed = !succeeded;
       if (succeeded) {
-        page->writtenGeneration = submittedGenerations[i];
-        if (submittedChecksumTracking[i]) {
-          page->checksum[0] = submittedChecksums[i][0];
-          page->checksum[1] = submittedChecksums[i][1];
+        page->writtenGeneration = submissions[i].generation;
+        if (submissions[i].checksumTracking) {
+          page->checksum[0] = submissions[i].checksum[0];
+          page->checksum[1] = submissions[i].checksum[1];
         }
         if (page->status == CachePage::ChecksumChanging)
           page->status = CachePage::ChecksumStable;
@@ -1809,7 +1898,8 @@ bool Cache::syncBatchInternal(const uintptr_t* keys, size_t count, writeback_bat
   }
   for (size_t i = 0; i < writeCount; ++i) {
 #if THREADS
-    m_EvictionWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(pages[i]));
+    m_EvictionWaiters.wakeAll(WaitQueue::WakeReason::Signalled,
+                              WaitQueue::Channel(submissions[i].page));
 #endif
     releaseWriteback(writes[i].key);
   }

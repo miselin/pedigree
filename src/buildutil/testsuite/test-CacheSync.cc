@@ -853,7 +853,9 @@ struct SyncWaveObserver {
     auto& self = *static_cast<SyncWaveObserver*>(context);
     ++self.calls;
     self.pages += count;
-    EXPECT_LE(count, Cache::MaxWritebackPages);
+    for (size_t i = 0; i < count; ++i) {
+      EXPECT_FALSE(self.cache->evict(pages[i].key));
+    }
     if (self.redirty && count) {
       self.redirty = false;
       *reinterpret_cast<unsigned char*>(pages[0].location) ^= 0x42;
@@ -877,10 +879,10 @@ TEST(CacheSync, SnapshotBatchesSkipCleanChecksumPagesAndDetectUnmarkedAliases) {
       first = page;
   }
   ASSERT_TRUE(cache.syncAll(SyncWaveObserver::batch, &wave));
-  EXPECT_EQ(wave.calls, 2U);
+  EXPECT_EQ(wave.calls, 1U);
   EXPECT_EQ(wave.pages, Cache::MaxWritebackPages + 1);
   ASSERT_TRUE(cache.syncAll(SyncWaveObserver::batch, &wave));
-  EXPECT_EQ(wave.calls, 2U);
+  EXPECT_EQ(wave.calls, 1U);
   *reinterpret_cast<unsigned char*>(first) ^= 0x11;
   ASSERT_TRUE(cache.syncAll(SyncWaveObserver::batch, &wave));
   EXPECT_EQ(wave.pages, Cache::MaxWritebackPages + 2);
@@ -893,19 +895,21 @@ TEST(CacheSync, SnapshotBatchFailureAndNewGenerationRemainRetryable) {
   cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
   cache.setCallback(Observer::callback, &ordinary);
   SyncWaveObserver wave{&cache};
-  ASSERT_NE(publish(cache, 0), 0U);
-  ASSERT_NE(publish(cache, Page), 0U);
+  constexpr size_t Count = Cache::MaxWritebackPages + 1;
+  for (size_t i = 0; i < Count; ++i) {
+    ASSERT_NE(publish(cache, i * Page), 0U);
+  }
   wave.fail = true;
   ASSERT_FALSE(cache.syncAll(SyncWaveObserver::batch, &wave));
-  EXPECT_EQ(wave.pages, 2U);
+  EXPECT_EQ(wave.pages, Count);
   wave.fail = false;
   wave.redirty = true;
   ASSERT_TRUE(cache.syncAll(SyncWaveObserver::batch, &wave));
-  EXPECT_EQ(wave.pages, 4U);
+  EXPECT_EQ(wave.pages, Count * 2);
   ASSERT_TRUE(cache.syncAll(SyncWaveObserver::batch, &wave));
-  EXPECT_EQ(wave.pages, 5U);
+  EXPECT_EQ(wave.pages, Count * 2 + 1);
   ASSERT_TRUE(cache.syncAll(SyncWaveObserver::batch, &wave));
-  EXPECT_EQ(wave.pages, 5U);
+  EXPECT_EQ(wave.pages, Count * 2 + 1);
 }
 
 namespace {

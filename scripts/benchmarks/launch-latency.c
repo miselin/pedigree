@@ -269,7 +269,8 @@ static void prewarm(const char* list) {
   metric("prewarm", start, first ? first : start, end, bytes, 0);
 }
 
-static void read_fixture(const char* path, int permuted, unsigned iterations, size_t read_size) {
+static void read_fixture(const char* path, int permuted, unsigned iterations, size_t read_size,
+                         unsigned seed) {
   int fd = open(path, O_RDONLY);
   struct stat st;
   if (fd < 0 || fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
@@ -311,7 +312,7 @@ static void read_fixture(const char* path, int permuted, unsigned iterations, si
     }
     uint64_t end = now_ns(), checksum = size;
     for (size_t i = 0; i < size; ++i) {
-      if (buffer[i] != (unsigned char)(i * 37U + (i >> 8) * 17U + 0x53U)) {
+      if (buffer[i] != (unsigned char)(i * 37U + (i >> 8) * 17U + seed)) {
         errno = EILSEQ;
         fail("fixture-pattern");
       }
@@ -319,6 +320,92 @@ static void read_fixture(const char* path, int permuted, unsigned iterations, si
     }
     metric(phase, start, first, end, size, checksum);
   }
+  free(buffer);
+  close(fd);
+}
+
+static void write_fixture(const char* path, unsigned iterations, int positional) {
+  const size_t chunk = 128 * 1024;
+  const char* operation = positional ? "pwrite" : "write";
+  int fd = open(path, O_RDWR);
+  struct stat st;
+  if (fd < 0 || fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+      st.st_size > MAX_FIXTURE || st.st_size % chunk) {
+    fail("write-fixture-size");
+  }
+  size_t size = (size_t)st.st_size;
+  unsigned char* buffer = malloc(chunk);
+  unsigned char* verify = malloc(chunk);
+  if (!buffer || !verify) {
+    fail("write-fixture-buffer");
+  }
+  for (unsigned iteration = 0; iteration < iterations; ++iteration) {
+    // Change every byte on each pass so verification detects a dropped overwrite.
+    for (size_t i = 0; i < chunk; ++i) {
+      buffer[i] = (unsigned char)(i * 37U + (i >> 8) * 17U + 0x54U + iteration);
+    }
+    if (lseek(fd, 0, SEEK_SET)) {
+      fail("write-fixture-seek");
+    }
+    char phase[64];
+    snprintf(phase, sizeof(phase), "%s-%u", operation, iteration);
+    gate(phase);
+    uint64_t start = now_ns(), first = 0;
+    for (size_t offset = 0; offset < size; offset += chunk) {
+      size_t done = 0;
+      while (done < chunk) {
+        ssize_t n = positional ? pwrite(fd, buffer + done, chunk - done, offset + done)
+                               : write(fd, buffer + done, chunk - done);
+        if (n < 0 && errno == EINTR) {
+          continue;
+        }
+        if (n <= 0) {
+          fail("write-fixture");
+        }
+        done += (size_t)n;
+      }
+      if (!first) {
+        first = now_ns();
+      }
+    }
+    metric(phase, start, first, now_ns(), size, 0);
+
+    snprintf(phase, sizeof(phase), "%s-sync-%u", operation, iteration);
+    gate(phase);
+    start = now_ns();
+    if (fsync(fd)) {
+      fail("write-fixture-sync");
+    }
+    uint64_t end = now_ns();
+    metric(phase, start, end, end, 0, 0);
+
+    snprintf(phase, sizeof(phase), "%s-verify-%u", operation, iteration);
+    gate(phase);
+    start = now_ns();
+    uint64_t checksum = size;
+    for (size_t offset = 0; offset < size; offset += chunk) {
+      size_t done = 0;
+      while (done < chunk) {
+        ssize_t n = pread(fd, verify + done, chunk - done, offset + done);
+        if (n < 0 && errno == EINTR) {
+          continue;
+        }
+        if (n <= 0) {
+          fail("write-fixture-readback");
+        }
+        done += (size_t)n;
+      }
+      if (memcmp(buffer, verify, chunk)) {
+        fail("write-fixture-pattern");
+      }
+      for (size_t i = 0; i < chunk; ++i) {
+        checksum += verify[i];
+      }
+    }
+    end = now_ns();
+    metric(phase, start, end, end, size, checksum);
+  }
+  free(verify);
   free(buffer);
   close(fd);
 }
@@ -479,7 +566,11 @@ int main(int argc, char** argv) {
     }
   } else if (arg + 3 == argc && !strcmp(argv[arg], "read") &&
              (!strcmp(argv[arg + 2], "sequential") || !strcmp(argv[arg + 2], "permuted"))) {
-    read_fixture(argv[arg + 1], !strcmp(argv[arg + 2], "permuted"), iterations, read_size);
+    read_fixture(argv[arg + 1], !strcmp(argv[arg + 2], "permuted"), iterations, read_size, 0x53U);
+  } else if (arg + 2 == argc && (!strcmp(argv[arg], "write") || !strcmp(argv[arg], "pwrite"))) {
+    write_fixture(argv[arg + 1], iterations, !strcmp(argv[arg], "pwrite"));
+  } else if (arg + 2 == argc && !strcmp(argv[arg], "verify-write")) {
+    read_fixture(argv[arg + 1], 0, 1, 128 * 1024, 0x53U + iterations);
   } else if (arg + 3 == argc && !strcmp(argv[arg], "mmap") &&
              (!strcmp(argv[arg + 2], "sequential") || !strcmp(argv[arg + 2], "permuted"))) {
     mmap_fixture(argv[arg + 1], !strcmp(argv[arg + 2], "permuted"), iterations);

@@ -335,6 +335,11 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   static bool copyToUser(void* destination, const void* source, size_t count,
                          size_t elementSize = 1);
 
+  /** Copies a resident file prefix directly into an anonymous user buffer.
+   * Zero requests the ordinary read/copy fallback, including for file mappings
+   * which might alias the source. No backend read runs under the mapping gate. */
+  static size_t readCachedFile(File& file, uint64_t offset, void* destination, size_t count);
+
   enum UserStringResult { UserStringSuccess, UserStringBadAddress, UserStringTooLong };
 
   /** Copy a NUL-terminated user string without reading past a mapped range. */
