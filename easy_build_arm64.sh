@@ -14,10 +14,12 @@ case "$boot_profile" in
     alpine)
         alpine_modules=ON
         with_init=ON
+        graphics=ON
         ;;
     serial)
         alpine_modules=OFF
         with_init=OFF
+        graphics=OFF
         ;;
     *)
         echo "Unknown ARM64 boot profile: $boot_profile (expected alpine or serial)" >&2
@@ -75,6 +77,7 @@ cmake -S "$script_dir" -B "$build_dir" \
     -DPEDIGREE_STATIC_DRIVERS=ON \
     -DPEDIGREE_MULTIPROCESSOR=OFF \
     -DPEDIGREE_DEBUGGER=OFF \
+    -DPEDIGREE_GRAPHICS="$graphics" \
     -DPEDIGREE_ARM64_ALPINE="$alpine_modules" \
     -DPEDIGREE_WITH_INIT="$with_init"
 

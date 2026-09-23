@@ -145,5 +145,5 @@ static void exit() {
 MODULE_INFO_RUNTIME_PINNED("partition", &entry, &exit, "diskimage");
 #else
 MODULE_INFO_RUNTIME_PINNED("partition", &entry, &exit);
-MODULE_OPTIONAL_DEPENDS("ata", "ahci", "nvme", "usb-mass-storage", "virtio-blk");
+MODULE_OPTIONAL_DEPENDS("ata", "ahci", "nvme", "usb-mass-storage", "virtio-blk", "virtio-scsi");
 #endif

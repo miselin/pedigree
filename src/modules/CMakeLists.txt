@@ -175,7 +175,8 @@ add_definitions(-DPOSIX_LOG_FACILITIES=${POSIX_LOGGING})
 set(_PEDIGREE_ARM64_ALPINE_MODULES
     confignics console diskimage ext2 filesystems init linker lodisk lwip
     mountroot network-stack nics nvme partition pci pci-enumeration posix ramfs
-    rawfs scsi users vfs virtio-pci virtio-blk virtio-net virtio-rng virtio-input)
+    rawfs scsi users vfs virtio-pci virtio-blk virtio-net virtio-rng virtio-input
+    virtio-gpu virtio-scsi gfx-deps)
 
 function(pedigree_module name opts libs)
     set(_PEDIGREE_MODULE_DEFAULT TRUE)
@@ -777,10 +778,18 @@ if (PEDIGREE_MACHINE_HASPCI AND
     pedigree_module(virtio-input "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-input/VirtioInput.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-input/main.cc)
+    pedigree_module(virtio-gpu "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-gpu/VirtioGpu.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-gpu/main.cc)
+    pedigree_module(virtio-scsi "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-scsi/VirtioScsiController.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-scsi/main.cc)
     add_dependencies(virtio-blk virtio-pci)
     add_dependencies(virtio-net virtio-pci)
     add_dependencies(virtio-rng virtio-pci)
     add_dependencies(virtio-input virtio-pci)
+    add_dependencies(virtio-gpu virtio-pci)
+    add_dependencies(virtio-scsi virtio-pci)
 
     pedigree_module(nvme "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/NvmeController.cc
