@@ -3386,6 +3386,10 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
     syscallError(closed ? Error::BrokenPipe : Error::NotConnected);
     return -1;
   }
+  if (getType() == SOCK_STREAM && localSocket->writeShutdown()) {
+    SYSCALL_ERROR(BrokenPipe);
+    return -1;
+  }
 
   if (getType() != SOCK_STREAM && (msghdr->msg_name || !remote)) {
     if (!msghdr->msg_name) {
@@ -3842,8 +3846,24 @@ int UnixSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addr
 }
 
 int UnixSocketSyscalls::shutdown(int how) {
-  /// \todo
   N_NOTICE("UnixSocketSyscalls::shutdown");
+  if (how != SHUT_RD && how != SHUT_WR && how != SHUT_RDWR) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  SharedPointer<UnixSocketGeneration> local = acquireLocalEndpoint();
+  if (!local) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  UnixSocket* socket = local->get();
+  if (!socket->shutdown(how)) {
+    return -1;
+  }
+
+  notifySocket(socket, ReadyRead | ReadyWrite);
+  notifyPeer(socket, ReadyRead | ReadyWrite);
   return 0;
 }
 
@@ -4009,6 +4029,9 @@ ReadyMask UnixSocketSyscalls::queryReady(bool reading, bool writing) {
   ReadyMask ready = ReadyNone;
   if (reading && local->select(false, 0)) {
     ready |= ReadyRead;
+    if (local->readShutdown()) {
+      ready |= ReadyReadHangup;
+    }
   }
 
   if (writing) {

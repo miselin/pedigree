@@ -458,6 +458,8 @@ UnixSocketConnection::UnixSocketConnection()
       m_Active(false),
       m_Failed(false),
       m_Closed{false, false},
+      m_ReadShutdown{false, false},
+      m_WriteShutdown{false, false},
       m_Creds() {
   for (size_t i = 0; i < 2; ++i) {
     m_Creds[i].uid = -1;
@@ -497,10 +499,18 @@ int UnixSocket::select(bool bWriting, int timeout) {
   if (m_Type == Streaming) {
     SharedPointer<UnixSocketConnection> connection;
     SocketState state;
+    bool shutdown = false;
     {
       LockGuard<Mutex> guard(m_ConnectionLock);
       state = getStateLocked();
       connection = m_Connection;
+      if (connection) {
+        const bool side = m_ConnectionSide;
+        shutdown =
+            bWriting
+                ? connection->m_WriteShutdown[side] || connection->m_ReadShutdown[side ? 0 : 1]
+                : connection->m_ReadShutdown[side] || connection->m_WriteShutdown[side ? 0 : 1];
+      }
     }
 
     if (state == Listening) {
@@ -513,6 +523,10 @@ int UnixSocket::select(bool bWriting, int timeout) {
 
     if (state != Active || !connection) {
       return false;
+    }
+
+    if (shutdown) {
+      return true;
     }
 
     if (bWriting) {
@@ -819,6 +833,58 @@ void UnixSocket::unbind() {
     socket->failConnection();
     delete socket;
   }
+}
+
+bool UnixSocket::shutdown(int how) {
+  SharedPointer<UnixSocketConnection> connection;
+  bool side = false;
+  {
+    LockGuard<Mutex> guard(m_ConnectionLock);
+    if (m_Type != Streaming || !m_Connection || !m_Connection->m_Active || m_Connection->m_Failed ||
+        m_Connection->m_Closed[0] || m_Connection->m_Closed[1]) {
+      SYSCALL_ERROR(NotConnected);
+      return false;
+    }
+
+    connection = m_Connection;
+    side = m_ConnectionSide;
+    if (how == SHUT_RD || how == SHUT_RDWR) {
+      connection->m_ReadShutdown[side] = true;
+    }
+    if (how == SHUT_WR || how == SHUT_RDWR) {
+      connection->m_WriteShutdown[side] = true;
+    }
+  }
+
+  auto* incoming = side ? &connection->m_SecondStream : &connection->m_FirstStream;
+  auto* outgoing = side ? &connection->m_FirstStream : &connection->m_SecondStream;
+  if (how == SHUT_RD || how == SHUT_RDWR) {
+    incoming->disableReads();
+    incoming->buffer().notifyMonitors();
+  }
+  if (how == SHUT_WR || how == SHUT_RDWR) {
+    outgoing->disableWrites();
+    outgoing->buffer().notifyMonitors();
+  }
+  return true;
+}
+
+bool UnixSocket::writeShutdown() const {
+  LockGuard<Mutex> guard(m_ConnectionLock);
+  if (!m_Connection) {
+    return false;
+  }
+  const bool side = m_ConnectionSide;
+  return m_Connection->m_WriteShutdown[side] || m_Connection->m_ReadShutdown[side ? 0 : 1];
+}
+
+bool UnixSocket::readShutdown() const {
+  LockGuard<Mutex> guard(m_ConnectionLock);
+  if (!m_Connection) {
+    return false;
+  }
+  const bool side = m_ConnectionSide;
+  return m_Connection->m_ReadShutdown[side] || m_Connection->m_WriteShutdown[side ? 0 : 1];
 }
 
 void UnixSocket::acknowledgeBind() {

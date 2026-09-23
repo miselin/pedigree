@@ -397,6 +397,24 @@ bool emptyPayloadAndCloseDrain(PosixSubsystem* subsystem, StreamFixture& fixture
   return passed;
 }
 
+bool streamShutdownSemantics(StreamFixture& fixture) {
+  fixture.sockets[0] = fixture.sockets[1] = -1;
+  if (posix_socketpair(AF_UNIX, SOCK_STREAM, 0, fixture.sockets)) {
+    return false;
+  }
+
+  fixture.sendPayload[0] = 'q';
+  bool passed = posix_shutdown(fixture.sockets[0], SHUT_WR) == 0 &&
+                posix_send(fixture.sockets[0], fixture.sendPayload, 1, 0) == -1 &&
+                posix_recv(fixture.sockets[1], fixture.receivePayload, 1, 0) == 0;
+  passed = posix_send(fixture.sockets[1], fixture.sendPayload, 1, 0) == 1 &&
+           posix_recv(fixture.sockets[0], fixture.receivePayload, 1, 0) == 1 && passed;
+  passed = posix_shutdown(fixture.sockets[0], SHUT_RD) == 0 &&
+           posix_send(fixture.sockets[1], fixture.sendPayload, 1, 0) == -1 && passed;
+  passed = posix_shutdown(fixture.sockets[0], 17) == -1 && closePair(fixture) && passed;
+  return passed;
+}
+
 int runStreamWorker(void* parameter) {
   StreamContext* context = reinterpret_cast<StreamContext*>(parameter);
   PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(
@@ -428,6 +446,7 @@ int runStreamWorker(void* parameter) {
   passed = multipleControlsAndFaultRetry(subsystem, *fixture) && passed;
   passed = sendRetryDoesNotDuplicate(subsystem, *fixture) && passed;
   passed = emptyPayloadAndCloseDrain(subsystem, *fixture) && passed;
+  passed = streamShutdownSemantics(*fixture) && passed;
 
   MemoryMapManager::instance().remove(mappingAddress, pageSize);
   context->process->freeUserRange(Process::UserRegion::Normal, mappingAddress, pageSize);

@@ -163,6 +163,8 @@ class UnixSocketConnection {
   bool m_Active;
   bool m_Failed;
   bool m_Closed[2];
+  bool m_ReadShutdown[2];
+  bool m_WriteShutdown[2];
   struct ucred m_Creds[2];
 };
 
@@ -295,6 +297,15 @@ class UnixSocket : public File {
 
   // Break the bound socket.
   void unbind();
+
+  // Half-close one or both directions of a connected stream.
+  bool shutdown(int how);
+
+  // Whether writes can no longer reach the peer.
+  bool writeShutdown() const;
+
+  // Whether reads have reached a permanent EOF.
+  bool readShutdown() const;
 
   // Acknowledges binding from another socket
   void acknowledgeBind();
