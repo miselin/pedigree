@@ -8,6 +8,8 @@ enum LinuxFramebufferCommand {
   LinuxFbGetVariableInfo = 0x4600,
   LinuxFbPutVariableInfo = 0x4601,
   LinuxFbGetFixedInfo = 0x4602,
+  LinuxFbGetColorMap = 0x4604,
+  LinuxFbPutColorMap = 0x4605,
   LinuxFbPanDisplay = 0x4606,
   LinuxFbBlank = 0x4611,
 };
@@ -83,12 +85,23 @@ struct LinuxFbVariableInfo {
   uint32_t reserved[4];
 };
 
+struct LinuxFbColorMap {
+  uint32_t start;
+  uint32_t length;
+  uint16_t* red;
+  uint16_t* green;
+  uint16_t* blue;
+  uint16_t* transparency;
+};
+
 static_assert(sizeof(LinuxFbVariableInfo) == 160,
               "Linux framebuffer variable information ABI changed");
 #if UINTPTR_MAX == UINT64_MAX
 static_assert(sizeof(LinuxFbFixedInfo) == 80, "Linux framebuffer fixed information ABI changed");
+static_assert(sizeof(LinuxFbColorMap) == 40, "Linux framebuffer colour map ABI changed");
 #else
 static_assert(sizeof(LinuxFbFixedInfo) == 68, "Linux framebuffer fixed information ABI changed");
+static_assert(sizeof(LinuxFbColorMap) == 24, "Linux framebuffer colour map ABI changed");
 #endif
 
 #endif

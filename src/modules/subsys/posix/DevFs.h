@@ -197,6 +197,7 @@ class FramebufferFile : public File {
 
   bool m_bTextMode;
   size_t m_nDepth;
+  uint32_t m_LinuxPalette[256];
 };
 
 class Tty0File : public File {

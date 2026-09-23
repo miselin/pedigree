@@ -391,6 +391,9 @@ FramebufferFile::FramebufferFile(String str, size_t inode, Filesystem* pParentFS
   setPermissionsOnly(FILE_GR | FILE_GW | FILE_UR | FILE_UW);
   setUidOnly(0);
   setGidOnly(0);
+  for (size_t i = 0; i < 256; ++i) {
+    m_LinuxPalette[i] = Graphics::createRgb(i, i, i);
+  }
 }
 
 FramebufferFile::~FramebufferFile() {
@@ -457,7 +460,8 @@ void FramebufferFile::returnPhysicalPage(size_t) {
 bool FramebufferFile::supports(const size_t command) const {
   return ((PEDIGREE_FB_CMD_MIN <= command) && (command <= PEDIGREE_FB_CMD_MAX)) ||
          command == LinuxFbGetVariableInfo || command == LinuxFbPutVariableInfo ||
-         command == LinuxFbGetFixedInfo || command == LinuxFbPanDisplay || command == LinuxFbBlank;
+         command == LinuxFbGetFixedInfo || command == LinuxFbGetColorMap ||
+         command == LinuxFbPutColorMap || command == LinuxFbPanDisplay || command == LinuxFbBlank;
 }
 
 int FramebufferFile::command(const size_t command, void* buffer) {
@@ -546,6 +550,62 @@ int FramebufferFile::command(const size_t command, void* buffer) {
       if (!PosixSubsystem::copyToUser(buffer, &result, sizeof(result))) {
         SYSCALL_ERROR(BadAddress);
         return -1;
+      }
+      return 0;
+    }
+    case LinuxFbGetColorMap: {
+      LinuxFbColorMap map = {};
+      if (!PosixSubsystem::copyFromUser(&map, buffer, sizeof(map))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      if (map.start > 256 || map.length > 256 - map.start) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      for (size_t i = 0; i < map.length; ++i) {
+        const uint32_t colour = m_LinuxPalette[map.start + i];
+        const uint16_t red = static_cast<uint16_t>(((colour >> 16) & 0xff) * 0x101);
+        const uint16_t green = static_cast<uint16_t>(((colour >> 8) & 0xff) * 0x101);
+        const uint16_t blue = static_cast<uint16_t>((colour & 0xff) * 0x101);
+        const uint16_t transparency = 0xffff;
+        if (!map.red || !map.green || !map.blue ||
+            !PosixSubsystem::copyToUser(map.red + i, &red, sizeof(red)) ||
+            !PosixSubsystem::copyToUser(map.green + i, &green, sizeof(green)) ||
+            !PosixSubsystem::copyToUser(map.blue + i, &blue, sizeof(blue)) ||
+            (map.transparency && !PosixSubsystem::copyToUser(map.transparency + i, &transparency,
+                                                             sizeof(transparency)))) {
+          SYSCALL_ERROR(BadAddress);
+          return -1;
+        }
+      }
+      return 0;
+    }
+    case LinuxFbPutColorMap: {
+      LinuxFbColorMap map = {};
+      if (!PosixSubsystem::copyFromUser(&map, buffer, sizeof(map))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      if (map.start > 256 || map.length > 256 - map.start) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      for (size_t i = 0; i < map.length; ++i) {
+        uint16_t red = 0;
+        uint16_t green = 0;
+        uint16_t blue = 0;
+        if (!map.red || !map.green || !map.blue ||
+            !PosixSubsystem::copyFromUser(&red, map.red + i, sizeof(red)) ||
+            !PosixSubsystem::copyFromUser(&green, map.green + i, sizeof(green)) ||
+            !PosixSubsystem::copyFromUser(&blue, map.blue + i, sizeof(blue))) {
+          SYSCALL_ERROR(BadAddress);
+          return -1;
+        }
+        m_LinuxPalette[map.start + i] = Graphics::createRgb(red >> 8, green >> 8, blue >> 8);
+      }
+      if (pFramebuffer->getFormat() == Graphics::Bits8_Idx) {
+        pFramebuffer->setPalette(m_LinuxPalette, 256);
       }
       return 0;
     }
