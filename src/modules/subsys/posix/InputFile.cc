@@ -27,7 +27,7 @@
 
 namespace {
 constexpr InputManager::CallbackType InputStreamFilter =
-    InputManager::Mouse | InputManager::RawKey | InputManager::Key;
+    InputManager::Mouse | InputManager::AbsoluteMouse | InputManager::RawKey | InputManager::Key;
 constexpr size_t InputBufferRecords = 128;
 
 constexpr size_t LinuxInputBufferRecords = 256;
@@ -325,7 +325,8 @@ bool EvdevFile::initialise() {
   }
 
   const InputManager::CallbackType filter =
-      m_Type == Keyboard ? InputManager::RawKey : InputManager::Mouse;
+      m_Type == Keyboard ? InputManager::RawKey
+                         : (m_Type == Pointer ? InputManager::Mouse : InputManager::AbsoluteMouse);
   InputManager::instance().installCallback(filter, subscriber, this, nullptr, 0);
   {
     LockGuard<Mutex> guard(m_Lock);
@@ -372,6 +373,9 @@ bool EvdevFile::supports(size_t command) const {
     return false;
   }
   const uint8_t number = ioctlNumber(command);
+  if ((number == 0x40 || number == 0x41) && m_Type == AbsolutePointer) {
+    return true;
+  }
   return number == 0x01 || number == 0x02 || number == 0x03 || number == 0x06 || number == 0x07 ||
          number == 0x08 || number == 0x09 || (number >= 0x18 && number <= 0x1b) ||
          (number >= 0x20 && number <= 0x3f) || number == 0x90;
@@ -402,9 +406,11 @@ int EvdevFile::command(size_t command, void* buffer) {
     return 0;
   }
   if (number == 0x06 || number == 0x07 || number == 0x08) {
-    const char* value = number == 0x06
-                            ? (m_Type == Keyboard ? "Pedigree keyboard" : "Pedigree pointer")
-                            : (number == 0x07 ? "pedigree/input0" : "");
+    const char* value =
+        number == 0x06
+            ? (m_Type == Keyboard ? "Pedigree keyboard"
+                                  : (m_Type == Pointer ? "Pedigree pointer" : "Pedigree tablet"))
+            : (number == 0x07 ? "pedigree/input0" : "");
     const size_t available = StringLength(value) + 1;
     const size_t copied = min(capacity, available);
     if (!copyOut(value, copied)) {
@@ -414,6 +420,19 @@ int EvdevFile::command(size_t command, void* buffer) {
   }
   if (number == 0x90) {
     return 0;
+  }
+  if (number == 0x40 || number == 0x41) {
+    if (m_Type != AbsolutePointer || capacity < sizeof(LinuxInputAbsInfo)) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+    LinuxInputAbsInfo info = {};
+    {
+      LockGuard<Mutex> guard(m_Lock);
+      info.value = number == 0x40 ? m_AbsoluteX : m_AbsoluteY;
+    }
+    info.maximum = 0x7fff;
+    return copyOut(&info, sizeof(info)) ? 0 : -1;
   }
 
   uint8_t result[96] = {};
@@ -438,6 +457,9 @@ int EvdevFile::command(size_t command, void* buffer) {
       setBit(result, sizeof(result), LinuxEvKey);
       if (m_Type == Pointer) {
         setBit(result, sizeof(result), LinuxEvRelative);
+      } else if (m_Type == AbsolutePointer) {
+        setBit(result, sizeof(result), LinuxEvAbsolute);
+        setBit(result, sizeof(result), LinuxEvRelative);
       }
     } else if (eventType == LinuxEvKey) {
       if (m_Type == Keyboard) {
@@ -452,10 +474,15 @@ int EvdevFile::command(size_t command, void* buffer) {
           setBit(result, sizeof(result), linuxButtonCode(i));
         }
       }
-    } else if (eventType == LinuxEvRelative && m_Type == Pointer) {
-      setBit(result, sizeof(result), LinuxRelX);
-      setBit(result, sizeof(result), LinuxRelY);
+    } else if (eventType == LinuxEvRelative && m_Type != Keyboard) {
+      if (m_Type == Pointer) {
+        setBit(result, sizeof(result), LinuxRelX);
+        setBit(result, sizeof(result), LinuxRelY);
+      }
       setBit(result, sizeof(result), LinuxRelWheel);
+    } else if (eventType == LinuxEvAbsolute && m_Type == AbsolutePointer) {
+      setBit(result, sizeof(result), LinuxAbsX);
+      setBit(result, sizeof(result), LinuxAbsY);
     }
   }
 
@@ -562,6 +589,29 @@ void EvdevFile::handleInput(const InputManager::InputNotification& notification)
           append(LinuxEvKey, linuxButtonCode(i), pressed ? 1 : 0);
         }
       }
+    }
+  } else if (m_Type == AbsolutePointer && notification.type == InputManager::AbsoluteMouse) {
+    {
+      LockGuard<Mutex> guard(m_Lock);
+      if (!m_HaveAbsolute || notification.data.absolute.x != m_AbsoluteX) {
+        m_AbsoluteX = notification.data.absolute.x;
+        append(LinuxEvAbsolute, LinuxAbsX, m_AbsoluteX);
+      }
+      if (!m_HaveAbsolute || notification.data.absolute.y != m_AbsoluteY) {
+        m_AbsoluteY = notification.data.absolute.y;
+        append(LinuxEvAbsolute, LinuxAbsY, m_AbsoluteY);
+      }
+      m_HaveAbsolute = true;
+      for (size_t i = 0; i < 5; ++i) {
+        const bool pressed = notification.data.absolute.buttons[i];
+        if (pressed != m_ButtonState[i]) {
+          m_ButtonState[i] = pressed;
+          append(LinuxEvKey, linuxButtonCode(i), pressed ? 1 : 0);
+        }
+      }
+    }
+    if (notification.data.absolute.wheel) {
+      append(LinuxEvRelative, LinuxRelWheel, notification.data.absolute.wheel);
     }
   }
 

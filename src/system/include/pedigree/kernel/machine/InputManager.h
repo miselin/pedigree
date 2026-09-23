@@ -45,6 +45,7 @@ class EXPORTED_PUBLIC InputManager {
   const static int Joystick = 4;
   const static int RawKey = 8;
   const static int MachineKey = 16;  // machine-specific key codes
+  const static int AbsoluteMouse = 32;
   const static int Unknown = 255;
 
   typedef int CallbackType;
@@ -67,6 +68,13 @@ class EXPORTED_PUBLIC InputManager {
 
         bool buttons[64];
       } pointy;
+      struct {
+        uint32_t x;
+        uint32_t y;
+        ssize_t wheel;
+
+        bool buttons[64];
+      } absolute;
       struct {
         /// HID scancode for the key (most generic type of scancode,
         /// and easy to build translation tables for)
@@ -117,6 +125,9 @@ class EXPORTED_PUBLIC InputManager {
 
   /// Called whenever mouse input comes in.
   void mouseUpdate(ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap);
+
+  /// Position coordinates use the evdev 0..0x7fff absolute pointer range.
+  void absoluteMouseUpdate(uint32_t x, uint32_t y, ssize_t wheel, uint32_t buttonBitmap);
 
   /// Called whenever joystick input comes in
   void joystickUpdate(ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap);

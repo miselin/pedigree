@@ -7,11 +7,20 @@ cd "$repository"
 kernel=${PEDIGREE_ARM64_KERNEL:-build-arm64/src/system/kernel/kernel}
 mode=${1:-}
 case "$mode" in
-    --alpine|--nvme|--uefi|--uefi-fdt) shift ;;
+    --alpine|--nvme|--virtio|--uefi|--uefi-fdt|--uefi-virtio|--uefi-fdt-virtio) shift ;;
     *) mode= ;;
 esac
 
-if [ "$mode" != --uefi ] && [ "$mode" != --uefi-fdt ] && [ ! -f "$kernel" ]; then
+case "$mode" in
+    --uefi*) uefi_mode=1 ;;
+    *) uefi_mode=0 ;;
+esac
+case "$mode" in
+    --virtio|--uefi-virtio|--uefi-fdt-virtio) virtio_mode=1 ;;
+    *) virtio_mode=0 ;;
+esac
+
+if [ "$uefi_mode" -eq 0 ] && [ ! -f "$kernel" ]; then
     echo "ARM64 kernel is unavailable: $kernel" >&2
     exit 1
 fi
@@ -43,8 +52,7 @@ qemu_args=(
 )
 
 bootargs=splash=logs
-if [ "$mode" = --alpine ] || [ "$mode" = --nvme ] || [ "$mode" = --uefi ] ||
-   [ "$mode" = --uefi-fdt ]; then
+if [ -n "$mode" ]; then
     rootfs=scripts/alpine/build/aarch64/rootfs.img
     if [ ! -f "$rootfs" ]; then
         echo "ARM64 Alpine rootfs is unavailable; run scripts/alpine/build.sh aarch64" >&2
@@ -52,7 +60,7 @@ if [ "$mode" = --alpine ] || [ "$mode" = --nvme ] || [ "$mode" = --uefi ] ||
     fi
 fi
 
-if [ "$mode" = --uefi ] || [ "$mode" = --uefi-fdt ]; then
+if [ "$uefi_mode" -eq 1 ]; then
     efi_image=${PEDIGREE_ARM64_UEFI_IMAGE:-build-arm64/pedigree-arm64-uefi.img}
     efi_code=${PEDIGREE_ARM64_EFI_CODE:-/opt/homebrew/share/qemu/edk2-aarch64-code.fd}
     efi_vars=${PEDIGREE_ARM64_EFI_VARS:-/opt/homebrew/share/qemu/edk2-arm-vars.fd}
@@ -65,7 +73,7 @@ if [ "$mode" = --uefi ] || [ "$mode" = --uefi-fdt ]; then
     variables=$(mktemp "${TMPDIR:-/tmp}/pedigree-arm64-vars.XXXXXX")
     trap 'rm -f "$variables"' EXIT
     cp "$efi_vars" "$variables"
-    if [ "$mode" = --uefi-fdt ]; then
+    if [ "$mode" = --uefi-fdt ] || [ "$mode" = --uefi-fdt-virtio ]; then
         qemu_args[1]=virt,gic-version=3,acpi=off
     else
         qemu_args[1]=virt,gic-version=3,acpi=on
@@ -86,15 +94,21 @@ if [ "$mode" = --alpine ]; then
     rootfs_end=$(printf '0x%x' "$((rootfs_start + rootfs_size))")
     qemu_args+=(-device "loader,file=$rootfs,addr=$rootfs_start,force-raw=on")
     bootargs="pedigree.initrd=$rootfs_start:$rootfs_end root=UUID=50e5c7c0-b79c-4932-8cdc-c2b2c713ff97 $bootargs"
-elif [ "$mode" = --nvme ] || [ "$mode" = --uefi ] || [ "$mode" = --uefi-fdt ]; then
-    qemu_args+=(
-        -drive "if=none,id=alpine,file=$rootfs,format=raw,snapshot=on"
-        -device nvme,serial=pedigree,drive=alpine
-    )
+elif [ "$mode" = --nvme ] || [ "$virtio_mode" -eq 1 ] || [ "$uefi_mode" -eq 1 ]; then
+    qemu_args+=(-drive "if=none,id=alpine,file=$rootfs,format=raw,snapshot=on")
+    if [ "$virtio_mode" -eq 1 ]; then
+        qemu_args+=(-device virtio-blk-pci,drive=alpine)
+    else
+        qemu_args+=(-device nvme,serial=pedigree,drive=alpine)
+    fi
     bootargs="root=UUID=50e5c7c0-b79c-4932-8cdc-c2b2c713ff97 $bootargs"
 fi
 
-if [ "$mode" = --uefi ] || [ "$mode" = --uefi-fdt ]; then
+if [ "$virtio_mode" -eq 1 ]; then
+    qemu_args+=(-netdev user,id=net0 -device virtio-net-pci,netdev=net0 -device virtio-rng-pci)
+fi
+
+if [ "$uefi_mode" -eq 1 ]; then
     "${QEMU:-qemu-system-aarch64}" "${qemu_args[@]}" "$@"
 else
     exec "${QEMU:-qemu-system-aarch64}" "${qemu_args[@]}" -append "$bootargs" "$@"

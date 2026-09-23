@@ -173,8 +173,9 @@ endif ()
 add_definitions(-DPOSIX_LOG_FACILITIES=${POSIX_LOGGING})
 
 set(_PEDIGREE_ARM64_ALPINE_MODULES
-    console diskimage ext2 filesystems init linker lodisk lwip mountroot
-    network-stack nvme partition pci pci-enumeration posix ramfs rawfs scsi users vfs)
+    confignics console diskimage ext2 filesystems init linker lodisk lwip
+    mountroot network-stack nics nvme partition pci pci-enumeration posix ramfs
+    rawfs scsi users vfs virtio-pci virtio-blk virtio-net virtio-rng virtio-input)
 
 function(pedigree_module name opts libs)
     set(_PEDIGREE_MODULE_DEFAULT TRUE)
@@ -759,6 +760,28 @@ pedigree_module(3c90x "" ""
 
 if (PEDIGREE_MACHINE_HASPCI AND
     (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "ARM64"))
+    pedigree_module(virtio-pci "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio/VirtioPci.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio/Virtqueue.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio/main.cc)
+    pedigree_module(virtio-blk "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-blk/VirtioBlkController.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-blk/VirtioBlkDisk.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-blk/main.cc)
+    pedigree_module(virtio-net "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-net/VirtioNet.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-net/main.cc)
+    pedigree_module(virtio-rng "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-rng/VirtioRng.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-rng/main.cc)
+    pedigree_module(virtio-input "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-input/VirtioInput.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio-input/main.cc)
+    add_dependencies(virtio-blk virtio-pci)
+    add_dependencies(virtio-net virtio-pci)
+    add_dependencies(virtio-rng virtio-pci)
+    add_dependencies(virtio-input virtio-pci)
+
     pedigree_module(nvme "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/NvmeController.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/NvmeDisk.cc

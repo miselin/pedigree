@@ -29,6 +29,7 @@ const int Key = 1;
 const int Mouse = 2;
 const int Joystick = 4;
 const int RawKey = 8;
+const int AbsoluteMouse = 32;
 const int Unknown = 255;
 
 typedef int CallbackType;
@@ -53,6 +54,13 @@ struct EXPORTED_PUBLIC InputNotification {
 
       bool buttons[64];
     } pointy;
+    struct {
+      uint32_t x;
+      uint32_t y;
+      ssize_t wheel;
+
+      bool buttons[64];
+    } absolute;
     struct {
       /// HID scancode for the key (most generic type of scancode,
       /// and easy to build translation tables for)

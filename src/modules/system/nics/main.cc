@@ -26,4 +26,4 @@
 #include "modules/Module.h"
 
 MODULE_INFO("nics", 0, 0);
-MODULE_OPTIONAL_DEPENDS("cdi", "ne2k", "3c90x", "dm9601", "rtl8139");
+MODULE_OPTIONAL_DEPENDS("cdi", "ne2k", "3c90x", "dm9601", "rtl8139", "virtio-net");

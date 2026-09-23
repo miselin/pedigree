@@ -1014,6 +1014,15 @@ bool DevFs::initialise(Disk* pDisk) {
     delete pointer;
   }
 
+  auto* tablet = new EvdevFile(String("event2"), getNextInode(), this, pInputDirectory,
+                               EvdevFile::AbsolutePointer);
+  if (tablet && tablet->initialise()) {
+    pInputDirectory->addEntry(tablet->getName(), tablet);
+  } else {
+    revertInode();
+    delete tablet;
+  }
+
   EMIT_IF(X86_COMMON) {
     PsAuxFile* pPsAux = new PsAuxFile(String("psaux"), getNextInode(), this, m_pRoot);
     if (pPsAux->initialise()) {

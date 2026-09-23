@@ -175,6 +175,19 @@ void InputManager::mouseUpdate(ssize_t relX, ssize_t relY, ssize_t relZ, uint32_
   putNotification(note);
 }
 
+void InputManager::absoluteMouseUpdate(uint32_t x, uint32_t y, ssize_t wheel,
+                                       uint32_t buttonBitmap) {
+  InputNotification* note = new InputNotification;
+  note->type = AbsoluteMouse;
+  note->data.absolute.x = x > 0x7fff ? 0x7fff : x;
+  note->data.absolute.y = y > 0x7fff ? 0x7fff : y;
+  note->data.absolute.wheel = wheel;
+  for (size_t i = 0; i < 64; i++)
+    note->data.absolute.buttons[i] = static_cast<uint64_t>(buttonBitmap) & (uint64_t{1} << i);
+
+  putNotification(note);
+}
+
 void InputManager::joystickUpdate(ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap) {
   InputNotification* note = new InputNotification;
   note->type = Joystick;
@@ -209,6 +222,21 @@ void InputManager::putNotification(InputNotification* note) {
           queued->data.pointy.buttons[i] = note->data.pointy.buttons[i];
         merged = true;
         break;
+      }
+    } else if (note->type == AbsoluteMouse) {
+      InputNotification* latest = nullptr;
+      for (auto queued : m_InputQueue) {
+        latest = queued;
+      }
+      bool sameButtons = latest && latest->type == AbsoluteMouse;
+      for (size_t i = 0; i < 64 && sameButtons; ++i) {
+        sameButtons = latest->data.absolute.buttons[i] == note->data.absolute.buttons[i];
+      }
+      if (sameButtons) {
+        latest->data.absolute.x = note->data.absolute.x;
+        latest->data.absolute.y = note->data.absolute.y;
+        latest->data.absolute.wheel += note->data.absolute.wheel;
+        merged = true;
       }
     }
 

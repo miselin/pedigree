@@ -65,10 +65,10 @@ class InputFile final : public File {
   bool m_Registered = false;
 };
 
-/** A Linux evdev-compatible keyboard or relative-pointer endpoint. */
+/** A Linux evdev-compatible keyboard or pointer endpoint. */
 class EvdevFile final : public File {
  public:
-  enum DeviceType { Keyboard, Pointer };
+  enum DeviceType { Keyboard, Pointer, AbsolutePointer };
 
   EvdevFile(String name, size_t inode, Filesystem* filesystem, File* parent, DeviceType type,
             bool endpoint = false);
@@ -107,6 +107,9 @@ class EvdevFile final : public File {
   Buffer<uint8_t> m_Buffer;
   uint8_t m_KeyState[96];
   bool m_ButtonState[5];
+  uint32_t m_AbsoluteX = 0;
+  uint32_t m_AbsoluteY = 0;
+  bool m_HaveAbsolute = false;
   size_t m_LifetimePins = 0;
   bool m_Registered = false;
 };
