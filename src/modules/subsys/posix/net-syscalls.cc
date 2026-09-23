@@ -27,6 +27,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/UniqueResource.h"
@@ -423,11 +424,19 @@ static bool unixSocketPath(const struct sockaddr_storage* address, socklen_t add
     return false;
   }
 
-  // Linux abstract sockets have unrelated lifetime and namespace semantics.
-  // Keep the first Go milestone explicitly pathname-only.
   if (!un->sun_path[0]) {
-    SYSCALL_ERROR(OperationNotSupported);
-    return false;
+    static constexpr char digits[] = "0123456789abcdef";
+    char encoded[1 + 2 * sizeof(un->sun_path) + 1];
+    size_t encodedLength = 1;
+    encoded[0] = '\1';
+    for (size_t i = 1; i < pathLength; ++i) {
+      const uint8_t value = static_cast<uint8_t>(un->sun_path[i]);
+      encoded[encodedLength++] = digits[value >> 4];
+      encoded[encodedLength++] = digits[value & 0xf];
+    }
+    encoded[encodedLength] = 0;
+    path.assign(encoded, encodedLength);
+    return true;
   }
 
   char boundedPath[sizeof(un->sun_path) + 1];
@@ -439,6 +448,49 @@ static bool unixSocketPath(const struct sockaddr_storage* address, socklen_t add
     return false;
   }
   return true;
+}
+
+static bool isAbstractUnixSocket(const String& address) {
+  return address.length() && address[0] == '\1';
+}
+
+static uint8_t decodeHexDigit(char value) {
+  return value >= 'a' ? static_cast<uint8_t>(value - 'a' + 10) : static_cast<uint8_t>(value - '0');
+}
+
+static void writeUnixSocketAddress(const String& value, struct sockaddr_storage* address,
+                                   socklen_t* addressLength) {
+  const size_t pathOffset = offsetof(struct sockaddr_un, sun_path);
+  const bool abstract = isAbstractUnixSocket(value);
+  const size_t nameLength = abstract ? (value.length() - 1) / 2 : value.length();
+  const size_t required = pathOffset + (abstract     ? 1 + nameLength
+                                        : nameLength ? nameLength + 1
+                                                     : 0);
+  const size_t capacity = addressLength ? *addressLength : 0;
+
+  if (address && capacity) {
+    ByteSet(address, 0, capacity < sizeof(sockaddr_un) ? capacity : sizeof(sockaddr_un));
+    auto* un = reinterpret_cast<struct sockaddr_un*>(address);
+    if (capacity >= sizeof(sa_family_t)) {
+      un->sun_family = AF_UNIX;
+    }
+    if (capacity > pathOffset) {
+      const size_t available = capacity - pathOffset;
+      if (abstract) {
+        const size_t amount = nameLength < available - 1 ? nameLength : available - 1;
+        for (size_t i = 0; i < amount; ++i) {
+          un->sun_path[i + 1] = static_cast<char>((decodeHexDigit(value[1 + 2 * i]) << 4) |
+                                                  decodeHexDigit(value[2 + 2 * i]));
+        }
+      } else if (nameLength) {
+        const size_t amount = nameLength < available - 1 ? nameLength : available - 1;
+        MemoryCopy(un->sun_path, value.cstr(), amount);
+      }
+    }
+  }
+  if (addressLength) {
+    *addressLength = required;
+  }
 }
 
 static uint8_t lwipSocketOption(int option) {
@@ -2725,6 +2777,9 @@ class UnixSocketReference {
   UnixSocketReferenceOwnership m_Ownership;
 };
 
+static HashTable<String, SharedPointer<UnixSocketReference>> g_AbstractUnixSockets;
+static Mutex g_AbstractUnixSocketsLock;
+
 class UnixSocketGeneration {
  public:
   explicit UnixSocketGeneration(const SharedPointer<UnixSocketReference>& reference)
@@ -2892,7 +2947,8 @@ UnixSocketSyscalls::UnixSocketSyscalls(int domain, int type, int protocol)
       m_ClosingLocalEndpoint(),
       m_ClosingRemoteEndpoint(),
       m_LocalPath(),
-      m_RemotePath() {}
+      m_RemotePath(),
+      m_OwnsAbstractName(false) {}
 
 UnixSocketSyscalls::~UnixSocketSyscalls() {
   lastDescriptorClosed();
@@ -3019,6 +3075,53 @@ void UnixSocketSyscalls::notifyPeer(UnixSocket* socket, ReadyMask mask) {
   notifySocket(peer, mask);
 }
 
+bool UnixSocketSyscalls::publishAbstractSocket(
+    const String& address, const SharedPointer<UnixSocketReference>& reference) {
+  LockGuard<Mutex> guard(g_AbstractUnixSocketsLock);
+  if (g_AbstractUnixSockets.contains(address)) {
+    SYSCALL_ERROR(AddressInUse);
+    return false;
+  }
+  if (!g_AbstractUnixSockets.insert(address, reference)) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  return true;
+}
+
+SharedPointer<UnixSocketReference> UnixSocketSyscalls::acquireSocket(const String& address) {
+  if (isAbstractUnixSocket(address)) {
+    LockGuard<Mutex> guard(g_AbstractUnixSocketsLock);
+    auto result = g_AbstractUnixSockets.lookup(address);
+    if (!result.hasValue()) {
+      SYSCALL_ERROR(DoesNotExist);
+      return SharedPointer<UnixSocketReference>();
+    }
+    return result.value();
+  }
+
+  File* file = findTrackedUnixSocket(address);
+  if (!file) {
+    SYSCALL_ERROR(DoesNotExist);
+    return SharedPointer<UnixSocketReference>();
+  }
+  if (!file->isSocket()) {
+    releaseTrackedUnixSocket(file);
+    SYSCALL_ERROR(DoesNotExist);
+    return SharedPointer<UnixSocketReference>();
+  }
+  return SharedPointer<UnixSocketReference>(
+      new UnixSocketReference(static_cast<UnixSocket*>(file), UnixSocketReferenceOwnership::Vfs));
+}
+
+void UnixSocketSyscalls::removeAbstractSocket(const String& address, UnixSocket* socket) {
+  LockGuard<Mutex> guard(g_AbstractUnixSocketsLock);
+  auto current = g_AbstractUnixSockets.lookup(address);
+  if (current.hasValue() && current.value()->get() == socket) {
+    g_AbstractUnixSockets.remove(address);
+  }
+}
+
 SharedPointer<UnixSocketGeneration> UnixSocketSyscalls::acquireLocalEndpoint() const {
   ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
   return m_LocalEndpoint;
@@ -3028,6 +3131,12 @@ void UnixSocketSyscalls::replaceLocalEndpoint(UnixSocket* socket, bool tracked,
                                               const String* localPath) {
   SharedPointer<UnixSocketReference> reference(new UnixSocketReference(
       socket, tracked ? UnixSocketReferenceOwnership::Vfs : UnixSocketReferenceOwnership::Heap));
+  replaceLocalEndpoint(reference, localPath, false);
+}
+
+void UnixSocketSyscalls::replaceLocalEndpoint(const SharedPointer<UnixSocketReference>& reference,
+                                              const String* localPath, bool ownsAbstractName) {
+  UnixSocket* socket = reference ? reference->get() : nullptr;
   SharedPointer<UnixSocketGeneration> replacement(new UnixSocketGeneration(reference));
   SharedPointer<UnixSocketGeneration> previous;
 
@@ -3039,6 +3148,7 @@ void UnixSocketSyscalls::replaceLocalEndpoint(UnixSocket* socket, bool tracked,
     if (localPath) {
       m_LocalPath = *localPath;
     }
+    m_OwnsAbstractName = ownsAbstractName;
   }
 
   if (previous) {
@@ -3086,12 +3196,23 @@ void UnixSocketSyscalls::tryCompleteEndpointClose() {
     // unlocked check and before this nonblocking acquisition.
     if (!m_EndpointRetired) {
       m_EndpointMutationReleaseInProgress = true;
+      String abstractName;
+      UnixSocket* abstractSocket = nullptr;
       {
         ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
+        if (m_OwnsAbstractName && isAbstractUnixSocket(m_LocalPath) && m_LocalEndpoint) {
+          abstractName = m_LocalPath;
+          abstractSocket = m_LocalEndpoint->get();
+        }
         m_ClosingLocalEndpoint = pedigree_std::move(m_LocalEndpoint);
         m_ClosingRemoteEndpoint = pedigree_std::move(m_RemoteEndpoint);
         m_LocalPath.clear();
         m_RemotePath.clear();
+        m_OwnsAbstractName = false;
+      }
+
+      if (abstractSocket) {
+        removeAbstractSocket(abstractName, abstractSocket);
       }
 
       if (m_ClosingLocalEndpoint) {
@@ -3160,28 +3281,17 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
 
   N_NOTICE(" -> unix connect: '" << pathname << "'");
 
-  File* file = findTrackedUnixSocket(pathname);
-  if (!file) {
-    SYSCALL_ERROR(DoesNotExist);
+  SharedPointer<UnixSocketReference> targetReference = acquireSocket(pathname);
+  if (!targetReference) {
     N_NOTICE(" -> unix socket '" << pathname << "' doesn't exist");
     return -1;
   }
-
-  if (!file->isSocket()) {
-    /// \todo wrong error
-    SYSCALL_ERROR(DoesNotExist);
-    N_NOTICE(" -> target '" << pathname << "' is not a unix socket");
-    releaseTrackedUnixSocket(file);
-    return -1;
-  }
-
-  UnixSocket* target = static_cast<UnixSocket*>(file);
+  UnixSocket* target = targetReference->get();
 
   if (getType() == SOCK_STREAM) {
     N_NOTICE(" -> stream");
     if (target->getType() != UnixSocket::Streaming || target->getState() != UnixSocket::Listening) {
       SYSCALL_ERROR(ConnectionRefused);
-      releaseTrackedUnixSocket(target);
       return -1;
     }
 
@@ -3195,7 +3305,6 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
     if (!localSocket->bind(remote, false)) {
       delete remote;
       SYSCALL_ERROR(IsConnected);
-      releaseTrackedUnixSocket(target);
       return -1;
     }
     registerPeer(localSocket, remote, target);
@@ -3204,7 +3313,6 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
       remote->failConnection();
       delete remote;
       SYSCALL_ERROR(ConnectionRefused);
-      releaseTrackedUnixSocket(target);
       return -1;
     }
     notifySocket(target, ReadyRead);
@@ -3213,20 +3321,16 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
   } else {
     if (target->getType() != UnixSocket::Datagram) {
       SYSCALL_ERROR(ProtocolWrongType);
-      releaseTrackedUnixSocket(target);
       return -1;
     }
     if (target->getState() == UnixSocket::Closed) {
       SYSCALL_ERROR(ConnectionRefused);
-      releaseTrackedUnixSocket(target);
       return -1;
     }
     N_NOTICE(" -> dgram");
   }
 
   SharedPointer<UnixSocketReference> previousRemote;
-  SharedPointer<UnixSocketReference> targetReference(
-      new UnixSocketReference(target, UnixSocketReferenceOwnership::Vfs));
   {
     ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
     previousRemote = pedigree_std::move(m_RemoteEndpoint);
@@ -3298,23 +3402,11 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
 
     N_NOTICE(" -> unix connect: '" << pathname << "'");
 
-    File* file = findTrackedUnixSocket(pathname);
-    if (!file) {
-      SYSCALL_ERROR(DoesNotExist);
+    remoteReference = acquireSocket(pathname);
+    if (!remoteReference) {
       N_NOTICE(" -> unix socket '" << pathname << "' doesn't exist");
       return -1;
     }
-
-    if (!file->isSocket()) {
-      /// \todo wrong error
-      SYSCALL_ERROR(DoesNotExist);
-      N_NOTICE(" -> target '" << pathname << "' is not a unix socket");
-      releaseTrackedUnixSocket(file);
-      return -1;
-    }
-
-    remoteReference.reset(
-        new UnixSocketReference(static_cast<UnixSocket*>(file), UnixSocketReferenceOwnership::Vfs));
     remote = remoteReference->get();
   }
 
@@ -3503,22 +3595,8 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
   }
 
   if ((numRead || consumedDatagram) && msghdr->msg_name) {
-    struct sockaddr_un* un = reinterpret_cast<struct sockaddr_un*>(msghdr->msg_name);
-    const size_t pathOffset = offsetof(struct sockaddr_un, sun_path);
-    const size_t capacity = msghdr->msg_namelen;
-    if (capacity >= sizeof(sa_family_t)) {
-      un->sun_family = AF_UNIX;
-    }
-    if (capacity > pathOffset) {
-      const size_t available = capacity - pathOffset;
-      if (remote.length()) {
-        StringCopyN(un->sun_path, remote.cstr(), available);
-        un->sun_path[available - 1] = 0;
-      } else {
-        un->sun_path[0] = 0;
-      }
-    }
-    msghdr->msg_namelen = sizeof(sa_family_t) + remote.length() + (remote.length() ? 1 : 0);
+    writeUnixSocketAddress(remote, reinterpret_cast<struct sockaddr_storage*>(msghdr->msg_name),
+                           &msghdr->msg_namelen);
   }
 
   msghdr->msg_flags = 0;
@@ -3610,6 +3688,25 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t a
   }
 
   N_NOTICE(" -> unix bind: '" << adjusted_pathname << "'");
+
+  if (isAbstractUnixSocket(adjusted_pathname)) {
+    UnixSocket* socket =
+        new UnixSocket(String(), g_pUnixSocketBacking, nullptr, nullptr, getSocketType());
+    if (!socket) {
+      SYSCALL_ERROR(OutOfMemory);
+      return -1;
+    }
+
+    SharedPointer<UnixSocketReference> reference(
+        new UnixSocketReference(socket, UnixSocketReferenceOwnership::Heap));
+    if (!publishAbstractSocket(adjusted_pathname, reference)) {
+      return -1;
+    }
+
+    replaceLocalEndpoint(reference, &adjusted_pathname, true);
+    notifyReadiness(ReadyWrite);
+    return 0;
+  }
 
   if (adjusted_pathname.endswith('/')) {
     // uh, that's a directory
@@ -3768,10 +3865,7 @@ int UnixSocketSyscalls::getpeername(struct sockaddr_storage* address, socklen_t*
     return -1;
   }
 
-  struct sockaddr_un* sun = reinterpret_cast<struct sockaddr_un*>(address);
-  sun->sun_family = AF_UNIX;
-  StringCopy(sun->sun_path, remotePath.cstr());
-  *address_len = sizeof(sa_family_t) + remotePath.length() + (remotePath.length() ? 1 : 0);
+  writeUnixSocketAddress(remotePath, address, address_len);
 
   N_NOTICE(" -> " << remotePath);
   return 0;
@@ -3788,10 +3882,7 @@ int UnixSocketSyscalls::getsockname(struct sockaddr_storage* address, socklen_t*
     }
     localPath = m_LocalPath;
   }
-  struct sockaddr_un* sun = reinterpret_cast<struct sockaddr_un*>(address);
-  sun->sun_family = AF_UNIX;
-  StringCopy(sun->sun_path, localPath.cstr());
-  *address_len = sizeof(sa_family_t) + localPath.length() + (localPath.length() ? 1 : 0);
+  writeUnixSocketAddress(localPath, address, address_len);
 
   N_NOTICE(" -> " << localPath);
   return 0;

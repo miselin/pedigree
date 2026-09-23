@@ -313,7 +313,6 @@ class UnixSocketSyscalls : public NetworkSyscalls {
   static Tree<UnixSocket*, UnixSocket*> m_Peers;
   static Tree<UnixSocket*, UnixSocket*> m_PendingListeners;
   static Mutex m_SyscallObjectsLock;
-
   class EndpointMutationGuard {
    public:
     explicit EndpointMutationGuard(UnixSocketSyscalls& socket);
@@ -361,9 +360,15 @@ class UnixSocketSyscalls : public NetworkSyscalls {
   static void unregisterSocket(UnixSocket* socket, List<UnixSocket*>& peers);
   void notifyPeer(UnixSocket* socket, ReadyMask mask);
   static void notifySocket(UnixSocket* socket, ReadyMask mask);
+  static bool publishAbstractSocket(const String& address,
+                                    const SharedPointer<UnixSocketReference>& reference);
+  static SharedPointer<UnixSocketReference> acquireSocket(const String& address);
+  static void removeAbstractSocket(const String& address, UnixSocket* socket);
 
   SharedPointer<UnixSocketGeneration> acquireLocalEndpoint() const;
   void replaceLocalEndpoint(UnixSocket* socket, bool tracked, const String* localPath = nullptr);
+  void replaceLocalEndpoint(const SharedPointer<UnixSocketReference>& reference,
+                            const String* localPath, bool ownsAbstractName);
   void tryCompleteEndpointClose();
 
   UnixSocket::SocketType getSocketType() const;
@@ -383,6 +388,7 @@ class UnixSocketSyscalls : public NetworkSyscalls {
 
   String m_LocalPath;
   String m_RemotePath;
+  bool m_OwnsAbstractName;
 };
 
 /// Get metadata for a given lwIP connection.

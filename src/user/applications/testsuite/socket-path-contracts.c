@@ -20,6 +20,86 @@ static void require(int condition, const char* operation) {
   }
 }
 
+static socklen_t abstract_socket_address(struct sockaddr_un* address, char discriminator) {
+  memset(address, 0, sizeof(*address));
+  address->sun_family = AF_UNIX;
+
+  const int prefix_length =
+      snprintf(address->sun_path + 1, sizeof(address->sun_path) - 1, "pedigree-%c", discriminator);
+  require(prefix_length > 0, "format abstract socket prefix");
+  const size_t suffix_offset = 1 + (size_t)prefix_length + 1;
+  const int suffix_length =
+      snprintf(address->sun_path + suffix_offset, sizeof(address->sun_path) - suffix_offset, "%ld",
+               (long)getpid());
+  require(suffix_length > 0, "format abstract socket suffix");
+
+  return offsetof(struct sockaddr_un, sun_path) + suffix_offset + (size_t)suffix_length;
+}
+
+static void abstract_socket_contracts(void) {
+  struct sockaddr_un stream_address;
+  const socklen_t stream_length = abstract_socket_address(&stream_address, 's');
+  int listener = socket(AF_UNIX, SOCK_STREAM, 0);
+  int replacement = socket(AF_UNIX, SOCK_STREAM, 0);
+  int client = socket(AF_UNIX, SOCK_STREAM, 0);
+  require(listener >= 0 && replacement >= 0 && client >= 0 &&
+              bind(listener, (struct sockaddr*)&stream_address, stream_length) == 0,
+          "bind abstract stream socket");
+
+  struct sockaddr_un reported = {};
+  socklen_t reported_length = sizeof(reported);
+  require(getsockname(listener, (struct sockaddr*)&reported, &reported_length) == 0 &&
+              reported_length == stream_length &&
+              memcmp(&reported, &stream_address, stream_length) == 0,
+          "report length-sensitive abstract address");
+  errno = 0;
+  require(bind(replacement, (struct sockaddr*)&stream_address, stream_length) == -1 &&
+              errno == EADDRINUSE,
+          "reject duplicate abstract stream bind");
+  require(listen(listener, 1) == 0 &&
+              connect(client, (struct sockaddr*)&stream_address, stream_length) == 0,
+          "connect abstract stream socket");
+  int accepted = accept(listener, NULL, NULL);
+  require(accepted >= 0, "accept abstract stream socket");
+
+  int duplicate = dup(listener);
+  require(duplicate >= 0 && close(listener) == 0, "duplicate abstract listener");
+  errno = 0;
+  require(bind(replacement, (struct sockaddr*)&stream_address, stream_length) == -1 &&
+              errno == EADDRINUSE,
+          "duplicate retains abstract address");
+  require(close(duplicate) == 0 &&
+              bind(replacement, (struct sockaddr*)&stream_address, stream_length) == 0,
+          "final listener close releases abstract address");
+
+  char byte = 0;
+  require(send(client, "c", 1, 0) == 1 && recv(accepted, &byte, 1, 0) == 1 && byte == 'c' &&
+              send(accepted, "a", 1, 0) == 1 && recv(client, &byte, 1, 0) == 1 && byte == 'a',
+          "accepted connection survives abstract rebind");
+  require(close(client) == 0 && close(accepted) == 0 && close(replacement) == 0,
+          "close abstract stream sockets");
+
+  struct sockaddr_un receiver_address;
+  struct sockaddr_un sender_address;
+  const socklen_t receiver_length = abstract_socket_address(&receiver_address, 'r');
+  const socklen_t sender_length = abstract_socket_address(&sender_address, 'd');
+  int receiver = socket(AF_UNIX, SOCK_DGRAM, 0);
+  int sender = socket(AF_UNIX, SOCK_DGRAM, 0);
+  require(receiver >= 0 && sender >= 0 &&
+              bind(receiver, (struct sockaddr*)&receiver_address, receiver_length) == 0 &&
+              bind(sender, (struct sockaddr*)&sender_address, sender_length) == 0 &&
+              sendto(sender, "d", 1, 0, (struct sockaddr*)&receiver_address, receiver_length) == 1,
+          "send abstract datagram");
+
+  memset(&reported, 0, sizeof(reported));
+  reported_length = sizeof(reported);
+  require(recvfrom(receiver, &byte, 1, 0, (struct sockaddr*)&reported, &reported_length) == 1 &&
+              byte == 'd' && reported_length == sender_length &&
+              memcmp(&reported, &sender_address, sender_length) == 0,
+          "report abstract datagram sender");
+  require(close(receiver) == 0 && close(sender) == 0, "close abstract datagram sockets");
+}
+
 static void rename_socket_paths(const char* directory) {
   struct sockaddr_un source_path = {.sun_family = AF_UNIX};
   struct sockaddr_un destination = {.sun_family = AF_UNIX};
@@ -85,8 +165,9 @@ void test_socket_path_contracts(void) {
     int bound = socket(AF_UNIX, types[i], 0);
     require(bound >= 0 && bind(bound, (struct sockaddr*)&address, length) == 0,
             "bind socket lifetime fixture");
-    if (types[i] == SOCK_STREAM)
+    if (types[i] == SOCK_STREAM) {
       require(listen(bound, 1) == 0, "listen lifetime fixture");
+    }
     int duplicate = dup(bound);
     require(duplicate >= 0 && close(bound) == 0, "close duplicated bound descriptor");
     struct stat metadata;
@@ -140,4 +221,6 @@ void test_socket_path_contracts(void) {
   puts("SOCKET-PATH-CONTRACT: PASS ramfs-rename-replacement");
   rename_socket_paths("");
   puts("SOCKET-PATH-CONTRACT: PASS ext2-rename-replacement");
+  abstract_socket_contracts();
+  puts("SOCKET-PATH-CONTRACT: PASS abstract-namespace");
 }
