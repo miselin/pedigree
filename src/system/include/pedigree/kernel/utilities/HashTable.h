@@ -513,9 +513,13 @@ class HashTable {
       size_t nextHash = (currentHash + nextIndex(i, index, step)) & m_nMask;
       bucket* b = &m_Buckets[nextHash];
 
+      // Removal rehashes the table, so an empty bucket ends this probe chain.
+      if (!b->set) {
+        return nullptr;
+      }
       // Hash comparison is likely to be faster than raw object
       // comparison so we save the latter for when we have a candidate.
-      if (b->set && (b->key.hash() == khash)) {
+      if (b->key.hash() == khash) {
         if (b->key == k) {
           return b;
         }
@@ -536,9 +540,13 @@ class HashTable {
       size_t nextHash = (currentHash + nextIndex(i, index, step)) & m_nMask;
       const bucket* b = &m_Buckets[nextHash];
 
+      // Removal rehashes the table, so an empty bucket ends this probe chain.
+      if (!b->set) {
+        return nullptr;
+      }
       // Hash comparison is likely to be faster than raw object
       // comparison so we save the latter for when we have a candidate.
-      if (b->set && (b->key.hash() == khash)) {
+      if (b->key.hash() == khash) {
         if (b->key == k) {
           return b;
         }

@@ -1386,6 +1386,76 @@ class InodeAliasFile final : public File {
 };
 }  // namespace
 
+TEST(VFS, TrackedFileRetainAndFinalReleaseHaveOneWinner) {
+  VFS vfs;
+  for (size_t attempt = 0; attempt < 64; ++attempt) {
+    std::atomic<size_t> destroyed{0};
+    auto* file = new SparseTestFile(String("tracked-race"), nullptr, destroyed);
+    ASSERT_TRUE(vfs.tryTrackFile(file));
+    StartGate gate(2);
+    bool retained = false, released = false;
+    std::thread reader([&] {
+      gate.arriveAndWait();
+      retained = vfs.retainTrackedFile(file);
+    });
+    std::thread writer([&] {
+      gate.arriveAndWait();
+      released = vfs.untrackFile(file);
+    });
+    reader.join();
+    writer.join();
+
+    EXPECT_NE(retained, released);
+    EXPECT_EQ(destroyed.load(), released ? 1U : 0U);
+    if (retained) {
+      EXPECT_EQ(file->getInode(), 1U);
+      EXPECT_TRUE(vfs.untrackFile(file));
+    }
+    EXPECT_EQ(destroyed.load(), 1U);
+    EXPECT_FALSE(vfs.retainTrackedFile(file));
+  }
+}
+
+TEST(VFS, ConcurrentTrackedFileReferencesPermitWithdrawalAndRepublication) {
+  VFS vfs;
+  std::atomic<size_t> destroyed{0};
+  auto* file = new SparseTestFile(String("tracked-references"), nullptr, destroyed);
+  ASSERT_TRUE(vfs.tryTrackFile(file));
+  StartGate gate(4);
+  std::atomic<size_t> failures{0};
+  auto update = [&] {
+    gate.arriveAndWait();
+    for (size_t i = 0; i < 512; ++i) {
+      if (!vfs.retainTrackedFile(file)) {
+        failures.fetch_add(1);
+        continue;
+      }
+      if (file->getInode() != 1) {
+        failures.fetch_add(1);
+      }
+      if (vfs.untrackFile(file)) {
+        failures.fetch_add(1);
+      }
+    }
+  };
+  std::thread first(update), second(update), third(update), fourth(update);
+  first.join();
+  second.join();
+  third.join();
+  fourth.join();
+  EXPECT_EQ(failures.load(), 0U);
+  EXPECT_EQ(destroyed.load(), 0U);
+
+  EXPECT_TRUE(vfs.untrackFile(file, false));
+  EXPECT_EQ(destroyed.load(), 0U);
+  EXPECT_FALSE(vfs.retainTrackedFile(file));
+  ASSERT_TRUE(vfs.tryTrackFile(file));
+  vfs.trackFile(file);
+  EXPECT_FALSE(vfs.untrackFile(file));
+  EXPECT_TRUE(vfs.untrackFile(file));
+  EXPECT_EQ(destroyed.load(), 1U);
+}
+
 TEST(VFS, RetainedHandleFileOwnsExactlyOneTrackedReference) {
   std::atomic<size_t> destroyed{0};
   auto* file = new SparseTestFile(String("decoded"), nullptr, destroyed);

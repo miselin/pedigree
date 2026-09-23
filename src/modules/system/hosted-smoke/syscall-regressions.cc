@@ -224,12 +224,8 @@ void handlerPinHook(Service_t service, SyscallHandler* handler) {
 
   context->hookCalls += 1;
   for (size_t attempt = 0; attempt < 10000; ++attempt) {
-    Thread::WaitDebugInfo info = {};
-    uintptr_t debugAddress = 0;
-    if (context->phase == static_cast<size_t>(2) && context->remover->getWaitDebugInfo(info) &&
-        info.queue && info.channelOwner && info.queued &&
-        context->remover->getDebugState(debugAddress) == Thread::CallbackDrain &&
-        debugAddress == reinterpret_cast<uintptr_t>(&context->handler)) {
+    if (context->phase == static_cast<size_t>(2) && !context->unregisterReturned &&
+        SyscallManager::instance().syscall(TUI, 0) == 0) {
       context->hookObservedDrain += 1;
       context->phase = 3;
       return;
@@ -253,6 +249,11 @@ int unregisterPinnedHandler(void* parameter) {
     return 1;
   }
 
+  if (!context->registration.closeAdmission()) {
+    context->failures += 1;
+    context->phase = 3;
+    return 1;
+  }
   context->phase = 2;
   if (context->registration.reset()) {
     context->unregisterSucceeded += 1;

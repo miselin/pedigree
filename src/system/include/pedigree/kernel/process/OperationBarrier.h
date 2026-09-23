@@ -82,9 +82,12 @@ class EXPORTED_PUBLIC OperationBarrier {
  private:
   NOT_COPYABLE_OR_ASSIGNABLE(OperationBarrier);
 
+  static constexpr size_t Closed = size_t{1} << (sizeof(size_t) * 8 - 1);
+  static constexpr size_t CountMask = Closed - 1;
+  static_assert(__atomic_always_lock_free(sizeof(size_t), nullptr));
+
   WaitQueue m_Waiters;
-  bool m_Open;
-  size_t m_ActiveOperations;
+  size_t m_State;
 };
 
 #endif

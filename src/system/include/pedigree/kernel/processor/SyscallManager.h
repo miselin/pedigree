@@ -23,7 +23,6 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/process/DeferredScope.h"
-#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/SyscallHandler.h"
 #include "pedigree/kernel/processor/Syscalls.h"
 #include "pedigree/kernel/processor/state.h"
@@ -43,26 +42,7 @@ class SyscallManager {
   struct PostSyscallAction;
 
  private:
-  struct HandlerDispatch {
-    void* owner;
-    Thread* thread;
-    size_t stateLevel;
-    size_t sequence;
-    PostSyscallAction* action;
-    HandlerDispatch* next;
-  };
-
-  struct HandlerSlot {
-    HandlerSlot();
-
-    SyscallHandler* handler;
-    size_t generation;
-    size_t inFlight;
-    bool enabled;
-    bool draining;
-    HandlerDispatch* dispatches;
-    WaitQueue drainWaiters;
-  };
+  struct HandlerSlot;
 
  public:
   using FastEntry = uintptr_t (*)(SyscallHandler*, SyscallState&);
@@ -102,8 +82,7 @@ class SyscallManager {
 
     SyscallManager* m_pManager;
     Service_t m_Service;
-    SyscallHandler* m_pHandler;
-    size_t m_Generation;
+    HandlerSlot* m_pSlot;
   };
 
   /** Get the syscall manager instance
@@ -169,20 +148,17 @@ class SyscallManager {
   /**
    * Scope-bound admission to a registered handler.
    *
-   * The lease must outlive every access to handler(). Unregistration closes
+   * The lease must outlive every handler access. Unregistration closes
    * admission and waits for all existing leases before returning.
    */
   class HandlerLease {
    public:
-    HandlerLease();
-    ~HandlerLease();
-
-    SyscallHandler* handler() const {
-      return m_pHandler;
-    }
-
-    explicit operator bool() const {
-      return m_pHandler != nullptr;
+    ALWAYS_INLINE HandlerLease()
+        : m_pManager(nullptr), m_Cleanup(DeferredScopeRecord::Uninitialised{}) {}
+    ALWAYS_INLINE ~HandlerLease() {
+      if (m_pManager) {
+        m_pManager->releaseHandler(*this, true);
+      }
     }
 
    private:
@@ -192,31 +168,19 @@ class SyscallManager {
     HandlerLease& operator=(const HandlerLease&) = delete;
 
     SyscallManager* m_pManager;
-    HandlerSlot* m_pSlot;
+    Service_t m_Service;
     SyscallHandler* m_pHandler;
-    size_t m_Generation;
+    FastEntry m_Entry;
     Thread* m_pThread;
+    HandlerLease* m_Previous;
+    PostSyscallAction* m_Action;
     DeferredScopeRecord m_Cleanup;
-    HandlerDispatch m_Dispatch;
   };
 
   bool registerHandler(Service_t service, SyscallHandler* pHandler, Registration& registration,
                        FastEntry entry = nullptr);
-  /** Returns the permanently published handler without taking a lock. */
-  SyscallHandler* loadHandler(Service_t service) const {
-    if (UNLIKELY(service >= serviceEnd)) {
-      return nullptr;
-    }
-    // TODO: restore safe dynamic-module unloading before allowing a published
-    // handler to be unregistered while a process can still issue its service.
-    return __atomic_load_n(&m_HandlerSlots[service].handler, __ATOMIC_ACQUIRE);
-  }
-  ALWAYS_INLINE uintptr_t dispatchHandler(Service_t service, SyscallHandler* handler,
-                                          SyscallState& state) const {
-    // Acquiring the handler also publishes its fixed entry. Retirement requires
-    // the same quiescence as loadHandler(), including the module's code lifetime.
-    const FastEntry entry = __atomic_load_n(&m_FastEntries[service], __ATOMIC_RELAXED);
-    return entry(handler, state);
+  ALWAYS_INLINE uintptr_t dispatchHandler(const HandlerLease& lease, SyscallState& state) const {
+    return lease.m_Entry(lease.m_pHandler, state);
   }
   bool closeHandler(Registration& registration);
   bool unregisterHandler(Registration& registration);
@@ -233,9 +197,7 @@ class SyscallManager {
 
  private:
   static uintptr_t dispatchVirtual(SyscallHandler* handler, SyscallState& state);
-  void clearSlot(Service_t service);
-  static void* currentDispatchOwner();
-  bool callbackContextLocked(void* owner) const;
+  static bool inCallback();
   static void abandonedHandlerCleanup(void* context);
   bool requestPostSyscallAction(PostSyscallActionKind kind, intptr_t value,
                                 const ProcessorState* state = nullptr);
@@ -249,9 +211,9 @@ class SyscallManager {
   SyscallManager& operator=(const SyscallManager&);
 
   Spinlock m_HandlerLock;
-  HandlerSlot m_HandlerSlots[serviceEnd];
-  FastEntry m_FastEntries[serviceEnd];
-  size_t m_NextDispatchSequence;
+  HandlerSlot* m_HandlerSlots[serviceEnd];
+  HandlerSlot* m_Published[serviceEnd];
+  static HandlerSlot m_ClosingSlot;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   HandlerPinHook m_HandlerPinHook;

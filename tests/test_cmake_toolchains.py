@@ -147,6 +147,7 @@ class CMakeToolchainTests(unittest.TestCase):
                 )
             )
             cases = (
+                ("TARGET", "ON", None, "-O3"),
                 ("TARGET", "ON", "ON", "-Os"),
                 ("TARGET", "ON", "OFF", "-O3"),
                 ("TARGET", "OFF", "ON", "-O0"),
@@ -167,6 +168,7 @@ class CMakeToolchainTests(unittest.TestCase):
                         "-DPEDIGREE_BUILD_UEFI=OFF",
                         f"-DPEDIGREE_BUILD_ROLE={role}",
                         f"-DPEDIGREE_OPTIMIZE={optimize}",
+                        "-UPEDIGREE_OPTIMIZE_SIZE" if size is None else
                         f"-DPEDIGREE_OPTIMIZE_SIZE={size}",
                     )
                     if role == "TARGET":

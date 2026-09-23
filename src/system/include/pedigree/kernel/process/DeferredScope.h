@@ -42,8 +42,9 @@ struct DeferredScopeRecord {
 
  private:
   friend class TerminationDeferral;
+  friend class SyscallManager;
   struct Uninitialised {};
-  // Pure deferral construction fills every field before publishing the record.
+  // Fresh registration fills every field before publishing the record.
   explicit DeferredScopeRecord(Uninitialised) {}
 };
 

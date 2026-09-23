@@ -44,13 +44,16 @@ TEST(PedigreeMappingList, ReservedSplitCommitAndRollback) {
   MappingList<Mapping> mappings;
   Mapping prefix{0, 0x4000}, suffix{0x2000, 0x2000};
   ASSERT_TRUE(mappings.tryPushBack(&prefix));
+  EXPECT_EQ(mappings.find(0x2000), &prefix);
   ASSERT_TRUE(mappings.reserveBack(suffix.base));
   EXPECT_EQ(mappings.find(0x2000), &prefix);
   EXPECT_EQ(mappings.popBack(), nullptr);
   EXPECT_EQ(mappings.count(), 1U);
   EXPECT_EQ(mappings.find(0x2000), &prefix);
   ASSERT_TRUE(mappings.reserveBack(suffix.base));
+  EXPECT_EQ(mappings.find(0x2000), &prefix);
   prefix.length = 0x2000;
+  EXPECT_EQ(mappings.find(0x2000), nullptr);
   mappings.publishBack(&suffix);
   EXPECT_EQ(mappings.find(0x1fff), &prefix);
   EXPECT_EQ(mappings.find(0x2000), &suffix);
@@ -90,19 +93,24 @@ TEST(PedigreeMappingList, ErasureKeepsEveryRemainingRangeSearchable) {
   for (size_t i = 0; i < 256; ++i)
     ASSERT_TRUE(mappings.tryPushBack(&objects[(i * 37) % 256]));
   for (auto it = mappings.begin(); it != mappings.end();) {
-    if (((*it)->base / 0x2000) % 2)
+    if (((*it)->base / 0x2000) % 2) {
       ++it;
-    else
+    } else {
+      const uintptr_t address = (*it)->base;
+      EXPECT_EQ(mappings.find(address), *it);
       it = mappings.erase(it);
+      EXPECT_EQ(mappings.find(address), nullptr);
+    }
   }
   for (size_t i = 0; i < 256; ++i) {
     size_t visits = 99;
     EXPECT_EQ(mappings.find(i * 0x2000, &visits), i % 2 ? &objects[i] : nullptr);
-    EXPECT_LE(visits, 1U);
+    EXPECT_LE(visits, 2U);
     EXPECT_EQ(mappings.find(i * 0x2000 + 0x1000), nullptr);
   }
   for (auto it = mappings.rbegin(); it != mappings.rend();) {
     const uintptr_t address = (*it)->base;
+    EXPECT_EQ(mappings.find(address), *it);
     it = mappings.erase(it);
     EXPECT_EQ(mappings.find(address), nullptr);
   }

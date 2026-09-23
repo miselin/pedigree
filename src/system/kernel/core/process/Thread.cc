@@ -384,7 +384,7 @@ void Thread::trackTime(CpuTimeMode mode) {
     const Time::Timestamp elapsed =
         m_TimeAccounting.elapsedAtInterruptDisabled(mode, sample.timestamp, sample.processor);
     if (elapsed) {
-      publishTimeAccounting(mode, elapsed, sample.processor);
+      publishTimeAccounting(mode, elapsed);
     }
   } else {
     (void)mode;
@@ -399,7 +399,7 @@ void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to, bool interruptsAlr
     m_TimeAccounting.recordAtInterruptDisabled(to, sample.timestamp, sample.processor);
     __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
     if (elapsed) {
-      publishTimeAccounting(from, elapsed, sample.processor);
+      publishTimeAccounting(from, elapsed);
     }
   } else {
     (void)from;
@@ -413,8 +413,7 @@ void Thread::accountTimerTick(Time::Timestamp delta, bool kernelMode) {
     // Interrupt entry has already changed the logical mode. Only the saved
     // frame tells us which mode was running when the timer arrived.
     if (delta && m_pParent) {
-      publishTimeAccounting(kernelMode ? CpuTimeMode::Kernel : CpuTimeMode::User, delta,
-                            Processor::index());
+      publishTimeAccounting(kernelMode ? CpuTimeMode::Kernel : CpuTimeMode::User, delta);
     }
   } else {
     (void)delta;
@@ -422,7 +421,7 @@ void Thread::accountTimerTick(Time::Timestamp delta, bool kernelMode) {
   }
 }
 
-void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed, size_t processor) {
+void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
   Time::Timestamp* total = mode == CpuTimeMode::User ? &m_UserTime : &m_KernelTime;
 #if X64
   // IRQ masking and scheduler ownership exclude writers on other CPUs. Keep
@@ -439,7 +438,7 @@ void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed, si
     }
   }
 #endif
-  m_pParent->publishTimeAccounting(mode, elapsed, processor);
+  m_pParent->reportTimeAccounting(elapsed);
   Scheduler::instance().recordCpuTime(*this, mode, elapsed);
 }
 
@@ -447,9 +446,8 @@ void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed, si
 void Thread::publishTimeAccountingForHostedTest(Time::Timestamp user, Time::Timestamp system) {
   const bool interruptsWereEnabled = Processor::getInterrupts();
   Processor::setInterrupts(false);
-  const size_t processor = Processor::index();
-  publishTimeAccounting(CpuTimeMode::User, user, processor);
-  publishTimeAccounting(CpuTimeMode::Kernel, system, processor);
+  publishTimeAccounting(CpuTimeMode::User, user);
+  publishTimeAccounting(CpuTimeMode::Kernel, system);
   Processor::setInterrupts(interruptsWereEnabled);
 }
 #endif
@@ -472,6 +470,11 @@ Thread::~Thread() {
   for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level) {
     if (__atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE)) {
       FATAL("Thread destroyed with armed state cleanup records.");
+    }
+  }
+  for (size_t service = 0; service < serviceEnd; ++service) {
+    if (__atomic_load_n(&m_ActiveSyscalls[service], __ATOMIC_ACQUIRE)) {
+      FATAL("Thread destroyed with an admitted syscall.");
     }
   }
   if (__atomic_load_n(&m_TerminationDeferralDepth, __ATOMIC_ACQUIRE) ||
@@ -3237,9 +3240,10 @@ void Thread::resumeTermination() {
   __atomic_sub_fetch(&m_TerminationDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
 }
 
-void Thread::registerFreshTerminationDeferral(DeferredScopeRecord& record) {
-  // Only TerminationDeferral's constructor calls this with unpublished storage.
-  // Keep the normal record and publication protocol without zeroing it first.
+void Thread::registerFreshTerminationDeferral(DeferredScopeRecord& record,
+                                              DeferredScopeRecord::Cleanup cleanup, void* context) {
+  // Fresh storage can combine termination deferral and abandonment cleanup
+  // without a second stack record or a preliminary zero fill.
   const bool interruptsWereEnabled = Processor::getInterrupts();
   Processor::setInterrupts(false);
 
@@ -3254,16 +3258,15 @@ void Thread::registerFreshTerminationDeferral(DeferredScopeRecord& record) {
   record.sequence = sequence;
   record.defersTermination = true;
   record.defersEvents = false;
-  record.cleanup = nullptr;
-  record.context = nullptr;
+  record.cleanup = cleanup;
+  record.context = context;
   record.armed = true;
   deferTermination();
 
-  DeferredScopeRecord* head = __atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE);
-  do {
-    record.next = head;
-  } while (!__atomic_compare_exchange_n(&m_pDeferredScopes[level], &head, &record, false,
-                                        __ATOMIC_RELEASE, __ATOMIC_ACQUIRE));
+  // Only this Thread mutates its chain, with IRQs masked. Synchronous exception
+  // scopes retire before resuming us; remote terminal requests do not unlink it.
+  record.next = __atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE);
+  __atomic_store_n(&m_pDeferredScopes[level], &record, __ATOMIC_RELEASE);
 
   Processor::setInterrupts(interruptsWereEnabled);
 }
@@ -3299,11 +3302,8 @@ void Thread::registerDeferredScope(DeferredScopeRecord& record, bool termination
     deferEvents();
   }
 
-  DeferredScopeRecord* head = __atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE);
-  do {
-    record.next = head;
-  } while (!__atomic_compare_exchange_n(&m_pDeferredScopes[level], &head, &record, false,
-                                        __ATOMIC_RELEASE, __ATOMIC_ACQUIRE));
+  record.next = __atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE);
+  __atomic_store_n(&m_pDeferredScopes[level], &record, __ATOMIC_RELEASE);
 
   Processor::setInterrupts(interruptsWereEnabled);
 }
@@ -3335,11 +3335,8 @@ void Thread::armStateCleanup(DeferredScopeRecord& record, DeferredScopeRecord::C
   record.context = context;
   record.armed = true;
 
-  DeferredScopeRecord* head = __atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE);
-  do {
-    record.next = head;
-  } while (!__atomic_compare_exchange_n(&m_pDeferredScopes[level], &head, &record, false,
-                                        __ATOMIC_RELEASE, __ATOMIC_ACQUIRE));
+  record.next = __atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE);
+  __atomic_store_n(&m_pDeferredScopes[level], &record, __ATOMIC_RELEASE);
 
   Processor::setInterrupts(interruptsWereEnabled);
 }
@@ -3352,11 +3349,10 @@ void Thread::unregisterDeferredScope(DeferredScopeRecord& record) {
   const bool interruptsWereEnabled = Processor::getInterrupts();
   Processor::setInterrupts(false);
 
-  DeferredScopeRecord* expected = &record;
-  if (!__atomic_compare_exchange_n(&m_pDeferredScopes[record.stateLevel], &expected, record.next,
-                                   false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+  if (__atomic_load_n(&m_pDeferredScopes[record.stateLevel], __ATOMIC_ACQUIRE) != &record) {
     FATAL("Deferred scopes were not released in LIFO order.");
   }
+  __atomic_store_n(&m_pDeferredScopes[record.stateLevel], record.next, __ATOMIC_RELEASE);
 
   if (record.defersTermination) {
     resumeTermination();
@@ -3377,11 +3373,10 @@ void Thread::disarmStateCleanup(DeferredScopeRecord& record) {
   const bool interruptsWereEnabled = Processor::getInterrupts();
   Processor::setInterrupts(false);
 
-  DeferredScopeRecord* expected = &record;
-  if (!__atomic_compare_exchange_n(&m_pDeferredScopes[record.stateLevel], &expected, record.next,
-                                   false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+  if (__atomic_load_n(&m_pDeferredScopes[record.stateLevel], __ATOMIC_ACQUIRE) != &record) {
     FATAL("State cleanup records were not disarmed in LIFO order.");
   }
+  __atomic_store_n(&m_pDeferredScopes[record.stateLevel], record.next, __ATOMIC_RELEASE);
 
   record = DeferredScopeRecord();
 

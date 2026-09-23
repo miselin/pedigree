@@ -29,6 +29,8 @@ extern bool runSlamAllocatorConcurrencyRegression();
 extern bool runTextIoFlipLifetimeRegression();
 extern bool runTlbShootdownConcurrencyRegression();
 extern bool runVfsCallbackLifetimeRegressions();
+extern bool runRcuConcurrencyRegression();
+extern bool runSyscallLifetimeRegression();
 
 namespace {
 class HandoffQueue : public RequestQueue {
@@ -428,6 +430,9 @@ void testTerminalRequestStackUnwind() {
   Atomic<size_t> releasesBeforeDrain(0);
   TerminalResourceProbe resource(&barrier, &releases, &releasesBeforeDrain);
   TerminalUnwindContext context(TerminalResourceOwner::adopt(&resource));
+  if (!barrier.tryEnter()) {
+    FATAL("QEMU terminal request could not admit its drain probe");
+  }
   if (!AdmittedThread::launchDetached(waitForTerminalRequest, &context, nullptr, barrier,
                                       "QEMU terminal request stack unwind")) {
     FATAL("QEMU terminal request could not launch admitted thread");
@@ -451,6 +456,13 @@ void testTerminalRequestStackUnwind() {
   }
 
   barrier.close();
+  if (barrier.tryEnter()) {
+    FATAL("QEMU closed operation barrier admitted late work");
+  }
+  barrier.leave();
+  if (barrier.isClosedAndDrained()) {
+    FATAL("QEMU operation barrier drained before its worker finished");
+  }
   if (worker) {
     worker->setUnwindState(Thread::TerminateThread);
   }
@@ -535,6 +547,12 @@ void testFilesystemModuleUnloadRejection() {
 }
 
 bool entry() {
+  if (!runSyscallLifetimeRegression()) {
+    FATAL("QEMU syscall handler lifetime regression failed");
+  }
+  if (!runRcuConcurrencyRegression()) {
+    FATAL("QEMU RCU publication and reclamation regression failed");
+  }
   testPinnedLinkerUnloadRejection();
   testFilesystemModuleUnloadRejection();
   testSyscallReciprocalUnregister();

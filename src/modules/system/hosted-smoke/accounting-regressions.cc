@@ -56,10 +56,17 @@ class HostedAccountingProcess : public Process {
 
 struct AccountingThreadContext {
   AccountingThreadContext(Process* process, Time::Timestamp kernelBefore)
-      : process(process), kernelBefore(kernelBefore), ran(0), firstSliceAccounted(0) {}
+      : process(process),
+        kernelBefore(kernelBefore),
+        user(0),
+        kernel(0),
+        ran(0),
+        firstSliceAccounted(0) {}
 
   Process* process;
   Time::Timestamp kernelBefore;
+  Time::Timestamp user;
+  Time::Timestamp kernel;
   Atomic<size_t> ran;
   Atomic<size_t> firstSliceAccounted;
 };
@@ -76,6 +83,10 @@ int accountedKernelThread(void* parameter) {
   Scheduler::instance().yield();
 #endif
   context->firstSliceAccounted = context->process->getKernelTime() > context->kernelBefore;
+  Thread* current = Processor::information().getCurrentThread();
+  current->publishTimeAccountingForHostedTest(29, 17);
+  context->user = current->getUserTime();
+  context->kernel = current->getKernelTime();
   context->ran = 1;
   return 0;
 }
@@ -193,14 +204,18 @@ bool runHostedAccountingRegressions() {
     delete accountedThread;
   }
 
-  for (size_t attempt = 0; process->profile == 20 && attempt < Attempts; ++attempt) {
+  for (size_t attempt = 0; (process->user != 42 || process->profile == 20) && attempt < Attempts;
+       ++attempt) {
     PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
     Scheduler::instance().yield();
   }
   const bool firstKernelSliceAccounted = accountedThreadStarted && accountedThreadJoined &&
                                          threadContext.ran && threadContext.firstSliceAccounted &&
-                                         process->user == 13 && process->profile > 20 &&
+                                         process->user == 42 && process->profile > 20 &&
                                          !process->failures;
+  const bool retiredThreadAccounted = accountedThreadJoined && !process->getNumThreads() &&
+                                      process->getUserTime() == 13 + threadContext.user &&
+                                      process->getKernelTime() >= 7 + threadContext.kernel;
   if (!firstKernelSliceAccounted) {
     ERROR("HOSTED-ACCOUNTING-FIRST: started="
           << accountedThreadStarted << " joined=" << accountedThreadJoined
@@ -229,13 +244,14 @@ bool runHostedAccountingRegressions() {
 
   const bool passed = exactThreadPublication && sampledTickAccounting && loadRequestPassed &&
                       interestPassed && exactWorkerBatch && zeroBatchDiscarded &&
-                      firstKernelSliceAccounted && latePublicationDiscarded;
+                      firstKernelSliceAccounted && retiredThreadAccounted &&
+                      latePublicationDiscarded;
   if (!passed) {
     ERROR("HOSTED-WAIT-TEST: FAIL deferred-time-accounting-worker: exact="
-          << exactThreadPublication << " sampled=" << sampledTickAccounting
-          << " load=" << loadRequestPassed << " interest=" << interestPassed
-          << " batch=" << exactWorkerBatch << " zero=" << zeroBatchDiscarded
-          << " first=" << firstKernelSliceAccounted << " late=" << latePublicationDiscarded);
+          << exactThreadPublication << " sampled=" << sampledTickAccounting << " load="
+          << loadRequestPassed << " interest=" << interestPassed << " batch=" << exactWorkerBatch
+          << " zero=" << zeroBatchDiscarded << " first=" << firstKernelSliceAccounted
+          << " retired=" << retiredThreadAccounted << " late=" << latePublicationDiscarded);
   } else {
     NOTICE("HOSTED-WAIT-TEST: PASS deferred-time-accounting-worker");
   }

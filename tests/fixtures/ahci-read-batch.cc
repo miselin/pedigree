@@ -41,9 +41,15 @@ struct LockGuard {
     mutex.acquire();
   }
   ~LockGuard() {
-    mutex.release();
+    if (owned) {
+      mutex.release();
+    }
+  }
+  void disown() {
+    owned = false;
   }
   T& mutex;
+  bool owned = true;
 };
 struct TerminationDeferral {
   TerminationDeferral() {
@@ -75,13 +81,17 @@ class AhciPort {
   bool readBatch(Disk::ReadBuffer*, size_t, bool);
   bool writeBatch(Disk::WriteBuffer*, size_t, bool);
   bool transferBatch(Disk::ReadBuffer*, size_t, bool, bool);
+  bool command(uint8_t, uint64_t, uint16_t, void*, size_t, bool, bool, bool = false);
   void waitForProgress() { Time::delay(Time::Multiplier::Millisecond); }
   bool chooseSlot(bool queued, size_t& index) {
-    assert(m_CommandLock.held && queued);
+    assert(m_CommandLock.held);
     index = 32;
     if (!online)
       return false;
-    for (size_t i = 0; i < m_QueueDepth; ++i) {
+    if (!queued && (external || owned)) {
+      return true;
+    }
+    for (size_t i = 0; i < (queued ? m_QueueDepth : 1); ++i) {
       if (!(external & (1U << i)) && !(owned & (1U << i))) {
         index = i;
         break;
@@ -92,8 +102,25 @@ class AhciPort {
   bool issueCommand(size_t index, uint8_t opcode, uint64_t, uint16_t sectors, void*, size_t bytes,
                     bool writing, bool queued, bool) {
     assert(TerminationDeferral::active && m_CommandLock.held);
-    assert(opcode == (writing ? 0x61 : 0x60) && queued && sectors * m_SectorBytes == bytes);
+    assert(sectors * m_SectorBytes == bytes);
+    assert(bytes <= MaxTransfer);
+    transferSizes.push_back(bytes);
     assert(!(owned & (1U << index)) && !(external & (1U << index)));
+    if (!queued) {
+      assert(!owned && !external);
+      if (opcode == 0xe7 || opcode == 0xea) {
+        assert(!bytes && !writing);
+        ++flushes;
+      } else {
+        assert(opcode == (writing ? 0x35 : 0x25));
+        if (++sequential == failSequential) {
+          return false;
+        }
+      }
+      owned |= 1U << index;
+      return true;
+    }
+    assert(opcode == (writing ? 0x61 : 0x60));
     if (issued == failIssue) {
       online = false;
       return false;
@@ -107,9 +134,19 @@ class AhciPort {
   }
   bool reapCommand(size_t index, uint8_t opcode, void* buffer, size_t bytes, bool writing,
                    bool queued, bool, bool probe) {
-    assert(TerminationDeferral::active && !m_CommandLock.held);
-    assert(opcode == (writing ? 0x61 : 0x60) && queued && !probe);
+    assert(TerminationDeferral::active && m_CommandLock.held == !queued && !probe);
     assert(owned & (1U << index));
+    if (!queued) {
+      owned &= ~(1U << index);
+      if (opcode == 0xe7 || opcode == 0xea) {
+        return !failFlush;
+      }
+      if (!writing) {
+        std::memset(buffer, 0x6b, bytes);
+      }
+      return true;
+    }
+    assert(opcode == (writing ? 0x61 : 0x60));
     if (reaped == failReap)
       online = false;
     ++reaped;
@@ -119,17 +156,6 @@ class AhciPort {
     if (online && !writing)
       std::memset(buffer, 0x6b, bytes);
     return online;
-  }
-  bool command(uint8_t opcode, uint64_t, uint16_t sectors, void* buffer, size_t bytes, bool writing,
-               bool) {
-    assert(TerminationDeferral::active && !m_CommandLock.held);
-    assert(!m_QueueDepth && opcode == (writing ? 0x35 : 0x25) && sectors * m_SectorBytes == bytes);
-    ++sequential;
-    if (sequential == failSequential)
-      return false;
-    if (!writing)
-      std::memset(buffer, 0x6b, bytes);
-    return true;
   }
   void delay() {
     assert(!owned && "waited for capacity while owning unreaped tags");
@@ -146,9 +172,13 @@ class AhciPort {
   uint32_t external = 0;
   uint32_t owned = 0;
   bool online = true;
+  bool m_WritesPending = true;
+  bool failFlush = false;
+  size_t flushes = 0;
   bool releaseExternal = true;
   size_t issued = 0, reaped = 0, maximumOwned = 0, waves = 0, delays = 0, sequential = 0;
   size_t failIssue = ~size_t(0), failReap = ~size_t(0), failSequential = ~size_t(0);
+  std::vector<size_t> transferSizes;
 };
 #include "ahci-read-batch.inc"
 
@@ -156,7 +186,7 @@ static bool testWriting;
 struct Fixture {
   explicit Fixture(size_t count = 32) : data(count * 4096), requests(count) {
     for (size_t i = 0; i < count; ++i)
-      requests[i] = {i * 4096, data.data() + i * 4096, 4096, true};
+      requests[i] = {i * 8192, data.data() + i * 4096, 4096, true};
     Time::ticks = 0;
     Time::onDelay = [this] { port.delay(); };
   }
@@ -180,6 +210,29 @@ struct Fixture {
   std::vector<Disk::ReadBuffer> requests;
 };
 void runCases() {
+  for (size_t depth : {size_t{0}, size_t{1}, size_t{32}}) {
+    Fixture f;
+    f.port.m_QueueDepth = depth;
+    for (size_t i = 0; i < f.requests.size(); ++i) {
+      f.requests[i].location = i * 4096;
+    }
+    assert(f.run());
+    f.complete();
+    assert(f.port.transferSizes.size() == (testWriting ? 32 : 8));
+    for (size_t bytes : f.port.transferSizes) {
+      assert(bytes == (testWriting ? 4096 : 16384));
+    }
+  }
+  {
+    Fixture f(3);
+    for (size_t i = 0; i < f.requests.size(); ++i) {
+      f.requests[i].location = i * 4096;
+    }
+    std::swap(f.requests[1].buffer, f.requests[2].buffer);
+    assert(f.run());
+    f.complete();
+    assert(f.port.transferSizes.size() == 3);
+  }
   {
     Fixture f;
     assert(f.run());
@@ -283,6 +336,67 @@ void runCases() {
 
 int main() {
   runCases();
+  for (size_t depth : {size_t{0}, size_t{32}}) {
+    Fixture f;
+    f.port.m_QueueDepth = depth;
+    for (size_t i = 0; i < f.requests.size(); ++i) {
+      f.requests[i].location = i * 4096;
+    }
+    f.port.failReap = 1;
+    f.port.failSequential = 2;
+    assert(!f.run());
+    if (depth) {
+      assert(f.port.issued == 8 && f.port.reaped == 8);
+    } else {
+      assert(f.port.sequential == 2);
+    }
+    for (size_t i = 0; i < f.requests.size(); ++i) {
+      assert(f.requests[i].complete == (i < 4));
+    }
+  }
+  {
+    Fixture f(5);
+    for (size_t i = 0; i < f.requests.size(); ++i) {
+      f.requests[i].location = i * 4096;
+    }
+    f.requests.back().length = 512;
+    assert(f.run());
+    f.complete();
+    assert((f.port.transferSizes == std::vector<size_t>{16384, 512}));
+  }
+  {
+    Fixture f(2);
+    f.requests[0].location = (uint64_t{1} << 48) * 512 - 4096;
+    f.requests[1].location = f.requests[0].location + 4096;
+    assert(!f.run());
+    assert(!f.port.issued);
+    assert(!f.requests[0].complete && !f.requests[1].complete);
+  }
   testWriting = true;
   runCases();
+  for (size_t depth : {size_t{0}, size_t{32}}) {
+    Fixture f(3);
+    f.port.m_QueueDepth = depth;
+    auto flush = [&] { return f.port.command(0xea, 0, 0, nullptr, 0, false, true); };
+    // Start conservatively, including any writes predating driver ownership.
+    assert(flush() && f.port.flushes == 1);
+    assert(flush() && f.port.flushes == 1);
+    assert(f.port.command(0x35, 0, 8, f.data.data(), 4096, true, true));
+    f.port.failFlush = true;
+    assert(!flush() && f.port.flushes == 2);
+    assert(!flush() && f.port.flushes == 3);
+    f.port.failFlush = false;
+    assert(flush() && f.port.flushes == 4);
+    assert(flush() && f.port.flushes == 4);
+    assert(f.run());
+    // Another queued writer still owns a tag. The barrier must wait for its
+    // owner to drain, holding the gate against later submissions until reaped.
+    f.port.external = 1;
+    assert(flush() && f.port.flushes == 5 && f.port.delays == 1);
+    assert(flush() && f.port.flushes == 5);
+    assert(f.port.command(0x25, 0, 8, f.data.data(), 4096, false, true));
+    assert(flush() && f.port.flushes == 5);
+    f.port.online = false;
+    assert(!flush() && f.port.flushes == 5);
+  }
 }

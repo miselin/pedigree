@@ -125,6 +125,18 @@ class TraceLinkProtocolTest(unittest.TestCase):
         self.assertEqual(len(RUNNER.phases("run")), 38)
         self.assertNotIn("trace-link", RUNNER.phases("run"))
 
+    def test_quick_mode_rejects_full_matrix_profiles_and_checks_inputs(self):
+        self.assertEqual(self.arguments("--mode", "quick").mode, "quick")
+        self.assertEqual(len(RUNNER.phases("quick")), 6)
+        self.assertEqual(self.arguments("--mode", "quick", "--profile-phase", "r1-full")
+                         .profile_phase, "r1-full")
+        with self.assertRaises(SystemExit):
+            self.arguments("--mode", "quick", "--profile-phase", "r2-full")
+        identities = report()["identities"]
+        RUNNER.validate_identities(identities, "quick")
+        with self.assertRaisesRegex(ValueError, "incomplete or changed"):
+            RUNNER.validate_identities(identities[:-1], "quick")
+
     def test_trace_requires_pedigree_ramfs(self):
         self.assertEqual(self.arguments().mode, "trace-link")
         for extra in (("--storage", "disk"),

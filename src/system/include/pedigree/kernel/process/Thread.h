@@ -34,6 +34,7 @@
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/Syscalls.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -380,7 +381,7 @@ class EXPORTED_PUBLIC Thread {
       m_TimeAccounting.recordAtInterruptDisabled(to, sample.timestamp, sample.processor);
       __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
       if (elapsed) {
-        publishTimeAccounting(from, elapsed, sample.processor);
+        publishTimeAccounting(from, elapsed);
       }
     } else {
       (void)from;
@@ -986,7 +987,9 @@ class EXPORTED_PUBLIC Thread {
   void disarmAtomicStateCleanup(AtomicStateCleanupRecord& record);
 
  private:
-  void registerFreshTerminationDeferral(DeferredScopeRecord& record);
+  void registerFreshTerminationDeferral(DeferredScopeRecord& record,
+                                        DeferredScopeRecord::Cleanup cleanup = nullptr,
+                                        void* context = nullptr);
 
   /** Kernel-owned start cleanup; unloadable code must use AdmittedThread. */
   Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
@@ -998,8 +1001,8 @@ class EXPORTED_PUBLIC Thread {
   /** Assignment operator */
   Thread& operator=(const Thread&);
 
-  /** Adds one elapsed interval to this Thread and its Process aggregate. */
-  void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed, size_t processor);
+  /** Adds one elapsed interval and requests any interested process timer report. */
+  void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed);
 
   void initialisePlacement(const ThreadPlacement* placement);
   void publishReadyNotification();
@@ -1298,6 +1301,8 @@ class EXPORTED_PUBLIC Thread {
 
   const SyscallState* m_OriginalSyscallState = nullptr;
   void* m_SyscallDispatchContext = nullptr;
+  /** Owner-written admission, scanned under scheduler membership protection. */
+  size_t m_ActiveSyscalls[serviceEnd] = {};
 
   /** Our current status. Sleeping is reserved for an active WaitQueue. */
   volatile Status m_Status = Ready;

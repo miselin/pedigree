@@ -129,7 +129,10 @@ class DirectorySyncDisk final : public Disk {
   bool syncPages(const uint64_t* locations, size_t count) override {
     if (!locations || !count || count > MaxSyncPages)
       return false;
-    batches.emplace_back(locations, locations + count);
+    // Single-block sync shares this API; track the coalesced metadata groups.
+    if (count > 1) {
+      batches.emplace_back(locations, locations + count);
+    }
     const bool succeeded = Disk::syncPages(locations, count);
     // A failed shared barrier leaves the whole batch unconfirmed, even if
     // individual writes reached the backing store before the failure.
@@ -391,7 +394,9 @@ TEST(Ext2DirectorySync, LoadedMetadataUsesBoundedBatchesWithoutDroppingDependenc
   disk.batches.clear();
 
   ASSERT_TRUE(parent->sync());
-  ASSERT_EQ(disk.batches.size(), 3U);
+  ASSERT_EQ(disk.batches.size(), 4U);
+  EXPECT_EQ(disk.batches.front(),
+            (std::vector<uint64_t>{2 * kBlockSize, kBlockSize, 3 * kBlockSize, 1024}));
   std::vector<uint64_t> submitted;
   for (const auto& batch : disk.batches) {
     EXPECT_FALSE(batch.empty());
@@ -408,11 +413,37 @@ TEST(Ext2DirectorySync, LoadedMetadataUsesBoundedBatchesWithoutDroppingDependenc
       EXPECT_EQ(submittedBlock, pins[block] != 0);
     }
   }
-  // Directory data and the inode's existing ordered metadata path remain
-  // separate; loaded table size must not add individual durability barriers.
-  EXPECT_EQ(disk.syncs.size() - submitted.size(), 6U);
+  // Directory data and final inode publication remain separate from the
+  // allocation phase and the three bounded namespace metadata batches.
+  EXPECT_EQ(disk.syncs.size() - submitted.size(), 2U);
   EXPECT_EQ(disk.durableEntry(2, "created"), inodesPerGroup + 1);
   EXPECT_TRUE(disk.durableInodeAllocated(inodesPerGroup + 1));
+  EXPECT_EQ(disk.pins, pins);
+}
+
+TEST(Ext2DirectorySync, AllocationBarrierFailureStopsInodePublicationAndRetries) {
+  DirectorySyncDisk disk;
+  Ext2Filesystem filesystem;
+  ASSERT_TRUE(filesystem.initialise(&disk));
+  File* parent = filesystem.getRoot();
+  ASSERT_TRUE(parent->sync());
+  ASSERT_TRUE(filesystem.Filesystem::createFile(String("created").view(), 0644, parent));
+  const auto pins = disk.pins;
+  disk.syncs.clear();
+  disk.failedBatchLocation = 2 * kBlockSize;
+
+  EXPECT_FALSE(parent->sync());
+  EXPECT_EQ(std::count(disk.syncs.begin(), disk.syncs.end(), 4 * kBlockSize), 0);
+  EXPECT_EQ(std::count(disk.syncs.begin(), disk.syncs.end(), kChildTable * kBlockSize), 0);
+  EXPECT_EQ(LITTLE_TO_HOST16(DirectorySyncDisk::inode(disk.durable, 65).i_mode), 0U);
+  EXPECT_EQ(disk.pins, pins);
+
+  disk.failedBatchLocation = UINT64_MAX;
+  ASSERT_TRUE(parent->sync());
+  EXPECT_EQ(disk.durableEntry(2, "created"), 65U);
+  EXPECT_TRUE(disk.durableInodeAllocated(65));
+  EXPECT_EQ(LITTLE_TO_HOST16(DirectorySyncDisk::inode(disk.durable, 65).i_mode),
+            EXT2_S_IFREG | 0644);
   EXPECT_EQ(disk.pins, pins);
 }
 
@@ -434,7 +465,7 @@ TEST_P(Ext2DirectoryBatchFailure, SharedBarrierFailureRetriesCompleteMetadataAnd
 
   EXPECT_FALSE(parent->sync());
   const auto firstBatches = disk.batches;
-  ASSERT_EQ(firstBatches.size(), 3U);
+  ASSERT_EQ(firstBatches.size(), 4U);
   disk.batches.clear();
   EXPECT_FALSE(parent->sync());
   EXPECT_EQ(disk.batches, firstBatches);

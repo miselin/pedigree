@@ -332,11 +332,14 @@ separate fresh guest for the other arm. Both perform the same number of 4 KiB
 in the guest config for larger requests; the fixture must be divisible by that
 size. The permuted order is
 `(page*1531+17) % page_count`. File open/stat, buffer allocation/prefaulting, and
-byte verification are outside the read timer. The size limit is 32 MiB. Every byte
+byte verification are outside the read timer. The size limit is 256 MiB. Every byte
 is checked after timing; the metric checksum is the byte sum plus byte count.
 The repeating fixture pattern is a benchmark guard, not a comprehensive storage
 correctness test. Warm repeats test cached reads and copies. Order-sensitive
 read-ahead should improve sequential access without amplifying permuted reads.
+For sustained reads, use a 128 MiB fixture with 131072-byte requests. Read metrics
+include `mib_per_s`, calculated from transferred bytes and guest read time; a
+zero-duration sample reports `null`. Keep cold and cached rates separate.
 
 For fault locality, use `mmap`, `/launch-input.bin`, and `sequential` as the three
 guest config lines, with host `--mode mmap-sequential`. Use `permuted` and host
@@ -412,3 +415,19 @@ image. Require `SYNCBENCH persistence=PASS bytes=1048576` in the second serial
 log: it validates every byte before rewriting the file. `persistence=initial`
 is expected only for the original fixture and is not persistence evidence.
 The runner quits QEMU after completion without a guest-wide shutdown sync.
+
+For the small-file durability workload, use the same `sync-latency` binary as
+init, add an empty `/sync-bench-small`, and seed `/sync-small.bin` with exactly
+4096 bytes of `0x11`. Run the launch runner with `--mode durability --iterations 1`.
+It measures overwrite and create `fsync`, immediate clean file syncs, rename
+plus parent-directory `fsync`, clean directory sync, and dirty/clean global sync.
+The same overlay on a fresh boot must report
+`SYNCBENCH small-persistence=PASS bytes=8192`; both file contents and the removed
+source name are checked before the next workload starts.
+
+To include orderly shutdown, also install an empty `/sync-bench-shutdown` and
+pass `--shutdown`. The runner requires QEMU's shutdown state and records the
+final write/flush counts. Shutdown elapsed time is host-observed with up to one
+second of polling delay; use command counts for short shutdown comparisons.
+Reboot the completed overlay to check persisted data, and inspect its filesystem
+offline to verify the ext2 clean marker.

@@ -91,6 +91,15 @@ then three measured rounds. Round 2 reverses the case order. The summary exclude
 warmup, reports medians and observed ranges, and pairs `-pipe` comparisons within
 each round. Three samples do not establish statistical significance.
 
+For a short development check, put `quick\n` in the fixture's
+`/root/compile-bench/matrix-quick`, include that file in its RAM-root path list,
+and use `--mode quick --storage ramfs`. Use the updated `compile-matrix` binary
+inside the fixture. Quick mode runs CPU controls around one tiny build,
+preprocess, link, and full build. It preserves input-identity, exit-status, and
+zero-disk-I/O checks, but has no warmup or repeated samples. Compare its
+`report.json` rows directly; the full-matrix summarizer requires the full run.
+Do not combine the quick marker with the link-only or trace markers.
+
 | Case | Compiler work |
 | --- | --- |
 | `tiny`, `tiny-pipe` | Header-free, libc-free `_start` compiled and linked; second adds `-pipe` |

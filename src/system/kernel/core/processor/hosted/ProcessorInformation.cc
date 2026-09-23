@@ -85,6 +85,9 @@ Thread* HostedProcessorInformation::getCurrentThread() const {
 }
 
 void HostedProcessorInformation::setCurrentThread(Thread* pThread) {
+  if (m_RcuState.active()) {
+    panic("Context switch inside an RCU read section.");
+  }
   m_pCurrentThread = pThread;
 }
 

@@ -109,13 +109,18 @@ void PageFaultHandler::unpublishDispatch(void* token) {
 
   // Cleanup may run after it was armed but before a hazard entry was
   // claimed, so a missing token is a valid abandoned-stack outcome.
-  if (!releasedSlot || hasActiveDispatch(*releasedSlot)) {
+  if (!releasedSlot) {
     return;
   }
 
   const size_t publication = __atomic_load_n(&releasedSlot->publication, __ATOMIC_SEQ_CST);
   const SlotMode mode = modeOf(publication);
   if (mode != SlotMode::Draining && mode != SlotMode::Deferred) {
+    return;
+  }
+  // The hazard is already clear. A later remover will observe its release;
+  // only a removal already in progress needs a scan and waiter notification.
+  if (hasActiveDispatch(*releasedSlot)) {
     return;
   }
 

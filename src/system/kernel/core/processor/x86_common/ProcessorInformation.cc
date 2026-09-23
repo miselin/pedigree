@@ -98,6 +98,9 @@ void X86CommonProcessorInformation::activateKernelGsAnchor(size_t processorIndex
 #endif
 
 void X86CommonProcessorInformation::setCurrentThread(Thread* pThread) {
+  if (m_RcuState.active()) {
+    panic("Context switch inside an RCU read section.");
+  }
 #if X64
   if (m_pCurrentThread)
     m_pCurrentThread->saveUserGsBase();

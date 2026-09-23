@@ -24,6 +24,7 @@
 #define _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/RcuReadState.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -98,6 +99,10 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
 
   PerProcessorScheduler& getScheduler();
 
+  RcuReadState& rcuState() {
+    return m_RcuState;
+  }
+
   ProcessorId processorId() const {
     return m_ProcessorId;
   }
@@ -166,6 +171,7 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
   uint64_t m_TscClockAnchorNanoseconds;
   /** Release-published after both anchor values have been installed. */
   bool m_TscClockAnchorInitialised;
+  RcuReadState m_RcuState;
 
 #if X64
   KernelGsAnchor m_KernelGsAnchor{0, 0, this, 0, nullptr};

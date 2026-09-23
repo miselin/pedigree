@@ -465,9 +465,8 @@ Process::Process(DeferredPublication, ProcessType type)
       m_bTerminationReapable(false),
       m_ReaperState(ReaperUnclaimed),
       m_Lock(false),
+      m_TimeAccountingLock(false),
       m_Metadata(),
-      m_PerCpuTimeAccounting(
-          PEDIGREE_TIME_ACCOUNTING && Processor::isInitialised() >= 2 ? Processor::getCount() : 0),
       m_DeferredTimeAccounting(),
       m_TimeAccountingReports(),
       m_bTimeAccountingReportsEnabled(false),
@@ -538,9 +537,8 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
       m_bTerminationReapable(false),
       m_ReaperState(ReaperUnclaimed),
       m_Lock(false),
+      m_TimeAccountingLock(false),
       m_Metadata(),
-      m_PerCpuTimeAccounting(
-          PEDIGREE_TIME_ACCOUNTING && Processor::isInitialised() >= 2 ? Processor::getCount() : 0),
       m_DeferredTimeAccounting(),
       m_TimeAccountingReports(),
       m_bTimeAccountingReportsEnabled(false),
@@ -798,6 +796,19 @@ void Process::queueTimeAccountingReport(Time::Timestamp elapsed) {
   }
 }
 
+Time::Timestamp Process::totalTime(CpuTimeMode mode) const {
+  LockGuard<Spinlock> guard(m_TimeAccountingLock);
+  const Time::Timestamp* retired =
+      mode == CpuTimeMode::User ? &m_Metadata.userTime : &m_Metadata.kernelTime;
+  Time::Timestamp total = __atomic_load_n(retired, __ATOMIC_ACQUIRE);
+  if (!m_bDestroying) {
+    for (Thread* thread : m_Threads) {
+      total += mode == CpuTimeMode::User ? thread->getUserTime() : thread->getKernelTime();
+    }
+  }
+  return total;
+}
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 void Process::publishTimeAccountingForHostedTest(Time::Timestamp user, Time::Timestamp system) {
   __atomic_fetch_add(&m_Metadata.userTime, user, __ATOMIC_RELAXED);
@@ -1000,6 +1011,13 @@ Process::~Process() {
   // observe m_bDestroying and cannot mutate m_Threads.
   {
     LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<Spinlock> accounting(m_TimeAccountingLock);
+    // No accounting writer survives the off-stack barrier. Preserve all
+    // totals before destruction starts leaving stale pointers in the vector.
+    for (Thread* thread : m_Threads) {
+      __atomic_fetch_add(&m_Metadata.userTime, thread->getUserTime(), __ATOMIC_RELAXED);
+      __atomic_fetch_add(&m_Metadata.kernelTime, thread->getKernelTime(), __ATOMIC_RELAXED);
+    }
     m_bDestroying = true;
   }
 
@@ -1195,7 +1213,10 @@ size_t Process::addThread(Thread* pThread) {
     __atomic_store_n(&pThread->m_UnwindState, Thread::TerminateThread, __ATOMIC_RELEASE);
     ++m_nTerminationParticipants;
   }
-  m_Threads.pushBack(pThread);
+  {
+    LockGuard<Spinlock> accounting(m_TimeAccountingLock);
+    m_Threads.pushBack(pThread);
+  }
   const size_t localId = m_NextTid += 1;
   __atomic_store_n(&pThread->m_TaskId,
                    localId == 1 ? m_Id : Scheduler::instance().reserveProcessId(),
@@ -1227,10 +1248,17 @@ void Process::removeThread(Thread* pThread) {
     // however, can outlive detached Thread destruction while waitpid waits.
     if (m_bDestroying)
       return;
-    for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); it++) {
-      if (*it == pThread) {
-        m_Threads.erase(it);
-        break;
+    {
+      LockGuard<Spinlock> accounting(m_TimeAccountingLock);
+      for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); it++) {
+        if (*it == pThread) {
+          // Readers hold the same lock, so removal cannot make a total vanish
+          // or expose both the live and retired contribution.
+          __atomic_fetch_add(&m_Metadata.userTime, pThread->getUserTime(), __ATOMIC_RELAXED);
+          __atomic_fetch_add(&m_Metadata.kernelTime, pThread->getKernelTime(), __ATOMIC_RELAXED);
+          m_Threads.erase(it);
+          break;
+        }
       }
     }
 

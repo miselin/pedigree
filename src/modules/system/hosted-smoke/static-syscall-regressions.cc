@@ -1163,7 +1163,7 @@ bool establishedAliasRetainSerialization(Process* kernelProcess) {
   Thread* workerA = new Thread(kernelProcess, retainTrackedFileWorker, &workerAContext, nullptr,
                                false, true, true);
   Thread* workerB = nullptr;
-  workerA->setName("hosted VFS retain serializer A");
+  workerA->setName("hosted VFS retain A");
 
   g_TrackedFileRetainHookContext = &hook;
   VFS::setRetainTrackedFileHookForHostedTest(pauseFirstTrackedFileRetain);
@@ -1185,25 +1185,20 @@ bool establishedAliasRetainSerialization(Process* kernelProcess) {
   if (startedA) {
     workerB = new Thread(kernelProcess, retainTrackedFileWorker, &workerBContext, nullptr, false,
                          true, true);
-    workerB->setName("hosted VFS retain serializer B");
+    workerB->setName("hosted VFS retain B");
     startedB = workerB->start();
   }
-  bool workerBQueued = false;
+  bool workerBCompleted = false;
   for (size_t attempt = 0; attempt < HostedAttempts && startedB; ++attempt) {
-    Thread::WaitDebugInfo info = {};
-    if (workerB->getWaitDebugInfo(info) && info.queue && info.queued &&
-        info.channelOwner == VFS::instance().trackedFilesLockAddressForHostedTest() &&
-        workerB->getStatus() == Thread::Sleeping) {
-      workerBQueued = true;
-      break;
-    }
     if (workerBContext.returned) {
+      workerBCompleted = workerBContext.retained == static_cast<size_t>(1);
       break;
     }
     Scheduler::instance().yield();
   }
 
-  bool passed = startedA && workerABlocked && startedB && workerBQueued && !workerBContext.returned;
+  bool passed = startedA && workerABlocked && startedB && workerBCompleted &&
+                !workerAContext.returned && !hook.returned && !destructions;
 
   hook.release.release();
   const bool joinedA = startedA ? workerA->joinForCompletion() : false;
@@ -1243,7 +1238,7 @@ bool establishedAliasRetainSerialization(Process* kernelProcess) {
   if (!passed) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL vfs-established-alias-serialization: "
-        "concurrent established-owner retains were not serialized by the tracker lock");
+        "a paused established-owner retain blocked another retain or lost ownership");
     return false;
   }
 

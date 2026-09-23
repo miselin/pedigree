@@ -26,6 +26,7 @@
 #undef _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/RcuReadState.h"
 #include "pedigree/kernel/processor/types.h"
 
 class Thread;
@@ -55,6 +56,10 @@ class HostedProcessorInformation {
   EXPORTED_PUBLIC Thread* getCurrentThread() const;
   void setCurrentThread(Thread* pThread);
   PerProcessorScheduler& getScheduler();
+
+  RcuReadState& rcuState() {
+    return m_RcuState;
+  }
 
   ProcessorId processorId() const {
     return m_ProcessorId;
@@ -97,6 +102,7 @@ class HostedProcessorInformation {
   size_t m_DeviceHardIrqDepth;
   /** POSIX signal frames live across hosted context switches. */
   size_t m_HostedSignalFrameDepth;
+  RcuReadState m_RcuState;
 };
 
 /** @} */

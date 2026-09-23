@@ -27,6 +27,7 @@
 #include "pedigree/kernel/process/Completion.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Rcu.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/processor/types.h"
@@ -209,6 +210,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
         m_SignalHandlersLock(),
         m_AdvisoryOwner(AdvisoryOwner::Kind::Process),
         m_FdMap(),
+        m_FdEntries(),
         m_NextFd(0),
         m_FdLock(),
         m_FdBitmap(),
@@ -235,6 +237,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
         m_SignalHandlersLock(),
         m_AdvisoryOwner(AdvisoryOwner::Kind::Process),
         m_FdMap(),
+        m_FdEntries(),
         m_NextFd(0),
         m_FdLock(),
         m_FdBitmap(),
@@ -754,8 +757,12 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
  private:
   struct ExecutableImage;
+  struct FdEntry;
+  static constexpr size_t FdBuckets = 16;
 
   void acquireFdLock();
+  void publishFdEntry(size_t fd);
+  void publishFdEntries();
 
   virtual void prepareThreadsForExec(Thread* owner);
   virtual void preserveProcessSignalsForThreadExit(Thread* thread);
@@ -802,12 +809,14 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
    * decided by the subsystem.
    */
   Tree<size_t, SharedPointer<FileDescriptor>> m_FdMap;
+  RcuPointer<FdEntry> m_FdEntries[FdBuckets];
   /**
    * The next available file descriptor.
    */
   size_t m_NextFd;
   /**
-   * Serializes descriptor lookup, publication, and allocation metadata.
+   * Serializes descriptor mutation, enumeration, and allocation metadata.
+   * Ordinary lookup retains a lease through m_FdEntries under RCU.
    */
   Mutex m_FdLock;
   /**

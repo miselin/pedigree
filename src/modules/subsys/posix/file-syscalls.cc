@@ -360,7 +360,7 @@ int posix_open(const char* name, int flags, int mode) {
 
 namespace {
 constexpr size_t ScalarIoBounceCapacity = PIPE_BUF_MAX + 1;
-constexpr size_t RegularReadBounceCapacity = 64 * 1024;
+constexpr size_t RegularReadBounceCapacity = 128 * 1024;
 constexpr size_t RegularWriteBounceCapacity = 64 * 1024;
 
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS

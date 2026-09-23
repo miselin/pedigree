@@ -18,7 +18,7 @@
 
 #define MAX_ARGS 32
 #define PAGE_BYTES 4096U
-#define MAX_FIXTURE (32U * 1024U * 1024U)
+#define MAX_FIXTURE (256U * 1024U * 1024U)
 #define MAX_OUTPUT (1024U * 1024U)
 static int serial_fd = -1;
 static int config_mode;
@@ -102,7 +102,11 @@ static void gate(const char* phase) {
       continue;
     if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
       fail("gate-read");
-    ready_fd(serial_fd, POLLIN);
+    // The guest's polling serial device does not publish readiness edges.
+    struct pollfd p = {serial_fd, POLLIN, 0};
+    if (poll(&p, 1, 10) < 0 && errno != EINTR) {
+      fail("gate-poll");
+    }
   }
 }
 

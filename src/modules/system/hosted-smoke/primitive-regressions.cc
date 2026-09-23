@@ -227,6 +227,7 @@ bool operationBarrierLifecycle() {
   Process* process = Scheduler::instance().getKernelProcess();
 
   const bool admitted = barrier.tryEnter();
+  const bool secondAdmitted = barrier.tryEnter();
   Thread* worker = new Thread(process, runAdmittedOperation, &context, nullptr, false, true);
   worker->setName("hosted admitted operation");
 
@@ -240,17 +241,19 @@ bool operationBarrierLifecycle() {
   const bool closeQueued = waitUntilQueued(closer, Thread::CallbackDrain);
   const bool closeBlocked = closeQueued && context.closeFinished == 0 && context.workFinished == 0;
   const bool lateRejected = !barrier.tryEnter();
+  barrier.leave();
+  const bool partialReleaseBlocked = !barrier.isClosedAndDrained() && context.closeFinished == 0;
 
   context.releaseWork.release();
   const bool workerJoined = worker->join();
   const bool closerJoined = closer->join();
   const bool drained = barrier.isClosedAndDrained();
 
-  const bool passed =
-      check(admitted && closeBlocked && lateRejected && workerJoined && closerJoined &&
-                context.workFinished == 1 && context.closeFinished == 1 && drained,
-            "operation-barrier-lifecycle",
-            "close did not reject late work and drain the admitted operation");
+  const bool passed = check(admitted && secondAdmitted && closeBlocked && lateRejected &&
+                                partialReleaseBlocked && workerJoined && closerJoined &&
+                                context.workFinished == 1 && context.closeFinished == 1 && drained,
+                            "operation-barrier-lifecycle",
+                            "close did not reject late work and drain the admitted operation");
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS operation-barrier-lifecycle");
   }

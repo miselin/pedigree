@@ -165,6 +165,15 @@ bool Scheduler::threadInSchedule(Thread* pThread) {
   return pPpSched != 0;
 }
 
+bool Scheduler::hasActiveSyscallLocked(Service_t service) const {
+  for (auto it = m_TPMap.begin(); it != m_TPMap.end(); ++it) {
+    if (__atomic_load_n(&it.key()->m_ActiveSyscalls[service], __ATOMIC_SEQ_CST)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 size_t Scheduler::reserveProcessId() {
   const size_t id = (m_NextPid += 1) - 1;
   // Linux robust owner words reserve the upper two bits. IDs are never

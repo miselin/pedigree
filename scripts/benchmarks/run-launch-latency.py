@@ -112,10 +112,12 @@ def main():
     parser.add_argument("--firmware-vars", type=Path)
     parser.add_argument("--cpus", type=int, choices=(1, 4), default=4)
     parser.add_argument("--mode", choices=("launch", "read-sequential", "read-permuted",
-                                          "mmap-sequential", "mmap-permuted", "sync"),
+                                          "mmap-sequential", "mmap-permuted", "sync", "durability"),
                         default="launch")
     parser.add_argument("--iterations", type=int, default=3)
     parser.add_argument("--prewarm", action="store_true")
+    parser.add_argument("--shutdown", action="store_true",
+                        help="Sync fixture contains sync-bench-shutdown; measure orderly poweroff")
     parser.add_argument("--no-trace", action="store_true",
                         help="Timing control without QEMU NCQ trace logging")
     parser.add_argument("--write-iops", type=int, default=0,
@@ -128,16 +130,23 @@ def main():
         parser.error("write-iops must be nonnegative")
     if not 1 <= args.iterations <= 100 or args.timeout <= 0:
         parser.error("iterations must be 1..100 and timeout positive")
-    if args.mode == "sync" and (args.iterations != 1 or args.prewarm):
+    if args.mode in ("sync", "durability") and (args.iterations != 1 or args.prewarm):
         parser.error("the sync fixture requires --iterations 1 and no prewarm")
+    if args.shutdown and args.mode not in ("sync", "durability"):
+        parser.error("shutdown requires a sync or durability fixture")
     expected = ["prewarm"] if args.prewarm else []
-    groups = (("launch", "fork", "exec") if args.mode == "launch" else
+    groups = (("fsync-overwrite", "fsync-clean", "fsync-create", "fsync-created-clean",
+               "rename-directory", "directory-clean", "sync-dirty", "sync-clean")
+              if args.mode == "durability" else
+              ("launch", "fork", "exec") if args.mode == "launch" else
               ("sync-dirty", "sync-clean", "sync-redirty") if args.mode == "sync" else (args.mode,))
     expected += [f"{group}-{i}" for group in groups for i in range(args.iterations)]
+    if args.shutdown:
+        expected.append("shutdown-0")
     image = args.image.resolve(strict=True)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
-    report = {"result": "FAIL", "image": str(image), "cpus": args.cpus,
+    report = {"result": "FAIL", "image": str(image), "cpus": args.cpus, "shutdown": args.shutdown,
               "trace_enabled": not args.no_trace, "write_iops": args.write_iops,
               "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               "expected_phases": expected, "phases": []}
@@ -195,6 +204,17 @@ def main():
                 if not ready:
                     if process.poll() is not None:
                         raise RuntimeError("QEMU exited before benchmark completion")
+                    if current and current["phase"] == "shutdown-0":
+                        status = guest.qmp("query-status")
+                        if status["status"] == "shutdown":
+                            elapsed = time.monotonic() - current.pop("started_monotonic")
+                            current["host_wall_s"] = elapsed
+                            current["blocks_after"] = guest.qmp("query-blockstats")
+                            current["block_delta"] = block_delta(
+                                current["blocks_before"], current["blocks_after"])
+                            report["phases"].append(current)
+                            current = None
+                            passed = True
                     continue
                 data = serial.recv(65536)
                 if not data:
@@ -202,7 +222,7 @@ def main():
                 log.write(data)
                 log.flush()
                 for line in serial_lines(wire, data):
-                    if "LAUNCHBENCH FAIL" in line:
+                    if "LAUNCHBENCH FAIL" in line or "PANIC:" in line or "Shutdown failed." in line:
                         raise RuntimeError(line)
                     match = re.search(r"LAUNCHBENCH READY phase=(\S+)", line)
                     if match:
@@ -210,6 +230,8 @@ def main():
                         if current is not None or index >= len(expected) or match[1] != expected[index]:
                             raise RuntimeError(f"unexpected phase: {line}")
                         current = {"phase": match[1], "blocks_before": guest.qmp("query-blockstats")}
+                        if match[1] == "shutdown-0":
+                            current["started_monotonic"] = time.monotonic()
                         serial.sendall(b"g")
                     match = re.search(
                         r"LAUNCHBENCH metric phase=(\S+) first_us=(\d+) total_us=(\d+) "
@@ -220,11 +242,16 @@ def main():
                         current["metric"] = dict(zip(
                             ("first_us", "total_us", "bytes", "checksum"),
                             (int(value) for value in match.groups()[1:])))
-                        current["bytes_kind"] = ("synced_file_span" if args.mode == "sync" else
+                        current["bytes_kind"] = ("synced_file_span" if args.mode in ("sync", "durability") else
                                                  "mapped_file_span" if match[1].startswith("mmap-")
                                                  else "transferred_bytes")
                         if not (0 <= current["metric"]["first_us"] <= current["metric"]["total_us"]):
                             raise RuntimeError("invalid guest timing interval")
+                        if match[1].startswith("read-"):
+                            metric = current["metric"]
+                            metric["mib_per_s"] = (metric["bytes"] * 1_000_000 /
+                                                   (1024 * 1024 * metric["total_us"])
+                                                   if metric["total_us"] else None)
                     match = re.search(r"LAUNCHBENCH DONE phase=(\S+)", line)
                     if match:
                         if current is None or match[1] != current["phase"] or "metric" not in current:

@@ -24,7 +24,7 @@ compilers/dir/bin/x86_64-pedigree-gcc --sysroot="$PWD/build/musl/usr" \
   -static -O2 -std=c11 -Wall -Wextra -Werror \
   scripts/benchmarks/compile-latency.c -o /tmp/compile-latency
 compilers/dir/bin/x86_64-pedigree-gcc --sysroot="$PWD/build/musl/usr" \
-  -static -O2 -std=c11 -Wall -Wextra -Werror \
+  -static -O2 -std=c11 -pthread -Wall -Wextra -Werror \
   scripts/benchmarks/anonymous-contract.c -o /tmp/anonymous-contract
 ```
 

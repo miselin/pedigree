@@ -46,6 +46,25 @@
 
 class Disk;
 
+struct VFS::TrackedFile {
+  explicit TrackedFile(File* file) : file(file), owners(1) {}
+
+  bool retain() {
+    size_t count = __atomic_load_n(&owners, __ATOMIC_RELAXED);
+    while (count && count != ~size_t(0)) {
+      if (__atomic_compare_exchange_n(&owners, &count, count + 1, false, __ATOMIC_ACQUIRE,
+                                      __ATOMIC_RELAXED)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  File* const file;
+  size_t owners;
+  RcuPointer<TrackedFile> next;
+};
+
 class VfsMountState {
  public:
   VfsMountState(Filesystem* filesystem, uint32_t id) : filesystem(filesystem), id(id) {}
@@ -373,6 +392,26 @@ VFS::~VFS() {
   }
   for (auto filesystem : filesystems) {
     delete filesystem;
+  }
+
+  TrackedFile* remaining[TrackedFileBuckets] = {};
+  bool reclaim = false;
+  {
+    LockGuard<Mutex> guard(m_TrackedFilesLock);
+    for (size_t bucket = 0; bucket < TrackedFileBuckets; ++bucket) {
+      remaining[bucket] = m_TrackedFiles[bucket].exchange(nullptr);
+      reclaim |= remaining[bucket] != nullptr;
+    }
+  }
+  if (reclaim) {
+    Rcu::synchronize();
+    for (auto* entry : remaining) {
+      while (entry) {
+        TrackedFile* next = entry->next.loadForUpdate();
+        delete entry;
+        entry = next;
+      }
+    }
   }
 }
 
@@ -1437,19 +1476,46 @@ bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute,
 #endif
 }
 
+RcuPointer<VFS::TrackedFile>& VFS::trackedFileBucket(File* file) {
+  uintptr_t key = reinterpret_cast<uintptr_t>(file) >> 4;
+  key ^= key >> 8;
+  key ^= key >> 16;
+  return m_TrackedFiles[key % TrackedFileBuckets];
+}
+
+bool VFS::trackFileLocked(File* file) {
+  auto& bucket = trackedFileBucket(file);
+  TrackedFile* first = bucket.loadForUpdate();
+  for (auto* entry = first; entry; entry = entry->next.loadForUpdate()) {
+    if (entry->file == file) {
+      return entry->retain();
+    }
+  }
+
+  auto* entry = new TrackedFile(file);
+  if (!entry) {
+    return false;
+  }
+  if (first) {
+    entry->next.exchange(first);
+  }
+  bucket.exchange(entry);
+  return true;
+}
+
 void VFS::trackFile(File* pFile) {
   LockGuard<Mutex> guard(m_TrackedFilesLock);
-  size_t n = m_TrackedFiles.lookup(pFile);
-  ++n;
-  m_TrackedFiles.insert(pFile, n);
+  if (!trackFileLocked(pFile)) {
+    FATAL("VFS could not track a File");
+  }
 }
 
 bool VFS::tryTrackFile(File* file) {
-  if (!file)
+  if (!file) {
     return false;
+  }
   LockGuard<Mutex> guard(m_TrackedFilesLock);
-  const size_t count = m_TrackedFiles.lookup(file);
-  return count != ~size_t(0) && m_TrackedFiles.tryInsert(file, count + 1);
+  return trackFileLocked(file);
 }
 
 bool VFS::retainTrackedFile(File* pFile) {
@@ -1457,9 +1523,18 @@ bool VFS::retainTrackedFile(File* pFile) {
     return false;
   }
 
-  LockGuard<Mutex> guard(m_TrackedFilesLock);
-  size_t n = m_TrackedFiles.lookup(pFile);
-  if (!n) {
+  bool retained = false;
+  {
+    RcuReadGuard guard;
+    for (auto* entry = trackedFileBucket(pFile).load(guard); entry;
+         entry = entry->next.load(guard)) {
+      if (entry->file == pFile) {
+        retained = entry->retain();
+        break;
+      }
+    }
+  }
+  if (!retained) {
     return false;
   }
 
@@ -1470,31 +1545,69 @@ bool VFS::retainTrackedFile(File* pFile) {
   }
 #endif
 
-  m_TrackedFiles.insert(pFile, n + 1);
   return true;
 }
 
 bool VFS::untrackFile(File* pFile, bool destroy) {
-  bool finalOwner = false;
+  {
+    RcuReadGuard guard;
+    TrackedFile* entry = trackedFileBucket(pFile).load(guard);
+    while (entry && entry->file != pFile) {
+      entry = entry->next.load(guard);
+    }
+    if (!entry) {
+      return false;
+    }
+    size_t count = __atomic_load_n(&entry->owners, __ATOMIC_RELAXED);
+    while (count > 1) {
+      if (__atomic_compare_exchange_n(&entry->owners, &count, count - 1, false, __ATOMIC_ACQ_REL,
+                                      __ATOMIC_RELAXED)) {
+        return false;
+      }
+    }
+    if (!count) {
+      return false;
+    }
+  }
+
+  TrackedFile* retiring = nullptr;
   {
     LockGuard<Mutex> guard(m_TrackedFilesLock);
-    size_t n = m_TrackedFiles.lookup(pFile);
-    if (!n) {
+    auto* link = &trackedFileBucket(pFile);
+    TrackedFile* entry = link->loadForUpdate();
+    while (entry && entry->file != pFile) {
+      link = &entry->next;
+      entry = link->loadForUpdate();
+    }
+    if (!entry) {
       return false;
     }
 
-    if (n == 1) {
-      m_TrackedFiles.remove(pFile);
-      finalOwner = true;
-    } else {
-      m_TrackedFiles.insert(pFile, n - 1);
+    size_t count = __atomic_load_n(&entry->owners, __ATOMIC_RELAXED);
+    while (count) {
+      if (__atomic_compare_exchange_n(&entry->owners, &count, count - 1, false, __ATOMIC_ACQ_REL,
+                                      __ATOMIC_RELAXED)) {
+        if (count > 1) {
+          return false;
+        }
+        link->exchange(entry->next.loadForUpdate());
+        retiring = entry;
+        break;
+      }
     }
   }
 
-  if (finalOwner && destroy) {
+  if (!retiring) {
+    return false;
+  }
+  // Zero closes retain admission. Reclaim the record before destroying the
+  // File, whose destructor may recursively release a tracked parent.
+  Rcu::synchronize();
+  delete retiring;
+  if (destroy) {
     delete pFile;
   }
-  return finalOwner;
+  return true;
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

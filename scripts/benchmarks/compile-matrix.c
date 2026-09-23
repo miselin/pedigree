@@ -20,6 +20,7 @@ static int serial_fd = -1;
 static int stdio_mode;
 static int trace_link;
 static int link_only;
+static int quick;
 static const char* profile_phase;
 static unsigned profile_rows;
 extern char** environ;
@@ -32,6 +33,7 @@ static const char* cases[] = {"tiny", "tiny-pipe", "preprocess", "syntax", "code
                             "assemble", "link", "full", "full-pipe"};
 static const char* rounds[] = {"warm", "r1", "r2", "r3"};
 static const char* link_rounds[] = {"warm", "r1", "r2", "r3", "r4", "r5"};
+static const unsigned quick_cases[] = {0, 2, 6, 7};
 
 static void fail(const char* operation) {
   dprintf(STDOUT_FILENO, "COMPILEBENCH FAIL operation=%s errno=%d\n", operation, errno);
@@ -341,6 +343,16 @@ static int valid_profile(int preparing) {
            !strcmp(profile_phase, "prepare-assemble");
   if (!strcmp(profile_phase, "cpu-before") || !strcmp(profile_phase, "cpu-after"))
     return 1;
+  if (quick) {
+    for (unsigned i = 0; i < 4; ++i) {
+      char phase[64];
+      snprintf(phase, sizeof(phase), "r1-%s", cases[quick_cases[i]]);
+      if (!strcmp(profile_phase, phase)) {
+        return 1;
+      }
+    }
+    return 0;
+  }
   for (unsigned round = 0; round < 4; ++round)
     for (unsigned i = 0; i < 9; ++i) {
       char phase[64];
@@ -366,20 +378,21 @@ static void module_addresses(void) {
 #endif
 }
 
-static int link_marker(const char* path) {
+static int mode_marker(const char* path, const char* mode) {
   FILE* file = fopen(path, "r");
   if (!file) {
     if (errno != ENOENT)
       fail(path);
     return 0;
   }
-  char selection[7];
+  char selection[16];
   size_t size = fread(selection, 1, sizeof(selection), file);
   if (ferror(file) || fclose(file))
     fail(path);
-  if (size < 4 || memcmp(selection, "link", 4) ||
-      !(size == 4 || (size == 5 && selection[4] == '\n') ||
-        (size == 6 && selection[4] == '\r' && selection[5] == '\n'))) {
+  const size_t length = strlen(mode);
+  if (size < length || memcmp(selection, mode, length) ||
+      !(size == length || (size == length + 1 && selection[length] == '\n') ||
+        (size == length + 2 && selection[length] == '\r' && selection[length + 1] == '\n'))) {
     errno = EINVAL;
     fail(path);
   }
@@ -416,9 +429,10 @@ int main(int argc, char** argv) {
     fail("serial-termios");
   if (chdir("/root/compile-bench"))
     fail("setup");
-  trace_link = link_marker("matrix-trace");
-  link_only = link_marker("matrix-link-only");
-  if ((trace_link && link_only) || (preparing && (trace_link || link_only))) {
+  trace_link = mode_marker("matrix-trace", "link");
+  link_only = mode_marker("matrix-link-only", "link");
+  quick = mode_marker("matrix-quick", "quick");
+  if (trace_link + link_only + quick > 1 || (preparing && (trace_link || link_only || quick))) {
     errno = EINVAL;
     fail("link-mode");
   }
@@ -452,7 +466,11 @@ int main(int argc, char** argv) {
   }
   printf("COMPILEBENCH BEGIN\n");
   printf("COMPILEBENCH configuration mode=%s profile=%s\n",
-         preparing ? "prepare" : trace_link ? "trace-link" : link_only ? "link" : "run",
+         preparing    ? "prepare"
+         : trace_link ? "trace-link"
+         : link_only  ? "link"
+         : quick      ? "quick"
+                      : "run",
          profile_phase ? profile_phase : "none");
   module_addresses();
   if (preparing)
@@ -467,6 +485,12 @@ int main(int argc, char** argv) {
     } else if (link_only) {
       for (unsigned round = 0; round < 6; ++round)
         run_case(link_rounds[round], 6);
+    } else if (quick) {
+      cpu_control("cpu-before");
+      for (unsigned i = 0; i < 4; ++i) {
+        run_case("r1", quick_cases[i]);
+      }
+      cpu_control("cpu-after");
     } else {
       cpu_control("cpu-before");
       for (unsigned round = 0; round < 4; ++round)

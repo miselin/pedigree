@@ -41,22 +41,26 @@ void OperationBarrier::Lease::reset() {
   }
 }
 
-OperationBarrier::OperationBarrier() : m_Waiters(), m_Open(true), m_ActiveOperations(0) {}
+OperationBarrier::OperationBarrier() : m_Waiters(), m_State(0) {}
 
 OperationBarrier::~OperationBarrier() {
   auto guard = m_Waiters.acquire();
-  if (m_Open || m_ActiveOperations) {
+  if (__atomic_load_n(&m_State, __ATOMIC_ACQUIRE) != Closed) {
     panic("OperationBarrier destroyed before close-and-drain completed.");
   }
 }
 
 bool OperationBarrier::tryEnter() {
-  auto guard = m_Waiters.acquire();
-  if (!m_Open) {
-    return false;
-  }
-
-  ++m_ActiveOperations;
+  size_t state = __atomic_load_n(&m_State, __ATOMIC_RELAXED);
+  do {
+    if (state & Closed) {
+      return false;
+    }
+    if (state == CountMask) {
+      panic("OperationBarrier operation count overflow.");
+    }
+  } while (!__atomic_compare_exchange_n(&m_State, &state, state + 1, true, __ATOMIC_ACQUIRE,
+                                        __ATOMIC_RELAXED));
   return true;
 }
 
@@ -71,38 +75,45 @@ bool OperationBarrier::tryAcquire(Lease& lease) {
 }
 
 void OperationBarrier::leave() {
-  auto guard = m_Waiters.acquire();
-  if (!m_ActiveOperations) {
-    panic("OperationBarrier operation count underflow.");
-  }
-  --m_ActiveOperations;
-  if (!m_Open && !m_ActiveOperations) {
-    guard.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
-  }
+  size_t state = __atomic_load_n(&m_State, __ATOMIC_RELAXED);
+  do {
+    if (!(state & CountMask)) {
+      panic("OperationBarrier operation count underflow.");
+    }
+    if (state == (Closed | 1)) {
+      // Publish the final closed release under the queue lock, so a drainer
+      // cannot destroy the barrier while we still have to wake its waiters.
+      auto guard = m_Waiters.acquire();
+      __atomic_fetch_sub(&m_State, size_t{1}, __ATOMIC_ACQ_REL);
+      guard.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
+      return;
+    }
+  } while (!__atomic_compare_exchange_n(&m_State, &state, state - 1, true, __ATOMIC_RELEASE,
+                                        __ATOMIC_RELAXED));
+  // A concurrent close can now drain and destroy us; do not touch the barrier.
 }
 
 void OperationBarrier::close() {
-  auto guard = m_Waiters.acquire();
-  m_Open = false;
+  __atomic_fetch_or(&m_State, Closed, __ATOMIC_ACQ_REL);
 }
 
 bool OperationBarrier::tryCloseIfIdle() {
   auto guard = m_Waiters.acquire();
-  if (m_ActiveOperations) {
-    return false;
-  }
-  m_Open = false;
-  return true;
+  size_t state = 0;
+  return __atomic_compare_exchange_n(&m_State, &state, Closed, false, __ATOMIC_ACQ_REL,
+                                     __ATOMIC_ACQUIRE) ||
+         state == Closed;
 }
 
 void OperationBarrier::wait() {
   TerminationDeferral terminationDeferral;
   while (true) {
     auto guard = m_Waiters.acquire();
-    if (m_Open) {
+    const size_t state = __atomic_load_n(&m_State, __ATOMIC_ACQUIRE);
+    if (!(state & Closed)) {
       panic("OperationBarrier::wait called before close.");
     }
-    if (!m_ActiveOperations) {
+    if (!(state & CountMask)) {
       return;
     }
 
@@ -119,11 +130,10 @@ void OperationBarrier::closeAndWait() {
 }
 
 bool OperationBarrier::isOpen() {
-  auto guard = m_Waiters.acquire();
-  return m_Open;
+  return !(__atomic_load_n(&m_State, __ATOMIC_ACQUIRE) & Closed);
 }
 
 bool OperationBarrier::isClosedAndDrained() {
   auto guard = m_Waiters.acquire();
-  return !m_Open && !m_ActiveOperations;
+  return __atomic_load_n(&m_State, __ATOMIC_ACQUIRE) == Closed;
 }

@@ -72,6 +72,7 @@ add_subdirectory(configdb)
 add_subdirectory(bootstrap)
 
 set(KERNEL_SRCS
+    Rcu.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Device.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/DeviceHashTree.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Disk.cc
@@ -360,6 +361,7 @@ set(TESTSUITE_SRCS
     testsuite/test-Result.cc
     testsuite/test-RangeList.cc
     testsuite/test-Readiness.cc
+    testsuite/test-Rcu.cc
     testsuite/test-RtcAlarmQueue.cc
     testsuite/test-RtcTimeAccounting.cc
     testsuite/test-RtcCalendar.cc
@@ -501,6 +503,7 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-memory.cc
         testsuite/bench-Tree.cc
         testsuite/bench-Scheduler.cc
+        testsuite/bench-Rcu.cc
         testsuite/bench-VFS.cc
         testsuite/bench-LruCache.cc
         testsuite/bench-Log.cc)

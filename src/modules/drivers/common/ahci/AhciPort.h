@@ -74,6 +74,8 @@ class AhciPort {
   Mutex m_CommandLock;
   mutable Mutex m_StateLock;
   bool m_Online;
+  // Protected by m_CommandLock, shared by every writer on this device.
+  bool m_WritesPending;
   uint32_t m_Active;
   uint32_t m_Queued;
   size_t m_SlotCount;

@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include <sys/mman.h>
+#include <sys/reboot.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -104,7 +105,11 @@ static void gate(const char* phase) {
       continue;
     if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
       fail("gate-read");
-    ready_fd(serial_fd, POLLIN);
+    // The guest's polling serial device does not publish readiness edges.
+    struct pollfd p = {serial_fd, POLLIN, 0};
+    if (poll(&p, 1, 10) < 0 && errno != EINTR) {
+      fail("gate-poll");
+    }
   }
 }
 
@@ -126,13 +131,135 @@ static void pattern(unsigned seed) {
   for (size_t i = 0; i < BYTES; ++i)
     data[i] = (unsigned char)(seed + i * 17U + (i >> 8));
 }
-static void run_sync(const char* phase) {
+static void run_sync(const char* phase, size_t bytes) {
   gate(phase);
   uint64_t start = now_ns();
   sync();
   uint64_t end = now_ns();
-  metric(phase, start, end, end, BYTES, 0);
+  metric(phase, start, end, end, bytes, 0);
 }
+
+static void run_fsync(const char* phase, int fd, int directory) {
+  gate(phase);
+  uint64_t start = now_ns();
+  if (fsync(fd)) {
+    fail(phase);
+  }
+  uint64_t end = now_ns();
+  metric(phase, start, end, end, directory ? 0 : PAGE_BYTES, 0);
+}
+
+static int verify_small(const char* path, unsigned seed, int* initial) {
+  unsigned char buffer[PAGE_BYTES];
+  int fd = open(path, O_RDWR | O_NOFOLLOW);
+  struct stat st;
+  if (fd < 0 || fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size != PAGE_BYTES) {
+    fail("small-fixture");
+  }
+  size_t total = 0;
+  while (total < sizeof(buffer)) {
+    ssize_t n = read(fd, buffer + total, sizeof(buffer) - total);
+    if (n < 0 && errno == EINTR) {
+      continue;
+    }
+    if (n <= 0) {
+      fail("small-read");
+    }
+    total += n;
+  }
+  pattern(seed);
+  int original = initial && buffer[0] == 0x11;
+  if (initial) {
+    *initial = original;
+  }
+  for (size_t i = 0; i < sizeof(buffer); ++i) {
+    if (buffer[i] != (original ? 0x11 : data[i])) {
+      fail("small-persisted-content");
+    }
+  }
+  if (lseek(fd, 0, SEEK_SET)) {
+    fail("small-seek");
+  }
+  return fd;
+}
+
+static void small_files(void) {
+  int initial;
+  int fd = verify_small("/sync-small.bin", 0x71, &initial);
+  struct stat st;
+  int restored = !stat("/sync-renamed.bin", &st);
+  if (restored) {
+    int created = verify_small("/sync-renamed.bin", 0x51, NULL);
+    if (close(created) || unlink("/sync-renamed.bin")) {
+      fail("small-cleanup");
+    }
+    if (!stat("/sync-created.bin", &st) || errno != ENOENT) {
+      fail("rename-source-present");
+    }
+  } else if (errno != ENOENT) {
+    fail("small-stat");
+  }
+  if (initial == restored) {
+    fail("small-incomplete-persistence");
+  }
+  dprintf(1, "SYNCBENCH small-persistence=%s bytes=%u\n", restored ? "PASS" : "initial",
+          PAGE_BYTES * (restored ? 2 : 1));
+  int directory = open("/", O_RDONLY | O_DIRECTORY);
+  if (directory < 0) {
+    fail("small-directory");
+  }
+  sync();
+  pattern(0x31);
+  write_all(fd, data, PAGE_BYTES);
+  run_fsync("fsync-overwrite-0", fd, 0);
+  run_fsync("fsync-clean-0", fd, 0);
+
+  int created = open("/sync-created.bin", O_RDWR | O_CREAT | O_EXCL, 0600);
+  if (created < 0) {
+    fail("small-create");
+  }
+  pattern(0x51);
+  write_all(created, data, PAGE_BYTES);
+  run_fsync("fsync-create-0", created, 0);
+  run_fsync("fsync-created-clean-0", created, 0);
+  if (close(created)) {
+    fail("small-close");
+  }
+  gate("rename-directory-0");
+  uint64_t start = now_ns();
+  if (rename("/sync-created.bin", "/sync-renamed.bin") || fsync(directory)) {
+    fail("rename-directory");
+  }
+  uint64_t end = now_ns();
+  metric("rename-directory-0", start, end, end, PAGE_BYTES, 0);
+  run_fsync("directory-clean-0", directory, 1);
+  pattern(0x71);
+  if (lseek(fd, 0, SEEK_SET)) {
+    fail("small-seek");
+  }
+  write_all(fd, data, PAGE_BYTES);
+  run_sync("sync-dirty-0", PAGE_BYTES);
+  run_sync("sync-clean-0", PAGE_BYTES);
+  if (close(directory) || close(fd)) {
+    fail("small-close");
+  }
+}
+
+static void finish(void) {
+  if (!access("/sync-bench-shutdown", F_OK)) {
+    gate("shutdown-0");
+    if (reboot(RB_POWER_OFF)) {
+      fail("shutdown");
+    }
+  } else {
+    puts("LAUNCHBENCH PASS END");
+    fflush(stdout);
+  }
+  for (;;) {
+    pause();
+  }
+}
+
 int main(void) {
   serial_fd = open("/dev/ttyS0", O_RDWR | O_NONBLOCK);
   if (serial_fd < 0 || dup2(serial_fd, 1) < 0 || dup2(serial_fd, 2) < 0)
@@ -144,6 +271,10 @@ int main(void) {
     t.c_cc[VMIN] = 1;
     t.c_cc[VTIME] = 0;
     (void)tcsetattr(serial_fd, TCSANOW, &t);
+  }
+  if (!access("/sync-bench-small", F_OK)) {
+    small_files();
+    finish();
   }
   int fd = open("/sync-bench.bin", O_RDWR);
   if (fd < 0)
@@ -169,17 +300,14 @@ int main(void) {
   if (lseek(fd, 0, SEEK_SET))
     fail("seek");
   write_all(fd, data, BYTES);
-  run_sync("sync-dirty-0");
-  run_sync("sync-clean-0");
+  run_sync("sync-dirty-0", BYTES);
+  run_sync("sync-clean-0", BYTES);
   pattern(0x71);
   if (lseek(fd, 0, SEEK_SET))
     fail("seek");
   write_all(fd, data, BYTES);
-  run_sync("sync-redirty-0");
+  run_sync("sync-redirty-0", BYTES);
   if (close(fd))
     fail("close");
-  puts("LAUNCHBENCH PASS END");
-  fflush(stdout);
-  for (;;)
-    pause();
+  finish();
 }

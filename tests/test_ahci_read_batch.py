@@ -18,7 +18,7 @@ class AhciReadBatchTests(unittest.TestCase):
             self.skipTest("clang++ is required")
         root = Path(__file__).resolve().parents[1]
         source = (root / "src/modules/drivers/common/ahci/AhciPort.cc").read_text()
-        start = source.index("bool AhciPort::readBatch(")
+        start = source.index("bool AhciPort::command(")
         end = source.index("void AhciPort::shutdown()", start)
         with tempfile.TemporaryDirectory(prefix="ahci-read-batch-") as temporary:
             work = Path(temporary)

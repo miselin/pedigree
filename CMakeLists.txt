@@ -205,7 +205,12 @@ set(PEDIGREE_GLOBAL_SYNC_TESTS FALSE CACHE BOOL "Run hosted cache and device syn
 set(PEDIGREE_LTO FALSE CACHE BOOL "Enable LTO.")
 set(PEDIGREE_DTRELR TRUE CACHE BOOL "Pack userspace relative relocations as DT_RELR.")
 set(PEDIGREE_OPTIMIZE TRUE CACHE BOOL "Build an optimized kernel and modules.")
-set(PEDIGREE_OPTIMIZE_SIZE TRUE CACHE BOOL "If building an optimized kernel, optimize for size.")
+set(PEDIGREE_OPTIMIZE_SIZE_DEFAULT TRUE)
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    set(PEDIGREE_OPTIMIZE_SIZE_DEFAULT FALSE)
+endif ()
+option(PEDIGREE_OPTIMIZE_SIZE "If building an optimized kernel, optimize for size."
+    ${PEDIGREE_OPTIMIZE_SIZE_DEFAULT})
 set(PEDIGREE_WARNINGS FALSE CACHE BOOL "Allow compiler warnings.")
 
 set(PEDIGREE_FLAGS

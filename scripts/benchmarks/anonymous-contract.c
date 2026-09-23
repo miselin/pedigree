@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <errno.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -161,6 +162,87 @@ static void disjoint_mappings(void) {
   puts("ANON-CONTRACT PASS disjoint-append whole-removal reservation-reuse survivors");
 }
 
+struct concurrent_context {
+  pthread_barrier_t* gate;
+  unsigned worker;
+};
+
+static void concurrent_gate(pthread_barrier_t* gate) {
+  int result = pthread_barrier_wait(gate);
+  require(result == 0 || result == PTHREAD_BARRIER_SERIAL_THREAD, "concurrent barrier");
+}
+
+static void* concurrent_mapping_worker(void* argument) {
+  const struct concurrent_context* context = argument;
+  const size_t pages = 32, bytes = pages * page_bytes, half = bytes / 2;
+  for (unsigned round = 0; round < 16; ++round) {
+    const int mutate = (context->worker + round) & 1;
+    volatile unsigned char* memory =
+        mmap(NULL, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    require(memory != MAP_FAILED, "concurrent mmap");
+    if (mutate) {
+      for (size_t page = 0; page < pages; ++page) {
+        memory[page * page_bytes] = pattern(round * pages + page);
+        memory[(page + 1) * page_bytes - 1] = (unsigned char)~pattern(round * pages + page);
+      }
+    }
+    concurrent_gate(context->gate);
+
+    if (mutate) {
+      require(mprotect((void*)memory, bytes, PROT_READ) == 0, "concurrent protect");
+      for (size_t page = 0; page < pages; ++page) {
+        require(memory[page * page_bytes] == pattern(round * pages + page) &&
+                    memory[(page + 1) * page_bytes - 1] ==
+                        (unsigned char)~pattern(round * pages + page),
+                "concurrent protected contents");
+      }
+      require(mprotect((void*)memory, bytes, PROT_READ | PROT_WRITE) == 0,
+              "concurrent restore protection");
+      require(munmap((void*)memory, half) == 0, "concurrent partial unmap");
+      require(mmap((void*)memory, half, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) == (void*)memory,
+              "concurrent reservation reuse");
+    }
+    for (size_t page = 0; page < pages; ++page) {
+      const unsigned char expected =
+          mutate && page >= pages / 2 ? pattern(round * pages + page) : 0;
+      const unsigned char tail = mutate && page >= pages / 2 ? (unsigned char)~expected : 0;
+      require(memory[page * page_bytes] == expected && memory[(page + 1) * page_bytes - 1] == tail,
+              "concurrent zero and survivor contents");
+      memory[page * page_bytes] = pattern(round * pages + page);
+      memory[(page + 1) * page_bytes - 1] = (unsigned char)~pattern(round * pages + page);
+    }
+    for (size_t page = 0; page < pages; ++page) {
+      require(
+          memory[page * page_bytes] == pattern(round * pages + page) &&
+              memory[(page + 1) * page_bytes - 1] == (unsigned char)~pattern(round * pages + page),
+          "concurrent written contents");
+    }
+    // Keep either worker from allocating into the other's temporary unmap gap.
+    concurrent_gate(context->gate);
+    require(munmap((void*)memory, bytes) == 0, "concurrent final unmap");
+  }
+  return NULL;
+}
+
+static void concurrent_mappings(void) {
+  pthread_barrier_t gate;
+  pthread_t workers[2];
+  struct concurrent_context contexts[] = {{&gate, 0}, {&gate, 1}};
+  alarm(30);
+  require(pthread_barrier_init(&gate, NULL, 2) == 0, "concurrent barrier init");
+  for (size_t i = 0; i < 2; ++i) {
+    require(pthread_create(&workers[i], NULL, concurrent_mapping_worker, &contexts[i]) == 0,
+            "concurrent worker start");
+  }
+  for (size_t i = 0; i < 2; ++i) {
+    require(pthread_join(workers[i], NULL) == 0, "concurrent worker join");
+  }
+  require(pthread_barrier_destroy(&gate) == 0, "concurrent barrier destroy");
+  alarm(0);
+  puts("ANON-CONTRACT PASS concurrent-fault protection-unmap-reuse survivors");
+}
+
 int main(int argc, char** argv) {
   setvbuf(stdout, NULL, _IONBF, 0);
   const long page_size = sysconf(_SC_PAGESIZE);
@@ -180,6 +262,7 @@ int main(int argc, char** argv) {
   }
   lifecycle();
   disjoint_mappings();
+  concurrent_mappings();
   puts("ANON-CONTRACT END status=0");
   return 0;
 }

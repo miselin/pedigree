@@ -304,6 +304,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Mutex.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/AdmittedThread.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/OperationBarrier.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Rcu.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/PerProcessorScheduler.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Process.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Process-credentials.cc

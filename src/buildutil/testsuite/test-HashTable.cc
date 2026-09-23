@@ -201,6 +201,61 @@ TEST(PedigreeHashTable, RemoveFirstInChain) {
   EXPECT_EQ(hashtable.lookup(key2).value(), 2);
 }
 
+struct CountedHashKey {
+  size_t value = 0;
+  static size_t hashes;
+  size_t hash() const {
+    ++hashes;
+    return value;
+  }
+  bool operator==(const CountedHashKey& other) const {
+    return value == other.value;
+  }
+  bool operator!=(const CountedHashKey& other) const {
+    return !(*this == other);
+  }
+};
+size_t CountedHashKey::hashes = 0;
+
+template <bool Quadratic>
+static void checkMissingProbeChain() {
+  HashTable<CountedHashKey, int, CountedHashKey, 1024, Quadratic> table;
+  for (size_t key : {0U, 1024U, 2048U}) {
+    ASSERT_TRUE(table.insert({key}, key + 1));
+  }
+  for (size_t key = 100; key < 228; ++key) {
+    ASSERT_TRUE(table.insert({key}, key + 1));
+  }
+
+  // A miss collides with the short chain, but must not scan unrelated entries.
+  const auto& view = table;
+  CountedHashKey::hashes = 0;
+  EXPECT_EQ(view.lookup({3072}).error(), HashTableError::NotFound);
+  EXPECT_LE(CountedHashKey::hashes, 5U);
+  CountedHashKey::hashes = 0;
+  EXPECT_FALSE(view.contains({3072}));
+  EXPECT_LE(CountedHashKey::hashes, 5U);
+  CountedHashKey::hashes = 0;
+  table.remove({3072});
+  EXPECT_LE(CountedHashKey::hashes, 5U);
+
+  table.remove({1024});
+  EXPECT_EQ(view.lookup({0}).value(), 1);
+  EXPECT_EQ(view.lookup({2048}).value(), 2049);
+  EXPECT_FALSE(view.contains({1024}));
+  ASSERT_TRUE(table.insert({3072}, 3073));
+  EXPECT_TRUE(table.update({3072}, 42));
+  EXPECT_EQ(view.lookup({3072}).value(), 42);
+}
+
+TEST(PedigreeHashTable, MissingQuadraticProbeStopsAtEmptyBucket) {
+  checkMissingProbeChain<true>();
+}
+
+TEST(PedigreeHashTable, MissingLinearProbeStopsAtEmptyBucket) {
+  checkMissingProbeChain<false>();
+}
+
 TEST(PedigreeHashTable, ForwardIteration) {
   HashTable<HashableInteger, int> hashtable(1234);
 

@@ -252,7 +252,8 @@ static bool terminalQuiesce() {
 #endif
   if (auto* view = VFS::instance().mountView()) {
     // A surviving attachment path keeps both its backend and this module mapped.
-    Filesystem* backings[] = {g_pProcFs, g_pDevFs, g_pRunFilesystem, g_pDevShmFilesystem, g_pSysFs};
+    // /dev/shm must detach before its parent /dev attachment.
+    Filesystem* backings[] = {g_pProcFs, g_pDevShmFilesystem, g_pDevFs, g_pRunFilesystem, g_pSysFs};
     for (auto* backing : backings)
       if (backing && !view->detachBackingForShutdown(backing))
         return false;

@@ -68,15 +68,11 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
     bool handled = false;
     PostSyscallAction action;
     if (LIKELY(serviceNumber < serviceEnd)) {
-      SyscallHandler* handler = m_Instance.loadHandler(static_cast<Service_t>(serviceNumber));
-      if (handler) {
+      HandlerLease handler;
+      if (m_Instance.acquireHandler(static_cast<Service_t>(serviceNumber), handler, action)) {
         handled = true;
         Thread* thread = Processor::information().getCurrentThread();
-        void* previousContext = thread->getSyscallDispatchContext();
-        thread->setSyscallDispatchContext(&action);
-        syscallState.setSyscallReturnValue(m_Instance.dispatchHandler(
-            static_cast<Service_t>(serviceNumber), handler, syscallState));
-        thread->setSyscallDispatchContext(previousContext);
+        syscallState.setSyscallReturnValue(m_Instance.dispatchHandler(handler, syscallState));
         syscallState.setSyscallErrno(thread->getErrno());
         thread->setErrno(0);
       }

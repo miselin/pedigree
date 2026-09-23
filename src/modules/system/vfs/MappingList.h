@@ -43,6 +43,7 @@ class MappingList {
   /** Reserve both nodes before a fallible split/clone can alter its source. */
   bool reserveBack(uintptr_t address) {
     assert(!m_HasReservation);
+    m_LastMatch = nullptr;
     if (m_Index.contains(address) || !m_Index.tryInsert(address, nullptr))
       return false;
     if (!m_Objects.tryPushBack(nullptr)) {
@@ -56,6 +57,7 @@ class MappingList {
 
   void publishBack(Object* object) {
     assert(m_HasReservation && object && object->address() == m_ReservedAddress);
+    m_LastMatch = nullptr;
     Object** slot = m_Index.find(m_ReservedAddress);
     assert(slot && !*slot);
     *slot = object;
@@ -64,6 +66,7 @@ class MappingList {
   }
 
   Object* popBack() {
+    m_LastMatch = nullptr;
     Object* object = m_Objects.popBack();
     if (m_HasReservation) {
       assert(!object);
@@ -77,18 +80,31 @@ class MappingList {
 
   Iterator erase(Iterator& it) {
     assert(!m_HasReservation && *it);
+    m_LastMatch = nullptr;
     m_Index.remove((*it)->address());
     return m_Objects.erase(it);
   }
   ReverseIterator erase(ReverseIterator& it) {
     assert(!m_HasReservation && *it);
+    m_LastMatch = nullptr;
     m_Index.remove((*it)->address());
     return m_Objects.erase(it);
   }
 
   Object* find(uintptr_t address, size_t* objectVisits = nullptr) const {
-    if (objectVisits)
+    if (objectVisits) {
       *objectVisits = 0;
+    }
+    // Adjacent page faults usually stay in one mapping. Lookup and mutation
+    // remain serialized by the caller, keeping this non-owning pointer live.
+    if (m_LastMatch) {
+      if (objectVisits) {
+        ++*objectVisits;
+      }
+      if (m_LastMatch->matches(address)) {
+        return m_LastMatch;
+      }
+    }
     uintptr_t start;
     Object* object;
     if (!m_Index.floorBound(address, start, object))
@@ -99,9 +115,14 @@ class MappingList {
       return nullptr;
     if (!object)
       return nullptr;
-    if (objectVisits)
-      *objectVisits = 1;
-    return object->matches(address) ? object : nullptr;
+    if (objectVisits) {
+      ++*objectVisits;
+    }
+    if (!object->matches(address)) {
+      return nullptr;
+    }
+    m_LastMatch = object;
+    return object;
   }
 
  private:
@@ -109,6 +130,7 @@ class MappingList {
 
   List<Object*> m_Objects;
   Tree<uintptr_t, Object*> m_Index;
+  mutable Object* m_LastMatch = nullptr;
   uintptr_t m_ReservedAddress = 0;
   bool m_HasReservation = false;
 };

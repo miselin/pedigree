@@ -38,6 +38,7 @@ AhciPort::AhciPort(IoBase* registers, size_t port)
       m_Port(port),
       m_Control("AHCI command storage"),
       m_Online(false),
+      m_WritesPending(true),
       m_Active(0),
       m_Queued(0),
       m_SlotCount(1),
@@ -401,17 +402,79 @@ bool AhciPort::command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buf
       return false;
     waitForProgress();
   }
+  const bool flush = (opcode == 0xe7 || opcode == 0xea) && !bytes && !writing;
+  if (flush && !m_WritesPending) {
+    return true;
+  }
+  if (writing) {
+    m_WritesPending = true;
+  }
   if (!issueCommand(index, opcode, lba, sectors, buffer, bytes, writing, queued, interrupts))
     return false;
   if (queued) {
     m_CommandLock.release();
     command.disown();
   }
-  return reapCommand(index, opcode, buffer, bytes, writing, queued, interrupts, interruptProbe);
+  const bool succeeded =
+      reapCommand(index, opcode, buffer, bytes, writing, queued, interrupts, interruptProbe);
+  // A nonqueued barrier holds the submission gate through completion, so no
+  // later write can be mistaken for part of this successful flush.
+  if (flush && succeeded) {
+    m_WritesPending = false;
+  }
+  return succeeded;
 }
 
 bool AhciPort::readBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupts) {
-  return transferBatch(buffers, count, interrupts, false);
+  if (count > Disk::MaxReadBuffers || (count && !buffers)) {
+    return false;
+  }
+  for (size_t i = 0; i < count; ++i) {
+    buffers[i].complete = false;
+  }
+  const size_t pageSize = TargetInfo::getPageSize();
+  for (size_t i = 0; i < count; ++i) {
+    if (!buffers[i].length || buffers[i].length > pageSize) {
+      return false;
+    }
+  }
+  if (count < 2) {
+    return transferBatch(buffers, count, interrupts, false);
+  }
+
+  // Four-page commands retain overlap in common 64 KiB reads. Only whole,
+  // adjacent pages can share the existing contiguous bounce-buffer copy.
+  constexpr size_t ReadTransfer = 16 * 1024;
+  static_assert(ReadTransfer <= MaxTransfer);
+  Disk::ReadBuffer transfers[Disk::MaxReadBuffers];
+  size_t ends[Disk::MaxReadBuffers];
+  size_t grouped = 0;
+  for (size_t i = 0; i < count; ++i) {
+    const auto& buffer = buffers[i];
+    if (grouped && buffer.length == pageSize) {
+      auto& previous = transfers[grouped - 1];
+      const uintptr_t address = reinterpret_cast<uintptr_t>(buffer.buffer);
+      const uintptr_t priorAddress = reinterpret_cast<uintptr_t>(previous.buffer);
+      if (previous.length % pageSize == 0 && previous.length <= ReadTransfer &&
+          buffer.length <= ReadTransfer - previous.length && buffer.location > previous.location &&
+          buffer.location - previous.location == previous.length && address > priorAddress &&
+          address - priorAddress == previous.length) {
+        previous.length += buffer.length;
+        ends[grouped - 1] = i + 1;
+        continue;
+      }
+    }
+    transfers[grouped] = buffer;
+    ends[grouped++] = i + 1;
+  }
+  const bool success = transferBatch(transfers, grouped, interrupts, false);
+  size_t next = 0;
+  for (size_t i = 0; i < grouped; ++i) {
+    while (next < ends[i]) {
+      buffers[next++].complete = transfers[i].complete;
+    }
+  }
+  return success;
 }
 
 bool AhciPort::writeBatch(Disk::WriteBuffer* buffers, size_t count, bool interrupts) {
@@ -438,11 +501,13 @@ bool AhciPort::transferBatch(Disk::ReadBuffer* buffers, size_t count, bool inter
     buffers[i].complete = false;
   for (size_t i = 0; i < count; ++i) {
     const auto& buffer = buffers[i];
-    if (!buffer.buffer || !buffer.length || buffer.length > TargetInfo::getPageSize() ||
-        buffer.length > MaxTransfer || !m_SectorBytes || buffer.location % m_SectorBytes ||
-        buffer.length % m_SectorBytes || buffer.location / m_SectorBytes >= (1ULL << 48) ||
-        buffer.length / m_SectorBytes > (1ULL << 48) - buffer.location / m_SectorBytes)
+    if (!buffer.buffer || !buffer.length ||
+        (writing && buffer.length > TargetInfo::getPageSize()) || buffer.length > MaxTransfer ||
+        !m_SectorBytes || buffer.location % m_SectorBytes || buffer.length % m_SectorBytes ||
+        buffer.location / m_SectorBytes >= (1ULL << 48) ||
+        buffer.length / m_SectorBytes > (1ULL << 48) - buffer.location / m_SectorBytes) {
       return false;
+    }
   }
   TerminationDeferral lifetime;
   if (!m_QueueDepth) {
@@ -486,6 +551,9 @@ bool AhciPort::transferBatch(Disk::ReadBuffer* buffers, size_t count, bool inter
           continue;
         }
         auto& buffer = buffers[next];
+        if (writing) {
+          m_WritesPending = true;
+        }
         if (!issueCommand(index, writing ? 0x61 : 0x60, buffer.location / m_SectorBytes,
                           buffer.length / m_SectorBytes, buffer.buffer, buffer.length, writing,
                           true, interrupts)) {

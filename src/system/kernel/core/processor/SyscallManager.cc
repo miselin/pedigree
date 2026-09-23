@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -28,27 +29,23 @@
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/new"
 
-SyscallManager::HandlerSlot::HandlerSlot()
-    : handler(nullptr),
-      generation(0),
-      inFlight(0),
-      enabled(false),
-      draining(false),
-      dispatches(nullptr),
-      drainWaiters() {}
+struct SyscallManager::HandlerSlot {
+  HandlerSlot(SyscallHandler* handler, FastEntry entry) : handler(handler), entry(entry) {}
+
+  SyscallHandler* const handler;
+  const FastEntry entry;
+};
+
+SyscallManager::HandlerSlot SyscallManager::m_ClosingSlot(nullptr, nullptr);
 
 SyscallManager::Registration::Registration()
-    : m_pManager(nullptr), m_Service(serviceEnd), m_pHandler(nullptr), m_Generation(0) {}
+    : m_pManager(nullptr), m_Service(serviceEnd), m_pSlot(nullptr) {}
 
 SyscallManager::Registration::Registration(Registration&& other)
-    : m_pManager(other.m_pManager),
-      m_Service(other.m_Service),
-      m_pHandler(other.m_pHandler),
-      m_Generation(other.m_Generation) {
+    : m_pManager(other.m_pManager), m_Service(other.m_Service), m_pSlot(other.m_pSlot) {
   other.m_pManager = nullptr;
   other.m_Service = serviceEnd;
-  other.m_pHandler = nullptr;
-  other.m_Generation = 0;
+  other.m_pSlot = nullptr;
 }
 
 SyscallManager::Registration::~Registration() {
@@ -64,12 +61,10 @@ SyscallManager::Registration& SyscallManager::Registration::operator=(Registrati
     }
     m_pManager = other.m_pManager;
     m_Service = other.m_Service;
-    m_pHandler = other.m_pHandler;
-    m_Generation = other.m_Generation;
+    m_pSlot = other.m_pSlot;
     other.m_pManager = nullptr;
     other.m_Service = serviceEnd;
-    other.m_pHandler = nullptr;
-    other.m_Generation = 0;
+    other.m_pSlot = nullptr;
   }
   return *this;
 }
@@ -88,31 +83,14 @@ bool SyscallManager::Registration::reset() {
 
   m_pManager = nullptr;
   m_Service = serviceEnd;
-  m_pHandler = nullptr;
-  m_Generation = 0;
+  m_pSlot = nullptr;
   return true;
-}
-
-SyscallManager::HandlerLease::HandlerLease()
-    : m_pManager(nullptr),
-      m_pSlot(nullptr),
-      m_pHandler(nullptr),
-      m_Generation(0),
-      m_pThread(nullptr),
-      m_Cleanup(),
-      m_Dispatch{nullptr, nullptr, 0, 0, nullptr, nullptr} {}
-
-SyscallManager::HandlerLease::~HandlerLease() {
-  if (m_pManager) {
-    m_pManager->releaseHandler(*this, true);
-  }
 }
 
 SyscallManager::SyscallManager()
     : m_HandlerLock(),
       m_HandlerSlots(),
-      m_FastEntries(),
-      m_NextDispatchSequence(0)
+      m_Published()
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
       m_HandlerPinHook(nullptr),
@@ -127,87 +105,48 @@ uintptr_t SyscallManager::dispatchVirtual(SyscallHandler* handler, SyscallState&
   return handler->syscall(state);
 }
 
-void SyscallManager::clearSlot(Service_t service) {
-  HandlerSlot& slot = m_HandlerSlots[service];
-  assert(!slot.inFlight);
-  assert(!slot.dispatches);
-  __atomic_store_n(&slot.handler, static_cast<SyscallHandler*>(nullptr), __ATOMIC_RELEASE);
-  __atomic_store_n(&m_FastEntries[service], static_cast<FastEntry>(nullptr), __ATOMIC_RELAXED);
-  slot.enabled = false;
-  slot.draining = false;
+bool SyscallManager::inCallback() {
+  Thread* thread = Processor::information().getCurrentThread();
+  return thread && thread->getSyscallDispatchContext();
 }
 
-void* SyscallManager::currentDispatchOwner() {
-  ProcessorInformation& information = Processor::information();
-  Thread* thread = information.getCurrentThread();
-  return thread ? static_cast<void*>(thread) : static_cast<void*>(&information);
-}
-
-bool SyscallManager::callbackContextLocked(void* owner) const {
-  for (size_t i = 0; i < serviceEnd; ++i) {
-    for (HandlerDispatch* dispatch = m_HandlerSlots[i].dispatches; dispatch;
-         dispatch = dispatch->next) {
-      if (dispatch->owner == owner) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-bool SyscallManager::registerHandler(Service_t service, SyscallHandler* pHandler,
+bool SyscallManager::registerHandler(Service_t service, SyscallHandler* handler,
                                      Registration& registration, FastEntry entry) {
-  if (UNLIKELY(service >= serviceEnd) || !pHandler || registration) {
+  if (UNLIKELY(service >= serviceEnd) || !handler || registration) {
     return false;
   }
 
+  auto* slot = new HandlerSlot(handler, entry ? entry : dispatchVirtual);
+  if (!slot) {
+    return false;
+  }
   m_HandlerLock.acquire();
-  HandlerSlot& slot = m_HandlerSlots[service];
-
-  if (entry && m_FastEntries[service] && m_FastEntries[service] != dispatchVirtual) {
-    FATAL("Syscall fast entry already registered for service " << Dec
-                                                               << static_cast<size_t>(service));
-  }
-  if (slot.handler) {
+  if (m_HandlerSlots[service]) {
     m_HandlerLock.release();
+    delete slot;
     return false;
   }
 
-  ++slot.generation;
-  if (!slot.generation) {
-    ++slot.generation;
-  }
-  // Choose the fallback once so registered services need no entry-null check.
-  __atomic_store_n(&m_FastEntries[service], entry ? entry : dispatchVirtual, __ATOMIC_RELAXED);
-  __atomic_store_n(&slot.handler, pHandler, __ATOMIC_RELEASE);
-  slot.enabled = true;
-  slot.draining = false;
+  m_HandlerSlots[service] = slot;
   registration.m_pManager = this;
   registration.m_Service = service;
-  registration.m_pHandler = pHandler;
-  registration.m_Generation = slot.generation;
+  registration.m_pSlot = slot;
+  __atomic_store_n(&m_Published[service], slot, __ATOMIC_SEQ_CST);
   m_HandlerLock.release();
   return true;
 }
 
 bool SyscallManager::closeHandler(Registration& registration) {
   if (registration.m_pManager != this || UNLIKELY(registration.m_Service >= serviceEnd) ||
-      !registration.m_pHandler || !registration.m_Generation) {
+      !registration.m_pSlot || inCallback()) {
     return false;
   }
 
-  void* owner = currentDispatchOwner();
-  m_HandlerLock.acquire();
-  HandlerSlot& slot = m_HandlerSlots[registration.m_Service];
-  if (slot.handler != registration.m_pHandler || slot.generation != registration.m_Generation ||
-      callbackContextLocked(owner)) {
-    m_HandlerLock.release();
+  LockGuard<Spinlock> guard(m_HandlerLock);
+  if (m_HandlerSlots[registration.m_Service] != registration.m_pSlot) {
     return false;
   }
-
-  slot.enabled = false;
-  slot.draining = true;
-  m_HandlerLock.release();
+  __atomic_store_n(&m_Published[registration.m_Service], nullptr, __ATOMIC_SEQ_CST);
   return true;
 }
 
@@ -220,122 +159,118 @@ bool SyscallManager::dispatchHandlerForTest(Service_t service, uintptr_t& result
   }
 
   SyscallState state = {};
-  result = dispatchHandler(service, handler.handler(), state);
+  result = dispatchHandler(handler, state);
   return action.kind == NoPostSyscallAction;
 }
 #endif
 
 bool SyscallManager::unregisterHandler(Registration& registration) {
   if (registration.m_pManager != this || UNLIKELY(registration.m_Service >= serviceEnd) ||
-      !registration.m_pHandler || !registration.m_Generation) {
+      !registration.m_pSlot) {
     return false;
   }
 
-  Thread* current = Processor::information().getCurrentThread();
-  // Spinlock acquisition changes raw IF state, so logical schedulability must
-  // be captured before taking m_HandlerLock.
-  const bool canYield =
-      current && Processor::executionContext() == ExecutionContext::WaitableThread;
-  void* owner = currentDispatchOwner();
-  TerminationDeferral terminationDeferral;
-  m_HandlerLock.acquire();
-  HandlerSlot& slot = m_HandlerSlots[registration.m_Service];
-  if (slot.handler != registration.m_pHandler || slot.generation != registration.m_Generation) {
-    m_HandlerLock.release();
-    return false;
-  }
-
-  const size_t targetGeneration = registration.m_Generation;
-  if (!slot.inFlight) {
-    clearSlot(registration.m_Service);
-    m_HandlerLock.release();
-    return true;
-  }
-
-  // A callback draining any handler can form a reciprocal wait with that
-  // handler. Keep token ownership live for an ordinary external drain.
-  if (callbackContextLocked(owner)) {
-    m_HandlerLock.release();
-    return false;
-  }
-
+  const bool canYield = !inCallback() && Processor::information().getCurrentThread() &&
+                        Processor::executionContext() == ExecutionContext::WaitableThread;
+  TerminationDeferral lifetime;
+  HandlerSlot* slot = registration.m_pSlot;
+  const Service_t service = registration.m_Service;
+  Scheduler& scheduler = Scheduler::instance();
   if (!canYield) {
-    // Waiting without a schedulable thread cannot make progress. Keep the
-    // registration live so false never authorises caller teardown.
-    m_HandlerLock.release();
-    return false;
-  }
-
-  slot.enabled = false;
-  slot.draining = true;
-  m_HandlerLock.release();
-
-  while (true) {
-    auto waitGuard = slot.drainWaiters.acquire();
-    m_HandlerLock.acquire();
-
-    if (slot.generation != targetGeneration) {
-      m_HandlerLock.release();
+    // Take membership protection before publishing Closing: a reader may
+    // already hold this lock, and must never spin while its remover needs it.
+    RecursingLockGuard<Spinlock> registry(scheduler.m_SchedulerLock);
+    LockGuard<Spinlock> guard(m_HandlerLock);
+    if (m_HandlerSlots[service] != slot) {
       return false;
     }
-
-    if (!slot.inFlight) {
-      if (slot.handler) {
-        assert(slot.draining);
-        clearSlot(registration.m_Service);
-      }
-      m_HandlerLock.release();
-      return true;
+    HandlerSlot* published =
+        __atomic_exchange_n(&m_Published[service], &m_ClosingSlot, __ATOMIC_SEQ_CST);
+    if (scheduler.hasActiveSyscallLocked(service)) {
+      __atomic_store_n(&m_Published[service], published, __ATOMIC_SEQ_CST);
+      return false;
     }
-    m_HandlerLock.release();
+    __atomic_store_n(&m_Published[service], nullptr, __ATOMIC_SEQ_CST);
+    m_HandlerSlots[service] = nullptr;
+  } else {
+    {
+      LockGuard<Spinlock> guard(m_HandlerLock);
+      if (m_HandlerSlots[service] != slot) {
+        return false;
+      }
+      __atomic_store_n(&m_Published[service], nullptr, __ATOMIC_SEQ_CST);
+    }
 
-    const WaitQueue::WakeReason reason =
-        waitGuard.waitForCompletion(WaitQueue::Channel(&slot), Thread::CallbackDrain,
-                                    reinterpret_cast<uintptr_t>(slot.handler));
-    (void)reason;
+    // Closed publication prevents new callbacks. Scalar inspection under the
+    // scheduler lock covers running and blocked Threads without borrowing stacks.
+    while (true) {
+      bool active;
+      {
+        RecursingLockGuard<Spinlock> registry(scheduler.m_SchedulerLock);
+        active = scheduler.hasActiveSyscallLocked(service);
+      }
+      if (!active) {
+        break;
+      }
+      scheduler.yield();
+    }
+    LockGuard<Spinlock> guard(m_HandlerLock);
+    m_HandlerSlots[service] = nullptr;
   }
+  delete slot;
+  return true;
 }
 
 bool SyscallManager::acquireHandler(Service_t service, HandlerLease& lease,
                                     PostSyscallAction& action) {
-  if (UNLIKELY(service >= serviceEnd) || lease.m_pManager) {
-    return false;
-  }
-
   Thread* thread = Processor::information().getCurrentThread();
-  if (thread) {
-    thread->armStateCleanup(lease.m_Cleanup, abandonedHandlerCleanup, &lease);
-  }
-
-  m_HandlerLock.acquire();
-  HandlerSlot& slot = m_HandlerSlots[service];
-  if (!slot.handler || !slot.enabled) {
-    m_HandlerLock.release();
-    if (thread) {
-      thread->disarmStateCleanup(lease.m_Cleanup);
-    }
+  if (UNLIKELY(service >= serviceEnd) || lease.m_pManager || !thread) {
     return false;
   }
 
-  ++m_NextDispatchSequence;
-  if (!m_NextDispatchSequence) {
-    ++m_NextDispatchSequence;
+  const bool interrupts = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  HandlerSlot* slot;
+  while (true) {
+    slot = __atomic_load_n(&m_Published[service], __ATOMIC_ACQUIRE);
+    if (!slot) {
+      Processor::setInterrupts(interrupts);
+      return false;
+    }
+    if (slot == &m_ClosingSlot) {
+      Processor::pause();
+      continue;
+    }
+
+    size_t& admission = thread->m_ActiveSyscalls[service];
+    const size_t count = __atomic_load_n(&admission, __ATOMIC_RELAXED);
+    if (count == ~size_t(0)) {
+      FATAL("Syscall admission nesting overflow.");
+    }
+    // This publication and reload share an SC order with unpublication and
+    // the writer's scan. Either the scan sees us or we see the closed slot.
+    __atomic_store_n(&admission, count + 1, __ATOMIC_SEQ_CST);
+    slot = __atomic_load_n(&m_Published[service], __ATOMIC_SEQ_CST);
+    if (slot && slot != &m_ClosingSlot) {
+      break;
+    }
+    __atomic_store_n(&admission, count, __ATOMIC_RELEASE);
+    if (!slot) {
+      Processor::setInterrupts(interrupts);
+      return false;
+    }
   }
-  lease.m_Dispatch.owner = currentDispatchOwner();
-  lease.m_Dispatch.thread = thread;
-  lease.m_Dispatch.stateLevel = thread ? thread->getStateLevel() : 0;
-  lease.m_Dispatch.sequence = m_NextDispatchSequence;
-  lease.m_Dispatch.action = &action;
-  lease.m_Dispatch.next = slot.dispatches;
 
   lease.m_pManager = this;
-  lease.m_pSlot = &slot;
-  lease.m_pHandler = slot.handler;
-  lease.m_Generation = slot.generation;
+  lease.m_Service = service;
+  lease.m_pHandler = slot->handler;
+  lease.m_Entry = slot->entry;
   lease.m_pThread = thread;
-  slot.dispatches = &lease.m_Dispatch;
-  ++slot.inFlight;
-  m_HandlerLock.release();
+  lease.m_Previous = static_cast<HandlerLease*>(thread->getSyscallDispatchContext());
+  lease.m_Action = &action;
+  thread->registerFreshTerminationDeferral(lease.m_Cleanup, abandonedHandlerCleanup, &lease);
+  thread->setSyscallDispatchContext(&lease);
+  Processor::setInterrupts(interrupts);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   HandlerPinHook hook = __atomic_load_n(&m_HandlerPinHook, __ATOMIC_ACQUIRE);
@@ -343,49 +278,43 @@ bool SyscallManager::acquireHandler(Service_t service, HandlerLease& lease,
     hook(service, lease.m_pHandler);
   }
 #endif
-
   return true;
 }
 
 void SyscallManager::releaseHandler(HandlerLease& lease, bool normalReturn) {
-  HandlerSlot* slot = lease.m_pSlot;
-  HandlerDispatch* dispatch = &lease.m_Dispatch;
-  bool wakeDrainers = false;
-
-  m_HandlerLock.acquire();
-  if (!slot) {
-    m_HandlerLock.release();
-    return;
+  const bool interrupts = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  Thread* thread = lease.m_pThread;
+  if (normalReturn) {
+    if (thread != Processor::information().getCurrentThread()) {
+      FATAL("Syscall lease released by a different Thread.");
+    }
+    thread->unregisterDeferredScope(lease.m_Cleanup);
   }
-  assert(slot);
-  assert(slot->generation == lease.m_Generation);
-  if (normalReturn && lease.m_pThread) {
-    // Keep admission pinned until teardown can no longer detach the
-    // stack record. The manager lock disables the nonlocal interrupt
-    // window between these two ownership transitions.
-    lease.m_pThread->disarmStateCleanup(lease.m_Cleanup);
+  auto* current = static_cast<HandlerLease*>(thread->getSyscallDispatchContext());
+  if (current == &lease) {
+    thread->setSyscallDispatchContext(lease.m_Previous);
+  } else {
+    // Nested exec can retire a lower state's lease while its own dispatch
+    // remains active. Remove that ancestor before its action storage vanishes.
+    while (current && current->m_Previous != &lease) {
+      current = current->m_Previous;
+    }
+    if (!current) {
+      FATAL("Syscall lease was absent from its Thread's dispatch chain.");
+    }
+    current->m_Previous = lease.m_Previous;
   }
-  HandlerDispatch** link = &slot->dispatches;
-  while (*link && *link != dispatch) {
-    link = &(*link)->next;
+  size_t& admission = thread->m_ActiveSyscalls[lease.m_Service];
+  const size_t count = __atomic_load_n(&admission, __ATOMIC_RELAXED);
+  if (!count) {
+    FATAL("Syscall admission nesting underflow.");
   }
-  assert(*link == dispatch);
-  *link = dispatch->next;
-  assert(slot->inFlight);
-  --slot->inFlight;
-  wakeDrainers = !slot->inFlight && slot->draining;
-
   lease.m_pManager = nullptr;
-  lease.m_pSlot = nullptr;
   lease.m_pHandler = nullptr;
-  lease.m_Generation = 0;
   lease.m_pThread = nullptr;
-  lease.m_Dispatch = {nullptr, nullptr, 0, 0, nullptr, nullptr};
-  m_HandlerLock.release();
-
-  if (wakeDrainers) {
-    slot->drainWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(slot));
-  }
+  __atomic_store_n(&admission, count - 1, __ATOMIC_RELEASE);
+  Processor::setInterrupts(interrupts);
 }
 
 void SyscallManager::abandonedHandlerCleanup(void* context) {
@@ -398,8 +327,8 @@ void SyscallManager::abandonedHandlerCleanup(void* context) {
 bool SyscallManager::requestPostSyscallAction(PostSyscallActionKind kind, intptr_t value,
                                               const ProcessorState* state) {
   Thread* thread = Processor::information().getCurrentThread();
-  PostSyscallAction* action =
-      thread ? static_cast<PostSyscallAction*>(thread->getSyscallDispatchContext()) : nullptr;
+  auto* lease = thread ? static_cast<HandlerLease*>(thread->getSyscallDispatchContext()) : nullptr;
+  PostSyscallAction* action = lease ? lease->m_Action : nullptr;
   if (!action || action->kind != NoPostSyscallAction) {
     return false;
   }

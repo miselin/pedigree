@@ -203,6 +203,10 @@ class EXPORTED_PUBLIC Scheduler {
  private:
   friend class Process;
   friend class PerProcessorScheduler;
+  friend class SyscallManager;
+
+  /** Caller holds m_SchedulerLock; never follows stack-owned callback records. */
+  bool hasActiveSyscallLocked(Service_t service) const;
 
   Scheduler();
   NOT_COPYABLE_OR_ASSIGNABLE(Scheduler);

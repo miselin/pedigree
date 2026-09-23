@@ -1465,13 +1465,9 @@ void File::setCachedPage(size_t block, uintptr_t value, bool locked) {
   assert(value);
 
   DataCacheKey key(block);
-  if (cacheState().data.contains(key)) {
-    if (value == FILE_BAD_BLOCK) {
-      cacheState().data.remove(key);
-    } else {
-      cacheState().data.update(key, value);
-    }
-  } else {
+  if (value == FILE_BAD_BLOCK) {
+    cacheState().data.remove(key);
+  } else if (!cacheState().data.update(key, value)) {
     cacheState().data.insert(key, value);
   }
 }

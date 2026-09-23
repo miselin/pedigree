@@ -80,6 +80,15 @@ extern char __posix_compat_vsyscall_base;
 typedef Tree<size_t, PosixSubsystem::SignalHandler*> sigHandlerTree;
 typedef Tree<size_t, SharedPointer<FileDescriptor>> FdMap;
 
+struct PosixSubsystem::FdEntry {
+  FdEntry(size_t number, const SharedPointer<FileDescriptor>& owner)
+      : fd(number), descriptor(owner) {}
+
+  const size_t fd;
+  const SharedPointer<FileDescriptor> descriptor;
+  RcuPointer<FdEntry> next;
+};
+
 ProcessGroupManager ProcessGroupManager::m_Instance;
 
 extern void pedigree_init_sigret();
@@ -235,6 +244,7 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s, bool clearSignalHandlers)
       m_AdvisoryOwner(AdvisoryOwner::Kind::Process),
       m_MemoryLockAccount(s.m_MemoryLockAccount),
       m_FdMap(),
+      m_FdEntries(),
       m_NextFd(s.m_NextFd),
       m_FdLock(),
       m_FdBitmap(),
@@ -520,8 +530,8 @@ void PosixSubsystem::acquire() {
   }
   m_Lock.release();
 
-  // Ensure that no descriptor operations are taking place (and then, will
-  // take place)
+  // Exclude descriptor mutation and enumeration. Ordinary lookups retain
+  // their own leases; freeMultipleFds drains their entries during teardown.
   acquireFdLock();
 
   // Modifying signal handlers, ensure that they are not in use
@@ -1552,7 +1562,9 @@ void PosixSubsystem::freeFd(size_t fdNum) {
     acquireFdLock();
 
     m_FdBitmap.clear(fdNum);
-    m_FdMap.take(fdNum, retiring);
+    if (m_FdMap.take(fdNum, retiring)) {
+      publishFdEntry(fdNum);
+    }
 
     if (fdNum < m_LastFd)
       m_LastFd = fdNum;
@@ -1608,6 +1620,8 @@ bool PosixSubsystem::copyDescriptors(PosixSubsystem* pSubsystem) {
       }
       m_FdMap.insert(newFd, pedigree_std::move(pNewFd));
     }
+
+    publishFdEntries();
 
     pSubsystem->m_FdLock.release();
     m_FdLock.release();
@@ -1675,6 +1689,10 @@ void PosixSubsystem::freeMultipleFds(bool bOnlyCloExec, size_t iFirst, size_t iL
       }
     }
 
+    if (retiring.count()) {
+      publishFdEntries();
+    }
+
     m_FdLock.release();
   }
 
@@ -1686,14 +1704,83 @@ void PosixSubsystem::freeMultipleFds(bool bOnlyCloExec, size_t iFirst, size_t iL
 
 bool PosixSubsystem::acquireFileDescriptor(size_t fd, DescriptorLease& descriptor) {
   descriptor.reset();
-  {
-    Uninterruptible throughout;
-    acquireFdLock();
-    SharedPointer<FileDescriptor> retained = m_FdMap.lookup(fd);
-    m_FdLock.release();
-    descriptor.retain(retained);
+  RcuReadGuard guard;
+  for (auto* entry = m_FdEntries[fd % FdBuckets].load(guard); entry && entry->fd <= fd;
+       entry = entry->next.load(guard)) {
+    if (entry->fd == fd) {
+      descriptor.retain(entry->descriptor);
+      return static_cast<bool>(descriptor);
+    }
   }
-  return static_cast<bool>(descriptor);
+  return false;
+}
+
+void PosixSubsystem::publishFdEntry(size_t fd) {
+  auto* link = &m_FdEntries[fd % FdBuckets];
+  FdEntry* previous = link->loadForUpdate();
+  while (previous && previous->fd < fd) {
+    link = &previous->next;
+    previous = link->loadForUpdate();
+  }
+  FdEntry* retiring = previous && previous->fd == fd ? previous : nullptr;
+  FdEntry* following = retiring ? retiring->next.loadForUpdate() : previous;
+  const SharedPointer<FileDescriptor> missing;
+  const auto& current = m_FdMap.lookupRef(fd, missing);
+  FdEntry* replacement = following;
+  if (current) {
+    replacement = new FdEntry(fd, current);
+    if (!replacement) {
+      FATAL("PosixSubsystem could not allocate its descriptor entry");
+    }
+    if (following) {
+      replacement->next.exchange(following);
+    }
+  }
+
+  link->exchange(replacement);
+  if (retiring) {
+    // Readers already at the removed entry still need its next link.
+    // The caller privately owns its descriptor until after unlocking, so
+    // releasing this entry cannot perform blocking descriptor teardown.
+    Rcu::synchronize();
+    delete retiring;
+  }
+}
+
+void PosixSubsystem::publishFdEntries() {
+  RcuPointer<FdEntry> replacements[FdBuckets];
+  RcuPointer<FdEntry>* tails[FdBuckets];
+  FdEntry* previous[FdBuckets] = {};
+  for (size_t bucket = 0; bucket < FdBuckets; ++bucket) {
+    tails[bucket] = &replacements[bucket];
+  }
+  for (auto it = m_FdMap.begin(); it != m_FdMap.end(); ++it) {
+    if (it.value()) {
+      FdEntry* entry = new FdEntry(it.key(), it.value());
+      if (!entry) {
+        FATAL("PosixSubsystem could not allocate its descriptor entry");
+      }
+      const size_t bucket = it.key() % FdBuckets;
+      tails[bucket]->exchange(entry);
+      tails[bucket] = &entry->next;
+    }
+  }
+
+  bool reclaim = false;
+  for (size_t bucket = 0; bucket < FdBuckets; ++bucket) {
+    previous[bucket] = m_FdEntries[bucket].exchange(replacements[bucket].loadForUpdate());
+    reclaim |= previous[bucket] != nullptr;
+  }
+  if (reclaim) {
+    Rcu::synchronize();
+    for (auto* entry : previous) {
+      while (entry) {
+        FdEntry* next = entry->next.loadForUpdate();
+        delete entry;
+        entry = next;
+      }
+    }
+  }
 }
 
 bool PosixSubsystem::acquireNextFileDescriptor(size_t minimum, size_t& fd,
@@ -1758,6 +1845,7 @@ bool PosixSubsystem::closeFileDescriptor(size_t fd, const DescriptorLease& descr
         if (fd < m_LastFd) {
           m_LastFd = fd;
         }
+        publishFdEntry(fd);
       }
     }
     m_FdLock.release();
@@ -1788,6 +1876,7 @@ void PosixSubsystem::addFileDescriptor(size_t fd, FileDescriptor* pFd) {
       m_NextFd = fd + 1;
     m_FdBitmap.set(fd);
     m_FdMap.insert(fd, replacement);
+    publishFdEntry(fd);
 
     m_FdLock.release();
   }
@@ -1836,6 +1925,7 @@ PosixSubsystem::DescriptorDuplicationResult PosixSubsystem::duplicateFileDescrip
           }
           m_FdBitmap.set(targetFd);
           m_FdMap.insert(targetFd, replacement);
+          publishFdEntry(targetFd);
           result = DescriptorDuplicationResult::Success;
         }
       }
@@ -1880,6 +1970,7 @@ size_t PosixSubsystem::installFileDescriptor(FileDescriptor* descriptor, Descrip
   descriptor->fd = fd;
   m_FdBitmap.set(fd);
   m_FdMap.insert(fd, published);
+  publishFdEntry(fd);
   lease.retain(published);
 
   m_FdLock.release();

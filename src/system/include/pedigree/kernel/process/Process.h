@@ -28,7 +28,6 @@
 #include "pedigree/kernel/process/FilesystemCredentials.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
-#include "pedigree/kernel/process/PerCpuTimeAccounting.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
@@ -773,12 +772,10 @@ class EXPORTED_PUBLIC Process {
 
   /** Gets timestamps. */
   Time::Timestamp getUserTime() const {
-    return m_PerCpuTimeAccounting.total(CpuTimeMode::User) +
-           __atomic_load_n(&m_Metadata.userTime, __ATOMIC_ACQUIRE);
+    return totalTime(CpuTimeMode::User);
   }
   Time::Timestamp getKernelTime() const {
-    return m_PerCpuTimeAccounting.total(CpuTimeMode::Kernel) +
-           __atomic_load_n(&m_Metadata.kernelTime, __ATOMIC_ACQUIRE);
+    return totalTime(CpuTimeMode::Kernel);
   }
   Time::Timestamp getReapedChildrenUserTime() const {
     return __atomic_load_n(&m_Metadata.reapedChildrenUserTime, __ATOMIC_ACQUIRE);
@@ -937,16 +934,8 @@ class EXPORTED_PUBLIC Process {
   /** Stops timer-report admission and discards any unpublished residue. */
   void closeDeferredTimeAccounting();
 
-  /** Adds elapsed time while the caller still holds its sampled CPU's IRQ mask. */
-  ALWAYS_INLINE void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed,
-                                           size_t processor) {
-    if (!m_PerCpuTimeAccounting.add(mode, elapsed, processor)) {
-      Time::Timestamp* total =
-          mode == CpuTimeMode::User ? &m_Metadata.userTime : &m_Metadata.kernelTime;
-      __atomic_fetch_add(total, elapsed, __ATOMIC_RELAXED);
-    }
-    reportTimeAccounting(elapsed);
-  }
+  /** Aggregates live threads and retired totals without taking the topology lock. */
+  Time::Timestamp totalTime(CpuTimeMode mode) const;
 
   ALWAYS_INLINE void reportTimeAccounting(Time::Timestamp elapsed) {
     // Most processes have no armed CPU-time timer. Keep that path free of
@@ -1159,6 +1148,13 @@ class EXPORTED_PUBLIC Process {
   Spinlock m_Lock;
 
   /**
+   * Totals may be queried under timer, signal, or child-state locks. Writers
+   * take this inside m_Lock only around vector mutation and retired transfer;
+   * readers take only this lock and never invoke callbacks while holding it.
+   */
+  mutable Spinlock m_TimeAccountingLock;
+
+  /**
    * Accounts for one process-exit participant after it is off-stack.
    * The caller holds m_Lock. Returns true for the last participant and sets
    * wakeOwner when an elected owner may be waiting for peer progress.
@@ -1238,7 +1234,7 @@ class EXPORTED_PUBLIC Process {
     /// Shared pages consumed.
     ssize_t sharedPages;
 
-    /// CPU time published without an allocated local shard.
+    /// CPU time retained after threads leave the process topology.
     Time::Timestamp userTime;
     Time::Timestamp kernelTime;
     /// Time spent in userspace by children this process has reaped.
@@ -1260,13 +1256,6 @@ class EXPORTED_PUBLIC Process {
     /// Time at which process started.
     Time::Timestamp startTime;
   } m_Metadata;
-
-  /**
-   * Persistent shards retain exited threads' totals without a transfer.
-   * Bootstrap processes use the fallback: an AP NMI can still see BSP state
-   * before the CPU identity and scheduler startup gates are published.
-   */
-  PerCpuTimeAccounting m_PerCpuTimeAccounting;
 
   /** Lock-free IRQ/scheduler publication consumed by an ordinary worker. */
   DeferredTimeAccounting m_DeferredTimeAccounting;

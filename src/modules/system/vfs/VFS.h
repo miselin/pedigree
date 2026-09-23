@@ -33,6 +33,7 @@
 #include "pedigree/kernel/process/FilesystemCredentials.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
+#include "pedigree/kernel/process/Rcu.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/LruCache.h"
@@ -342,12 +343,14 @@ class EXPORTED_PUBLIC VFS {
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   using RetainTrackedFileHook = void (*)(File* pFile);
   static void setRetainTrackedFileHookForHostedTest(RetainTrackedFileHook hook);
-  const void* trackedFilesLockAddressForHostedTest() const {
-    return static_cast<const Semaphore*>(&m_TrackedFilesLock);
-  }
 #endif
 
  private:
+  struct TrackedFile;
+  static constexpr size_t TrackedFileBuckets = 256;
+  RcuPointer<TrackedFile>& trackedFileBucket(File* file);
+  bool trackFileLocked(File* file);
+
   struct MountInfo {
     MountInfo(const String& stableName, const String& path,
               const SharedPointer<VfsMountState>& state);
@@ -438,7 +441,7 @@ class EXPORTED_PUBLIC VFS {
   LruCache<String, File*> m_FindCache;
 
   Mutex m_TrackedFilesLock;
-  Tree<File*, size_t> m_TrackedFiles;
+  RcuPointer<TrackedFile> m_TrackedFiles[TrackedFileBuckets];
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   static RetainTrackedFileHook m_RetainTrackedFileHook;

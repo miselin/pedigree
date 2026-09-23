@@ -169,18 +169,22 @@ static void chmod_arguments(int fd, const char* path) {
 }
 
 static void thread_ids(void) {
+  const long parent_tid = syscall(SYS_gettid);
+  require(parent_tid > 0, "parent-tid");
   pid_t pid = fork();
   require(pid >= 0, "tid-fork");
   if (!pid) {
     child_pid = 0;
     alarm(10);
     const long own_pid = getpid();
+    const long task_id = syscall(SYS_gettid);
     require(own_pid > 1, "child-pid");
-    // A fresh process has local thread ID 1; Linux exposes its global process ID.
+    require(task_id > 0 && task_id != parent_tid, "child-global-tid");
+    // The Linux ABI exposes a stable global task ID; native slots remain local.
     for (unsigned i = 0; i < 32; ++i) {
       expect(invoke(0, SYS_gettid, POSIX_GETTID, UNUSED, UNUSED + 1, UNUSED + 2, UNUSED + 3,
                     UNUSED + 4, UNUSED + 5),
-             own_pid, 0, "linux-global-tid");
+             task_id, 0, "linux-global-tid");
       expect(invoke(1, SYS_gettid, POSIX_GETTID, UNUSED, UNUSED + 1, UNUSED + 2, UNUSED + 3,
                     UNUSED + 4, UNUSED + 5),
              1, 0, "native-local-tid");

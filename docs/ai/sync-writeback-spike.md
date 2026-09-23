@@ -3,8 +3,25 @@
 The ext2/AHCI `sync()` path now claims dirty cache pages in bounded groups,
 submits independent writes in NCQ waves, and makes each cache group durable
 before retiring its dirty generations. It also skips unchanged checksum-tracked
-block-cache pages during the batch drain. An immediate clean sync still issues a
-final device barrier, but no payload writes.
+block-cache pages during the batch drain. An immediate clean sync still checks
+device durability, but AHCI skips the hardware flush when no write has been
+submitted since its last successful barrier.
+
+Small-file sync drains file data before mapping dependencies, then batches the
+allocation bitmaps, group descriptors, and superblock before publishing the
+inode. A failed allocation phase stops publication and remains retryable.
+Directory sync also drains its namespace dependencies and loaded metadata.
+Each metadata batch contains at most `Disk::MaxSyncPages` distinct locations;
+the disk cache selects dirty generations and checks pinned writable aliases.
+Existing xattr, quota, indirect-mapping, and terminal clean-marker ordering is
+retained.
+
+AHCI tracks pending writes for the whole port, including direct and batched
+writers from all partitions. Its existing submission lock drains prior command
+owners and excludes later writes through flush completion. Consequently a
+pending flag suffices: only a successful flush clears it, failed flushes remain
+retryable, and every subsequent write sets it again. Logical filesystem and
+shutdown durability checks remain in place.
 
 The full-page ext2 fast path covers 4 KiB filesystem blocks. Partial file pages,
 smaller filesystem blocks, shifted disk-cache alignment, overlapping requests,

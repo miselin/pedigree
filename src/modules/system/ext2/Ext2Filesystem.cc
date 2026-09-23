@@ -663,7 +663,19 @@ bool Ext2Filesystem::syncBlock(uint32_t block, bool async) {
   if (!block) {
     return true;
   }
-  return m_pDisk->sync(static_cast<uint64_t>(m_BlockSize) * block, async);
+  const uint64_t location = static_cast<uint64_t>(m_BlockSize) * block;
+  if (async) {
+    return m_pDisk->sync(location, true);
+  }
+  // syncPages skips absent pages; this operation requires a resident block.
+  if (!m_pDisk->pin(location)) {
+    return false;
+  }
+  // The batch path checks dirty generations and pinned writable aliases before
+  // submitting a page; an unchanged metadata page needs no new write or barrier.
+  const bool succeeded = m_pDisk->syncPages(&location, 1);
+  m_pDisk->unpin(location);
+  return succeeded;
 }
 
 bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNamespaceMetadata) {
@@ -743,6 +755,25 @@ bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNames
 
   // The inode is durable only once the allocation metadata needed to recover
   // its data and mapping blocks has also reached the backend.
+  uint64_t locations[Disk::MaxSyncPages];
+  size_t locationCount = 0;
+  auto flushMetadata = [&] {
+    if (locationCount) {
+      succeeded = m_pDisk->syncPages(locations, locationCount) && succeeded;
+      locationCount = 0;
+    }
+  };
+  auto submitMetadata = [&](uint64_t location) {
+    for (size_t i = 0; i < locationCount; ++i) {
+      if (locations[i] == location) {
+        return;
+      }
+    }
+    locations[locationCount++] = location;
+    if (locationCount == Disk::MaxSyncPages) {
+      flushMetadata();
+    }
+  };
   for (size_t group = 0; group < groups.count(); ++group) {
     if (!groups[group]) {
       continue;
@@ -751,21 +782,26 @@ bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNames
     if (ensureFreeBlockBitmapLoaded(group)) {
       const uint32_t start = LITTLE_TO_HOST32(descriptor->bg_block_bitmap);
       for (size_t i = 0; i < m_pBlockBitmaps[group].count(); ++i) {
-        succeeded = syncBlock(start + i, false) && succeeded;
+        submitMetadata(static_cast<uint64_t>(start + i) * m_BlockSize);
       }
     } else {
       succeeded = false;
     }
     const uint32_t descriptorBlock = firstBlock + 1 + (group * sizeof(GroupDesc)) / m_BlockSize;
-    succeeded = syncBlock(descriptorBlock, false) && succeeded;
+    submitMetadata(static_cast<uint64_t>(descriptorBlock) * m_BlockSize);
   }
   if (ensureFreeInodeBitmapLoaded(inodeGroup)) {
     const uint32_t start = LITTLE_TO_HOST32(m_pGroupDescriptors[inodeGroup]->bg_inode_bitmap);
     for (size_t i = 0; i < m_pInodeBitmaps[inodeGroup].count(); ++i) {
-      succeeded = syncBlock(start + i, false) && succeeded;
+      submitMetadata(static_cast<uint64_t>(start + i) * m_BlockSize);
     }
   } else {
     succeeded = false;
+  }
+  submitMetadata(1024);
+  flushMetadata();
+  if (!succeeded) {
+    return false;
   }
   if (includeNamespaceMetadata) {
     // Removed entries no longer identify the affected inode or freed blocks.
@@ -776,44 +812,31 @@ bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNames
 #endif
     // These tables and bitmaps stay pinned for the filesystem lifetime. Let
     // the disk share one durability barrier across a bounded set of pages.
-    uint64_t locations[Disk::MaxSyncPages];
-    size_t locationCount = 0;
-    auto submitMetadata = [&](uint32_t block) {
-      if (!block)
-        return;
-      locations[locationCount++] = static_cast<uint64_t>(m_BlockSize) * block;
-      if (locationCount == Disk::MaxSyncPages) {
-        succeeded = m_pDisk->syncPages(locations, locationCount) && succeeded;
-        locationCount = 0;
-      }
-    };
     for (size_t group = 0; group < m_nGroupDescriptors; ++group) {
       GroupDesc* descriptor = m_pGroupDescriptors[group];
       const uint32_t inodeTable = LITTLE_TO_HOST32(descriptor->bg_inode_table);
       bool loadedInodeTable = false;
       for (size_t i = 0; i < m_pInodeTables[group].count(); ++i) {
         if (m_pInodeTables[group][i]) {
-          submitMetadata(inodeTable + i);
+          submitMetadata(static_cast<uint64_t>(inodeTable + i) * m_BlockSize);
           loadedInodeTable = true;
         }
       }
       const uint32_t blockBitmap = LITTLE_TO_HOST32(descriptor->bg_block_bitmap);
       for (size_t i = 0; i < m_pBlockBitmaps[group].count(); ++i) {
-        submitMetadata(blockBitmap + i);
+        submitMetadata(static_cast<uint64_t>(blockBitmap + i) * m_BlockSize);
       }
       const uint32_t inodeBitmap = LITTLE_TO_HOST32(descriptor->bg_inode_bitmap);
       for (size_t i = 0; i < m_pInodeBitmaps[group].count(); ++i) {
-        submitMetadata(inodeBitmap + i);
+        submitMetadata(static_cast<uint64_t>(inodeBitmap + i) * m_BlockSize);
       }
       if (loadedInodeTable || m_pBlockBitmaps[group].count() || m_pInodeBitmaps[group].count()) {
         const uint32_t descriptorBlock = firstBlock + 1 + (group * sizeof(GroupDesc)) / m_BlockSize;
-        submitMetadata(descriptorBlock);
+        submitMetadata(static_cast<uint64_t>(descriptorBlock) * m_BlockSize);
       }
     }
-    if (locationCount)
-      succeeded = m_pDisk->syncPages(locations, locationCount) && succeeded;
+    flushMetadata();
   }
-  succeeded = m_pDisk->sync(1024ULL, false) && succeeded;
   const uint32_t inodeBlock = LITTLE_TO_HOST32(m_pGroupDescriptors[inodeGroup]->bg_inode_table) +
                               ((index * m_InodeSize) / m_BlockSize);
   return succeeded && syncBlock(inodeBlock, false);

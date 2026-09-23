@@ -42,8 +42,10 @@ cmake --build build-t420 --target kernel initrd -j8
 
 `PEDIGREE_OPTIMIZE=TRUE` with `PEDIGREE_OPTIMIZE_SIZE=FALSE` selects `-O3` for
 the kernel and modules; size optimization selects `-Os`. This is independent of
-`CMAKE_BUILD_TYPE`. Existing CMake caches retain their values until explicitly
-changed. Rebuild the deployment image after producing the matched pair.
+`CMAKE_BUILD_TYPE`. New x64 configurations default to speed optimization; other
+architectures retain the size default. Existing CMake caches retain their
+values until explicitly changed. Rebuild the deployment image after producing
+the matched pair.
 
 SLAM freed-block scribbling is controlled by `SCRIBBLE_FREED_BLOCKS` in
 `src/system/include/pedigree/kernel/core/SlamAllocator.h`, currently `0`.
@@ -60,7 +62,7 @@ policy choice, not the configuration measured in the comparison below. It reduce
 diagnostic coverage; use the separate debugging profile when investigating
 failures. Keep hardware, disk-write, and image settings explicit for the intended
 installation; this profile does not certify a T420 hardware deployment. See the
-[integration record](which-compilation-handoff.md) for bounded SMP qualification.
+[kernel roadmap](kernel-performance-roadmap.md) for bounded SMP qualification.
 
 ## Optional debugging
 
@@ -98,28 +100,32 @@ cannot be enabled together. See [accounting limits](cpu-time-accounting.md) and
 
 ## Evidence for speed optimization
 
-On September 19, the same source at `85743d9e49` plus the six preserved mapping
-edits was built with `-Os` and `-O3`. Both images ran on a Darwin/arm64 host with
-QEMU 11.1.1 TCG, one SandyBridge vCPU, q35, and 4 GiB RAM. Firmware, immutable
-RAM-root fixture, GCC 15.3/musl binaries, inputs, and guest compiler commands
-matched. Normal interrupts and sampled accounting were enabled; other diagnostic
-flags matched between images. This was not a test of every deployment setting
-above.
+On September 22, the accumulated source changes from the kernel roadmap were
+built with `-Os` and `-O3`, changing only `PEDIGREE_OPTIMIZE_SIZE`. Both images
+ran on a Darwin/arm64 host with QEMU 11.1.1 TCG, one SandyBridge vCPU, q35, and
+4 GiB RAM. Firmware, backing-chain topology, RAM-root fixture, GCC 15.3/musl
+binaries, inputs, and guest compiler commands matched. Normal interrupts,
+sampled accounting, and assertions remained enabled. This was not a test of
+every deployment setting above.
 
 | Host-wall median | `-Os` | `-O3` | Reduction |
 | --- | ---: | ---: | ---: |
-| Preprocess | 1.479 s | 1.259 s | 14.9% |
-| Syntax | 6.640 s | 5.569 s | 16.1% |
-| Code generation | 18.928 s | 15.270 s | 19.3% |
-| Assemble | 1.132 s | 1.005 s | 11.2% |
-| Link | 1.427 s | 1.098 s | 23.1% |
-| Full build | 22.079 s | 18.656 s | 15.5% |
-| Full build with `-pipe` | 22.153 s | 18.700 s | 15.6% |
+| Tiny build | 0.267 s | 0.222 s | 16.8% |
+| Preprocess | 1.354 s | 1.207 s | 10.8% |
+| Syntax | 5.939 s | 5.573 s | 6.2% |
+| Code generation | 15.808 s | 14.946 s | 5.5% |
+| Assemble | 0.998 s | 0.954 s | 4.4% |
+| Link | 1.320 s | 1.046 s | 20.7% |
+| Full build | 19.332 s | 18.088 s | 6.4% |
+| Full build with `-pipe` | 19.622 s | 18.288 s | 6.8% |
 
 There were three measured rounds after warmup, within one boot per configuration.
 All 38 phases passed, generated binaries executed, input identities matched,
-and the runner verified zero measured block requests. These bounded TCG results
-support the profile choice; they are not T420 measurements or a broad statistical
-trial. Follow the [compiler matrix procedure](../scripts/benchmarks/compile-matrix.md)
+and the runner verified zero measured block requests. Kernel text increases
+from 857,053 to 2,031,565 bytes; the uncompressed initrd grows from 6,123,520 to
+7,649,280 bytes. These bounded TCG results support the x64 default; they are not
+T420 measurements or a broad statistical trial. Follow the
+[compiler matrix procedure](../../scripts/benchmarks/compile-matrix.md)
 to prepare a fresh immutable fixture and reproduce the comparison with only
 `PEDIGREE_OPTIMIZE_SIZE` changed. Retain compiler-command manifests and all samples.
+Reports: `/private/tmp/perf-0922-final-os-ram` and `/private/tmp/perf-0922-o3-ram`.

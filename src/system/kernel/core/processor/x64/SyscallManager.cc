@@ -188,15 +188,10 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     if (LIKELY(serviceNumber < serviceEnd)) {
       // Blocking callbacks must finish ownership waits before a terminal
       // request can consume this thread's stack.
-      TerminationDeferral callbackDeferral;
-      SyscallHandler* handler = m_Instance.loadHandler(static_cast<Service_t>(serviceNumber));
-      if (handler) {
+      HandlerLease handler;
+      if (m_Instance.acquireHandler(static_cast<Service_t>(serviceNumber), handler, action)) {
         handled = true;
-        void* previousContext = syscallThread->getSyscallDispatchContext();
-        syscallThread->setSyscallDispatchContext(&action);
-        uint64_t result = m_Instance.dispatchHandler(static_cast<Service_t>(serviceNumber), handler,
-                                                     syscallState);
-        syscallThread->setSyscallDispatchContext(previousContext);
+        uint64_t result = m_Instance.dispatchHandler(handler, syscallState);
         uint64_t errno = syscallThread->getErrno();
         interruptedWithoutProgress = result == static_cast<uint64_t>(-1) &&
                                      errno == Error::Interrupted && serviceNumber == linuxCompat;

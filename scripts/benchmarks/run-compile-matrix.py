@@ -27,6 +27,8 @@ CASES = ["tiny", "tiny-pipe", "preprocess", "syntax", "codegen", "assemble",
 def phases(mode):
     if mode == "install":
         return []
+    if mode == "quick":
+        return ["cpu-before", "r1-tiny", "r1-preprocess", "r1-link", "r1-full", "cpu-after"]
     if mode == "trace-link":
         return ["warm-link", "trace-link"]
     if mode == "link":
@@ -63,7 +65,7 @@ def validate_identities(identities, mode):
         stage[item["path"]] = (item["bytes"], item["fnv1a64"])
     expected = {"which.cc", "tiny.cc"}
     generated = {"which.ii", "which.s", "which.o"}
-    if mode in ("run", "trace-link", "link"):
+    if mode in ("run", "trace-link", "link", "quick"):
         expected |= generated
         generated = set()
     if (set(stages["before"]) != expected or stages["before"] != stages["after"] or
@@ -120,7 +122,7 @@ def arguments():
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--os", choices=("linux", "pedigree"), required=True)
-    parser.add_argument("--mode", choices=("prepare", "run", "install", "trace-link", "link"), default="run")
+    parser.add_argument("--mode", choices=("prepare", "run", "install", "trace-link", "link", "quick"), default="run")
     parser.add_argument("--cpus", type=int, choices=(1, 4), default=1)
     parser.add_argument("--storage", choices=("disk", "ramfs"), default="disk")
     parser.add_argument("--firmware-code", type=Path)
@@ -146,12 +148,12 @@ def arguments():
         parser.error("--mode install requires --setup-iso")
     if args.mode == "trace-link" and (args.os != "pedigree" or args.storage != "ramfs"):
         parser.error("--mode trace-link requires Pedigree and --storage ramfs")
-    if args.mode == "link" and args.storage != "ramfs":
-        parser.error("--mode link requires --storage ramfs")
-    if args.os == "pedigree" and args.mode not in ("run", "trace-link", "link"):
+    if args.mode in ("link", "quick") and args.storage != "ramfs":
+        parser.error("--mode link/quick requires --storage ramfs")
+    if args.os == "pedigree" and args.mode not in ("run", "trace-link", "link", "quick"):
         parser.error("prepare/install runs on Linux so the shared fixture can be flushed")
-    if args.storage == "ramfs" and args.mode not in ("run", "trace-link", "link"):
-        parser.error("--storage ramfs requires run, trace-link or link mode")
+    if args.storage == "ramfs" and args.mode not in ("run", "trace-link", "link", "quick"):
+        parser.error("--storage ramfs requires run, trace-link, link or quick mode")
     if args.profile_phase and args.profile_phase not in phases(args.mode):
         parser.error("--profile-phase does not belong to the selected mode")
     if min(args.timeout, args.boot_timeout) <= 0:
