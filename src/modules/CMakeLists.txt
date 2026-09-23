@@ -1,5 +1,6 @@
 include(PedigreeMuslLink)
-if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR
+    PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
     link_libraries(pedigree_musl_headers)
 endif ()
 
@@ -65,6 +66,9 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED
 
     set(MUSL_LIBNAME
         ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/ld-musl-x86_64.so.1)
+elseif (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    set(ARCH_MODULE_FLAGS "-fPIC" "-mgeneral-regs-only" "-fsigned-char")
+    set(ARCH_MODULE_LINKFLAGS "")
 else ()
     message(SEND_ERROR "PEDIGREE_ARCH_TARGET is missing a target-specific flag section in the modules CMakeLists.txt")
 endif ()
@@ -168,15 +172,34 @@ endif ()
 
 add_definitions(-DPOSIX_LOG_FACILITIES=${POSIX_LOGGING})
 
+set(_PEDIGREE_ARM64_ALPINE_MODULES
+    console diskimage ext2 filesystems init linker lodisk lwip mountroot
+    network-stack nvme partition pci pci-enumeration posix ramfs rawfs scsi users vfs)
+
 function(pedigree_module name opts libs)
-    set(PEDIGREE_MODULE_${name} TRUE CACHE BOOL "Build the ${name} kernel module.")
+    set(_PEDIGREE_MODULE_DEFAULT TRUE)
+    if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+        set(_PEDIGREE_MODULE_DEFAULT FALSE)
+        if (PEDIGREE_ARM64_ALPINE AND
+            name IN_LIST _PEDIGREE_ARM64_ALPINE_MODULES)
+            set(_PEDIGREE_MODULE_DEFAULT TRUE)
+        elseif (NOT PEDIGREE_ARM64_ALPINE AND name STREQUAL "diskimage")
+            set(_PEDIGREE_MODULE_DEFAULT TRUE)
+        endif ()
+    endif ()
+    set(PEDIGREE_MODULE_${name} ${_PEDIGREE_MODULE_DEFAULT} CACHE BOOL
+        "Build the ${name} kernel module.")
+    set(_PEDIGREE_MODULE_EXCLUDE)
+    if (NOT PEDIGREE_MODULE_${name})
+        set(_PEDIGREE_MODULE_EXCLUDE EXCLUDE_FROM_ALL)
+    endif ()
 
     # TODO: this doesn't correctly discover missing symbols if dependencies are
     # not listed in full - need to work on that.
     if (PEDIGREE_STATIC_DRIVERS)
-        add_library(${name} SHARED ${ARGN})
+        add_library(${name} SHARED ${_PEDIGREE_MODULE_EXCLUDE} ${ARGN})
     else ()
-        add_executable(${name} ${ARGN})
+        add_executable(${name} ${_PEDIGREE_MODULE_EXCLUDE} ${ARGN})
         set_target_properties(${name} PROPERTIES OUTPUT_NAME "${name}.o")
     endif ()
     if (PEDIGREE_HOSTED_DARWIN)
@@ -539,9 +562,13 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/page-content-regressions.cc)
 endif ()
 
+set(_PEDIGREE_LINKER_IMPL ${PEDIGREE_LINKERDIR})
+if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    set(_PEDIGREE_LINKER_IMPL hosted)
+endif ()
 pedigree_module(linker "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/DynamicLinker.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/${PEDIGREE_LINKERDIR}/DynamicLinker.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/${_PEDIGREE_LINKER_IMPL}/DynamicLinker.cc
     ${LINKER_ASM}
     ${LINKER_REGRESSION_SOURCES})
 
@@ -730,21 +757,25 @@ pedigree_module(3c90x "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/3c90x/3Com90x.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/3c90x/main.cc)
 
+if (PEDIGREE_MACHINE_HASPCI AND
+    (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "ARM64"))
+    pedigree_module(nvme "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/NvmeController.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/NvmeDisk.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/NvmeQueue.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/main.cc)
+    if (PEDIGREE_NVME_SMOKE_TESTS)
+        if (PEDIGREE_CRIPPLE_HDD OR PEDIGREE_WITH_INIT)
+            message(FATAL_ERROR
+                "NVMe smoke tests require PEDIGREE_CRIPPLE_HDD=OFF and PEDIGREE_WITH_INIT=OFF.")
+        endif ()
+        pedigree_module(nvme-smoke "" ""
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/nvme-smoke/main.cc)
+    endif ()
+endif ()
+
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     if (PEDIGREE_MACHINE_HASPCI)
-        pedigree_module(nvme "" ""
-            ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/NvmeController.cc
-            ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/NvmeDisk.cc
-            ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/NvmeQueue.cc
-            ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/nvme/main.cc)
-        if (PEDIGREE_NVME_SMOKE_TESTS)
-            if (PEDIGREE_CRIPPLE_HDD OR PEDIGREE_WITH_INIT)
-                message(FATAL_ERROR
-                    "NVMe smoke tests require PEDIGREE_CRIPPLE_HDD=OFF and PEDIGREE_WITH_INIT=OFF.")
-            endif ()
-            pedigree_module(nvme-smoke "" ""
-                ${CMAKE_CURRENT_SOURCE_DIR}/system/nvme-smoke/main.cc)
-        endif ()
         pedigree_module(ahci "" ""
             ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ahci/AhciController.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ahci/AhciDisk.cc
@@ -767,6 +798,14 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/IsaAtaController.cc
         $<$<BOOL:${PEDIGREE_MACHINE_HASPCI}>:${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/PciAtaController.cc>
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/main.cc)
+endif ()
+
+if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    pedigree_module(pci-enumeration "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/enumeration.cc)
+    pedigree_module(pci "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/pci.cc)
+    add_dependencies(pci pci-enumeration)
 endif ()
 
 pedigree_module(dm9601 "" ""
@@ -800,7 +839,8 @@ if (PEDIGREE_USB_SMOKE_TESTS OR
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/hid-report-regressions.cc)
 endif ()
 
-if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" OR
+    PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
     pedigree_module(diskimage "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/hosted/diskimage/DiskImage.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/hosted/diskimage/main.cc)
@@ -966,6 +1006,7 @@ if (PEDIGREE_DRIVERDIR STREQUAL "x86")
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/vmware-gfx/main.cc)
 endif ()
 
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
 add_library(vdso SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/glue-infoblock.c
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vdso.ld)
@@ -994,6 +1035,18 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/vdso.h
         ${CMAKE_SOURCE_DIR}/build-etc/cmake/GenerateVdsoHeader.cmake
     VERBATIM)
 add_custom_target(vdso-header DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/vdso.h)
+endif ()
+
+if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    set(_PEDIGREE_POSIX_ARCH_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-arm64.s)
+else ()
+    set(_PEDIGREE_POSIX_ARCH_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/linux-amd64-signal.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vsyscall-${PEDIGREE_ASMDIR}.s
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-${PEDIGREE_ASMDIR}.s
+        ${CMAKE_CURRENT_BINARY_DIR}/vdso.h)
+endif ()
 
 pedigree_module(posix "" "pedigree-vterm-kernel"
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/console-syscalls.cc
@@ -1035,7 +1088,6 @@ pedigree_module(posix "" "pedigree-vterm-kernel"
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/mqueue-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/mqueue-state.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/mqueue-netlink.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/linux-amd64-signal.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/net-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/pipe-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PollEvent.cc
@@ -1096,9 +1148,7 @@ pedigree_module(posix "" "pedigree-vterm-kernel"
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/UnixFilesystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/util.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/VirtualTerminal.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vsyscall-${PEDIGREE_ASMDIR}.s
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-${PEDIGREE_ASMDIR}.s
-    ${CMAKE_CURRENT_BINARY_DIR}/vdso.h)
+    ${_PEDIGREE_POSIX_ARCH_SOURCES})
 if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     PEDIGREE_VM_OWNERSHIP_SMOKE_TESTS)
     target_sources(posix PRIVATE
@@ -1208,7 +1258,8 @@ target_include_directories(native PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/kernel/include)
 add_dependencies(native libc)
 
-if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    NOT PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
     add_library(native-user SHARED
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/Object.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/cppsupport.cc
@@ -1239,6 +1290,7 @@ pedigree_module(pedigree-c "" ""
 target_include_directories(native PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c)
 
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
 set(PEDIGREE_C_USER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-c-syscalls.c
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-log.c)
@@ -1300,6 +1352,9 @@ else ()
     set(PEDIGREE_C_SDK_LIBRARY "${PEDIGREE_C_SDK_LIBRARY}" PARENT_SCOPE)
     set(PEDIGREE_SUBSYSTEM_LIBS $<TARGET_FILE:native-user> PARENT_SCOPE)
 endif ()
+else ()
+    set(PEDIGREE_SUBSYSTEM_LIBS PARENT_SCOPE)
+endif ()
 
 if (PEDIGREE_STATIC_DRIVERS)
     add_library(staticmodules OBJECT Module.cc)
@@ -1345,6 +1400,8 @@ endif ()
 
 if (PEDIGREE_MUSL_ARCH_TARGET STREQUAL "HOSTED")
     include(PedigreeHostedMusl)
+elseif (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    add_custom_target(libc)
 else ()
     include(PedigreeMuslPackage)
     pedigree_acquire_musl_package()

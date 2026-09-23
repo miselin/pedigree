@@ -1,7 +1,8 @@
 
 # Hosted kernels use the build host's libc ABI; the freestanding kernel must
 # use the libc headers produced for the Pedigree target.
-if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR
+    PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
     link_libraries(pedigree_musl_headers)
 endif ()
 
@@ -68,7 +69,12 @@ elseif (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
         list(APPEND ARCH_KERNEL_LINKFLAGS "-fsanitize=address")
     endif ()
 elseif (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
-    # TODO: ARM64 flags
+    set(ARCH_KERNEL_FLAGS
+        "-mgeneral-regs-only" "-mcmodel=large" "-fno-pic" "-fno-pie"
+        "-fsigned-char")
+    set(ARCH_KERNEL_LINKFLAGS
+        "-static" "-no-pie"
+        "-Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}")
 else ()
     message(SEND_ERROR "PEDIGREE_ARCH_TARGET is missing a target-specific flag section in the kernel CMakeLists.txt")
 endif ()
@@ -180,6 +186,21 @@ elseif (PEDIGREE_ARCHDIR STREQUAL "hosted")
     set_source_files_properties(
         ${HOSTED_PROCESSOR_ASM_SRCS}
         PROPERTIES LANGUAGE ASM_NASM)
+elseif (PEDIGREE_ARCHDIR STREQUAL "arm64")
+    set(PROCESSOR_UNSHARED_SRCS
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/boot.S)
+    set(PROCESSOR_SRCS
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/Boot.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/Elf.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/InterruptManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/PageFaultHandler.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/PhysicalMemoryManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/Processor.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/ProcessorInformation.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/StackFrame.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/state.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/SyscallManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/VirtualAddressSpace.cc)
 else ()
     set(PROCESSOR_SRCS "")
     set(PROCESSOR_UNSHARED_SRCS "")
@@ -232,6 +253,20 @@ elseif (PEDIGREE_MACHDIR STREQUAL "hosted")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/IrqManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Machine.cc)
 
+    set(X86EMU_SRCS "")
+    set(WITH_X86EMU FALSE)
+elseif (PEDIGREE_MACHDIR STREQUAL "mach_virt")
+    set(MACHINE_SRCS
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Acpi.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/DeviceTree.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/IrqManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Keyboard.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Machine.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Pci.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/SchedulerTimer.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Serial.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Timer.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Trace.cc)
     set(X86EMU_SRCS "")
     set(WITH_X86EMU FALSE)
 else()
@@ -502,16 +537,21 @@ if (NOT PEDIGREE_DEBUGGER)
     list(FILTER KERNEL_SRCS EXCLUDE REGEX "/debugger/(Debugger\\.cc|commands/.*\\.cc)$")
 endif ()
 
-add_library(kernel_shared SHARED
-    ${KERNEL_SRCS} ${PROCESSOR_SRCS} ${MACHINE_SRCS} ${UDIS86_SRCS} ${X86EMU_SRCS} ${HASH_SRCS} ${SLAM_SRCS} ${LOG_SRCS} ${CMAKE_CURRENT_SOURCE_DIR}/sharedshim.cc)
-target_compile_options(kernel_shared PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:-w ${GENERIC_CFLAGS} ${KERNEL_CFLAGS}>
-    $<$<COMPILE_LANGUAGE:CXX>:-w ${GENERIC_CXXFLAGS} ${GENERIC_KERNEL_CXXFLAGS}>)
-target_compile_definitions(kernel_shared PRIVATE -D__UD_STANDALONE__)
-target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS})
-target_include_directories(kernel_shared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-if (PEDIGREE_HOSTED_DARWIN)
-    target_link_options(kernel_shared PRIVATE -Wl,-undefined,dynamic_lookup)
+if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    # ARM64 modules retain unresolved kernel references for the runtime loader.
+    add_library(kernel_shared INTERFACE)
+else ()
+    add_library(kernel_shared SHARED
+        ${KERNEL_SRCS} ${PROCESSOR_SRCS} ${MACHINE_SRCS} ${UDIS86_SRCS} ${X86EMU_SRCS} ${HASH_SRCS} ${SLAM_SRCS} ${LOG_SRCS} ${CMAKE_CURRENT_SOURCE_DIR}/sharedshim.cc)
+    target_compile_options(kernel_shared PRIVATE
+        $<$<COMPILE_LANGUAGE:C>:-w ${GENERIC_CFLAGS} ${KERNEL_CFLAGS}>
+        $<$<COMPILE_LANGUAGE:CXX>:-w ${GENERIC_CXXFLAGS} ${GENERIC_KERNEL_CXXFLAGS}>)
+    target_compile_definitions(kernel_shared PRIVATE -D__UD_STANDALONE__)
+    target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS})
+    target_include_directories(kernel_shared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    if (PEDIGREE_HOSTED_DARWIN)
+        target_link_options(kernel_shared PRIVATE -Wl,-undefined,dynamic_lookup)
+    endif ()
 endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")

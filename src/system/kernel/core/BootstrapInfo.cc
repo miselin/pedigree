@@ -30,6 +30,33 @@ BootstrapStruct_t::BootstrapStruct_t() {
   reserved = 0;
 }
 
+void BootstrapStruct_t::setMemoryMap(const MemoryMapEntry* entries, size_t count) {
+  mmap_addr = reinterpret_cast<uintptr_t>(entries);
+  mmap_entry_size = sizeof(MemoryMapEntry);
+  mmap_length = count * mmap_entry_size;
+  flags |= BOOTSTRAP_FLAG_MEMORY_MAP;
+}
+
+void BootstrapStruct_t::setModules(const Module* modules, size_t count) {
+  mods_addr = reinterpret_cast<uintptr_t>(modules);
+  mods_count = count;
+  flags |= BOOTSTRAP_FLAG_MODULES;
+}
+
+void BootstrapStruct_t::setCommandLine(const char* text) {
+  cmdline = reinterpret_cast<uintptr_t>(text);
+  flags |= BOOTSTRAP_FLAG_CMDLINE;
+}
+
+void BootstrapStruct_t::setUefi() {
+  flags |= BOOTSTRAP_FLAG_UEFI;
+}
+
+void BootstrapStruct_t::setAcpiRsdp(uintptr_t address) {
+  acpi_rsdp = address;
+  flags |= BOOTSTRAP_FLAG_ACPI;
+}
+
 bool BootstrapStruct_t::isInitrdLoaded() const {
   if (flags & BOOTSTRAP_FLAG_MODULES)
     return (mods_count != 0) && mods_addr;

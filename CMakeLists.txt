@@ -172,6 +172,9 @@ endif ()
 
 # init configuration
 set(PEDIGREE_WITH_INIT TRUE CACHE BOOL "Build and run the init module at startup. It can be useful to skip running init to test without having the system start an entire userspace.")
+if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    option(PEDIGREE_ARM64_ALPINE "Build the modules needed to boot an Alpine aarch64 root filesystem." OFF)
+endif ()
 
 # Hosted build options
 # TODO: detect HOSTED=1 and cross compiling and error out!
@@ -256,7 +259,8 @@ set(PEDIGREE_GO_CANARY "" CACHE FILEPATH "Prebuilt pedigree/amd64 Go canary to i
 
 set(_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT OFF)
 if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET" AND
-    NOT PEDIGREE_SELF_HOSTED)
+    NOT PEDIGREE_SELF_HOSTED AND
+    NOT PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
     set(_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT ON)
 endif ()
 option(PEDIGREE_BUILD_KEYMAPS
@@ -274,9 +278,13 @@ option(PEDIGREE_BUILD_HDD_IMAGE
 option(PEDIGREE_BUILD_ISO
     "Build a bootable ISO image."
     ${_PEDIGREE_ISO_DEFAULT})
+set(_PEDIGREE_BUILD_UEFI_DEFAULT OFF)
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    set(_PEDIGREE_BUILD_UEFI_DEFAULT ON)
+endif ()
 option(PEDIGREE_BUILD_UEFI
     "Build a FAT32 UEFI boot image and native UEFI loader."
-    ON)
+    ${_PEDIGREE_BUILD_UEFI_DEFAULT})
 set(PEDIGREE_UEFI_GRUB_MKSTANDALONE "" CACHE FILEPATH
     "Path to grub-mkstandalone used to build the UEFI recovery menu.")
 option(PEDIGREE_BUILD_UEFI_GRUB
@@ -505,7 +513,17 @@ endif ()
 # system. Consumers opt into this interface so host-side generators remain on
 # the build host's libc ABI.
 if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
-    set(PEDIGREE_MUSL_SDK_ROOT "${CMAKE_BINARY_DIR}/musl")
+    if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+        set(PEDIGREE_MUSL_SDK_ROOT "${PEDIGREE_TARGET_SYSROOT}")
+        if (NOT EXISTS "${PEDIGREE_MUSL_SDK_ROOT}/usr/include/errno.h")
+            message(FATAL_ERROR
+                "The ARM64 target requires Alpine aarch64 musl-dev headers "
+                "in PEDIGREE_TARGET_SYSROOT/usr/include. Run "
+                "scripts/alpine/build.sh aarch64 first.")
+        endif ()
+    else ()
+        set(PEDIGREE_MUSL_SDK_ROOT "${CMAKE_BINARY_DIR}/musl")
+    endif ()
     set(PEDIGREE_MUSL_PREFIX_ROOT "${PEDIGREE_MUSL_SDK_ROOT}/usr")
     include(PedigreeMuslLink)
     pedigree_define_musl_sdk_headers()
@@ -697,15 +715,17 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
         message(FATAL_ERROR
             "No configuration database generator is available.")
     endif ()
+    set(_PEDIGREE_CONFIG_SCHEMAS
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/schema
+        ${CMAKE_SOURCE_DIR}/src/modules/system/splash/schema)
+    if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+        list(APPEND _PEDIGREE_CONFIG_SCHEMAS
+            ${CMAKE_SOURCE_DIR}/src/modules/drivers/x86/vbe/schema)
+    endif ()
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/config.db
         COMMAND ${_PEDIGREE_CONFIG_DB_COMMAND}
-        ${CMAKE_SOURCE_DIR}/src/system/kernel/schema
-        ${CMAKE_SOURCE_DIR}/src/modules/drivers/x86/vbe/schema
-        ${CMAKE_SOURCE_DIR}/src/modules/system/splash/schema
-        DEPENDS
-        ${CMAKE_SOURCE_DIR}/src/system/kernel/schema
-        ${CMAKE_SOURCE_DIR}/src/modules/drivers/x86/vbe/schema
-        ${CMAKE_SOURCE_DIR}/src/modules/system/splash/schema
+        ${_PEDIGREE_CONFIG_SCHEMAS}
+        DEPENDS ${_PEDIGREE_CONFIG_SCHEMAS}
         ${_PEDIGREE_CONFIG_DB_DEPENDENCIES}
         VERBATIM)
     add_custom_target(configdb ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/config.db)
@@ -881,6 +901,43 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
                 ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi.cfg
                 ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi-stub.cfg)
         add_custom_target(uefi-image ALL DEPENDS ${UEFI_IMAGE})
+    endif ()
+
+    if (PEDIGREE_BUILD_UEFI AND PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+        find_program(UEFI_CLANG NAMES clang REQUIRED)
+        find_program(UEFI_PYTHON NAMES python3 python REQUIRED)
+        set(UEFI_LOADER_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/uefi-loader-arm64.obj)
+        set(UEFI_LOADER ${CMAKE_CURRENT_BINARY_DIR}/PEDIGREE-BOOTAA64.EFI)
+        add_custom_command(OUTPUT ${UEFI_LOADER_OBJECT}
+            COMMAND ${UEFI_CLANG} -target aarch64-pc-windows-msvc
+                -ffreestanding -fno-builtin -fno-stack-protector
+                -fno-asynchronous-unwind-tables -fno-unwind-tables -O2 -c
+                ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/loader-arm64.c
+                -o ${UEFI_LOADER_OBJECT}
+            DEPENDS ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/loader-arm64.c
+                    ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/exit_boot_services.h)
+        add_custom_command(OUTPUT ${UEFI_LOADER}
+            COMMAND ${UEFI_PYTHON} ${CMAKE_SOURCE_DIR}/scripts/uefi_pe.py
+                ${UEFI_LOADER_OBJECT} ${UEFI_LOADER}
+            DEPENDS ${UEFI_LOADER_OBJECT} ${CMAKE_SOURCE_DIR}/scripts/uefi_pe.py)
+        add_custom_target(uefi-loader DEPENDS ${UEFI_LOADER})
+
+        set(PEDIGREE_ARM64_ROOT_IMAGE
+            "${CMAKE_SOURCE_DIR}/scripts/alpine/build/aarch64/rootfs.img"
+            CACHE FILEPATH "ARM64 Alpine root filesystem image for the UEFI boot command line.")
+        set(UEFI_IMAGE ${CMAKE_CURRENT_BINARY_DIR}/pedigree-arm64-uefi.img)
+        add_custom_command(OUTPUT ${UEFI_IMAGE}
+            COMMAND ${UEFI_PYTHON} ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py
+                --arch arm64
+                --image ${UEFI_IMAGE}
+                --efi ${UEFI_LOADER}
+                --kernel $<TARGET_FILE:kernel>
+                --root ${PEDIGREE_ARM64_ROOT_IMAGE}
+            DEPENDS uefi-loader kernel ${UEFI_LOADER}
+                    ${PEDIGREE_ARM64_ROOT_IMAGE}
+                    ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py)
+        add_custom_target(uefi-image ALL DEPENDS ${UEFI_IMAGE})
+        add_dependencies(boot-artifacts uefi-image)
     endif ()
 
     if (PEDIGREE_BUILD_HDD_IMAGE)

@@ -3,7 +3,7 @@ include_guard(GLOBAL)
 # This file describes what we are building, independently of where the
 # compiler itself runs. Cross and Pedigree-native builds must keep these
 # settings aligned so that they produce the same kernel and userspace ABI.
-set(PEDIGREE_COMPILER_TARGET arm64-pedigree)
+set(PEDIGREE_COMPILER_TARGET aarch64-linux-musl)
 set(PEDIGREE_ARCH_TARGET ARM64)
 set(PEDIGREE_TARGET_PAGE_SIZE 4096 CACHE STRING
     "Pedigree base virtual-memory page size in bytes.")
@@ -29,5 +29,5 @@ if (NOT CMAKE_SCRIPT_MODE_FILE)
         -DARM64=1 -DMACH_VIRT=1 -DBITS_64=1 -DBITS_32=0
         -DTHREADS=1 -DKERNEL_STANDALONE=1
         -DTARGET_IS_LITTLE_ENDIAN=1 -DKERNEL_NEEDS_ADDRESS_SPACE_SWITCH=0
-        -DKERNEL_PROCESSOR_NO_PORT_IO=0 -DTARGET_HAS_NO_ATOMICS=0)
+        -DKERNEL_PROCESSOR_NO_PORT_IO=1 -DTARGET_HAS_NO_ATOMICS=0)
 endif ()

@@ -85,6 +85,29 @@ void fillDwarfState(DwarfState& outState, const HostedProcessorState& inState) {
   /// \todo
 }
 
+#if ARM64
+template <>
+void fillDwarfState(DwarfState& outState, const Arm64ProcessorState& inState) {
+  for (size_t i = 0; i < 31; ++i) {
+    outState.m_R[i] = inState.x[i];
+  }
+  outState.m_R[31] = inState.sp;
+  outState.m_R[32] = inState.pc;
+  outState.m_R[33] = inState.pstate;
+}
+
+template <>
+void extractDwarfState(const DwarfState* endState, const DwarfState& startState,
+                       Arm64ProcessorState& outState, uint32_t returnRegister) {
+  for (size_t i = 0; i < 31; ++i) {
+    outState.x[i] = endState->getRegister(i, startState);
+  }
+  outState.sp = endState->getCfa(startState);
+  outState.pc = endState->getRegister(returnRegister, startState);
+  outState.pstate = startState.m_R[33];
+}
+#endif
+
 DwarfUnwinder::DwarfUnwinder(uintptr_t nData, size_t nLength)
     : m_nData(nData), m_nLength(nLength) {}
 

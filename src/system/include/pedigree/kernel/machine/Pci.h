@@ -89,6 +89,15 @@ class EXPORTED_PUBLIC PciBus {
   bool inspectFunction(Device* device, PciFunctionState::State& state);
   bool disableMessageInterrupts(Device* device, const PciFunctionState::State& state);
   bool resourcesUnchanged(Device* device, const PciFunctionState::State& state);
+  /** Translate a PCI BAR address into the CPU's physical address space. */
+  bool translateAddress(uint64_t pciAddress, uint64_t bytes, bool io,
+                        uint64_t& cpuPhysical);
+  /** The host bridge's enumerable bus range. */
+  bool busRange(uint8_t& first, uint8_t& last);
+  uint32_t interruptRoute(uint8_t bus, uint8_t device, uint8_t function, uint8_t pin);
+  /** Assign an unconfigured BAR from a host bridge window. */
+  bool assignBar(Device* device, uint8_t index, uint32_t low, uint32_t high,
+                 uint32_t maskLow, uint32_t maskHigh);
 
   struct ConfigSpace {
     uint16_t vendor;

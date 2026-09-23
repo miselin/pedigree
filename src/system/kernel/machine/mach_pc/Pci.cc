@@ -144,6 +144,25 @@ bool PciBus::resourcesUnchanged(Device* device, const PciFunctionState::State& s
   return PciFunctionState::resourcesUnchanged(function, state);
 }
 
+bool PciBus::translateAddress(uint64_t pciAddress, uint64_t, bool, uint64_t& cpuPhysical) {
+  cpuPhysical = pciAddress;
+  return true;
+}
+
+bool PciBus::busRange(uint8_t& first, uint8_t& last) {
+  first = 0;
+  last = 3;
+  return true;
+}
+
+uint32_t PciBus::interruptRoute(uint8_t, uint8_t, uint8_t, uint8_t) {
+  return 0;
+}
+
+bool PciBus::assignBar(Device*, uint8_t, uint32_t, uint32_t, uint32_t, uint32_t) {
+  return true;
+}
+
 bool PciBus::reserveLegacyInterrupt(uint8_t irq) {
   return Machine::instance().getIrqManager() == &Pic::instance() &&
          Pic::instance().reservePciRoute(irq);

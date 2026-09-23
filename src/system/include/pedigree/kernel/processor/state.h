@@ -28,5 +28,6 @@
 // state_forward.h
 #include "pedigree/kernel/processor/hosted/state.h"  // IWYU pragma: export
 #include "pedigree/kernel/processor/x64/state.h"     // IWYU pragma: export
+#include "pedigree/kernel/processor/arm64/state.h"   // IWYU pragma: export
 
 #endif

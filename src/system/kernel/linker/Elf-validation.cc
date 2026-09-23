@@ -35,6 +35,8 @@ static_assert(sizeof(Elf_Xword) <= sizeof(uintptr_t));
 bool isExpectedMachine(Elf_Half machine) {
 #if X64 || defined(MACH_HOSTED)
   return machine == 62;  // EM_X86_64
+#elif ARM64
+  return machine == 183;  // EM_AARCH64
 #elif X86
   return machine == 3;  // EM_386
 #else

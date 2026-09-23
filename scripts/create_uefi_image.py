@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Create the UEFI ESP image used by QEMU."""
 
 from __future__ import annotations
@@ -48,11 +47,12 @@ def install_variant(
 ) -> None:
     directory = f"::EFI/PEDIGREE/{variant}"
     run([args.mmd, *mtools, directory])
-    run([args.mcopy, *mtools, str(args.efi), f"{directory}/BOOTX64.EFI"])
     run([args.mcopy, *mtools, str(args.kernel), f"{directory}/kernel"])
-    run([args.mcopy, *mtools, str(args.initrd), f"{directory}/initrd.tar"])
-    run([args.mcopy, *mtools, str(args.config), f"{directory}/config.db"])
     run([args.mcopy, *mtools, str(cmdline), f"{directory}/cmdline"])
+    if args.arch == "x64":
+        run([args.mcopy, *mtools, str(args.efi), f"{directory}/BOOTX64.EFI"])
+        run([args.mcopy, *mtools, str(args.initrd), f"{directory}/initrd.tar"])
+        run([args.mcopy, *mtools, str(args.config), f"{directory}/config.db"])
 
 
 def create_esp(path: Path, args: argparse.Namespace, root_uuid: str, temp_dir: Path) -> None:
@@ -64,7 +64,8 @@ def create_esp(path: Path, args: argparse.Namespace, root_uuid: str, temp_dir: P
     run([args.mmd, *mtools, "::EFI/BOOT"])
     run([args.mmd, *mtools, "::EFI/PEDIGREE"])
     bootloader = args.grub if args.grub else args.efi
-    run([args.mcopy, *mtools, str(bootloader), "::EFI/BOOT/BOOTX64.EFI"])
+    boot_name = "BOOTAA64.EFI" if args.arch == "arm64" else "BOOTX64.EFI"
+    run([args.mcopy, *mtools, str(bootloader), f"::EFI/BOOT/{boot_name}"])
     if args.grub:
         if not args.grub_config:
             raise ValueError("--grub-config is required with --grub")
@@ -72,23 +73,29 @@ def create_esp(path: Path, args: argparse.Namespace, root_uuid: str, temp_dir: P
     cmdline = temp_dir / "cmdline"
     cmdline.write_text(f"root=UUID={root_uuid} splash=logs")
     install_variant(args, mtools, "current", cmdline)
-    install_variant(args, mtools, "known-good", cmdline)
+    if args.arch == "x64":
+        install_variant(args, mtools, "known-good", cmdline)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--arch", choices=("x64", "arm64"), default="x64")
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--grub", type=Path)
     parser.add_argument("--grub-config", type=Path)
     parser.add_argument("--efi", type=Path, required=True)
     parser.add_argument("--kernel", type=Path, required=True)
-    parser.add_argument("--initrd", type=Path, required=True)
-    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--initrd", type=Path)
+    parser.add_argument("--config", type=Path)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--mkfs", default=find_tool("mkfs.fat", "mkfs.vfat"))
     parser.add_argument("--mmd", default=find_tool("mmd"))
     parser.add_argument("--mcopy", default=find_tool("mcopy"))
     args = parser.parse_args()
+    if args.arch == "x64" and (not args.initrd or not args.config):
+        parser.error("x64 requires --initrd and --config")
+    if args.arch == "arm64" and args.grub:
+        parser.error("--grub is only supported for x64")
     if not args.mkfs or not args.mmd or not args.mcopy:
         parser.error("mkfs.fat, mmd, and mcopy are required")
 

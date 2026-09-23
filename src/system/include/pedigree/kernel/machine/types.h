@@ -31,6 +31,10 @@
 #define MACHINE_SPECIFIC_NAME(x) HostedCommon##x
 #endif
 #endif
+#if ARM64
+#include "pedigree/kernel/machine/mach_virt/types.h"
+#define MACHINE_SPECIFIC_NAME(x) Virt##x
+#endif
 
 // NOTE: This throws a compile-time error if this header is not adapted for
 //       the selected machine architecture

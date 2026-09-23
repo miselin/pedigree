@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 extern BootstrapStruct_t* g_pBootstrapInfo;
 
@@ -31,13 +32,27 @@ DiskImage::~DiskImage() {
 }
 
 bool DiskImage::initialise() {
-  if (g_pBootstrapInfo->getModuleCount() < 3) {
-    NOTICE("not enough modules to create a DiskImage");
+  const BootstrapStruct_t::Module* modules = g_pBootstrapInfo->getModuleArray();
+  const size_t moduleCount = g_pBootstrapInfo->getModuleCount();
+  const BootstrapStruct_t::Module* image = nullptr;
+  for (size_t i = 0; i < moduleCount; ++i) {
+    const char* name = reinterpret_cast<const char*>(modules[i].name_ptr);
+    if (name && !StringCompare(name, "rootfs.img")) {
+      image = &modules[i];
+      break;
+    }
+  }
+
+  if (!image && moduleCount >= 3) {
+    image = &modules[2];
+  }
+  if (!image || image->end <= image->base) {
+    NOTICE("no root disk image found in boot modules");
     return false;
   }
 
-  uintptr_t baseAddress = g_pBootstrapInfo->getModuleArray()[2].base;
-  uintptr_t endAddress = g_pBootstrapInfo->getModuleArray()[2].end;
+  uintptr_t baseAddress = image->base;
+  uintptr_t endAddress = image->end;
 
   m_pBase = reinterpret_cast<void*>(baseAddress);
   m_nSize = endAddress - baseAddress;

@@ -29,13 +29,30 @@ enum PedigreeLinuxAmd64SyscallNumber {
 #undef PEDIGREE_LINUX_AMD64_SYSCALL
 };
 
+#if ARM64
+enum PedigreeLinuxArm64SyscallNumber {
+#define PEDIGREE_LINUX_ARM64_SYSCALL(name, number, target) \
+  PedigreeLinuxArm64Syscall_##name = number,
+#include "linuxSyscallMappings-arm64.h"
+#undef PEDIGREE_LINUX_ARM64_SYSCALL
+};
+#endif
+
 static inline long posix_translate_syscall(long which) {
   switch (which) {
+#if ARM64
+#define PEDIGREE_LINUX_ARM64_SYSCALL(name, number, target) \
+  case PedigreeLinuxArm64Syscall_##name:                   \
+    return target;
+#include "linuxSyscallMappings-arm64.h"
+#undef PEDIGREE_LINUX_ARM64_SYSCALL
+#else
 #define PEDIGREE_LINUX_AMD64_SYSCALL(name, number, target) \
   case PedigreeLinuxAmd64Syscall_##name:                   \
     return target;
 #include "linuxSyscallMappings-amd64.h"
 #undef PEDIGREE_LINUX_AMD64_SYSCALL
+#endif
   }
   return -1;
 }

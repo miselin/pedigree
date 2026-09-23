@@ -37,6 +37,7 @@ class EXPORTED_PUBLIC MemoryRegion {
   friend class X86CommonPhysicalMemoryManager;
   /** As does HostedPhysicalMemoryManager. */
   friend class HostedPhysicalMemoryManager;
+  friend class Arm64PhysicalMemoryManager;
 
  public:
   /** The default constructor does nothing  */

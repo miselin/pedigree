@@ -1,79 +1,82 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Script that can be run to set up a Pedigree repository for building with minimal
-# effort.
+set -euo pipefail
 
-# Historical full-system bootstrap helper. The maintained verification path is
-# ./verify.sh; see RESTORATION.md before relying on this script.
+script_dir=$(cd -P -- "$(dirname -- "$0")" && pwd -P)
+toolchain_root=${PEDIGREE_TOOLCHAIN_ROOT:-$script_dir/pedigree-compiler-15.3.0-r2}
+target_sysroot=${PEDIGREE_TARGET_SYSROOT:-$script_dir/scripts/alpine/build/aarch64/sysroot}
+build_dir=${PEDIGREE_ARM64_BUILD_DIR:-$script_dir/build-arm64}
+boot_profile=${PEDIGREE_ARM64_BOOT_PROFILE:-alpine}
+compiler_target=aarch64-linux-musl
+toolchain_refreshed=false
 
-old=$(pwd)
-script_dir=$(cd -P -- "$(dirname -- "$0")" && pwd -P) && script_dir=$script_dir
-cd $old
-
-COMPILER_DIR=${PEDIGREE_TOOLCHAIN_ROOT:-$script_dir/pedigree-compiler-15.3.0-r2}
-case $COMPILER_DIR in
-    /*) ;;
-    *) COMPILER_DIR=$old/$COMPILER_DIR ;;
+case "$boot_profile" in
+    alpine)
+        alpine_modules=ON
+        with_init=ON
+        ;;
+    serial)
+        alpine_modules=OFF
+        with_init=OFF
+        ;;
+    *)
+        echo "Unknown ARM64 boot profile: $boot_profile (expected alpine or serial)" >&2
+        exit 2
+        ;;
 esac
 
-set -e
-
-[ -d ".venv" ] || uv venv
-
-. $script_dir/scripts/easy_build_deps.sh
-
-echo "Please wait, checking for a working cross-compiler."
-echo "If none is found, the source code for one will be downloaded, and it will be"
-echo "compiled for you."
-
-# Install cross-compilers
-python3 "$script_dir/scripts/bootstrap_toolchain.py" \
-    arm64-elf "$COMPILER_DIR" \
-    --source-root "$script_dir"
-COMPILER_DIR=$(cd -P -- "$COMPILER_DIR" && pwd -P)
-
-old=$(pwd)
-
-# Fix up POSIX headers which sometimes get a recursive symlink.
-rm -f src/modules/subsys/posix/include/include || true
-
-set +e
-
-# Update the local working copy only if it is clean.
-changed=`git status -s -uno`
-if [ -z "$changed" ]; then
-    git pull --rebase > /dev/null 2>&1
+if [ ! -f "$script_dir/scripts/alpine/build/aarch64/rootfs.img" ] ||
+   [ ! -f "$target_sysroot/usr/include/errno.h" ] ||
+   [ ! -f "$target_sysroot/usr/lib/libc.a" ]; then
+    "$script_dir/scripts/alpine/build.sh" aarch64
 fi
 
-if [ -d "src/modules/drivers/cdi" ]; then
-    cd src/modules/drivers/cdi
-    git pull || echo "Failed to update cdi."
-    cd ${old}
-else
-    git clone git://git.tyndur.org/cdi.git src/modules/drivers/cdi || echo "Failed to clone cdi, cdi will not be part of your build."
+if [ ! -x "$toolchain_root/bin/$compiler_target-gcc" ]; then
+    python3 "$script_dir/scripts/bootstrap_toolchain.py" \
+        "$compiler_target" "$toolchain_root" \
+        --source-root "$script_dir" \
+        --sysroot "$target_sysroot/usr"
+    toolchain_refreshed=true
 fi
 
-set -e
+toolchain_root=$(cd -P -- "$toolchain_root" && pwd -P)
+target_sysroot=$(cd -P -- "$target_sysroot" && pwd -P)
 
-refresh_cmake_metadata=false
-if [ -f build-arm64/CMakeCache.txt ]; then
-    if ! grep -Fqx \
-        "PEDIGREE_TOOLCHAIN_ROOT:PATH=$COMPILER_DIR" build-arm64/CMakeCache.txt; then
-        refresh_cmake_metadata=true
-    elif ! grep -Fqs 'set(CMAKE_SYSTEM_NAME "Pedigree")' \
-        build-arm64/CMakeFiles/*/CMakeSystem.cmake 2>/dev/null; then
-        refresh_cmake_metadata=true
-    fi
+gcc_version=$("$toolchain_root/bin/$compiler_target-g++" -dumpfullversion)
+if [ ! -f "$toolchain_root/include/c++/$gcc_version/$compiler_target/bits/c++config.h" ]; then
+    python3 "$script_dir/scripts/bootstrap_toolchain.py" \
+        "$compiler_target" "$toolchain_root" \
+        --source-root "$script_dir" \
+        --sysroot "$target_sysroot/usr" \
+        --libcpp
+    toolchain_refreshed=true
 fi
 
-if [ "$refresh_cmake_metadata" = true ]; then
-    # Compiler and target-platform identities are immutable CMake cache facts.
-    # Preserve build outputs, but regenerate that metadata when either changes.
-    cmake -E rm -f build-arm64/CMakeCache.txt
-    cmake -E remove_directory build-arm64/CMakeFiles
+# CMake caches compiler and platform identity. Retain build outputs when the
+# selected toolchain changes, but refresh the immutable configure metadata.
+if [ -f "$build_dir/CMakeCache.txt" ] && \
+    { [ "$toolchain_refreshed" = true ] || \
+      ! grep -Fqx "PEDIGREE_TOOLCHAIN_ROOT:PATH=$toolchain_root" "$build_dir/CMakeCache.txt" || \
+      ! grep -Fqx "PEDIGREE_TARGET_SYSROOT:PATH=$target_sysroot" "$build_dir/CMakeCache.txt" || \
+      ! grep -Fqs "$toolchain_root/include/c++/$gcc_version/$compiler_target" \
+          "$build_dir"/CMakeFiles/*/CMakeCXXCompiler.cmake; }; then
+    cmake -E rm -f "$build_dir/CMakeCache.txt"
+    cmake -E remove_directory "$build_dir/CMakeFiles"
 fi
-cmake -S . -B build-arm64 -DCMAKE_TOOLCHAIN_FILE=${script_dir}/build-etc/cmake/pedigree_arm64.cmake \
-    -DPEDIGREE_TOOLCHAIN_ROOT="$COMPILER_DIR"
 
-echo "**** ARM64 Easy Build is a WORK IN PROGRESS ****"
-echo "Stopping here, nothing else is implemented yet, have fun!"
+cmake -S "$script_dir" -B "$build_dir" \
+    -U 'PEDIGREE_MODULE_*' \
+    -DCMAKE_TOOLCHAIN_FILE="$script_dir/build-etc/cmake/pedigree_arm64.cmake" \
+    -DPEDIGREE_TOOLCHAIN_ROOT:PATH="$toolchain_root" \
+    -DPEDIGREE_TARGET_SYSROOT:PATH="$target_sysroot" \
+    -DBUILD_TESTING=OFF \
+    -DPEDIGREE_BUILD_USER_DIR=OFF \
+    -DPEDIGREE_BUILD_UEFI=ON \
+    -DPEDIGREE_STATIC_DRIVERS=ON \
+    -DPEDIGREE_MULTIPROCESSOR=OFF \
+    -DPEDIGREE_DEBUGGER=OFF \
+    -DPEDIGREE_ARM64_ALPINE="$alpine_modules" \
+    -DPEDIGREE_WITH_INIT="$with_init"
+
+cmake --build "$build_dir" --target boot-artifacts \
+    -j "${PEDIGREE_BUILD_JOBS:-4}"

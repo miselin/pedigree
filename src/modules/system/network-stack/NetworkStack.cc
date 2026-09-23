@@ -198,7 +198,7 @@ NetworkStack::NetworkStack()
 
   initialise();
 
-#if X86_COMMON || HOSTED
+#if X86_COMMON || HOSTED || ARM64
   // Lots of RAM to burn! Try 16 MB, then 8 MB, then 4 MB, then give up
   if (!m_MemPool.initialise(4096, 1600))
     if (!m_MemPool.initialise(2048, 1600))
@@ -564,4 +564,8 @@ static void exit() {
 }
 
 // NetManager exposes a Filesystem, and so needs the vfs module.
+#if ARM64
+MODULE_INFO("network-stack", &entry, &exit, "vfs", "lwip");
+#else
 MODULE_INFO("network-stack", &entry, &exit, "config", "vfs", "lwip");
+#endif

@@ -21,7 +21,6 @@
 #include "pedigree/kernel/machine/Bus.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Pci.h"
-#include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -30,26 +29,6 @@
 #include "ProbeBars.h"
 #include "modules/Module.h"
 #include "pci_list.h"
-
-#define CONFIG_ADDRESS 0
-#define CONFIG_DATA 4
-
-#define MAX_BUS 4
-
-static IoPort configSpace("PCI config space");
-
-union ConfigAddress {
-  struct {
-    uint32_t always0 : 2;
-    uint32_t offset : 6;
-    uint32_t function : 3;
-    uint32_t device : 5;
-    uint32_t bus : 8;
-    uint32_t reserved : 7;
-    uint32_t enable : 1;
-  } __attribute__((packed));
-  uint32_t raw;
-};
 
 static void readConfigSpace(Device* pDev, PciBus::ConfigSpace* pCs) {
   uint32_t* pCs32 = reinterpret_cast<uint32_t*>(pCs);
@@ -75,7 +54,12 @@ static const char* getDevice(uint16_t vendor, uint16_t device) {
 }
 
 static bool entry() {
-  for (int iBus = 0; iBus < MAX_BUS; iBus++) {
+  uint8_t firstBus = 0;
+  uint8_t lastBus = 0;
+  if (!PciBus::instance().busRange(firstBus, lastBus)) {
+    return true;
+  }
+  for (int iBus = firstBus; iBus <= lastBus; ++iBus) {
     // Firstly add the ISA bus.
     char* str = new char[256];
     StringFormat(str, "PCI #%d", iBus);
@@ -119,7 +103,7 @@ static bool entry() {
                                   << " ProgIF: " << cs.progif);
 
         auto& pci = PciBus::instance();
-        const PciBar::Probe bars = PciBar::probe(pci, pDevice, cs);
+        PciBar::Probe bars = PciBar::probe(pci, pDevice, cs);
         if (bars.result == PciBar::ProbeResult::DecodeDisableFailed) {
           ERROR("PCI: cannot disable decoding for BAR sizing");
           delete pDevice;
@@ -130,6 +114,35 @@ static bool entry() {
           delete pDevice;
           continue;
         }
+#if ARM64
+        bool assignedBar = false;
+        for (size_t l = 0; l < bars.count; ++l) {
+          const bool wide = !(cs.bar[l] & 1U) && (cs.bar[l] & 6U) == 4;
+          if (wide && l + 1 == bars.count) {
+            break;
+          }
+          const uint32_t high = wide ? cs.bar[l + 1] : 0;
+          const uint64_t base =
+              (uint64_t(high) << 32) | (cs.bar[l] & (cs.bar[l] & 1U ? ~3U : ~15U));
+          if (pci.assignBar(pDevice, l, cs.bar[l], high, bars.masks[l],
+                            wide ? bars.masks[l + 1] : 0) &&
+              !base) {
+            assignedBar = true;
+          }
+          if (wide) {
+            ++l;
+          }
+        }
+        if (assignedBar) {
+          readConfigSpace(pDevice, &cs);
+          bars = PciBar::probe(pci, pDevice, cs);
+          if (bars.result != PciBar::ProbeResult::Success) {
+            ERROR("PCI: assigned BAR verification failed");
+            delete pDevice;
+            continue;
+          }
+        }
+#endif
         const size_t barCount = bars.count;
         for (size_t l = 0; l < barCount; ++l) {
           const bool wide = !(cs.bar[l] & 1U) && (cs.bar[l] & 6U) == 4;
@@ -140,19 +153,36 @@ static bool entry() {
           PciBar::Mapping mapping;
           if (PciBar::decode(cs.bar[l], high, bars.masks[l], maskHigh, mapping) &&
               mapping.base <= ~uintptr_t{0} && mapping.bytes <= ~size_t{0}) {
+            uint64_t cpuPhysical = 0;
+            if (!pci.translateAddress(mapping.base, mapping.bytes, mapping.io, cpuPhysical) ||
+                cpuPhysical > ~uintptr_t{0}) {
+              continue;
+            }
             StringFormat(c, "bar%u", static_cast<unsigned>(l));
-            NOTICE("PCI:     BAR" << Dec << l << Hex << ": " << mapping.base << ".."
-                                  << (mapping.base + mapping.bytes) << " (" << mapping.io << ")");
+            if (cpuPhysical == mapping.base) {
+              NOTICE("PCI:     BAR" << Dec << l << Hex << ": " << mapping.base << ".."
+                                    << (mapping.base + mapping.bytes) << " (" << mapping.io
+                                    << ")");
+            } else {
+              NOTICE("PCI:     BAR" << Dec << l << Hex << ": " << mapping.base << " -> "
+                                    << cpuPhysical << " (" << mapping.io << ")");
+            }
             pDevice->addresses().pushBack(
-                new Device::Address(String(c), static_cast<uintptr_t>(mapping.base),
+                new Device::Address(String(c), static_cast<uintptr_t>(cpuPhysical),
                                     static_cast<size_t>(mapping.bytes), mapping.io));
           }
           if (wide)
             ++l;
         }
 
-        NOTICE("PCI:     IRQ: L" << cs.interrupt_line << " P" << cs.interrupt_pin);
-        pDevice->setInterruptNumber(cs.interrupt_line);
+        const uint32_t routedIrq = pci.interruptRoute(iBus, iDevice, iFunc, cs.interrupt_pin);
+        if (routedIrq) {
+          NOTICE("PCI:     IRQ: L" << cs.interrupt_line << " P" << cs.interrupt_pin << " route "
+                                    << routedIrq);
+        } else {
+          NOTICE("PCI:     IRQ: L" << cs.interrupt_line << " P" << cs.interrupt_pin);
+        }
+        pDevice->setInterruptNumber(routedIrq ? routedIrq : cs.interrupt_line);
         pBus->addChild(pDevice);
         pDevice->setParent(pBus);
 

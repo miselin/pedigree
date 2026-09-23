@@ -1,11 +1,10 @@
 """Check COFF relocation offsets used by the freestanding EFI loader."""
 
 import importlib.util
-from pathlib import Path
 import struct
 import tempfile
 import unittest
-
+from pathlib import Path
 
 spec = importlib.util.spec_from_file_location(
     "uefi_pe", Path(__file__).resolve().parents[1] / "scripts/uefi_pe.py"
@@ -35,9 +34,22 @@ class RelocationTests(unittest.TestCase):
                     with tempfile.TemporaryDirectory() as directory:
                         path = Path(directory) / "loader.obj"
                         path.write_bytes(header + section + code + relocation + symbols)
-                        output, entry = uefi_pe.read_object(path)
+                        output, entry, machine = uefi_pe.read_object(path)
                     self.assertEqual(entry, 0)
+                    self.assertEqual(machine, 0x8664)
                     self.assertEqual(struct.unpack_from("<i", output)[0], 12 + addend - kind)
+
+    def test_arm64_instruction_relocations(self):
+        code = bytearray(struct.pack("<IIII", 0x90000000, 0x91000000, 0xF9400000, 0x94000000))
+        uefi_pe.arm64_relocation(code, 0, 0x1234, 4)
+        uefi_pe.arm64_relocation(code, 4, 0x1234, 6)
+        uefi_pe.arm64_relocation(code, 8, 0x1238, 7)
+        uefi_pe.arm64_relocation(code, 12, 24, 3)
+        adrp, add, load, branch = struct.unpack("<IIII", code)
+        self.assertEqual((adrp >> 29) & 3, 1)
+        self.assertEqual((add >> 10) & 0xFFF, 0x234)
+        self.assertEqual((load >> 10) & 0xFFF, 0x238 // 8)
+        self.assertEqual(branch & 0x03FFFFFF, 3)
 
 
 if __name__ == "__main__":

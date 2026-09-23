@@ -3,12 +3,18 @@ set -eux
 
 ROOT=/tmp/rootfs
 IMG=/out/rootfs.img
+ALPINE_ARCH=${ALPINE_ARCH:-x86_64}
+
+case "$ALPINE_ARCH" in
+    x86_64|aarch64) ;;
+    *) echo "Unsupported Alpine architecture: $ALPINE_ARCH" >&2; exit 1 ;;
+esac
 
 mkdir -p "$ROOT"
 
 # Either unpack Alpine's minirootfs...
-curl -LO https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/x86_64/alpine-minirootfs-3.22.1-x86_64.tar.gz
-tar -xzf alpine-minirootfs-*.tar.gz -C "$ROOT"
+curl -LO "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/$ALPINE_ARCH/alpine-minirootfs-3.22.1-$ALPINE_ARCH.tar.gz"
+tar -xzf "alpine-minirootfs-3.22.1-$ALPINE_ARCH.tar.gz" -C "$ROOT"
 
 # Your customisation:
 echo pedigree > "$ROOT/etc/hostname"
@@ -26,19 +32,61 @@ rm -f "$ROOT/etc/securetty"
 sed -i 's/^root:[^:]*:/root::/' "$ROOT/etc/shadow"
 
 # fun fun fun
-apk \
-    --root "$ROOT" \
-    --initdb \
-    --repositories-file /etc/apk/repositories \
-    add xorg-server xf86-video-fbdev xinit
+if [ "$ALPINE_ARCH" = x86_64 ]; then
+    apk \
+        --root "$ROOT" \
+        --initdb \
+        --repositories-file /etc/apk/repositories \
+        add xorg-server xf86-video-fbdev xf86-input-evdev xinit
 
-# e.g. 512 MiB image
-truncate -s 512M "$IMG"
+    mkdir -p "$ROOT/etc/X11/xorg.conf.d"
+    cat > "$ROOT/etc/X11/xorg.conf.d/10-pedigree-input.conf" <<EOF
+Section "ServerFlags"
+    Option "AutoAddDevices" "false"
+EndSection
+
+Section "InputDevice"
+    Identifier "Pedigree Keyboard"
+    Driver "evdev"
+    Option "Device" "/dev/input/event0"
+    Option "CoreKeyboard"
+EndSection
+
+Section "InputDevice"
+    Identifier "Pedigree Pointer"
+    Driver "evdev"
+    Option "Device" "/dev/input/event1"
+    Option "CorePointer"
+EndSection
+EOF
+else
+    apk \
+        --root "$ROOT" \
+        --initdb \
+        --repositories-file /etc/apk/repositories \
+        add musl-dev linux-headers
+
+    cat > "$ROOT/etc/inittab" <<EOF
+ttyS0::respawn:/bin/sh -i
+EOF
+
+    mkdir -p /out/sysroot/usr
+    cp -a "$ROOT/usr/include" /out/sysroot/usr/
+    cp -a "$ROOT/usr/lib" /out/sysroot/usr/
+    cp -a "$ROOT/lib" /out/sysroot/
+fi
+
+if [ "$ALPINE_ARCH" = aarch64 ]; then
+    truncate -s 128M "$IMG"
+else
+    truncate -s 512M "$IMG"
+fi
 
 # Use the same UUID as scripts/create_diskimage.py for the embedded command-line to choose the right rootfs
 mke2fs \
     -t ext2 \
     -F \
+    -b 4096 \
     -L rootfs \
     -m 0 \
     -d "$ROOT" \

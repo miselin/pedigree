@@ -196,6 +196,10 @@
 #define X64 0
 #endif
 
+#ifndef ARM64
+#define ARM64 0
+#endif
+
 #ifndef HOSTED
 #define HOSTED 0
 #endif

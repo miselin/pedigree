@@ -315,9 +315,18 @@ const String& Ext2Filesystem::getVolumeLabel() const {
 
 bool Ext2Filesystem::getUuid(String& uuid) const {
   const uint8_t* value = reinterpret_cast<const uint8_t*>(m_pSuperblock->s_uuid);
-  uuid.Format("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x", value[0],
-              value[1], value[2], value[3], value[4], value[5], value[6], value[7], value[8],
-              value[9], value[10], value[11], value[12], value[13], value[14], value[15]);
+  static const char digits[] = "0123456789abcdef";
+  char text[37];
+  size_t pos = 0;
+  for (size_t i = 0; i < 16; ++i) {
+    if (i == 4 || i == 6 || i == 8 || i == 10) {
+      text[pos++] = '-';
+    }
+    text[pos++] = digits[value[i] >> 4];
+    text[pos++] = digits[value[i] & 15];
+  }
+  text[pos] = 0;
+  uuid.assign(text, pos);
   return true;
 }
 

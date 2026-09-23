@@ -118,8 +118,15 @@ bool NvmeController::initialiseController() {
     base |= static_cast<uint64_t>(pci.readConfigSpace(m_Pci, 5)) << 32;
   Device::Address* mapping = nullptr;
   for (auto* address : m_Pci->addresses()) {
-    if (address->m_Name == "bar0" && base && !address->m_IsIoSpace && address->m_Address == base)
-      mapping = address;
+    if (address->m_Name != "bar0" || !base || !address->m_Address || address->m_IsIoSpace) {
+      continue;
+    }
+    uint64_t cpuPhysical = 0;
+    if (!pci.translateAddress(base, address->m_Size, false, cpuPhysical) ||
+        address->m_Address != cpuPhysical) {
+      continue;
+    }
+    mapping = address;
   }
   if (!mapping || mapping->m_Size < Doorbells + 16)
     return false;

@@ -221,11 +221,19 @@ uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallS
 #endif
 
     switch (syscallNumber) {
+#if ARM64
+#define PEDIGREE_LINUX_ARM64_SYSCALL(name, number, target) \
+  case PedigreeLinuxArm64Syscall_##name:                   \
+    goto handle_##target;
+#include "syscalls/linuxSyscallMappings-arm64.h"
+#undef PEDIGREE_LINUX_ARM64_SYSCALL
+#else
 #define PEDIGREE_LINUX_AMD64_SYSCALL(name, number, target) \
   case PedigreeLinuxAmd64Syscall_##name:                   \
     goto handle_##target;
 #include "syscalls/linuxSyscallMappings-amd64.h"
 #undef PEDIGREE_LINUX_AMD64_SYSCALL
+#endif
     }
 
     uint64_t key = (static_cast<uint64_t>(pProcess->getId()) << 32ULL) | syscallNumber;
@@ -1033,9 +1041,16 @@ uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallS
       return result;
     }
     POSIX_CASE(POSIX_CLONE) {
+#if ARM64
+      // AArch64 passes TLS before the child TID address.
+      return posix_clone(state, argument(0), reinterpret_cast<void*>(argument(1)),
+                         reinterpret_cast<int*>(argument(2)), reinterpret_cast<int*>(argument(4)),
+                         argument(3), linuxAbi);
+#else
       return posix_clone(state, argument(0), reinterpret_cast<void*>(argument(1)),
                          reinterpret_cast<int*>(argument(2)), reinterpret_cast<int*>(argument(3)),
                          argument(4), linuxAbi);
+#endif
     }
     POSIX_CASE(POSIX_CLONE3)
       return posix_clone3(state, reinterpret_cast<const LinuxCloneArgs*>(argument(0)), argument(1));

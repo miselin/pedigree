@@ -27,6 +27,9 @@
 #elif X64
 #include "pedigree/kernel/processor/x64/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
+#elif ARM64
+#include "pedigree/kernel/processor/arm64/types.h"  // IWYU pragma: export
+#define PROCESSOR_SPECIFIC_NAME(x) Arm64##x
 #elif HOSTED
 #include "pedigree/kernel/processor/hosted/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) HOSTED##x

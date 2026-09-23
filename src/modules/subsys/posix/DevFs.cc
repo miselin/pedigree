@@ -837,8 +837,12 @@ bool DevFs::initialise(Disk* pDisk) {
   Tty0File* pTty0 = new Tty0File(String("tty0"), getNextInode(), this, m_pRoot, this);
   m_pRoot->addEntry(pTty0->getName(), pTty0);
 
-  // console == current console
-  Tty0File* pConsole = new Tty0File(String("console"), getNextInode(), this, m_pRoot, this);
+  // The virt machine has a serial console and no virtual terminal display.
+#if ARM64
+  File* pConsole = new DeviceLink(String("console"), String("ttyS0"), getNextInode(), this, m_pRoot);
+#else
+  File* pConsole = new Tty0File(String("console"), getNextInode(), this, m_pRoot, this);
+#endif
   m_pRoot->addEntry(pConsole->getName(), pConsole);
 
 #if 0

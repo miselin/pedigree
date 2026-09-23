@@ -562,12 +562,14 @@ class CMakeToolchainTests(unittest.TestCase):
             root_cmake,
         )
         self.assertIn(
-            'if (PEDIGREE_ARCH_TARGET STREQUAL "X64")\n'
+            'if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR\n'
+            '    PEDIGREE_ARCH_TARGET STREQUAL "ARM64")\n'
             "    link_libraries(pedigree_musl_headers)",
             modules_cmake,
         )
         self.assertIn(
-            'if (PEDIGREE_ARCH_TARGET STREQUAL "X64")\n'
+            'if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR\n'
+            '    PEDIGREE_ARCH_TARGET STREQUAL "ARM64")\n'
             "    link_libraries(pedigree_musl_headers)",
             kernel_cmake,
         )

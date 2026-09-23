@@ -33,6 +33,20 @@ class BootstrapToolchainContractTests(unittest.TestCase):
 
             self.assertEqual(bootstrapper.sysroot, ROOT / "build/musl/usr")
 
+            arm64 = Bootstrapper(
+                parse_args(
+                    [
+                        "aarch64-linux-musl",
+                        str(Path(tempdir) / "compiler"),
+                        "--source-root",
+                        str(ROOT),
+                    ]
+                )
+            )
+            self.assertEqual(
+                arm64.sysroot, ROOT / "scripts/alpine/build/aarch64/sysroot/usr"
+            )
+
     def test_build_tree_is_target_specific(self):
         with tempfile.TemporaryDirectory() as tempdir:
             prefix = Path(tempdir) / "compiler"
@@ -49,7 +63,7 @@ class BootstrapToolchainContractTests(unittest.TestCase):
             arm64 = Bootstrapper(
                 parse_args(
                     [
-                        "arm64-elf",
+                        "aarch64-linux-musl",
                         str(prefix),
                         "--source-root",
                         str(ROOT),
@@ -61,7 +75,7 @@ class BootstrapToolchainContractTests(unittest.TestCase):
                 x64.build_root, (prefix / "build_tmp/x86_64-pedigree").resolve()
             )
             self.assertEqual(
-                arm64.build_root, (prefix / "build_tmp/arm64-elf").resolve()
+                arm64.build_root, (prefix / "build_tmp/aarch64-linux-musl").resolve()
             )
 
     def test_manifest_preserves_pinned_toolchain_inputs(self):
@@ -153,6 +167,33 @@ class BootstrapToolchainContractTests(unittest.TestCase):
             )
             self.assertNotIn("would activate", result.stdout)
             self.assertFalse(prefix.exists())
+
+    def test_linux_musl_stage_one_defers_libgcc_until_libc_is_available(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "aarch64-linux-musl",
+                    str(Path(tempdir) / "compiler"),
+                    "--source-root",
+                    str(ROOT),
+                    "--libcpp",
+                    "--dry-run",
+                    "--jobs",
+                    "4",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertIn("make -j4 all-gcc (in ", result.stdout)
+            self.assertIn("make install-gcc (in ", result.stdout)
+            self.assertIn(
+                "make -j4 all-gcc all-target-libgcc all-target-libstdc++-v3",
+                result.stdout,
+            )
 
     def test_activation_is_explicit_and_dry_run_does_not_mutate(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -290,7 +331,7 @@ class BootstrapToolchainContractTests(unittest.TestCase):
             arm64 = Bootstrapper(
                 parse_args(
                     [
-                        "arm64-elf",
+                        "aarch64-linux-musl",
                         str(prefix),
                         "--source-root",
                         str(ROOT),
@@ -302,7 +343,7 @@ class BootstrapToolchainContractTests(unittest.TestCase):
             arm64.write_state(libcpp=False)
 
             self.assertEqual(x64.read_state()["target"], "x86_64-pedigree")
-            self.assertEqual(arm64.read_state()["target"], "arm64-elf")
+            self.assertEqual(arm64.read_state()["target"], "aarch64-linux-musl")
             self.assertTrue(x64.state_path.is_file())
             self.assertTrue(arm64.state_path.is_file())
 
@@ -331,7 +372,7 @@ class BootstrapToolchainContractTests(unittest.TestCase):
             arm64 = Bootstrapper(
                 parse_args(
                     [
-                        "arm64-elf",
+                        "aarch64-linux-musl",
                         str(prefix),
                         "--source-root",
                         str(ROOT),
@@ -507,6 +548,10 @@ class BootstrapToolchainContractTests(unittest.TestCase):
             )
             config.parent.mkdir(parents=True, exist_ok=True)
             config.touch()
+            self.assertTrue(bootstrapper.libcpp_installed())
+
+            (target / "lib64").mkdir()
+            (target / "lib/libstdc++.a").rename(target / "lib64/libstdc++.a")
             self.assertTrue(bootstrapper.libcpp_installed())
 
     def test_libcpp_headers_survive_sysroot_replacement(self):

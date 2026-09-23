@@ -334,4 +334,4 @@ MODULE_INFO_RUNTIME_PINNED("mountroot", &init, &destroy, "vfs", "partition", "ra
 
 // We expect the filesystems metamodule to fail, but by the time it does and
 // we are allowed to continue, all the filesystems are loaded.
-MODULE_OPTIONAL_DEPENDS("filesystems", "fat", "ext2", "iso9660", "lodisk");
+MODULE_OPTIONAL_DEPENDS("filesystems", "fat", "ext2", "iso9660", "lodisk", "diskimage");

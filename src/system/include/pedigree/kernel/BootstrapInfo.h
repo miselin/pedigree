@@ -100,6 +100,12 @@ class EXPORTED_PUBLIC BootstrapStruct_t {
     uint32_t type;
   } MemoryMapEntry;
 
+  void setMemoryMap(const MemoryMapEntry* entries, size_t count);
+  void setModules(const Module* modules, size_t count);
+  void setCommandLine(const char* text);
+  void setUefi();
+  void setAcpiRsdp(uintptr_t address);
+
   const Module* getModuleArray() const {
     return reinterpret_cast<const Module*>(getModuleBase());
   }

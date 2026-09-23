@@ -12,7 +12,7 @@ struct State {
 };
 
 template <class Config>
-bool inspect(Config& config, State& result) {
+bool inspect(Config& config, State& result, bool requireLegacyInterrupt = true) {
   State state;
   uint32_t identity = 0;
   uint16_t status = 0;
@@ -22,11 +22,15 @@ bool inspect(Config& config, State& result) {
       !config.read16(6, status) || !config.read8(0x3c, state.interruptLine) ||
       !config.read8(0x3d, state.interruptPin))
     return false;
-  // This driver profile uses the programmable PCI inputs of the legacy PIC.
-  // A valid Interrupt Line is only a routing claim, not proof of delivery.
-  if (state.interruptPin < 1 || state.interruptPin > 4 || state.interruptLine >= 16 ||
-      !(0xdef8U & (1U << state.interruptLine)))
+  if (state.interruptPin < 1 || state.interruptPin > 4) {
     return false;
+  }
+  // PC drivers use the programmable inputs of the legacy PIC. A valid line
+  // is a routing claim, not proof of delivery on either platform.
+  if (requireLegacyInterrupt &&
+      (state.interruptLine >= 16 || !(0xdef8U & (1U << state.interruptLine)))) {
+    return false;
+  }
   for (unsigned i = 0; i < 6; ++i)
     if (!config.read32(0x10 + 4 * i, state.bars[i]))
       return false;

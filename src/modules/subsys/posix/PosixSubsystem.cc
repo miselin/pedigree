@@ -41,7 +41,9 @@
 
 #include <PosixSubsystem.h>
 #include <signal.h>
+#if !ARM64
 #include <vdso.h>  // Header with the vdso.so binary in it.
+#endif
 
 #include "FileDescriptor.h"
 #include "PosixProcess.h"
@@ -67,9 +69,10 @@
 #include "sysv-semaphore-syscalls.h"
 #include "timerfd-syscalls.h"
 
+#if X64 && !HOSTED
 extern char __posix_compat_vsyscall_base;
-
 #define POSIX_VSYSCALL_ADDRESS 0xffffffffff600000
+#endif
 
 #define O_RDONLY 0
 #define O_WRONLY 1
@@ -969,15 +972,16 @@ bool PosixSubsystem::kill(KillReason killReason, Thread* pThread) {
 
 bool PosixSubsystem::resolveUserPageFault(Thread& thread, InterruptState& state,
                                           uintptr_t faultAddress, uintptr_t errorCode) {
-#if X64 || HOSTED
+#if X64 || HOSTED || ARM64
   constexpr uintptr_t present = 1, write = 2, user = 4, fetch = 16;
   if (state.kernelMode() || !Processor::getInterrupts() ||
       Processor::information().getCurrentThread() != &thread || !thread.getParent() ||
       thread.getParent()->getSubsystem() != this ||
       thread.getParent()->getAddressSpace() != &Processor::information().getVirtualAddressSpace() ||
       (errorCode & ~(present | write | user | fetch)) ||
-      ((errorCode & write) && (errorCode & fetch)))
+      ((errorCode & write) && (errorCode & fetch))) {
     return false;
+  }
 #if X64 && !HOSTED
   if (!(errorCode & user))
     return false;
@@ -2871,6 +2875,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     execCredentials.egid = pProcess->getEffectiveGroupId();
   }
 
+#if !ARM64
   // Allocate some space for the VDSO
   MemoryMappedObject::Permissions vdsoPerms =
       MemoryMappedObject::Read | MemoryMappedObject::Write | MemoryMappedObject::Exec;
@@ -2889,10 +2894,11 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
         vdsoAddress, __vdso_so_pages * PhysicalMemoryManager::getPageSize(),
         vdsoPerms & ~MemoryMappedObject::Write);
   }
+#endif
 
 // The hosted process owns the Linux host's fixed vsyscall address. Its musl
 // userspace uses the syscall bridge instead.
-#if !HOSTED
+#if X64 && !HOSTED
   // Map in the vsyscall space.
   if (!Processor::information().getVirtualAddressSpace().isMapped(
           reinterpret_cast<void*>(POSIX_VSYSCALL_ADDRESS))) {
@@ -2956,8 +2962,11 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   // Align to 16 bytes between argv and remaining strings
   STACK_ALIGN(loaderStack, 16);
 
-  /// \todo platform assumption here.
+#if ARM64
+  STACK_PUSH_STRING(loaderStack, "aarch64", 8);
+#else
   STACK_PUSH_STRING(loaderStack, "x86_64", 7);
+#endif
   void* platform = loaderStack;
 
   STACK_PUSH_STRING(loaderStack, originalName.cstr(), originalName.length() + 1);
@@ -2991,7 +3000,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 
   // The hosted vDSO artifact is not a loadable DSO, so advertising it makes
   // musl attempt to decode a nonexistent dynamic table.
-#if !HOSTED
+#if !HOSTED && !ARM64
   // Push the vDSO shared object.
   if (pVdso) {
     STACK_PUSH2(loaderStack, 0, 32);            // AT_SYSINFO - not present

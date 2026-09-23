@@ -157,15 +157,19 @@ int posix_uname(struct utsname* user) {
     struct LinuxUtsname {
       char fields[6][65];
     } snapshot = {};
-    static_assert(sizeof(snapshot) == 390, "Linux amd64 utsname size");
+    static_assert(sizeof(snapshot) == 390, "Linux utsname size");
     copyField(snapshot.fields[0], 65, "Pedigree");
     MemoryCopy(snapshot.fields[1], names.node, 65);
     copyField(snapshot.fields[2], 65, "2.6.32-generic");
     copyField(snapshot.fields[3], 65, g_pBuildRevision);
+#if ARM64
+    copyField(snapshot.fields[4], 65, "aarch64");
+#else
     copyField(snapshot.fields[4], 65,
               thread.executionPersonality().value() == ExecutionPersonality::Linux32
                   ? "i686"
                   : g_pBuildTarget);
+#endif
     MemoryCopy(snapshot.fields[5], names.domain, 65);
     if (!PosixSubsystem::copyToUser(user, &snapshot, sizeof(snapshot))) {
       SYSCALL_ERROR(BadAddress);

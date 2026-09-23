@@ -6,6 +6,7 @@
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -243,8 +244,15 @@ NvmeQueue::Result NvmeQueue::execute(Nvme::Command command, void* buffer, size_t
         return Result::TransportError;
       }
     }
-    if (!interrupts)
+    if (!interrupts) {
+#if ARM64
+      // Queue setup polls before INTx is registered. A timed sleep can park
+      // the only runnable thread before a completion is consumed.
+      Processor::pause();
+#else
       Time::delay(Time::Multiplier::Millisecond);
+#endif
+    }
   }
 }
 size_t NvmeQueue::interruptCompletions() const {
