@@ -1536,7 +1536,7 @@ static int executeModuleThread(void* mod) {
 
   NOTICE("KERNELELF: Executing module " << module->name);
 
-  bool bSuccess = false;
+  bool bSuccess = !module->entry;
   String moduleName(module->name);
   if (module->entry) {
     bSuccess = module->entry();

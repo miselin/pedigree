@@ -198,7 +198,7 @@ NetworkStack::NetworkStack()
 
   initialise();
 
-#if X86_COMMON || HOSTED || ARM64
+#if X86_COMMON || HOSTED || ARM64 || ARMV7
   // Lots of RAM to burn! Try 16 MB, then 8 MB, then 4 MB, then give up
   if (!m_MemPool.initialise(4096, 1600))
     if (!m_MemPool.initialise(2048, 1600))

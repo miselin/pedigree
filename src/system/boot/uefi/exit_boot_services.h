@@ -3,10 +3,10 @@
 #define PEDIGREE_UEFI_EXIT_BOOT_SERVICES_H
 #include <stdint.h>
 
-typedef uint64_t efi_status_t;
+typedef uintptr_t efi_status_t;
 typedef void* efi_handle_t;
-typedef efi_status_t (*efi_get_memory_map_t)(uint64_t*, void*, uint64_t*, uint64_t*, uint32_t*);
-typedef efi_status_t (*efi_exit_boot_services_t)(efi_handle_t, uint64_t);
+typedef efi_status_t (*efi_get_memory_map_t)(uintptr_t*, void*, uintptr_t*, uintptr_t*, uint32_t*);
+typedef efi_status_t (*efi_exit_boot_services_t)(efi_handle_t, uintptr_t);
 
 typedef struct efi_memory_descriptor {
   uint32_t type;
@@ -28,9 +28,10 @@ _Static_assert(sizeof(bootstrap_memory_map_entry_t) == 32,
                "bootstrap memory-map entries must match the kernel ABI");
 
 #define EFI_SUCCESS 0
-#define EFI_LOAD_ERROR 0x8000000000000001ULL
-#define EFI_INVALID_PARAMETER 0x8000000000000002ULL
-#define EFI_BUFFER_TOO_SMALL 0x8000000000000005ULL
+#define EFI_ERROR_BIT ((uintptr_t)1 << (sizeof(uintptr_t) * 8 - 1))
+#define EFI_LOAD_ERROR (EFI_ERROR_BIT | 1)
+#define EFI_INVALID_PARAMETER (EFI_ERROR_BIT | 2)
+#define EFI_BUFFER_TOO_SMALL (EFI_ERROR_BIT | 5)
 #define EFI_EXIT_BOOT_SERVICES_ATTEMPTS 4
 
 static uint32_t normalized_type(uint32_t type) {
@@ -45,14 +46,14 @@ static uint32_t normalized_type(uint32_t type) {
 
 static efi_status_t exit_boot_services_with_map(
     efi_get_memory_map_t get_map, efi_exit_boot_services_t exit_services, efi_handle_t image,
-    void* raw_map, uint64_t raw_capacity, bootstrap_memory_map_entry_t* normalized_map,
-    uint64_t normalized_capacity, uint32_t* normalized_bytes, int* exit_attempted) {
+    void* raw_map, uintptr_t raw_capacity, bootstrap_memory_map_entry_t* normalized_map,
+    uintptr_t normalized_capacity, uint32_t* normalized_bytes, int* exit_attempted) {
   *normalized_bytes = 0;
   *exit_attempted = 0;
   for (unsigned attempt = 0; attempt < EFI_EXIT_BOOT_SERVICES_ATTEMPTS; ++attempt) {
-    uint64_t map_size = raw_capacity;
-    uint64_t map_key = 0;
-    uint64_t descriptor_size = 0;
+    uintptr_t map_size = raw_capacity;
+    uintptr_t map_key = 0;
+    uintptr_t descriptor_size = 0;
     uint32_t descriptor_version = 0;
     efi_status_t status =
         get_map(&map_size, raw_map, &map_key, &descriptor_size, &descriptor_version);

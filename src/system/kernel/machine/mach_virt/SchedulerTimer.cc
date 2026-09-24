@@ -13,6 +13,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 
 #include "DeviceTree.h"
+#include "GenericTimer.h"
 
 namespace {
 constexpr uint64_t NanosecondsPerSecond = 1000000000ULL;
@@ -38,9 +39,7 @@ VirtSchedulerTimer::~VirtSchedulerTimer() {
 }
 
 uint64_t VirtSchedulerTimer::counter() const {
-  uint64_t value;
-  asm volatile("mrs %0, cntvct_el0" : "=r"(value));
-  return value;
+  return VirtGenericTimer::count();
 }
 
 uint64_t VirtSchedulerTimer::ticksToNanoseconds(uint64_t ticks) const {
@@ -52,7 +51,7 @@ bool VirtSchedulerTimer::initialise() {
   if (m_Initialised) {
     return false;
   }
-  asm volatile("mrs %0, cntfrq_el0" : "=r"(m_Frequency));
+  m_Frequency = VirtGenericTimer::frequency();
   if (!m_Frequency) {
     return false;
   }
@@ -60,7 +59,7 @@ bool VirtSchedulerTimer::initialise() {
   if (!m_IntervalTicks) {
     m_IntervalTicks = 1;
   }
-  asm volatile("msr cntv_ctl_el0, %0\n\tisb" : : "r"(uint64_t(0)) : "memory");
+  VirtGenericTimer::virtualControl(0);
 
   IrqManager& manager = *Machine::instance().getIrqManager();
   m_IrqId = manager.registerSchedulerIrqHandler(VirtDeviceTree::virtualTimerIrq(), this,
@@ -70,10 +69,7 @@ bool VirtSchedulerTimer::initialise() {
   }
 
   m_LastCount = counter();
-  asm volatile("msr cntv_tval_el0, %0\n\tmsr cntv_ctl_el0, %1\n\tisb"
-               :
-               : "r"(uint64_t(m_IntervalTicks)), "r"(uint64_t(1))
-               : "memory");
+  VirtGenericTimer::setVirtualTimer(m_IntervalTicks);
   m_Initialised = true;
   return true;
 }
@@ -82,7 +78,7 @@ void VirtSchedulerTimer::uninitialise() {
   if (!m_Initialised) {
     return;
   }
-  asm volatile("msr cntv_ctl_el0, %0\n\tisb" : : "r"(uint64_t(0)) : "memory");
+  VirtGenericTimer::virtualControl(0);
   IrqManager& manager = *Machine::instance().getIrqManager();
   if (!manager.unregisterSchedulerIrqHandler(m_IrqId, this)) {
     return;
@@ -109,10 +105,7 @@ void VirtSchedulerTimer::schedulerIrq(irq_id_t number, InterruptState& state) {
   }
 
   // Re-arm before the callback: a context switch may never return here.
-  asm volatile("msr cntv_tval_el0, %0\n\tmsr cntv_ctl_el0, %1\n\tisb"
-               :
-               : "r"(uint64_t(m_IntervalTicks)), "r"(uint64_t(1))
-               : "memory");
+  VirtGenericTimer::setVirtualTimer(m_IntervalTicks);
   const uint64_t now = counter();
   const uint64_t elapsed = ticksToNanoseconds(now - m_LastCount);
   m_LastCount = now;

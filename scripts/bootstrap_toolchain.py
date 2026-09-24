@@ -19,7 +19,12 @@ from pathlib import Path
 from typing import Iterable
 
 
-TARGETS = {"x86_64-pedigree", "arm64-elf", "aarch64-linux-musl"}
+TARGETS = {
+    "x86_64-pedigree",
+    "arm64-elf",
+    "aarch64-linux-musl",
+    "armv7-alpine-linux-musleabihf",
+}
 GCC_PREREQUISITES = ("gmp", "mpfr", "mpc")
 REQUIRED_COMMANDS = ("cc", "c++", "make", "patch", "tar")
 TOOLCHAIN_STATE_SCHEMA = 1
@@ -123,9 +128,13 @@ class Bootstrapper:
         self.manifest = load_archives(
             self.source_root / "build-etc/toolchain/pedigree-cross-toolchain.json"
         )
+        alpine_arch = {
+            "aarch64-linux-musl": "aarch64",
+            "armv7-alpine-linux-musleabihf": "armv7",
+        }.get(args.target)
         default_sysroot = (
-            self.source_root / "scripts/alpine/build/aarch64/sysroot/usr"
-            if args.target == "aarch64-linux-musl"
+            self.source_root / "scripts/alpine/build" / alpine_arch / "sysroot/usr"
+            if alpine_arch
             else self.source_root / "build/musl/usr"
         )
         self.sysroot = args.sysroot.resolve() if args.sysroot else default_sysroot
@@ -705,6 +714,10 @@ class Bootstrapper:
             "--disable-werror",
             *self.host_dependency_flags(),
         ]
+        if self.args.target == "armv7-alpine-linux-musleabihf":
+            flags.extend(
+                ("--with-arch=armv7-a", "--with-fpu=vfpv3-d16", "--with-float=hard")
+            )
         if with_headers:
             flags.extend(
                 (
@@ -744,7 +757,10 @@ class Bootstrapper:
         self.configure_gcc(sources["gcc"], gcc_build, with_headers=False)
         # A Linux target cannot link shared libgcc until libc and its startup
         # objects are present in the target sysroot.
-        stage_one_libgcc = self.args.target != "aarch64-linux-musl"
+        stage_one_libgcc = self.args.target not in {
+            "aarch64-linux-musl",
+            "armv7-alpine-linux-musleabihf",
+        }
         build_targets = ["all-gcc"]
         install_targets = ["install-gcc"]
         if stage_one_libgcc:

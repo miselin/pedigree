@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repository=$(cd -P -- "$(dirname -- "$0")/.." && pwd -P)
+mode=${1:-}
+case "$mode" in
+    --alpine|--virtio|--virtio-scsi|--nvme|--bootstrap|--uefi|--uefi-virtio-scsi|--uefi-nvme) shift ;;
+    *) mode= ;;
+esac
+
+if [[ $mode == --uefi || $mode == --uefi-virtio-scsi || $mode == --uefi-nvme ]]; then
+    efi_image=${PEDIGREE_ARMV7_UEFI_IMAGE:-$repository/build-armv7/full/pedigree-armv7-uefi.img}
+    efi_code=${PEDIGREE_ARMV7_EFI_CODE:-/opt/homebrew/share/qemu/edk2-arm-code.fd}
+    efi_vars=${PEDIGREE_ARMV7_EFI_VARS:-/opt/homebrew/share/qemu/edk2-arm-vars.fd}
+    rootfs=${PEDIGREE_ARMV7_ROOTFS:-$repository/scripts/alpine/build/armv7/rootfs.img}
+    for path in "$efi_image" "$efi_code" "$efi_vars" "$rootfs"; do
+        if [[ ! -f $path ]]; then
+            echo "ARMv7 UEFI boot file is unavailable: $path" >&2
+            exit 1
+        fi
+    done
+    variables=$(mktemp "${TMPDIR:-/tmp}/pedigree-armv7-vars.XXXXXX")
+    trap 'rm -f "$variables"' EXIT
+    cp "$efi_vars" "$variables"
+    qemu_args=(-drive "if=none,id=alpine,file=$rootfs,format=raw,snapshot=${PEDIGREE_ARMV7_ROOTFS_SNAPSHOT:-on}")
+    if [[ $mode == --uefi-virtio-scsi ]]; then
+        qemu_args+=(-device virtio-scsi-pci,id=scsi0,disable-legacy=on
+                    -device scsi-hd,drive=alpine,bus=scsi0.0)
+    elif [[ $mode == --uefi-nvme ]]; then
+        qemu_args+=(-device nvme,serial=pedigree,drive=alpine)
+    else
+        qemu_args+=(-device virtio-blk-pci,drive=alpine,disable-legacy=on)
+    fi
+    "${QEMU:-qemu-system-arm}" \
+        -machine virt,gic-version=2,highmem=off \
+        -cpu cortex-a15 -accel tcg -smp 1 -m 512 \
+        -display none -monitor none -serial stdio -no-reboot \
+        -drive "if=pflash,format=raw,readonly=on,file=$efi_code" \
+        -drive "if=pflash,format=raw,file=$variables" \
+        -drive "if=none,id=esp,format=raw,readonly=on,file=$efi_image" \
+        -device virtio-blk-pci,drive=esp,disable-legacy=on \
+        "${qemu_args[@]}" "$@"
+    exit $?
+fi
+
+if [[ $mode == --bootstrap ]]; then
+    kernel=${PEDIGREE_ARMV7_KERNEL:-$repository/build-armv7/armv7-bootstrap.elf}
+else
+    kernel=${PEDIGREE_ARMV7_KERNEL:-$repository/build-armv7/full/src/system/kernel/kernel}
+fi
+if [[ ! -f $kernel ]]; then
+    echo "ARMv7 kernel is unavailable: $kernel" >&2
+    exit 1
+fi
+
+qemu_args=("$@")
+root_image=${PEDIGREE_ARMV7_ROOT_IMAGE:-}
+if [[ $mode == --alpine || $mode == --virtio || $mode == --virtio-scsi || $mode == --nvme ]]; then
+    rootfs=${PEDIGREE_ARMV7_ROOTFS:-$repository/scripts/alpine/build/armv7/rootfs.img}
+    if [[ ! -f $rootfs ]]; then
+        echo "ARMv7 Alpine rootfs is unavailable; run scripts/alpine/build.sh armv7" >&2
+        exit 1
+    fi
+    if [[ $mode == --alpine ]]; then
+        root_image=${root_image:-$rootfs}
+    else
+        qemu_args+=(-drive "if=none,id=alpine,file=$rootfs,format=raw,snapshot=${PEDIGREE_ARMV7_ROOTFS_SNAPSHOT:-on}")
+        if [[ $mode == --virtio ]]; then
+            qemu_args+=(-device virtio-blk-pci,drive=alpine,disable-legacy=on
+                        -netdev user,id=net0
+                        -device virtio-net-pci,netdev=net0,disable-legacy=on
+                        -device virtio-rng-pci,disable-legacy=on)
+        elif [[ $mode == --virtio-scsi ]]; then
+            qemu_args+=(-device virtio-scsi-pci,id=scsi0,disable-legacy=on
+                        -device scsi-hd,drive=alpine,bus=scsi0.0
+                        -netdev user,id=net0
+                        -device virtio-net-pci,netdev=net0,disable-legacy=on
+                        -device virtio-rng-pci,disable-legacy=on)
+        else
+            qemu_args+=(-device nvme,serial=pedigree,drive=alpine)
+        fi
+    fi
+    found_append=false
+    for ((i = 0; i < ${#qemu_args[@]}; ++i)); do
+        if [[ ${qemu_args[i]} == -append ]]; then
+            if (( i + 1 == ${#qemu_args[@]} )); then
+                echo "-append requires a boot command line" >&2
+                exit 1
+            fi
+            qemu_args[i+1]="${qemu_args[i+1]} root=UUID=50e5c7c0-b79c-4932-8cdc-c2b2c713ff97 console=ttyAMA0"
+            found_append=true
+            break
+        fi
+    done
+    if [[ $found_append == false ]]; then
+        qemu_args+=(-append 'root=UUID=50e5c7c0-b79c-4932-8cdc-c2b2c713ff97 console=ttyAMA0')
+    fi
+fi
+if [[ -n $root_image ]]; then
+    if [[ ! -f $root_image ]]; then
+        echo "ARMv7 root image is unavailable: $root_image" >&2
+        exit 1
+    fi
+    image_size=$(wc -c < "$root_image")
+    image_start=$((0x48000000))
+    image_end=$((image_start + image_size))
+    if (( image_size == 0 || image_end > 0x60000000 )); then
+        echo "ARMv7 root image does not fit in the default 512 MiB guest RAM" >&2
+        exit 1
+    fi
+    printf -v initrd_argument 'pedigree.initrd=0x%08x:0x%08x' \
+        "$image_start" "$image_end"
+    found_append=false
+    for ((i = 0; i < ${#qemu_args[@]}; ++i)); do
+        if [[ ${qemu_args[i]} == -append ]]; then
+            if (( i + 1 == ${#qemu_args[@]} )); then
+                echo "-append requires a boot command line" >&2
+                exit 1
+            fi
+            qemu_args[i+1]="${qemu_args[i+1]} $initrd_argument"
+            found_append=true
+            break
+        fi
+    done
+    if [[ $found_append == false ]]; then
+        qemu_args+=(-append "$initrd_argument")
+    fi
+    qemu_args+=(-device "loader,file=$root_image,addr=0x48000000,force-raw=on")
+fi
+
+exec "${QEMU:-qemu-system-arm}" \
+    -machine virt,gic-version=2,highmem=off \
+    -cpu cortex-a15 -accel tcg -smp 1 -m 512 \
+    -display none -monitor none -serial stdio -no-reboot \
+    -kernel "$kernel" "${qemu_args[@]}"

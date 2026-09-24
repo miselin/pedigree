@@ -306,6 +306,52 @@ int posix_sigaction(int sig, const struct sigaction* act, struct sigaction* oact
   return result;
 }
 
+#if ARMV7
+struct LinuxArmv7KernelSigaction {
+  uint32_t handler;
+  uint32_t flags;
+  uint32_t restorer;
+  uint32_t mask[2];
+};
+
+static_assert(sizeof(LinuxArmv7KernelSigaction) == 20);
+
+int posix_linux_armv7_sigaction(int sig, const LinuxArmv7KernelSigaction* act,
+                                LinuxArmv7KernelSigaction* oact) {
+  LinuxArmv7KernelSigaction linuxAct = {};
+  if ((act && !PosixSubsystem::copyFromUser(&linuxAct, act, sizeof(linuxAct))) ||
+      (oact && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(oact), sizeof(*oact),
+                                             PosixSubsystem::SafeWrite))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+
+  struct sigaction nativeAct = {};
+  if (act) {
+    nativeAct.sa_handler = reinterpret_cast<void (*)(int)>(linuxAct.handler);
+    nativeAct.sa_flags = linuxAct.flags;
+    nativeAct.sa_restorer = reinterpret_cast<void (*)()>(linuxAct.restorer);
+    MemoryCopy(&nativeAct.sa_mask, &linuxAct.mask, sizeof(linuxAct.mask));
+  }
+
+  struct sigaction nativeOld = {};
+  const int result =
+      posix_sigaction_impl(sig, act ? &nativeAct : nullptr, oact ? &nativeOld : nullptr, true);
+  if (result == 0 && oact) {
+    LinuxArmv7KernelSigaction linuxOld = {};
+    linuxOld.handler = reinterpret_cast<uintptr_t>(nativeOld.sa_handler);
+    linuxOld.flags = nativeOld.sa_flags;
+    linuxOld.restorer = reinterpret_cast<uintptr_t>(nativeOld.sa_restorer);
+    MemoryCopy(&linuxOld.mask, &nativeOld.sa_mask, sizeof(linuxOld.mask));
+    if (!PosixSubsystem::copyToUser(oact, &linuxOld, sizeof(linuxOld))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+  }
+  return result;
+}
+#endif
+
 #if BITS_64
 struct LinuxAmd64KernelSigaction {
   uint64_t handler;

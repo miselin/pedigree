@@ -2,7 +2,7 @@
 # Hosted kernels use the build host's libc ABI; the freestanding kernel must
 # use the libc headers produced for the Pedigree target.
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR
-    PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
     link_libraries(pedigree_musl_headers)
 endif ()
 
@@ -72,6 +72,13 @@ elseif (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
     set(ARCH_KERNEL_FLAGS
         "-mgeneral-regs-only" "-mcmodel=large" "-fno-pic" "-fno-pie"
         "-fsigned-char")
+    set(ARCH_KERNEL_LINKFLAGS
+        "-static" "-no-pie"
+        "-Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}")
+elseif (PEDIGREE_ARCH_TARGET STREQUAL "ARMV7")
+    set(ARCH_KERNEL_FLAGS
+        "-march=armv7-a" "-marm" "-mfpu=vfpv3-d16" "-mfloat-abi=hard"
+        "-fno-pic" "-fno-pie" "-fsigned-char")
     set(ARCH_KERNEL_LINKFLAGS
         "-static" "-no-pie"
         "-Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}")
@@ -201,6 +208,21 @@ elseif (PEDIGREE_ARCHDIR STREQUAL "arm64")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/state.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/SyscallManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/arm64/VirtualAddressSpace.cc)
+elseif (PEDIGREE_ARCHDIR STREQUAL "armv7")
+    set(PROCESSOR_UNSHARED_SRCS
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/boot.S)
+    set(PROCESSOR_SRCS
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/BootMain.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/Elf.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/InterruptManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/PageFaultHandler.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/PhysicalMemoryManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/Processor.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/ProcessorInformation.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/StackFrame.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/state.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/SyscallManager.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/armv7/VirtualAddressSpace.cc)
 else ()
     set(PROCESSOR_SRCS "")
     set(PROCESSOR_UNSHARED_SRCS "")
@@ -537,8 +559,8 @@ if (NOT PEDIGREE_DEBUGGER)
     list(FILTER KERNEL_SRCS EXCLUDE REGEX "/debugger/(Debugger\\.cc|commands/.*\\.cc)$")
 endif ()
 
-if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
-    # ARM64 modules retain unresolved kernel references for the runtime loader.
+if (PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
+    # ARM modules retain unresolved kernel references for the runtime loader.
     add_library(kernel_shared INTERFACE)
 else ()
     add_library(kernel_shared SHARED

@@ -27,7 +27,7 @@
 #include <stdarg.h>
 
 /** Minimum size to remain allocated for a String, to avoid tiny heap allocations. */
-#define STRING_MINIMUM_ALLOCATION_SIZE 64UL
+static constexpr size_t StringMinimumAllocationSize = 64;
 
 String::String() : m_Data(nullptr), m_Length(0), m_Size(0), m_Hash(0) {}
 
@@ -372,7 +372,7 @@ void String::reserve(size_t size) {
 void String::reserve(size_t size, bool zero) {
   assert(resizable());
 
-  size = pedigree_std::max(size, STRING_MINIMUM_ALLOCATION_SIZE);
+  size = pedigree_std::max(size, StringMinimumAllocationSize);
 
   if (size > m_Size) {
     char* tmp = m_Data;
@@ -390,7 +390,7 @@ void String::reserve(size_t size, bool zero) {
 void String::downsize() {
   assert(resizable());
 
-  size_t newSize = pedigree_std::max(m_Length + 1, STRING_MINIMUM_ALLOCATION_SIZE);
+  size_t newSize = pedigree_std::max(m_Length + 1, StringMinimumAllocationSize);
 
   if (!m_Data || (newSize >= m_Size))
     return;

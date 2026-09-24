@@ -40,6 +40,11 @@ struct LinuxAmd64KernelSigaction;
 int posix_linux_amd64_sigaction(int sig, const LinuxAmd64KernelSigaction* act,
                                 LinuxAmd64KernelSigaction* oact);
 #endif
+#if ARMV7
+struct LinuxArmv7KernelSigaction;
+int posix_linux_armv7_sigaction(int sig, const LinuxArmv7KernelSigaction* act,
+                                LinuxArmv7KernelSigaction* oact);
+#endif
 
 int posix_sigaction(int sig, const struct sigaction* act, struct sigaction* oact);
 uintptr_t posix_signal(int sig, void* func);

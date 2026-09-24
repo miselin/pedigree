@@ -54,6 +54,12 @@ extern "C" struct tm* gmtime(struct tm* timep) {
   return 0;
 }
 
+#if ARMV7
+extern "C" struct tm* __gmtime64(const int64_t*) {
+  return nullptr;
+}
+#endif
+
 extern "C" size_t strftime(char* s, size_t max, const char* format, const struct tm* tm) {
   return 0;
 }
@@ -181,7 +187,7 @@ static int xOpen(sqlite3_vfs* vfs, const char* zName, sqlite3_file* file, int fl
     return 0;
   }
 
-  if (!g_pBootstrapInfo->isDatabaseLoaded()) {
+  if (!STATIC_DRIVERS && !g_pBootstrapInfo->isDatabaseLoaded()) {
     FATAL("Config database not loaded!");
   }
 

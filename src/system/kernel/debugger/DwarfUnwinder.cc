@@ -108,6 +108,31 @@ void extractDwarfState(const DwarfState* endState, const DwarfState& startState,
 }
 #endif
 
+#if ARMV7
+template <>
+void fillDwarfState(DwarfState& outState, const Armv7ProcessorState& inState) {
+  for (size_t i = 0; i < 13; ++i) {
+    outState.m_R[i] = inState.r[i];
+  }
+  outState.m_R[13] = inState.sp;
+  outState.m_R[14] = inState.lr;
+  outState.m_R[15] = inState.pc;
+  outState.m_R[16] = inState.cpsr;
+}
+
+template <>
+void extractDwarfState(const DwarfState* endState, const DwarfState& startState,
+                       Armv7ProcessorState& outState, uint32_t returnRegister) {
+  for (size_t i = 0; i < 13; ++i) {
+    outState.r[i] = endState->getRegister(i, startState);
+  }
+  outState.sp = endState->getCfa(startState);
+  outState.lr = endState->getRegister(14, startState);
+  outState.pc = endState->getRegister(returnRegister, startState);
+  outState.cpsr = startState.m_R[16];
+}
+#endif
+
 DwarfUnwinder::DwarfUnwinder(uintptr_t nData, size_t nLength)
     : m_nData(nData), m_nLength(nLength) {}
 

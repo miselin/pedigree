@@ -64,7 +64,7 @@ def create_esp(path: Path, args: argparse.Namespace, root_uuid: str, temp_dir: P
     run([args.mmd, *mtools, "::EFI/BOOT"])
     run([args.mmd, *mtools, "::EFI/PEDIGREE"])
     bootloader = args.grub if args.grub else args.efi
-    boot_name = "BOOTAA64.EFI" if args.arch == "arm64" else "BOOTX64.EFI"
+    boot_name = {"armv7": "BOOTARM.EFI", "arm64": "BOOTAA64.EFI", "x64": "BOOTX64.EFI"}[args.arch]
     run([args.mcopy, *mtools, str(bootloader), f"::EFI/BOOT/{boot_name}"])
     if args.grub:
         if not args.grub_config:
@@ -79,7 +79,7 @@ def create_esp(path: Path, args: argparse.Namespace, root_uuid: str, temp_dir: P
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--arch", choices=("x64", "arm64"), default="x64")
+    parser.add_argument("--arch", choices=("x64", "armv7", "arm64"), default="x64")
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--grub", type=Path)
     parser.add_argument("--grub-config", type=Path)
@@ -94,7 +94,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.arch == "x64" and (not args.initrd or not args.config):
         parser.error("x64 requires --initrd and --config")
-    if args.arch == "arm64" and args.grub:
+    if args.arch != "x64" and args.grub:
         parser.error("--grub is only supported for x64")
     if not args.mkfs or not args.mmd or not args.mcopy:
         parser.error("mkfs.fat, mmd, and mcopy are required")

@@ -25,7 +25,7 @@
 #if X86_COMMON
 #define __MOD_DEPS 0
 #define __MOD_DEPS_OPT "vbe", "vmware-gfx", "uefi-gfx", "intelgfx", "virtio-gpu"
-#elif ARM64
+#elif ARM64 || ARMV7
 #define __MOD_DEPS 0
 #define __MOD_DEPS_OPT "virtio-gpu"
 #elif HOSTED

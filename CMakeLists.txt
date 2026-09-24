@@ -174,6 +174,8 @@ endif ()
 set(PEDIGREE_WITH_INIT TRUE CACHE BOOL "Build and run the init module at startup. It can be useful to skip running init to test without having the system start an entire userspace.")
 if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
     option(PEDIGREE_ARM64_ALPINE "Build the modules needed to boot an Alpine aarch64 root filesystem." OFF)
+elseif (PEDIGREE_ARCH_TARGET STREQUAL "ARMV7")
+    option(PEDIGREE_ARMV7_ALPINE "Build the modules needed to boot an Alpine armv7 root filesystem." OFF)
 endif ()
 
 # Hosted build options
@@ -260,7 +262,7 @@ set(PEDIGREE_GO_CANARY "" CACHE FILEPATH "Prebuilt pedigree/amd64 Go canary to i
 set(_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT OFF)
 if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET" AND
     NOT PEDIGREE_SELF_HOSTED AND
-    NOT PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    NOT PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
     set(_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT ON)
 endif ()
 option(PEDIGREE_BUILD_KEYMAPS
@@ -513,13 +515,13 @@ endif ()
 # system. Consumers opt into this interface so host-side generators remain on
 # the build host's libc ABI.
 if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
-    if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    if (PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
         set(PEDIGREE_MUSL_SDK_ROOT "${PEDIGREE_TARGET_SYSROOT}")
         if (NOT EXISTS "${PEDIGREE_MUSL_SDK_ROOT}/usr/include/errno.h")
             message(FATAL_ERROR
-                "The ARM64 target requires Alpine aarch64 musl-dev headers "
+                "The ${PEDIGREE_ARCH_TARGET} target requires Alpine musl-dev headers "
                 "in PEDIGREE_TARGET_SYSROOT/usr/include. Run "
-                "scripts/alpine/build.sh aarch64 first.")
+                "scripts/alpine/build.sh ${PEDIGREE_ARCHDIR} first.")
         endif ()
     else ()
         set(PEDIGREE_MUSL_SDK_ROOT "${CMAKE_BINARY_DIR}/musl")
@@ -935,6 +937,46 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
                 --root ${PEDIGREE_ARM64_ROOT_IMAGE}
             DEPENDS uefi-loader kernel ${UEFI_LOADER}
                     ${PEDIGREE_ARM64_ROOT_IMAGE}
+                    ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py)
+        add_custom_target(uefi-image ALL DEPENDS ${UEFI_IMAGE})
+        add_dependencies(boot-artifacts uefi-image)
+    endif ()
+
+    if (PEDIGREE_BUILD_UEFI AND PEDIGREE_ARCH_TARGET STREQUAL "ARMV7")
+        find_program(UEFI_CLANG NAMES clang REQUIRED)
+        find_program(UEFI_PYTHON NAMES python3 python REQUIRED)
+        set(UEFI_LOADER_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/uefi-loader-armv7.obj)
+        set(UEFI_LOADER ${CMAKE_CURRENT_BINARY_DIR}/PEDIGREE-BOOTARM.EFI)
+        add_custom_command(OUTPUT ${UEFI_LOADER_OBJECT}
+            COMMAND ${UEFI_CLANG} -target armv7-unknown-windows-msvc -mthumb
+                -mcpu=cortex-a15 -mfpu=none
+                -ffreestanding -fno-builtin -fno-stack-protector
+                -fno-asynchronous-unwind-tables -fno-unwind-tables -O2
+                -I${CMAKE_SOURCE_DIR}/src/system/include -c
+                ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/loader-armv7.c
+                -o ${UEFI_LOADER_OBJECT}
+            DEPENDS ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/loader-armv7.c
+                    ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/exit_boot_services.h
+                    ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/armv7/UefiHandoff.h)
+        add_custom_command(OUTPUT ${UEFI_LOADER}
+            COMMAND ${UEFI_PYTHON} ${CMAKE_SOURCE_DIR}/scripts/uefi_pe.py
+                ${UEFI_LOADER_OBJECT} ${UEFI_LOADER}
+            DEPENDS ${UEFI_LOADER_OBJECT} ${CMAKE_SOURCE_DIR}/scripts/uefi_pe.py)
+        add_custom_target(uefi-loader DEPENDS ${UEFI_LOADER})
+
+        set(PEDIGREE_ARMV7_ROOT_IMAGE
+            "${CMAKE_SOURCE_DIR}/scripts/alpine/build/armv7/rootfs.img"
+            CACHE FILEPATH "ARMv7 Alpine root filesystem image for the UEFI boot command line.")
+        set(UEFI_IMAGE ${CMAKE_CURRENT_BINARY_DIR}/pedigree-armv7-uefi.img)
+        add_custom_command(OUTPUT ${UEFI_IMAGE}
+            COMMAND ${UEFI_PYTHON} ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py
+                --arch armv7
+                --image ${UEFI_IMAGE}
+                --efi ${UEFI_LOADER}
+                --kernel $<TARGET_FILE:kernel>
+                --root ${PEDIGREE_ARMV7_ROOT_IMAGE}
+            DEPENDS uefi-loader kernel ${UEFI_LOADER}
+                    ${PEDIGREE_ARMV7_ROOT_IMAGE}
                     ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py)
         add_custom_target(uefi-image ALL DEPENDS ${UEFI_IMAGE})
         add_dependencies(boot-artifacts uefi-image)

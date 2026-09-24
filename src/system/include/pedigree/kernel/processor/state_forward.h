@@ -27,6 +27,8 @@
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
 #elif ARM64
 #define PROCESSOR_SPECIFIC_NAME(x) Arm64##x
+#elif ARMV7
+#define PROCESSOR_SPECIFIC_NAME(x) Armv7##x
 #elif HOSTED
 #define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
 #endif

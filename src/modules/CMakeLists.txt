@@ -1,6 +1,6 @@
 include(PedigreeMuslLink)
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR
-    PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
     link_libraries(pedigree_musl_headers)
 endif ()
 
@@ -68,6 +68,10 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED
         ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/ld-musl-x86_64.so.1)
 elseif (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
     set(ARCH_MODULE_FLAGS "-fPIC" "-mgeneral-regs-only" "-fsigned-char")
+    set(ARCH_MODULE_LINKFLAGS "")
+elseif (PEDIGREE_ARCH_TARGET STREQUAL "ARMV7")
+    set(ARCH_MODULE_FLAGS "-fPIC" "-march=armv7-a" "-marm"
+        "-mfpu=vfpv3-d16" "-mfloat-abi=hard" "-fsigned-char")
     set(ARCH_MODULE_LINKFLAGS "")
 else ()
     message(SEND_ERROR "PEDIGREE_ARCH_TARGET is missing a target-specific flag section in the modules CMakeLists.txt")
@@ -172,20 +176,21 @@ endif ()
 
 add_definitions(-DPOSIX_LOG_FACILITIES=${POSIX_LOGGING})
 
-set(_PEDIGREE_ARM64_ALPINE_MODULES
-    confignics console diskimage ext2 filesystems init linker lodisk lwip
+set(_PEDIGREE_ARM_ALPINE_MODULES
+    config confignics console diskimage ext2 filesystems init linker lodisk lwip
     mountroot network-stack nics nvme partition pci pci-enumeration posix ramfs
     rawfs scsi users vfs virtio-pci virtio-blk virtio-net virtio-rng virtio-input
     virtio-gpu virtio-scsi gfx-deps)
 
 function(pedigree_module name opts libs)
     set(_PEDIGREE_MODULE_DEFAULT TRUE)
-    if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    if (PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
         set(_PEDIGREE_MODULE_DEFAULT FALSE)
-        if (PEDIGREE_ARM64_ALPINE AND
-            name IN_LIST _PEDIGREE_ARM64_ALPINE_MODULES)
+        if ((PEDIGREE_ARM64_ALPINE OR PEDIGREE_ARMV7_ALPINE) AND
+            name IN_LIST _PEDIGREE_ARM_ALPINE_MODULES)
             set(_PEDIGREE_MODULE_DEFAULT TRUE)
-        elseif (NOT PEDIGREE_ARM64_ALPINE AND name STREQUAL "diskimage")
+        elseif (NOT PEDIGREE_ARM64_ALPINE AND NOT PEDIGREE_ARMV7_ALPINE AND
+                name STREQUAL "diskimage")
             set(_PEDIGREE_MODULE_DEFAULT TRUE)
         endif ()
     endif ()
@@ -565,7 +570,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
 endif ()
 
 set(_PEDIGREE_LINKER_IMPL ${PEDIGREE_LINKERDIR})
-if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+if (PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
     set(_PEDIGREE_LINKER_IMPL hosted)
 endif ()
 pedigree_module(linker "" ""
@@ -760,7 +765,8 @@ pedigree_module(3c90x "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/3c90x/main.cc)
 
 if (PEDIGREE_MACHINE_HASPCI AND
-    (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "ARM64"))
+    (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR
+     PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$"))
     pedigree_module(virtio-pci "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio/VirtioPci.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/virtio/Virtqueue.cc
@@ -832,7 +838,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/ata/main.cc)
 endif ()
 
-if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+if (PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
     pedigree_module(pci-enumeration "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/enumeration.cc)
     pedigree_module(pci "" ""
@@ -872,7 +878,7 @@ if (PEDIGREE_USB_SMOKE_TESTS OR
 endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" OR
-    PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
     pedigree_module(diskimage "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/hosted/diskimage/DiskImage.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/hosted/diskimage/main.cc)
@@ -1038,7 +1044,7 @@ if (PEDIGREE_DRIVERDIR STREQUAL "x86")
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/vmware-gfx/main.cc)
 endif ()
 
-if (NOT PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+if (NOT PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
 add_library(vdso SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/glue-infoblock.c
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vdso.ld)
@@ -1069,9 +1075,9 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/vdso.h
 add_custom_target(vdso-header DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/vdso.h)
 endif ()
 
-if (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+if (PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
     set(_PEDIGREE_POSIX_ARCH_SOURCES
-        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-arm64.s)
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sigret-${PEDIGREE_ASMDIR}.s)
 else ()
     set(_PEDIGREE_POSIX_ARCH_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/linux-amd64-signal.cc
@@ -1291,7 +1297,7 @@ target_include_directories(native PRIVATE
 add_dependencies(native libc)
 
 if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
-    NOT PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    NOT PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
     add_library(native-user SHARED
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/Object.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/cppsupport.cc
@@ -1322,7 +1328,7 @@ pedigree_module(pedigree-c "" ""
 target_include_directories(native PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c)
 
-if (NOT PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+if (NOT PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
 set(PEDIGREE_C_USER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-c-syscalls.c
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-log.c)
@@ -1432,7 +1438,7 @@ endif ()
 
 if (PEDIGREE_MUSL_ARCH_TARGET STREQUAL "HOSTED")
     include(PedigreeHostedMusl)
-elseif (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+elseif (PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
     add_custom_target(libc)
 else ()
     include(PedigreeMuslPackage)

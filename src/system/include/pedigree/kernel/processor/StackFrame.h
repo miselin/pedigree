@@ -23,6 +23,7 @@
 #include "pedigree/kernel/processor/hosted/StackFrame.h"  // IWYU pragma: export
 #include "pedigree/kernel/processor/x64/StackFrame.h"     // IWYU pragma: export
 #include "pedigree/kernel/processor/arm64/StackFrame.h"   // IWYU pragma: export
+#include "pedigree/kernel/processor/armv7/StackFrame.h"   // IWYU pragma: export
 
 #include <config.h>
 
@@ -30,6 +31,8 @@
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
 #elif ARM64
 #define PROCESSOR_SPECIFIC_NAME(x) Arm64##x
+#elif ARMV7
+#define PROCESSOR_SPECIFIC_NAME(x) Armv7##x
 #elif HOSTED
 #define PROCESSOR_SPECIFIC_NAME(x) Hosted##x
 #endif

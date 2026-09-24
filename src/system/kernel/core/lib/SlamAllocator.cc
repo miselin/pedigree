@@ -55,9 +55,15 @@
 
 SlamAllocator SlamAllocator::m_Instance;
 
+#if BITS_32
+static constexpr uintptr_t POINTER_MASK = ~uintptr_t(0);
+static constexpr uintptr_t POINTER_TAG_MASK = 0;
+static constexpr uintptr_t POINTER_TAG_INCREMENT = 0;
+#else
 static constexpr uintptr_t POINTER_MASK = 0x0000FFFFFFFFFFFFULL;
 static constexpr uintptr_t POINTER_TAG_MASK = ~POINTER_MASK;
 static constexpr uintptr_t POINTER_TAG_INCREMENT = 0x0001000000000000ULL;
+#endif
 
 template <typename T>
 inline T* untagged(T* p) PURE;
@@ -70,6 +76,9 @@ inline T* next_tag(T* p, T* currentHead) PURE;
 
 template <typename T>
 inline T* untagged(T* p) {
+#if BITS_32
+  return p;
+#else
   /// \todo this now requires 64-bit pointers everywhere.
   // All heap pointers begin with 32 bits of ones. So we shove a tag there.
   uintptr_t ptr = reinterpret_cast<uintptr_t>(p);
@@ -82,21 +91,31 @@ inline T* untagged(T* p) {
     ptr |= 0xFFFF000000000000ULL;
   }
   return reinterpret_cast<T*>(ptr);
+#endif
 }
 
 template <typename T>
 inline T* tagged(T* p) {
+#if BITS_32
+  return p;
+#else
   uintptr_t ptr = reinterpret_cast<uintptr_t>(p);
   ptr &= POINTER_MASK;
   return reinterpret_cast<T*>(ptr);
+#endif
 }
 
 template <typename T>
 inline T* next_tag(T* p, T* currentHead) {
+#if BITS_32
+  (void) currentHead;
+  return p;
+#else
   uintptr_t ptr = reinterpret_cast<uintptr_t>(p) & POINTER_MASK;
   uintptr_t tag =
       (reinterpret_cast<uintptr_t>(currentHead) + POINTER_TAG_INCREMENT) & POINTER_TAG_MASK;
   return reinterpret_cast<T*>(ptr | tag);
+#endif
 }
 
 inline void spin_pause() {
@@ -215,7 +234,11 @@ SlamCache::SlamCache()
       m_SlabObjectCount(0),
       m_FirstSlab(),
       m_FastPathState(0),
-      m_RecoveryLock(false, true) {}
+      m_RecoveryLock(false, true)
+#if BITS_32
+      , m_FreeLock(false)
+#endif
+{}
 
 SlamCache::~SlamCache() {}
 
@@ -311,6 +334,15 @@ void SlamCache::endFastPath() {
 }
 
 SlamCache::Node* SlamCache::popFreeObject(Slab* slab) {
+#if BITS_32
+  LockGuard<Spinlock> guard(m_FreeLock);
+  Node* head = slab->freeHead;
+  if (head) {
+    slab->freeHead = head->next;
+    __atomic_fetch_sub(&slab->freeObjects, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+  }
+  return head;
+#else
   if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE))
     return nullptr;
 
@@ -330,9 +362,16 @@ SlamCache::Node* SlamCache::popFreeObject(Slab* slab) {
   }
 
   return nullptr;
+#endif
 }
 
 void SlamCache::pushFreeObject(Slab* slab, Node* node) {
+#if BITS_32
+  LockGuard<Spinlock> guard(m_FreeLock);
+  node->next = slab->freeHead;
+  slab->freeHead = node;
+  __atomic_fetch_add(&slab->freeObjects, static_cast<size_t>(1), __ATOMIC_RELEASE);
+#else
   Node* head = __atomic_load_n(&slab->freeHead, __ATOMIC_RELAXED);
   do {
     node->next = head;
@@ -340,6 +379,7 @@ void SlamCache::pushFreeObject(Slab* slab, Node* node) {
                                         ATOMIC_CAS_WEAK, ATOMIC_PUSH_MEMORY_ORDER,
                                         __ATOMIC_RELAXED));
   __atomic_fetch_add(&slab->freeObjects, static_cast<size_t>(1), __ATOMIC_RELEASE);
+#endif
 }
 
 SlamCache::Node* SlamCache::objectAt(uintptr_t slab, size_t index) const {

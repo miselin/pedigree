@@ -1,0 +1,20 @@
+#ifndef KERNEL_PROCESSOR_ARMV7_ADDRESSLAYOUT_H
+#define KERNEL_PROCESSOR_ARMV7_ADDRESSLAYOUT_H
+
+#include <stdint.h>
+
+// The bootstrap maps low device MMIO at 0x80000000 and RAM at 0xc0000000.
+constexpr uintptr_t ARMV7_DIRECT_MAP_BASE = 0x80000000U;
+constexpr uintptr_t KERNEL_VIRTUAL_HEAP = 0x90000000U;
+constexpr uintptr_t KERNEL_VIRTUAL_HEAP_END = 0xa0000000U;
+constexpr uintptr_t KERNEL_VIRTUAL_CACHE = 0xa0000000U;
+constexpr uintptr_t KERNEL_VIRTUAL_CACHE_END = 0xa8000000U;
+constexpr uintptr_t KERNEL_VIRTUAL_MEMORYREGION_ADDRESS = 0xa8000000U;
+constexpr uintptr_t KERNEL_VIRTUAL_MEMORYREGION_END = 0xb0000000U;
+constexpr uintptr_t KERNEL_VIRTUAL_MODULE_BASE = 0xb0000000U;
+constexpr uintptr_t KERNEL_VIRTUAL_MODULE_END = 0xb8000000U;
+constexpr uintptr_t KERNEL_VIRTUAL_EVENT_BASE = 0xb8000000U;
+constexpr uintptr_t KERNEL_VIRTUAL_INFO_BLOCK = 0xba000000U;
+constexpr uintptr_t KERNEL_VIRTUAL_STACK = 0xc0000000U;
+
+#endif

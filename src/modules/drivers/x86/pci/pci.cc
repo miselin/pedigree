@@ -10,7 +10,7 @@ void exit() {}
 }  // namespace
 
 // Existing drivers require "pci" to mean discovery has completed.
-#if ARM64
+#if ARM64 || ARMV7
 MODULE_INFO_NON_UNLOADABLE("pci", &entry, &exit, "pci-enumeration");
 #else
 MODULE_INFO_NON_UNLOADABLE("pci", &entry, &exit, "chipset");

@@ -41,7 +41,7 @@
 
 #include <PosixSubsystem.h>
 #include <signal.h>
-#if !ARM64
+#if !ARM64 && !ARMV7
 #include <vdso.h>  // Header with the vdso.so binary in it.
 #endif
 
@@ -972,7 +972,7 @@ bool PosixSubsystem::kill(KillReason killReason, Thread* pThread) {
 
 bool PosixSubsystem::resolveUserPageFault(Thread& thread, InterruptState& state,
                                           uintptr_t faultAddress, uintptr_t errorCode) {
-#if X64 || HOSTED || ARM64
+#if X64 || HOSTED || ARM64 || ARMV7
   constexpr uintptr_t present = 1, write = 2, user = 4, fetch = 16;
   if (state.kernelMode() || !Processor::getInterrupts() ||
       Processor::information().getCurrentThread() != &thread || !thread.getParent() ||
@@ -2875,7 +2875,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     execCredentials.egid = pProcess->getEffectiveGroupId();
   }
 
-#if !ARM64
+#if !ARM64 && !ARMV7
   // Allocate some space for the VDSO
   MemoryMappedObject::Permissions vdsoPerms =
       MemoryMappedObject::Read | MemoryMappedObject::Write | MemoryMappedObject::Exec;
@@ -2964,6 +2964,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 
 #if ARM64
   STACK_PUSH_STRING(loaderStack, "aarch64", 8);
+#elif ARMV7
+  STACK_PUSH_STRING(loaderStack, "v7l", 4);
 #else
   STACK_PUSH_STRING(loaderStack, "x86_64", 7);
 #endif
@@ -3000,7 +3002,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 
   // The hosted vDSO artifact is not a loadable DSO, so advertising it makes
   // musl attempt to decode a nonexistent dynamic table.
-#if !HOSTED && !ARM64
+#if !HOSTED && !ARM64 && !ARMV7
   // Push the vDSO shared object.
   if (pVdso) {
     STACK_PUSH2(loaderStack, 0, 32);            // AT_SYSINFO - not present

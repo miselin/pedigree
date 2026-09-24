@@ -221,12 +221,37 @@ uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallS
 #endif
 
     switch (syscallNumber) {
+#if ARMV7
+      case 0x0f0005:  // __ARM_NR_set_tls
+        Processor::information().getCurrentThread()->setTlsBase(argument(0));
+        return 0;
+      case 140: {  // _llseek
+        const off_t offset = (static_cast<uint64_t>(argument(1)) << 32) | argument(2);
+        const off_t result = posix_lseek(static_cast<int>(argument(0)), offset,
+                                         static_cast<int>(argument(4)));
+        if (result < 0) {
+          return -1;
+        }
+        if (!PosixSubsystem::copyToUser(reinterpret_cast<void*>(argument(3)), &result,
+                                        sizeof(result))) {
+          SYSCALL_ERROR(BadAddress);
+          return -1;
+        }
+        return 0;
+      }
+#endif
 #if ARM64
 #define PEDIGREE_LINUX_ARM64_SYSCALL(name, number, target) \
   case PedigreeLinuxArm64Syscall_##name:                   \
     goto handle_##target;
 #include "syscalls/linuxSyscallMappings-arm64.h"
 #undef PEDIGREE_LINUX_ARM64_SYSCALL
+#elif ARMV7
+#define PEDIGREE_LINUX_ARMV7_SYSCALL(name, number, target) \
+  case PedigreeLinuxArmv7Syscall_##name:                   \
+    goto handle_##target;
+#include "syscalls/linuxSyscallMappings-armv7.h"
+#undef PEDIGREE_LINUX_ARMV7_SYSCALL
 #else
 #define PEDIGREE_LINUX_AMD64_SYSCALL(name, number, target) \
   case PedigreeLinuxAmd64Syscall_##name:                   \
@@ -546,6 +571,18 @@ uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallS
     POSIX_CASE(POSIX_GETGID)
       return posix_getgid();
     POSIX_CASE(POSIX_SIGACTION)
+#if ARMV7
+      if (linuxAbi) {
+        if (argument(3) != sizeof(uint64_t)) {
+          SYSCALL_ERROR(InvalidArgument);
+          return -1;
+        }
+        return posix_linux_armv7_sigaction(
+            static_cast<int>(argument(0)),
+            reinterpret_cast<const LinuxArmv7KernelSigaction*>(argument(1)),
+            reinterpret_cast<LinuxArmv7KernelSigaction*>(argument(2)));
+      }
+#endif
 #if BITS_64
       if (linuxAbi) {
         if (argument(3) != sizeof(uint64_t)) {
@@ -749,6 +786,14 @@ uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallS
     case POSIX_ISATTY:
       return posix_isatty(static_cast<int>(argument(0)));
     POSIX_CASE(POSIX_MMAP)
+#if ARMV7
+      if (linuxAbi) {
+        return reinterpret_cast<uintptr_t>(posix_mmap(
+            reinterpret_cast<void*>(argument(0)), argument(1), static_cast<int>(argument(2)),
+            static_cast<int>(argument(3)), static_cast<int>(argument(4)),
+            static_cast<off_t>(uint64_t(argument(5)) * PAGE_SIZE)));
+      }
+#endif
       return reinterpret_cast<uintptr_t>(
           posix_mmap(reinterpret_cast<void*>(argument(0)), argument(1),
                      static_cast<int>(argument(2)), static_cast<int>(argument(3)),

@@ -579,7 +579,8 @@ uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, S
 
 uint64_t UnixSocket::receiveStream(uint64_t size, uintptr_t buffer, bool bCanBlock,
                                    SharedPointer<SocketRights>* rights, bool* interrupted) {
-  struct iovec vector = {reinterpret_cast<void*>(buffer), size};
+  struct iovec vector = {reinterpret_cast<void*>(buffer),
+                         static_cast<size_t>(size > SIZE_MAX ? SIZE_MAX : size)};
   return receiveStream(&vector, 1, bCanBlock, rights, interrupted);
 }
 
@@ -662,7 +663,8 @@ uint64_t UnixSocket::writeBytewise(uint64_t location, uint64_t size, uintptr_t b
 
 uint64_t UnixSocket::sendStream(uint64_t size, uintptr_t buffer, bool bCanBlock,
                                 const SharedPointer<SocketRights>& rights, bool* interrupted) {
-  struct iovec vector = {reinterpret_cast<void*>(buffer), size};
+  struct iovec vector = {reinterpret_cast<void*>(buffer),
+                         static_cast<size_t>(size > SIZE_MAX ? SIZE_MAX : size)};
   return sendStream(&vector, 1, bCanBlock, rights, interrupted);
 }
 

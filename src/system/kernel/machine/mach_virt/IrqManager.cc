@@ -36,27 +36,39 @@ constexpr uintptr_t RedistSgi = 0x10000;
 // QEMU HVF needs unindexed, single-register MMIO accesses with valid syndromes.
 uint32_t read32(uintptr_t base, uintptr_t offset) {
   uint32_t value;
+#if ARMV7
+  asm volatile("ldr %0, [%1]" : "=r"(value) : "r"(base + offset) : "memory");
+#else
   asm volatile("ldr %w0, [%1]" : "=r"(value) : "r"(base + offset) : "memory");
+#endif
   return value;
 }
 
 void write32(uintptr_t base, uintptr_t offset, uint32_t value) {
+#if ARMV7
+  asm volatile("str %1, [%0]" : : "r"(base + offset), "r"(value) : "memory");
+#else
   asm volatile("str %w1, [%0]" : : "r"(base + offset), "r"(value) : "memory");
+#endif
 }
 
+#if ARM64
 void write64(uintptr_t base, uintptr_t offset, uint64_t value) {
   asm volatile("str %1, [%0]" : : "r"(base + offset), "r"(value) : "memory");
 }
+#endif
 
 void barrier() {
   asm volatile("dsb sy\n\tisb" : : : "memory");
 }
 
+#if ARM64
 uint64_t processorAffinity() {
   uint64_t mpidr;
   asm volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
   return (mpidr & 0xff00000000ULL) | (mpidr & 0x00ffffffULL);
 }
+#endif
 }  // namespace
 
 VirtIrqManager VirtIrqManager::m_Instance;
@@ -132,6 +144,9 @@ bool VirtIrqManager::initialiseV2() {
 }
 
 bool VirtIrqManager::initialiseV3() {
+#if ARMV7
+  return false;
+#else
   const uintptr_t dist = VirtDeviceTree::gicDistributorBase();
   const uintptr_t redist = VirtDeviceTree::gicRedistributorBase();
   if (!dist || !redist) {
@@ -196,6 +211,7 @@ bool VirtIrqManager::initialiseV3() {
   write32(dist, DistControl, (1U << 4) | (1U << 1) | 1U);
   barrier();
   return true;
+#endif
 }
 
 void VirtIrqManager::setEnabled(uint32_t irq, bool enabled) {
@@ -459,21 +475,27 @@ void VirtIrqManager::dispatchPciLine(void* context, uint8_t slot, size_t cookie)
 }
 
 uint32_t VirtIrqManager::acknowledge() {
+#if ARM64
   if (m_Version == 3) {
     uint64_t value;
     asm volatile("mrs %0, ICC_IAR1_EL1" : "=r"(value));
     asm volatile("isb" : : : "memory");
     return static_cast<uint32_t>(value);
   }
+#endif
   return read32(VirtDeviceTree::gicCpuBase(), CpuAcknowledge);
 }
 
 void VirtIrqManager::complete(uint32_t value) {
+#if ARM64
   if (m_Version == 3) {
     asm volatile("msr ICC_EOIR1_EL1, %0\n\tisb" : : "r"(uint64_t(value)) : "memory");
   } else {
+#endif
     write32(VirtDeviceTree::gicCpuBase(), CpuEndOfInterrupt, value);
+#if ARM64
   }
+#endif
 }
 
 void VirtIrqManager::handle(InterruptState& state) {
@@ -493,7 +515,12 @@ void VirtIrqManager::handle(InterruptState& state) {
   SchedulerIrqHandler* scheduler = m_Scheduler[irq];
   if (scheduler) {
     if (irq == VirtDeviceTree::virtualTimerIrq()) {
+#if ARMV7
+      uint32_t disabled = 0;
+      asm volatile("mcr p15, 0, %0, c14, c3, 1\n\tisb" : : "r"(disabled) : "memory");
+#else
       asm volatile("msr cntv_ctl_el0, %0\n\tisb" : : "r"(uint64_t(0)) : "memory");
+#endif
     }
     // A scheduler callback may abandon this interrupt frame permanently.
     complete(acknowledgeValue);

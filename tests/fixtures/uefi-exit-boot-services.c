@@ -31,7 +31,7 @@ static uint64_t raw_capacity;
 static char calls[32];
 static size_t call_count;
 
-static efi_status_t get_map(uint64_t* size, void* buffer, uint64_t* key, uint64_t* stride,
+static efi_status_t get_map(uintptr_t* size, void* buffer, uintptr_t* key, uintptr_t* stride,
                             uint32_t* version) {
   assert(*size == raw_capacity);
   calls[call_count++] = 'M';
@@ -95,7 +95,7 @@ static efi_status_t get_map(uint64_t* size, void* buffer, uint64_t* key, uint64_
   return EFI_SUCCESS;
 }
 
-static efi_status_t exit_services(efi_handle_t image, uint64_t key) {
+static efi_status_t exit_services(efi_handle_t image, uintptr_t key) {
   assert(image == (void*)(uintptr_t)0x1234);
   assert(key == 0x100 + maps);
   calls[call_count++] = 'E';

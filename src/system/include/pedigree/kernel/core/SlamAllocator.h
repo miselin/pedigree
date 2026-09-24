@@ -259,6 +259,9 @@ class SlamCache {
    * lock-free fast path before inspecting or reclaiming slabs.
    */
   Spinlock m_RecoveryLock;
+#if BITS_32
+  Spinlock m_FreeLock;
+#endif
 
   /** Pointer back to the associated SlamAllocator. */
   SlamAllocator* m_pParentAllocator;

@@ -34,9 +34,10 @@ class RelocationTests(unittest.TestCase):
                     with tempfile.TemporaryDirectory() as directory:
                         path = Path(directory) / "loader.obj"
                         path.write_bytes(header + section + code + relocation + symbols)
-                        output, entry, machine = uefi_pe.read_object(path)
+                        output, entry, machine, relocations = uefi_pe.read_object(path)
                     self.assertEqual(entry, 0)
                     self.assertEqual(machine, 0x8664)
+                    self.assertEqual(relocations, [])
                     self.assertEqual(struct.unpack_from("<i", output)[0], 12 + addend - kind)
 
     def test_arm64_instruction_relocations(self):
@@ -50,6 +51,12 @@ class RelocationTests(unittest.TestCase):
         self.assertEqual((add >> 10) & 0xFFF, 0x234)
         self.assertEqual((load >> 10) & 0xFFF, 0x238 // 8)
         self.assertEqual(branch & 0x03FFFFFF, 3)
+
+    def test_arm32_thumb_address_relocation(self):
+        code = bytearray(struct.pack("<HHHH", 0xF240, 0x0000, 0xF2C0, 0x0000))
+        kind = uefi_pe.arm32_relocation(code, 0, 0x1234, 0x11, True)
+        self.assertEqual(kind, 7)
+        self.assertEqual(struct.unpack("<HHHH", code), (0xF242, 0x2035, 0xF2C0, 0x0080))
 
 
 if __name__ == "__main__":

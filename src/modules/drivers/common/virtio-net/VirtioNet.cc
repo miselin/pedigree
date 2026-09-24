@@ -27,7 +27,7 @@ struct VirtioNetHeader {
   uint16_t checksumStart;
   uint16_t checksumOffset;
   uint16_t numBuffers;
-};
+} __attribute__((packed));
 static_assert(sizeof(VirtioNetHeader) == 12, "unexpected virtio-net header size");
 
 size_t pagesFor(size_t bytes) {

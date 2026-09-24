@@ -547,12 +547,15 @@ inline void TlbInvalidationGuard::retire() {
 #include "pedigree/kernel/processor/hosted/Processor.h"      // IWYU pragma: export
 #include "pedigree/kernel/processor/x64/Processor.h"         // IWYU pragma: export
 #include "pedigree/kernel/processor/arm64/Processor.h"       // IWYU pragma: export
+#include "pedigree/kernel/processor/armv7/Processor.h"       // IWYU pragma: export
 #include "pedigree/kernel/processor/x86_common/Processor.h"  // IWYU pragma: export
 
 #if X64
 typedef X64Processor Processor;
 #elif ARM64
 typedef Arm64Processor Processor;
+#elif ARMV7
+typedef Armv7Processor Processor;
 #elif HOSTED
 typedef HostedProcessor Processor;
 #else

@@ -6,7 +6,7 @@ IMG=/out/rootfs.img
 ALPINE_ARCH=${ALPINE_ARCH:-x86_64}
 
 case "$ALPINE_ARCH" in
-    x86_64|aarch64) ;;
+    x86_64|aarch64|armv7) ;;
     *) echo "Unsupported Alpine architecture: $ALPINE_ARCH" >&2; exit 1 ;;
 esac
 
@@ -76,7 +76,7 @@ EOF
     cp -a "$ROOT/lib" /out/sysroot/
 fi
 
-if [ "$ALPINE_ARCH" = aarch64 ]; then
+if [ "$ALPINE_ARCH" = aarch64 ] || [ "$ALPINE_ARCH" = armv7 ]; then
     truncate -s 128M "$IMG"
 else
     truncate -s 512M "$IMG"

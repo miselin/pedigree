@@ -21,7 +21,11 @@ constexpr size_t MaxDepth = 16;
 constexpr size_t MaxMemoryRegions = 8;
 constexpr size_t MaxVirtioMmio = 32;
 constexpr size_t MaxPciWindows = 8;
+#if ARMV7
+constexpr uintptr_t DirectMapBase = 0x80000000;
+#else
 constexpr uintptr_t DirectMapBase = 0xffff000000000000ULL;
+#endif
 
 struct PlatformInfo {
   VirtMemoryRegion memory[MaxMemoryRegions];
@@ -362,7 +366,8 @@ bool parse(const uint8_t* dtb, PlatformInfo& out) {
         node.gic = hasString(data, length, "arm,cortex-a15-gic") ||
                    hasString(data, length, "arm,gic-400") || hasString(data, length, "arm,gic-v3");
         node.gicV3 = hasString(data, length, "arm,gic-v3");
-        node.timer = hasString(data, length, "arm,armv8-timer");
+        node.timer = hasString(data, length, "arm,armv8-timer") ||
+                     hasString(data, length, "arm,armv7-timer");
         node.psci =
             hasString(data, length, "arm,psci-1.0") || hasString(data, length, "arm,psci-0.2");
         node.virtioMmio = hasString(data, length, "virtio,mmio");

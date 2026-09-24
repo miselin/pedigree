@@ -36,6 +36,13 @@ enum PedigreeLinuxArm64SyscallNumber {
 #include "linuxSyscallMappings-arm64.h"
 #undef PEDIGREE_LINUX_ARM64_SYSCALL
 };
+#elif ARMV7
+enum PedigreeLinuxArmv7SyscallNumber {
+#define PEDIGREE_LINUX_ARMV7_SYSCALL(name, number, target) \
+  PedigreeLinuxArmv7Syscall_##name = number,
+#include "linuxSyscallMappings-armv7.h"
+#undef PEDIGREE_LINUX_ARMV7_SYSCALL
+};
 #endif
 
 static inline long posix_translate_syscall(long which) {
@@ -46,6 +53,12 @@ static inline long posix_translate_syscall(long which) {
     return target;
 #include "linuxSyscallMappings-arm64.h"
 #undef PEDIGREE_LINUX_ARM64_SYSCALL
+#elif ARMV7
+#define PEDIGREE_LINUX_ARMV7_SYSCALL(name, number, target) \
+  case PedigreeLinuxArmv7Syscall_##name:                   \
+    return target;
+#include "linuxSyscallMappings-armv7.h"
+#undef PEDIGREE_LINUX_ARMV7_SYSCALL
 #else
 #define PEDIGREE_LINUX_AMD64_SYSCALL(name, number, target) \
   case PedigreeLinuxAmd64Syscall_##name:                   \

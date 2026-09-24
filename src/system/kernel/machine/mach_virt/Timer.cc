@@ -15,6 +15,7 @@
 #include "pedigree/kernel/utilities/String.h"
 
 #include "DeviceTree.h"
+#include "GenericTimer.h"
 
 namespace {
 constexpr uint64_t NanosecondsPerSecond = 1000000000ULL;
@@ -70,9 +71,7 @@ VirtTimer::~VirtTimer() {
 }
 
 uint64_t VirtTimer::counter() {
-  uint64_t value;
-  asm volatile("mrs %0, cntvct_el0" : "=r"(value));
-  return value;
+  return VirtGenericTimer::count();
 }
 
 uint64_t VirtTimer::ticksToNanoseconds(uint64_t ticks) const {
@@ -87,7 +86,7 @@ bool VirtTimer::initialise1() {
   if (m_Prepared) {
     return false;
   }
-  asm volatile("mrs %0, cntfrq_el0" : "=r"(m_Frequency));
+  m_Frequency = VirtGenericTimer::frequency();
   if (!m_Frequency) {
     return false;
   }
@@ -98,7 +97,7 @@ bool VirtTimer::initialise1() {
   m_BootCount = m_LastCount = counter();
   m_Handlers.reset();
   synchronise();
-  asm volatile("msr cntp_ctl_el0, %0\n\tisb" : : "r"(uint64_t(0)) : "memory");
+  VirtGenericTimer::physicalControl(0);
   m_Prepared = true;
   return true;
 }
@@ -146,7 +145,7 @@ VirtTimer::HardStageDisposition VirtTimer::hardIrq(irq_id_t number, InterruptSta
   if (number != m_IrqId) {
     return HardStageDisposition::NotHandled;
   }
-  asm volatile("msr cntp_ctl_el0, %0\n\tisb" : : "r"(uint64_t(0)) : "memory");
+  VirtGenericTimer::physicalControl(0);
   work = 1;
   return HardStageDisposition::Deferred;
 }
@@ -162,15 +161,12 @@ void VirtTimer::threadedIrq(size_t work) {
 }
 
 bool VirtTimer::quiesceIrqSources() {
-  asm volatile("msr cntp_ctl_el0, %0\n\tisb" : : "r"(uint64_t(0)) : "memory");
+  VirtGenericTimer::physicalControl(0);
   return true;
 }
 
 void VirtTimer::rearmIrqSources(size_t) {
-  asm volatile("msr cntp_tval_el0, %0\n\tmsr cntp_ctl_el0, %1\n\tisb"
-               :
-               : "r"(uint64_t(m_IntervalTicks)), "r"(uint64_t(1))
-               : "memory");
+  VirtGenericTimer::setPhysicalTimer(m_IntervalTicks);
 }
 
 uint64_t VirtTimer::getTickCount() {

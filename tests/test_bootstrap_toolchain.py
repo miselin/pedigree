@@ -47,6 +47,20 @@ class BootstrapToolchainContractTests(unittest.TestCase):
                 arm64.sysroot, ROOT / "scripts/alpine/build/aarch64/sysroot/usr"
             )
 
+            armv7 = Bootstrapper(
+                parse_args(
+                    [
+                        "armv7-alpine-linux-musleabihf",
+                        str(Path(tempdir) / "compiler"),
+                        "--source-root",
+                        str(ROOT),
+                    ]
+                )
+            )
+            self.assertEqual(
+                armv7.sysroot, ROOT / "scripts/alpine/build/armv7/sysroot/usr"
+            )
+
     def test_build_tree_is_target_specific(self):
         with tempfile.TemporaryDirectory() as tempdir:
             prefix = Path(tempdir) / "compiler"
@@ -170,30 +184,36 @@ class BootstrapToolchainContractTests(unittest.TestCase):
 
     def test_linux_musl_stage_one_defers_libgcc_until_libc_is_available(self):
         with tempfile.TemporaryDirectory() as tempdir:
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(SCRIPT),
-                    "aarch64-linux-musl",
-                    str(Path(tempdir) / "compiler"),
-                    "--source-root",
-                    str(ROOT),
-                    "--libcpp",
-                    "--dry-run",
-                    "--jobs",
-                    "4",
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            for target in ("aarch64-linux-musl", "armv7-alpine-linux-musleabihf"):
+                with self.subTest(target=target):
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            str(SCRIPT),
+                            target,
+                            str(Path(tempdir) / "compiler"),
+                            "--source-root",
+                            str(ROOT),
+                            "--libcpp",
+                            "--dry-run",
+                            "--jobs",
+                            "4",
+                        ],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
 
-            self.assertIn("make -j4 all-gcc (in ", result.stdout)
-            self.assertIn("make install-gcc (in ", result.stdout)
-            self.assertIn(
-                "make -j4 all-gcc all-target-libgcc all-target-libstdc++-v3",
-                result.stdout,
-            )
+                    self.assertIn("make -j4 all-gcc (in ", result.stdout)
+                    self.assertIn("make install-gcc (in ", result.stdout)
+                    self.assertIn(
+                        "make -j4 all-gcc all-target-libgcc all-target-libstdc++-v3",
+                        result.stdout,
+                    )
+                    if target == "armv7-alpine-linux-musleabihf":
+                        self.assertIn("--with-arch=armv7-a", result.stdout)
+                        self.assertIn("--with-fpu=vfpv3-d16", result.stdout)
+                        self.assertIn("--with-float=hard", result.stdout)
 
     def test_activation_is_explicit_and_dry_run_does_not_mutate(self):
         with tempfile.TemporaryDirectory() as tempdir:

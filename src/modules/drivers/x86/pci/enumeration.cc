@@ -31,9 +31,12 @@
 #include "pci_list.h"
 
 static void readConfigSpace(Device* pDev, PciBus::ConfigSpace* pCs) {
-  uint32_t* pCs32 = reinterpret_cast<uint32_t*>(pCs);
+  uint8_t* bytes = reinterpret_cast<uint8_t*>(pCs);
   for (unsigned int i = 0; i < sizeof(PciBus::ConfigSpace) / 4; i++) {
-    pCs32[i] = PciBus::instance().readConfigSpace(pDev, i);
+    const uint32_t value = PciBus::instance().readConfigSpace(pDev, i);
+    for (unsigned int byte = 0; byte < 4; ++byte) {
+      bytes[i * 4 + byte] = value >> (byte * 8);
+    }
   }
 }
 
@@ -85,7 +88,7 @@ static bool entry() {
           // break;
         }
 
-        PciBus::ConfigSpace cs;
+        PciBus::ConfigSpace cs = {};
         readConfigSpace(pDevice, &cs);
 
         if (cs.header_type & 0x80)
@@ -114,7 +117,7 @@ static bool entry() {
           delete pDevice;
           continue;
         }
-#if ARM64
+#if ARM64 || ARMV7
         bool assignedBar = false;
         for (size_t l = 0; l < bars.count; ++l) {
           const bool wide = !(cs.bar[l] & 1U) && (cs.bar[l] & 6U) == 4;

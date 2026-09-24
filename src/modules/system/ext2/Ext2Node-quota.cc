@@ -19,10 +19,12 @@ bool Ext2Node::changeInodeOwnership(size_t uid, size_t gid, bool changeUid, bool
     SYSCALL_ERROR(NotEnoughPermissions);
     return false;
   }
-  if ((changeUid && uid > 0xffffffffULL) || (changeGid && gid > 0xffffffffULL)) {
+#if BITS_64
+  if ((changeUid && uid > UINT32_MAX) || (changeGid && gid > UINT32_MAX)) {
     SYSCALL_ERROR(ValueTooLarge);
     return false;
   }
+#endif
   if (!m_pExt2Fs->prepareInodeWrite(m_InodeNumber))
     return false;
   auto status = m_pExt2Fs->prepareQuotaInodeLocked(m_InodeNumber);

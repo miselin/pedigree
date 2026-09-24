@@ -104,8 +104,8 @@ bool Queue::pop(Completion& completion) {
   if (!m_Online) {
     return false;
   }
-  auto* used = static_cast<volatile uint8_t*>(m_Used.virtualAddress());
-  const uint16_t available = *reinterpret_cast<volatile uint16_t*>(used + 2);
+  auto* usedIndex = static_cast<volatile uint16_t*>(m_Used.virtualAddress());
+  const uint16_t available = usedIndex[1];
   if (available == m_UsedIndex) {
     return false;
   }
@@ -115,10 +115,10 @@ bool Queue::pop(Completion& completion) {
     return false;
   }
   FENCE();
-  auto* entries = reinterpret_cast<volatile uint32_t*>(used + 4);
+  auto* entries = static_cast<volatile uint32_t*>(m_Used.virtualAddress());
   const size_t slot = m_UsedIndex % m_Depth;
-  const uint32_t id = entries[slot * 2];
-  const uint32_t length = entries[slot * 2 + 1];
+  const uint32_t id = entries[1 + slot * 2];
+  const uint32_t length = entries[2 + slot * 2];
   if (id >= m_Depth || !m_Active[id] || !m_ChainLength[id]) {
     ERROR("virtio: invalid used-ring descriptor");
     m_Online = false;

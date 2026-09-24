@@ -17,12 +17,21 @@
 
 namespace {
 void psci(uint64_t function, bool hvc) {
+#if ARMV7
+  register uint32_t r0 asm("r0") = static_cast<uint32_t>(function);
+  if (hvc) {
+    asm volatile(".arch_extension virt\n\thvc #0" : "+r"(r0) : : "memory");
+  } else {
+    asm volatile(".arch_extension sec\n\tsmc #0" : "+r"(r0) : : "memory");
+  }
+#else
   register uint64_t x0 asm("x0") = function;
   if (hvc) {
     asm volatile("hvc #0" : "+r"(x0) : : "memory");
   } else {
     asm volatile("smc #0" : "+r"(x0) : : "memory");
   }
+#endif
 }
 }  // namespace
 

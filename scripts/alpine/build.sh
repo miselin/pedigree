@@ -14,11 +14,18 @@ case "$ALPINE_ARCH" in
         output_dir="$script_dir/build/aarch64"
         docker_platform=linux/arm64
         if [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]]; then
-            exec "$script_dir/build-native-aarch64.sh" "$output_dir"
+            exec "$script_dir/build-native.sh" aarch64 "$output_dir"
+        fi
+        ;;
+    armv7)
+        output_dir="$script_dir/build/armv7"
+        docker_platform=linux/arm/v7
+        if [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]]; then
+            exec "$script_dir/build-native.sh" armv7 "$output_dir"
         fi
         ;;
     *)
-        echo "Usage: $0 [x86_64|aarch64]" >&2
+        echo "Usage: $0 [x86_64|aarch64|armv7]" >&2
         exit 1
         ;;
 esac

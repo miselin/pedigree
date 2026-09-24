@@ -253,10 +253,12 @@ bool Ext2Node::zeroRange(size_t start, size_t end) {
 }
 
 bool Ext2Node::resizeData(size_t size) {
-  if (size > 0xffffffffULL) {
+#if BITS_64
+  if (size > UINT32_MAX) {
     SYSCALL_ERROR(FileTooLarge);
     return false;
   }
+#endif
   if (size > m_nSize) {
     return ensureLargeEnough(size, 0, 0);
   }

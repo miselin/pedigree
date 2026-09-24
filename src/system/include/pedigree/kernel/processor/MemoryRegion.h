@@ -38,6 +38,7 @@ class EXPORTED_PUBLIC MemoryRegion {
   /** As does HostedPhysicalMemoryManager. */
   friend class HostedPhysicalMemoryManager;
   friend class Arm64PhysicalMemoryManager;
+  friend class Armv7PhysicalMemoryManager;
 
  public:
   /** The default constructor does nothing  */

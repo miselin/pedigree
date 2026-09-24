@@ -17,6 +17,7 @@
 build/
 build-arm/
 build-arm64/
+build-armv7/
 build-host-linux/
 build-host/
 build-hosted/

@@ -17,7 +17,7 @@ struct Entry {
   uint8_t nameLength, nameIndex;
   uint16_t valueOffset;
   uint32_t valueBlock, valueLength, hash;
-};
+} __attribute__((packed));
 static_assert(sizeof(Header) == 32, "Ext2 EA header");
 static_assert(sizeof(Entry) == 16, "Ext2 EA entry");
 
