@@ -26,6 +26,11 @@ The default `base` profile uses Alpine's minimal root filesystem and BusyBox
 init, serial getty, login, and shell. Its development sysroot adds musl and Linux
 headers. Development packages are excluded from the runtime image.
 
+The x86-64 runtime and SDK retain `/usr/lib/ld-musl-x86_64.so.1` as a symlink to
+Alpine's `/lib/ld-musl-x86_64.so.1` for binaries linked by the existing Pedigree
+compiler. The standard cross-build selects Alpine's loader path directly for
+new applications.
+
 Use `--profile desktop` for Bash, C++ runtime libraries, graphics and font
 libraries, gettext, dialog, and protobuf, with their development packages. This
 profile is available on all three architectures; it does not install a desktop

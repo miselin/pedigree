@@ -46,6 +46,10 @@ target_apk "$root" upgrade --no-self-upgrade --no-scripts --no-commit-hooks
 if [ -n "$runtime_packages" ]; then
     target_apk "$root" add --no-scripts --no-commit-hooks $runtime_packages
 fi
+# The retained x86_64-pedigree compiler and existing binaries use this path.
+if [ "$arch" = x86_64 ]; then
+    ln -s ../../lib/ld-musl-x86_64.so.1 "$root/usr/lib/ld-musl-x86_64.so.1"
+fi
 cp -a "$root" "$sdk"
 target_apk "$sdk" add --no-scripts --no-commit-hooks $development_packages
 target_apk "$root" info -v > "$work/rootfs.packages"
