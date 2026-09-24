@@ -2722,6 +2722,11 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     return -1;
   }
 
+  if ((command & 0xff00) == 0x5600 && !ConsoleManager::instance().isConsole(f->getFile())) {
+    SYSCALL_ERROR(NotAConsole);
+    return -1;
+  }
+
   if (f->getFile()->supports(command)) {
     return f->getFile()->command(command, buf);
   }
