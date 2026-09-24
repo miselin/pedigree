@@ -42,6 +42,6 @@ void PageFaultHandler::interrupt(size_t, InterruptState& state) {
     }
   }
   ERROR("ARMv7: page fault at " << Hex << address << " PC " << state.pc << " FSR "
-                                 << state.faultStatus);
+                                << state.faultStatus);
   panic("ARMv7: unrecoverable page fault");
 }

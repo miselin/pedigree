@@ -23,11 +23,7 @@
 #include <stdio.h>
 
 HostedVga::HostedVga()
-    : m_nWidth(80),
-      m_nHeight(25),
-      m_CursorX(0),
-      m_CursorY(0),
-      m_pBackbuffer(0) {}
+    : m_nWidth(80), m_nHeight(25), m_CursorX(0), m_CursorY(0), m_pBackbuffer(0) {}
 
 HostedVga::~HostedVga() {
   delete[] m_pBackbuffer;

@@ -283,7 +283,7 @@ void UsbDevice::initialise(uint8_t nAddress) {
   }
   m_UsbState = HasDescriptors;  // We now have the device descriptor
 
-// Debug dump of the device descriptor
+  // Debug dump of the device descriptor
   EMIT_IF(UsbVerboseDebug) {
     DEBUG_LOG("USB version: " << Dec << (m_pDescriptor->nBcdUsbRelease >> 8) << "."
                               << (m_pDescriptor->nBcdUsbRelease & 0xFF) << ".");

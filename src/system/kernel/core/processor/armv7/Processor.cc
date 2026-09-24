@@ -6,9 +6,9 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/state.h"
 
+#include "../../../machine/mach_virt/DeviceTree.h"
 #include "PhysicalMemoryManager.h"
 #include "VirtualAddressSpace.h"
-#include "../../../machine/mach_virt/DeviceTree.h"
 
 extern "C" bool armv7SaveSchedulerState(SchedulerState* state);
 extern "C" void armv7RestoreSchedulerState(SchedulerState* state,
@@ -74,7 +74,7 @@ void ProcessorBase::restoreState(SyscallState& state, volatile uintptr_t* lock) 
 }
 
 void ProcessorBase::switchState(bool interrupts, SchedulerState& previous, SchedulerState& next,
-                                 volatile uintptr_t* lock) {
+                                volatile uintptr_t* lock) {
   if (saveState(previous)) {
     return;
   }
@@ -83,7 +83,7 @@ void ProcessorBase::switchState(bool interrupts, SchedulerState& previous, Sched
 }
 
 void ProcessorBase::switchState(bool interrupts, SchedulerState& previous, SyscallState& next,
-                                 volatile uintptr_t* lock) {
+                                volatile uintptr_t* lock) {
   if (saveState(previous)) {
     return;
   }
@@ -193,7 +193,7 @@ size_t ProcessorBase::getDebugBreakpointCount() {
 }
 
 uintptr_t ProcessorBase::getDebugBreakpoint(size_t, DebugFlags::FaultType& type, size_t& length,
-                                             bool& enabled) {
+                                            bool& enabled) {
   type = DebugFlags::InstructionFetch;
   length = 0;
   enabled = false;
@@ -235,7 +235,7 @@ void ProcessorBase::endTlbInvalidation(TlbInvalidationGuard& guard) {
 }
 
 bool ProcessorBase::closeTlbInvalidationAdmissionForTerminalFailure(TlbInvalidationGuard& guard,
-                                                                     TlbInvalidationResult) {
+                                                                    TlbInvalidationResult) {
   if (!guard.m_Active || terminalTlbFailure) {
     return false;
   }

@@ -2,11 +2,11 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 #include <string.h>
 
 #include "AddressLayout.h"
-#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 EXPORTED_PUBLIC size_t g_FreePages = 0;
 EXPORTED_PUBLIC size_t g_AllocedPages = 0;

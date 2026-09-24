@@ -107,7 +107,7 @@ inline T* tagged(T* p) {
 template <typename T>
 inline T* next_tag(T* p, T* currentHead) {
 #if BITS_32
-  (void) currentHead;
+  (void)currentHead;
   return p;
 #else
   uintptr_t ptr = reinterpret_cast<uintptr_t>(p) & POINTER_MASK;
@@ -235,9 +235,11 @@ SlamCache::SlamCache()
       m_FastPathState(0),
       m_RecoveryLock(false, true)
 #if BITS_32
-      , m_FreeLock(false)
+      ,
+      m_FreeLock(false)
 #endif
-{}
+{
+}
 
 SlamCache::~SlamCache() {}
 

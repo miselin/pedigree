@@ -34,8 +34,8 @@ bool Elf::applyRelocation(ElfRel_t rel, ElfSectionHeader_t* section, SymbolTable
     return false;
   }
   const intptr_t addend = *reinterpret_cast<const int32_t*>(destination);
-  return applyArmRelocation(R_TYPE(rel.info), R_SYM(rel.info), rel.offset, addend, section,
-                            symbols, loadBase, policy, destinationAddress, destinationEnd);
+  return applyArmRelocation(R_TYPE(rel.info), R_SYM(rel.info), rel.offset, addend, section, symbols,
+                            loadBase, policy, destinationAddress, destinationEnd);
 }
 
 bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t* section, SymbolTable* symbols,
@@ -45,10 +45,10 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t* section, SymbolTabl
                             symbols, loadBase, policy, destinationAddress, destinationEnd);
 }
 
-bool Elf::applyArmRelocation(Elf_Word type, Elf_Word symbolIndex, uintptr_t offset,
-                             intptr_t addend, ElfSectionHeader_t* section, SymbolTable* symbols,
-                             uintptr_t loadBase, SymbolTable::Policy policy,
-                             uintptr_t destinationAddress, uintptr_t destinationEnd) {
+bool Elf::applyArmRelocation(Elf_Word type, Elf_Word symbolIndex, uintptr_t offset, intptr_t addend,
+                             ElfSectionHeader_t* section, SymbolTable* symbols, uintptr_t loadBase,
+                             SymbolTable::Policy policy, uintptr_t destinationAddress,
+                             uintptr_t destinationEnd) {
   if (section && !section->addr) {
     return true;
   }

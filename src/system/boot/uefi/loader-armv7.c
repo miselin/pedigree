@@ -1,8 +1,9 @@
 /* ARMv7 UEFI handoff for the freestanding Pedigree ELF kernel. */
+#include "pedigree/kernel/processor/armv7/UefiHandoff.h"
+
 #include <stdint.h>
 
 #include "exit_boot_services.h"
-#include "pedigree/kernel/processor/armv7/UefiHandoff.h"
 
 typedef uint16_t efi_char16_t;
 typedef struct {
@@ -292,8 +293,7 @@ efi_status_t efi_main(efi_handle_t image, efi_system_table_t* table) {
     return EFI_LOAD_ERROR;
   }
   const uint8_t* firmware_fdt = (const uint8_t*)fdt;
-  const uint32_t fdt_size = ((uint32_t)firmware_fdt[4] << 24) |
-                            ((uint32_t)firmware_fdt[5] << 16) |
+  const uint32_t fdt_size = ((uint32_t)firmware_fdt[4] << 24) | ((uint32_t)firmware_fdt[5] << 16) |
                             ((uint32_t)firmware_fdt[6] << 8) | firmware_fdt[7];
   if (firmware_fdt[0] != 0xd0 || firmware_fdt[1] != 0x0d || firmware_fdt[2] != 0xfe ||
       firmware_fdt[3] != 0xed || fdt_size < 40 || fdt_size > 2 * 1024 * 1024) {
@@ -373,9 +373,13 @@ efi_status_t efi_main(efi_handle_t image, efi_system_table_t* table) {
     return status;
   }
   const uint32_t initrd_start = (uint32_t)rootfs;
-  *handoff = (armv7_uefi_handoff_t){ARMV7_UEFI_HANDOFF_MAGIC, fdt, initrd_start,
-                                    initrd_start + (uint32_t)rootfs_length, (uint32_t)cmdline,
-                                    (uint32_t)normalized, normalized_bytes};
+  *handoff = (armv7_uefi_handoff_t){ARMV7_UEFI_HANDOFF_MAGIC,
+                                    fdt,
+                                    initrd_start,
+                                    initrd_start + (uint32_t)rootfs_length,
+                                    (uint32_t)cmdline,
+                                    (uint32_t)normalized,
+                                    normalized_bytes};
   clean_buffer((uint32_t)handoff, sizeof(*handoff));
   clean_buffer(fdt, fdt_size);
   clean_buffer((uint32_t)normalized, normalized_bytes);

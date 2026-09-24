@@ -222,9 +222,8 @@ void Armv7SyscallManager::handle(SyscallState& state) {
   Processor::setInterrupts(false);
 }
 
-uintptr_t Armv7SyscallManager::syscall(Service_t service, uintptr_t function,
-                                       uintptr_t p1, uintptr_t p2, uintptr_t p3,
-                                       uintptr_t p4, uintptr_t p5) {
+uintptr_t Armv7SyscallManager::syscall(Service_t service, uintptr_t function, uintptr_t p1,
+                                       uintptr_t p2, uintptr_t p3, uintptr_t p4, uintptr_t p5) {
   register uintptr_t r0 asm("r0") = p1;
   register uintptr_t r1 asm("r1") = p2;
   register uintptr_t r2 asm("r2") = p3;

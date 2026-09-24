@@ -227,8 +227,8 @@ uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallS
         return 0;
       case 140: {  // _llseek
         const off_t offset = (static_cast<uint64_t>(argument(1)) << 32) | argument(2);
-        const off_t result = posix_lseek(static_cast<int>(argument(0)), offset,
-                                         static_cast<int>(argument(4)));
+        const off_t result =
+            posix_lseek(static_cast<int>(argument(0)), offset, static_cast<int>(argument(4)));
         if (result < 0) {
           return -1;
         }

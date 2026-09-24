@@ -319,11 +319,9 @@ EXPORTED_PUBLIC bool runAffinityRegressions() {
       break;
     }
   }
-  bool passed = pinnedAdmission() && heldWake(source, source) &&
-                cancelPending(source, source);
+  bool passed = pinnedAdmission() && heldWake(source, source) && cancelPending(source, source);
   if (destination != source) {
-    passed = passed && heldWake(source, destination) &&
-             cancelPending(source, destination);
+    passed = passed && heldWake(source, destination) && cancelPending(source, destination);
   } else {
     NOTICE("AFFINITY-CORE: SKIP cross-CPU migration (one online CPU)");
   }

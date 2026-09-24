@@ -25,9 +25,8 @@
 #include "pedigree/kernel/utilities/String.h"
 
 #include "PedigreeCSyscallManager.h"
-#include "pedigreecSyscallNumbers.h"
-
 #include "pedigree-syscalls.h"
+#include "pedigreecSyscallNumbers.h"
 
 PedigreeCSyscallManager::PedigreeCSyscallManager() {}
 

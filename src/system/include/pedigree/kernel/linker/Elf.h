@@ -543,10 +543,10 @@ typedef ElfSymbol_t Elf32Symbol_t;
                        uintptr_t destinationAddress = 0, uintptr_t destinationEnd = 0);
 
 #if ARMV7
-  bool applyArmRelocation(Elf_Word type, Elf_Word symbolIndex, uintptr_t offset,
-                          intptr_t addend, ElfSectionHeader_t* section, SymbolTable* symbols,
-                          uintptr_t loadBase, SymbolTable::Policy policy,
-                          uintptr_t destinationAddress, uintptr_t destinationEnd);
+  bool applyArmRelocation(Elf_Word type, Elf_Word symbolIndex, uintptr_t offset, intptr_t addend,
+                          ElfSectionHeader_t* section, SymbolTable* symbols, uintptr_t loadBase,
+                          SymbolTable::Policy policy, uintptr_t destinationAddress,
+                          uintptr_t destinationEnd);
 #endif
 
   /** Rebase all dynamic section pointers to the m_LoadBase value. */

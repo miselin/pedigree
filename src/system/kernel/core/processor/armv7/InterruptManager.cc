@@ -1,5 +1,4 @@
 #include "InterruptManager.h"
-#include "SyscallManager.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/InterruptTimeAccounting.h"
@@ -8,6 +7,8 @@
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/state.h"
+
+#include "SyscallManager.h"
 
 extern "C" void virtHandleIrq(InterruptState& state);
 
@@ -47,9 +48,11 @@ void finishUserReturn(InterruptState& state) {
 Armv7InterruptManager::Armv7InterruptManager()
     : m_Handlers{}
 #if DEBUGGER
-      , m_DebugHandlers{}
+      ,
+      m_DebugHandlers{}
 #endif
-{}
+{
+}
 
 Armv7InterruptManager& Armv7InterruptManager::instance() {
   static Armv7InterruptManager manager;
@@ -74,7 +77,7 @@ bool Armv7InterruptManager::registerInterruptHandler(size_t number, InterruptHan
 
 #if DEBUGGER
 bool Armv7InterruptManager::registerInterruptHandlerDebugger(size_t number,
-                                                               InterruptHandler* handler) {
+                                                             InterruptHandler* handler) {
   if (number >= 32) {
     return false;
   }

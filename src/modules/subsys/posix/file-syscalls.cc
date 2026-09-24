@@ -284,7 +284,7 @@ bool normalisePath(String& nameToOpen, const char* name, bool* onDevFs) {
           break;
         }
 
-// no good
+        // no good
         EMIT_IF(VerboseNormalisation) {
           NOTICE(
               " -> cannot use this remap as it is not actually "

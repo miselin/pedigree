@@ -164,8 +164,7 @@ static bool entry() {
             StringFormat(c, "bar%u", static_cast<unsigned>(l));
             if (cpuPhysical == mapping.base) {
               NOTICE("PCI:     BAR" << Dec << l << Hex << ": " << mapping.base << ".."
-                                    << (mapping.base + mapping.bytes) << " (" << mapping.io
-                                    << ")");
+                                    << (mapping.base + mapping.bytes) << " (" << mapping.io << ")");
             } else {
               NOTICE("PCI:     BAR" << Dec << l << Hex << ": " << mapping.base << " -> "
                                     << cpuPhysical << " (" << mapping.io << ")");
@@ -181,7 +180,7 @@ static bool entry() {
         const uint32_t routedIrq = pci.interruptRoute(iBus, iDevice, iFunc, cs.interrupt_pin);
         if (routedIrq) {
           NOTICE("PCI:     IRQ: L" << cs.interrupt_line << " P" << cs.interrupt_pin << " route "
-                                    << routedIrq);
+                                   << routedIrq);
         } else {
           NOTICE("PCI:     IRQ: L" << cs.interrupt_line << " P" << cs.interrupt_pin);
         }

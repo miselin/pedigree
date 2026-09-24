@@ -544,10 +544,10 @@ inline void TlbInvalidationGuard::retire() {
 
 /** @} */
 
-#include "pedigree/kernel/processor/hosted/Processor.h"      // IWYU pragma: export
-#include "pedigree/kernel/processor/x64/Processor.h"         // IWYU pragma: export
 #include "pedigree/kernel/processor/arm64/Processor.h"       // IWYU pragma: export
 #include "pedigree/kernel/processor/armv7/Processor.h"       // IWYU pragma: export
+#include "pedigree/kernel/processor/hosted/Processor.h"      // IWYU pragma: export
+#include "pedigree/kernel/processor/x64/Processor.h"         // IWYU pragma: export
 #include "pedigree/kernel/processor/x86_common/Processor.h"  // IWYU pragma: export
 
 #if X64

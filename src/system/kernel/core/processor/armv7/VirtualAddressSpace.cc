@@ -1,10 +1,11 @@
 #include "VirtualAddressSpace.h"
-#include "PhysicalMemoryManager.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 #include <string.h>
+
+#include "PhysicalMemoryManager.h"
 
 extern "C" char armv7_boot_l1;
 
@@ -75,8 +76,7 @@ uint32_t* Armv7VirtualAddressSpace::findExistingEntry(uintptr_t address, bool* i
   return &tableAt(*first & TableMask)[(address >> 12) & 255];
 }
 
-uint32_t* Armv7VirtualAddressSpace::findEntry(uintptr_t address, bool create,
-                                                size_t* newTables) {
+uint32_t* Armv7VirtualAddressSpace::findEntry(uintptr_t address, bool create, size_t* newTables) {
   const physical_uintptr_t root = address >= ARMV7_DIRECT_MAP_BASE ? m_KernelSpace.m_Root : m_Root;
   uint32_t* first = &tableAt(root)[address >> 20];
   if (!*first && create) {
@@ -153,13 +153,13 @@ bool Armv7VirtualAddressSpace::map(physical_uintptr_t physical, void* address, s
 }
 
 bool Armv7VirtualAddressSpace::tryMapUserPage(physical_uintptr_t physical, void* address,
-                                               size_t flags, size_t* committedTablePages) {
+                                              size_t flags, size_t* committedTablePages) {
   if (committedTablePages) {
     *committedTablePages = 0;
   }
   const uintptr_t value = reinterpret_cast<uintptr_t>(address);
-  if ((flags & KernelMode) || value >= ARMV7_DIRECT_MAP_BASE ||
-      (value & (PAGE_SIZE - 1)) || (physical & (PAGE_SIZE - 1))) {
+  if ((flags & KernelMode) || value >= ARMV7_DIRECT_MAP_BASE || (value & (PAGE_SIZE - 1)) ||
+      (physical & (PAGE_SIZE - 1))) {
     return false;
   }
   LockGuard<Spinlock> guard(m_Lock);
@@ -179,7 +179,7 @@ bool Armv7VirtualAddressSpace::tryMapUserPage(physical_uintptr_t physical, void*
 }
 
 bool Armv7VirtualAddressSpace::getMapping(void* address, physical_uintptr_t& physical,
-                                           size_t& flags) {
+                                          size_t& flags) {
   const uintptr_t value = reinterpret_cast<uintptr_t>(address);
   Armv7VirtualAddressSpace& owner = value >= ARMV7_DIRECT_MAP_BASE ? m_KernelSpace : *this;
   LockGuard<Spinlock> guard(owner.m_Lock);
@@ -221,7 +221,7 @@ void Armv7VirtualAddressSpace::setFlags(void* address, size_t flags) {
 }
 
 bool Armv7VirtualAddressSpace::detachMapping(void* address, physical_uintptr_t& physical,
-                                              size_t& flags, size_t requiredFlags) {
+                                             size_t& flags, size_t requiredFlags) {
   const uintptr_t value = reinterpret_cast<uintptr_t>(address);
   Armv7VirtualAddressSpace& owner = value >= ARMV7_DIRECT_MAP_BASE ? m_KernelSpace : *this;
   LockGuard<Spinlock> guard(owner.m_Lock);
@@ -342,7 +342,7 @@ void Armv7VirtualAddressSpace::freeStack(Stack* stack) {
 }
 
 bool Armv7VirtualAddressSpace::cloneUserTables(Armv7VirtualAddressSpace& destination,
-                                                bool copyOnWrite) {
+                                               bool copyOnWrite) {
   uint32_t* sourceRoot = tableAt(m_Root);
   uint32_t* targetRoot = tableAt(destination.m_Root);
   for (size_t first = 0; first < 2048; ++first) {

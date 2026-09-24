@@ -20,9 +20,8 @@
 #ifndef PEDIGREE_FB_FRAMEBUFFER_H
 #define PEDIGREE_FB_FRAMEBUFFER_H
 
-#include <pedigree/fb.h>
-
 #include <cairo/cairo.h>
+#include <pedigree/fb.h>
 
 /** Abstracts the system's framebuffer offering. */
 class Framebuffer {

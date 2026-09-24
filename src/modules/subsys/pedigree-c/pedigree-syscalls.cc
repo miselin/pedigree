@@ -32,7 +32,6 @@
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/VFS.h"
-
 #include "pedigree-syscalls.h"
 
 // Module handling functions
