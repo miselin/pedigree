@@ -320,6 +320,12 @@ int exerciseSleepClockValidation(void* parameter) {
   passed &= posix_clock_nanosleep(CLOCK_REALTIME, 0, linuxPageEdge, nullptr) == -1 &&
             thread->getErrno() == Error::BadAddress;
 
+  // A Linux time32 request ends at the page boundary; musl's native timespec does not fit.
+  const LinuxKernelTimespec32 oneNanosecond32 = {0, 1};
+  passed &= PosixSubsystem::copyToUser(pageEdge, &oneNanosecond32, sizeof(oneNanosecond32));
+  thread->setErrno(PreservedErrno);
+  passed &= posix_nanosleep(pageEdge, nullptr, true) == 0 && thread->getErrno() == PreservedErrno;
+
   MemoryMapManager::instance().remove(address, pageSize);
   MemoryMapManager::instance().remove(address + (pageSize * 2), pageSize);
   process->freeUserRange(Process::UserRegion::Normal, address, mappingLength);

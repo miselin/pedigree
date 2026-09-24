@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,14 +12,13 @@ from unittest import mock
 
 from scripts.bootstrap_toolchain import Bootstrapper, parse_args
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/bootstrap_toolchain.py"
 MANIFEST = ROOT / "build-etc/toolchain/pedigree-cross-toolchain.json"
 
 
 class BootstrapToolchainContractTests(unittest.TestCase):
-    def test_default_sysroot_uses_the_package_shaped_musl_sdk(self):
+    def test_default_sysroot_uses_the_alpine_sdk(self):
         with tempfile.TemporaryDirectory() as tempdir:
             bootstrapper = Bootstrapper(
                 parse_args(
@@ -31,7 +31,9 @@ class BootstrapToolchainContractTests(unittest.TestCase):
                 )
             )
 
-            self.assertEqual(bootstrapper.sysroot, ROOT / "build/musl/usr")
+            self.assertEqual(
+                bootstrapper.sysroot, ROOT / "scripts/alpine/build/x86_64/sysroot/usr"
+            )
 
             arm64 = Bootstrapper(
                 parse_args(
@@ -309,13 +311,20 @@ class BootstrapToolchainContractTests(unittest.TestCase):
             prefix.mkdir()
 
             bootstrapper.write_state(libcpp=False)
-            with mock.patch.object(bootstrapper, "validate_installation"):
+            bootstrapper.sysroot = Path(tempdir) / "missing-sdk"
+            with (
+                mock.patch.object(bootstrapper, "validate_installation"),
+                mock.patch.object(bootstrapper, "link_sysroot") as link_sysroot,
+            ):
                 self.assertTrue(
-                    bootstrapper.installation_current(require_libcpp=False)
+                    bootstrapper.installation_current(
+                        require_libcpp=False, refresh_sysroot=True
+                    )
                 )
                 self.assertFalse(
                     bootstrapper.installation_current(require_libcpp=True)
                 )
+                link_sysroot.assert_not_called()
 
             bootstrapper.write_state(libcpp=True)
             with mock.patch.object(bootstrapper, "validate_installation"):
@@ -330,10 +339,16 @@ class BootstrapToolchainContractTests(unittest.TestCase):
             bootstrapper.state_path.write_text(
                 json.dumps(state), encoding="utf-8"
             )
-            with mock.patch.object(bootstrapper, "validate_installation"):
+            with (
+                mock.patch.object(bootstrapper, "validate_installation"),
+                mock.patch.object(bootstrapper, "link_sysroot") as link_sysroot,
+            ):
                 self.assertFalse(
-                    bootstrapper.installation_current(require_libcpp=True)
+                    bootstrapper.installation_current(
+                        require_libcpp=True, refresh_sysroot=True
+                    )
                 )
+                link_sysroot.assert_not_called()
 
     def test_state_is_kept_separately_for_each_target(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -485,7 +500,8 @@ class BootstrapToolchainContractTests(unittest.TestCase):
             temp = Path(tempdir)
             prefix = temp / "compiler"
             sysroot = temp / "musl"
-            (sysroot / "include").mkdir(parents=True)
+            (sysroot / "usr/include").mkdir(parents=True)
+            (sysroot / "include").symlink_to("usr/include")
             (sysroot / "lib").mkdir()
             for name in (
                 "crt1.o",
@@ -529,6 +545,73 @@ class BootstrapToolchainContractTests(unittest.TestCase):
             )
             self.assertEqual(
                 (target / "lib/libc.so").resolve(), (sysroot / "lib/libc.so").resolve()
+            )
+
+            relocated = temp / "alpine/usr"
+            (relocated / "include").mkdir(parents=True)
+            (relocated / "lib").mkdir()
+            for source in (sysroot / "lib").iterdir():
+                (relocated / "lib" / source.name).touch()
+            (relocated / "lib/libstdc++.a").write_text("Alpine compiler runtime")
+            (target / "lib/libstdc++.a").write_text("Pedigree compiler runtime")
+            shutil.rmtree(sysroot / "lib")
+            gcc_startup.unlink()
+            gcc_startup.symlink_to(sysroot / "usr/lib/crti.o")
+            bootstrapper.sysroot = relocated
+            bootstrapper.args.libcpp = True
+            bootstrapper.write_state(libcpp=True)
+
+            def validate_relocated_sdk(*, require_libcpp):
+                self.assertTrue(require_libcpp)
+                self.assertEqual(
+                    (target / "include").resolve(), (relocated / "include").resolve()
+                )
+                self.assertEqual(
+                    gcc_startup.resolve(), (relocated / "lib/crti.o").resolve()
+                )
+                self.assertTrue((target / "lib/libc.so").is_file())
+
+            with (
+                mock.patch.object(bootstrapper, "require_commands"),
+                mock.patch.object(
+                    bootstrapper,
+                    "validate_installation",
+                    side_effect=validate_relocated_sdk,
+                ) as validate,
+                mock.patch.object(
+                    bootstrapper, "active_target_needs_rebuild", return_value=True
+                ) as needs_rebuild,
+                mock.patch.object(bootstrapper, "download") as download,
+                redirect_stdout(io.StringIO()),
+            ):
+                bootstrapper.build()
+                validate.assert_called_once_with(require_libcpp=True)
+                needs_rebuild.assert_not_called()
+                download.assert_not_called()
+            self.assertEqual(
+                (target / "include").resolve(), (relocated / "include").resolve()
+            )
+            self.assertEqual(
+                gcc_startup.resolve(), (relocated / "lib/crti.o").resolve()
+            )
+            self.assertEqual(
+                (target / "lib/libc.a").resolve(), (relocated / "lib/libc.a").resolve()
+            )
+            self.assertEqual(
+                (target / "lib/libstdc++.a").read_text(), "Pedigree compiler runtime"
+            )
+
+            (target / "lib/libc.a").unlink()
+            (target / "lib/libc.a").symlink_to(temp / "unmanaged-library.a")
+            with (
+                self.assertRaisesRegex(
+                    RuntimeError, "refusing to replace target library"
+                ),
+                redirect_stdout(io.StringIO()),
+            ):
+                bootstrapper.link_sysroot()
+            self.assertEqual(
+                os.readlink(target / "lib/libc.a"), str(temp / "unmanaged-library.a")
             )
 
             (target / "lib/libc.a").unlink()
@@ -629,9 +712,6 @@ class BootstrapToolchainContractTests(unittest.TestCase):
             self.assertNotIn("support/gcc/include/c++", contents)
 
     def test_amd64_toolchain_rebinds_compiler_companion_tools(self):
-        contents = (
-            ROOT / "build-etc/cmake/pedigree_amd64.cmake"
-        ).read_text(encoding="utf-8")
         expected = {
             "CMAKE_ADDR2LINE": "x86_64-pedigree-addr2line",
             "CMAKE_AR": "x86_64-pedigree-ar",
@@ -652,11 +732,26 @@ class BootstrapToolchainContractTests(unittest.TestCase):
             "CMAKE_STRIP": "x86_64-pedigree-strip",
         }
 
-        for variable, tool in expected.items():
-            self.assertIn(
-                f'set({variable} "${{PEDIGREE_TOOLCHAIN_BIN}}/{tool}" '
-                'CACHE FILEPATH "" FORCE)',
-                contents,
+        with tempfile.TemporaryDirectory() as tempdir:
+            script = Path(tempdir) / "check-tools.cmake"
+            commands = [
+                'set(PEDIGREE_TOOLCHAIN_ROOT "/new-toolchain")',
+                'set(PEDIGREE_TOOLCHAIN_TRIPLE "x86_64-pedigree")',
+                'set(PEDIGREE_TARGET_SYSROOT "/sdk")',
+                'set(CMAKE_AR "/old-toolchain/bin/ar" CACHE FILEPATH "" FORCE)',
+                f'include("{ROOT / "build-etc/cmake/PedigreeCrossToolchain.cmake"}")',
+            ]
+            for variable, tool in expected.items():
+                commands.extend(
+                    [
+                        f'if (NOT {variable} STREQUAL "/new-toolchain/bin/{tool}")',
+                        f'  message(FATAL_ERROR "Wrong {variable}: ${{{variable}}}")',
+                        "endif ()",
+                    ]
+                )
+            script.write_text("\n".join(commands) + "\n")
+            subprocess.run(
+                ["cmake", "-P", str(script)], check=True, capture_output=True
             )
 
     def test_easy_build_refreshes_metadata_when_toolchain_changes(self):

@@ -201,8 +201,10 @@ ReadyMask ConsoleFile::queryEpoch(const SharedPointer<ConsoleIoState>& epoch, bo
                                   bool writing) {
   if (!epoch || epoch->revoked())
     return ReadyRead | ReadyWrite | ReadyError | ReadyHangup;
-  if (getPhysicalConsoleNumber() != ~0U)
+  // Physical terminals have no PTY peer, including serial ports without a VT number.
+  if (!m_pOther) {
     return File::queryReady(reading, writing);
+  }
   ReadyMask ready = ReadyNone;
   Buffer<char>& source = isMaster() ? epoch->output : epoch->input;
   Buffer<char>& destination = isMaster() ? epoch->input : epoch->output;

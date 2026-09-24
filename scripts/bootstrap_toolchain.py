@@ -129,13 +129,13 @@ class Bootstrapper:
             self.source_root / "build-etc/toolchain/pedigree-cross-toolchain.json"
         )
         alpine_arch = {
+            "x86_64-pedigree": "x86_64",
+            "arm64-elf": "aarch64",
             "aarch64-linux-musl": "aarch64",
             "armv7-alpine-linux-musleabihf": "armv7",
-        }.get(args.target)
+        }[args.target]
         default_sysroot = (
             self.source_root / "scripts/alpine/build" / alpine_arch / "sysroot/usr"
-            if alpine_arch
-            else self.source_root / "build/musl/usr"
         )
         self.sysroot = args.sysroot.resolve() if args.sysroot else default_sysroot
         self.dry_run = args.dry_run
@@ -655,7 +655,9 @@ class Bootstrapper:
                         "installed libgcc retains unsafe weak pthread references"
                     )
 
-    def installation_current(self, *, require_libcpp: bool) -> bool:
+    def installation_current(
+        self, *, require_libcpp: bool, refresh_sysroot: bool = False
+    ) -> bool:
         state = self.read_state()
         if state is None or not isinstance(state.get("libcpp"), bool):
             return False
@@ -665,6 +667,14 @@ class Bootstrapper:
             return False
         if state != expected or (require_libcpp and not state["libcpp"]):
             return False
+        if (
+            refresh_sysroot
+            and (self.sysroot / "include").is_dir()
+            and (self.sysroot / "lib/libc.so").is_file()
+        ):
+            # SDK relocation can leave managed links dangling even though the
+            # compiler recipe is unchanged. Repair those before compile checks.
+            self.link_sysroot()
         try:
             self.validate_installation(require_libcpp=require_libcpp)
         except (BootstrapError, OSError):
@@ -811,6 +821,13 @@ class Bootstrapper:
 
     def link_sysroot(self) -> None:
         gcc_version = self.manifest["gcc"].version
+        include = self.prefix / self.args.target / "include"
+        previous_sysroots = ()
+        if include.is_symlink():
+            previous_include = include.parent / include.readlink()
+            # Compatibility include links can resolve through usr/ even while
+            # saved library links still name the SDK's original lib/ directory.
+            previous_sysroots = (previous_include.parent, include.resolve().parent)
         relative_targets = [
             self.prefix / f"lib/gcc/{self.args.target}/{gcc_version}/crt1.o",
             self.prefix / f"lib/gcc/{self.args.target}/{gcc_version}/rcrt1.o",
@@ -830,17 +847,45 @@ class Bootstrapper:
                 destination,
                 "startup object",
                 replace_regular=True,
+                previous_sources=(
+                    root / "lib" / destination.name for root in previous_sysroots
+                ),
             )
         target_lib = self.prefix / self.args.target / "lib"
         sysroot_lib = self.sysroot / "lib"
         if self.dry_run:
             self.log(f"link musl libraries from {sysroot_lib} into {target_lib}")
         elif sysroot_lib.is_dir():
-            for source in sorted(sysroot_lib.iterdir()):
+            # The SDK may also contain Alpine's GCC and desktop libraries.
+            # Only libc and its compatibility archives belong in this toolchain.
+            for name in (
+                "libc.a",
+                "libc.so",
+                "libcrypt.a",
+                "libdl.a",
+                "libm.a",
+                "libpthread.a",
+                "libresolv.a",
+                "librt.a",
+                "libutil.a",
+                "libxnet.a",
+            ):
+                source = sysroot_lib / name
+                if not source.exists():
+                    continue
                 destination = target_lib / source.name
-                self.link_path(source, destination, "target library")
-        include = self.prefix / self.args.target / "include"
-        self.link_path(self.sysroot / "include", include, "target include directory")
+                self.link_path(
+                    source,
+                    destination,
+                    "target library",
+                    previous_sources=(root / "lib" / name for root in previous_sysroots),
+                )
+        self.link_path(
+            self.sysroot / "include",
+            include,
+            "target include directory",
+            previous_sources=(root / "include" for root in previous_sysroots),
+        )
 
     def link_path(
         self,
@@ -849,6 +894,7 @@ class Bootstrapper:
         description: str,
         *,
         replace_regular: bool = False,
+        previous_sources: Iterable[Path] = (),
     ) -> None:
         self.log(f"link {destination} -> {source}")
         if self.dry_run:
@@ -856,7 +902,14 @@ class Bootstrapper:
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.is_symlink() and destination.resolve() == source.resolve():
             return
-        if replace_regular and destination.is_file() and not destination.is_symlink():
+        if (
+            destination.is_symlink()
+            and any(
+                destination.resolve() == previous.resolve() for previous in previous_sources
+            )
+        ):
+            destination.unlink()
+        elif replace_regular and destination.is_file() and not destination.is_symlink():
             # Bare-metal GCC installs its own crt objects in this exact
             # location; the target libc startup objects must take precedence.
             destination.unlink()
@@ -875,10 +928,9 @@ class Bootstrapper:
         if self.args.activate and not self.args.libcpp:
             raise BootstrapError("--activate requires the final --libcpp stage")
         if not self.dry_run and self.installation_current(
-            require_libcpp=self.args.libcpp
+            require_libcpp=self.args.libcpp, refresh_sysroot=True
         ):
             self.log("Toolchain: already installed")
-            self.link_sysroot()
             self.clean()
             if self.args.activate:
                 self.activate_prefix()

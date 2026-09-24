@@ -1,9 +1,0 @@
-[paths]
-installroot=/
-localdb=/var/cache/pup
-
-[settings]
-arch=amd64
-
-[remotes]
-server=https://pup.pedigree-project.org

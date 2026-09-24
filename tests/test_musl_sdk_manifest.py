@@ -138,25 +138,15 @@ class MuslSdkManifestTests(unittest.TestCase):
             )
             self.assertEqual(contents["provenance"]["compiler_version"], "15.3.0")
 
-    def test_derivation_and_container_keep_the_sdk_package_root(self):
+    def test_hosted_derivation_keeps_version_in_build_identity(self):
         modules_cmake = (
             SOURCE_ROOT / "build-etc/cmake/PedigreeHostedMusl.cmake"
         ).read_text(encoding="utf-8")
-        dockerfile = (
-            SOURCE_ROOT / "build-etc/docker/pedigree-builder.Dockerfile"
-        ).read_text(encoding="utf-8")
-
         self.assertIn('set(MUSL_VERSION "1.2.6")', modules_cmake)
         build_id = modules_cmake.split(
             "string(CONCAT _PEDIGREE_MUSL_BUILD_ID_INPUT", 1
         )[1].split("string(SHA256 PEDIGREE_MUSL_BUILD_ID", 1)[0]
         self.assertIn("${MUSL_VERSION}", build_id)
-        self.assertIn(
-            "cp -a build/toolchain/musl /opt/pedigree/musl-sdk", dockerfile
-        )
-        self.assertEqual(
-            dockerfile.count("--sysroot /opt/pedigree/musl-sdk/usr"), 2
-        )
 
     def test_rejects_missing_runtime_crt_and_header_files(self):
         cases = (

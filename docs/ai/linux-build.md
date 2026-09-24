@@ -1,72 +1,67 @@
 # Native Linux x64 build
 
 Run these commands from the Pedigree checkout on an x86-64 Linux host. This
-builds the target kernel and userspace; it is separate from the experimental
-Linux-hosted kernel.
+builds the target kernel and boot image, separately from the Linux-hosted kernel.
 
-The full Easy Build path requires `uv` on `PATH`. Its current PUP wrapper also
-expects the `pedigree-apps` checkout beside this repository, with PUP under
-`../pedigree-apps/pup`.
-
-When the sibling `pedigree-winman` checkout is present, the default build also
-builds the desktop. It needs host `protoc` on `PATH`; use version 35.0 to match
-the current target protobuf package. The upstream
-[Linux x86-64 release](https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip)
-can be extracted into a user-owned directory with its `bin` directory on `PATH`.
-Easy Build installs the target protobuf package separately through PUP.
+Easy Build requires `uv`, a running Docker engine, and the host dependencies
+installed by `scripts/easy_build_deps.sh`. It prepares Alpine's runtime and SDK,
+then checks or bootstraps GCC 15.3 with the existing Pedigree target patches.
+There is no dependency on the sibling `pedigree-apps` repository.
 
 ```sh
-MAKEFLAGS=-j8 ./easy_build_x64.sh
+PEDIGREE_BUILD_JOBS=8 ./easy_build_x64.sh
 ```
 
-The first run bootstraps GCC 15.3 and installs the userspace packages. Subsequent
-development builds use:
+The default profile is a small Alpine image with `/sbin/init` and a serial getty.
+It excludes Pedigree's optional userspace programs and window manager. Log in as
+`root` with an empty password. Subsequent development builds use:
 
 ```sh
 cmake --build build -j8
 ```
 
+For the optional desktop, provide a sibling `pedigree-winman` checkout and host
+`protoc` compatible with the selected Alpine protobuf development package:
+
+```sh
+PEDIGREE_ALPINE_PROFILE=desktop PEDIGREE_BUILD_JOBS=8 ./easy_build_x64.sh
+```
+
+Alpine outputs live under `scripts/alpine/build/x86_64`. Set
+`PEDIGREE_ALPINE_ROOT` to choose another output directory, or
+`PEDIGREE_TARGET_SYSROOT` to use a separately prepared SDK. The helper reuses
+unchanged preparation outputs and a compiler matching the installed recipe.
+See [Alpine musl SDK](musl-sdk.md) for all three supported architectures.
+
 Compiler initialization of otherwise uninitialized automatic storage is off by
 default. Enable it with `cmake -S . -B build -DPEDIGREE_AUTO_VAR_INIT=ON` for
-debugging: Debug builds fill with a pattern, while Release, RelWithDebInfo and
-MinSizeRel builds fill with zeros. Set the option to `OFF` to disable these
-compiler-added fills; explicit initialization in the source is unaffected.
+debugging: Debug builds use a pattern; other build types use zeros.
 
-The default boot image is `build/pedigree-uefi.img`. Its root filesystem is
+The boot image is `build/pedigree-uefi.img`. Its root filesystem is
 `build/pedigree-uefi-root.img`; the kernel and module archive are under
-`build/src/system/kernel` and `build/src/modules`.
-The root image grows to fit its manifest, with a 2 GiB minimum and space for
-filesystem metadata and later package changes.
+`build/src/system/kernel` and `build/src/modules`. Root image assembly copies
+the prepared Alpine image and adds only declared build artifacts and selected
+configuration. It preserves the base runtime and APK database, and grows the
+filesystem to accommodate the overlay. Old `images/local` packages are ignored.
 
-## Existing openSUSE checkouts
+## Existing checkouts
 
-An existing `.easy_os` marker skips dependency installation, even after the host
-distribution changes. Check missing tools explicitly rather than treating that
-marker as proof that dependencies are available. UEFI packaging needs `clang`,
-`gettext-tools`, `mtools`, `dosfstools`, and `e2fsprogs` in addition to the
-compiler prerequisites installed by `scripts/easy_build_deps.sh`.
+An existing `.easy_os` marker skips dependency installation. Check missing tools
+explicitly after moving hosts. UEFI packaging needs `clang`, `gettext-tools`,
+`mtools`, `dosfstools` and `e2fsprogs`, as well as the compiler prerequisites.
+Docker must be available for initial Alpine preparation.
 
-Old and new staging layouts may coexist: a file under `images/local/usr/bin`
-takes precedence over the same translated name under `images/local/applications`.
-The image builder preserves the staging tree and emits each such destination
-once; build artifacts and base-image files retain their existing priority.
-
-The bootstrap activates `compilers/dir` only after the final C++ runtime passes
-validation. An old GCC 8 link can remain there after a failed bootstrap. Confirm
-the selected version after Easy Build succeeds:
+Easy Build refreshes CMake's compiler metadata when the toolchain or SDK changes.
+The bootstrap activates `compilers/dir` only after the C++ runtime validates:
 
 ```sh
 compilers/dir/bin/x86_64-pedigree-gcc -dumpfullversion
 readlink -f compilers/dir
 ```
 
-GCC may install its runtime under `lib64`; validation queries the compiler for
-that path. Image creation also searches `/usr/sbin` and `/sbin`, which may be
-absent from an ordinary SSH user's `PATH`.
-
 ## One-CPU boot checkpoint
 
-With QEMU and openSUSE's `qemu-ovmf-x86_64` package installed:
+With QEMU and OVMF installed:
 
 ```sh
 uv run python scripts/run-qemu-uefi.py \
@@ -75,16 +70,9 @@ uv run python scripts/run-qemu-uefi.py \
 ```
 
 This uses a disposable disk snapshot and copied firmware. Its default markers
-prove early kernel and initrd startup, not a userspace benchmark. Keep timing
-runs separate from this checkpoint and from concurrent compiler builds.
+prove early kernel and initrd startup. Add
+`--require-marker "Invoking userspace program at"` to check the init handoff;
+this does not validate an interactive login or desktop session.
 
-For a KVM checkpoint, pass `--qemu /path/to/executable-wrapper` with a wrapper
-containing:
-
-```sh
-#!/bin/sh
-exec qemu-system-x86_64 -accel kvm -cpu host "$@"
-```
-
-Add `--require-marker "Invoking userspace program at"` to check that boot reaches
-the handoff to init. This still does not validate an interactive desktop session.
+For an interactive serial login, use `scripts/qemu --serial`. Stop the guest
+before rebuilding its backing images.

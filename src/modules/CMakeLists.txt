@@ -1282,21 +1282,8 @@ endif ()
 
 if (PEDIGREE_MUSL_ARCH_TARGET STREQUAL "HOSTED")
     include(PedigreeHostedMusl)
-elseif (PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
-    add_custom_target(libc)
 else ()
-    include(PedigreeMuslPackage)
-    pedigree_acquire_musl_package()
-    add_custom_target(libc ALL
-        COMMAND ${CMAKE_COMMAND}
-            "-DSDK_ROOT=${PEDIGREE_MUSL_SDK_ROOT}"
-            "-DPUP_COMMAND=${PEDIGREE_PUP_COMMAND}"
-            "-DPUP_CACHE=${PEDIGREE_MUSL_PACKAGE_CACHE}"
-            "-DPUP_SERVER=${PEDIGREE_PUP_SERVER}"
-            -P "${CMAKE_SOURCE_DIR}/build-etc/cmake/InstallMuslPackage.cmake"
-        COMMENT "Checking packaged musl SDK"
-        VERBATIM)
-    add_dependencies(pedigree_musl_headers libc)
+    add_custom_target(libc)
 endif ()
 
 set(PEDIGREE_KERNEL_MODULES ${PEDIGREE_KERNEL_MODULES} PARENT_SCOPE)

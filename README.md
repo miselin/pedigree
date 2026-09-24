@@ -29,17 +29,25 @@ packages and firmware, and [build profiles](docs/ai/kernel-build-profiles.md) fo
 configuration options. The [self-hosting guide](docs/ai/self-hosting.md) covers
 cross-build host tools and the experimental native build.
 
-The Easy Build helper bootstraps the toolchain, configures PUP, installs target
-packages and builds the system. It needs `uv` and the `pedigree-apps` checkout
-beside this repository. A sibling `pedigree-winman` checkout enables the desktop.
+The Easy Build helper prepares a small Alpine root filesystem and development
+SDK, checks the cross-toolchain, and builds the system. It needs `uv` and a
+running Docker engine. The default image uses Alpine init and serial getty;
+log in as `root` with an empty password.
 
 ```sh
 ./easy_build_x64.sh
 ```
 
-With an existing toolchain and populated package staging tree, configure directly:
+The desktop is optional and requires the sibling `pedigree-winman` checkout:
 
 ```sh
+PEDIGREE_ALPINE_PROFILE=desktop ./easy_build_x64.sh
+```
+
+With an existing toolchain, prepare the Alpine artifacts and configure directly:
+
+```sh
+scripts/alpine/build.sh x86_64
 cmake -S . -B build \
   -DCMAKE_TOOLCHAIN_FILE=build-etc/cmake/pedigree_amd64.cmake \
   -DPEDIGREE_TOOLCHAIN_ROOT=/path/to/pedigree-toolchain
@@ -58,7 +66,8 @@ helpers and build trees. `./verify.sh` runs the maintained native/hosted checks.
 User test and benchmark applications are excluded from the default build.
 Build them with `cmake --build build --target user-tests`, or select an individual
 `app-<name>` target. To include them in the guest image, configure
-`-DPEDIGREE_BUILD_USER_TESTS=ON` and rebuild `uefi-image`.
+`-DPEDIGREE_BUILD_USER_DIR=ON -DPEDIGREE_BUILD_USER_TESTS=ON` and rebuild
+`uefi-image`.
 
 ## Running Pedigree
 
@@ -86,29 +95,24 @@ are the defaults. Invalid values are ignored.
 
 ## Images and packages
 
-`images/local` is the staging tree for the root filesystem. Configure PUP for
-this checkout, then sync and install packages:
+All target architectures use the same Alpine preparation command:
 
 ```sh
-uv run python setup_pup.py amd64
-./run_pup.sh sync
-./run_pup.sh install <package>
+scripts/alpine/build.sh x86_64
+scripts/alpine/build.sh aarch64
+scripts/alpine/build.sh armv7
 ```
 
-`run_pup.sh` uses the current updater from the sibling `pedigree-apps` repository.
-Easy Build performs the initial configuration and package installation.
+Each output directory under `scripts/alpine/build/<architecture>` contains
+`rootfs.img`, the matching `rootfs/` directory and a separate `sysroot/` SDK.
+The runtime retains Alpine's APK database and accounts. CMake copies the base
+image and overlays explicitly selected Pedigree artifacts; it does not import
+the old PUP staging tree or replace Alpine libc.
 
-You can also add files under `images/local`, using their target paths: for
-example, `images/local/home/yourname/.bashrc`. After changing staged packages or
-files, remove the generated root image and rebuild so those changes are included:
-
-```sh
-rm -f build/pedigree-uefi-root.img
-cmake --build build --target uefi-image --parallel 8
-```
-
-Base accounts come from `images/base/etc/passwd`, `group`, and `shadow`.
-Update those files to change the accounts included in a newly built image.
+Use `PEDIGREE_ALPINE_ROOT=/path/to/output` with Easy Build to choose another
+preparation directory. `PEDIGREE_TARGET_SYSROOT` selects a separate SDK when
+needed. Preparation is incremental; unchanged profiles reuse existing outputs.
+See the [SDK guide](docs/ai/musl-sdk.md) for direct configuration and offline reuse.
 
 Historical disk images are available in the [download archive](https://dl.pedigree-project.org).
 They may use boot paths that are no longer supported by the current source.

@@ -17,402 +17,224 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 """
 
+import argparse
 import os
+import posixpath
+import shutil
 import stat
 import subprocess
-import sys
 import tempfile
+from pathlib import Path, PurePosixPath
 
 
-# Historical packages and the old build sysroot use Pedigree's original
-# directory names. New images use a conventional usr-merged FHS layout.
-LEGACY_TARGET_PREFIXES = (
-    ("/.profile", "/root/.profile"),
-    ("/.bashrc", "/root/.bashrc"),
-    ("/support/pup/db", "/var/cache/pup"),
-    ("/support/pup", "/etc/pup"),
-    ("/system/initscripts", "/etc/init.d"),
-    ("/system/modules", "/usr/lib/modules"),
-    ("/system/include", "/usr/include"),
-    ("/system/locale", "/usr/share/locale"),
-    ("/system/keymaps", "/usr/share/keymaps"),
-    ("/system/fonts", "/usr/share/fonts"),
-    ("/applications", "/usr/bin"),
-    ("/libraries", "/usr/lib"),
-    ("/initscripts", "/etc/init.d"),
-    ("/config", "/etc"),
-    ("/support", "/usr/lib/pedigree"),
-    ("/include", "/usr/include"),
-    ("/users", "/home"),
-    ("/fonts", "/usr/share/fonts"),
-    ("/docs", "/usr/share/doc"),
-    ("/doc", "/usr/share/doc"),
-)
+def command_path(path):
+    value = str(path)
+    if not value or any(
+        character.isspace() or character == "\0" for character in value
+    ):
+        raise ValueError(f"ext2img cannot represent this path: {value!r}")
+    return value
 
 
-def translate_target_path(path):
-    for legacy, fhs in LEGACY_TARGET_PREFIXES:
-        if path == legacy or path.startswith(legacy + "/"):
-            return fhs + path[len(legacy) :]
-
-    return path
-
-
-def silent_makedirs(p):
-    """Variant of makedirs that doesn't error if the full path exists."""
-    if not os.path.exists(p):
-        os.makedirs(p)
+def target_path(path):
+    command_path(path)
+    target = PurePosixPath(path)
+    if not target.is_absolute() or ".." in target.parts:
+        raise ValueError(f"Overlay destination must be an absolute image path: {path}")
+    return str(target)
 
 
-def build_user_map(baseimagesdir):
-    # Read the same account files that will be installed in the image.
-    users = {
-        # UID, default GID.
-        "root": (0, 0),
-    }
-    groups = {
-        "root": 0,
-    }
-
-    passwd_path = os.path.join(baseimagesdir, "etc/passwd")
-    if os.path.isfile(passwd_path):
-        with open(passwd_path) as passwd:
-            for line in passwd:
-                fields = line.rstrip("\r\n").split(":")
-                if len(fields) >= 4:
-                    users[fields[0]] = (int(fields[2]), int(fields[3]))
-
-    group_path = os.path.join(baseimagesdir, "etc/group")
-    if os.path.isfile(group_path):
-        with open(group_path) as group:
-            for line in group:
-                fields = line.rstrip("\r\n").split(":")
-                if len(fields) >= 3:
-                    groups[fields[0]] = int(fields[2])
-
-    return users, groups
+def protect_base_runtime(target):
+    protected = (
+        "/etc/passwd",
+        "/etc/group",
+        "/etc/shadow",
+        "/etc/gshadow",
+        "/etc/apk",
+        "/lib/apk",
+        "/var/lib/apk",
+    )
+    if any(target == path or target.startswith(path + "/") for path in protected):
+        raise ValueError(
+            f"Overlay would replace Alpine account or package data: {target}"
+        )
+    name = PurePosixPath(target).name
+    if target.startswith(("/lib/", "/usr/lib/")) and (
+        name in ("libc.so", "libc.a") or name.startswith(("ld-musl-", "libc.musl-"))
+    ):
+        raise ValueError(f"Overlay would replace Alpine libc: {target}")
 
 
-def add_copy(copylist, source, target, override=False):
-    """Adds a copy to the given copy list, handling duplicates correctly"""
-    target = translate_target_path(target)
-    entry = copylist.get(source)
-    if entry and not override:
-        entry.add(target)
-    else:
-        copylist[source] = set([target])
+def resolve_image_path(base_root, target):
+    """Resolve existing image symlinks without following absolute links on the host."""
+    parts = list(PurePosixPath(target).parts[1:])
+    resolved = []
+    links = 0
+    while parts:
+        part = parts.pop(0)
+        candidate = base_root.joinpath(*resolved, part)
+        if candidate.is_symlink():
+            links += 1
+            if links > 40:
+                raise ValueError(f"Symlink loop in Alpine root: {target}")
+            link = os.readlink(candidate)
+            replacement = posixpath.normpath(posixpath.join("/", *resolved, link))
+            parts = list(PurePosixPath(replacement).parts[1:]) + parts
+            resolved = []
+        else:
+            resolved.append(part)
+    return "/" + "/".join(resolved)
 
 
-def target_in_copylist(copylist, target):
-    for value in copylist.values():
-        if target in value:
-            return True
-
-    return False
-
-
-def add_copy_tree(
-    copylist, base_dir, target_prefix="", replacements=None, extensions=None
-):
-    for dirpath, dirs, files in os.walk(base_dir):
-        target_path = dirpath.replace(base_dir, "")
-
-        if target_prefix:
-            target_path = os.path.join(target_prefix, target_path.lstrip("/"))
-        elif not target_path:
-            target_path = "/"
-
-        if replacements:
-            for r in replacements:
-                target_path = target_path.replace(*r)
-
-        for f in files:
-            target_fullpath = os.path.join(target_path, f)
-            source_fullpath = os.path.join(dirpath, f)
-            ok = True
-            if extensions:
-                ok = False
-                for ext in extensions:
-                    if source_fullpath.endswith("." + ext):
-                        ok = True
-                        break
-
-            if not ok:
-                continue
-
-            add_copy(copylist, source_fullpath, target_fullpath, True)
-
-
-def add_file_to_cmdlist(cmdlist, source, target):
-    if os.path.isfile(source):
-        cmdlist.append("write %s %s" % (source, target))
-
-        # Figure out if we need executable permission or not.
-        # We assume the default (0644) is acceptable otherwise.
-        mode = os.stat(source).st_mode
-        if mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
-            cmdlist.append("chmod %s 755" % (target,))
-
-
-def safe_mkdirs_cmdlist(cmdlist, d, safe_dirs):
-    if not d or d == "/":
-        return  # already exists
-
-    if d not in safe_dirs:
-        safe_mkdirs_cmdlist(cmdlist, os.path.dirname(d), safe_dirs)
-        cmdlist.append("mkdir %s" % (d,))
-        safe_dirs.add(d)
-
-
-def build_file_list(all_sources):
-    """Builds a full command list for ext2img."""
-    (
-        imagesdir,
-        srcdir,
-        baseimagesdir,
-        kernel,
-        initrd,
-        musldir,
-        pedigree_c_sdk_dir,
-        binarydir,
-    ) = all_sources[:8]
-    additional_sources = all_sources[8:]
-
-    users, groups = build_user_map(baseimagesdir)
-
-    # Host path -> Pedigree path mapping.
+def build_file_list(base_root, files=(), trees=()):
+    """Overlay only declared files and trees onto the matching Alpine root image."""
+    base_root = Path(base_root)
+    if not base_root.is_dir():
+        raise ValueError(f"Alpine root directory is missing: {base_root}")
     copies = {}
 
-    add_copy(copies, kernel, "/boot/kernel")
-    if initrd != "__noinitrd__":
-        add_copy(copies, initrd, "/boot/initrd.tar")
+    def add(source, destination):
+        source = Path(source).absolute()
+        command_path(source)
+        destination = target_path(destination)
+        protect_base_runtime(destination)
+        parent = resolve_image_path(base_root, str(PurePosixPath(destination).parent))
+        destination = posixpath.join(parent, PurePosixPath(destination).name)
+        protect_base_runtime(destination)
+        if destination == "/" or base_root.joinpath(destination.lstrip("/")).is_dir():
+            raise ValueError(
+                f"Overlay would replace an Alpine directory: {destination}"
+            )
+        if not source.is_symlink() and not source.is_file():
+            raise ValueError(f"Overlay source is not a file: {source}")
+        if destination in copies and copies[destination] != source:
+            raise ValueError(f"Multiple overlay sources for {destination}")
+        copies[destination] = source
 
-    for source in additional_sources:
-        prefix = "/"
-        basename = os.path.basename(source)
-        dirname = os.path.dirname(source)
-
-        if dirname.endswith("src/user"):
-            if basename.startswith("lib") and basename.endswith(".so"):
-                prefix = "/usr/lib"
-            else:
-                prefix = "/usr/bin"
-        elif dirname.endswith("src/modules"):
-            if basename.startswith("lib") and basename.endswith(".so"):
-                prefix = "/usr/lib"
-            else:
-                prefix = "/usr/lib/modules"
-
-        add_copy(copies, source, os.path.join(prefix, basename))
-
-    add_copy_tree(
-        copies,
-        baseimagesdir,
-        replacements=(
-            ("/config/term", "/usr/lib/pedigree/ncurses/share"),
-            ("/.profile", "/root/.profile"),
-            ("/.bashrc", "/root/.bashrc"),
-        ),
-    )
-    add_copy_tree(copies, os.path.join(musldir, "usr"), "/usr")
-    add_copy_tree(copies, os.path.join(pedigree_c_sdk_dir, "usr"), "/usr")
-
-    # Add translations.
-    for lang in ("en_US", "de_DE"):
-        add_copy_tree(
-            copies,
-            os.path.join(binarydir, "src/po/" + lang),
-            "/usr/share/locale/" + lang + ".UTF-8/LC_MESSAGES",
-            extensions=("gmo",),
-        )
-
-    # Add keymaps.
-    add_copy_tree(copies, os.path.join(binarydir, "keymaps"), "/usr/share/keymaps")
-
-    # Build command list.
-    cmdlist = []
-    safe_dirs = set()
-    for fhs_dir in (
-        "/dev",
-        "/dev/shm",
-        "/etc",
-        "/home",
-        "/media",
-        "/proc",
-        "/root",
-        "/run",
-        "/run/lock",
-        "/sys",
-        "/tmp",
-        "/usr/bin",
-        "/usr/include",
-        "/usr/lib",
-        "/usr/sbin",
-        "/usr/share",
-        "/var/cache",
-        "/var/run",
-    ):
-        safe_mkdirs_cmdlist(cmdlist, fhs_dir, safe_dirs)
-
-    for dirpath, dirs, files in os.walk(imagesdir):
-        legacy_dirpath = dirpath.replace(imagesdir, "")
-        if not legacy_dirpath:
-            legacy_dirpath = "/"
-        target_dirpath = translate_target_path(legacy_dirpath)
-
-        safe_mkdirs_cmdlist(cmdlist, target_dirpath, safe_dirs)
-
-        changedDefaults = False
-        if target_dirpath.startswith("/home/"):
-            user = target_dirpath.split("/")[2]
-            if user in users:
-                cmdlist.append("defaultowner %d %d" % users[user])
-                changedDefaults = True
-
-        for d in dirs:
-            target = translate_target_path(os.path.join(legacy_dirpath, d))
-            safe_mkdirs_cmdlist(cmdlist, target, safe_dirs)
-
-            if target_dirpath == "/home":
-                if d in users:
-                    cmdlist.append(
-                        "chown %s %d %d" % (target, users[d][0], users[d][1])
+    for source, destination in files:
+        add(source, destination)
+    for source, destination in trees:
+        source = Path(source).absolute()
+        destination = target_path(destination)
+        if not source.is_dir():
+            raise ValueError(f"Overlay source is not a directory: {source}")
+        for directory, dirs, entries in os.walk(source):
+            directory = Path(directory)
+            for name in sorted(dirs + entries):
+                entry = directory / name
+                if entry.is_symlink() or entry.is_file():
+                    add(
+                        entry,
+                        str(PurePosixPath(destination) / entry.relative_to(source)),
                     )
 
-        for f in sorted(files):
-            source = os.path.join(dirpath, f)
-
-            # This file might need to be copied from the build directory.
-            target = os.path.join(target_dirpath, f)
-            canonical_source = os.path.join(imagesdir, target.lstrip("/"))
-            if source != canonical_source and os.path.lexists(canonical_source):
-                # New packages can coexist with an older staged layout.
+    directories = set()
+    commands = []
+    for destination, source in sorted(copies.items()):
+        parent = PurePosixPath(destination).parent
+        for directory in reversed((parent, *parent.parents)):
+            path = str(directory)
+            if path in copies:
+                raise ValueError(f"Overlay file is also used as a directory: {path}")
+            existing = base_root / path.lstrip("/")
+            if existing.is_dir():
                 continue
-            if target_in_copylist(copies, target):
-                print(
-                    "Target %s will be overridden by files in the build directory."
-                    % (target,)
-                )
-                continue
-
-            if os.path.islink(source):
-                link_target = os.readlink(source)
-                if link_target.startswith(dirpath):
-                    link_target = link_target.replace(dirpath, "").lstrip("/")
-                elif link_target.startswith("/"):
-                    link_target = translate_target_path(link_target)
-
-                cmdlist.append("symlink %s %s" % (target, link_target))
-            elif os.path.isfile(source):
-                add_file_to_cmdlist(cmdlist, source, target)
-
-        if changedDefaults:
-            cmdlist.append("defaultowner 0 0")
-
-    for host_path, target_paths in copies.items():
-        for target_path in target_paths:
-            dirname = os.path.dirname(target_path)
-            if dirname not in safe_dirs:
-                safe_mkdirs_cmdlist(cmdlist, dirname, safe_dirs)
-
-            if os.path.islink(host_path):
-                link_target = os.readlink(host_path)
-                if link_target.startswith("/"):
-                    link_target = translate_target_path(link_target)
-                cmdlist.append("symlink %s %s" % (target_path, link_target))
-            elif os.path.isfile(host_path):
-                add_file_to_cmdlist(cmdlist, host_path, target_path)
-            else:
-                raise Exception(
-                    'Host file "%s" for target path %s is not a file.'
-                    % (host_path, target_path)
-                )
-
-    cmdlist.append("chmod /etc/shadow 600")
-
-    # Add some more useful layout features (e.g. to make /bin/sh work).
-    cmdlist.append("symlink /usr/bin/sh /usr/bin/bash")
-    cmdlist.append("symlink /bin /usr/bin")
-    cmdlist.append("symlink /lib /usr/lib")
-    cmdlist.append("symlink /sbin /usr/sbin")
-
-    # Sort the command lists so we do everything in batches (e.g. mkdir, chmod)
-    def count_components(path):
-        return path.count("/")
-
-    def commandlist_sorter(item):
-        order = ["mkdir", "write", "symlink", "chmod"]
-        item_components = item.split()
-        item_which = item_components[0]
-        if item_which in ("mkdir", "write", "symlink"):
-            item_target_path = item_components[-1]
+            if existing.exists() or existing.is_symlink():
+                raise ValueError(f"Overlay parent is not a directory: {path}")
+            if path not in directories:
+                commands.append(f"mkdir {path}")
+                directories.add(path)
+        existing = base_root / destination.lstrip("/")
+        if existing.exists() or existing.is_symlink():
+            commands.append(f"rm {destination}")
+        if source.is_symlink():
+            link = command_path(os.readlink(source))
+            commands.append(f"symlink {destination} {link}")
         else:
-            item_target_path = item_components[1]
-
-        # First key - ordered commands. Second key - # of path components.
-        return (order.index(item_which), count_components(item_target_path))
-
-    return list(sorted(cmdlist, key=commandlist_sorter))
+            commands.append(f"write {source} {destination}")
+            mode = stat.S_IMODE(source.stat().st_mode) & 0o777
+            commands.append(f"chmod {destination} {mode:o}")
+    return commands
 
 
-def image_size(cmdlist):
+def image_size(base_size, commands):
+    if not commands:
+        return base_size
     block_size = 4096
     payload = 0
-    for command in cmdlist:
+    for command in commands:
         if command.startswith("write "):
-            source = command[len("write ") :].rsplit(" ", 1)[0]
+            source = command.split()[1]
             size = os.path.getsize(source)
             payload += max(
                 block_size, (size + block_size - 1) // block_size * block_size
             )
         elif command.startswith(("mkdir ", "symlink ")):
             payload += block_size
-
-    # Leave room for ext2 metadata, reserved blocks, and later package changes.
-    size = max(1 << 31, (payload * 5 + 3) // 4)
-    alignment = 256 << 20
+    # Keep the base's free space and add room for overlay blocks and ext2 metadata.
+    size = base_size + (payload * 5 + 3) // 4 + (16 << 20)
+    alignment = 64 << 20
     return (size + alignment - 1) // alignment * alignment
 
 
-def create_base_image(target, size):
-    with open(target, "wb") as image:
-        image.truncate(size)
-
-    mke2fs = "/sbin/mke2fs"
-    if sys.platform == "darwin":
-        mke2fs = "/opt/homebrew/sbin/mke2fs"
-
-    # Generate ext2 filesystem.
-    args = [
-        mke2fs,  # TODO(miselin): need to detect in CMake and pass path
-        "-q",
-        "-O",
-        "^dir_index",  # Don't (yet) use directory b-trees.
-        "-I",
-        "128",
-        "-F",
-        "-L",
-        "pedigree",
-        "-U",
-        "50e5c7c0-b79c-4932-8cdc-c2b2c713ff97",
-        target,
-    ]
-    subprocess.check_call(args)
+def e2fsprog(name):
+    located = shutil.which(name)
+    if located:
+        return located
+    homebrew = Path("/opt/homebrew/sbin") / name
+    if homebrew.is_file():
+        return str(homebrew)
+    raise FileNotFoundError(f"Install e2fsprogs to provide {name}")
 
 
-def main():
-    targetfile = sys.argv[1]
-    ext2img = sys.argv[2]
-    sources = sys.argv[3:]
+def create_image(target, ext2img, base_image, commands):
+    target = Path(target).absolute()
+    base_image = Path(base_image).absolute()
+    if target == base_image or (target.exists() and target.samefile(base_image)):
+        raise ValueError("The output image must differ from the Alpine base image")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=".pedigree-image-", dir=target.parent
+    ) as temporary:
+        image = Path(temporary) / "root.img"
+        shutil.copyfile(base_image, image)
+        size = image_size(image.stat().st_size, commands)
+        if size > image.stat().st_size:
+            with image.open("r+b") as stream:
+                stream.truncate(size)
+            checked = subprocess.run(
+                [e2fsprog("e2fsck"), "-pf", str(image)], check=False
+            )
+            if checked.returncode not in (0, 1):
+                raise subprocess.CalledProcessError(checked.returncode, checked.args)
+            subprocess.run([e2fsprog("resize2fs"), str(image)], check=True)
+        if commands:
+            command_file = Path(temporary) / "commands"
+            command_file.write_text("\n".join(commands) + "\n")
+            subprocess.run(
+                [str(ext2img), "-q", "-c", str(command_file), "-f", str(image)],
+                check=True,
+            )
+        os.replace(image, target)
 
-    cmdlist = build_file_list(sources)
-    create_base_image(targetfile, image_size(cmdlist))
 
-    # Populate the filesystem with the host-side ext2 image utility.
-    with tempfile.NamedTemporaryFile() as commands:
-        commands.write("\n".join(cmdlist).encode("utf-8"))
-        commands.flush()
-        subprocess.check_call([ext2img, "-q", "-c", commands.name, "-f", targetfile])
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Overlay declared Pedigree artifacts onto an Alpine root image."
+    )
+    parser.add_argument("target")
+    parser.add_argument("ext2img")
+    parser.add_argument("--base-image", required=True)
+    parser.add_argument("--base-root", required=True)
+    parser.add_argument(
+        "--file", nargs=2, action="append", default=[], metavar=("SOURCE", "TARGET")
+    )
+    parser.add_argument(
+        "--tree", nargs=2, action="append", default=[], metavar=("SOURCE", "TARGET")
+    )
+    args = parser.parse_args(argv)
+    commands = build_file_list(args.base_root, args.file, args.tree)
+    create_image(args.target, args.ext2img, args.base_image, commands)
 
 
 if __name__ == "__main__":

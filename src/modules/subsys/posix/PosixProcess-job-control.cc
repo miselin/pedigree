@@ -138,7 +138,6 @@ int PosixProcess::createSession() {
   {
     RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
     if (ProcessGroupManager::instance().findGroup(getUserspaceId())) {
-      ERROR("PosixProcess::createSession - failed to find group for gid " << getUserspaceId());
       error = Error::NotEnoughPermissions;
     } else {
       prepared.get()->processGroupId = getUserspaceId();

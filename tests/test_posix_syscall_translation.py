@@ -7,23 +7,23 @@ import textwrap
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SYSCALL_DIR = ROOT / "src/modules/subsys/posix/syscalls"
-MAPPING = SYSCALL_DIR / "linuxSyscallMappings-amd64.h"
 TRANSLATE = SYSCALL_DIR / "translate.h"
 CC = shutil.which("cc")
 
 
-def load_mapping():
+def load_mapping(architecture="amd64"):
     pattern = re.compile(
-        r"^PEDIGREE_LINUX_AMD64_SYSCALL\("
+        rf"^PEDIGREE_LINUX_{architecture.upper()}_SYSCALL\("
         r"([a-z0-9_]+),\s*(0x[0-9a-fA-F]+|[0-9]+),\s*([A-Z0-9_]+)\)$",
         re.MULTILINE,
     )
     return [
         (name, int(number, 0), target)
-        for name, number, target in pattern.findall(MAPPING.read_text())
+        for name, number, target in pattern.findall(
+            (SYSCALL_DIR / f"linuxSyscallMappings-{architecture}.h").read_text()
+        )
     ]
 
 
@@ -66,6 +66,68 @@ class PosixSyscallTranslationTests(unittest.TestCase):
     def test_getrusage_uses_the_existing_resource_accounting_handler(self):
         self.assertIn(("getrusage", 98, "POSIX_GETRUSAGE"), load_mapping())
 
+    def test_job_control_syscalls_have_linux_numbers(self):
+        for architecture, numbers in (
+            (
+                "amd64",
+                {
+                    "setpgid": 109,
+                    "getpgrp": 111,
+                    "setsid": 112,
+                    "getpgid": 121,
+                    "getsid": 124,
+                },
+            ),
+            ("arm64", {"setpgid": 154, "getpgid": 155, "getsid": 156, "setsid": 157}),
+            (
+                "armv7",
+                {
+                    "setpgid": 57,
+                    "getpgrp": 65,
+                    "setsid": 66,
+                    "getpgid": 132,
+                    "getsid": 147,
+                },
+            ),
+        ):
+            with self.subTest(architecture=architecture):
+                mapping = load_mapping(architecture)
+                for name, number in numbers.items():
+                    self.assertIn((name, number, f"POSIX_{name.upper()}"), mapping)
+
+    def test_alpine_login_syscalls_have_linux_numbers(self):
+        for architecture, expected in (
+            (
+                "arm64",
+                (
+                    ("fchmod", 52, "POSIX_FCHMOD"),
+                    ("fchown", 55, "POSIX_FCHOWN"),
+                    ("ppoll", 73, "POSIX_PPOLL"),
+                    ("setgid", 144, "POSIX_SETGID"),
+                    ("setuid", 146, "POSIX_SETUID"),
+                    ("setgroups", 159, "POSIX_SETGROUPS"),
+                ),
+            ),
+            (
+                "armv7",
+                (
+                    ("access", 33, "POSIX_ACCESS"),
+                    ("umask", 60, "POSIX_UMASK"),
+                    ("readlink", 85, "POSIX_READLINK"),
+                    ("fchmod", 94, "POSIX_FCHMOD"),
+                    ("poll", 168, "POSIX_POLL"),
+                    ("setgroups32", 206, "POSIX_SETGROUPS"),
+                    ("fchown32", 207, "POSIX_FCHOWN"),
+                    ("setuid32", 213, "POSIX_SETUID"),
+                    ("setgid32", 214, "POSIX_SETGID"),
+                ),
+            ),
+        ):
+            with self.subTest(architecture=architecture):
+                mapping = load_mapping(architecture)
+                for entry in expected:
+                    self.assertIn(entry, mapping)
+
     @unittest.skipUnless(CC, "requires a native C compiler")
     def test_every_owned_number_translates_without_libc_headers(self):
         self.assertNotIn("bits/syscall.h", TRANSLATE.read_text())
@@ -87,39 +149,49 @@ class PosixSyscallTranslationTests(unittest.TestCase):
             """
         )
 
-        with tempfile.TemporaryDirectory() as temporary:
-            temporary_path = Path(temporary)
-            source_path = temporary_path / "translation.c"
-            executable = temporary_path / "translation"
-            source_path.write_text(source)
-            result = subprocess.run(
-                [
-                    CC,
-                    "-std=c11",
-                    "-Wall",
-                    "-Wextra",
-                    "-Werror",
-                    "-nostdinc",
-                    "-DHOSTED=1",
-                    "-I",
-                    str(SYSCALL_DIR),
-                    str(source_path),
-                    "-o",
-                    str(executable),
-                ],
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(
-                result.returncode, 0, msg=result.stdout + result.stderr
-            )
+        for architecture in ("amd64", "arm64", "armv7"):
+            with (
+                self.subTest(architecture=architecture),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                temporary_path = Path(temporary)
+                source_path = temporary_path / "translation.c"
+                executable = temporary_path / "translation"
+                source_path.write_text(
+                    source.replace("AMD64", architecture.upper()).replace(
+                        "amd64", architecture
+                    )
+                )
+                result = subprocess.run(
+                    [
+                        CC,
+                        "-std=c11",
+                        "-Wall",
+                        "-Wextra",
+                        "-Werror",
+                        "-nostdinc",
+                        "-DHOSTED=1",
+                        f"-D{architecture.upper()}=1",
+                        "-I",
+                        str(SYSCALL_DIR),
+                        str(source_path),
+                        "-o",
+                        str(executable),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    result.returncode, 0, msg=result.stdout + result.stderr
+                )
 
-            result = subprocess.run(
-                [str(executable)], capture_output=True, text=True
-            )
-            self.assertEqual(
-                result.returncode, 0, msg=result.stdout + result.stderr
-            )
+                result = subprocess.run(
+                    [str(executable)], capture_output=True, text=True, check=False
+                )
+                self.assertEqual(
+                    result.returncode, 0, msg=result.stdout + result.stderr
+                )
 
 
 if __name__ == "__main__":

@@ -3,7 +3,12 @@ set -euo pipefail
 
 repository=$(cd -P -- "$(dirname -- "$0")" && pwd -P)
 toolchain_root=${PEDIGREE_TOOLCHAIN_ROOT:-$repository/pedigree-compiler-15.3.0-r2}
-target_sysroot=${PEDIGREE_TARGET_SYSROOT:-$repository/scripts/alpine/build/armv7/sysroot}
+alpine_root=${PEDIGREE_ALPINE_ROOT:-$repository/scripts/alpine/build/armv7}
+case "$alpine_root" in
+    /*) ;;
+    *) alpine_root=$PWD/$alpine_root ;;
+esac
+target_sysroot=${PEDIGREE_TARGET_SYSROOT:-$alpine_root/sysroot}
 boot_profile=${PEDIGREE_ARMV7_BOOT_PROFILE:-alpine}
 compiler_target=armv7-alpine-linux-musleabihf
 compiler="$toolchain_root/bin/$compiler_target-gcc"
@@ -15,36 +20,20 @@ case "$boot_profile" in
     *) echo "Unknown ARMv7 boot profile: $boot_profile (expected alpine or bootstrap)" >&2; exit 2 ;;
 esac
 
-if [[ $boot_profile == alpine && \
-      ( ! -f $repository/scripts/alpine/build/armv7/rootfs.img || \
-        ! -f $target_sysroot/usr/include/errno.h || \
-        ! -f $target_sysroot/usr/lib/libc.a ) ]]; then
-    "$repository/scripts/alpine/build.sh" armv7
-fi
-
-toolchain_refreshed=false
-if [[ ! -x $compiler ]]; then
-    uv run python "$repository/scripts/bootstrap_toolchain.py" \
-        "$compiler_target" "$toolchain_root" --source-root "$repository" \
-        --sysroot "$target_sysroot/usr"
-    toolchain_refreshed=true
-fi
+"$repository/scripts/alpine/build.sh" armv7 "$alpine_root" --profile base
+alpine_root=$(cd -P -- "$alpine_root" && pwd -P)
+target_sysroot=$(cd -P -- "$target_sysroot" && pwd -P)
+uv run python "$repository/scripts/bootstrap_toolchain.py" \
+    "$compiler_target" "$toolchain_root" --source-root "$repository" \
+    --sysroot "$target_sysroot/usr" --libcpp
+toolchain_root=$(cd -P -- "$toolchain_root" && pwd -P)
+compiler="$toolchain_root/bin/$compiler_target-gcc"
+compiler_cxx="$toolchain_root/bin/$compiler_target-g++"
 
 if [[ $boot_profile == alpine ]]; then
-    toolchain_root=$(cd -P -- "$toolchain_root" && pwd -P)
-    target_sysroot=$(cd -P -- "$target_sysroot" && pwd -P)
-    gcc_version=$("$compiler_cxx" -dumpfullversion)
-    if [[ ! -f $toolchain_root/include/c++/$gcc_version/$compiler_target/bits/c++config.h ]]; then
-        uv run python "$repository/scripts/bootstrap_toolchain.py" \
-            "$compiler_target" "$toolchain_root" --source-root "$repository" \
-            --sysroot "$target_sysroot/usr" --libcpp
-        toolchain_refreshed=true
-    fi
-
     build_dir=${PEDIGREE_ARMV7_BUILD_DIR:-$repository/build-armv7/full}
     if [[ -f $build_dir/CMakeCache.txt ]] && \
-       { [[ $toolchain_refreshed == true ]] || \
-         ! grep -Fqx "PEDIGREE_TOOLCHAIN_ROOT:PATH=$toolchain_root" "$build_dir/CMakeCache.txt" || \
+       { ! grep -Fqx "PEDIGREE_TOOLCHAIN_ROOT:PATH=$toolchain_root" "$build_dir/CMakeCache.txt" || \
          ! grep -Fqx "PEDIGREE_TARGET_SYSROOT:PATH=$target_sysroot" "$build_dir/CMakeCache.txt"; }; then
         cmake -E rm -f "$build_dir/CMakeCache.txt"
         cmake -E remove_directory "$build_dir/CMakeFiles"
@@ -54,6 +43,8 @@ if [[ $boot_profile == alpine ]]; then
         -DCMAKE_TOOLCHAIN_FILE="$repository/build-etc/cmake/pedigree_armv7.cmake" \
         -DPEDIGREE_TOOLCHAIN_ROOT:PATH="$toolchain_root" \
         -DPEDIGREE_TARGET_SYSROOT:PATH="$target_sysroot" \
+        -DPEDIGREE_ALPINE_ROOT:PATH="$alpine_root" \
+        -DPEDIGREE_ALPINE_PROFILE=base \
         -DBUILD_TESTING=OFF \
         -DPEDIGREE_BUILD_USER_DIR=OFF \
         -DPEDIGREE_STATIC_DRIVERS=ON \

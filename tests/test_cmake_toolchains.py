@@ -30,6 +30,23 @@ class CMakeToolchainTests(unittest.TestCase):
             ROOT / "external", target_is_directory=True
         )
 
+        # These configure and host-tool probes never compile target libc code.
+        sdk = source / "sdk"
+        loader = sdk / "lib/ld-musl-x86_64.so.1"
+        loader.parent.mkdir(parents=True)
+        loader.write_bytes(b"\x7fELF\x02\x01\x01" + bytes(11) + b"\x3e\x00")
+        for relative in (
+            "usr/include/errno.h", "usr/include/stdio.h", "usr/include/stdlib.h",
+            "usr/include/stdint.h", "usr/include/unistd.h", "usr/include/bits/syscall.h",
+            "usr/include/sys/syscall.h", "usr/lib/crt1.o", "usr/lib/Scrt1.o",
+            "usr/lib/rcrt1.o", "usr/lib/crti.o", "usr/lib/crtn.o", "usr/lib/libc.a",
+            "usr/lib/libm.a", "usr/lib/libpthread.a", "usr/lib/libdl.a", "usr/lib/librt.a",
+        ):
+            path = sdk / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"fixture")
+        (sdk / "usr/lib/libc.so").symlink_to("../../lib/ld-musl-x86_64.so.1")
+
         cmake_lists = (ROOT / "CMakeLists.txt").read_text()
         validation_end = "    add_subdirectory(src/modules)\n"
         self.assertEqual(cmake_lists.count(validation_end), 1)
@@ -69,6 +86,7 @@ class CMakeToolchainTests(unittest.TestCase):
             str(build),
             "-DCMAKE_TOOLCHAIN_FILE="
             + str(ROOT / "build-etc/cmake/pedigree_amd64.cmake"),
+            f"-DPEDIGREE_TARGET_SYSROOT={source / 'sdk'}",
             "-DBUILD_TESTING=OFF",
             "-DPEDIGREE_BUILD_KEYMAPS=OFF",
             "-DPEDIGREE_BUILD_TRANSLATIONS=OFF",
@@ -638,7 +656,8 @@ class CMakeToolchainTests(unittest.TestCase):
                     (source / "user_library.cc").write_text(
                         "#include <project.h>\n"
                         "#include <fresh-musl.h>\n"
-                        "int user_library() { return PROJECT_HEADER; }\n"
+                        "#include <cfixture>\n"
+                        "int user_library() { return PROJECT_HEADER + SDK_CHOICE; }\n"
                     )
                     for name in ("host_generator", "hosted_kernel"):
                         (source / f"{name}.c").write_text(
@@ -656,6 +675,13 @@ class CMakeToolchainTests(unittest.TestCase):
                                 "{(ROOT / 'build-etc/cmake').as_posix()}")
                             set(PEDIGREE_MUSL_PREFIX_ROOT
                                 "${{CMAKE_BINARY_DIR}}/musl/usr")
+                            file(MAKE_DIRECTORY
+                                "${{PEDIGREE_MUSL_PREFIX_ROOT}}/include"
+                                "${{CMAKE_BINARY_DIR}}/cxx-wrappers")
+                            file(WRITE "${{CMAKE_BINARY_DIR}}/cxx-wrappers/cfixture"
+                                "#include_next <sdk-choice.h>\n")
+                            list(PREPEND CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES
+                                "${{CMAKE_BINARY_DIR}}/cxx-wrappers")
                             set(PEDIGREE_SELF_HOSTED ON)
                             set(PEDIGREE_MUSL_INSTALLED_INCLUDE_DIR
                                 "${{CMAKE_BINARY_DIR}}/installed/usr/include")
@@ -690,6 +716,13 @@ class CMakeToolchainTests(unittest.TestCase):
                             add_library(kernel STATIC kernel.c)
                             add_executable(user_app user_app.c)
                             add_library(user_library SHARED user_library.cc)
+                            add_library(imported_sdk INTERFACE IMPORTED)
+                            file(REAL_PATH "${{PEDIGREE_MUSL_PREFIX_ROOT}}/include"
+                                sdk_canonical_include)
+                            target_include_directories(imported_sdk INTERFACE
+                                "${{PEDIGREE_MUSL_PREFIX_ROOT}}/include"
+                                "${{sdk_canonical_include}}")
+                            target_link_libraries(user_library PRIVATE imported_sdk)
                             target_include_directories(module PRIVATE
                                 "${{CMAKE_SOURCE_DIR}}/project-include")
                             target_include_directories(kernel PRIVATE
@@ -781,6 +814,8 @@ class CMakeToolchainTests(unittest.TestCase):
                     ):
                         command = commands[filename]
                         self.assertEqual(command.count(fresh_flag), 1)
+                        self.assertNotIn(str(build / "musl/usr/include"), command)
+                        self.assertNotIn(str((build / "musl/usr/include").resolve()), command)
                         self.assertLess(
                             command.index(project_flag),
                             command.index(fresh_flag),

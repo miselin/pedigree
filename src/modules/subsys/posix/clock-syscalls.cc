@@ -185,9 +185,18 @@ extern "C" EXPORTED_PUBLIC Time::Timestamp posixNanosleepAlarmDurationForTest(ti
 }
 #endif
 
-int posix_nanosleep(const struct timespec* rqtp, struct timespec* rmtp) {
+int posix_nanosleep(const struct timespec* rqtp, struct timespec* rmtp, bool time32) {
   struct timespec requested = {};
-  if (!PosixSubsystem::copyFromUser(&requested, rqtp, sizeof(requested))) {
+  bool copied;
+  if (time32) {
+    LinuxKernelTimespec32 source = {};
+    copied = PosixSubsystem::copyFromUser(&source, rqtp, sizeof(source));
+    requested.tv_sec = source.tv_sec;
+    requested.tv_nsec = source.tv_nsec;
+  } else {
+    copied = PosixSubsystem::copyFromUser(&requested, rqtp, sizeof(requested));
+  }
+  if (!copied) {
     SG_NOTICE("nanosleep -> invalid address");
     SYSCALL_ERROR(BadAddress);
     return -1;
@@ -208,9 +217,18 @@ int posix_nanosleep(const struct timespec* rqtp, struct timespec* rmtp) {
 
   const struct timespec result = {static_cast<time_t>(remaining / Time::Multiplier::Second),
                                   static_cast<long>(remaining % Time::Multiplier::Second)};
-  if (rmtp && !PosixSubsystem::copyToUser(rmtp, &result, sizeof(result))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
+  if (rmtp) {
+    if (time32) {
+      const LinuxKernelTimespec32 result32 = {static_cast<int32_t>(result.tv_sec),
+                                              static_cast<int32_t>(result.tv_nsec)};
+      copied = PosixSubsystem::copyToUser(rmtp, &result32, sizeof(result32));
+    } else {
+      copied = PosixSubsystem::copyToUser(rmtp, &result, sizeof(result));
+    }
+    if (!copied) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
   }
 
   SYSCALL_ERROR(Interrupted);

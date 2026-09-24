@@ -764,6 +764,7 @@ DevFs::~DevFs() {
   if (!VFS::instance().untrackFile(m_pRoot)) {
     ERROR("DevFs: root directory did not get cleaned up");
   }
+  delete m_Serial;
 }
 
 bool DevFs::initialise(Disk* pDisk) {
@@ -827,9 +828,10 @@ bool DevFs::initialise(Disk* pDisk) {
   }
 
   if (Machine::instance().getNumSerial()) {
-    SerialFile* pSerial = new SerialFile(String("ttyS0"), getNextInode(), this, m_pRoot,
-                                         Machine::instance().getSerial(0));
-    m_pRoot->addEntry(pSerial->getName(), pSerial);
+    m_Serial = new SerialFile(String("ttyS0"), getNextInode(), this, nullptr,
+                              Machine::instance().getSerial(0));
+    auto* console = new ConsolePhysicalFile(~0U, m_Serial, String("ttyS0"), this);
+    m_pRoot->addEntry(console->getName(), console);
   }
 
   // Create the /dev/mem device.
@@ -880,12 +882,12 @@ bool DevFs::initialise(Disk* pDisk) {
   Tty0File* pTty0 = new Tty0File(String("tty0"), getNextInode(), this, m_pRoot, this);
   m_pRoot->addEntry(pTty0->getName(), pTty0);
 
-  // The virt machine has a serial console and no virtual terminal display.
-#if ARM64
-  File* pConsole = new DeviceLink(String("console"), String("ttyS0"), getNextInode(), this, m_pRoot);
-#else
-  File* pConsole = new Tty0File(String("console"), getNextInode(), this, m_pRoot, this);
-#endif
+  File* pConsole = nullptr;
+  if (m_VtManager) {
+    pConsole = new Tty0File(String("console"), getNextInode(), this, m_pRoot, this);
+  } else {
+    pConsole = new DeviceLink(String("console"), String("ttyS0"), getNextInode(), this, m_pRoot);
+  }
   m_pRoot->addEntry(pConsole->getName(), pConsole);
 
   Pipe* initctl = new Pipe(String("initctl"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);

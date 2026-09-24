@@ -17,6 +17,14 @@ struct LinuxKernelTimespec {
   int64_t tv_nsec;
 };
 
+struct LinuxKernelTimespec32 {
+  int32_t tv_sec;
+  int32_t tv_nsec;
+};
+
+static_assert(sizeof(LinuxKernelTimespec32) == 8,
+              "Linux time32 kernel timespec must remain 8 bytes.");
+
 static_assert(sizeof(LinuxKernelTimespec) == 16,
               "Linux amd64 kernel timespec must remain 16 bytes.");
 static_assert(offsetof(LinuxKernelTimespec, tv_sec) == 0 &&

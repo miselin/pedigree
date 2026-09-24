@@ -10,7 +10,7 @@ Usage: scripts/clang-tidy.sh host|cross|userspace <build-directory> [options]
 The build directory must contain compile_commands.json and the LLVM 22
 clang-tidy tools. Cross and userspace modes expect the x86_64 Pedigree toolchain
 under PEDIGREE_TOOLCHAIN_ROOT (default: /opt/pedigree). Userspace also requires
-the ignored images/local SDK and a build configured with
+the prepared Alpine SDK and a build configured with
 PEDIGREE_BUILD_USER_DIR=ON.
 EOF
 }
@@ -98,19 +98,16 @@ case $mode in
         # scanner sources are outside src/ and therefore do not match.
         source_filter="^${escaped_repo_root}/src/user/(?!applications/nyancat(/|$)).*\\.(c|cc|cpp|cxx)$"
         required_sources=(
-            "$repo_root/src/user/applications/gears/gears.cc"
             "$repo_root/src/user/applications/init/main.c"
             "$repo_root/src/user/libraries/libfb/src/fb.cc"
         )
 
-        required_sdk_headers=(
-            "$repo_root/images/local/include/GL/osmesa.h"
-            "$repo_root/images/local/include/cairo/cairo.h"
-        )
+        target_sysroot=${PEDIGREE_TARGET_SYSROOT:-$repo_root/scripts/alpine/build/x86_64/sysroot}
+        required_sdk_headers=("$target_sysroot/usr/include/stdio.h")
         for sdk_header in "${required_sdk_headers[@]}"; do
             if [[ ! -f $sdk_header ]]; then
                 echo "clang-tidy: userspace SDK header missing: $sdk_header" >&2
-                echo "clang-tidy: provision images/local before running userspace tidy" >&2
+                echo "clang-tidy: run scripts/alpine/build.sh x86_64 first" >&2
                 exit 1
             fi
         done

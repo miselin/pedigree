@@ -179,24 +179,14 @@ The active PC configuration is
 `build-etc/cmake/pedigree_amd64.cmake`. It describes an x86-64 PC kernel,
 Pedigree userspace and UEFI image targets.
 
-There is not yet a verified end-to-end x86-64 PC command in this restoration
-line. `easy_build_x64.sh`, `scripts/qemu`, and the PUP/package instructions are
-retained from the historical workflow and must not be treated as current
-success criteria. The cross-toolchain bootstrap is now independently available
-through `scripts/bootstrap_toolchain.py`; it pins the modern x86-64 Pedigree
-toolchain sources and target patches and can build into a side-by-side prefix.
-The next acceptable PC workflow needs to:
+The Easy Build helpers prepare Alpine root filesystems and development SDKs
+for x86-64, ARM64 and ARMv7, then use the existing cross-compilers. The default
+image starts Alpine init and a serial getty; x86-64 has an optional desktop
+profile. See [README.md](README.md) for the commands and
+[the SDK guide](docs/ai/musl-sdk.md) for offline preparation.
 
-1. bootstrap or locate the exact cross-toolchain without modifying the source
-   checkout unexpectedly;
-2. build native host utilities;
-3. build the x86-64 kernel, modules, userspace, disk image, and ISO with CMake;
-4. boot those artifacts in QEMU from a clean build directory;
-5. save the serial log and assert staged boot, userspace, command, and shutdown
-   markers.
-
-Until that workflow exists and is in `./verify.sh`, report x86-64 PC results as
-focused experiments, not as fork-wide green.
+These guest build paths are separate from `./verify.sh`. Report their build
+and QEMU results separately from hosted verification.
 
 ## Current known gaps
 

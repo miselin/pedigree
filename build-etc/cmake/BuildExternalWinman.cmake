@@ -16,6 +16,7 @@ foreach (required_variable
 endforeach ()
 
 set(expected_outputs ${PEDIGREE_EXTERNAL_WINMAN_EXPECTED_OUTPUTS})
+file(MAKE_DIRECTORY "${PEDIGREE_EXTERNAL_WINMAN_STAGE_DIR}")
 
 function(winman_manifest output_variable complete_variable)
     set(manifest
@@ -46,8 +47,9 @@ endfunction()
 
 set(inputs
     "${PEDIGREE_EXTERNAL_WINMAN_SOURCE_DIR}/CMakeLists.txt"
-    "${PEDIGREE_ROOT}/src/user/applications/gears/gears.cc"
-    "${PEDIGREE_ROOT}/src/user/applications/uitest/main.cc")
+    "${PEDIGREE_TARGET_SYSROOT}/usr/lib/libc.so"
+    "${PEDIGREE_ROOT}/build-etc/cmake/PedigreeAlpineSdk.cmake"
+    "${PEDIGREE_ROOT}/build-etc/cmake/PedigreeMuslLink.cmake")
 foreach (source_directory
         assets
         cmake
@@ -92,15 +94,19 @@ set(nested_executables
     "${PEDIGREE_EXTERNAL_WINMAN_BUILD_DIR}/winman-external-terminal"
     "${PEDIGREE_EXTERNAL_WINMAN_BUILD_DIR}/winman-external-widgets"
     "${PEDIGREE_EXTERNAL_WINMAN_BUILD_DIR}/winman-external-painter"
-    "${PEDIGREE_EXTERNAL_WINMAN_BUILD_DIR}/gears"
-    "${PEDIGREE_EXTERNAL_WINMAN_BUILD_DIR}/uitest")
+    "${PEDIGREE_EXTERNAL_WINMAN_BUILD_DIR}/winman-external-greeter"
+    "${PEDIGREE_EXTERNAL_WINMAN_BUILD_DIR}/winman-external-shell")
 file(REMOVE ${nested_executables})
 file(REMOVE ${expected_outputs})
 message(STATUS "Refreshing out-of-tree pedigree-winman and graphical clients")
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
         "PEDIGREE_ROOT=${PEDIGREE_ROOT}"
+        "PEDIGREE_WINMAN_SOURCE_DIR=${PEDIGREE_EXTERNAL_WINMAN_SOURCE_DIR}"
+        "LIBUI_PROTOC_EXECUTABLE=${PEDIGREE_ROOT}/scripts/alpine/protoc.sh"
         "PEDIGREE_BUILD_DIR=${PEDIGREE_BUILD_DIR}"
+        "PEDIGREE_TARGET_SYSROOT=${PEDIGREE_TARGET_SYSROOT}"
+        "PEDIGREE_TOOLCHAIN_ROOT=${PEDIGREE_TOOLCHAIN_ROOT}"
         "PEDIGREE_STAGE_DIR=${PEDIGREE_EXTERNAL_WINMAN_STAGE_DIR}"
         "WINMAN_BUILD_DIR=${PEDIGREE_EXTERNAL_WINMAN_BUILD_DIR}"
         "${PEDIGREE_EXTERNAL_WINMAN_SOURCE_DIR}/tools/build-pedigree.sh"

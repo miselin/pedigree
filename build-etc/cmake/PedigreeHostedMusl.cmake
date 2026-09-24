@@ -5,7 +5,7 @@ set(MUSL_SHA256 "d585fd3b613c66151fc3249e8ed44f77020cb5e6c1e635a616d3f9f82460512
 set(PEDIGREE_MUSL_PORT_REVISION 1)
 
 # Hosted libc redirects syscalls through the in-process kernel bridge.
-# The target musl PUP cannot replace this variant.
+# The Alpine SDK cannot replace this variant.
 set(PEDIGREE_MUSL_ARCHIVE
     "${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME}" CACHE FILEPATH
     "Local musl source archive used to build Pedigree's libc.")

@@ -255,12 +255,27 @@ endif ()
 set(PEDIGREE_COVERAGE FALSE CACHE BOOL "Build utilities with coverage instrumentation and reporting.")
 
 # Build artifact controls.
-set(PEDIGREE_IMAGESDIR "${CMAKE_SOURCE_DIR}/images/local" CACHE PATH "Directory containing the directory tree to build disk images from.")
+set(PEDIGREE_IMAGESDIR "${CMAKE_BINARY_DIR}/winman-stage" CACHE PATH "Staging directory for explicitly built desktop artifacts.")
+set(PEDIGREE_ALPINE_PROFILE "base" CACHE STRING "Alpine image profile: base or desktop.")
+set_property(CACHE PEDIGREE_ALPINE_PROFILE PROPERTY STRINGS base desktop)
+if (NOT PEDIGREE_ALPINE_PROFILE MATCHES "^(base|desktop)$")
+    message(FATAL_ERROR "PEDIGREE_ALPINE_PROFILE must be base or desktop.")
+endif ()
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    set(_PEDIGREE_ALPINE_ARCH x86_64)
+elseif (PEDIGREE_ARCH_TARGET STREQUAL "ARM64")
+    set(_PEDIGREE_ALPINE_ARCH aarch64)
+elseif (PEDIGREE_ARCH_TARGET STREQUAL "ARMV7")
+    set(_PEDIGREE_ALPINE_ARCH armv7)
+endif ()
+set(PEDIGREE_ALPINE_ROOT "${CMAKE_SOURCE_DIR}/scripts/alpine/build/${_PEDIGREE_ALPINE_ARCH}"
+    CACHE PATH "Prepared Alpine rootfs and SDK directory.")
 set(PEDIGREE_GO_CANARY "" CACHE FILEPATH "Prebuilt pedigree/amd64 Go canary to install as /usr/bin/go-canary.")
 
 set(_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT OFF)
 if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET" AND
     NOT PEDIGREE_SELF_HOSTED AND
+    PEDIGREE_BUILD_USER_DIR AND
     NOT PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
     set(_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT ON)
 endif ()
@@ -475,9 +490,13 @@ if (NOT PEDIGREE_SELF_HOSTED AND BUILD_TESTING)
         COMMAND ${PYTHON_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/test_musl_startfiles.py -v)
     add_test(
-        NAME musl-package-tests
+        NAME alpine-sdk-tests
         COMMAND ${PYTHON_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tests/test_musl_package.py -v)
+            ${CMAKE_SOURCE_DIR}/tests/test_alpine_sdk.py -v)
+    add_test(
+        NAME alpine-rootfs-tests
+        COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/test_alpine_rootfs.py -v)
     add_test(
         NAME pedigree-log-boundary-tests
         COMMAND ${PYTHON_EXECUTABLE}
@@ -489,18 +508,13 @@ endif ()
 # system. Consumers opt into this interface so host-side generators remain on
 # the build host's libc ABI.
 if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
-    if (PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
-        set(PEDIGREE_MUSL_SDK_ROOT "${PEDIGREE_TARGET_SYSROOT}")
-        if (NOT EXISTS "${PEDIGREE_MUSL_SDK_ROOT}/usr/include/errno.h")
-            message(FATAL_ERROR
-                "The ${PEDIGREE_ARCH_TARGET} target requires Alpine musl-dev headers "
-                "in PEDIGREE_TARGET_SYSROOT/usr/include. Run "
-                "scripts/alpine/build.sh ${PEDIGREE_ARCHDIR} first.")
-        endif ()
-    else ()
+    if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
         set(PEDIGREE_MUSL_SDK_ROOT "${CMAKE_BINARY_DIR}/musl")
+        set(PEDIGREE_MUSL_PREFIX_ROOT "${PEDIGREE_MUSL_SDK_ROOT}/usr")
+    else ()
+        include(PedigreeAlpineSdk)
+        pedigree_use_alpine_sdk()
     endif ()
-    set(PEDIGREE_MUSL_PREFIX_ROOT "${PEDIGREE_MUSL_SDK_ROOT}/usr")
     include(PedigreeMuslLink)
     pedigree_define_musl_sdk_headers()
 endif ()
@@ -781,33 +795,59 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
         endif ()
 
         set(UEFI_ROOT_IMAGE ${CMAKE_CURRENT_BINARY_DIR}/pedigree-uefi-root.img)
+        set(_PEDIGREE_ROOT_OVERLAY --file $<TARGET_FILE:kernel> /boot/kernel)
+        set(_PEDIGREE_ROOT_DEPENDENCIES kernel)
+        if (NOT PEDIGREE_STATIC_DRIVERS)
+            list(APPEND _PEDIGREE_ROOT_OVERLAY
+                --file ${CMAKE_BINARY_DIR}/src/modules/initrd.tar /boot/initrd.tar)
+            list(APPEND _PEDIGREE_ROOT_DEPENDENCIES initrd)
+        endif ()
+        foreach (app IN LISTS PEDIGREE_APPS_TARGETS)
+            # Alpine init owns boot and serial login in both profiles.
+            if (app MATCHES "^app-" AND NOT app STREQUAL "app-init")
+                list(APPEND _PEDIGREE_ROOT_OVERLAY
+                    --file $<TARGET_FILE:${app}> /usr/bin/$<TARGET_FILE_NAME:${app}>)
+            endif ()
+        endforeach ()
+        foreach (library IN LISTS PEDIGREE_LIBS_TARGETS)
+            list(APPEND _PEDIGREE_ROOT_OVERLAY
+                --file $<TARGET_FILE:${library}> /usr/lib/$<TARGET_FILE_NAME:${library}>)
+        endforeach ()
+        if (PEDIGREE_BUILD_USER_DIR)
+            list(APPEND _PEDIGREE_ROOT_OVERLAY
+                --file $<TARGET_FILE:native-user> /usr/lib/libpedigree.so
+                --tree ${PEDIGREE_C_SDK_ROOT}/usr /usr)
+            list(APPEND _PEDIGREE_ROOT_DEPENDENCIES pedigree-c-sdk
+                ${PEDIGREE_C_SDK_HEADERS} ${PEDIGREE_C_SDK_LIBRARY})
+            if (PEDIGREE_BUILD_KEYMAPS)
+                list(APPEND _PEDIGREE_ROOT_OVERLAY
+                    --tree ${CMAKE_BINARY_DIR}/keymaps /usr/share/keymaps)
+                list(APPEND _PEDIGREE_ROOT_DEPENDENCIES ${PEDIGREE_KEYMAPS_TARGETS})
+            endif ()
+        endif ()
+        if (PEDIGREE_GO_CANARY)
+            list(APPEND _PEDIGREE_ROOT_OVERLAY
+                --file ${PEDIGREE_GO_CANARY_IMAGE} /usr/bin/go-canary)
+        endif ()
+        list(APPEND _PEDIGREE_ROOT_OVERLAY ${PEDIGREE_DESKTOP_OVERLAY})
+        if (PEDIGREE_DESKTOP_OVERLAY)
+            file(WRITE ${CMAKE_BINARY_DIR}/alpine-inittab
+                "ttyS0::respawn:/sbin/getty -L 115200 ttyS0 vt100\n::respawn:/usr/bin/winman-external\n")
+            list(APPEND _PEDIGREE_ROOT_OVERLAY
+                --file ${CMAKE_BINARY_DIR}/alpine-inittab /etc/inittab)
+            list(APPEND _PEDIGREE_ROOT_DEPENDENCIES ${CMAKE_BINARY_DIR}/alpine-inittab)
+        endif ()
         add_custom_command(OUTPUT ${UEFI_ROOT_IMAGE}
             COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
-            ${UEFI_ROOT_IMAGE}
-            $<TARGET_FILE:host-ext2img>
-            ${PEDIGREE_IMAGESDIR}
-            ${CMAKE_SOURCE_DIR}
-            ${CMAKE_SOURCE_DIR}/images/base
-            ${KERNEL_FILENAME}
-            $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:${CMAKE_BINARY_DIR}/src/modules/initrd.tar>
-            $<$<BOOL:${PEDIGREE_STATIC_DRIVERS}>:__noinitrd__>
-            ${PEDIGREE_MUSL_SDK_ROOT}
-            ${PEDIGREE_C_SDK_ROOT}
-            ${CMAKE_BINARY_DIR}
-            ${PEDIGREE_KERNEL_MODULES}
-            ${PEDIGREE_APPS}
-            ${PEDIGREE_LIBS}
-            ${PEDIGREE_SUBSYSTEM_LIBS}
-            ${PEDIGREE_C_SDK_LIBRARY}
-            DEPENDS
-                host-ext2img
-                kernel ${PEDIGREE_APPS_TARGETS}
-                ${PEDIGREE_LIBS_TARGETS}
-                ${PEDIGREE_SUBSYSTEM_LIBS}
-                pedigree-c-sdk
-                ${PEDIGREE_C_SDK_HEADERS}
-                ${PEDIGREE_C_SDK_LIBRARY}
-                ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py)
+                ${UEFI_ROOT_IMAGE} $<TARGET_FILE:host-ext2img>
+                --base-image ${PEDIGREE_ALPINE_ROOT}/rootfs.img
+                --base-root ${PEDIGREE_ALPINE_ROOT}/rootfs
+                ${_PEDIGREE_ROOT_OVERLAY}
+            DEPENDS host-ext2img ${_PEDIGREE_ROOT_DEPENDENCIES}
+                ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS}
+                ${PEDIGREE_ALPINE_ROOT}/rootfs.img
+                ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
+            VERBATIM)
 
         set(UEFI_IMAGE ${CMAKE_CURRENT_BINARY_DIR}/pedigree-uefi.img)
         add_custom_command(OUTPUT ${UEFI_IMAGE}
@@ -848,7 +888,7 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
         add_custom_target(uefi-loader DEPENDS ${UEFI_LOADER})
 
         set(PEDIGREE_ARM64_ROOT_IMAGE
-            "${CMAKE_SOURCE_DIR}/scripts/alpine/build/aarch64/rootfs.img"
+            "${PEDIGREE_ALPINE_ROOT}/rootfs.img"
             CACHE FILEPATH "ARM64 Alpine root filesystem image for the UEFI boot command line.")
         set(UEFI_IMAGE ${CMAKE_CURRENT_BINARY_DIR}/pedigree-arm64-uefi.img)
         add_custom_command(OUTPUT ${UEFI_IMAGE}
@@ -888,7 +928,7 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
         add_custom_target(uefi-loader DEPENDS ${UEFI_LOADER})
 
         set(PEDIGREE_ARMV7_ROOT_IMAGE
-            "${CMAKE_SOURCE_DIR}/scripts/alpine/build/armv7/rootfs.img"
+            "${PEDIGREE_ALPINE_ROOT}/rootfs.img"
             CACHE FILEPATH "ARMv7 Alpine root filesystem image for the UEFI boot command line.")
         set(UEFI_IMAGE ${CMAKE_CURRENT_BINARY_DIR}/pedigree-armv7-uefi.img)
         add_custom_command(OUTPUT ${UEFI_IMAGE}

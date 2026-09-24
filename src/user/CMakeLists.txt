@@ -22,11 +22,10 @@ else ()
     set(PEDIGREE_USER_LIBRARY_DIRS
         ${PEDIGREE_MUSL_PREFIX_ROOT}/lib
         ${PEDIGREE_TOOLCHAIN_ROOT}/${PEDIGREE_COMPILER_TARGET}/lib
-        ${CMAKE_SOURCE_DIR}/images/local/libraries)
+        ${PEDIGREE_MUSL_SDK_ROOT}/lib)
     set(PEDIGREE_USER_INCLUDE_DIRS
-        ${PEDIGREE_MUSL_PREFIX_ROOT}/include
-        ${CMAKE_SOURCE_DIR}/images/local/include)
-    set(PEDIGREE_USER_RPATH_LINK ${CMAKE_SOURCE_DIR}/images/local/libraries)
+        ${PEDIGREE_MUSL_PREFIX_ROOT}/include)
+    set(PEDIGREE_USER_RPATH_LINK "${PEDIGREE_MUSL_PREFIX_ROOT}/lib:${PEDIGREE_MUSL_SDK_ROOT}/lib")
 endif ()
 
 link_directories(${PEDIGREE_USER_LIBRARY_DIRS})
@@ -124,7 +123,8 @@ if (EXISTS "${PEDIGREE_WINMAN_SOURCE_DIR}/CMakeLists.txt" AND
     set(_PEDIGREE_EXTERNAL_WINMAN_AVAILABLE ON)
 endif ()
 set(_PEDIGREE_BUILD_EXTERNAL_WINMAN_DEFAULT OFF)
-if (PEDIGREE_ARCH_TARGET STREQUAL "X64" AND NOT PEDIGREE_SELF_HOSTED)
+if (PEDIGREE_ALPINE_PROFILE STREQUAL "desktop" AND
+    PEDIGREE_ARCH_TARGET STREQUAL "X64" AND NOT PEDIGREE_SELF_HOSTED)
     set(_PEDIGREE_BUILD_EXTERNAL_WINMAN_DEFAULT ON)
 endif ()
 option(PEDIGREE_BUILD_EXTERNAL_WINMAN
@@ -145,8 +145,8 @@ set(_PEDIGREE_EXTERNAL_WINMAN_STAGED_FILES
     "${PEDIGREE_IMAGESDIR}/applications/winman-external-terminal"
     "${PEDIGREE_IMAGESDIR}/applications/winman-external-widgets"
     "${PEDIGREE_IMAGESDIR}/applications/winman-external-painter"
-    "${PEDIGREE_IMAGESDIR}/applications/gears"
-    "${PEDIGREE_IMAGESDIR}/applications/uitest"
+    "${PEDIGREE_IMAGESDIR}/applications/winman-external-greeter"
+    "${PEDIGREE_IMAGESDIR}/applications/winman-external-shell"
     "${PEDIGREE_IMAGESDIR}/fonts/ms-sans-serif-1.ttf"
     "${PEDIGREE_IMAGESDIR}/initscripts/98_winman_external.sh")
 
@@ -171,8 +171,18 @@ elseif (PEDIGREE_BUILD_EXTERNAL_WINMAN)
 endif ()
 
 if (_PEDIGREE_BUILD_EXTERNAL_WINMAN_ENABLED)
+    set(PEDIGREE_DESKTOP_OVERLAY)
+    foreach (application winman-external winman-external-notepad
+            winman-external-terminal winman-external-widgets winman-external-painter
+            winman-external-greeter winman-external-shell)
+        list(APPEND PEDIGREE_DESKTOP_OVERLAY --file
+            ${PEDIGREE_IMAGESDIR}/applications/${application} /usr/bin/${application})
+    endforeach ()
+    list(APPEND PEDIGREE_DESKTOP_OVERLAY --file
+        ${PEDIGREE_IMAGESDIR}/fonts/ms-sans-serif-1.ttf /usr/share/fonts/ms-sans-serif-1.ttf)
+    set(PEDIGREE_DESKTOP_OVERLAY ${PEDIGREE_DESKTOP_OVERLAY} PARENT_SCOPE)
     string(SHA256 _PEDIGREE_EXTERNAL_WINMAN_SOURCE_HASH
-        "${PEDIGREE_WINMAN_SOURCE_DIR}")
+        "${PEDIGREE_WINMAN_SOURCE_DIR}|${PEDIGREE_TARGET_SYSROOT}|${PEDIGREE_TOOLCHAIN_ROOT}")
     string(SUBSTRING "${_PEDIGREE_EXTERNAL_WINMAN_SOURCE_HASH}" 0 12
         _PEDIGREE_EXTERNAL_WINMAN_SOURCE_HASH)
     set(_PEDIGREE_EXTERNAL_WINMAN_BUILD_DIR
@@ -187,6 +197,8 @@ if (_PEDIGREE_BUILD_EXTERNAL_WINMAN_ENABLED)
             "-DPEDIGREE_EXTERNAL_WINMAN_EXPECTED_OUTPUTS=${_PEDIGREE_EXTERNAL_WINMAN_STAGED_FILES}"
             "-DPEDIGREE_ROOT=${CMAKE_SOURCE_DIR}"
             "-DPEDIGREE_BUILD_DIR=${CMAKE_BINARY_DIR}"
+            "-DPEDIGREE_TARGET_SYSROOT=${PEDIGREE_TARGET_SYSROOT}"
+            "-DPEDIGREE_TOOLCHAIN_ROOT=${PEDIGREE_TOOLCHAIN_ROOT}"
             -P "${CMAKE_SOURCE_DIR}/build-etc/cmake/BuildExternalWinman.cmake"
         BYPRODUCTS "${_PEDIGREE_EXTERNAL_WINMAN_INSTALL_STAMP}"
         DEPENDS
@@ -219,7 +231,10 @@ pedigree_app(inotify-test OFF OFF "" TEST
 pedigree_app(keymap OFF ON ""
     ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/main.c)
 target_link_libraries(app-keymap PRIVATE libkeymap)
-pedigree_app(login OFF ON "intl" ${CMAKE_CURRENT_SOURCE_DIR}/applications/login/login.c)
+pedigree_app(login OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/login/login.c)
+if (EXISTS "${PEDIGREE_MUSL_PREFIX_ROOT}/lib/libintl.so")
+    target_link_libraries(app-login PRIVATE "${PEDIGREE_MUSL_PREFIX_ROOT}/lib/libintl.so")
+endif ()
 pedigree_app(modlist OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/modlist/main.c)
 pedigree_app(random-seed OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/random-seed/main.cc)
@@ -506,7 +521,6 @@ pedigree_app(testsuite OFF OFF "" TEST
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/scm-rights-stream.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/unix-stream-interruption.c)
 pedigree_app(thread-test OFF OFF "pedigree-c-user;stdc++" TEST ${CMAKE_CURRENT_SOURCE_DIR}/applications/thread-test/main.cc)
-pedigree_app(tour OFF OFF "intl;dialog;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/tour/main.cc)
 pedigree_app(ttyterm ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ttyterm/ttyterm.cc)
 pedigree_app(which OFF OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/which/main.cc)
 

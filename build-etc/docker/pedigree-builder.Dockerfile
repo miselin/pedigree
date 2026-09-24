@@ -1,3 +1,10 @@
+FROM alpine:3.22 AS alpine-sdk
+
+RUN apk add --no-cache e2fsprogs curl tar coreutils
+COPY scripts/alpine/build-rootfs.sh /build-rootfs.sh
+RUN mkdir /out \
+    && ALPINE_ARCH=x86_64 ALPINE_PROFILE=base /build-rootfs.sh
+
 FROM ubuntu:24.04 AS toolchain-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -34,30 +41,17 @@ RUN apt-get update \
 
 WORKDIR /src
 COPY . .
+COPY --from=alpine-sdk /out/sysroot /opt/pedigree/musl-sdk
 
-# The final compiler is staged around the target libc: first build a compiler
-# without headers, use it to build musl, then finish GCC with libstdc++ support.
+# Keep the existing compiler bootstrap and C++ runtime build, using the
+# prepared Alpine headers and libraries for the final stage.
 RUN python3 scripts/bootstrap_toolchain.py \
         x86_64-pedigree /opt/pedigree \
         --source-root /src \
         --sysroot /opt/pedigree/musl-sdk/usr \
         --jobs "$(nproc)"
 
-RUN cmake -S . -B build/toolchain -G Ninja \
-        -DCMAKE_TOOLCHAIN_FILE=/src/build-etc/cmake/pedigree_amd64.cmake \
-        -DPEDIGREE_TOOLCHAIN_ROOT=/opt/pedigree \
-        -DPEDIGREE_BUILD_USER_DIR=OFF \
-        -DPEDIGREE_BUILD_UEFI=OFF \
-        -DPEDIGREE_WITH_INIT=OFF \
-        -DPEDIGREE_WARNINGS=ON \
-    && cmake --build build/toolchain \
-        --target libc \
-        --parallel "$(nproc)"
-
-# Keep the complete, relocatable SDK in the final image. The compiler consumes
-# its usr prefix while the manifest remains rooted at the package directory.
-RUN cp -a build/toolchain/musl /opt/pedigree/musl-sdk \
-    && python3 scripts/bootstrap_toolchain.py \
+RUN python3 scripts/bootstrap_toolchain.py \
         x86_64-pedigree /opt/pedigree \
         --source-root /src \
         --sysroot /opt/pedigree/musl-sdk/usr \
@@ -108,6 +102,7 @@ RUN apt-get update \
 COPY --from=toolchain-builder /opt/pedigree /opt/pedigree
 
 ENV PATH="/usr/lib/llvm-${LLVM_VERSION}/bin:/opt/pedigree/bin:${PATH}" \
-    PEDIGREE_TOOLCHAIN_ROOT=/opt/pedigree
+    PEDIGREE_TOOLCHAIN_ROOT=/opt/pedigree \
+    PEDIGREE_TARGET_SYSROOT=/opt/pedigree/musl-sdk
 
 WORKDIR /workspace

@@ -46,16 +46,16 @@ and package self-bootstrap remain later milestones.
   `ranlib`, `readelf`, and `strip` tools. The selected toolchain must also
   provide its matching `libgcc` and `libstdc++` runtimes.
 - NASM, a POSIX shell, GNU Make, and standard POSIX command-line utilities.
-- PUP and its Python runtime, for acquiring the packaged musl SDK. A separate
-  `tar`, `gzip`, or `patch` command is not required by `boot-artifacts`.
+- An Alpine x64 SDK prepared on a Linux or macOS host with Docker and copied
+  into the guest. Set `PEDIGREE_TARGET_SYSROOT` to its `sysroot/` directory.
+  Native configuration does not run Docker or acquire packages.
 - zlib development headers and library. The native initrd builder links zlib
   directly, so no `gzip` executable is needed.
-- Development headers and libraries needed by the in-tree user applications,
-  installed under `/usr`. These currently include libpng, Mesa/OSMesa,
-  gettext/libintl, dialog, GLib, Pango, Cairo, FreeType, HarfBuzz, Fontconfig,
-  and libffi, plus their dependencies.
-- Network access for the initial musl PUP download, or a cached copy for an
-  offline build. See [musl SDK](musl-sdk.md).
+- Development headers and libraries needed by any enabled in-tree user
+  applications. The Alpine desktop profile supplies their dependencies in the
+  separate SDK. The default base profile leaves these applications disabled.
+- See [Alpine musl SDK](musl-sdk.md) for preparing the runtime and matching
+  development packages outside the guest.
 
 ## Libc and syscall boundary
 
@@ -65,15 +65,9 @@ adding or implementing a Linux-compatible syscall does not require rebuilding
 libc unless its public API also changes. Hosted builds retain a separate bridge
 because a raw syscall there would enter the host operating system.
 
-The native target does not replace or remove any musl source files and does not
-inject Pedigree headers or target macros while compiling it. Its source tree is
-the verified upstream archive plus the maintained upstream security backports.
-Pedigree-specific headers are provided by the separate platform SDK.
-
-Linux syscall 58 currently uses Pedigree's existing fork implementation. This
-preserves the previous safe compatibility behavior while allowing the upstream
-musl `vfork` entry point to be used, but does not yet provide Linux's shared-VM,
-parent-blocking `vfork` semantics.
+The native target consumes Alpine's installed musl headers, startup objects and
+libraries without rebuilding libc. Pedigree-specific headers are provided by
+the separate platform SDK.
 
 The POSIX module owns the amd64 Linux-number table used by this boundary; it no
 longer imports musl's private `bits/syscall.h` definitions.
@@ -104,8 +98,8 @@ cmake -S . -B build-boot \
 cmake --build build-boot --target boot-artifacts
 ```
 
-CMake acquires the pinned musl SDK through PUP during configuration. Subsequent
-builds reuse it without a download or libc compilation.
+Run `scripts/alpine/build.sh x86_64` on the cross-build host before configuration.
+CMake consumes the prepared SDK without downloading or compiling libc.
 
 The target tree owns incremental native sub-builds under `build/host-tools`.
 It builds the initrd generator when needed, and adds the image utilities only
@@ -147,10 +141,11 @@ cmake -S . -B build \
 
 ## First build
 
-With PUP installed, run from the checkout:
+With the native tools installed and a prepared SDK copied into the guest, run
+from the checkout:
 
 ```sh
-./easy_build_selfhost.sh
+PEDIGREE_TARGET_SYSROOT=/path/to/alpine/sysroot ./easy_build_selfhost.sh
 ```
 
 The default build directory is `build-selfhost`, and the default parallelism is
@@ -162,6 +157,7 @@ one job. Useful overrides are:
 | `PEDIGREE_BUILD_JOBS` | `1` | Parallel build jobs |
 | `PEDIGREE_BUILD_TYPE` | `Debug` | CMake build type |
 | `PEDIGREE_NATIVE_TOOL_ROOT` | `/usr` | Prefix containing the native toolchain |
+| `PEDIGREE_TARGET_SYSROOT` | `scripts/alpine/build/x86_64/sysroot` | Prepared Alpine SDK |
 | `PEDIGREE_CMAKE` | `cmake` | CMake executable or absolute path |
 | `PEDIGREE_CMAKE_GENERATOR` | CMake default | Optional generator name |
 
@@ -184,9 +180,6 @@ With the default build directory, the primary products are:
   UEFI image;
 - `build-selfhost/src/modules/initrd.manifest` — deterministic initrd contents;
 - `build-selfhost/src/user/` — built user applications and libraries;
-- `build-selfhost/musl/usr/` — installed libc SDK payload; and
-- `build-selfhost/musl/usr/share/pedigree/libc/package.sha256` — installed
-  package identity; and
 - `build-selfhost/pedigree-c-sdk/usr/` — Pedigree-specific userspace library
   and public headers.
 
@@ -209,9 +202,8 @@ while Pedigree builds compile it directly; neither path needs a `gzip` command.
 The Python initrd implementation remains a regression oracle, not a
 base-artifact dependency.
 
-The musl PUP uses installed `/usr` paths and is staged without writing to the
-running system. Its loader symlink is relative and remains valid after the
-payload is copied into an image. SDK consumers use `usr/include` and `usr/lib`.
+The prepared SDK uses `usr/include` and `usr/lib`, with its libc loader under
+`lib`. Keep that directory layout intact when copying the SDK into the guest.
 
 Pedigree-specific APIs are staged separately from libc. In particular,
 `pedigree_log` is provided by `libpedigree-c` and declared by

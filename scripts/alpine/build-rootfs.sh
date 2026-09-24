@@ -1,94 +1,94 @@
 #!/bin/sh
-set -eux
+set -eu
 
-ROOT=/tmp/rootfs
-IMG=/out/rootfs.img
-ALPINE_ARCH=${ALPINE_ARCH:-x86_64}
+arch=${ALPINE_ARCH:-x86_64}
+profile=${ALPINE_PROFILE:-base}
+case "$arch" in x86_64|aarch64|armv7) ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac
+case "$profile" in base|desktop) ;; *) echo "Unsupported profile: $profile" >&2; exit 1 ;; esac
 
-case "$ALPINE_ARCH" in
-    x86_64|aarch64|armv7) ;;
-    *) echo "Unsupported Alpine architecture: $ALPINE_ARCH" >&2; exit 1 ;;
-esac
+repository=https://dl-cdn.alpinelinux.org/alpine/v3.22
+release=3.22.1
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+root="$work/rootfs"
+sdk="$work/sdk"
+mkdir -p "$root"
 
-mkdir -p "$ROOT"
+archive="alpine-minirootfs-$release-$arch.tar.gz"
+curl -fLsS --retry 3 -o "$work/$archive" "$repository/releases/$arch/$archive"
+curl -fLsS --retry 3 -o "$work/$archive.sha256" "$repository/releases/$arch/$archive.sha256"
+(cd "$work" && sha256sum -c "$archive.sha256")
+tar -xzf "$work/$archive" -C "$root"
+printf '%s/main\n%s/community\n' "$repository" "$repository" > "$root/etc/apk/repositories"
 
-# Either unpack Alpine's minirootfs...
-curl -LO "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/$ALPINE_ARCH/alpine-minirootfs-3.22.1-$ALPINE_ARCH.tar.gz"
-tar -xzf "alpine-minirootfs-3.22.1-$ALPINE_ARCH.tar.gz" -C "$ROOT"
-
-# Your customisation:
-echo pedigree > "$ROOT/etc/hostname"
-
-cat > "$ROOT/etc/fstab" <<EOF
-/dev/root / ext2 defaults 0 0
-EOF
-
-# Pedigree needs this
-mkdir -p "$ROOT/run/sockets"
-
-# hacks to work around issues with ptsname/ttyname
-rm -f "$ROOT/etc/securetty"
-
-sed -i 's/^root:[^:]*:/root::/' "$ROOT/etc/shadow"
-
-# fun fun fun
-if [ "$ALPINE_ARCH" = x86_64 ]; then
-    apk \
-        --root "$ROOT" \
-        --initdb \
-        --repositories-file /etc/apk/repositories \
-        add xorg-server xf86-video-fbdev xf86-input-evdev xinit
-
-    mkdir -p "$ROOT/etc/X11/xorg.conf.d"
-    cat > "$ROOT/etc/X11/xorg.conf.d/10-pedigree-input.conf" <<EOF
-Section "ServerFlags"
-    Option "AutoAddDevices" "false"
-EndSection
-
-Section "InputDevice"
-    Identifier "Pedigree Keyboard"
-    Driver "evdev"
-    Option "Device" "/dev/input/event0"
-    Option "CoreKeyboard"
-EndSection
-
-Section "InputDevice"
-    Identifier "Pedigree Pointer"
-    Driver "evdev"
-    Option "Device" "/dev/input/event1"
-    Option "CorePointer"
-EndSection
-EOF
-else
-    apk \
-        --root "$ROOT" \
-        --initdb \
-        --repositories-file /etc/apk/repositories \
-        add musl-dev linux-headers
-
-    cat > "$ROOT/etc/inittab" <<EOF
-ttyS0::respawn:/bin/sh -i
-EOF
-
-    mkdir -p /out/sysroot/usr
-    cp -a "$ROOT/usr/include" /out/sysroot/usr/
-    cp -a "$ROOT/usr/lib" /out/sysroot/usr/
-    cp -a "$ROOT/lib" /out/sysroot/
+runtime_packages=
+development_packages="musl-dev linux-headers"
+if [ "$profile" = desktop ]; then
+    runtime_packages="bash libgcc libstdc++ libintl dialog libpng freetype fontconfig
+        pixman cairo expat mesa mesa-egl mesa-gl mesa-gles gettext pango glib pcre
+        harfbuzz libffi libprotobuf"
+    development_packages="$development_packages gettext-dev ncurses-dev libpng-dev
+        freetype-dev fontconfig-dev pixman-dev cairo-dev expat-dev mesa-dev
+        pango-dev glib-dev pcre-dev harfbuzz-dev libffi-dev protobuf-dev"
 fi
 
-if [ "$ALPINE_ARCH" = aarch64 ] || [ "$ALPINE_ARCH" = armv7 ]; then
-    truncate -s 128M "$IMG"
-else
-    truncate -s 512M "$IMG"
+# The host apk resolves target packages and verifies them with the target's keys.
+# Package scripts must never execute binaries from the foreign architecture.
+target_apk() {
+    target=$1
+    shift
+    apk --root "$target" --arch "$arch" --keys-dir "$target/etc/apk/keys" \
+        --repositories-file "$target/etc/apk/repositories" --cache-max-age 1440 "$@"
+}
+target_apk "$root" update
+target_apk "$root" upgrade --no-self-upgrade --no-scripts --no-commit-hooks
+# Word splitting is intentional for these fixed package lists.
+if [ -n "$runtime_packages" ]; then
+    target_apk "$root" add --no-scripts --no-commit-hooks $runtime_packages
+fi
+cp -a "$root" "$sdk"
+target_apk "$sdk" add --no-scripts --no-commit-hooks $development_packages
+target_apk "$root" info -v > "$work/rootfs.packages"
+target_apk "$sdk" info -v > "$work/sysroot.packages"
+sort "$work/rootfs.packages" > /out/rootfs.packages
+sort "$work/sysroot.packages" > /out/sysroot.packages
+if [ -n "$(comm -23 /out/rootfs.packages /out/sysroot.packages)" ]; then
+    echo "Runtime and development package versions disagree; retry preparation." >&2
+    exit 1
 fi
 
-# Use the same UUID as scripts/create_diskimage.py for the embedded command-line to choose the right rootfs
-mke2fs \
-    -t ext2 \
-    -F \
-    -b 4096 \
-    -L rootfs \
-    -m 0 \
-    -d "$ROOT" \
-    -U "50e5c7c0-b79c-4932-8cdc-c2b2c713ff97" \
-    "$IMG"
+printf 'pedigree\n' > "$root/etc/hostname"
+printf '/dev/root / ext2 defaults 0 0\n' > "$root/etc/fstab"
+printf 'ttyS0::respawn:/sbin/getty -L 115200 ttyS0 vt100\n' > "$root/etc/inittab"
+mkdir -p "$root/run/sockets"
+# The development image permits local root login without a password.
+rm -f "$root/etc/securetty"
+sed -i 's/^root:[^:]*:/root::/' "$root/etc/shadow"
+chmod 1777 "$root/tmp" "$root/var/tmp"
+rm -f "$root/var/cache/apk/"*
+
+mkdir -p "$work/sysroot/usr" /out/sysroot
+cp -a "$sdk/usr/include" "$sdk/usr/lib" "$sdk/usr/bin" "$work/sysroot/usr/"
+cp -a "$sdk/lib" "$work/sysroot/"
+tar -cpf /out/sysroot.tar -C "$work/sysroot" .
+: > /out/.case-check-A
+if [ -e /out/.case-check-a ]; then
+    collisions=$(cd "$work/sysroot" && find . -print | LC_ALL=C sort -f | uniq -Di)
+    if [ -n "$collisions" ]; then
+        printf '%s\n%s\n' \
+            'Case-insensitive SDK export merges the paths below; sysroot.tar preserves every header:' \
+            "$collisions" >&2
+    fi
+fi
+rm /out/.case-check-A
+tar --overwrite -xpf /out/sysroot.tar -C /out/sysroot
+
+# Generate the image before exporting directories through a host bind mount,
+# which can map Linux package ownership to the host user's identity.
+size_mib=$(( ($(du -sk "$root" | cut -f1) + 1023) / 1024 + 64 ))
+if [ "$size_mib" -lt 128 ]; then size_mib=128; fi
+truncate -s "${size_mib}M" /out/rootfs.img
+mke2fs -q -t ext2 -F -b 4096 -L rootfs -m 0 -d "$root" \
+    -U 50e5c7c0-b79c-4932-8cdc-c2b2c713ff97 /out/rootfs.img
+cp -a "$root" /out/rootfs
+chown -R "${OUTPUT_UID:-0}:${OUTPUT_GID:-0}" /out

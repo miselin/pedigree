@@ -259,7 +259,8 @@ class DevFs : public Filesystem {
     return SyncStatus::Success;
   }
 
-  DevFs() : m_pRoot(0), m_CttySelector(nullptr), m_VtManager(0), m_pPsAuxFile(0) {}
+  DevFs()
+      : m_pRoot(0), m_CttySelector(nullptr), m_Serial(nullptr), m_VtManager(0), m_pPsAuxFile(0) {}
 
   virtual ~DevFs();
 
@@ -306,6 +307,7 @@ class DevFs : public Filesystem {
 
   DevFsDirectory* m_pRoot;
   File* m_CttySelector;
+  SerialFile* m_Serial;
 
   size_t m_NextInode;
 

@@ -900,7 +900,8 @@ uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallS
 
     POSIX_CASE(POSIX_NANOSLEEP)
       return posix_nanosleep(reinterpret_cast<struct timespec*>(argument(0)),
-                             reinterpret_cast<struct timespec*>(argument(1)));
+                             reinterpret_cast<struct timespec*>(argument(1)),
+                             linuxAbi && sizeof(uintptr_t) == sizeof(uint32_t));
     POSIX_CASE(POSIX_CLOCK_GETTIME)
       return posix_clock_gettime(argument(0), reinterpret_cast<struct timespec*>(argument(1)));
     POSIX_CASE(POSIX_CLOCK_GETRES)

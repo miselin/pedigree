@@ -1,193 +1,156 @@
-import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from scripts.create_diskimage import build_file_list, image_size, translate_target_path
+from scripts.create_diskimage import build_file_list, create_image, image_size
 
 
-class DiskImageLayoutTests(unittest.TestCase):
-    def test_translates_legacy_package_paths_to_fhs(self):
-        cases = {
-            "/applications/bash": "/usr/bin/bash",
-            "/libraries/libc.so": "/usr/lib/libc.so",
-            "/config/profile": "/etc/profile",
-            "/system/modules/vfs.o": "/usr/lib/modules/vfs.o",
-            "/system/include/stdio.h": "/usr/include/stdio.h",
-            "/system/locale/en_US.UTF-8": "/usr/share/locale/en_US.UTF-8",
-            "/users/andy": "/home/andy",
-            "/support/gcc/specs": "/usr/lib/pedigree/gcc/specs",
-            "/support/pup/db/packages.pupdb": "/var/cache/pup/packages.pupdb",
-            "/support/pup/pup.conf": "/etc/pup/pup.conf",
-        }
+class AlpineImageOverlayTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.base = self.root / "rootfs"
+        for directory in ("bin", "lib/apk/db", "usr/bin", "usr/lib", "etc", "boot"):
+            (self.base / directory).mkdir(parents=True, exist_ok=True)
+        self.write(self.base / "bin/busybox", "Alpine busybox")
+        self.write(self.base / "lib/ld-musl-x86_64.so.1", "Alpine musl")
+        self.write(self.base / "lib/apk/db/installed", "Alpine packages")
+        self.write(self.base / "etc/passwd", "Alpine accounts")
+        (self.base / "usr/bin/init").symlink_to("../../bin/busybox")
 
-        for legacy, fhs in cases.items():
-            with self.subTest(legacy=legacy):
-                self.assertEqual(translate_target_path(legacy), fhs)
+    def write(self, path, contents="Pedigree artifact", mode=0o644):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents)
+        path.chmod(mode)
+        return path
 
-    def test_does_not_translate_partial_path_components(self):
-        self.assertEqual(
-            translate_target_path("/applications-old/tool"),
-            "/applications-old/tool",
+    def test_overlays_only_explicit_artifacts_without_base_runtime_changes(self):
+        init = self.write(self.root / "build/init", mode=0o755)
+        config = self.write(self.root / "desktop/inittab")
+        self.write(self.root / "images/local/libraries/libc.so", "obsolete libc")
+        self.write(
+            self.root / "images/local/support/pup/db/packages.pupdb", "obsolete DB"
+        )
+        sdk = self.root / "pedigree-sdk/usr"
+        header = self.write(sdk / "include/pedigree/fb.h")
+        library = self.write(sdk / "lib/libpedigree-c.so", mode=0o755)
+        commands = build_file_list(
+            self.base,
+            [(init, "/usr/bin/init"), (config, "/etc/inittab")],
+            [(sdk, "/usr")],
+        )
+        self.assertIn("rm /usr/bin/init", commands)
+        self.assertIn(f"write {init} /usr/bin/init", commands)
+        self.assertLess(
+            commands.index("rm /usr/bin/init"),
+            commands.index(f"write {init} /usr/bin/init"),
+        )
+        self.assertIn("chmod /usr/bin/init 755", commands)
+        self.assertIn(f"write {header} /usr/include/pedigree/fb.h", commands)
+        self.assertIn(f"write {library} /usr/lib/libpedigree-c.so", commands)
+        for protected in (
+            "/bin/busybox",
+            "/lib/ld-musl",
+            "/lib/apk",
+            "/etc/passwd",
+            "pup",
+            "images/local",
+        ):
+            self.assertFalse(
+                any(protected in command for command in commands), protected
+            )
+        self.assertTrue((self.base / "usr/bin/init").is_symlink())
+        self.assertFalse(
+            any(
+                command in commands
+                for command in ("mkdir /usr", "mkdir /usr/lib", "mkdir /etc")
+            )
         )
 
-    def test_leaves_fhs_paths_unchanged(self):
-        self.assertEqual(translate_target_path("/usr/bin/ls"), "/usr/bin/ls")
+    def test_keeps_base_directory_symlinks_and_resolves_them_inside_image(self):
+        (self.base / "libraries").symlink_to("/usr/lib")
+        library = self.write(self.root / "libpedigree.so")
+        commands = build_file_list(self.base, [(library, "/libraries/libpedigree.so")])
+        self.assertIn(f"write {library} /usr/lib/libpedigree.so", commands)
+        self.assertFalse(any("/libraries" in command for command in commands))
+        self.assertTrue((self.base / "libraries").is_symlink())
+        (self.base / "config").symlink_to("/etc")
+        with self.assertRaisesRegex(ValueError, "account or package"):
+            build_file_list(self.base, [(library, "/config/passwd")])
 
-    def test_image_size_covers_payload_blocks_and_keeps_minimum(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            source = Path(temporary) / "payload"
-            for payload, expected in (
-                (4097, 2 << 30),
-                ((2 << 30) * 4 // 5, 9 * (256 << 20)),
-                (2615743697, 13 * (256 << 20)),
-            ):
-                with self.subTest(payload=payload):
-                    with source.open("wb") as stream:
-                        stream.truncate(payload)
-                    self.assertEqual(
-                        image_size(["write %s /usr/bin/payload" % source]),
-                        expected,
-                    )
-
-    def test_build_file_list_contains_only_canonical_layout(self):
-        with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            images = root / "images"
-            base = root / "base"
-            musl = root / "musl"
-            pedigree_c_sdk = root / "pedigree-c-sdk"
-            binary = root / "build"
-
-            files = {
-                images / "applications" / "ls": "binary",
-                images / "applications" / "[": "old binary",
-                images / "usr/bin" / "[": "new binary",
-                images / "applications" / "new-link": "old file",
-                images / "usr/bin" / "old-link": "new file",
-                images / "applications" / "overlaid": "old package",
-                images / "usr/bin" / "overlaid": "new package",
-                images / "usr/bin" / "built": "package binary",
-                images / "libraries" / "libc.so": "library",
-                images / "support" / "pup" / "db" / "packages.pupdb": "db",
-                base / "applications" / "overlaid": "base override",
-                base / "config" / "profile": "profile",
-                base / ".profile": "root profile",
-                base / "etc" / "passwd": "root:x:0:0:Root User:/root:/bin/bash\n",
-                base / "etc" / "group": "administrators:x:0:root\n",
-                base / "etc" / "shadow": "root:root:0:0:99999:7:::\n",
-                musl / "usr/lib" / "crt1.o": "crt",
-                musl / "usr/lib" / "libc.so": "libc",
-                musl / "usr/include" / "stdio.h": "header",
-                musl / "usr/share/pedigree/libc/manifest.json": "{}\n",
-                pedigree_c_sdk / "usr/include/pedigree/fb.h": "header",
-                pedigree_c_sdk / "usr/include/pedigree/log.h": "header",
-                pedigree_c_sdk / "usr/lib/libpedigree-c.so": "library",
-                binary / "src/user" / "built": "build override",
-            }
-            for path, content in files.items():
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(content)
-            (musl / "usr/lib/ld-musl-x86_64.so.1").symlink_to("libc.so")
-            (images / "usr/bin/new-link").symlink_to("new-target")
-            (images / "applications/old-link").symlink_to("old-target")
-
-            for lang in ("en_US", "de_DE"):
-                (binary / "src" / "po" / lang).mkdir(parents=True)
-            (binary / "keymaps").mkdir(parents=True)
-
-            kernel = root / "kernel"
-            kernel.write_text("kernel")
-
-            sources = [
-                str(images),
-                str(root),
-                str(base),
-                str(kernel),
-                "__noinitrd__",
-                str(musl),
-                str(pedigree_c_sdk),
-                str(binary),
-                str(binary / "src/user/built"),
-            ]
-            commands = build_file_list(sources)
-            walk = os.walk
-
-            def reverse_walk(directory):
-                for dirpath, dirs, entries in walk(directory):
-                    dirs.sort(reverse=True)
-                    yield dirpath, dirs, entries
-
-            with mock.patch("scripts.create_diskimage.os.walk", reverse_walk):
-                self.assertEqual(
-                    sorted(commands), sorted(build_file_list(sources))
-                )
-
-            for name, source in (
-                ("[", images / "usr/bin/["),
-                ("old-link", images / "usr/bin/old-link"),
-                ("overlaid", base / "applications/overlaid"),
-                ("built", binary / "src/user/built"),
-            ):
-                target = "/usr/bin/" + name
-                self.assertEqual(
-                    destination_commands(commands, target),
-                    ["write %s %s" % (source, target)],
-                )
-            self.assertEqual(
-                destination_commands(commands, "/usr/bin/new-link"),
-                ["symlink /usr/bin/new-link new-target"],
+    def test_rejects_runtime_replacements_and_ambiguous_overlays(self):
+        source = self.write(self.root / "source")
+        other = self.write(self.root / "other")
+        for target in (
+            "/etc/group",
+            "/etc/shadow",
+            "/lib/apk/db/installed",
+            "/etc/apk/repositories",
+            "/lib/ld-musl-x86_64.so.1",
+            "/usr/lib/libc.so",
+            "/usr/lib/libc.a",
+            "/bin",
+            "/usr/../etc/passwd",
+            "usr/bin/relative",
+        ):
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                build_file_list(self.base, [(source, target)])
+        with self.assertRaisesRegex(ValueError, "Multiple overlay sources"):
+            build_file_list(
+                self.base, [(source, "/usr/bin/tool"), (other, "/usr/bin/tool")]
             )
+        with self.assertRaisesRegex(ValueError, "also used as a directory"):
+            build_file_list(self.base, [(source, "/usr/new"), (other, "/usr/new/tool")])
+        with self.assertRaisesRegex(ValueError, "not a file"):
+            build_file_list(self.base, [(self.root / "missing", "/usr/bin/tool")])
 
-            self.assertIn("write %s /usr/bin/ls" % files_key(files, "ls"), commands)
-            self.assertIn("symlink /bin /usr/bin", commands)
-            self.assertIn("symlink /lib /usr/lib", commands)
-            self.assertIn("mkdir /media", commands)
-            self.assertTrue(any(command.endswith(" /etc/profile") for command in commands))
-            self.assertTrue(any(command.endswith(" /etc/passwd") for command in commands))
-            self.assertTrue(any(command.endswith(" /etc/group") for command in commands))
-            self.assertTrue(any(command.endswith(" /etc/shadow") for command in commands))
-            self.assertIn("chmod /etc/shadow 600", commands)
-            self.assertTrue(any(command.endswith(" /root/.profile") for command in commands))
-            self.assertTrue(any(command.endswith(" /var/cache/pup/packages.pupdb") for command in commands))
-            self.assertTrue(any(command.endswith(" /usr/lib/crt1.o") for command in commands))
-            self.assertIn(
-                "symlink /usr/lib/ld-musl-x86_64.so.1 libc.so", commands
-            )
-            self.assertTrue(any(command.endswith(" /usr/include/stdio.h") for command in commands))
-            self.assertTrue(
-                any(
-                    command.endswith(" /usr/include/pedigree/fb.h")
-                    for command in commands
-                )
-            )
-            self.assertTrue(
-                any(command.endswith(" /usr/include/pedigree/log.h") for command in commands)
-            )
-            self.assertTrue(
-                any(command.endswith(" /usr/lib/libpedigree-c.so") for command in commands)
-            )
-            self.assertTrue(
-                any(
-                    command.endswith(" /usr/share/pedigree/libc/manifest.json")
-                    for command in commands
-                )
-            )
-            self.assertFalse(any(" /applications" in command for command in commands))
-            self.assertFalse(any(" /libraries" in command for command in commands))
+    def test_tree_does_not_follow_symlinked_directories(self):
+        outside = self.write(self.root / "outside/not-declared")
+        tree = self.root / "tree"
+        tree.mkdir()
+        (tree / "link").symlink_to("../outside")
+        commands = build_file_list(self.base, trees=[(tree, "/usr/share/selected")])
+        self.assertIn("symlink /usr/share/selected/link ../outside", commands)
+        self.assertFalse(any(str(outside) in command for command in commands))
 
-def files_key(files, basename):
-    return next(str(path) for path in files if path.name == basename)
+    def test_image_growth_keeps_base_capacity_and_accounts_for_overlay(self):
+        source = self.write(self.root / "source", "x" * 4097)
+        self.assertEqual(image_size(64 << 20, []), 64 << 20)
+        self.assertEqual(
+            image_size(64 << 20, [f"write {source} /usr/bin/tool"]), 128 << 20
+        )
 
+    def test_copy_is_atomic_and_never_modifies_base(self):
+        base_image = self.write(self.root / "alpine.img", "pristine Alpine image")
+        target = self.write(self.root / "output.img", "previous output")
+        create_image(target, "ext2img", base_image, [])
+        self.assertEqual(target.read_bytes(), base_image.read_bytes())
+        target.write_text("previous output")
+        source = self.write(self.root / "source")
 
-def destination_commands(commands, target):
-    return [
-        command
-        for command in commands
-        if (command.startswith("write ") and command.rsplit(" ", 1)[-1] == target)
-        or command.startswith("symlink %s " % target)
-    ]
+        def run(arguments, **kwargs):
+            if arguments[0] == "ext2img":
+                raise subprocess.CalledProcessError(1, arguments)
+            return subprocess.CompletedProcess(arguments, 0)
+
+        with (
+            mock.patch(
+                "scripts.create_diskimage.e2fsprog", side_effect=lambda name: name
+            ),
+            mock.patch("scripts.create_diskimage.subprocess.run", side_effect=run),
+            self.assertRaises(subprocess.CalledProcessError),
+        ):
+            create_image(
+                target, "ext2img", base_image, [f"write {source} /usr/bin/tool"]
+            )
+        self.assertEqual(target.read_text(), "previous output")
+        self.assertEqual(base_image.read_text(), "pristine Alpine image")
+        self.assertFalse(list(self.root.glob(".pedigree-image-*")))
+        with self.assertRaisesRegex(ValueError, "must differ"):
+            create_image(base_image, "ext2img", base_image, [])
 
 
 if __name__ == "__main__":
