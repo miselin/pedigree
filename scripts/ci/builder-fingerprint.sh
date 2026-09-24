@@ -15,6 +15,7 @@ files=$(git ls-files -- \
     build-etc/toolchain \
     'compilers/pedigree-*.patch' \
     CMakeLists.txt \
+    scripts/alpine/build-rootfs.sh \
     scripts/bootstrap_toolchain.py \
     scripts/build-musl-amd64.sh \
     scripts/ci/builder-fingerprint.sh \

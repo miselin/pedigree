@@ -187,7 +187,7 @@ jobs:
 
           docker image inspect "$BUILDER_IMAGE" >/dev/null
 
-      - name: Build the cross-compiled kernel and ISO
+      - name: Build the cross-compiled kernel and UEFI image
         env:
           BUILDER_IMAGE: ${{ needs.builder-availability.outputs.image }}
         run: |
@@ -201,6 +201,7 @@ jobs:
               cmake -S . -B build/cross -G Ninja \
                 -DCMAKE_TOOLCHAIN_FILE=/workspace/build-etc/cmake/pedigree_amd64.cmake \
                 -DPEDIGREE_TOOLCHAIN_ROOT=/opt/pedigree \
+                -DPEDIGREE_ALPINE_ROOT=/opt/pedigree/alpine \
                 -DPEDIGREE_BUILD_USER_DIR=OFF \
                 -DPEDIGREE_WARNINGS=ON
               cmake --build build/cross \

@@ -100,6 +100,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=toolchain-builder /opt/pedigree /opt/pedigree
+COPY --from=alpine-sdk /out/rootfs.img /opt/pedigree/alpine/rootfs.img
+COPY --from=alpine-sdk /out/rootfs /opt/pedigree/alpine/rootfs
 
 ENV PATH="/usr/lib/llvm-${LLVM_VERSION}/bin:/opt/pedigree/bin:${PATH}" \
     PEDIGREE_TOOLCHAIN_ROOT=/opt/pedigree \
