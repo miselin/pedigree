@@ -2,3 +2,6 @@
 ef793a90b414eccf226799078175fefff7c57ec1
 4add3c5bdda75fbe218f0912a91e8266a5f36f34
 a63575ebc9834d8848d6cee7fced8d393c989b0d
+
+# clang-format 22 cleanup after retiring legacy components.
+42c89f424de3c89e08a08e85e80e4ed7d09bb64b
