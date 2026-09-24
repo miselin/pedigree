@@ -46,19 +46,15 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=repository / "build/pedigree-uefi-root.img")
     parser.add_argument("--log-dir", type=Path, default=repository / "build/qemu-uefi-checkpoint")
     parser.add_argument("--seconds", type=float, default=45)
+    parser.add_argument("--cpus", type=int, default=1)
     parser.add_argument("--qemu", default=os.environ.get("QEMU", "qemu-system-x86_64"))
     parser.add_argument("--ovmf", type=Path, default=find_ovmf())
     parser.add_argument(
         "--require-marker", action="append", default=["BootIO is initialized!", "Archive: mapped to"]
     )
-    parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
-    if args.self_test:
-        assert "file=/tmp/pedigree-esp.img,if=ide,format=raw,snapshot=on" in build_command(
-            "qemu", Path("/tmp/pedigree-esp.img"), Path("/tmp/pedigree-root.img"),
-            Path("/tmp/serial.log"), Path("/tmp/ovmf.fd")
-        )
-        return 0
+    if args.cpus <= 0:
+        parser.error("--cpus must be a positive integer")
     for image in (args.image, args.root):
         if not image.is_file():
             print(f"UEFI image is unavailable: {image}")
@@ -73,7 +69,7 @@ def main() -> int:
     ovmf_copy = args.log_dir / "OVMF_CODE.fd"
     shutil.copyfile(args.ovmf, ovmf_copy)
     serial_log.write_text("")
-    command = build_command(args.qemu, args.image, args.root, serial_log, ovmf_copy)
+    command = build_command(args.qemu, args.image, args.root, serial_log, ovmf_copy, args.cpus)
     print(f"QEMU command: {shlex.join(command)}")
     print(f"Serial log: {serial_log}")
     with output_log.open("w", encoding="utf-8") as output:
@@ -116,11 +112,13 @@ def main() -> int:
         return 1
 
 
-def build_command(qemu: str, image: Path, root: Path, serial_log: Path, ovmf: Path) -> list[str]:
+def build_command(
+    qemu: str, image: Path, root: Path, serial_log: Path, ovmf: Path, cpus: int = 1
+) -> list[str]:
     return [
         qemu,
         "-machine", "q35",
-        "-smp", "1",
+        "-smp", str(cpus),
         "-m", "512",
         "-drive", f"if=pflash,format=raw,file={ovmf}",
         "-drive", f"file={image},if=ide,format=raw,snapshot=on",

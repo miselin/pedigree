@@ -69,24 +69,6 @@ void Thread::snapshotPlacementLocked(ThreadPlacement& placement) const {
   placement = m_Placement;
 }
 
-bool Thread::tryPinLegacyUserCallbacks() {
-  LockGuard<Spinlock> guard(m_Lock);
-  PerProcessorScheduler* owner = getScheduler();
-  if (!owner || m_bShutdown || m_SignalFramesRequired || getUnwindState() != Continue ||
-      m_LegacyUserCallbackPins == ~size_t(0) ||
-      !m_Placement.allowed.contains(owner->logicalCpu()) ||
-      (m_AffinityPending && !m_RequestedAffinity.contains(owner->logicalCpu())))
-    return false;
-  ++m_LegacyUserCallbackPins;
-  return true;
-}
-
-void Thread::unpinLegacyUserCallbacks() {
-  LockGuard<Spinlock> guard(m_Lock);
-  assert(m_LegacyUserCallbackPins);
-  --m_LegacyUserCallbackPins;
-}
-
 AffinityResult Thread::requestAffinity(const CpuAffinityMask& requested, uint64_t& generation) {
   CpuAffinityMask effective = requested;
   effective.intersect(Scheduler::onlineAffinity());
@@ -113,8 +95,6 @@ AffinityResult Thread::requestAffinity(const CpuAffinityMask& requested, uint64_
     }
     owner = getScheduler();
     assert(owner);
-    if (m_LegacyUserCallbackPins && !effective.contains(owner->logicalCpu()))
-      return AffinityResult::Unsupported;
     if (m_AffinityGeneration == ~uint64_t(0))
       return AffinityResult::Invalid;
 
@@ -211,8 +191,6 @@ AffinityResult Thread::completeAffinityAtSafePoint(bool* waited) {
           } else if (m_Placement.allowed.contains(owner->logicalCpu())) {
             finished = true;
           }
-          if (!finished)
-            assert(!m_LegacyUserCallbackPins);
           if (!finished && !m_AffinityWorkQueued) {
             parentPinned = parent->beginExternalLease();
             if (parentPinned)
@@ -345,14 +323,11 @@ void PerProcessorScheduler::drainAffinityRequests() {
           if (!terminal) {
             assert(thread->m_Status != Thread::Running);
             if (thread->m_AffinityPending) {
-              assert(!thread->m_LegacyUserCallbackPins ||
-                     thread->m_RequestedAffinity.contains(m_LogicalCpu));
               thread->m_Placement.allowed = thread->m_RequestedAffinity;
               thread->m_AffinityCompleted = thread->m_AffinityGeneration;
             }
             if (thread->m_AffinityGatePending) {
               if (!thread->m_Placement.allowed.contains(m_LogicalCpu)) {
-                assert(!thread->m_LegacyUserCallbackPins);
                 for (size_t cpu = 0; cpu < CpuAffinityMask::MaximumCpus; ++cpu) {
                   if (thread->m_Placement.allowed.contains(cpu)) {
                     destination = Scheduler::schedulerForCpu(cpu);

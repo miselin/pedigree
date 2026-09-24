@@ -68,7 +68,6 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src/system/include
 )
 
-add_subdirectory(configdb)
 add_subdirectory(bootstrap)
 
 set(KERNEL_SRCS
@@ -256,11 +255,6 @@ add_library(debugger
     ${CMAKE_SOURCE_DIR}/src/system/kernel/debugger/commands/IrqDiagnosticRenderer.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/debugger/commands/LocksCommand.cc)
 target_compile_definitions(debugger PRIVATE -DTESTSUITE)
-
-add_library(config
-    ${CMAKE_SOURCE_DIR}/src/modules/system/config/Config.cc
-    ${CMAKE_SOURCE_DIR}/src/modules/system/config/sqlite3/sqlite3.c)
-target_compile_options(config PRIVATE -Wno-implicit-fallthrough -Wno-cast-qual -Wno-error)
 
 add_library(posix
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/IoEvent.cc)
@@ -457,16 +451,16 @@ if (PEDIGREE_MODULE_IMAGE_FIXTURE_FILE)
 endif ()
 
 if (BUILDUTILS_PROFILE_FLAGS)
-    foreach (target kernel utility vfs ext2 fat iso9660 ramfs partition debugger config posix
+    foreach (target kernel utility vfs ext2 fat iso9660 ramfs partition debugger posix
              keymap ext2img instrument memorytracer headerify
-             pedigree-configdb pedigree-initrd-builder)
+             pedigree-initrd-builder)
         target_compile_options(${target} PRIVATE ${BUILDUTILS_PROFILE_FLAGS})
     endforeach ()
 endif ()
 
 export(
     TARGETS keymap ext2img instrument memorytracer testsuite headerify
-        pedigree-configdb pedigree-initrd-builder
+        pedigree-initrd-builder
     FILE ${CMAKE_BINARY_DIR}/HostUtilities.cmake NAMESPACE host-
 )
 
@@ -540,7 +534,6 @@ if (BENCHMARK_LIBRARY)
     )
 endif ()
 
-# TODO: build netwrap
 
 add_library(lwip
     ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/lwip.cc

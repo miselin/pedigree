@@ -25,7 +25,6 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Subsystem.h"
-#include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
@@ -206,12 +205,6 @@ class CpuTimeSample {
 Thread::Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
                bool semiUser, bool bDontPickCore, bool delayedStart,
                const ThreadPlacement* placement)
-    : Thread(pParent, pStartFunction, pParam, pStack, semiUser, bDontPickCore, delayedStart,
-             nullptr, placement) {}
-
-Thread::Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
-               bool semiUser, bool bDontPickCore, bool delayedStart,
-               ThreadStartCleanup startCleanup, const ThreadPlacement* placement)
     : m_pParent(pParent), m_DeferredReapNode(this) {
   if (pParent == 0) {
     FATAL("Thread::Thread(): Parent process was NULL!");
@@ -281,12 +274,11 @@ Thread::Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, v
 
   // Add to the scheduler
   if (!bDontPickCore || placement) {
-    ProcessorThreadAllocator::instance().addThread(this, pStartFunction, pParam, bUserMode, pStack,
-                                                   startCleanup);
+    ProcessorThreadAllocator::instance().addThread(this, pStartFunction, pParam, bUserMode, pStack);
   } else {
     Scheduler::instance().addThread(this, Processor::information().getScheduler());
     Processor::information().getScheduler().addThread(this, pStartFunction, pParam, bUserMode,
-                                                      pStack, startCleanup);
+                                                      pStack);
   }
 }
 
@@ -484,13 +476,6 @@ Thread::~Thread() {
           << ", event=" << __atomic_load_n(&m_EventDeferralDepth, __ATOMIC_ACQUIRE) << ".");
   }
 
-  if (InputManager::instance().removeCallbackByThread(this)) {
-    WARNING(
-        "A thread is being removed, but it never removed itself from "
-        "InputManager.");
-    WARNING("This warning indicates an application or kernel module is buggy!");
-  }
-
   // Before removing from the scheduler, terminate if needed.
   if (!m_bShutdown) {
     shutdown();
@@ -543,7 +528,6 @@ void Thread::notifySubsystemExit() {
   if (m_pParent) {
     m_pParent->threadExiting(this);
   }
-  retireInputUserStack();
   // Robust-list and clear-TID work above still needs the departing user stack.
   // Retire owned raw stacks here, before a later scheduler-locked destruction.
   for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level) {
@@ -556,62 +540,6 @@ void Thread::notifySubsystemExit() {
     }
     m_pParent->getAddressSpace()->freeStack(stack);
   }
-}
-
-bool Thread::prepareInputUserStack() {
-  if (Processor::information().getCurrentThread() != this || !m_pParent ||
-      !Processor::getInterrupts())
-    return false;
-  Uninterruptible events;
-  TerminationDeferral termination;
-  if (m_pInputUserStack)
-    return true;
-  if (!acceptingEvents() || !tryPinLegacyUserCallbacks())
-    return false;
-  m_pInputUserStack = m_pParent->getAddressSpace()->allocateStack();
-  if (!m_pInputUserStack)
-    unpinLegacyUserCallbacks();
-  return m_pInputUserStack != nullptr;
-}
-
-void Thread::retireInputUserStack() {
-  // Never-used and already-retired threads also reach shutdown under scheduler
-  // locks. Their fast path must not enter the input or mapping gates.
-  if (!m_pInputUserStack)
-    return;
-  Uninterruptible events;
-  TerminationDeferral termination;
-  InputManager::instance().removeCallbackByThread(this);
-  while (true) {
-    Event* removed = nullptr;
-    {
-      LockGuard<Spinlock> guard(m_Lock);
-      for (auto it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
-        if (!(*it)->isSignalEvent() && (*it)->getNumber() == EventNumbers::InputEvent) {
-          removed = *it;
-          m_EventQueue.erase(it);
-          break;
-        }
-      }
-    }
-    if (!removed)
-      break;
-    removed->completeDelivery(this);
-  }
-  VirtualAddressSpace::Stack* stack = m_pInputUserStack;
-  m_pInputUserStack = nullptr;
-  for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level) {
-    if (m_StateLevels[level].m_pUserStack == stack)
-      m_StateLevels[level].m_pUserStack = nullptr;
-  }
-  if (m_pParent)
-    m_pParent->getAddressSpace()->freeStack(stack);
-  else
-    delete stack;
-  // Only committed exec and terminal teardown retire this domain. An old
-  // nested callback cannot resume; exec reaches its migration gate only after
-  // abandoning those states. Removing a public registration is not sufficient.
-  unpinLegacyUserCallbacks();
 }
 
 void Thread::shutdown() {
@@ -3604,8 +3532,7 @@ void Thread::cleanStateLevel(size_t level) {
   if (m_StateLevels[level].m_pUserStack && m_pParent) {
     // Can't use Processor::getCurrent.. as by the time we're called
     // we may have switched address spaces to allow the thread to die.
-    if (m_StateLevels[level].m_pUserStack != m_pInputUserStack)
-      m_pParent->getAddressSpace()->freeStack(m_StateLevels[level].m_pUserStack);
+    m_pParent->getAddressSpace()->freeStack(m_StateLevels[level].m_pUserStack);
     m_StateLevels[level].m_pUserStack = 0;
   }
 

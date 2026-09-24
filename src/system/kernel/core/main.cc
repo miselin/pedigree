@@ -75,7 +75,6 @@
  * - \ref module_main
  * - \ref mmap_main
  * - \ref module_nativeapi
- * - \ref registry
  * - \ref event_system
  *
  * \section main_resources Resources

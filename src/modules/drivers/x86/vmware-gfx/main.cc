@@ -27,8 +27,6 @@
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/machine/Framebuffer.h"
-#include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
@@ -190,9 +188,6 @@ class VmwareGraphics : public Display {
     if (!setModeLocked(sm.width, sm.height, Graphics::bitsPerPixel(sm.pf2)))
       return false;
 
-    Vga* pVga = Machine::instance().getVga(0);
-    if (pVga)
-      pVga->setMode(sm.id);
     return true;
   }
 
@@ -816,4 +811,4 @@ static void exit() {
   g_Found = false;
 }
 
-MODULE_INFO("vmware-gfx", &entry, &exit, "pci", "config");
+MODULE_INFO("vmware-gfx", &entry, &exit, "pci");

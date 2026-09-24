@@ -19,8 +19,8 @@ phase=${PEDIGREE_HOSTED_PROFILE_PHASE:-all}
     exit 2
 }
 kernel="$build/src/system/kernel/kernel"
-[[ -x "$kernel" && -f "$build/config.db" && ! -e "$output/run.log" ]] || {
-    echo "Build kernel/configdb first, and choose an unused output directory." >&2
+[[ -x "$kernel" && ! -e "$output/run.log" ]] || {
+    echo "Build kernel first, and choose an unused output directory." >&2
     exit 2
 }
 
@@ -71,7 +71,7 @@ env PEDIGREE_HOSTED_SYSCALL_PROFILE=1 PEDIGREE_HOSTED_PROFILE_DIVISOR="$divisor"
     uv run --no-project python "$repo/scripts/run-with-deadline.py" \
     --seconds 180 --label hosted-profile -- \
     /usr/bin/time -v -o "$output/host-time.txt" \
-    taskset -c "$cpu" "${command[@]}" "$scratch/empty.tar" "$build/config.db" \
+    taskset -c "$cpu" "${command[@]}" "$scratch/empty.tar" \
     > "$output/run.log" 2>&1
 
 grep -aFq 'HOSTED-PROFILE: PASS all' "$output/run.log"

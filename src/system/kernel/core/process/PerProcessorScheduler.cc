@@ -50,7 +50,7 @@
 #include "pedigree/kernel/processor/hosted/FunctionProfile.h"
 #endif
 
-#define VERBOSE_SCHEDULER 0
+static constexpr bool VerboseScheduler = false;
 
 namespace {
 Atomic<size_t> g_StackDiscardCount(0);
@@ -252,21 +252,11 @@ struct newThreadData {
   Thread* pThread;
   Thread::ThreadStartFunc pStartFunction;
   void* pParam;
-  Thread::ThreadStartCleanup startCleanup;
   bool bUsermode;
   void* pStack;
   SyscallState state;
   bool useSyscallState;
 };
-
-static void retireUnstartedThreadData(newThreadData* data) {
-  Thread::ThreadStartCleanup cleanup = data->startCleanup;
-  void* parameter = cleanup ? data->pParam : nullptr;
-  delete data;
-  if (cleanup) {
-    cleanup(parameter);
-  }
-}
 
 void PerProcessorScheduler::startNewThreadWorker(Process* pParent) {
   m_NewThreadDataLock.acquire();
@@ -348,7 +338,7 @@ int PerProcessorScheduler::processorAddThread(void* instance) {
       pThread->m_Lock.release();
       // This thread has never owned a running stack. The add worker owns
       // the last queued reference and can complete its off-stack exit.
-      retireUnstartedThreadData(pData);
+      delete pData;
       pThread->shutdown();
       pThread->m_Lock.acquire();
       EMIT_IF(TRACK_LOCKS) {
@@ -381,7 +371,7 @@ int PerProcessorScheduler::processorAddThread(void* instance) {
       }
 
       pThread->setUnwindState(Thread::TerminateThread);
-      retireUnstartedThreadData(pData);
+      delete pData;
       pThread->shutdown();
       pThread->m_Lock.acquire();
       EMIT_IF(TRACK_LOCKS) {
@@ -546,10 +536,10 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
     return;
   }
 
-#if VERBOSE_SCHEDULER
-  NOTICE_NOLOCK("schedule: " << pCurrentThread << " -> " << pNextThread << " -- "
-                             << pCurrentThread->getName() << " -> " << pNextThread->getName());
-#endif
+  EMIT_IF(VerboseScheduler) {
+    NOTICE_NOLOCK("schedule: " << pCurrentThread << " -> " << pNextThread << " -- "
+                               << pCurrentThread->getName() << " -> " << pNextThread->getName());
+  }
 
   // Now neither thread can be moved, we're safe to switch.
   ActivityDiagnostics::recordContextSwitch();
@@ -802,18 +792,7 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack, Thread::EventSe
 
     if (!usableUserStack) {
       VirtualAddressSpace::Stack* stateStack = pThread->getStateUserStack();
-      const bool inputEvent =
-          !pEvent->isSignalEvent() && pEvent->getNumber() == EventNumbers::InputEvent;
-      if (inputEvent) {
-        stateStack = pThread->inputUserStack();
-        if (!stateStack || !va.isMapped(adjust_pointer(stateStack->getTop(), -pageSz))) {
-          pThread->popState(false);
-          eventDelivery.reset();
-          Processor::setInterrupts(bWasInterrupts);
-          return;
-        }
-        pThread->setStateUserStack(stateStack);
-      } else if (!stateStack || !va.isMapped(adjust_pointer(stateStack->getTop(), -pageSz))) {
+      if (!stateStack || !va.isMapped(adjust_pointer(stateStack->getTop(), -pageSz))) {
         stateStack = va.allocateStack();
         if (!stateStack)
           panic("checkEventState: no user fallback stack");
@@ -911,19 +890,12 @@ void PerProcessorScheduler::eventHandlerReturned() {
 
 void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc pStartFunction,
                                       void* pParam, bool bUsermode, void* pStack) {
-  addThread(pThread, pStartFunction, pParam, bUsermode, pStack, nullptr);
-}
-
-void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc pStartFunction,
-                                      void* pParam, bool bUsermode, void* pStack,
-                                      Thread::ThreadStartCleanup startCleanup) {
   // Handle wrong CPU, and handle thread not yet ready to schedule.
   if (this != &Processor::information().getScheduler() || pThread->getStatus() == Thread::Created) {
     newThreadData* pData = new newThreadData;
     pData->pThread = pThread;
     pData->pStartFunction = pStartFunction;
     pData->pParam = pParam;
-    pData->startCleanup = startCleanup;
     pData->bUsermode = bUsermode;
     pData->pStack = pStack;
     pData->useSyscallState = false;
@@ -1036,7 +1008,6 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
     newThreadData* pData = new newThreadData;
     pData->pThread = pThread;
     pData->pParam = nullptr;
-    pData->startCleanup = nullptr;
     pData->useSyscallState = true;
     pData->state = state;
 
@@ -1853,7 +1824,6 @@ void observeHostedRunnableCurrent(ProcessorBase::HostedContextSwitchStage stage)
 
 struct HostedNewThreadContext {
   Atomic<size_t> calls;
-  Atomic<size_t> cleanups;
 };
 
 int hostedNewThreadWorkerEntry(void* parameter) {
@@ -1862,10 +1832,6 @@ int hostedNewThreadWorkerEntry(void* parameter) {
   return 0;
 }
 
-void hostedNewThreadStartCleanup(void* parameter) {
-  HostedNewThreadContext* context = reinterpret_cast<HostedNewThreadContext*>(parameter);
-  context->cleanups += 1;
-}
 }  // namespace
 
 bool PerProcessorScheduler::currentIrqWorkDoorbellPendingForTest() {
@@ -1945,7 +1911,7 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
   HostedNewThreadContext reapContext;
   const size_t reapBaseline = m_nDeferredThreadReapCompletions.value();
   Thread* reapTarget = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &reapContext, nullptr,
-                                  false, true, true, hostedNewThreadStartCleanup);
+                                  false, true, true);
   reapTarget->setName("hosted deferred Thread reap target");
   const bool reapStarted = reapTarget->startDetached();
   bool reapCompleted = false;
@@ -1956,10 +1922,9 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
     }
     Scheduler::instance().yield();
   }
-  const bool reapPassed =
-      check(reapStarted && reapCompleted && reapContext.calls == 1 && reapContext.cleanups == 0 &&
-                !m_nDeferredThreadReaps.value(),
-            "detached Thread was not destroyed by the ordinary maintenance worker");
+  const bool reapPassed = check(
+      reapStarted && reapCompleted && reapContext.calls == 1 && !m_nDeferredThreadReaps.value(),
+      "detached Thread was not destroyed by the ordinary maintenance worker");
   passed &= reapPassed;
   if (reapPassed) {
     NOTICE("HOSTED-WAIT-TEST: PASS perprocessor-deferred-thread-reap");
@@ -1967,7 +1932,7 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
 
   HostedNewThreadContext delayedContext;
   Thread* delayed = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &delayedContext, nullptr,
-                               false, true, true, hostedNewThreadStartCleanup);
+                               false, true, true);
   delayed->setName("hosted delayed add-worker target");
   const bool delayedParked = waitUntilParked(delayed);
   for (size_t attempt = 0; attempt < 64; ++attempt) {
@@ -1977,8 +1942,7 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
   const bool started = delayed->start();
   const bool delayedJoined = delayed->joinForCompletion();
   const bool delayedPassed =
-      check(stayedDormant && started && delayedJoined && delayedContext.calls == 1 &&
-                delayedContext.cleanups == 0,
+      check(stayedDormant && started && delayedJoined && delayedContext.calls == 1,
             "delayed add-worker target did not remain parked until its single "
             "start publication");
   passed &= delayedPassed;
@@ -1988,14 +1952,13 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
 
   HostedNewThreadContext terminatedContext;
   Thread* terminated = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &terminatedContext,
-                                  nullptr, false, true, true, hostedNewThreadStartCleanup);
+                                  nullptr, false, true, true);
   terminated->setName("hosted terminated add-worker target");
   const bool terminatedParked = waitUntilParked(terminated);
   terminated->setUnwindState(Thread::TerminateThread);
   const bool terminatedJoined = terminated->joinForCompletion();
   const bool terminatedPassed =
-      check(terminatedParked && terminatedJoined && terminatedContext.calls == 0 &&
-                terminatedContext.cleanups == 1,
+      check(terminatedParked && terminatedJoined && terminatedContext.calls == 0,
             "terminate-before-start did not retire the parked add-worker target");
   passed &= terminatedPassed;
   if (terminatedPassed) {
@@ -2004,15 +1967,14 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
 
   HostedNewThreadContext teardownContext;
   Thread* teardown = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &teardownContext,
-                                nullptr, false, true, true, hostedNewThreadStartCleanup);
+                                nullptr, false, true, true);
   teardown->setName("hosted add-worker teardown target");
   const bool teardownParked = waitUntilParked(teardown);
 
   HostedNewThreadContext detachedTeardownContext;
   const size_t detachedReapBaseline = m_nDeferredThreadReapCompletions.value();
-  Thread* detachedTeardown =
-      new Thread(kernelProcess, hostedNewThreadWorkerEntry, &detachedTeardownContext, nullptr,
-                 false, true, true, hostedNewThreadStartCleanup);
+  Thread* detachedTeardown = new Thread(kernelProcess, hostedNewThreadWorkerEntry,
+                                        &detachedTeardownContext, nullptr, false, true, true);
   detachedTeardown->setName("hosted detached add-worker teardown target");
   const bool detachedTeardownParked = waitUntilParked(detachedTeardown);
   const bool detachedTeardownClaimed = detachedTeardown->detach();
@@ -2041,13 +2003,11 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
     Scheduler::instance().yield();
   }
 
-  const bool teardownPassed =
-      check(teardownParked && teardownJoined && teardownContext.calls == 0 &&
-                teardownContext.cleanups == 1 && detachedTeardownParked &&
-                detachedTeardownClaimed && detachedTeardownReaped &&
-                detachedTeardownContext.calls == 0 && detachedTeardownContext.cleanups == 1 &&
-                !m_nDeferredThreadReaps.value() && teardownDrained && workerJoined,
-            "owned add worker did not drain and join with pending parked work");
+  const bool teardownPassed = check(
+      teardownParked && teardownJoined && teardownContext.calls == 0 && detachedTeardownParked &&
+          detachedTeardownClaimed && detachedTeardownReaped && detachedTeardownContext.calls == 0 &&
+          !m_nDeferredThreadReaps.value() && teardownDrained && workerJoined,
+      "owned add worker did not drain and join with pending parked work");
   passed &= teardownPassed;
   if (teardownPassed) {
     NOTICE("HOSTED-WAIT-TEST: PASS perprocessor-worker-teardown");
@@ -2057,7 +2017,7 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
 
   HostedNewThreadContext restartContext;
   Thread* restart = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &restartContext, nullptr,
-                               false, true, true, hostedNewThreadStartCleanup);
+                               false, true, true);
   restart->setName("hosted restarted add-worker target");
   const bool restartParked = waitUntilParked(restart);
   const bool restartStarted = restart->start();
@@ -2071,8 +2031,7 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
   }
   const bool restartJoined = restartReapable && restart->joinForCompletion();
   const bool restartPassed =
-      check(restartParked && restartStarted && restartJoined && restartContext.calls == 1 &&
-                restartContext.cleanups == 0,
+      check(restartParked && restartStarted && restartJoined && restartContext.calls == 1,
             "replacement add worker did not process a fresh delayed admission");
   passed &= restartPassed;
   if (restartPassed) {

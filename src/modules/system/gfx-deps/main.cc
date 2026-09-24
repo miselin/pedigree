@@ -22,17 +22,9 @@
 
 #include "modules/Module.h"
 
+MODULE_INFO("gfx-deps", 0, 0);
 #if X86_COMMON
-#define __MOD_DEPS 0
-#define __MOD_DEPS_OPT "vbe", "vmware-gfx", "uefi-gfx", "intelgfx", "virtio-gpu"
+MODULE_OPTIONAL_DEPENDS("vmware-gfx", "uefi-gfx", "intelgfx", "virtio-gpu");
 #elif ARM64 || ARMV7
-#define __MOD_DEPS 0
-#define __MOD_DEPS_OPT "virtio-gpu"
-#elif HOSTED
-/// \todo probably want some sort of SDL thing here.
-#define __MOD_DEPS 0
-#endif
-MODULE_INFO("gfx-deps", 0, 0, __MOD_DEPS);
-#ifdef __MOD_DEPS_OPT
-MODULE_OPTIONAL_DEPENDS(__MOD_DEPS_OPT);
+MODULE_OPTIONAL_DEPENDS("virtio-gpu");
 #endif

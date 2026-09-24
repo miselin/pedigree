@@ -173,7 +173,7 @@ menuentry 'Pedigree (T420)' {
 Use the equivalent `known-good` paths and argument for the clean-initrd entry.
 The `current`/`known-good` argument selects the matching artifact directory;
 the kernel root option belongs in that directory's `cmdline` file. Keep the
-loader, kernel, initrd, configuration database and command line together.
+loader, kernel, initrd and command line together.
 
 Arguments after the directory selector are appended to its `cmdline` contents.
 For example, `chainloader ($esp)/EFI/PEDIGREE/current/BOOTX64.EFI current intelgfx=off`
@@ -284,7 +284,7 @@ and read the file. Repeat after a cold boot before relying on the SSD for
 unique data.
 
 For kernel updates, replace only the `current` artifact set with a matching
-kernel/config/initrd/EFI set. Rebuild the external driver against that same
+kernel/initrd/EFI set. Rebuild the external driver against that same
 Pedigree build. UEFI needs the **uncompressed** initrd tar despite its `.tar`
 name. Once a set works on the laptop, copy it to `known-good`. Keep this
 backup when updating `current`. Do not `dd` the initial root image again over

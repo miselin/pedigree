@@ -40,6 +40,26 @@ class CMakeToolchainTests(unittest.TestCase):
 
         return source, build
 
+    def _prepare_initrd_fixture(self, temporary_path):
+        command = textwrap.dedent(
+            """\
+            add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/fixture-initrd.tar.gz"
+                COMMAND $<TARGET_FILE:host-pedigree-initrd-builder>
+                    --output "${CMAKE_BINARY_DIR}/fixture-initrd.tar.gz"
+                    --uncompressed "${CMAKE_BINARY_DIR}/fixture-initrd.tar"
+                    --manifest "${CMAKE_BINARY_DIR}/fixture-initrd.manifest"
+                    "empty=${CMAKE_SOURCE_DIR}/empty"
+                DEPENDS host-pedigree-initrd-builder
+                    "${CMAKE_SOURCE_DIR}/empty"
+                VERBATIM)
+            add_custom_target(initrd-probe
+                DEPENDS "${CMAKE_BINARY_DIR}/fixture-initrd.tar.gz")
+            """
+        )
+        source, build = self._prepare_target_fixture(temporary_path, command)
+        (source / "empty").touch()
+        return source, build
+
     def _target_configure_command(self, source, build, *extra_arguments):
         return [
             CMAKE,
@@ -50,8 +70,6 @@ class CMakeToolchainTests(unittest.TestCase):
             "-DCMAKE_TOOLCHAIN_FILE="
             + str(ROOT / "build-etc/cmake/pedigree_amd64.cmake"),
             "-DBUILD_TESTING=OFF",
-            "-DPEDIGREE_BUILD_HDD_IMAGE=OFF",
-            "-DPEDIGREE_BUILD_ISO=OFF",
             "-DPEDIGREE_BUILD_KEYMAPS=OFF",
             "-DPEDIGREE_BUILD_TRANSLATIONS=OFF",
             "-DPEDIGREE_BUILD_USER_DIR=OFF",
@@ -348,14 +366,14 @@ class CMakeToolchainTests(unittest.TestCase):
                 result.returncode, 0, msg=result.stdout + result.stderr
             )
 
-    def test_cross_build_owns_incremental_native_configdb_generator(self):
+    def test_cross_build_owns_incremental_native_initrd_generator(self):
         compiler = ROOT / "compilers/dir/bin/x86_64-pedigree-gcc"
         if not compiler.is_file():
             self.skipTest("Pedigree cross toolchain is not installed")
 
         with tempfile.TemporaryDirectory() as temporary:
             temporary_path = Path(temporary)
-            source, build = self._prepare_target_fixture(temporary_path)
+            source, build = self._prepare_initrd_fixture(temporary_path)
             configure_result = subprocess.run(
                 self._target_configure_command(source, build),
                 capture_output=True,
@@ -367,7 +385,7 @@ class CMakeToolchainTests(unittest.TestCase):
                     "--build",
                     str(build),
                     "--target",
-                    "configdb",
+                    "initrd-probe",
                     "--parallel",
                     "2",
                     "--verbose",
@@ -388,13 +406,13 @@ class CMakeToolchainTests(unittest.TestCase):
                 msg=first_output,
             )
 
-            config_db = build / "config.db"
+            initrd = build / "fixture-initrd.tar.gz"
             staged_generators = list(
-                (build / "host-tools/bin").glob("*/pedigree-configdb")
+                (build / "host-tools/bin").glob("*/pedigree-initrd-builder")
             )
             self.assertEqual(len(staged_generators), 1, msg=first_output)
             self.assertTrue(staged_generators[0].is_file(), msg=first_output)
-            self.assertGreater(config_db.stat().st_size, 0)
+            self.assertGreater(initrd.stat().st_size, 0)
 
             host_caches = list(
                 (build / "host-tools/build").glob("**/CMakeCache.txt")
@@ -415,7 +433,7 @@ class CMakeToolchainTests(unittest.TestCase):
             self.assertNotIn("Python", first_output)
             self.assertNotIn("CMP0148", first_output)
 
-            config_db_mtime = config_db.stat().st_mtime_ns
+            initrd_mtime = initrd.stat().st_mtime_ns
             cmake_lists = source / "CMakeLists.txt"
             cmake_lists.write_text(cmake_lists.read_text() + "\n")
             second_build_result = subprocess.run(
@@ -424,7 +442,7 @@ class CMakeToolchainTests(unittest.TestCase):
                     "--build",
                     str(build),
                     "--target",
-                    "configdb",
+                    "initrd-probe",
                     "--parallel",
                     "2",
                     "--verbose",
@@ -435,7 +453,7 @@ class CMakeToolchainTests(unittest.TestCase):
             second_output = (
                 second_build_result.stdout + second_build_result.stderr
             )
-            second_config_db_mtime = config_db.stat().st_mtime_ns
+            second_initrd_mtime = initrd.stat().st_mtime_ns
 
         self.assertEqual(
             second_build_result.returncode,
@@ -443,7 +461,7 @@ class CMakeToolchainTests(unittest.TestCase):
             msg=second_output,
         )
         self.assertIn("Pedigree build role: TARGET", second_output)
-        self.assertEqual(config_db_mtime, second_config_db_mtime)
+        self.assertEqual(initrd_mtime, second_initrd_mtime)
         self.assertNotIn("Python", second_output)
         self.assertNotIn("CMP0148", second_output)
 
@@ -462,13 +480,13 @@ class CMakeToolchainTests(unittest.TestCase):
             rules_path = Path("build.ninja")
         elif shutil.which("make"):
             generator_arguments = ("-G", "Unix Makefiles")
-            rules_path = Path("CMakeFiles/configdb.dir/build.make")
+            rules_path = Path("CMakeFiles/initrd-probe.dir/build.make")
         else:
             self.skipTest("requires Ninja or Make to inspect generated rules")
 
         with tempfile.TemporaryDirectory() as temporary:
             temporary_path = Path(temporary)
-            source, build = self._prepare_target_fixture(temporary_path)
+            source, build = self._prepare_initrd_fixture(temporary_path)
             wrapped_cc = temporary_path / "wrapped-cc"
             wrapped_cc.write_text(
                 "#!/bin/sh\n"
@@ -494,14 +512,14 @@ class CMakeToolchainTests(unittest.TestCase):
                     msg=result.stdout + result.stderr,
                 )
 
-            def build_configdb():
+            def build_initrd():
                 result = subprocess.run(
                     [
                         CMAKE,
                         "--build",
                         str(build),
                         "--target",
-                        "configdb",
+                        "initrd-probe",
                         "--parallel",
                         "2",
                         "--verbose",
@@ -517,18 +535,18 @@ class CMakeToolchainTests(unittest.TestCase):
                 return result.stdout + result.stderr
 
             configure(native_cc)
-            build_configdb()
+            build_initrd()
             stage_a_generators = list(
-                (build / "host-tools/bin").glob("*/pedigree-configdb")
+                (build / "host-tools/bin").glob("*/pedigree-initrd-builder")
             )
             self.assertEqual(len(stage_a_generators), 1)
             stage_a_generator = stage_a_generators[0]
 
-            (build / "config.db").unlink()
+            (build / "fixture-initrd.tar.gz").unlink()
             configure(wrapped_cc)
-            stage_b_output = build_configdb()
+            stage_b_output = build_initrd()
             staged_generators = set(
-                (build / "host-tools/bin").glob("*/pedigree-configdb")
+                (build / "host-tools/bin").glob("*/pedigree-initrd-builder")
             )
             self.assertEqual(len(staged_generators), 2, msg=stage_b_output)
             stage_b_generator = (staged_generators - {stage_a_generator}).pop()
@@ -542,15 +560,15 @@ class CMakeToolchainTests(unittest.TestCase):
             self.assertIn(str(stage_b_generator), stage_b_output)
             self.assertNotIn(str(stage_a_generator), stage_b_output)
 
-            (build / "config.db").unlink()
+            (build / "fixture-initrd.tar.gz").unlink()
             configure(native_cc)
             rules = (build / rules_path).read_text(errors="replace")
             self.assertIn(str(stage_a_generator), rules)
             self.assertNotIn(str(stage_b_generator), rules)
-            stage_a_output = build_configdb()
+            stage_a_output = build_initrd()
             self.assertIn(str(stage_a_generator), stage_a_output)
             self.assertNotIn(str(stage_b_generator), stage_a_output)
-            self.assertGreater((build / "config.db").stat().st_size, 0)
+            self.assertGreater((build / "fixture-initrd.tar.gz").stat().st_size, 0)
 
     def test_musl_headers_are_target_only_and_ordered_for_make_and_ninja(self):
         root_cmake = (ROOT / "CMakeLists.txt").read_text()
@@ -563,13 +581,13 @@ class CMakeToolchainTests(unittest.TestCase):
         )
         self.assertIn(
             'if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR\n'
-            '    PEDIGREE_ARCH_TARGET STREQUAL "ARM64")\n'
+            '    PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")\n'
             "    link_libraries(pedigree_musl_headers)",
             modules_cmake,
         )
         self.assertIn(
             'if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR\n'
-            '    PEDIGREE_ARCH_TARGET STREQUAL "ARM64")\n'
+            '    PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")\n'
             "    link_libraries(pedigree_musl_headers)",
             kernel_cmake,
         )
@@ -790,14 +808,7 @@ class CMakeToolchainTests(unittest.TestCase):
             source, build = self._prepare_target_fixture(temporary_path)
             host_utilities = temporary_path / "HostUtilities.cmake"
             host_utilities.write_text(
-                textwrap.dedent(
-                    f"""\
-                    add_executable(host-pedigree-initrd-builder IMPORTED)
-                    set_target_properties(
-                        host-pedigree-initrd-builder PROPERTIES
-                        IMPORTED_LOCATION "{Path(CMAKE).as_posix()}")
-                    """
-                )
+                "# Stale export with no initrd builder.\n"
             )
             result = subprocess.run(
                 self._target_configure_command(
@@ -813,7 +824,7 @@ class CMakeToolchainTests(unittest.TestCase):
         output = result.stdout + result.stderr
         normalized_output = " ".join(output.split())
         self.assertNotEqual(result.returncode, 0, msg=output)
-        self.assertIn("host-pedigree-configdb", normalized_output)
+        self.assertIn("host-pedigree-initrd-builder", normalized_output)
         self.assertIn(
             "Reconfigure and rebuild the HOST_TOOLS tree", normalized_output
         )

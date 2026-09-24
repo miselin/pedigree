@@ -17,23 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _WINMAN_UTIL_H
-#define _WINMAN_UTIL_H
+#ifndef PEDIGREE_FB_FRAMEBUFFER_H
+#define PEDIGREE_FB_FRAMEBUFFER_H
 
-#ifndef TARGET_LINUX
 #include <pedigree/fb.h>
-#else
-#include <SDL/SDL.h>
-#endif
 
 #include <cairo/cairo.h>
 
-/**
- * \brief Abstracts the system's framebuffer offering.
- *
- * This is needed to abstract out the Pedigree-specific framebuffer parts so
- * the window manager can be run under SDL on Linux for rapid development.
- */
+/** Abstracts the system's framebuffer offering. */
 class Framebuffer {
  public:
   Framebuffer();
@@ -90,15 +81,10 @@ class Framebuffer {
   size_t m_Height;
   size_t m_BytesPerLine;
 
-#ifdef TARGET_LINUX
-  SDL_Surface* m_pScreen;
-  SDL_Surface* m_pBackbuffer;
-#else
   int m_Fb;
 
   bool m_bStoredMode;
   pedigree_fb_mode m_StoredMode;
-#endif
 };
 
 #endif

@@ -208,9 +208,9 @@ bool Ehci::initialiseController() {
   uint16_t version = hccapbase >> 16;
 
   m_nOpRegsOffset = hccapbase & 0xFF;
-#ifdef USB_VERBOSE_DEBUG
-  NOTICE("EHCI operation registers are at offset " << m_nOpRegsOffset);
-#endif
+  EMIT_IF(UsbVerboseDebug) {
+    NOTICE("EHCI operation registers are at offset " << m_nOpRegsOffset);
+  }
   if (m_nOpRegsOffset < 0x10 || m_nOpRegsOffset > m_pBase->size() ||
       m_pBase->size() - m_nOpRegsOffset < EHCI_PORTSC + sizeof(uint32_t)) {
     // No offset for operational base: this is almost certainly not really
@@ -228,9 +228,9 @@ bool Ehci::initialiseController() {
     ERROR("EHCI: unsupported root-port count " << Dec << m_nPorts << Hex);
     return false;
   }
-#ifdef USB_VERBOSE_DEBUG
-  NOTICE("EHCI controller has " << Dec << m_nPorts << Hex << " physical ports.");
-#endif
+  EMIT_IF(UsbVerboseDebug) {
+    NOTICE("EHCI controller has " << Dec << m_nPorts << Hex << " physical ports.");
+  }
 
   uint32_t hccparams = m_pBase->read32(EHCI_HCCPARAMS);
   uint8_t eecp = (hccparams >> 8) & 0xFF;
@@ -241,19 +241,19 @@ bool Ehci::initialiseController() {
     return false;
   }
 
-#ifdef USB_VERBOSE_DEBUG
-  DEBUG_LOG("EHCI: Host controller " << (hccparams & 1 ? "does" : "does not")
-                                     << " require 64-bit data structures.");
-  DEBUG_LOG("      Host controller " << (hccparams & 2 ? "does" : "does not")
-                                     << " allow us to use frame lists with "
-                                        "anything other than 1024 items in them.");
-  DEBUG_LOG("      Host controller " << (hccparams & 4 ? "does" : "does not")
-                                     << " support the asynchronous schedule park capability.");
-  DEBUG_LOG("      HCCAPBASE is " << hccapbase);
-  DEBUG_LOG("      HCCPARAMS is " << hccparams);
-  DEBUG_LOG("      HCSPARAMS is " << hcsparams);
-  DEBUG_LOG("      EECP is " << eecp);
-#endif
+  EMIT_IF(UsbVerboseDebug) {
+    DEBUG_LOG("EHCI: Host controller " << (hccparams & 1 ? "does" : "does not")
+                                       << " require 64-bit data structures.");
+    DEBUG_LOG("      Host controller " << (hccparams & 2 ? "does" : "does not")
+                                       << " allow us to use frame lists with "
+                                          "anything other than 1024 items in them.");
+    DEBUG_LOG("      Host controller " << (hccparams & 4 ? "does" : "does not")
+                                       << " support the asynchronous schedule park capability.");
+    DEBUG_LOG("      HCCAPBASE is " << hccapbase);
+    DEBUG_LOG("      HCCPARAMS is " << hccparams);
+    DEBUG_LOG("      HCSPARAMS is " << hcsparams);
+    DEBUG_LOG("      EECP is " << eecp);
+  }
 
 #if X86_COMMON
   // Pre-OS to OS handoff
@@ -275,9 +275,9 @@ bool Ehci::initialiseController() {
     }
     visitedCapabilities |= capabilityBit;
 
-#ifdef USB_VERBOSE_DEBUG
-    DEBUG_LOG("EHCI: Reading LEGSUP register and checking for BIOS ownership.");
-#endif
+    EMIT_IF(UsbVerboseDebug) {
+      DEBUG_LOG("EHCI: Reading LEGSUP register and checking for BIOS ownership.");
+    }
     uint32_t legsup = 0;
     if (!pci.readConfig32(this, eecp, legsup))
       return false;
@@ -309,9 +309,9 @@ bool Ehci::initialiseController() {
   m_pBase->write32(0, m_nOpRegsOffset + EHCI_INTR);
   (void)m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
 
-#ifdef USB_VERBOSE_DEBUG
-  DEBUG_LOG("USB: EHCI: disabling running schedules");
-#endif
+  EMIT_IF(UsbVerboseDebug) {
+    DEBUG_LOG("USB: EHCI: disabling running schedules");
+  }
   // Disable any running schedules gracefully before halting the controller
   m_pBase->write32(
       m_pBase->read32(m_nOpRegsOffset + EHCI_CMD) & ~(EHCI_CMD_ASYNCLE | EHCI_CMD_PERIODICLE),
@@ -323,9 +323,9 @@ bool Ehci::initialiseController() {
 
   uint32_t status = m_pBase->read32(m_nOpRegsOffset + EHCI_STS);
   if (!(status & EHCI_STS_HALTED)) {
-#ifdef USB_VERBOSE_DEBUG
-    DEBUG_LOG("USB: EHCI: pausing controller");
-#endif
+    EMIT_IF(UsbVerboseDebug) {
+      DEBUG_LOG("USB: EHCI: pausing controller");
+    }
     // Must halt the controller, it's not yet halted.
     m_pBase->write32(m_pBase->read32(m_nOpRegsOffset + EHCI_CMD) & ~EHCI_CMD_RUN,
                      m_nOpRegsOffset + EHCI_CMD);
@@ -335,19 +335,19 @@ bool Ehci::initialiseController() {
     }
   }
 
-#ifdef USB_VERBOSE_DEBUG
-  DEBUG_LOG("USB: EHCI: resetting controller");
-#endif
+  EMIT_IF(UsbVerboseDebug) {
+    DEBUG_LOG("USB: EHCI: resetting controller");
+  }
   // Write host controller reset command and wait for it to complete
   m_pBase->write32(EHCI_CMD_HCRES, m_nOpRegsOffset + EHCI_CMD);
   if (!waitForMmioState(m_pBase, m_nOpRegsOffset + EHCI_CMD, EHCI_CMD_HCRES, 0)) {
     ERROR("EHCI: controller reset did not complete within 100 ms");
     return false;
   }
-#ifdef USB_VERBOSE_DEBUG
-  DEBUG_LOG("USB: EHCI: Reset complete, status: " << m_pBase->read32(m_nOpRegsOffset + EHCI_STS)
-                                                  << ".");
-#endif
+  EMIT_IF(UsbVerboseDebug) {
+    DEBUG_LOG("USB: EHCI: Reset complete, status: " << m_pBase->read32(m_nOpRegsOffset + EHCI_STS)
+                                                    << ".");
+  }
 
 #if X86_COMMON
   if (!pci.updateCommand(this, 4, 2 | 0x400) || !pci.disableMessageInterrupts(this, pciState)) {
@@ -528,18 +528,18 @@ bool Ehci::initialiseController() {
 
   // Search for ports with devices and initialise them.
   for (size_t i = 0; i < m_nPorts; i++) {
-#ifdef USB_VERBOSE_DEBUG
-    DEBUG_LOG("USB: EHCI: Port " << Dec << i << Hex << " - status initially: "
-                                 << m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + i * 4));
-#endif
+    EMIT_IF(UsbVerboseDebug) {
+      DEBUG_LOG("USB: EHCI: Port " << Dec << i << Hex << " - status initially: "
+                                   << m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + i * 4));
+    }
     // Check for port power
     if (!(m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + i * 4) & EHCI_PORTSC_PPOW)) {
       modifyPortControl(m_nOpRegsOffset + EHCI_PORTSC + i * 4, 0, EHCI_PORTSC_PPOW);
       Time::delay(20 * Time::Multiplier::Millisecond);
-#ifdef USB_VERBOSE_DEBUG
-      DEBUG_LOG("USB: EHCI: Port " << Dec << i << Hex << " - status after power-up: "
-                                   << m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + i * 4));
-#endif
+      EMIT_IF(UsbVerboseDebug) {
+        DEBUG_LOG("USB: EHCI: Port " << Dec << i << Hex << " - status after power-up: "
+                                     << m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + i * 4));
+      }
     }
 
     // Check for an existing reset on the port and request termination
@@ -966,19 +966,19 @@ void Ehci::doDequeue() {
 
         // Is this QH valid?
         if (!pQH->pMetaData) {
-#ifdef USB_VERBOSE_DEBUG
-          DEBUG_LOG("Not performing dequeue on QH #" << Dec << i << Hex
-                                                     << " as it's not even initialised.");
-#endif
+          EMIT_IF(UsbVerboseDebug) {
+            DEBUG_LOG("Not performing dequeue on QH #" << Dec << i << Hex
+                                                       << " as it's not even initialised.");
+          }
           continue;
         }
 
         // Is this QH even linked!?
         if (!pQH->pMetaData->bIgnore) {
-#ifdef USB_VERBOSE_DEBUG
-          DEBUG_LOG("Not performing dequeue on QH #" << Dec << i << Hex
-                                                     << " as it's still active.");
-#endif
+          EMIT_IF(UsbVerboseDebug) {
+            DEBUG_LOG("Not performing dequeue on QH #" << Dec << i << Hex
+                                                       << " as it's still active.");
+          }
           continue;
         }
 
@@ -990,9 +990,9 @@ void Ehci::doDequeue() {
           continue;
         captureCompletionLocked(i, pQH, claim, completions);
 
-#ifdef USB_VERBOSE_DEBUG
-        DEBUG_LOG("Dequeue for QH #" << Dec << i << Hex << ".");
-#endif
+        EMIT_IF(UsbVerboseDebug) {
+          DEBUG_LOG("Dequeue for QH #" << Dec << i << Hex << ".");
+        }
       }
 
       if (completions.count())
@@ -1053,9 +1053,9 @@ void Ehci::interrupt(size_t number, InterruptState& state)
         m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
 
     if (!nStatus) {
-#ifdef USB_VERBOSE_DEBUG
-      DEBUG_LOG_NOLOCK("EHCI: shared IRQ with no pending controller cause");
-#endif
+      EMIT_IF(UsbVerboseDebug) {
+        DEBUG_LOG_NOLOCK("EHCI: shared IRQ with no pending controller cause");
+      }
       return
 #if X86_COMMON
           IrqDisposition::NotHandled  // Shared IRQ: another device
@@ -1084,9 +1084,9 @@ void Ehci::interrupt(size_t number, InterruptState& state)
       NOTICE_NOLOCK("EHCI: Unusual IRQ, status is " << nStatus);
     }
 
-#ifdef USB_VERBOSE_DEBUG
-    DEBUG_LOG_NOLOCK("EHCI IRQ " << nStatus);
-#endif
+    EMIT_IF(UsbVerboseDebug) {
+      DEBUG_LOG_NOLOCK("EHCI IRQ " << nStatus);
+    }
 #if THREADS
     if (nStatus & EHCI_STS_PORTCH) {
       constexpr uint32_t ChangeMask = EHCI_PORTSC_CSCH | EHCI_PORTSC_ENCH | EHCI_PORTSC_OCCH;
@@ -1174,31 +1174,31 @@ void Ehci::interrupt(size_t number, InterruptState& state)
             pqTD->processed = true;
             ssize_t nResult;
             if (pqTD->nStatus & 0x7c) {
-#ifdef USB_VERBOSE_DEBUG
-              ERROR_NOLOCK(((nStatus & EHCI_STS_ERR) ? "USB" : "qTD") << " ERROR!");
-              ERROR_NOLOCK("qTD Status: " << pqTD->nStatus
-                                          << " [overlay status=" << pQH->overlay.nStatus << "]");
-              ERROR_NOLOCK("qTD Error Counter: " << pqTD->nErr << " [overlay counter="
-                                                 << pQH->overlay.nErr << "]");
-              ERROR_NOLOCK("QH NAK counter: " << pqTD->res1
-                                              << " [overlay count=" << pQH->overlay.res1 << "]");
-              ERROR_NOLOCK("qTD PID: " << pqTD->nPid << ".");
-#endif
+              EMIT_IF(UsbVerboseDebug) {
+                ERROR_NOLOCK(((nStatus & EHCI_STS_ERR) ? "USB" : "qTD") << " ERROR!");
+                ERROR_NOLOCK("qTD Status: " << pqTD->nStatus
+                                            << " [overlay status=" << pQH->overlay.nStatus << "]");
+                ERROR_NOLOCK("qTD Error Counter: " << pqTD->nErr << " [overlay counter="
+                                                   << pQH->overlay.nErr << "]");
+                ERROR_NOLOCK("QH NAK counter: " << pqTD->res1
+                                                << " [overlay count=" << pQH->overlay.res1 << "]");
+                ERROR_NOLOCK("qTD PID: " << pqTD->nPid << ".");
+              }
               nResult = -pqTD->getError();
             } else {
               nResult = pqTD->nBufferSize - pqTD->nBytes;
               copyDmaInput(pqTD, nResult);
               pQH->pMetaData->nTotalBytes += nResult;
             }
-#ifdef USB_VERBOSE_DEBUG
-            DEBUG_LOG_NOLOCK("qTD #"
-                             << Dec << nQTDIndex << Hex << " [from QH #" << Dec << i << Hex
-                             << "] DONE: " << Dec << pQH->nAddress << ":" << pQH->nEndpoint << " "
-                             << (pqTD->nPid == 0
-                                     ? "OUT"
-                                     : (pqTD->nPid == 1 ? "IN" : (pqTD->nPid == 2 ? "SETUP" : "")))
-                             << " " << nResult << Hex);
-#endif
+            EMIT_IF(UsbVerboseDebug) {
+              DEBUG_LOG_NOLOCK(
+                  "qTD #" << Dec << nQTDIndex << Hex << " [from QH #" << Dec << i << Hex
+                          << "] DONE: " << Dec << pQH->nAddress << ":" << pQH->nEndpoint << " "
+                          << (pqTD->nPid == 0
+                                  ? "OUT"
+                                  : (pqTD->nPid == 1 ? "IN" : (pqTD->nPid == 2 ? "SETUP" : "")))
+                          << " " << nResult << Hex);
+            }
 
             // Last qTD or error condition?
             const bool shortIn =
@@ -1487,9 +1487,9 @@ void Ehci::addTransferToTransactionAdmitted(uintptr_t nTransaction, bool bToggle
             region->physicalAddress() + page * EhciHardwarePageBytes;
         bufferPages[page] = physicalPage >> EhciHardwarePageShift;
       }
-#ifdef USB_VERBOSE_DEBUG
-      DEBUG_LOG("EHCI: using a below-4GiB bounce buffer for " << Dec << nBytes << " bytes");
-#endif
+      EMIT_IF(UsbVerboseDebug) {
+        DEBUG_LOG("EHCI: using a below-4GiB bounce buffer for " << Dec << nBytes << " bytes");
+      }
     }
 
     pqTD->pPage0 = bufferPages[0];
@@ -1624,10 +1624,10 @@ bool Ehci::doAsync(uintptr_t nTransaction, void (*pCallback)(uintptr_t, ssize_t)
     pQH->overlay.bIoc = 1;
   }
 
-#ifdef USB_VERBOSE_DEBUG
-  DEBUG_LOG("START #" << Dec << nTransaction << Hex << " " << Dec << pQH->nAddress << ":"
-                      << pQH->nEndpoint << Hex);
-#endif
+  EMIT_IF(UsbVerboseDebug) {
+    DEBUG_LOG("START #" << Dec << nTransaction << Hex << " " << Dec << pQH->nAddress << ":"
+                        << pQH->nEndpoint << Hex);
+  }
 
   // This QH is NOT the queue head. If we leave this set to one, and the
   // reclaim bit is set, the controller will think it's executed a full
@@ -2008,10 +2008,10 @@ bool Ehci::portReset(uint8_t nPort, bool bErrorResponse) {
 
   int retry;
   for (retry = 0; retry < 3; retry++) {
-#ifdef USB_VERBOSE_DEBUG
-    DEBUG_LOG("USB: EHCI: Port " << Dec << nPort << Hex << " - status before reset: "
-                                 << m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4)));
-#endif
+    EMIT_IF(UsbVerboseDebug) {
+      DEBUG_LOG("USB: EHCI: Port " << Dec << nPort << Hex << " - status before reset: "
+                                   << m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4)));
+    }
 
     // Set the reset bit
     modifyPortControl(portRegister, 0, EHCI_PORTSC_PRES);
@@ -2027,10 +2027,10 @@ bool Ehci::portReset(uint8_t nPort, bool bErrorResponse) {
       return false;
     }
 
-#ifdef USB_VERBOSE_DEBUG
-    DEBUG_LOG("USB: EHCI: Port " << Dec << nPort << Hex << " - status after reset: "
-                                 << m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4)));
-#endif
+    EMIT_IF(UsbVerboseDebug) {
+      DEBUG_LOG("USB: EHCI: Port " << Dec << nPort << Hex << " - status after reset: "
+                                   << m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4)));
+    }
 
     if ((m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4)) & EHCI_PORTSC_EN) &&
         (m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4)) & EHCI_PORTSC_CONN)) {

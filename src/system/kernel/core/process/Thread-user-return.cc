@@ -48,8 +48,7 @@ UserReturnFrame* Thread::currentUserReturnFrame() const {
 
 bool Thread::tryRequireSignalFrames() {
   LockGuard<Spinlock> guard(m_Lock);
-  if (m_bShutdown || getUnwindState() != Continue || m_LegacyUserCallbackPins ||
-      m_SignalFramesRequired)
+  if (m_bShutdown || getUnwindState() != Continue || m_SignalFramesRequired)
     return false;
   __atomic_store_n(&m_SignalFramesRequired, true, __ATOMIC_RELEASE);
   markUserReturnWorkFlag(UserReturnSignalFrames);

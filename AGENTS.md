@@ -40,8 +40,8 @@ For kernel utilities that can run on the host, prefer the existing build-utility
 For guest testing:
 
 - Prefer `scripts/qemu --serial` for interactive work. It runs headless and connects the guest COM1-backed `/dev/ttyS0` terminal to the invoking shell.
-- Use `scripts/run-qemu-iso.py` when a bounded, marker-based guest run is useful.
-- Build a fresh ISO before treating guest serial output as evidence of the current source state.
+- Use `scripts/run-qemu-uefi.py` when a bounded, marker-based guest run is useful.
+- Build a fresh UEFI image before treating guest serial output as evidence of the current source state.
 - Distinguish host execution, compile-only checks, routing checks, and actual guest execution; they establish different things.
 
 Add tests when they protect meaningful behaviour or regressions. Avoid creating new harnesses, scripts, or integration suites when existing mechanisms are sufficient.

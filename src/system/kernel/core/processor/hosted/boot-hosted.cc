@@ -69,18 +69,15 @@ extern "C" int main(int argc, char* argv[]) {
   int r = 0;
   int s = 0;
   int initrd = -1;
-  int configdb = -1;
   int kernel = -1;
   int diskimage = -1;
   void* initrd_mapping = MAP_FAILED;
-  void* configdb_mapping = MAP_FAILED;
 #ifndef PEDIGREE_HOSTED_DARWIN
   void* kernel_mapping = MAP_FAILED;
 #endif
   void* diskimage_mapping = MAP_FAILED;
   uintptr_t* module_region = (uintptr_t*)MAP_FAILED;
   size_t initrd_length = 0;
-  size_t configdb_length = 0;
 #ifndef PEDIGREE_HOSTED_DARWIN
   size_t kernel_length = 0;
 #endif
@@ -104,9 +101,9 @@ extern "C" int main(int argc, char* argv[]) {
     }
   }
 
-  if (argc < 3 || argc > 5) {
+  if (argc < 2 || argc > 4) {
     fprintf(stderr,
-            "Usage: kernel initrd config_database "
+            "Usage: kernel initrd "
             "[diskimage [root|init|command|shutdown]]\n");
     goto fail;
   }
@@ -117,17 +114,17 @@ extern "C" int main(int argc, char* argv[]) {
   }
 #endif
 
-  if (argc == 5) {
-    if (!strcmp(argv[4], "root"))
+  if (argc == 4) {
+    if (!strcmp(argv[3], "root")) {
       g_HostedSmokeStage = HostedSmokeRoot;
-    else if (!strcmp(argv[4], "init"))
+    } else if (!strcmp(argv[3], "init")) {
       g_HostedSmokeStage = HostedSmokeInit;
-    else if (!strcmp(argv[4], "command"))
+    } else if (!strcmp(argv[3], "command")) {
       g_HostedSmokeStage = HostedSmokeCommand;
-    else if (!strcmp(argv[4], "shutdown"))
+    } else if (!strcmp(argv[3], "shutdown")) {
       g_HostedSmokeStage = HostedSmokeShutdown;
-    else {
-      fprintf(stderr, "Unknown hosted smoke stage: %s\n", argv[4]);
+    } else {
+      fprintf(stderr, "Unknown hosted smoke stage: %s\n", argv[3]);
       goto fail;
     }
   }
@@ -137,15 +134,10 @@ extern "C" int main(int argc, char* argv[]) {
           HOSTED_SYSTEM_MALLOC ? "system malloc" : "Pedigree SlamAllocator");
   fprintf(stderr, "Pedigree is starting...\n");
 
-  // Load initrd and config database into RAM.
+  // Load initrd into RAM.
   initrd = open(argv[1], O_RDONLY);
   if (initrd < 0) {
     fprintf(stderr, "Can't open initrd: %s\n", strerror(errno));
-    goto fail;
-  }
-  configdb = open(argv[2], O_RDONLY);
-  if (configdb < 0) {
-    fprintf(stderr, "Can't open config database: %s\n", strerror(errno));
     goto fail;
   }
 
@@ -158,7 +150,7 @@ extern "C" int main(int argc, char* argv[]) {
   }
 #endif
 
-  // Load initrd and configuration database.
+  // Map the initrd.
   r = fstat(initrd, &st);
   if (r != 0) {
     fprintf(stderr, "Can't stat initrd: %s\n", strerror(errno));
@@ -171,20 +163,6 @@ extern "C" int main(int argc, char* argv[]) {
     goto fail;
   }
   fprintf(stderr, "initrd is at %p\n", initrd_mapping);
-
-  r = fstat(configdb, &st);
-  if (r != 0) {
-    fprintf(stderr, "Can't stat config database: %s\n", strerror(errno));
-    goto fail;
-  }
-  configdb_length = st.st_size;
-  configdb_mapping = mmap(0, configdb_length, PROT_READ, MAP_PRIVATE, configdb, 0);
-  if (configdb_mapping == MAP_FAILED) {
-    fprintf(stderr, "Can't map config database: %s\n", strerror(errno));
-    goto fail;
-  }
-  fprintf(stderr, "configuration database is at %p (%d bytes)\n", configdb_mapping,
-          configdb_length);
 
 #ifndef PEDIGREE_HOSTED_DARWIN
   r = fstat(kernel, &st);
@@ -215,15 +193,11 @@ extern "C" int main(int argc, char* argv[]) {
   module_region[0] = reinterpret_cast<uintptr_t>(initrd_mapping);
   module_region[1] = reinterpret_cast<uintptr_t>(initrd_mapping) + initrd_length;
 
-  // config database
-  module_region[4] = reinterpret_cast<uintptr_t>(configdb_mapping);
-  module_region[5] = reinterpret_cast<uintptr_t>(configdb_mapping) + configdb_length;
-
   bs.mods_addr = reinterpret_cast<uintptr_t>(module_region);
-  bs.mods_count = 2;
+  bs.mods_count = 1;
 
-  if (argc > 3) {
-    diskimage = open(argv[3], O_RDWR);
+  if (argc > 2) {
+    diskimage = open(argv[2], O_RDWR);
     if (diskimage < 0) {
       fprintf(stderr, "Can't open disk image: %s\n", strerror(errno));
       goto fail;
@@ -246,8 +220,8 @@ extern "C" int main(int argc, char* argv[]) {
 
     // Add to the multiboot info.
     bs.mods_count++;
-    module_region[8] = reinterpret_cast<uintptr_t>(diskimage_mapping);
-    module_region[9] = reinterpret_cast<uintptr_t>(diskimage_mapping) + diskimage_length;
+    module_region[4] = reinterpret_cast<uintptr_t>(diskimage_mapping);
+    module_region[5] = reinterpret_cast<uintptr_t>(diskimage_mapping) + diskimage_length;
   }
 
 #ifndef PEDIGREE_HOSTED_DARWIN
@@ -278,8 +252,6 @@ extern "C" int main(int argc, char* argv[]) {
           add_ptr(diskimage_mapping, diskimage_length));
   fprintf(stderr, " modules: %p -> %p\n", module_region,
           add_ptr(module_region, TargetInfo::getPageSize()));
-  fprintf(stderr, " configdb: %p -> %p\n", configdb_mapping,
-          add_ptr(configdb_mapping, configdb_length));
   fprintf(stderr, " initrd: %p -> %p\n", initrd_mapping, add_ptr(initrd_mapping, initrd_length));
 
   // Kernel uses flags to know what it can and can't use.
@@ -303,14 +275,11 @@ cleanup:
   if (kernel_mapping != MAP_FAILED)
     munmap(kernel_mapping, kernel_length);
 #endif
-  if (configdb_mapping != MAP_FAILED)
-    munmap(configdb_mapping, configdb_length);
   if (initrd_mapping != MAP_FAILED)
     munmap(initrd_mapping, initrd_length);
   close(diskimage);
   if (kernel >= 0)
     close(kernel);
-  close(configdb);
   close(initrd);
   return s;
 }

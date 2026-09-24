@@ -42,94 +42,25 @@
   } while (0)
 #endif
 
-// POSIX_LOG_FACILITIES is an integer for which each bit indicates a particular
-// category to enable verbose logging for.
-#ifdef POSIX_LOG_FACILITIES
-
-#if POSIX_LOG_FACILITIES & 1
-#define POSIX_VERBOSE_FILE_SYSCALLS
+// Each facility is one bit in the build's verbose logging mask.
+#ifndef POSIX_LOG_FACILITIES
+#define POSIX_LOG_FACILITIES 0
 #endif
 
-#if POSIX_LOG_FACILITIES & 2
-#define POSIX_VERBOSE_SYSTEM_SYSCALLS
-#endif
+#define POSIX_LOG_IF(mask, facility, text)               \
+  do {                                                   \
+    EMIT_IF((POSIX_LOG_FACILITIES & (mask)) == (mask)) { \
+      POSIX_VERBOSE_LOG(facility, text);                 \
+    }                                                    \
+  } while (0)
 
-#if POSIX_LOG_FACILITIES & 4
-#define POSIX_VERBOSE_PTHREAD_SYSCALLS
-#endif
-
-#if POSIX_LOG_FACILITIES & 8
-#define POSIX_VERBOSE_NET_SYSCALLS
-#endif
-
-#if POSIX_LOG_FACILITIES & 16
-#define POSIX_VERBOSE_SIGNAL_SYSCALLS
-#endif
-
-#if POSIX_LOG_FACILITIES & 32
-#define POSIX_VERBOSE_SUBSYSTEM
-#endif
-
-#if POSIX_LOG_FACILITIES & 64
-#define POSIX_ULTRA_VERBOSE_SIGNAL_SYSCALLS
-#endif
-
-#if POSIX_LOG_FACILITIES & 128
-#define POSIX_VERBOSE_SYSCALLS
-#endif
-
-#if POSIX_LOG_FACILITIES & 256
-#define POSIX_VERBOSE_POLL_SYSCALLS
-#endif
-
-#endif
-
-#ifdef POSIX_VERBOSE_SYSTEM_SYSCALLS
-#define SC_NOTICE(x) POSIX_VERBOSE_LOG("sys", x)
-#else
-#define SC_NOTICE(x)
-#endif
-
-#ifdef POSIX_VERBOSE_FILE_SYSCALLS
-#define F_NOTICE(x) POSIX_VERBOSE_LOG("io", x)
-#else
-#define F_NOTICE(x)
-#endif
-
-#ifdef POSIX_VERBOSE_PTHREAD_SYSCALLS
-#define PT_NOTICE(x) POSIX_VERBOSE_LOG("thr", x)
-#else
-#define PT_NOTICE(x)
-#endif
-
-#ifdef POSIX_VERBOSE_NET_SYSCALLS
-#define N_NOTICE(x) POSIX_VERBOSE_LOG("net", x)
-#else
-#define N_NOTICE(x)
-#endif
-
-#ifdef POSIX_VERBOSE_SIGNAL_SYSCALLS
-#define SG_NOTICE(x) POSIX_VERBOSE_LOG("sig", x)
-#else
-#define SG_NOTICE(x)
-#endif
-
-#ifdef POSIX_VERBOSE_SUBSYSTEM
-#define PS_NOTICE(x) POSIX_VERBOSE_LOG("sub", x)
-#else
-#define PS_NOTICE(x)
-#endif
-
-#ifdef POSIX_ULTRA_VERBOSE_SIGNAL_SYSCALLS
-#define SG_VERBOSE_NOTICE(x) SG_NOTICE(x)
-#else
-#define SG_VERBOSE_NOTICE(x)
-#endif
-
-#ifdef POSIX_VERBOSE_POLL_SYSCALLS
-#define POLL_NOTICE(x) POSIX_VERBOSE_LOG("poll", x)
-#else
-#define POLL_NOTICE(x)
-#endif
+#define SC_NOTICE(x) POSIX_LOG_IF(2, "sys", x)
+#define F_NOTICE(x) POSIX_LOG_IF(1, "io", x)
+#define PT_NOTICE(x) POSIX_LOG_IF(4, "thr", x)
+#define N_NOTICE(x) POSIX_LOG_IF(8, "net", x)
+#define SG_NOTICE(x) POSIX_LOG_IF(32, "sig", x)
+#define PS_NOTICE(x) POSIX_LOG_IF(16, "sub", x)
+#define SG_VERBOSE_NOTICE(x) POSIX_LOG_IF(32 | 64, "sig", x)
+#define POLL_NOTICE(x) POSIX_LOG_IF(256, "poll", x)
 
 #endif  // _POSIX_KERNEL_LOGGING_H

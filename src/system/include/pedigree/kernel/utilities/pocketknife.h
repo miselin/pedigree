@@ -29,15 +29,6 @@ namespace pocketknife {
 /**
  * Run the given function concurrently with the given parameter.
  *
- * The thread that is created by this function is detached and cannot be
- * joined. Use this to run a small function asynchronously if you don't care
- * about its return value or stopping it later.
- */
-EXPORTED_PUBLIC void runConcurrently(int (*func)(void*), void* param);
-
-/**
- * Run the given function concurrently with the given parameter.
- *
  * The handle returned can be used to join the thread and retrieve its return
  * value.
  */
@@ -54,16 +45,4 @@ EXPORTED_PUBLIC int attachTo(void* handle);
  */
 EXPORTED_PUBLIC bool attachToForCompletion(void* handle);
 
-/** RAII class to swap address spaces if needed. */
-class VirtualAddressSpaceSwitch {
- public:
-  VirtualAddressSpaceSwitch();
-  virtual ~VirtualAddressSpaceSwitch();
-
-  /// Restore earlier than when this object goes out of scope.
-  void restore();
-
- private:
-  void* va;
-};
 }  // namespace pocketknife

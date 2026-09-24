@@ -36,7 +36,7 @@ enum Service_t {
    * src/system/modules/TUI/syscall.h! */
   TUI = 2,
 
-  /** Service number for the native subsystem */
+  /** Reserved for the retired native subsystem. Do not reuse this service. */
   native = 3,
 
   /** Pedigree C calls (NOT the native subsystem) */

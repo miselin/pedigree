@@ -61,8 +61,7 @@ function(pedigree_add_nested_host_tools)
     set(_PEDIGREE_NEEDS_DISTRIBUTION_TOOLS FALSE)
     foreach (_PEDIGREE_HOST_TARGET IN LISTS
              PEDIGREE_HOST_TOOLS_REQUIRED_TARGETS)
-        if (_PEDIGREE_HOST_TARGET STREQUAL "host-pedigree-configdb" OR
-            _PEDIGREE_HOST_TARGET STREQUAL
+        if (_PEDIGREE_HOST_TARGET STREQUAL
                 "host-pedigree-initrd-builder")
             set(_PEDIGREE_NEEDS_ARTIFACT_GENERATORS TRUE)
         elseif (_PEDIGREE_HOST_TARGET STREQUAL "host-keymap" OR
@@ -114,8 +113,6 @@ function(pedigree_add_nested_host_tools)
     endif ()
 
     if (_PEDIGREE_NEEDS_ARTIFACT_GENERATORS)
-        set(_PEDIGREE_CONFIGDB_PATH
-            "${_PEDIGREE_HOST_TOOLCHAIN_STAGE_DIR}/pedigree-configdb${_PEDIGREE_HOST_EXECUTABLE_SUFFIX}")
         set(_PEDIGREE_INITRD_BUILDER_PATH
             "${_PEDIGREE_HOST_TOOLCHAIN_STAGE_DIR}/pedigree-initrd-builder${_PEDIGREE_HOST_EXECUTABLE_SUFFIX}")
 
@@ -141,20 +138,12 @@ function(pedigree_add_nested_host_tools)
                 --config "${_PEDIGREE_HOST_CONFIGURATION}"
                 --target pedigree-artifact-generators
             BUILD_BYPRODUCTS
-                "${_PEDIGREE_CONFIGDB_PATH}"
                 "${_PEDIGREE_INITRD_BUILDER_PATH}"
             INSTALL_COMMAND ""
             TEST_COMMAND ""
             USES_TERMINAL_CONFIGURE TRUE
             USES_TERMINAL_BUILD TRUE)
 
-        if ("host-pedigree-configdb" IN_LIST
-            PEDIGREE_HOST_TOOLS_REQUIRED_TARGETS)
-            _pedigree_import_nested_host_tool(
-                host-pedigree-configdb pedigree-configdb
-                pedigree-host-artifact-generators
-                "${_PEDIGREE_HOST_TOOLCHAIN_STAGE_DIR}")
-        endif ()
         if ("host-pedigree-initrd-builder" IN_LIST
             PEDIGREE_HOST_TOOLS_REQUIRED_TARGETS)
             _pedigree_import_nested_host_tool(

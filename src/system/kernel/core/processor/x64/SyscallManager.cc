@@ -35,8 +35,6 @@
 
 X64SyscallManager X64SyscallManager::m_Instance;
 
-#define TIME_SYSCALLS 0
-
 extern void system_reboot(Machine::ShutdownType type);
 extern "C" void pedigree_defer_user_entry(X64UserEntryMetadata*);
 
@@ -167,11 +165,6 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     // sample reuse that architectural state instead of masking and restoring
     // interrupts a second time.
     TimeTracker tracker(0, true, true, syscallThread);
-#if TIME_SYSCALLS
-    Process* pProcess = syscallThread->getParent();
-    Time::Stopwatch syscallTimer(true);
-    size_t syscallNumber = syscallState.getSyscallNumber();
-#endif
 
     // Enable IRQs - stack switching and such are done now and it's now safe to
     // start processing interrupts elsewhere.
@@ -382,12 +375,6 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
       syscallState.m_RFlagsR11 |= 0x200;
     }
 
-#if TIME_SYSCALLS
-    syscallTimer.stop();
-    Time::Timestamp value = syscallTimer.value();
-    NOTICE("SYSCALL pid=" << Dec << pProcess->getId() << " service=" << serviceNumber
-                          << " num=" << syscallNumber << " ns=" << value << Hex);
-#endif
     if (deferTimeAccountingToUserReturn)
       tracker.finishForUserReturn();
     else

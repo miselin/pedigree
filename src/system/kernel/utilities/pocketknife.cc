@@ -26,17 +26,6 @@
 class Process;
 
 namespace pocketknife {
-void runConcurrently(int (*func)(void*), void* param) {
-#if THREADS
-  Process* parent = Processor::information().getCurrentThread()->getParent();
-  Thread* pThread = new Thread(parent, func, param);
-  pThread->setName("runConcurrently thread");
-  pThread->detach();
-#else
-  func(param);
-#endif
-}
-
 void* runConcurrentlyAttached(int (*func)(void*), void* param) {
 #if THREADS
   Process* parent = Processor::information().getCurrentThread()->getParent();
@@ -67,31 +56,4 @@ bool attachToForCompletion(void* handle) {
 #endif
 }
 
-VirtualAddressSpaceSwitch::VirtualAddressSpaceSwitch() : va(nullptr) {
-  EMIT_IF(KERNEL_NEEDS_ADDRESS_SPACE_SWITCH) {
-    VirtualAddressSpace& va = VirtualAddressSpace::getKernelAddressSpace();
-    VirtualAddressSpace& currva = Processor::information().getVirtualAddressSpace();
-    if (Processor::m_Initialised == 2)
-      Processor::switchAddressSpace(va);
-
-    this->va = &currva;
-  }
-}
-
-VirtualAddressSpaceSwitch::~VirtualAddressSpaceSwitch() {
-  restore();
-}
-
-void VirtualAddressSpaceSwitch::restore() {
-  if (!va) {
-    return;
-  }
-
-  EMIT_IF(KERNEL_NEEDS_ADDRESS_SPACE_SWITCH) {
-    if (Processor::m_Initialised == 2)
-      Processor::switchAddressSpace(*reinterpret_cast<VirtualAddressSpace*>(va));
-
-    va = nullptr;
-  }
-}
 }  // namespace pocketknife

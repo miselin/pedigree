@@ -81,9 +81,7 @@ void Acpi::initialise() {
     }
   }
 
-  // This Multiboot path can present SeaBIOS's ACPI tables as reserved
-  // memory. Locate the firmware range containing the RSDT instead of
-  // requiring a particular E820 type.
+  // Firmware may mark ACPI tables reserved instead of reclaimable.
   if (!foundAcpiRange && g_pBootstrapInfo) {
     void* memoryMap = g_pBootstrapInfo->getMemoryMap();
     while (memoryMap) {
@@ -173,7 +171,7 @@ void Acpi::initialise() {
       m_pFacp = reinterpret_cast<FixedACPIDescriptionTable*>(pSystemDescTable);
     }
 // Is Multiple APIC Description Table?
-#if APIC
+#if MULTIPROCESSOR
     else if (pSystemDescTable->signature == 0x43495041)
       m_pApic = pSystemDescTable;
 #endif
@@ -192,7 +190,7 @@ void Acpi::initialise() {
   parseFixedACPIDescriptionTable();
   initialisePowerManagement();
 
-#if APIC
+#if MULTIPROCESSOR
   // If we have an Multiple APIC Description Table parse it
   if (m_pApic != 0)
     parseMultipleApicDescriptionTable();
@@ -207,18 +205,15 @@ Acpi::Acpi()
       m_AcpiMemoryRegion("ACPI"),
       m_pRsdt(0),
       m_pFacp(0)
-#if APIC
+#if MULTIPROCESSOR
       ,
       m_pApic(0),
       m_bValidApicInfo(false),
       m_bHasPICs(false),
       m_LocalApicAddress(0),
-      m_IoApics()
-#if MULTIPROCESSOR
-      ,
+      m_IoApics(),
       m_bValidProcessorInfo(false),
       m_Processors()
-#endif
 #endif
 {
 }
@@ -272,7 +267,7 @@ void Acpi::parseFixedACPIDescriptionTable() {
   NOTICE(" Flags " << Hex << m_pFacp->flags);
 }
 
-#if APIC
+#if MULTIPROCESSOR
 void Acpi::parseMultipleApicDescriptionTable() {
   NOTICE("ACPI: Multiple APIC Description Table (APIC)");
 
@@ -294,7 +289,6 @@ void Acpi::parseMultipleApicDescriptionTable() {
       NOTICE(" Processor #" << Dec << pLocalApic->processorId
                             << (bUsable ? " usable" : " unusable"));
 
-#if MULTIPROCESSOR
       // Is the processor usable?
       if (bUsable) {
         // Add the processor to the list
@@ -302,7 +296,6 @@ void Acpi::parseMultipleApicDescriptionTable() {
             new Multiprocessor::ProcessorInformation(pLocalApic->processorId, pLocalApic->apicId);
         m_Processors.pushBack(pProcessorInfo);
       }
-#endif
     }
     // I/O APIC
     else if (*pType == 1) {
@@ -364,44 +357,19 @@ void Acpi::parseMultipleApicDescriptionTable() {
   }
 
   m_bValidApicInfo = true;
-#if MULTIPROCESSOR
   m_bValidProcessorInfo = true;
-#endif
 }
 #endif
 
 bool Acpi::find() {
   if (g_pBootstrapInfo && g_pBootstrapInfo->getAcpiRsdp()) {
     m_pRsdtPointer = reinterpret_cast<RsdtPointer*>(g_pBootstrapInfo->getAcpiRsdp());
-    if (m_pRsdtPointer->signature == 0x2052545020445352ULL && checksum(m_pRsdtPointer))
+    if (m_pRsdtPointer->signature == 0x2052545020445352ULL && checksum(m_pRsdtPointer)) {
       return true;
-    m_pRsdtPointer = 0;
+    }
   }
-
-  // Search in the first kilobyte of the EBDA
-  // The BIOS Data Area stores the EBDA segment at physical address 0x40E.
-  // GCC's object-bounds analysis excludes this first page; copy the raw firmware bytes.
-  uint16_t ebdaSegment;
-  MemoryCopy(&ebdaSegment, reinterpret_cast<const void*>(0x40E), sizeof(ebdaSegment));
-  m_pRsdtPointer = find(reinterpret_cast<void*>(ebdaSegment * 16), 0x400);
-
-  if (m_pRsdtPointer == 0) {
-    // Search in the BIOS ROM address space
-    m_pRsdtPointer = find(reinterpret_cast<void*>(0xE0000), 0x20000);
-  }
-
-  return (m_pRsdtPointer != 0);
-}
-
-Acpi::RsdtPointer* Acpi::find(void* pMemory, size_t sMemory) {
-  RsdtPointer* pRdstPointer = reinterpret_cast<RsdtPointer*>(pMemory);
-  while (reinterpret_cast<uintptr_t>(pRdstPointer) <
-         (reinterpret_cast<uintptr_t>(pMemory) + sMemory)) {
-    if (pRdstPointer->signature == 0x2052545020445352ULL && checksum(pRdstPointer) == true)
-      return pRdstPointer;
-    pRdstPointer = adjust_pointer(pRdstPointer, 16);
-  }
-  return 0;
+  m_pRsdtPointer = nullptr;
+  return false;
 }
 
 bool Acpi::checksum(const RsdtPointer* pRdstPointer) {

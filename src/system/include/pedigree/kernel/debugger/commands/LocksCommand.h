@@ -47,8 +47,6 @@ class Spinlock;
 #endif
 #endif
 
-#define LOCKS_COMMAND_DO_BACKTRACES 0
-
 /**
  * Traces lock allocations.
  */
@@ -149,31 +147,15 @@ class LocksCommand : public DebuggerCommand, public Scrollable {
   }
 
   struct LockDescriptor {
-    LockDescriptor()
-        : pLock(0),
-          state(Inactive)
-#if LOCKS_COMMAND_DO_BACKTRACES
-          ,
-          n(0),
-          ra()
-#endif
-    {
-    }
+    LockDescriptor() : pLock(0), state(Inactive) {}
 
     const Spinlock* pLock;
     State state;
-#if LOCKS_COMMAND_DO_BACKTRACES
-    size_t n;
-    uintptr_t ra[NUM_BT_FRAMES];
-#endif
   };
 
   LockDescriptor m_pDescriptors[LOCKS_COMMAND_NUM_CPU][MAX_DESCRIPTORS];
 
   Atomic<bool> m_bAcquiring;
-#if LOCKS_COMMAND_DO_BACKTRACES
-  Atomic<bool> m_bTracing[LOCKS_COMMAND_NUM_CPU];
-#endif
   /// \note locking up to 256 levels deep can be tracked
   Atomic<uint8_t> m_NextPosition[LOCKS_COMMAND_NUM_CPU];
   Atomic<size_t> m_LockIndex;

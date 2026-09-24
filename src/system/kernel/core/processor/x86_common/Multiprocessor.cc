@@ -37,7 +37,6 @@
 #include <machine/mach_pc/LocalApic.h>
 #include <machine/mach_pc/Pc.h>
 #include <machine/mach_pc/Rtc.h>
-#include <machine/mach_pc/Smp.h>
 
 Atomic<bool> Multiprocessor::m_ProcessorStarted(false);
 // Don't track this lock - it is for startup synchronisation, not for protecting
@@ -88,27 +87,15 @@ size_t Multiprocessor::initialise1() {
     return 1;
   }
 
-  // Did we find a processor list?
-  bool bMPInfoFound = false;
-  // List of information about each usable processor
-  const Vector<ProcessorInformation*>* Processors = 0;
-
-  EMIT_IF(ACPI) {
-    // Search through the ACPI tables
-    Acpi& acpi = Acpi::instance();
-    if ((bMPInfoFound = acpi.validProcessorInfo()) == true)
-      Processors = &acpi.getProcessorList();
+  const Vector<ProcessorInformation*>* Processors = nullptr;
+#if ACPI
+  Acpi& acpi = Acpi::instance();
+  if (acpi.validProcessorInfo()) {
+    Processors = &acpi.getProcessorList();
   }
+#endif
 
-  EMIT_IF(SMP) {
-    // Search through the SMP tables
-    Smp& smp = Smp::instance();
-    if (bMPInfoFound == false && (bMPInfoFound = smp.valid()) == true)
-      Processors = &smp.getProcessorList();
-  }
-
-  // No processor list found
-  if (bMPInfoFound == false || !Processors) {
+  if (!Processors) {
     NOTICE(
         "Multiprocessor: couldn't find any information about multiple "
         "processors");
@@ -131,24 +118,17 @@ size_t Multiprocessor::initialise1() {
 
   volatile uintptr_t* trampolineStack;
   volatile uintptr_t* trampolineKernelEntry;
-#if X64
   volatile uintptr_t* trampolineKernelGsAnchor = reinterpret_cast<volatile uintptr_t*>(0x7FE0);
-#endif
 
   // Parameters for the trampoline code
-  EMIT_IF(X86) {
-    // dead code path
-  }
-  else {
-    trampolineStack = reinterpret_cast<volatile uintptr_t*>(0x7FF0);
-    trampolineKernelEntry = reinterpret_cast<volatile uintptr_t*>(0x7FE8);
+  trampolineStack = reinterpret_cast<volatile uintptr_t*>(0x7FF0);
+  trampolineKernelEntry = reinterpret_cast<volatile uintptr_t*>(0x7FE8);
 
-    // The AP trampoline ABI reserves 0x7FF8 for the boot PML4 address.
-    // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference)
-    *reinterpret_cast<volatile uintptr_t*>(0x7FF8) =
-        static_cast<X64VirtualAddressSpace&>(VirtualAddressSpace::getKernelAddressSpace())
-            .m_PhysicalPML4;
-  }
+  // The AP trampoline ABI reserves 0x7FF8 for the boot PML4 address.
+  // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference)
+  *reinterpret_cast<volatile uintptr_t*>(0x7FF8) =
+      static_cast<X64VirtualAddressSpace&>(VirtualAddressSpace::getKernelAddressSpace())
+          .m_PhysicalPML4;
 
   // Set the entry point
   *trampolineKernelEntry = reinterpret_cast<uintptr_t>(&applicationProcessorStartup);
@@ -175,9 +155,7 @@ size_t Multiprocessor::initialise1() {
       // AP: set up a proper information structure
       pProcessorInfo =
           new ::ProcessorInformation((*Processors)[i]->processorId, (*Processors)[i]->apicId);
-#if X64
       pProcessorInfo->kernelGsAnchor()->processorIndex = Processor::m_ProcessorInformation.count();
-#endif
       Processor::m_ProcessorInformation.pushBack(pProcessorInfo);
 
       // Allocate kernel stack
@@ -185,9 +163,7 @@ size_t Multiprocessor::initialise1() {
 
       // Set trampoline stack
       *trampolineStack = reinterpret_cast<uintptr_t>(pStack->getTop());
-#if X64
       *trampolineKernelGsAnchor = reinterpret_cast<uintptr_t>(pProcessorInfo->kernelGsAnchor());
-#endif
 
       NOTICE(" Booting processor #" << Dec << (*Processors)[i]->processorId << ", stack at 0x"
                                     << Hex << reinterpret_cast<uintptr_t>(pStack->getTop()));

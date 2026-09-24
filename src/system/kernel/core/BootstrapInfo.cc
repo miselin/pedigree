@@ -80,29 +80,6 @@ size_t BootstrapStruct_t::getInitrdSize() const {
     return 0;
 }
 
-bool BootstrapStruct_t::isDatabaseLoaded() const {
-  if (flags & BOOTSTRAP_FLAG_MODULES)
-    return (mods_count > 1) && mods_addr;
-  else
-    return 0;
-}
-
-uint8_t* BootstrapStruct_t::getDatabaseAddress() const {
-  const Module* modules = getModuleArray();
-  if (isDatabaseLoaded() && modules)
-    return reinterpret_cast<uint8_t*>(modules[1].base);
-  else
-    return 0;
-}
-
-size_t BootstrapStruct_t::getDatabaseSize() const {
-  const Module* modules = getModuleArray();
-  if (isDatabaseLoaded() && modules)
-    return modules[1].end - modules[1].base;
-  else
-    return 0;
-}
-
 char* BootstrapStruct_t::getCommandLine() const {
   if (flags & BOOTSTRAP_FLAG_CMDLINE)
     return reinterpret_cast<char*>(cmdline);

@@ -32,34 +32,10 @@ class HostedVga : public Vga {
   virtual ~HostedVga();
 
   /**
-   * Sets the given attribute mode control.
-   */
-  virtual void setControl(VgaControl which);
-
-  /**
-   * Clears the given attribute mode control.
-   */
-  virtual void clearControl(VgaControl which);
-
-  virtual bool setMode(int mode);
-
-  /**
    * Sets the largest possible text mode.
    * \return True on success, false on failure.
    */
   virtual bool setLargestTextMode();
-
-  /**
-   * Tests the current video mode.
-   * \return True if the current mode matches the given arguments.
-   */
-  virtual bool isMode(size_t nCols, size_t nRows, bool bIsText, size_t nBpp = 0);
-
-  /**
-   * Tests if the current video mode is the largest text mode.
-   * \return True if the current video mode is equal to the largest text mode.
-   */
-  virtual bool isLargestTextMode();
 
   /**
    * \return The number of columns in the current mode.
@@ -74,16 +50,6 @@ class HostedVga : public Vga {
   virtual size_t getNumRows() {
     return m_nHeight;
   }
-
-  /**
-   * Stores the current video mode.
-   */
-  virtual void rememberMode();
-
-  /**
-   * Restores the saved video mode from a rememberMode() call.
-   */
-  virtual void restoreMode();
 
   /**
    * Copies the given buffer into video memory, replacing the current
@@ -154,24 +120,6 @@ class HostedVga : public Vga {
    * Cursor Y.
    */
   size_t m_CursorY;
-
-  /**
-   * We keep a count of the number of times we've entered the debugger without
-   * leaving it - when we enter the debugger, we increment this. When we
-   * leave, we decrement. If we leave and it reaches zero, we change out of
-   * mode 0x3 into the current video mode.
-   */
-  int m_ModeStack;
-
-  /**
-   * Current video mode.
-   */
-  int m_nMode;
-
-  /**
-   * Most recent VGA controls (as these get reset on mode change).
-   */
-  uint8_t m_nControls;
 
   /**
    * Backbuffer for text.

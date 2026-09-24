@@ -21,177 +21,97 @@ with past demonstrations including:
 
 ---
 
-> [!IMPORTANT]
-> The rest of this README is being modernized: it is not accurate at this time.
+## Building
 
-## Downloads
+Pedigree uses CMake and a C/C++23-capable cross-toolchain. The x86-64 target boots
+through UEFI. See the [Linux build guide](docs/ai/linux-build.md) for host tools,
+packages and firmware, and [build profiles](docs/ai/kernel-build-profiles.md) for
+configuration options. The [self-hosting guide](docs/ai/self-hosting.md) covers
+cross-build host tools and the experimental native build.
 
-- [Latest ISO](https://dl.pedigree-project.org/pedigree-latest.iso.gz)
-  [SHA256](https://dl.pedigree-project.org/pedigree-latest.iso.gz.sha256)
-- [Nightly ISO](https://dl.pedigree-project.org/pedigree-nightly.iso.gz)
-  [SHA256](https://dl.pedigree-project.org/pedigree-nightly.iso.gz.sha256)
-- [All Downloads](https://dl.pedigree-project.org)
+The Easy Build helper bootstraps the toolchain, configures PUP, installs target
+packages and builds the system. It needs `uv` and the `pedigree-apps` checkout
+beside this repository. A sibling `pedigree-winman` checkout enables the desktop.
 
-The latest disk image is the most recent successful build of Pedigree from our
-[Buildbot](http://build.pedigree-project.org). There are no guarantees of
-stability or even functionality of these builds.
-
-The nightly disk image is from nightly builds on our Buildbot, with the same
-disclaimer.
-
-## Build Dependencies
-
-You'll need at least the following to build Pedigree and its compilers:
-
-- SCons (>1.2.0)
-- `libmpfr`, `libgmp`, and `libmpc` headers (typically via `-dev` packages)
-- SQLite3
-- genisoimage and/or mkisofs
-- perl
-- autoconf
-
-## Building Pedigree with Easy Build
-
-For the current native Linux x64 workflow, see [the Linux build guide](docs/linux-build.md).
-
-We highly recommend you first try one of our Easy Build scripts before you try
-and run SCons manually. There's a little bit of work involved in setting up a
-build of Pedigree for the first time, which the Easy Build script handles for
-you. After that it's as easy as just running `scons` at the command line.
-
-Just run `./easy_build_[target].sh` to build Pedigree. Valid options for
-`target` include:
-
-- x64
-- arm
-- hosted (for a version of the kernel that runs on Linux)
-
-Dependencies and a cross-compiler will be installed and/or created, allowing
-you to jump straight into testing Pedigree.
-
-To build Pedigree at any point after this, just run `scons`. The build system
-remembers the configuration the Easy Build specified for you.
-
-### Different Targets
-
-To switch between architectures, just remove `options.cache` and
-`.autogen.cache`, and then run an Easy Build script.
-
-## Building Pedigree Manually
-
-Alternatively, you can build manually.
-
-### Step 1: Cross-Compiler
-
-To build a cross-compiler, in the root of the Pedigree tree, run:
-
-`$ ./scripts/checkBuildSystemNoInteractive.pl $TARGET-pedigree \
-    $PWD/pedigree-compiler`
-
-If you are building on OSX, you should also pass `osx-compat` as the final
-parameter to the script.
-
-Valid targets include:
-
-- `x86_64`
-- `armv7`
-
-### Step 2: Pedigree Base
-
-Configure the Pedigree UPdater (pup) to start:
-
-`$ ./setup_pup.py amd64  # (or arm) && ./run_pup.sh sync`
-
-You'll need at least Pedigree's `libtool` to continue:
-
-`$ ./run_pup.sh install libtool`
-
-Now, build an initial `libc` and `libm`:
-
-`$ scons CROSS=$PWD/pedigree-compiler/bin/$TARGET-pedigree- build/libc.so \
-    build/libm.so`
-
-With this complete, the compiler build process can be completed:
-
-`$ ./scripts/checkBuildSystemNoInteractive.pl $TARGET-pedigree \
-    $PWD/pedigree-compiler libcpp`
-
-### Step 3: Required Packages
-
-Install necessary packages to build the full userspace:
-
-```
-$ ./run_pup.py install libpng
-$ ./run_pup.py install libfreetype
-$ ./run_pup.py install libiconv
-$ ./run_pup.py install zlib
-$ ./run_pup.py install bash
-$ ./run_pup.py install coreutils
-$ ./run_pup.py install fontconfig
-$ ./run_pup.py install pixman
-$ ./run_pup.py install cairo
-$ ./run_pup.py install expat
-$ ./run_pup.py install mesa
-$ ./run_pup.py install ncurses
-$ ./run_pup.py install gettext
-$ ./run_pup.py install pango
-$ ./run_pup.py install glib
-$ ./run_pup.py install harfbuzz
-$ ./run_pup.py install libffi
-$ ./run_pup.py install gcc
+```sh
+./easy_build_x64.sh
 ```
 
-### Step 4: Final Build
+With an existing toolchain and populated package staging tree, configure directly:
 
-Finally, build the rest of the kernel and userspace:
+```sh
+cmake -S . -B build \
+  -DCMAKE_TOOLCHAIN_FILE=build-etc/cmake/pedigree_amd64.cmake \
+  -DPEDIGREE_TOOLCHAIN_ROOT=/path/to/pedigree-toolchain
+cmake --build build --parallel 8
+```
 
-`$ scons`
+Subsequent builds reuse `build`. To refresh the UEFI boot image explicitly:
 
-From now on, you can simply run `scons` to build Pedigree.
+```sh
+cmake --build build --target uefi-image --parallel 8
+```
+
+ARM64 and ARMv7 have separate `easy_build_arm64.sh` and `easy_build_armv7.sh`
+helpers and build trees. `./verify.sh` runs the maintained native/hosted checks.
+
+User test and benchmark applications are excluded from the default build.
+Build them with `cmake --build build --target user-tests`, or select an individual
+`app-<name>` target. To include them in the guest image, configure
+`-DPEDIGREE_BUILD_USER_TESTS=ON` and rebuild `uefi-image`.
 
 ## Running Pedigree
 
-Boot from `build/pedigree.iso`, with an attached disk for `build/hdd.img`, to
-run Pedigree.
+The x86-64 build produces `build/pedigree-uefi.img` and
+`build/pedigree-uefi-root.img`. With QEMU and OVMF installed, run from this checkout:
+
+```sh
+scripts/qemu --serial
+```
+
+This opens the guest serial terminal. Omit `--serial` for the graphical display.
+Set `OVMF_CODE` and `OVMF_VARS` if the helper cannot find your firmware files.
+Stop the guest before rebuilding either image.
 
 The graphical boot screen shows kernel logs by default. Add `splash=image` to
 the kernel command line to show the image instead. `splash=log` explicitly
 selects logs; omitting the option has the same effect.
 
-You can also specify `createvmdk=1` and/or `createvdi=1` to create VMDK or VDI
-disk images for your emulator. These options require `qemu-img`.
+Use `video=WIDTHxHEIGHTxBPP` to request a boot display mode, such as
+`video=1280x720x32`. The default is `1024x768x32`; unavailable modes use the
+firmware framebuffer or the existing fallback modes. Splash colours accept
+six hexadecimal RGB digits: `splash-background=000000`,
+`splash-foreground=FFFFFF`, `splash-border=965000`, and `splash-fill=966400`
+are the defaults. Invalid values are ignored.
 
-## Images Directory
+## Images and packages
 
-The images/local directory allows you to use `pup`, Pedigree's package manager,
-to manage your hard disk image file set. If you ran the Easy Build script, pup
-is already configured and ready to go.
+`images/local` is the staging tree for the root filesystem. Configure PUP for
+this checkout, then sync and install packages:
 
-Simply run:
+```sh
+uv run python setup_pup.py amd64
+./run_pup.sh sync
+./run_pup.sh install <package>
+```
 
-`$ ./run_pup.sh sync`
+`run_pup.sh` uses the current updater from the sibling `pedigree-apps` repository.
+Easy Build performs the initial configuration and package installation.
 
-to synchronise your local pup repository with the server.
+You can also add files under `images/local`, using their target paths: for
+example, `images/local/home/yourname/.bashrc`. After changing staged packages or
+files, remove the generated root image and rebuild so those changes are included:
 
-Then you can run:
-`$ ./run_pup.sh install <package>`
-to install a package.
+```sh
+rm -f build/pedigree-uefi-root.img
+cmake --build build --target uefi-image --parallel 8
+```
 
-Visit http://pup.pedigree-project.org to see a list of all packages that are
-available and can be downloaded.
+Base accounts come from `images/base/etc/passwd`, `group`, and `shadow`.
+Update those files to change the accounts included in a newly built image.
 
-Remember to re-run `scons` after installing a package to ensure your disk image
-has the new package on it. You may need to `rm build/hdd.img` if SCons doesn't
-detect that the images directory has changed.
-
-You can also add arbitrary files to the images/local directory to use them at
-runtime. For example, you could create a directory under `users` for yourself,
-and add a `.bashrc` and `.vimrc`.
-
-## User Management
-
-A utility script, `scripts/manage_users.py`, is provided to add or remove users
-from the database for use at runtime.
+Historical disk images are available in the [download archive](https://dl.pedigree-project.org).
+They may use boot paths that are no longer supported by the current source.
 
 ## Reporting Issues
 

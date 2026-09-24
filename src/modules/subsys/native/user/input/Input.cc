@@ -27,25 +27,6 @@
 
 using namespace Input;
 
-static void event_callback(size_t p1, size_t p2, uintptr_t* pBuffer, size_t p4) {
-  if (pBuffer[1]) {
-    callback_t cb = reinterpret_cast<callback_t>(pBuffer[1]);
-    Input::InputNotification* pNote = reinterpret_cast<Input::InputNotification*>(&pBuffer[2]);
-    cb(*pNote);
-  }
-
-  pedigree_event_return();
-}
-
-void Input::installCallback(CallbackType type, callback_t cb) {
-  pedigree_input_install_callback(reinterpret_cast<void*>(event_callback),
-                                  static_cast<uint32_t>(type), reinterpret_cast<uintptr_t>(cb));
-}
-
-void Input::removeCallback(callback_t cb) {
-  pedigree_input_remove_callback(reinterpret_cast<void*>(cb));
-}
-
 int Input::openEventStream() {
   return ::open("/dev/input/pedigree", O_RDONLY | O_NONBLOCK);
 }

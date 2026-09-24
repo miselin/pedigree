@@ -27,45 +27,15 @@ HostedVga::HostedVga()
       m_nHeight(25),
       m_CursorX(0),
       m_CursorY(0),
-      m_ModeStack(0),
-      m_nMode(3),
-      m_nControls(0),
       m_pBackbuffer(0) {}
 
 HostedVga::~HostedVga() {
   delete[] m_pBackbuffer;
 }
 
-void HostedVga::setControl(Vga::VgaControl which) {
-  m_nControls |= 1 << static_cast<uint8_t>(which);
-}
-
-void HostedVga::clearControl(Vga::VgaControl which) {
-  m_nControls &= ~(1 << static_cast<uint8_t>(which));
-}
-
-bool HostedVga::setMode(int mode) {
-  m_nMode = mode;
-  return true;
-}
-
 bool HostedVga::setLargestTextMode() {
   return true;
 }
-
-bool HostedVga::isMode(size_t nCols, size_t nRows, bool bIsText, size_t nBpp) {
-  if (bIsText)
-    return true;
-  return false;
-}
-
-bool HostedVga::isLargestTextMode() {
-  return true;
-}
-
-void HostedVga::rememberMode() {}
-
-void HostedVga::restoreMode() {}
 
 void HostedVga::pokeBuffer(uint8_t* pBuffer, size_t nBufLen) {
   if (!pBuffer)
@@ -124,7 +94,6 @@ bool HostedVga::initialise() {
   }
 
   m_pBackbuffer = new uint16_t[m_nHeight * m_nWidth];
-  m_nControls = 0;
 
   return true;
 }

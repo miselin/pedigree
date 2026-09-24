@@ -177,7 +177,7 @@ release of record because it saves a timestamped result and metadata.
 
 The active PC configuration is
 `build-etc/cmake/pedigree_amd64.cmake`. It describes an x86-64 PC kernel,
-Pedigree userspace, GRUB image, and ISO/disk-image targets.
+Pedigree userspace and UEFI image targets.
 
 There is not yet a verified end-to-end x86-64 PC command in this restoration
 line. `easy_build_x64.sh`, `scripts/qemu`, and the PUP/package instructions are

@@ -48,9 +48,6 @@ set(PEDIGREE_MUSLARCH "amd64")
 set(PEDIGREE_MUSL_ARCH_TARGET HOSTED)
 set(PEDIGREE_HOSTED TRUE)
 
-# no need for ISOs/GRUB, we run the kernel as a userspace process
-set(PEDIGREE_TARGET_LIVECD FALSE)
-set(GRUB FALSE)
 
 # Build src/user/... ?
 set(PEDIGREE_BUILD_USER_DIR FALSE)
@@ -62,8 +59,8 @@ set(PEDIGREE_MACHINE_HASPCI FALSE)
 # Definitions for amd64 across the entire source tree.
 add_definitions(-DMACH_HOSTED=1 -DBITS_64=1 -DBITS_32=0
     -DTHREADS=1 -DKERNEL_STANDALONE=1 -DTARGET_IS_LITTLE_ENDIAN=1
-    -DKERNEL_NEEDS_ADDRESS_SPACE_SWITCH=0 -DKERNEL_PROCESSOR_NO_PORT_IO=1
-    -DTARGET_HAS_NO_ATOMICS=0 -DSYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH=1)
+    -DKERNEL_PROCESSOR_NO_PORT_IO=1
+    -DSYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH=1)
 
 # Hack around the shared library bits on the Linux platform.
 set(__LINUX_COMPILER_GNU 1)  # don't add -rdynamic

@@ -21,9 +21,7 @@
 #define KERNEL_PROCESSOR_STATE_FORWARD_H
 #include <config.h>
 
-#if X86
-#define PROCESSOR_SPECIFIC_NAME(x) X86##x
-#elif X64
+#if X64
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
 #elif ARM64
 #define PROCESSOR_SPECIFIC_NAME(x) Arm64##x

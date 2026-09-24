@@ -19,7 +19,7 @@
 
 #include <config.h>
 
-#if APIC
+#if MULTIPROCESSOR
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/SchedulerTimerDispatchCleanup.h"

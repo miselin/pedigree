@@ -34,8 +34,6 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state.h"
-#include "pedigree/kernel/utilities/Iterator.h"
-#include "pedigree/kernel/utilities/MemoryAllocator.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -46,7 +44,11 @@ MemoryMapManager MemoryMapManager::m_Instance;
 
 physical_uintptr_t AnonymousMemoryMap::m_Zero = 0;
 
-// #define DEBUG_MMOBJECTS
+#ifdef DEBUG_MMOBJECTS
+static constexpr bool DebugMemoryMappings = true;
+#else
+static constexpr bool DebugMemoryMappings = false;
+#endif
 
 namespace {
 class AddressSpaceRestorer {
@@ -531,9 +533,9 @@ bool MemoryMappedFile::trap(VirtualAddressSpace& va, uintptr_t address, bool bWr
   TerminationDeferral terminationDeferral;
   LockGuard<Mutex> guard(m_Lock);
 
-#ifdef DEBUG_MMOBJECTS
-  NOTICE("MemoryMappedFile::trap(" << address << ", " << bWrite << ")");
-#endif
+  EMIT_IF(DebugMemoryMappings) {
+    NOTICE("MemoryMappedFile::trap(" << address << ", " << bWrite << ")");
+  }
 
   size_t pageSz = PhysicalMemoryManager::getPageSize();
 
@@ -553,21 +555,21 @@ bool MemoryMappedFile::trap(VirtualAddressSpace& va, uintptr_t address, bool bWr
 
   // Skip out on a few things if we can.
   if (bWrite && !(m_Permissions & Write)) {
-#ifdef DEBUG_MMOBJECTS
-    DEBUG_LOG(" -> ignoring, was a write and this is not a writable mapping.");
-#endif
+    EMIT_IF(DebugMemoryMappings) {
+      DEBUG_LOG(" -> ignoring, was a write and this is not a writable mapping.");
+    }
     return false;
   } else if ((!bWrite) && !(m_Permissions & Read) && !population) {
-#ifdef DEBUG_MMOBJECTS
-    DEBUG_LOG(" -> ignoring, was a read and this is not a readable mapping.");
-#endif
+    EMIT_IF(DebugMemoryMappings) {
+      DEBUG_LOG(" -> ignoring, was a read and this is not a readable mapping.");
+    }
     return false;
   }
 
-#ifdef DEBUG_MMOBJECTS
-  DEBUG_LOG(" -> mapping offset is " << mappingOffset << ", file offset: " << fileOffset);
-  DEBUG_LOG(" -> will eof: " << bWillEof << ", should copy: " << bShouldCopy);
-#endif
+  EMIT_IF(DebugMemoryMappings) {
+    DEBUG_LOG(" -> mapping offset is " << mappingOffset << ", file offset: " << fileOffset);
+    DEBUG_LOG(" -> will eof: " << bWillEof << ", should copy: " << bShouldCopy);
+  }
 
   // Add execute flag.
   size_t extraFlags = 0;
@@ -722,9 +724,9 @@ bool MemoryMappedFile::compact() {
 }
 
 void MemoryMappedFile::unmapUnlocked() {
-#ifdef DEBUG_MMOBJECTS
-  NOTICE("MemoryMappedFile::unmap()");
-#endif
+  EMIT_IF(DebugMemoryMappings) {
+    NOTICE("MemoryMappedFile::unmap()");
+  }
 
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
 
@@ -1619,11 +1621,11 @@ bool MemoryMapManager::handleTrapUnlocked(uintptr_t address, bool bIsWrite, bool
   // Callers already own OperationGuard, so do not re-enter the event and
   // lifetime deferral scopes for every page fault in a user copy.
 
-#ifdef DEBUG_MMOBJECTS
-  NOTICE("Trap start: " << Hex << address << ", pid:tid " << Dec
-                        << Processor::information().getCurrentThread()->getParent()->getId() << ":"
-                        << Processor::information().getCurrentThread()->getId());
-#endif
+  EMIT_IF(DebugMemoryMappings) {
+    NOTICE("Trap start: " << Hex << address << ", pid:tid " << Dec
+                          << Processor::information().getCurrentThread()->getParent()->getId()
+                          << ":" << Processor::information().getCurrentThread()->getId());
+  }
 
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
   size_t pageSz = PhysicalMemoryManager::getPageSize();
@@ -1632,9 +1634,9 @@ bool MemoryMapManager::handleTrapUnlocked(uintptr_t address, bool bIsWrite, bool
   MemoryMappedObject* pObject = selected;
   if (!pObject) {
     m_Lock.acquire();
-#ifdef DEBUG_MMOBJECTS
-    NOTICE_NOLOCK("trap: got lock");
-#endif
+    EMIT_IF(DebugMemoryMappings) {
+      NOTICE_NOLOCK("trap: got lock");
+    }
 
     MmObjectList* pMmObjectList = m_MmObjectLists.lookup(&va);
     if (!pMmObjectList) {
@@ -1642,9 +1644,9 @@ bool MemoryMapManager::handleTrapUnlocked(uintptr_t address, bool bIsWrite, bool
       return false;
     }
 
-#ifdef DEBUG_MMOBJECTS
-    NOTICE_NOLOCK("trap: lookup complete " << reinterpret_cast<uintptr_t>(pMmObjectList));
-#endif
+    EMIT_IF(DebugMemoryMappings) {
+      NOTICE_NOLOCK("trap: lookup complete " << reinterpret_cast<uintptr_t>(pMmObjectList));
+    }
 
     // The final page can extend beyond the stored byte length of a file.
     pObject = pMmObjectList->find(pageAddress);
@@ -1652,9 +1654,9 @@ bool MemoryMapManager::handleTrapUnlocked(uintptr_t address, bool bIsWrite, bool
     m_Lock.release();
   }
   if (!pObject) {
-#ifdef DEBUG_MMOBJECTS
-    ERROR("MemoryMapManager::trap() could not find an object for " << address);
-#endif
+    EMIT_IF(DebugMemoryMappings) {
+      ERROR("MemoryMapManager::trap() could not find an object for " << address);
+    }
     return false;
   }
 

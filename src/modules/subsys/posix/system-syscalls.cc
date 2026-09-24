@@ -360,30 +360,6 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   if (flags & CLONE_PARENT) {
     SC_NOTICE(" -> CLONE_PARENT is not yet supported!");
   }
-#if 0
-    if (flags & CLONE_VM) SC_NOTICE("\t\t-> CLONE_VM");
-    if (flags & CLONE_FS) SC_NOTICE("\t\t-> CLONE_FS");
-    if (flags & CLONE_FILES) SC_NOTICE("\t\t-> CLONE_FILES");
-    if (flags & CLONE_SIGHAND) SC_NOTICE("\t\t-> CLONE_SIGHAND");
-    if (flags & CLONE_PTRACE) SC_NOTICE("\t\t-> CLONE_PTRACE");
-    if (flags & CLONE_VFORK) SC_NOTICE("\t\t-> CLONE_VFORK");
-    if (flags & CLONE_PARENT) SC_NOTICE("\t\t-> CLONE_PARENT");
-    if (flags & CLONE_THREAD) SC_NOTICE("\t\t-> CLONE_THREAD");
-    if (flags & CLONE_NEWNS) SC_NOTICE("\t\t-> CLONE_NEWNS");
-    if (flags & CLONE_SYSVSEM) SC_NOTICE("\t\t-> CLONE_SYSVSEM");
-    if (flags & CLONE_SETTLS) SC_NOTICE("\t\t-> CLONE_SETTLS");
-    if (flags & CLONE_PARENT_SETTID) SC_NOTICE("\t\t-> CLONE_PARENT_SETTID");
-    if (flags & CLONE_CHILD_CLEARTID) SC_NOTICE("\t\t-> CLONE_CHILD_CLEARTID");
-    if (flags & CLONE_DETACHED) SC_NOTICE("\t\t-> CLONE_DETACHED");
-    if (flags & CLONE_UNTRACED) SC_NOTICE("\t\t-> CLONE_UNTRACED");
-    if (flags & CLONE_CHILD_SETTID) SC_NOTICE("\t\t-> CLONE_CHILD_SETTID");
-    if (flags & CLONE_NEWUTS) SC_NOTICE("\t\t-> CLONE_NEWUTS");
-    if (flags & CLONE_NEWIPC) SC_NOTICE("\t\t-> CLONE_NEWIPC");
-    if (flags & CLONE_NEWUSER) SC_NOTICE("\t\t-> CLONE_NEWUSER");
-    if (flags & CLONE_NEWPID) SC_NOTICE("\t\t-> CLONE_NEWPID");
-    if (flags & CLONE_NEWNET) SC_NOTICE("\t\t-> CLONE_NEWNET");
-    if (flags & CLONE_IO) SC_NOTICE("\t\t-> CLONE_IO");
-#endif
 
   const CloneRoute route = cloneRoute(flags);
   if (route == CloneRoute::Invalid || (clearSignalHandlers && route == CloneRoute::Thread)) {

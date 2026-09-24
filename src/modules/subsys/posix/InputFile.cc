@@ -203,7 +203,7 @@ bool InputFile::initialise() {
   setUidOnly(0);
   setGidOnly(0);
 
-  InputManager::instance().installCallback(InputStreamFilter, subscriber, this, nullptr, 0);
+  InputManager::instance().installCallback(InputStreamFilter, subscriber, this);
   {
     LockGuard<Mutex> guard(m_Lock);
     m_Registered = true;
@@ -327,7 +327,7 @@ bool EvdevFile::initialise() {
   const InputManager::CallbackType filter =
       m_Type == Keyboard ? InputManager::RawKey
                          : (m_Type == Pointer ? InputManager::Mouse : InputManager::AbsoluteMouse);
-  InputManager::instance().installCallback(filter, subscriber, this, nullptr, 0);
+  InputManager::instance().installCallback(filter, subscriber, this);
   {
     LockGuard<Mutex> guard(m_Lock);
     m_Registered = true;

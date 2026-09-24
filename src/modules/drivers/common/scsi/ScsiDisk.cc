@@ -37,8 +37,6 @@
 #include "ScsiCommands.h"
 #include "ScsiController.h"
 
-#define READAHEAD_ENABLED 0
-
 #ifdef SCSI_DEBUG
 #define SCSI_DEBUG_LOG DEBUG_LOG
 #else
@@ -541,14 +539,6 @@ BufferView ScsiDisk::acquireView(uint64_t location, bool writable, uint64_t& tok
   }
   if (readRequestHook) {
     readRequestHook(this, pageLocation, readRequestHookContext);
-  }
-#endif
-#if READAHEAD_ENABLED
-  // Async readahead needs request-owned range admission before it can safely
-  // outlive this stack record.
-  for (size_t i = 0; i < 2; ++i) {
-    loc += fillSize;
-    pParent->addAsyncRequest(0, SCSI_REQUEST_READ, reinterpret_cast<uint64_t>(this), loc);
   }
 #endif
   buffer = m_Cache.lookup(pageLocation);

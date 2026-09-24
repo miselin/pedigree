@@ -39,8 +39,8 @@ typedef int CallbackType;
 /// for all types of devices.
 struct EXPORTED_PUBLIC InputNotification {
   CallbackType type;
-  // Keep the userspace view aligned with the kernel event payload. This slot
-  // is reserved for callback metadata and is not used by native callbacks.
+  // Keep the userspace view aligned with the kernel event payload.
+  // Event-stream reads clear this reserved metadata slot.
   void* meta;
 
   union {
@@ -71,16 +71,6 @@ struct EXPORTED_PUBLIC InputNotification {
     } rawkey;
   } data;
 };
-
-/// Callback function type
-typedef void (*callback_t)(InputNotification&);
-
-/// Installs an input callback, to allow a program to be notified of
-/// input from any of the possible input devices.
-EXPORTED_PUBLIC void installCallback(CallbackType type, callback_t cb);
-
-/// Removes a given callback
-EXPORTED_PUBLIC void removeCallback(callback_t cb);
 
 /// Opens an independent, pollable stream of raw and logical keyboard plus mouse
 /// events.

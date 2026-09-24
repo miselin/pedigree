@@ -22,11 +22,6 @@
 #include <thread>
 
 namespace pocketknife {
-void runConcurrently(int (*func)(void*), void* param) {
-  std::thread thread(func, param);
-  thread.detach();
-}
-
 void* runConcurrentlyAttached(int (*func)(void*), void* param) {
   std::thread* thread = new std::thread(func, param);
   return thread;
@@ -43,11 +38,5 @@ bool attachToForCompletion(void* handle) {
   attachTo(handle);
   return true;
 }
-
-VirtualAddressSpaceSwitch::VirtualAddressSpaceSwitch() : va(nullptr) {}
-
-VirtualAddressSpaceSwitch::~VirtualAddressSpaceSwitch() {}
-
-void VirtualAddressSpaceSwitch::restore() {}
 
 }  // namespace pocketknife

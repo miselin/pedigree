@@ -7,25 +7,13 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Event.h"
-#include "pedigree/kernel/process/Ipc.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/MemoryPool.h"
 
 static_assert(Event::getHostedHandlerBufferSize(1024) == EVENT_LIMIT);
 static_assert(Event::getHostedHandlerBufferSize(4096) == EVENT_LIMIT);
 static_assert(Event::getHostedHandlerBufferSize(16384) == 16384);
-static_assert(Ipc::IpcMessage::getHostedInlinePageCount(1024) == 4);
-static_assert(Ipc::IpcMessage::getHostedInlinePageCount(4096) == 1);
-static_assert(Ipc::IpcMessage::getHostedInlinePageCount(16384) == 1);
-static_assert(Ipc::IpcMessage::getHostedInlineSlotSize(1024) == 4096);
-static_assert(Ipc::IpcMessage::getHostedInlineSlotSize(4096) == 4096);
-static_assert(Ipc::IpcMessage::getHostedInlineSlotSize(16384) == 16384);
-static_assert(Ipc::IpcMessage::getHostedInlinePoolPageCount(1024) == 4096);
-static_assert(Ipc::IpcMessage::getHostedInlinePoolPageCount(4096) == 1024);
-static_assert(Ipc::IpcMessage::getHostedInlinePoolPageCount(16384) == 1024);
 
 namespace {
 bool check(bool condition, const char* test, const char* detail) {
@@ -96,65 +84,8 @@ bool multiPagePoolMapping() {
   return passed;
 }
 
-bool ipcPayloadGeometry() {
-  constexpr const char* Test = "ipc-payload-page-span";
-  bool passed = true;
-  passed &= check(Ipc::IpcMessage::InlineCapacity == 4096, Test,
-                  "the conventional inline IPC capacity changed");
-  passed &= check(Ipc::IpcMessage::getHostedInlinePageCount(1024) == 4, Test,
-                  "the 4 KiB IPC buffer did not span four 1 KiB pages");
-  passed &= check(Ipc::IpcMessage::getHostedInlinePageCount(4096) == 1, Test,
-                  "the 4 KiB target changed its IPC buffer span");
-  passed &= check(Ipc::IpcMessage::getHostedInlinePageCount(16384) == 1, Test,
-                  "the IPC buffer used more than one 16 KiB page");
-  passed &= check(Ipc::IpcMessage::getHostedInlineSlotSize(1024) == 4096 &&
-                      Ipc::IpcMessage::getHostedInlineSlotSize(4096) == 4096 &&
-                      Ipc::IpcMessage::getHostedInlineSlotSize(16384) == 16384,
-                  Test, "an inline IPC slot shared a target page with another message");
-  passed &= check(Ipc::IpcMessage::getHostedInlinePoolPageCount(1024) == 4096 &&
-                      Ipc::IpcMessage::getHostedInlinePoolPageCount(4096) == 1024 &&
-                      Ipc::IpcMessage::getHostedInlinePoolPageCount(16384) == 1024,
-                  Test, "the IPC pool did not retain its logical buffer capacity");
-
-  Ipc::IpcMessage inlineMessage(Ipc::IpcMessage::InlineCapacity - 1);
-  uint8_t* buffer = reinterpret_cast<uint8_t*>(inlineMessage.getBuffer());
-  passed &= check(buffer != nullptr && inlineMessage.getHandle() == nullptr, Test,
-                  "an inline IPC message did not use the message pool");
-  if (buffer) {
-    VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-    const size_t pageSize = PhysicalMemoryManager::getPageSize();
-    const size_t pageCount = Ipc::IpcMessage::getHostedInlinePageCount(pageSize);
-    passed &= check(!(reinterpret_cast<uintptr_t>(buffer) & (pageSize - 1)), Test,
-                    "the inline IPC slot was not target-page aligned");
-    for (size_t page = 0; page < pageCount; ++page) {
-      void* address = buffer + (page * pageSize);
-      const bool mapped = va.isMapped(address);
-      passed &= check(mapped, Test, "part of the inline IPC buffer is unmapped");
-      if (mapped) {
-        physical_uintptr_t physicalAddress = 0;
-        size_t flags = 0;
-        va.getMapping(address, physicalAddress, flags);
-        passed &= check(
-            (flags & VirtualAddressSpace::Write) && !(flags & VirtualAddressSpace::KernelMode),
-            Test, "part of the inline IPC buffer is not user-writable");
-      }
-    }
-    buffer[0] = 0xA5;
-    buffer[Ipc::IpcMessage::InlineCapacity - 1] = 0x5A;
-    passed &= check(buffer[0] == 0xA5 && buffer[Ipc::IpcMessage::InlineCapacity - 1] == 0x5A, Test,
-                    "the inline IPC payload was not writable end-to-end");
-  }
-
-  Ipc::IpcMessage sharedMessage(Ipc::IpcMessage::InlineCapacity);
-  passed &= check(sharedMessage.getBuffer() != nullptr && sharedMessage.getHandle() != nullptr,
-                  Test, "the exact 4 KiB threshold did not use a shared region");
-  if (passed) {
-    NOTICE("HOSTED-WAIT-TEST: PASS ipc-payload-page-span");
-  }
-  return passed;
-}
 }  // namespace
 
 bool runHostedPayloadPageRegressions() {
-  return eventPayloadGeometry() && multiPagePoolMapping() && ipcPayloadGeometry();
+  return eventPayloadGeometry() && multiPagePoolMapping();
 }

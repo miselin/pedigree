@@ -7,4 +7,3 @@ title  Pedigree
 root   (hd0,0)
 kernel /boot/kernel
 module /boot/initrd.tar
-module /boot/config.db

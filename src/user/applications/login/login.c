@@ -42,10 +42,6 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
-// Immediate login credentials if we're running a live CD.
-#define FORCE_LOGIN_USER "root"
-#define FORCE_LOGIN_PASS "root"
-
 // PID of the process we're running
 int g_RunningPid = -1;
 
@@ -167,22 +163,17 @@ int main(int argc, char** argv) {
     char buffer[256];
     char* username = NULL;
 
-    if (LIVECD) {
-      username = FORCE_LOGIN_USER;
-      printf("%s\n", username);
-    } else {
-      fflush(stdout);
+    fflush(stdout);
 
-      username = fgets(buffer, 256, stdin);
-      if (!username) {
-        continue;
-      }
+    username = fgets(buffer, 256, stdin);
+    if (!username) {
+      continue;
+    }
 
-      // Knock off the newline character
-      username[strlen(username) - 1] = '\0';
-      if (!strlen(username)) {
-        continue;
-      }
+    // Knock off the newline character
+    username[strlen(username) - 1] = '\0';
+    if (!strlen(username)) {
+      continue;
     }
 
     struct passwd* pw = getpwnam(username);
@@ -197,42 +188,38 @@ int main(int argc, char** argv) {
 
     char* password = NULL;
 
-    if (LIVECD) {
-      password = FORCE_LOGIN_PASS;
-      printf(gettext("(forced)\n"));
-    } else {
-      // Use own way - display *
-      fflush(stdout);
-      int c;
-      size_t i = 0;
+    // Use own way - display *
+    fflush(stdout);
+    int c;
+    size_t i = 0;
 
-      tcgetattr(0, &curt);
-      curt.c_lflag &= ~(ECHO | ICANON);
-      tcsetattr(0, TCSANOW, &curt);
-      while ((c = getchar()) != '\n' && c != EOF) {
-        if (!c) {
-          continue;
-        } else if (c == '\b') {
-          if (i > 0) {
-            buffer[--i] = '\0';
-            printf("\b \b");
-          }
-        } else if (c != '\033' && i < (sizeof(buffer) - 1)) {
-          buffer[i++] = c;
-          if (!strcmp(TERM, "xterm"))
-            printf("•");
-          else
-            printf("*");
+    tcgetattr(0, &curt);
+    curt.c_lflag &= ~(ECHO | ICANON);
+    tcsetattr(0, TCSANOW, &curt);
+    while ((c = getchar()) != '\n' && c != EOF) {
+      if (!c) {
+        continue;
+      } else if (c == '\b') {
+        if (i > 0) {
+          buffer[--i] = '\0';
+          printf("\b \b");
+        }
+      } else if (c != '\033' && i < (sizeof(buffer) - 1)) {
+        buffer[i++] = c;
+        if (!strcmp(TERM, "xterm")) {
+          printf("•");
+        } else {
+          printf("*");
         }
       }
-      tcgetattr(0, &curt);
-      curt.c_lflag |= (ECHO | ICANON);
-      tcsetattr(0, TCSANOW, &curt);
-      printf("\n");
-
-      buffer[i] = '\0';
-      password = buffer;
     }
+    tcgetattr(0, &curt);
+    curt.c_lflag |= (ECHO | ICANON);
+    tcsetattr(0, TCSANOW, &curt);
+    printf("\n");
+
+    buffer[i] = '\0';
+    password = buffer;
 
     // Shadow entries in the initial image may contain plaintext passwords for
     // compatibility with the existing configuration schema. Hashed entries

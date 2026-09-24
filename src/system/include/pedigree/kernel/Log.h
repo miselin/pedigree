@@ -37,24 +37,11 @@ class Thread;
 /** @addtogroup kernel
  * @{ */
 
-#define SHOW_FILE_IN_LOGS 0
-#define HUGE_STATIC_LOG 0
-
 typedef StaticCord<8> LogCord;
-
-#if SHOW_FILE_IN_LOGS
-#define FILE_LOG(entry, level)                                                                    \
-  do {                                                                                            \
-    entry << level << __FILE__ << ":" << Dec << __LINE__ << Hex << " " << __FUNCTION__ << " -- "; \
-  } while (0)
-#else
-#define FILE_LOG(entry, level)
-#endif
 
 #define LOG_AT_LEVEL(level, text, lock)                   \
   do {                                                    \
     Log::LogEntry __log_macro_logentry;                   \
-    FILE_LOG(__log_macro_logentry, level);                \
     __log_macro_logentry << level << text;                \
     if (!lock)                                            \
       __log_macro_logentry << Unlocked;                   \
@@ -126,13 +113,8 @@ typedef StaticCord<8> LogCord;
 /** The maximum length of an individual static log entry. */
 #define LOG_LENGTH 128
 /** The maximum number of static entries in the log. */
-#if HUGE_STATIC_LOG
-// 2MB static log buffer
-#define LOG_ENTRIES ((1 << 21) / sizeof(LogEntry))
-#else
 // 64K static log buffer
 #define LOG_ENTRIES ((1 << 16) / sizeof(LogEntry))
-#endif
 /** Maximum number of output callbacks that can be registered. */
 #define LOG_CALLBACK_COUNT 16
 

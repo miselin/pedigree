@@ -247,26 +247,26 @@ void BusMasterIde::commandComplete() {
 
   // Read the status register to dump information about the command completion
   uint8_t statusReg = m_pBase->read8(Status);
-#if BUSMASTER_VERBOSE_LOGGING
-  if ((statusReg & 0x1) && (!(statusReg & 0x4))) {
-    // DMA transfer in progress. Abort the transfer.
-    NOTICE("BusMasterIde: aborting transfer in progress");
-  } else if ((!(statusReg & 0x1)) && (statusReg & 0x4)) {
-    // IDE device triggered an interrupt, successful transfer
-    NOTICE("BusMasterIde: successful transfer, exact transfer size");
-  } else if ((statusReg & 0x1) && (statusReg & 0x4)) {
-    // IDE device triggered an interrupt, successful transfer
-    NOTICE("BusMasterIde: successful transfer, more buffer space than needed");
-  } else {
-    // Error condition
-    NOTICE("Status register = " << statusReg << ".");
-    if (!(statusReg & 0x1)) {
-      NOTICE("BusMasterIde: not enough buffer space provided");
+  EMIT_IF(BusMasterVerboseLogging) {
+    if ((statusReg & 0x1) && (!(statusReg & 0x4))) {
+      // DMA transfer in progress. Abort the transfer.
+      NOTICE("BusMasterIde: aborting transfer in progress");
+    } else if ((!(statusReg & 0x1)) && (statusReg & 0x4)) {
+      // IDE device triggered an interrupt, successful transfer
+      NOTICE("BusMasterIde: successful transfer, exact transfer size");
+    } else if ((statusReg & 0x1) && (statusReg & 0x4)) {
+      // IDE device triggered an interrupt, successful transfer
+      NOTICE("BusMasterIde: successful transfer, more buffer space than needed");
     } else {
-      NOTICE("BusMasterIde: device/controller signalled an error");
+      // Error condition
+      NOTICE("Status register = " << statusReg << ".");
+      if (!(statusReg & 0x1)) {
+        NOTICE("BusMasterIde: not enough buffer space provided");
+      } else {
+        NOTICE("BusMasterIde: device/controller signalled an error");
+      }
     }
   }
-#endif
 
   // Whatever happened, we need to reset state
   uint8_t cmdReg = m_pBase->read8(Command);

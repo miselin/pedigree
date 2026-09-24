@@ -196,8 +196,6 @@ bool TextIO::initialise(bool bClear) {
       for (size_t i = 0; i < BACKBUFFER_STRIDE; i += 8)
         m_TabStops[i] = '|';
 
-      m_pVga->clearControl(Vga::Blink);
-
       m_G0 = m_G1 = 'B';
 
       m_NextInterval = BLINK_OFF_PERIOD;

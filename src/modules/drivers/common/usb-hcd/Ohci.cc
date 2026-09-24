@@ -621,10 +621,10 @@ void Ohci::removeED(ED* pED) {
   if (!pED || !pED->pMetaData)
     return;
 
-#ifdef USB_VERBOSE_DEBUG
-  DEBUG_LOG("OHCI: removing ED #" << pED->pMetaData->id
-                                  << " from the schedule to prepare for reclamation");
-#endif
+  EMIT_IF(UsbVerboseDebug) {
+    DEBUG_LOG("OHCI: removing ED #" << pED->pMetaData->id
+                                    << " from the schedule to prepare for reclamation");
+  }
 
   const Lists type = pED->pMetaData->edType;
   detachED(pED);
@@ -677,11 +677,11 @@ void Ohci::detachED(ED* pED) {
 
   // Unlink from the hardware linked list.
   if (pED == *pQueueHead) {
-#ifdef USB_VERBOSE_DEBUG
-    DEBUG_LOG(
-        "OHCI: ED was a queue head, adjusting controller state "
-        "accordingly");
-#endif
+    EMIT_IF(UsbVerboseDebug) {
+      DEBUG_LOG(
+          "OHCI: ED was a queue head, adjusting controller state "
+          "accordingly");
+    }
 
     *pQueueHead = pNext;
 
@@ -869,9 +869,9 @@ IrqDisposition Ohci::irq(irq_id_t number) {
     bool sofDrained = true;
     bool doneHeadDrained = true;
 
-#ifdef USB_VERBOSE_DEBUG
-    DEBUG_LOG("OHCI: IRQ " << nStatus);
-#endif
+    EMIT_IF(UsbVerboseDebug) {
+      DEBUG_LOG("OHCI: IRQ " << nStatus);
+    }
 
     if (nStatus & OhciInterruptUnrecoverableError) {
       /// \todo Handle.
@@ -882,9 +882,9 @@ IrqDisposition Ohci::irq(irq_id_t number) {
     }
 
     if (nStatus & OhciInterruptStartOfFrame) {
-#ifdef USB_VERBOSE_DEBUG
-      DEBUG_LOG("OHCI: SOF, preparing to reclaim EDs...");
-#endif
+      EMIT_IF(UsbVerboseDebug) {
+        DEBUG_LOG("OHCI: SOF, preparing to reclaim EDs...");
+      }
 
       // Firstly disable the SOF interrupt now that we've gotten it.
       m_pBase->write32(OhciInterruptStartOfFrame, OhciInterruptDisable);
@@ -908,9 +908,9 @@ IrqDisposition Ohci::irq(irq_id_t number) {
           UsbHcd::TransferCompletion::Claim claim;
           const bool ownsPublication = pED->pMetaData->completion.claimCaptured(claim);
 
-#ifdef USB_VERBOSE_DEBUG
-          DEBUG_LOG("OHCI: freeing ED #" << pED->pMetaData->id << ".");
-#endif
+          EMIT_IF(UsbVerboseDebug) {
+            DEBUG_LOG("OHCI: freeing ED #" << pED->pMetaData->id << ".");
+          }
 
           if (ownsPublication)
             completions.pushBack(prepareCompletion(pED, claim));
@@ -1047,10 +1047,10 @@ IrqDisposition Ohci::irq(irq_id_t number) {
 
           ssize_t nResult;
           if (pTD->nStatus) {
-#ifdef USB_VERBOSE_DEBUG
-            if (!bPeriodic)
-              ERROR_NOLOCK("TD Error " << Dec << pTD->nStatus << Hex);
-#endif
+            EMIT_IF(UsbVerboseDebug) {
+              if (!bPeriodic)
+                ERROR_NOLOCK("TD Error " << Dec << pTD->nStatus << Hex);
+            }
             nResult = -pTD->getError();
           } else {
             if (pTD->pBufferStart) {
@@ -1061,14 +1061,15 @@ IrqDisposition Ohci::irq(irq_id_t number) {
               nResult = pTD->nBufferSize;
             pED->pMetaData->nTotalBytes += nResult;
           }
-#ifdef USB_VERBOSE_DEBUG
-          DEBUG_LOG_NOLOCK(
-              "TD #" << Dec << pTD->id << Hex << " [from ED #" << Dec << pED->pMetaData->id << Hex
-                     << "] DONE: " << Dec << pED->nAddress << ":" << pED->nEndpoint << " "
-                     << (pTD->nPid == 1 ? "OUT"
-                                        : (pTD->nPid == 2 ? "IN" : (pTD->nPid == 0 ? "SETUP" : "")))
-                     << " " << nResult << Hex);
-#endif
+          EMIT_IF(UsbVerboseDebug) {
+            DEBUG_LOG_NOLOCK(
+                "TD #" << Dec << pTD->id << Hex << " [from ED #" << Dec << pED->pMetaData->id << Hex
+                       << "] DONE: " << Dec << pED->nAddress << ":" << pED->nEndpoint << " "
+                       << (pTD->nPid == 1
+                               ? "OUT"
+                               : (pTD->nPid == 2 ? "IN" : (pTD->nPid == 0 ? "SETUP" : "")))
+                       << " " << nResult << Hex);
+          }
 
           /// \note It might be nice to document this.
           bool bEndOfTransfer =
@@ -1448,16 +1449,16 @@ bool Ohci::doAsync(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t)
   // Handle the case where there is not yet a queue head.
   if (bControl) {
     if (!m_pControlQueueHead) {
-#ifdef USB_VERBOSE_DEBUG
-      DEBUG_LOG("OHCI: ED is now the control queue head.");
-#endif
+      EMIT_IF(UsbVerboseDebug) {
+        DEBUG_LOG("OHCI: ED is now the control queue head.");
+      }
       m_pControlQueueHead = pED;
     }
   } else {
     if (!m_pBulkQueueHead) {
-#ifdef USB_VERBOSE_DEBUG
-      DEBUG_LOG("OHCI: ED is now the control queue head.");
-#endif
+      EMIT_IF(UsbVerboseDebug) {
+        DEBUG_LOG("OHCI: ED is now the control queue head.");
+      }
       m_pBulkQueueHead = pED;
     }
   }
@@ -1476,16 +1477,16 @@ bool Ohci::doAsync(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t)
   // Update the head of the relevant list.
   if (queueHeadPhys == vtp_ed(pED)) {
     if (bControl) {
-#ifdef USB_VERBOSE_DEBUG
-      DEBUG_LOG("OHCI: new control queue head is " << queueHeadPhys << " compared to "
-                                                   << m_pBase->read32(OhciControlHeadED));
-      DEBUG_LOG("OHCI: current control queue ED is " << m_pBase->read32(OhciControlCurrentED));
-#endif
+      EMIT_IF(UsbVerboseDebug) {
+        DEBUG_LOG("OHCI: new control queue head is " << queueHeadPhys << " compared to "
+                                                     << m_pBase->read32(OhciControlHeadED));
+        DEBUG_LOG("OHCI: current control queue ED is " << m_pBase->read32(OhciControlCurrentED));
+      }
       m_pBase->write32(queueHeadPhys, OhciControlHeadED);
     } else {
-#ifdef USB_VERBOSE_DEBUG
-      DEBUG_LOG("OHCI: new bulk queue head is " << queueHeadPhys);
-#endif
+      EMIT_IF(UsbVerboseDebug) {
+        DEBUG_LOG("OHCI: new bulk queue head is " << queueHeadPhys);
+      }
       m_pBase->write32(queueHeadPhys, OhciBulkHeadED);
     }
   }

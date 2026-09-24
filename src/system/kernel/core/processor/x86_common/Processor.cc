@@ -177,7 +177,7 @@ TlbInvalidationResult ProcessorBase::beginTlbInvalidation(TlbInvalidationGuard& 
     return TlbInvalidationResult::InvalidContext;
   }
 
-#if MULTIPROCESSOR && APIC
+#if MULTIPROCESSOR
   if (m_Initialised == 2 && getCount() > 1) {
     Pc& pc = Pc::instance();
     if (!pc.localApicAvailable()) {
@@ -198,7 +198,7 @@ TlbInvalidationResult ProcessorBase::beginTlbInvalidation(TlbInvalidationGuard& 
 }
 
 void ProcessorBase::endTlbInvalidation(TlbInvalidationGuard& guard) {
-#if MULTIPROCESSOR && APIC
+#if MULTIPROCESSOR
   if (guard.m_Global) {
     Pc::instance().getLocalApic().endTlbInvalidation();
   }
@@ -213,7 +213,7 @@ bool ProcessorBase::closeTlbInvalidationAdmissionForTerminalFailure(TlbInvalidat
     return false;
   }
 
-#if MULTIPROCESSOR && APIC
+#if MULTIPROCESSOR
   if (guard.m_Global) {
     return Pc::instance().getLocalApic().closeTlbInvalidationAdmissionForTerminalFailure(result);
   }
@@ -223,7 +223,7 @@ bool ProcessorBase::closeTlbInvalidationAdmissionForTerminalFailure(TlbInvalidat
 }
 
 bool ProcessorBase::tlbInvalidationFailureActive() {
-#if MULTIPROCESSOR && APIC
+#if MULTIPROCESSOR
   if (m_Initialised == 2 && getCount() > 1) {
     Pc& pc = Pc::instance();
     return pc.localApicAvailable() && pc.getLocalApic().tlbInvalidationFailureActive();
@@ -233,7 +233,7 @@ bool ProcessorBase::tlbInvalidationFailureActive() {
 }
 
 bool ProcessorBase::tlbInvalidationTerminal() {
-#if MULTIPROCESSOR && APIC
+#if MULTIPROCESSOR
   if (m_Initialised == 2 && getCount() > 1) {
     Pc& pc = Pc::instance();
     return pc.localApicAvailable() && pc.getLocalApic().tlbInvalidationTerminal();
@@ -295,7 +295,7 @@ TlbInvalidationResult ProcessorBase::invalidateAll(void* pAddress, TlbInvalidati
     return TlbInvalidationResult::InvalidContext;
   }
 
-#if MULTIPROCESSOR && APIC
+#if MULTIPROCESSOR
   if (guard.m_Global) {
     return Pc::instance().getLocalApic().invalidateAllProcessors(pAddress);
   }
@@ -392,7 +392,7 @@ void ProcessorBase::halt() {
 }
 
 void ProcessorBase::pause() {
-#if MULTIPROCESSOR && APIC
+#if MULTIPROCESSOR
   // A processor can spin on an IRQ-disabling lock held by a shootdown
   // initiator. Cooperating here prevents that lock dependency from delaying
   // the initiator's bounded acknowledgement barrier indefinitely.

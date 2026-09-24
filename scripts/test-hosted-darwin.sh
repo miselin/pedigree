@@ -5,17 +5,16 @@
 
 set -Eeuo pipefail
 
-if (( $# != 5 )); then
-    echo "usage: scripts/test-hosted-darwin.sh KERNEL MODULE CONFIGDB LOG TARGET_PAGE_SIZE" >&2
+if (( $# != 4 )); then
+    echo "usage: scripts/test-hosted-darwin.sh KERNEL MODULE LOG TARGET_PAGE_SIZE" >&2
     exit 2
 fi
 
 script_dir=$(cd -P -- "$(dirname -- "$0")" && pwd -P)
 kernel=$1
 module=$2
-configdb=$3
-log_file=$4
-expected_target_page_size=$5
+log_file=$3
+expected_target_page_size=$4
 
 if [[ $(uname -s) != Darwin ]]; then
     echo "The Darwin hosted lifecycle can only run on macOS." >&2
@@ -34,7 +33,7 @@ if [[ ! "$expected_target_page_size" =~ ^[1-9][0-9]*$ ]]; then
     exit 2
 fi
 
-for artifact in "$kernel" "$module" "$configdb"; do
+for artifact in "$kernel" "$module"; do
     if [[ ! -f "$artifact" ]]; then
         echo "Required hosted artifact is unavailable: $artifact" >&2
         exit 1
@@ -61,7 +60,7 @@ fi
 run_status=0
 python3 "$script_dir/run-with-deadline.py" \
     --seconds "$timeout_seconds" --label "Darwin hosted core smoke" -- \
-    arch -x86_64 "$kernel" "$initrd" "$configdb" \
+    arch -x86_64 "$kernel" "$initrd" \
     2>&1 | tee "$log_file" || run_status=$?
 if (( run_status != 0 )); then
     echo "Darwin hosted core smoke failed with status $run_status." >&2
@@ -74,7 +73,6 @@ required_markers=(
     "HOSTED-MEMORY-TEST: PASS anonymous-region-release"
     "HOSTED-WAIT-TEST: PASS event-payload-page-span"
     "HOSTED-WAIT-TEST: PASS memory-pool-page-span"
-    "HOSTED-WAIT-TEST: PASS ipc-payload-page-span"
     "HOSTED-WAIT-TEST: PASS cache-range-geometry"
     "HOSTED-WAIT-TEST: PASS disk-view-sequence-page-span"
     "HOSTED-WAIT-TEST: PASS all"

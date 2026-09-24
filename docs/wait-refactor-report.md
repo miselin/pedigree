@@ -336,7 +336,7 @@ scope can accidentally re-enable.
 - base-state event-return rejection, complete x86-64 signal-state restoration,
   and Pedigree-C self-unload rejection
 - virtual terminal and Unix filesystem wait paths
-- status server and console/TextIO worker teardown
+- console/TextIO worker teardown
 - memory-pressure manager/killer callback and worker lifetimes
 
 ## Debugger support
@@ -600,11 +600,8 @@ hardware.
 - There is not yet a kernel-wide module-execution lease. The registries
   migrated here drain their own callbacks, but a module which unloads itself
   from inside unrelated module code can still return through unmapped text.
-- lwIP's `sys_thread_new`, the generic `Time::runAfter` /
-  `runConcurrently` helpers, the per-processor scheduler add worker, and the
-  x86 keyboard reader still contain detached-thread lifetime contracts outside
-  the migrated owned-worker set. The hosted build utility `TunWrapper` has the
-  same object-lifetime shape.
+- lwIP's `sys_thread_new` and the generic `Time::runAfter` helper still contain
+  detached-thread lifetime contracts outside the migrated owned-worker set.
 - The bounded-poll scanner recognizes reviewed `while` loops and hardware-read
   shapes. Custom accessors, other loop forms, and indirect state machines can
   still contain an unbounded hardware wait.

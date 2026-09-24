@@ -54,7 +54,6 @@
 #include "logging.h"
 #include "modules/system/linker/DynamicLinker.h"
 #include "modules/system/vfs/File.h"
-#include "modules/system/vfs/LockedFile.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/Symlink.h"
@@ -972,7 +971,6 @@ bool PosixSubsystem::kill(KillReason killReason, Thread* pThread) {
 
 bool PosixSubsystem::resolveUserPageFault(Thread& thread, InterruptState& state,
                                           uintptr_t faultAddress, uintptr_t errorCode) {
-#if X64 || HOSTED || ARM64 || ARMV7
   constexpr uintptr_t present = 1, write = 2, user = 4, fetch = 16;
   if (state.kernelMode() || !Processor::getInterrupts() ||
       Processor::information().getCurrentThread() != &thread || !thread.getParent() ||
@@ -993,26 +991,26 @@ bool PosixSubsystem::resolveUserPageFault(Thread& thread, InterruptState& state,
     return true;
   }
   return resolution == MemoryMapManager::FaultResolution::Resolved;
-#else
-  return false;
-#endif
 }
 
 void PosixSubsystem::threadException(Thread* pThread, ExceptionType eType, InterruptState* pState,
                                      uintptr_t faultAddress, uintptr_t errorCode) {
-#if X64 && defined(POSIX_VERBOSE_SUBSYSTEM)
-  if (pState && eType == PageFault) {
-    // Keep each entry within the log payload, including its PID/TID prefix.
-    PS_NOTICE("USERFAULT cpu=" << Dec << Processor::id());
-    PS_NOTICE("USERFAULT address=" << Hex << faultAddress);
-    PS_NOTICE("USERFAULT code=" << Hex << errorCode);
-    PS_NOTICE("USERFAULT rip=" << Hex << pState->getInstructionPointer());
-    PS_NOTICE("USERFAULT rsp=" << Hex << pState->getStackPointer());
-    PS_NOTICE("USERFAULT entry-fs=" << Hex << pState->getUserEntryMetadata().fsBase);
-    PS_NOTICE("USERFAULT entry-gs=" << Hex << pState->getUserEntryMetadata().gsBase);
-    PS_NOTICE("USERFAULT tls=" << Hex << pThread->getTlsBase());
-    for (size_t i = 0; i < pState->getRegisterCount(); ++i) {
-      PS_NOTICE("USERFAULT " << pState->getRegisterName(i) << "=" << Hex << pState->getRegister(i));
+#if X64
+  EMIT_IF(POSIX_LOG_FACILITIES & 16) {
+    if (pState && eType == PageFault) {
+      // Keep each entry within the log payload, including its PID/TID prefix.
+      PS_NOTICE("USERFAULT cpu=" << Dec << Processor::id());
+      PS_NOTICE("USERFAULT address=" << Hex << faultAddress);
+      PS_NOTICE("USERFAULT code=" << Hex << errorCode);
+      PS_NOTICE("USERFAULT rip=" << Hex << pState->getInstructionPointer());
+      PS_NOTICE("USERFAULT rsp=" << Hex << pState->getStackPointer());
+      PS_NOTICE("USERFAULT entry-fs=" << Hex << pState->getUserEntryMetadata().fsBase);
+      PS_NOTICE("USERFAULT entry-gs=" << Hex << pState->getUserEntryMetadata().gsBase);
+      PS_NOTICE("USERFAULT tls=" << Hex << pThread->getTlsBase());
+      for (size_t i = 0; i < pState->getRegisterCount(); ++i) {
+        PS_NOTICE("USERFAULT " << pState->getRegisterName(i) << "=" << Hex
+                               << pState->getRegister(i));
+      }
     }
   }
 #endif
@@ -2799,7 +2797,6 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   procfsInvalidateNamespaceTask(m_Namespaces, pProcess->getUserspaceId(), pProcess->getId());
   DynamicLinker* oldLinker = pProcess->getLinker();
   pProcess->setLinker(nullptr);
-  pThread->retireInputUserStack();
   {
     MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
     // Exec is irreversible here. Old continuations cannot resume, and the

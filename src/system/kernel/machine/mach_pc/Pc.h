@@ -35,10 +35,6 @@
 #include "Serial.h"
 #include "Vga.h"
 
-#if defined(SMBIOS)
-#include "SMBios.h"
-#endif
-
 class IrqManager;
 class Keyboard;
 class SchedulerTimer;
@@ -82,7 +78,7 @@ class Pc : public Machine {
     return m_SchedulerTimerSelection.usesLocalApic();
   }
 
-#if APIC
+#if MULTIPROCESSOR
   /** Get the Local APIC class instance
    *\return reference to the Local APIC class instance */
   inline LocalApic& getLocalApic() {
@@ -112,11 +108,7 @@ class Pc : public Machine {
   X86Vga* m_Vga;
   Keyboard* m_pKeyboard;
 
-#if defined(SMBIOS)
-  SMBios* m_SMBios;
-#endif
-
-#if APIC
+#if MULTIPROCESSOR
   LocalApic* m_LocalApic;
 #endif
 

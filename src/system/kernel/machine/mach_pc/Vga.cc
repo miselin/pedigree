@@ -21,182 +21,58 @@
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/machine/Framebuffer.h"
-#include "pedigree/kernel/machine/x86_common/Bios.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-X86Vga::X86Vga(uint32_t nRegisterBase, uint32_t nFramebufferBase)
-    : m_RegisterPort("VGA controller"),
-      m_Framebuffer("VGA framebuffer"),
-      m_pFramebuffer(reinterpret_cast<uint8_t*>(nFramebufferBase)),
-      m_nWidth(80),
-      m_nHeight(25),
-      m_ModeStack(0),
-      m_nMode(3),
-      m_nControls(0) {}
+X86Vga::X86Vga() : m_Framebuffer("Console framebuffer") {}
 
 X86Vga::~X86Vga() {}
 
-uint8_t X86Vga::getControls() {
-  // Go into index state.
-  m_RegisterPort.read8(VGA_INSTAT_READ);
-
-  // Get current.
-  m_RegisterPort.write8(VGA_REG_ATTR_MODE_CTL | VGA_PAS, VGA_AC_INDEX);
-  return m_RegisterPort.read8(VGA_AC_READ);
-}
-
-void X86Vga::setControls(uint8_t newControls) {
-  m_nControls = newControls;
-
-  // Ensure we are in index state again.
-  m_RegisterPort.read8(VGA_INSTAT_READ);
-
-  // Set!
-  m_RegisterPort.write8(VGA_REG_ATTR_MODE_CTL | VGA_PAS, VGA_AC_INDEX);
-  m_RegisterPort.write8(m_nControls, VGA_AC_WRITE);
-}
-
-void X86Vga::setControl(Vga::VgaControl which) {
-  if (m_Uefi)
-    return;
-  uint8_t current = getControls();
-  current |= 1 << static_cast<uint8_t>(which);
-  setControls(current);
-}
-
-void X86Vga::clearControl(Vga::VgaControl which) {
-  if (m_Uefi)
-    return;
-  uint8_t current = getControls();
-  current &= ~(1 << static_cast<uint8_t>(which));
-  setControls(current);
-}
-
-bool X86Vga::setMode(int mode) {
-  m_nMode = mode;
-  return true;
-}
-
 bool X86Vga::setLargestTextMode() {
-  if (m_Uefi) {
-    LockGuard<Spinlock> guard(m_ConsoleLock);
-    m_Console.invalidate();
-  }
+  LockGuard<Spinlock> guard(m_ConsoleLock);
+  m_Console.invalidate();
   return true;
-}
-
-bool X86Vga::isMode(size_t nCols, size_t nRows, bool bIsText, size_t nBpp) {
-  return false;
-}
-
-bool X86Vga::isLargestTextMode() {
-  return true;
-}
-
-void X86Vga::rememberMode() {
-  if (m_Uefi)
-    return;
-  m_ModeStack++;
-
-  if (m_ModeStack == 1) {
-    // SET SuperVGA VIDEO MODE - AX=4F02h, BX=new mode
-    Bios::instance().setAx(0x4F02);
-    Bios::instance().setBx(3);
-    Bios::instance().setEs(0x0000);
-    Bios::instance().setDi(0x0000);
-    Bios::instance().executeInterrupt(0x10);
-
-    setControls(m_nControls);
-  }
-}
-
-void X86Vga::restoreMode() {
-  if (m_Uefi)
-    return;
-  if (m_ModeStack == 0)
-    return;
-  m_ModeStack--;
-
-  if (m_ModeStack == 0 && m_nMode != 3) {
-    // SET SuperVGA VIDEO MODE - AX=4F02h, BX=new mode
-    Bios::instance().setAx(0x4F02);
-    Bios::instance().setBx(m_nMode);
-    Bios::instance().setEs(0x0000);
-    Bios::instance().setDi(0x0000);
-    Bios::instance().executeInterrupt(0x10);
-
-    setControls(m_nControls);
-  }
 }
 
 void X86Vga::pokeBuffer(uint8_t* pBuffer, size_t nBufLen) {
-  if (!pBuffer)
-    return;
-  if (m_Uefi) {
-    if (m_Console.cells()) {
-      size_t length =
-          nBufLen < FramebufferConsole::CellCount * 2 ? nBufLen : FramebufferConsole::CellCount * 2;
-      MemoryCopy(m_Console.cells(), pBuffer, length);
-      flush();
-    }
+  if (!pBuffer) {
     return;
   }
-  if (m_Framebuffer == true)
-    MemoryCopy(m_Framebuffer.virtualAddress(), pBuffer, nBufLen);
-  else
-    MemoryCopy(m_pFramebuffer, pBuffer, nBufLen);
+  size_t length =
+      nBufLen < FramebufferConsole::CellCount * 2 ? nBufLen : FramebufferConsole::CellCount * 2;
+  MemoryCopy(m_Console.cells(), pBuffer, length);
+  flush();
 }
 
 void X86Vga::peekBuffer(uint8_t* pBuffer, size_t nBufLen) {
-  if (!pBuffer)
-    return;
-  if (m_Uefi) {
-    if (m_Console.cells()) {
-      size_t length =
-          nBufLen < FramebufferConsole::CellCount * 2 ? nBufLen : FramebufferConsole::CellCount * 2;
-      MemoryCopy(pBuffer, m_Console.cells(), length);
-    }
+  if (!pBuffer) {
     return;
   }
-  if (m_Framebuffer == true)
-    MemoryCopy(pBuffer, m_Framebuffer.virtualAddress(), nBufLen);
-  else
-    MemoryCopy(pBuffer, m_pFramebuffer, nBufLen);
+  size_t length =
+      nBufLen < FramebufferConsole::CellCount * 2 ? nBufLen : FramebufferConsole::CellCount * 2;
+  MemoryCopy(pBuffer, m_Console.cells(), length);
 }
 
 void X86Vga::moveCursor(size_t nX, size_t nY) {
-  if (m_Uefi) {
-    LockGuard<Spinlock> guard(m_ConsoleLock);
-    m_Console.moveCursor(nX, nY);
-    m_Console.flush();
-    if (m_pConsoleFramebuffer)
-      m_pConsoleFramebuffer->redraw();
-    return;
+  LockGuard<Spinlock> guard(m_ConsoleLock);
+  m_Console.moveCursor(nX, nY);
+  m_Console.flush();
+  if (m_pConsoleFramebuffer) {
+    m_pConsoleFramebuffer->redraw();
   }
-  if (!m_RegisterPort)
-    return;
-
-  uint16_t tmp = nY * m_nWidth + nX;
-
-  m_RegisterPort.write8(14, VGA_CRTC_INDEX);
-  m_RegisterPort.write8(tmp >> 8, VGA_CRTC_DATA);
-  m_RegisterPort.write8(15, VGA_CRTC_INDEX);
-  m_RegisterPort.write8(tmp, VGA_CRTC_DATA);
 }
 
 void X86Vga::flush() {
-  if (m_Uefi) {
-    LockGuard<Spinlock> guard(m_ConsoleLock);
-    m_Console.flush();
-    if (m_pConsoleFramebuffer)
-      m_pConsoleFramebuffer->redraw();
+  LockGuard<Spinlock> guard(m_ConsoleLock);
+  m_Console.flush();
+  if (m_pConsoleFramebuffer) {
+    m_pConsoleFramebuffer->redraw();
   }
 }
 
 bool X86Vga::setFramebuffer(Framebuffer* framebuffer) {
-  if (!m_Uefi || !framebuffer || framebuffer->getParent() || framebuffer->getBytesPerPixel() != 4 ||
+  if (!framebuffer || framebuffer->getParent() || framebuffer->getBytesPerPixel() != 4 ||
       framebuffer->getWidth() > UINT32_MAX || framebuffer->getHeight() > UINT32_MAX ||
       (framebuffer->getFormat() != Graphics::Bits32_Rgb &&
        framebuffer->getFormat() != Graphics::Bits32_Bgr)) {
@@ -204,8 +80,9 @@ bool X86Vga::setFramebuffer(Framebuffer* framebuffer) {
   }
 
   const size_t pitch = framebuffer->getBytesPerLine();
-  if (pitch && framebuffer->getHeight() > SIZE_MAX / pitch)
+  if (pitch && framebuffer->getHeight() > SIZE_MAX / pitch) {
     return false;
+  }
 
   LockGuard<Spinlock> guard(m_ConsoleLock);
   if (!m_Console.initialise(framebuffer->getRawBuffer(), pitch * framebuffer->getHeight(),
@@ -221,42 +98,29 @@ bool X86Vga::setFramebuffer(Framebuffer* framebuffer) {
 }
 
 bool X86Vga::initialise() {
-  m_Uefi = g_pBootstrapInfo && g_pBootstrapInfo->isUefi();
-  if (m_Uefi) {
-    BootstrapStruct_t::FramebufferInfo info;
-    // Keep serial boot available on firmware without a usable linear framebuffer.
-    if (!g_pBootstrapInfo->getFramebuffer(info) || info.width < 640 || info.height < 400)
-      return true;
-    const uint64_t bytes = static_cast<uint64_t>(info.pitch) * info.height;
-    if (bytes > 256 * 1024 * 1024)
-      return true;
-    const size_t pageSize = PhysicalMemoryManager::getPageSize();
-    const size_t offset = info.address & (pageSize - 1);
-    const size_t pages = (bytes + offset + pageSize - 1) / pageSize;
-    if (!PhysicalMemoryManager::instance().allocateRegion(
-            m_Framebuffer, pages,
-            PhysicalMemoryManager::continuous | PhysicalMemoryManager::nonRamMemory |
-                PhysicalMemoryManager::force,
-            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write |
-                VirtualAddressSpace::CacheDisable,
-            info.address - offset))
-      return true;
-    m_Console.initialise(reinterpret_cast<uint8_t*>(m_Framebuffer.virtualAddress()) + offset, bytes,
-                         info.width, info.height, info.pitch, info.format);
+  BootstrapStruct_t::FramebufferInfo info;
+  // Keep serial boot available on firmware without a usable linear framebuffer.
+  if (!g_pBootstrapInfo || !g_pBootstrapInfo->getFramebuffer(info) || info.width < 640 ||
+      info.height < 400) {
     return true;
   }
-  // TODO: We should allocate the value passed to the constructor
-  if (m_RegisterPort.allocate(VGA_BASE, 0x1B) == false)
-    return false;
-
-  // Allocate the Video RAM
-  PhysicalMemoryManager& physicalMemoryManager = PhysicalMemoryManager::instance();
-  bool result = physicalMemoryManager.allocateRegion(
-      m_Framebuffer, 2, PhysicalMemoryManager::continuous | PhysicalMemoryManager::nonRamMemory,
-      VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write |
-          VirtualAddressSpace::WriteThrough,
-      reinterpret_cast<uintptr_t>(m_pFramebuffer));
-  m_nControls = getControls();
-
-  return result;
+  const uint64_t bytes = static_cast<uint64_t>(info.pitch) * info.height;
+  if (bytes > 256 * 1024 * 1024) {
+    return true;
+  }
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const size_t offset = info.address & (pageSize - 1);
+  const size_t pages = (bytes + offset + pageSize - 1) / pageSize;
+  if (!PhysicalMemoryManager::instance().allocateRegion(
+          m_Framebuffer, pages,
+          PhysicalMemoryManager::continuous | PhysicalMemoryManager::nonRamMemory |
+              PhysicalMemoryManager::force,
+          VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write |
+              VirtualAddressSpace::CacheDisable,
+          info.address - offset)) {
+    return true;
+  }
+  m_Console.initialise(reinterpret_cast<uint8_t*>(m_Framebuffer.virtualAddress()) + offset, bytes,
+                       info.width, info.height, info.pitch, info.format);
+  return true;
 }

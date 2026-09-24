@@ -212,13 +212,13 @@ uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallS
     PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
     pSubsystem->setAbi(PosixSubsystem::LinuxAbi);
 
-#ifdef POSIX_VERBOSE_SYSCALLS
-    const long which = posix_translate_syscall(syscallNumber);
-    if (which >= 0) {
-      NOTICE("TRANSLATED syscall: Linux #" << syscallNumber << " -> Pedigree #" << which);
-      NOTICE("[" << pProcess->getId() << "] : " << Dec << which << Hex);
+    EMIT_IF(POSIX_LOG_FACILITIES & 128) {
+      const long which = posix_translate_syscall(syscallNumber);
+      if (which >= 0) {
+        NOTICE("TRANSLATED syscall: Linux #" << syscallNumber << " -> Pedigree #" << which);
+        NOTICE("[" << pProcess->getId() << "] : " << Dec << which << Hex);
+      }
     }
-#endif
 
     switch (syscallNumber) {
 #if ARMV7
@@ -279,10 +279,10 @@ uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallS
     return -1;
   }
 
-#ifdef POSIX_VERBOSE_SYSCALLS
-  NOTICE("[" << Processor::information().getCurrentThread()->getParent()->getId() << "] : " << Dec
-             << syscallNumber << Hex);
-#endif
+  EMIT_IF(POSIX_LOG_FACILITIES & 128) {
+    NOTICE("[" << Processor::information().getCurrentThread()->getParent()->getId() << "] : " << Dec
+               << syscallNumber << Hex);
+  }
 
   // Both ABIs enter the same bodies without extracting unused arguments.
 #define POSIX_CASE(target) \

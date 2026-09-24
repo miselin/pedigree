@@ -78,38 +78,38 @@ if [ ! -e "$script_dir/.easy_os" ]; then
             # TODO: Not sure if the package list is any different for debian vs ubuntu?
             echo "Installing packages with apt-get, please wait..."
             [ $nosudo = 0 ] && sudo apt-get install $confirm libmpfr-dev \
-                libmpc-dev libgmp-dev sqlite3 texinfo genisoimage u-boot-tools \
+                libmpc-dev libgmp-dev texinfo \
                 nasm python3-requests autoconf automake cmake bison flex lcov \
                 zlib1g-dev
             ;;
         ubuntu)
             echo "Installing packages with apt-get, please wait..."
             [ $nosudo = 0 ] && sudo apt-get install $confirm libmpfr-dev \
-                libmpc-dev libgmp-dev sqlite3 texinfo genisoimage e2fsprogs \
-                u-boot-tools nasm python3-requests autoconf automake cmake \
+                libmpc-dev libgmp-dev texinfo e2fsprogs \
+                nasm python3-requests autoconf automake cmake \
                 bison flex lcov zlib1g-dev
             ;;
         opensuse)
             echo "Installing packages with zypper, please wait..."
             if [ "$nosudo" = 0 ]; then
                 sudo zypper install $confirm mpfr-devel mpc-devel gmp3-devel \
-                    sqlite3 texinfo cmake bison flex autoconf automake nasm \
-                    genisoimage zlib-devel clang gettext-tools mtools \
+                    texinfo cmake bison flex autoconf automake nasm \
+                    zlib-devel clang gettext-tools mtools \
                     dosfstools e2fsprogs
             fi
             ;;
         fedora|redhat|centos|rhel)
             echo "Installing packages with YUM, please wait..."
             sudo yum install $confirm mpfr-devel gmp-devel libmpc-devel \
-                sqlite texinfo cmake bison flex autoconf automake nasm \
-                genisoimage zlib-devel
+                texinfo cmake bison flex autoconf automake nasm \
+                zlib-devel
             ;;
         osx|mac)
             if type port >/dev/null 2>&1; then
                 echo "Installing packages with macports, please wait..."
 
-                sudo port install mpfr libmpc gmp libiconv sqlite3 texinfo \
-                    cmake bison flex cdrtools wget mtools gnutar nasm
+                sudo port install mpfr libmpc gmp libiconv texinfo \
+                    cmake bison flex wget mtools gnutar nasm
             elif type brew >/dev/null 2>&1; then
                 echo "Installing packages with Homebrew, please wait..."
 
@@ -118,8 +118,6 @@ if [ ! -e "$script_dir/.easy_os" ]; then
                 brew list flex &>/dev/null || brew install flex
                 brew list gnu-tar &>/dev/null || brew install gnu-tar
                 brew list wget &>/dev/null || brew install wget
-                brew list xorriso &>/dev/null || brew install xorriso
-                brew list sqlite3 &>/dev/null || brew install sqlite3
                 brew list mtools &>/dev/null || brew install mtools
                 brew list nasm &>/dev/null || brew install nasm
                 brew list gmp &>/dev/null || brew install gmp
@@ -140,7 +138,7 @@ if [ ! -e "$script_dir/.easy_os" ]; then
             ;;
         openbsd)
             echo "Installing packages with pkg_add, please wait..."
-            sudo pkg_add cmake bison flex mtools sqlite cdrtools gmp mpfr \
+            sudo pkg_add cmake bison flex mtools gmp mpfr \
                 libmpc wget nasm
             ;;
         cygwin|windows|mingw)
@@ -149,8 +147,6 @@ if [ ! -e "$script_dir/.easy_os" ]; then
             echo " - GCC & binutils"
             echo " - libgmp, libmpc, libmpfr"
             echo " - zlib development headers"
-            echo " - mkisofs/genisoimage"
-            echo " - sqlite"
             echo " - patch"
             echo " - GNU make"
             echo "You will need to find alternative sources for the following:"
@@ -162,8 +158,8 @@ if [ ! -e "$script_dir/.easy_os" ]; then
             ;;
         arch)
             echo "Installing packages with pacman, please wait..."
-            sudo pacman -S gcc binutils gmp libmpc mpfr sqlite texinfo cmake \
-                bison flex autoconf automake nasm wget cdrtools mtools tar zlib
+            sudo pacman -S gcc binutils gmp libmpc mpfr texinfo cmake \
+                bison flex autoconf automake nasm wget mtools tar zlib
             ;;
         *)
             echo "Operating system '$os' is not supported yet."
@@ -172,8 +168,6 @@ if [ ! -e "$script_dir/.easy_os" ]; then
             echo " - GCC & binutils"
             echo " - libgmp, libmpc, libmpfr"
             echo " - zlib development headers"
-            echo " - mkisofs/genisoimage"
-            echo " - sqlite"
             echo " - mtools"
             echo " - CMake"
             echo " - Bison and Flex"

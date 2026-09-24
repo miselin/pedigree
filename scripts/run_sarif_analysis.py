@@ -21,10 +21,6 @@ from typing import Any, Iterable, Sequence
 
 
 SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx"}
-EXCLUDED_SOURCE_DIRECTORIES = (
-    Path("src/modules/system/config/sqlite3"),
-    Path("src/system/kernel/machine/mach_pc/x86emu"),
-)
 SARIF_SCHEMA = (
     "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/"
     "os/schemas/sarif-schema-2.1.0.json"
@@ -96,13 +92,6 @@ def load_compile_entries(
             continue
         if not _is_within(source, source_root):
             continue
-        relative_source = source.relative_to(source_root)
-        if any(
-            _is_within(relative_source, excluded)
-            for excluded in EXCLUDED_SOURCE_DIRECTORIES
-        ):
-            continue
-
         if "arguments" in raw:
             arguments = tuple(str(argument) for argument in raw["arguments"])
         elif "command" in raw:

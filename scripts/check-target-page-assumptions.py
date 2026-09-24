@@ -13,11 +13,9 @@ SOURCE_ROOT = Path(__file__).resolve().parent.parent
 TARGETS = (
     "src/system/include/pedigree/kernel/machine/Disk.h",
     "src/system/include/pedigree/kernel/process/Event.h",
-    "src/system/include/pedigree/kernel/process/Ipc.h",
     "src/system/include/pedigree/kernel/utilities/BufferView.h",
     "src/system/include/pedigree/kernel/utilities/Cache.h",
     "src/system/kernel/core/process/Event.cc",
-    "src/system/kernel/core/process/Ipc.cc",
     "src/system/kernel/core/process/MemoryPressureKiller.cc",
     "src/system/kernel/core/process/PerProcessorScheduler.cc",
     "src/system/kernel/core/processor/hosted",
@@ -39,7 +37,6 @@ TARGETS = (
     "src/modules/system/linker",
     "src/modules/system/lodisk/LoDisk.cc",
     "src/modules/system/rawfs/RawFsFile.cc",
-    "src/modules/system/status_server/main.cc",
     "src/modules/system/vfs/MemoryMappedFile.cc",
     "src/user/applications/testsuite/mprotect.c",
 )
@@ -57,14 +54,6 @@ ALLOWED = {
     (
         "src/system/include/pedigree/kernel/process/Event.h",
         "amount of information up to a hard maximum size of EVENT_LIMIT (usually 4096",
-    ),
-    (
-        "src/system/include/pedigree/kernel/process/Ipc.h",
-        "static constexpr size_t InlineCapacity = 4096;",
-    ),
-    (
-        "src/system/include/pedigree/kernel/process/Ipc.h",
-        "/// the @IpcMessage constructor with regionHandle == 0 and nBytes >= 4096",
     ),
     (
         "src/system/kernel/machine/mach_pc/Rtc.cc",

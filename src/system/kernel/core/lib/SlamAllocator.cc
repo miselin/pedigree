@@ -34,7 +34,6 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/MemoryTracing.h"
 #include "pedigree/kernel/utilities/assert.h"
-#include "pedigree/kernel/utilities/pocketknife.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #if X64 && !PEDIGREE_BENCHMARK
@@ -886,8 +885,6 @@ void SlamAllocator::initialise() {
   m_SlabRegionPages = (heapEnd - m_Base) / getPageSize();
   m_SlabRegionBitmapEntries = (m_SlabRegionPages + 63) / 64;
 
-  pocketknife::VirtualAddressSpaceSwitch vaswitch;
-
   // Allocate bitmap.
   size_t numPages = 0;
   for (uintptr_t addr = bitmapBase; addr < m_Base; addr += getPageSize()) {
@@ -899,8 +896,6 @@ void SlamAllocator::initialise() {
       ByteSet(reinterpret_cast<void*>(addr), 0, getPageSize());
     }
   }
-
-  vaswitch.restore();
 
   EMIT_IF(!PEDIGREE_BENCHMARK) {
     NOTICE("Kernel heap range prepared from " << Hex << m_Base << " to " << heapEnd
@@ -1058,14 +1053,10 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize) {
   }
 #endif
 
-  pocketknife::VirtualAddressSpaceSwitch vaswitch;
-
   for (size_t i = 0; i < nPages; ++i) {
     void* p = reinterpret_cast<void*>(slab + (i * getPageSize()));
     allocateAndMapAt(p);
   }
-
-  vaswitch.restore();
 
   m_SlabRegionLock.acquire();
   for (size_t i = 0; i < nPages; ++i) {
@@ -1129,14 +1120,10 @@ void SlamAllocator::freeSlabUnlocked(uintptr_t address, size_t length) {
   }
 
   // Perform unmapping first (so we can just modify 'address').
-  pocketknife::VirtualAddressSpaceSwitch vaswitch;
-
   for (uintptr_t base = address; base < (address + length); base += getPageSize()) {
     void* p = reinterpret_cast<void*>(base);
     unmap(p);
   }
-
-  vaswitch.restore();
 
 #if defined(PEDIGREE_BUILDUTILS)
   if (m_SlabTransitionHook) {

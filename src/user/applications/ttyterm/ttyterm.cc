@@ -49,11 +49,7 @@ pid_t g_RunningPid = -1;
 // File descriptor for our PTY master.
 int g_MasterPty;
 
-#if LIVECD
-#define FIRST_PROGRAM "/usr/bin/live"
-#else
 #define FIRST_PROGRAM "/usr/bin/login"
-#endif
 
 // SIGINT handler
 void sigint(int sig) {

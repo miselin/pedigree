@@ -24,11 +24,6 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/demangle.h"
 
-#if LOCKS_COMMAND_DO_BACKTRACES && !defined(TESTSUITE)
-#include "pedigree/kernel/debugger/Backtrace.h"
-#include "pedigree/kernel/linker/KernelElf.h"
-#endif
-
 LocksCommand g_LocksCommand;
 #ifndef TESTSUITE
 extern Spinlock g_MallocLock;
@@ -54,9 +49,6 @@ LocksCommand::LocksCommand()
       m_bFatal(true),
       m_SelectedLine(0) {
   for (size_t i = 0; i < LOCKS_COMMAND_NUM_CPU; ++i) {
-#if LOCKS_COMMAND_DO_BACKTRACES
-    m_bTracing[i] = false;
-#endif
     m_NextPosition[i] = 0;
   }
 }
@@ -179,13 +171,6 @@ const char* LocksCommand::getLine1(size_t index, DebuggerIO::Colour& colour,
       } else if (nLock == index) {
         break;
       }
-#if LOCKS_COMMAND_DO_BACKTRACES
-      else if ((nLock < index) && (nLock + pD->n >= index)) {
-        break;
-      }
-
-      nLock += pD->n;
-#endif
 
       ++nDepth;
       ++nLock;
@@ -248,15 +233,6 @@ const char* LocksCommand::getLine2(size_t index, size_t& colOffset, DebuggerIO::
       if (nLock == index) {
         break;
       }
-#if LOCKS_COMMAND_DO_BACKTRACES
-      else if ((nLock < index) && (nLock + pD->n >= index)) {
-        // Backtrace frame.
-        doBacktrace = true;
-        break;
-      }
-
-      nLock += pD->n;
-#endif
 
       ++nDepth;
       ++nLock;
@@ -273,38 +249,6 @@ const char* LocksCommand::getLine2(size_t index, size_t& colOffset, DebuggerIO::
 
   colOffset = nDepth + 3;
 
-#if LOCKS_COMMAND_DO_BACKTRACES
-  if (doBacktrace && pD->n) {
-    ++colOffset;
-
-    // Not the right lock, but we do need to backtrace.
-    size_t backtraceFrame = index - nLock - 1;
-
-    if (backtraceFrame > pD->n) {
-      ERROR_OR_FATAL("wtf");
-    }
-
-    uintptr_t addr = pD->ra[backtraceFrame];
-
-    Line += " -> [";
-    Line.append(addr, 16);
-    Line += "]";
-
-#ifndef TESTSUITE
-    uintptr_t symStart = 0;
-    const char* pSym = KernelElf::instance().globalLookupSymbol(addr, &symStart);
-    if (pSym) {
-      LargeStaticString sym(pSym);
-
-      Line += " ";
-
-      symbol_t symbol;
-      demangle(sym, &symbol);
-      Line += static_cast<const char*>(symbol.name);
-    }
-#endif
-  } else if (!doBacktrace)
-#endif
   {
     Line.append(reinterpret_cast<uintptr_t>(pD->pLock), 16);
     Line += " state=";
@@ -345,13 +289,6 @@ size_t LocksCommand::getLineCount() {
       // For the CPU line to appear.
       ++numLocks;
     }
-
-#if LOCKS_COMMAND_DO_BACKTRACES
-    // Add backtrace frames for this lock.
-    for (size_t j = 0; j < nextPos; ++j) {
-      numLocks += m_pDescriptors[i][j].n;
-    }
-#endif
 
     numLocks += nextPos;
   }
@@ -404,29 +341,6 @@ bool LocksCommand::lockAttempted(const Spinlock* pLock, size_t nCpu, bool intSta
   pD->state = Attempted;
 
 #ifndef TESTSUITE
-#if LOCKS_COMMAND_DO_BACKTRACES
-  pD->n = 0;
-
-  // Backtrace has to be touched carefully as it takes locks too. Also, we
-  // generally don't care about the top level lock's backtrace, but rather
-  // those that are nested (as they are the ones that will cause problems
-  // with out-of-order release, typically).
-  if (pos && Processor::isInitialised() >= 2 && m_bTracing[nCpu].compareAndSwap(false, true)) {
-    Backtrace bt;
-    bt.performBpBacktrace(0, 0);
-
-    size_t numFrames = bt.numStackFrames();
-    if (numFrames > NUM_BT_FRAMES) {
-      numFrames = NUM_BT_FRAMES;
-    }
-    for (size_t i = 0; i < numFrames; ++i) {
-      pD->ra[i] = bt.getReturnAddress(i);
-    }
-    pD->n = numFrames;
-
-    m_bTracing[nCpu] = false;
-  }
-#endif
 #endif
 
   return true;

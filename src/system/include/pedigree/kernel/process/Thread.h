@@ -57,7 +57,6 @@ class HostedInterruptManager;
 class RoundRobin;
 class RequestQueueCallbackScope;
 class SchedulerTimerDispatchCleanup;
-class AdmittedThread;
 class UserReturnFrame;
 
 /** Thread TLS area size */
@@ -89,7 +88,6 @@ class EXPORTED_PUBLIC Thread {
   friend class ExecutionContextGuard;
   friend class RequestQueueCallbackScope;
   friend class SchedulerTimerDispatchCleanup;
-  friend class AdmittedThread;
 
  public:
   class EXPORTED_PUBLIC StackDiscardScope {
@@ -188,9 +186,6 @@ class EXPORTED_PUBLIC Thread {
   /** Thread start function type. */
   typedef int (*ThreadStartFunc)(void*);
 
-  /** Releases a start parameter if a delayed thread retires before entry. */
-  typedef void (*ThreadStartCleanup)(void*);
-
   /** Creates a new Thread belonging to the given Process. It shares the
    Process' * virtual address space.
    *
@@ -239,9 +234,6 @@ class EXPORTED_PUBLIC Thread {
   bool affinityWorkPending() const {
     return __atomic_load_n(&m_AffinityReturnPending, __ATOMIC_ACQUIRE) != 0;
   }
-  /** Placement inhibition only; the registration retains its own lifetime. */
-  bool tryPinLegacyUserCallbacks();
-  void unpinLegacyUserCallbacks();
 #if PEDIGREE_AFFINITY_TESTS
   using AffinityCommitHook = void (*)(Thread*);
   static void setAffinityCommitHookForTest(Thread* target, AffinityCommitHook hook);
@@ -266,12 +258,6 @@ class EXPORTED_PUBLIC Thread {
    * block and before the final scheduler handoff.
    */
   void notifySubsystemExit();
-  bool prepareInputUserStack();
-  void retireInputUserStack();
-  VirtualAddressSpace::Stack* inputUserStack() const {
-    return m_pInputUserStack;
-  }
-
   /* Forces the thread to run on the bootstrap processor. */
   void forceToStartupProcessor();
 
@@ -991,11 +977,6 @@ class EXPORTED_PUBLIC Thread {
                                         DeferredScopeRecord::Cleanup cleanup = nullptr,
                                         void* context = nullptr);
 
-  /** Kernel-owned start cleanup; unloadable code must use AdmittedThread. */
-  Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
-         bool semiUser, bool bDontPickCore, bool delayedStart, ThreadStartCleanup startCleanup,
-         const ThreadPlacement* placement = nullptr);
-
   /** Copy-constructor */
   Thread(const Thread&);
   /** Assignment operator */
@@ -1225,7 +1206,6 @@ class EXPORTED_PUBLIC Thread {
   bool m_AffinityGatePending = false;
   bool m_AffinityWorkQueued = false;
   size_t m_AffinityReturnPending = 0;
-  size_t m_LegacyUserCallbackPins = 0;
   bool m_SignalFramesRequired = false;
   bool m_UserReturnSignalParked = false;
   size_t m_UserReturnWorkPending = 0;
@@ -1243,7 +1223,6 @@ class EXPORTED_PUBLIC Thread {
   bool m_bReadyQueued = false;
 
   /** Memory mapping for the TLS base of this thread (userspace-only) */
-  VirtualAddressSpace::Stack* m_pInputUserStack = nullptr;
   void* m_pTlsBase = nullptr;
 #if X64 && !HOSTED
   uintptr_t m_UserGsBase = 0;

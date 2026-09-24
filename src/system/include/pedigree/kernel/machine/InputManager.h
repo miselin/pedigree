@@ -133,16 +133,10 @@ class EXPORTED_PUBLIC InputManager {
   void joystickUpdate(ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap);
 
   /// Installs a callback
-  void installCallback(CallbackType filter, callback_t callback, void* meta = 0,
-                       Thread* pThread = 0, uintptr_t param = 0);
+  void installCallback(CallbackType filter, callback_t callback, void* meta = 0);
 
   /// Removes a callback
-  void removeCallback(callback_t callback, void* meta = 0, Thread* pThread = 0);
-
-  /// Removes a callback by searching for a Thread pointer. This can be
-  /// used to avoid useless and broken links to a Thread in the callback
-  /// list if the Thread doesn't clean up properly.
-  bool removeCallbackByThread(Thread* pThread);
+  void removeCallback(callback_t callback, void* meta = 0);
 
   /// Thread trampoline
   static int trampoline(void* ptr);
@@ -172,26 +166,14 @@ class EXPORTED_PUBLIC InputManager {
   void putNotification(InputNotification* note);
 
 #if THREADS
-  bool removeCallbacks(callback_t callback, void* meta, Thread* pThread, bool byThread);
+  void removeCallbacks(callback_t callback, void* meta);
   void drainCallback(CallbackItem* item);
 #endif
 
-  /// Item in the callback list. This stores information that may be needed
-  /// to create and send an Event for a userspace callback.
+  /// Item in the kernel callback list.
   struct CallbackItem {
     /// The handler function
     callback_t func;
-
-#if THREADS
-    /// Thread to send an Event to. If null, the Event will be sent to the
-    /// current thread, which is only valid for kernel callbacks (as there
-    /// will be no address space switch for a call to a kernel function).
-    Thread* pThread;
-#endif
-
-    /// Parameter to put into the serialised buffer sent to userspace.
-    /// Typically holds the address of a userspace callback.
-    uintptr_t nParam;
 
     /// Filter for this callback
     CallbackType filter;

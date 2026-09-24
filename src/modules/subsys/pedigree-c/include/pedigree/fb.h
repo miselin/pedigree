@@ -32,6 +32,21 @@ enum FbCommands {
   PEDIGREE_FB_CMD_MAX = 0x5002,
 };
 
+// Numeric values are part of the framebuffer ioctl ABI.
+enum FbPixelFormat {
+  PEDIGREE_FB_FORMAT_ARGB32 = 0,
+  PEDIGREE_FB_FORMAT_RGBA32 = 1,
+  PEDIGREE_FB_FORMAT_RGB32 = 2,
+  PEDIGREE_FB_FORMAT_BGR32 = 3,
+  PEDIGREE_FB_FORMAT_RGB24 = 4,
+  PEDIGREE_FB_FORMAT_BGR24 = 5,
+  PEDIGREE_FB_FORMAT_ARGB16 = 6,
+  PEDIGREE_FB_FORMAT_RGB565 = 7,
+  PEDIGREE_FB_FORMAT_RGB555 = 8,
+  PEDIGREE_FB_FORMAT_INDEXED8 = 9,
+  PEDIGREE_FB_FORMAT_RGB332 = 10,
+};
+
 /// All zeroes = 'revert to text mode'.
 typedef struct {
   size_t width;

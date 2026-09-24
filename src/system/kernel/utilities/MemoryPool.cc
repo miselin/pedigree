@@ -24,27 +24,20 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/MemoryPool.h"
 #include "pedigree/kernel/utilities/assert.h"
-#include "pedigree/kernel/utilities/pocketknife.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 static void map(uintptr_t location) {
   VirtualAddressSpace& va = VirtualAddressSpace::getKernelAddressSpace();
-
-  pocketknife::VirtualAddressSpaceSwitch vaswitch;
 
   void* page = page_align(reinterpret_cast<void*>(location));
   if (!va.isMapped(page)) {
     physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
     va.map(phys, page, VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write);
   }
-
-  vaswitch.restore();
 }
 
 static bool unmap(uintptr_t location) {
   VirtualAddressSpace& va = VirtualAddressSpace::getKernelAddressSpace();
-
-  pocketknife::VirtualAddressSpaceSwitch vaswitch;
 
   void* page = page_align(reinterpret_cast<void*>(location));
   bool result = false;
@@ -56,8 +49,6 @@ static bool unmap(uintptr_t location) {
     va.unmap(page);
     PhysicalMemoryManager::instance().freePage(phys);
   }
-
-  vaswitch.restore();
 
   return result;
 }

@@ -53,7 +53,6 @@ class VfsFilesystemPin;
 class VfsMountView;
 
 /** Set to zero to disable the builtin VFS LRU caches. */
-#define VFS_WITH_LRU_CACHES 0
 
 /** This class implements a single-root virtual filesystem namespace. */
 class EXPORTED_PUBLIC VFS {

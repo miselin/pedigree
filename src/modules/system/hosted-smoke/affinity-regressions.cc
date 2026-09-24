@@ -272,121 +272,6 @@ bool cancelPending(size_t sourceCpu, size_t destinationCpu) {
   return passed;
 }
 
-struct PinContext {
-  Thread* target = nullptr;
-  Atomic<size_t> calls{0};
-  Atomic<bool> rejected{false};
-};
-
-PinContext* g_PinContext = nullptr;
-
-void pinBeforeCommit(Thread* peer) {
-  auto* context = __atomic_load_n(&g_PinContext, __ATOMIC_ACQUIRE);
-  if (!context || peer != context->target)
-    return;
-  context->calls += 1;
-  const bool pinned = peer->tryPinLegacyUserCallbacks();
-  context->rejected = !pinned;
-  if (pinned)
-    peer->unpinLegacyUserCallbacks();
-}
-
-bool legacyPins(size_t sourceCpu, size_t destinationCpu) {
-  WaitState state;
-  Thread* peer = startWaiter(state, sourceCpu);
-  if (!check(peer != nullptr, "legacy pin waiter allocation/start"))
-    return false;
-  bool passed = check(state.entered.acquireForCompletion(1, 5) && waitForSleeping(*peer, state),
-                      "legacy pin wait enrollment");
-  CpuAffinityMask source, destination;
-  source.set(sourceCpu);
-  destination.set(destinationCpu);
-  size_t pins = 0;
-  for (size_t i = 0; passed && i < 2; ++i) {
-    const bool pinned = peer->tryPinLegacyUserCallbacks();
-    pins += pinned;
-    passed &= check(pinned, "counted legacy pin admission");
-  }
-  const bool moving = sourceCpu != destinationCpu;
-  auto rejectsExclusion = [&] {
-    uint64_t generation = ~uint64_t(0);
-    const auto result = peer->requestAffinity(destination, generation);
-    if (result == AffinityResult::Success || result == AffinityResult::Busy)
-      peer->waitAffinity(generation);
-    ThreadPlacement placement;
-    peer->snapshotPlacement(placement);
-    return check(result == AffinityResult::Unsupported && !generation && placement.migratable &&
-                     sameMask(placement.allowed, source),
-                 "legacy pin rejected exclusion without changing policy");
-  };
-  if (passed && moving)
-    passed &= rejectsExclusion();
-  if (passed) {
-    uint64_t generation = 0;
-    const auto result = peer->requestAffinity(source, generation);
-    passed &= check(result == AffinityResult::Success, "legacy pin compatible mask admission");
-    if (result == AffinityResult::Success)
-      passed &= check(peer->waitAffinity(generation) == AffinityResult::Success,
-                      "legacy pin compatible mask acknowledgement");
-  }
-  if (pins) {
-    peer->unpinLegacyUserCallbacks();
-    --pins;
-  }
-  if (passed && moving)
-    passed &= rejectsExclusion();
-  while (pins) {
-    peer->unpinLegacyUserCallbacks();
-    --pins;
-  }
-  PinContext context;
-  context.target = peer;
-  if (passed) {
-    if (moving) {
-      __atomic_store_n(&g_PinContext, &context, __ATOMIC_RELEASE);
-      Thread::setAffinityCommitHookForTest(peer, pinBeforeCommit);
-    }
-    uint64_t generation = 0;
-    const auto result = peer->requestAffinity(destination, generation);
-    passed &= check(result == AffinityResult::Success, "last legacy pin release permits policy");
-    if (result == AffinityResult::Success)
-      passed &= check(peer->waitAffinity(generation) == AffinityResult::Success,
-                      "unpinned policy acknowledgement");
-    if (moving) {
-      Thread::setAffinityCommitHookForTest(nullptr, nullptr);
-      __atomic_store_n(&g_PinContext, static_cast<PinContext*>(nullptr), __ATOMIC_RELEASE);
-      passed &= check(context.calls == 1 && context.rejected,
-                      "accepted excluding request rejects legacy pin admission");
-      const bool pinned = peer->tryPinLegacyUserCallbacks();
-      passed &= check(!pinned, "committed excluding mask rejects legacy pin admission");
-      if (pinned)
-        peer->unpinLegacyUserCallbacks();
-    }
-    ThreadPlacement placement;
-    peer->snapshotPlacement(placement);
-    bool sourceOwned;
-    {
-      LockGuard<Spinlock> guard(peer->getLock());
-      sourceOwned = peer->getScheduler() == Scheduler::schedulerForCpu(sourceCpu);
-    }
-    passed &= check(sourceOwned && state.returns == 0 && sameMask(placement.allowed, destination),
-                    "sleeping target acknowledges policy on original owner");
-  }
-  bool completed = false;
-  if (passed) {
-    completed =
-        state.queue.wakeOne(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(&state, 1)) &&
-        state.firstDone.acquireForCompletion(1, 5);
-    passed &= check(completed && state.beforeGateCpu == sourceCpu && state.gatePassed &&
-                        state.firstCpu == destinationCpu && state.returns == 1,
-                    "unpinned target moves only at clean gate");
-  }
-  retireWaiter(peer, state, completed);
-  if (passed)
-    NOTICE("AFFINITY-CORE: PASS legacy callback pins " << (moving ? "migration" : "same CPU"));
-  return passed;
-}
-
 int forbiddenEntry(void* parameter) {
   *static_cast<bool*>(parameter) = true;
   return 0;
@@ -434,10 +319,10 @@ EXPORTED_PUBLIC bool runAffinityRegressions() {
       break;
     }
   }
-  bool passed = pinnedAdmission() && legacyPins(source, source) && heldWake(source, source) &&
+  bool passed = pinnedAdmission() && heldWake(source, source) &&
                 cancelPending(source, source);
   if (destination != source) {
-    passed = passed && legacyPins(source, destination) && heldWake(source, destination) &&
+    passed = passed && heldWake(source, destination) &&
              cancelPending(source, destination);
   } else {
     NOTICE("AFFINITY-CORE: SKIP cross-CPU migration (one online CPU)");

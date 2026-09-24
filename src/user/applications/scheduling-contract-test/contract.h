@@ -52,6 +52,4 @@ int sc_wakeups(void);
 int sc_lifecycle(void);
 int sc_permissions(void);
 int sc_exec(int argc, char** argv);
-int sc_input(void);
-int sc_input_exec(int argc, char** argv);
 #endif

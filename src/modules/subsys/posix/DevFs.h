@@ -28,12 +28,9 @@
 
 #include "modules/subsys/posix/PsAuxFile.h"
 #include "modules/subsys/posix/VirtualTerminal.h"
-#include "modules/system/console/TextIO.h"
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/Filesystem.h"
-
-#define DEVFS_NUMTTYS 7
 
 class DevFs;
 class DevFsDirectory;
@@ -262,7 +259,7 @@ class DevFs : public Filesystem {
     return SyncStatus::Success;
   }
 
-  DevFs() : m_pRoot(0), m_CttySelector(nullptr), m_pTty(0), m_VtManager(0), m_pPsAuxFile(0) {}
+  DevFs() : m_pRoot(0), m_CttySelector(nullptr), m_VtManager(0), m_pPsAuxFile(0) {}
 
   virtual ~DevFs();
 
@@ -310,13 +307,7 @@ class DevFs : public Filesystem {
   DevFsDirectory* m_pRoot;
   File* m_CttySelector;
 
-  TextIO* m_pTty;
-
   size_t m_NextInode;
-
-  TextIO* m_pTtys[DEVFS_NUMTTYS];
-  File* m_pTtyFiles[DEVFS_NUMTTYS];
-  size_t m_CurrentTty;
 
   VirtualTerminalManager* m_VtManager;
 

@@ -19,8 +19,6 @@
 
 #include "instrument.h"
 
-#define USE_LITE_RECORD 1
-
 extern "C" {
 void __cyg_profile_func_enter(void* func_address, void* call_site)
     __attribute__((no_instrument_function)) __attribute__((hot));
@@ -42,21 +40,12 @@ void __cyg_profile_func_enter(void* func_address, void* call_site) {
   if (UNLIKELY(g_WrittenFirst == 0)) {
     if (__sync_bool_compare_and_swap(&g_WrittenFirst, 0, 1)) {
       uint8_t flag = 0;
-#if USE_LITE_RECORD
       flag |= INSTRUMENT_GLOBAL_LITE;
-#endif
       asm volatile("outb %%al, %%dx" ::"d"(COM2), "a"(flag));
     }
   }
 
-#if USE_LITE_RECORD
   LiteInstrumentationRecord record;
-#else
-  InstrumentationRecord record;
-  record.data.flags = INSTRUMENT_RECORD_ENTRY;
-  record.data.caller = reinterpret_cast<uintptr_t>(call_site);
-  record.data.magic = INSTRUMENT_MAGIC;
-#endif
   record.data.function = reinterpret_cast<uintptr_t>(func_address);
 
   // Semi-unrolled, all-in-one assembly serial-port write.

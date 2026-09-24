@@ -64,10 +64,6 @@ class EXPORTED_PUBLIC BootstrapStruct_t {
   uint8_t* getInitrdAddress() const;
   size_t getInitrdSize() const;
 
-  bool isDatabaseLoaded() const;
-  uint8_t* getDatabaseAddress() const;
-  size_t getDatabaseSize() const;
-
   char* getCommandLine() const;
 
   size_t getSectionHeaderCount() const;

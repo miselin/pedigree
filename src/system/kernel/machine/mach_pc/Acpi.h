@@ -54,7 +54,7 @@ class Acpi {
     return m_bValid ? m_pFacp->cmosCenturyIndex : 0;
   }
 
-#if APIC
+#if MULTIPROCESSOR
   inline bool validApicInfo() const {
     return m_bValidApicInfo;
   }
@@ -65,14 +65,12 @@ class Acpi {
     return m_IoApics;
   }
 
-#if MULTIPROCESSOR
   inline bool validProcessorInfo() const {
     return m_bValidProcessorInfo;
   }
   inline const Vector<Multiprocessor::ProcessorInformation*>& getProcessorList() const {
     return m_Processors;
   }
-#endif
 #endif
 
  private:
@@ -178,11 +176,10 @@ class Acpi {
 
   void parseFixedACPIDescriptionTable() INITIALISATION_ONLY;
   void initialisePowerManagement() INITIALISATION_ONLY;
-#if APIC
+#if MULTIPROCESSOR
   void parseMultipleApicDescriptionTable() INITIALISATION_ONLY;
 #endif
   bool find() INITIALISATION_ONLY;
-  RsdtPointer* find(void* pMemory, size_t sMemory) INITIALISATION_ONLY;
   bool checksum(const RsdtPointer* pRdstPointer) INITIALISATION_ONLY;
   bool checksum(const SystemDescriptionTableHeader* pHeader) INITIALISATION_ONLY;
 
@@ -197,7 +194,7 @@ class Acpi {
   uint16_t m_ResetPort = 0;
   uint8_t m_ResetValue = 0;
 
-#if APIC
+#if MULTIPROCESSOR
   SystemDescriptionTableHeader* m_pApic;
 
   bool m_bValidApicInfo;
@@ -205,10 +202,8 @@ class Acpi {
   uint64_t m_LocalApicAddress;
   Vector<Multiprocessor::IoApicInformation*> m_IoApics;
 
-#if MULTIPROCESSOR
   bool m_bValidProcessorInfo;
   Vector<Multiprocessor::ProcessorInformation*> m_Processors;
-#endif
 #endif
 
   static Acpi m_Instance;

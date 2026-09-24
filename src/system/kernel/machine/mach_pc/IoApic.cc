@@ -19,7 +19,7 @@
 
 #include <config.h>
 
-#if APIC
+#if MULTIPROCESSOR
 
 #include "IoApic.h"
 

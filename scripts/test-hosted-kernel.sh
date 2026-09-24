@@ -17,12 +17,12 @@ usage()
     cat >&2 <<EOF
 Usage:
   $0 --static-kernel PATH --dynamic-kernel PATH \\
-     --dynamic-config-module PATH --dynamic-smoke-module PATH \\
-     --config PATH --disk-image PATH \\
+     --dynamic-smoke-module PATH \\
+     --disk-image PATH \\
      [--require-asan] [--expected-heap slam|system] \\
      [--wait-regressions-only] [--static-syscall-regressions-only]
 
-  $0 --static-kernel PATH --config PATH \\
+  $0 --static-kernel PATH \\
      [--require-asan] [--expected-heap slam|system] \\
      --static-syscall-regressions-only
 
@@ -34,9 +34,7 @@ EOF
 
 static_kernel=
 dynamic_kernel=
-dynamic_config_module=
 dynamic_smoke_module=
-configdb=
 disk_image=
 require_asan=0
 expected_heap=
@@ -57,19 +55,9 @@ if [ "$#" -gt 0 ]; then
                 dynamic_kernel=$2
                 shift 2
                 ;;
-            --dynamic-config-module)
-                [ "$#" -ge 2 ] || usage
-                dynamic_config_module=$2
-                shift 2
-                ;;
             --dynamic-smoke-module)
                 [ "$#" -ge 2 ] || usage
                 dynamic_smoke_module=$2
-                shift 2
-                ;;
-            --config)
-                [ "$#" -ge 2 ] || usage
-                configdb=$2
                 shift 2
                 ;;
             --disk-image)
@@ -113,9 +101,9 @@ if [[ ! "$rung_timeout" =~ ^[1-9][0-9]*$ ]]; then
     exit 2
 fi
 
-[ -n "$static_kernel" ] && [ -n "$configdb" ] || usage
+[ -n "$static_kernel" ] || usage
 if [ "$static_syscall_regressions_only" = "0" ]; then
-    [ -n "$dynamic_kernel" ] && [ -n "$dynamic_config_module" ] &&
+    [ -n "$dynamic_kernel" ] &&
         [ -n "$dynamic_smoke_module" ] && [ -n "$disk_image" ] || usage
 fi
 case "$expected_heap" in
@@ -123,10 +111,8 @@ case "$expected_heap" in
     *) usage ;;
 esac
 static_kernel=$(realpath "$static_kernel")
-configdb=$(realpath "$configdb")
 if [ "$static_syscall_regressions_only" = "0" ]; then
     dynamic_kernel=$(realpath "$dynamic_kernel")
-    dynamic_config_module=$(realpath "$dynamic_config_module")
     dynamic_smoke_module=$(realpath "$dynamic_smoke_module")
     dynamic_module_dir=$(dirname "$dynamic_smoke_module")
     dynamic_users_module=$(realpath "$dynamic_module_dir/users.o")
@@ -148,7 +134,7 @@ if [ -n "${PEDIGREE_VERIFY_LOG_DIR:-}" ]; then
     log_dir=$(cd -P -- "$PEDIGREE_VERIFY_LOG_DIR" && pwd -P)
 else
     run_id=$(date -u +%Y%m%dT%H%M%SZ)
-    log_root="$(dirname "$configdb")/smoke-logs"
+    log_root="$(dirname "$static_kernel")/smoke-logs"
     log_dir="$log_root/$run_id"
     mkdir -p "$log_root"
     if ! mkdir "$log_dir"; then
@@ -343,7 +329,7 @@ run_kernel()
     local stop_after=${5:-}
     local log="$log_dir/$name.log"
     local rung_dir="$scratch_dir/$name"
-    local args=("$kernel" "$initrd" "$configdb")
+    local args=("$kernel" "$initrd")
     if [ -n "$disk" ]; then
         args+=("$disk")
     fi
@@ -404,8 +390,6 @@ if [ "$require_asan" = "1" ]; then
     if [ "$static_syscall_regressions_only" = "0" ]; then
         assert_asan_kernel \
             "$dynamic_kernel" "$scratch_dir/dynamic-kernel.dynamic"
-        assert_asan_module \
-            "$dynamic_config_module" "$scratch_dir/config-module.symbols"
         assert_asan_module \
             "$dynamic_users_module" "$scratch_dir/users-module.symbols"
         assert_asan_module \
@@ -529,7 +513,6 @@ if [ "$static_syscall_regressions_only" = "1" ]; then
 fi
 
 mkdir "$scratch_dir/populated-initrd"
-cp "$dynamic_config_module" "$scratch_dir/populated-initrd/config.o"
 cp "$dynamic_users_module" "$scratch_dir/populated-initrd/users.o"
 cp "$dynamic_vfs_module" "$scratch_dir/populated-initrd/vfs.o"
 cp "$dynamic_fat_module" "$scratch_dir/populated-initrd/fat.o"
@@ -543,7 +526,7 @@ cp "$dynamic_smoke_module" "$scratch_dir/populated-initrd/hosted-smoke.o"
     cd "$scratch_dir/populated-initrd"
     cmake -E tar cf "$scratch_dir/populated-initrd.tar" \
         --format=gnutar -- \
-        config.o users.o vfs.o fat.o rawfs.o usb.o scsi.o \
+        users.o vfs.o fat.o rawfs.o usb.o scsi.o \
         usb-mass-storage.o hosted-smoke.o
 )
 
@@ -551,8 +534,7 @@ run_kernel \
     02-module-populated-initrd "$dynamic_kernel" \
     "$scratch_dir/populated-initrd.tar"
 populated_log="$log_dir/02-module-populated-initrd.log"
-assert_marker "$populated_log" "there are 9 files"
-assert_marker "$populated_log" "KERNELELF: Preloaded module config"
+assert_marker "$populated_log" "there are 8 files"
 assert_marker "$populated_log" "KERNELELF: Preloaded module users"
 assert_marker "$populated_log" "KERNELELF: Preloaded module vfs"
 assert_marker "$populated_log" "KERNELELF: Preloaded module fat"
@@ -567,7 +549,6 @@ assert_marker "$populated_log" "HOSTED-WAIT-TEST: BEGIN"
 assert_all_wait_markers_once "$populated_log"
 assert_marker_once "$populated_log" "HOSTED-WAIT-TEST: PASS event-payload-page-span"
 assert_marker_once "$populated_log" "HOSTED-WAIT-TEST: PASS memory-pool-page-span"
-assert_marker_once "$populated_log" "HOSTED-WAIT-TEST: PASS ipc-payload-page-span"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS wake-before-block"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS semaphore-pre-block"
 assert_marker \
@@ -636,8 +617,6 @@ assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS pagefault-hosted-clone-cow"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS pagefault-hosted-clone-writable-alias"
-assert_marker \
-    "$populated_log" "HOSTED-WAIT-TEST: PASS cdi-irq-wait-contract"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS input-callback-lifetime"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS ps2mouse-callback-lifetime"
@@ -693,7 +672,6 @@ assert_marker \
 assert_marker \
     "$populated_log" \
     "HOSTED-WAIT-TEST: PASS requestqueue-worker-terminal-ownership"
-assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS ipc-interruption"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS prequeued-event"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS state-level-publication"
 assert_marker \
@@ -708,10 +686,6 @@ assert_marker \
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS event-delivery-lease"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS event-shutdown-drain"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS thread-join-lifecycle"
-assert_marker \
-    "$populated_log" "HOSTED-WAIT-TEST: PASS admitted-thread-terminal-release-order"
-assert_marker \
-    "$populated_log" "HOSTED-WAIT-TEST: PASS admitted-thread-pre-start-cancellation"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS owned-thread-terminal-join"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS lifetime-leases"

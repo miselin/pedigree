@@ -29,50 +29,13 @@ class Framebuffer;
  */
 class Vga {
  public:
-  enum VgaControl {
-    LineGraphics = 2,
-    Blink = 3,
-  };
-
   virtual ~Vga();
-
-  /**
-   * Sets the given attribute mode control.
-   */
-  virtual void setControl(VgaControl which) = 0;
-
-  /**
-   * Clears the given attribute mode control.
-   */
-  virtual void clearControl(VgaControl which) = 0;
-
-  /**
-   * Changes the mode the VGA device is in.
-   * \param nCols The number of columns required.
-   * \param nRows The number of rows required.
-   * \param bIsText True if the caller requires a text mode, false if
-   * graphical. \param nBpp Only applicable for graphics modes - the number of
-   * bits per pixel. \return True on success, false on failure.
-   */
-  virtual bool setMode(int mode) = 0;
 
   /**
    * Sets the largest possible text mode.
    * \return True on success, false on failure.
    */
   virtual bool setLargestTextMode() = 0;
-
-  /**
-   * Tests the current video mode.
-   * \return True if the current mode matches the given arguments.
-   */
-  virtual bool isMode(size_t nCols, size_t nRows, bool bIsText, size_t nBpp = 0) = 0;
-
-  /**
-   * Tests if the current video mode is the largest text mode.
-   * \return True if the current video mode is equal to the largest text mode.
-   */
-  virtual bool isLargestTextMode() = 0;
 
   /**
    * \return The number of columns in the current mode.
@@ -83,16 +46,6 @@ class Vga {
    * \return The number of rows in the current mode.
    */
   virtual size_t getNumRows() = 0;
-
-  /**
-   * Stores the current video mode.
-   */
-  virtual void rememberMode() = 0;
-
-  /**
-   * Restores the saved video mode from a rememberMode() call.
-   */
-  virtual void restoreMode() = 0;
 
   /**
    * Copies the given buffer into video memory, replacing the current

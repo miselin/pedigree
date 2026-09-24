@@ -2,11 +2,7 @@
 # repository formatting policy.
 # Keep the directory levels explicit for clang-format versions without globstar
 # support.
-src/modules/drivers/common/cdi/*
-src/modules/drivers/common/cdi/include/*
 src/modules/subsys/posix/musl/*
-src/modules/subsys/posix/newlib/*
-src/modules/system/config/sqlite3/*
 src/modules/system/lwip/api/*
 src/modules/system/lwip/core/*
 src/modules/system/lwip/core/ipv4/*
@@ -27,8 +23,5 @@ src/modules/system/lwip/netif/ppp/polarssl/*
 src/system/kernel/debugger/libudis86/*
 src/system/kernel/machine/mach_pc/x86emu/*
 src/system/kernel/machine/mach_pc/x86emu/x86emu/*
-src/user/applications/chess/*
-src/user/applications/fire/*
 src/user/applications/gears/*
 src/user/applications/nyancat/*
-src/modules/subsys/posix/glue-dlmalloc.c

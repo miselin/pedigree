@@ -5,6 +5,23 @@ are build-time choices: a GRUB menu entry must select a separately built,
 matching kernel and initrd. A boot argument cannot change compiler optimization,
 allocator scribbling, lock diagnostics, or accounting instrumentation.
 
+## Userspace tests
+
+Normal builds and images contain runtime applications. Build regression programs
+and benchmarks explicitly with `cmake --build build --target user-tests`, or
+build one program using its `app-<name>` target. Test fixture dependencies are
+built alongside the program that uses them.
+
+To include the test programs and their fixtures in an image:
+
+```sh
+cmake -S . -B build -DPEDIGREE_BUILD_USER_TESTS=ON
+cmake --build build --target uefi-image --parallel 8
+```
+
+Set `PEDIGREE_BUILD_USER_TESTS=OFF` to return to runtime-only images. This option
+does not affect the host test suite or kernel regression options.
+
 ## T420 and general use
 
 For an existing x64 target build with its toolchain and image settings already

@@ -50,7 +50,6 @@
 class File;
 class Filesystem;
 class UnixSocket;
-class LockedFile;
 class PosixSubsystem;
 class ProcessGroup;
 class String;
@@ -126,10 +125,6 @@ extern size_t getAvailableDescriptor();
   if (!pSubsystem) {                           \
     return;                                    \
   }
-
-/** A map linking full paths to (advisory) locked files */
-/// \todo Locking!
-extern RadixTree<LockedFile*> g_PosixGlobalLockedFiles;
 
 /**
  * Process group ID control.

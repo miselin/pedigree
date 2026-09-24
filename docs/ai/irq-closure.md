@@ -28,8 +28,8 @@ regression suite.
 | --- | --- | --- |
 | Native tests | PIC state transitions, RTC elapsed-time aggregation, alarm ownership, and time conversion | Includes `PicContentionActions.CurrentRtcThreadedEntrySurvivesControllerOwner` |
 | Native Linux hosted kernel | Real kernel threads, signals, scheduler return tails, split-handler lifecycle and orphan drain, hard-context guards, unregister drains, and interrupt-manager mutation contention | `HOSTED-IRQ-CLOSURE: PASS all` |
-| QEMU UP | PC RTC calibration, PIC path, interrupt enable, and at least one second of IRQ8-backed clock progress | `up` with `--require-rtc-progress` |
-| QEMU SMP | The same PC/RTC path while four processors start and remain live long enough for IRQ8-backed clock progress | `smp` with `--require-rtc-progress` |
+| QEMU UP | PC RTC calibration, PIC path, interrupt enable, and at least one second of IRQ8-backed clock progress | Historical ISO checkpoint with RTC progress enabled |
+| QEMU SMP | The same PC/RTC path while four processors start and remain live long enough for IRQ8-backed clock progress | Historical ISO checkpoint with RTC progress enabled |
 
 The hosted kernel deliberately does not emulate a PC interrupt controller or
 RTC. QEMU owns those hardware-shaped checks and the real SMP check.
@@ -47,24 +47,27 @@ native and Darwin-hosted checks. Complete Linux configure, build, test, and
 runtime logs are retained in `build-verify/irq-closure`; its build utilities
 are compiled and executed on that same Linux host.
 
-Run the hardware-shaped checkpoints against a current ISO:
+Build a fresh UEFI image, then check PC startup with one and four CPUs:
 
 ```sh
-python3 scripts/run-qemu-iso.py up \
-  --iso build/pedigree.iso \
-  --log-dir build-verify/irq-closure/qemu \
-  --require-rtc-progress
+cmake --build build --target uefi-image --parallel 6
+uv run scripts/run-qemu-uefi.py --cpus 1 \
+  --image build/pedigree-uefi.img --root build/pedigree-uefi-root.img \
+  --log-dir build-verify/irq-closure/qemu-up \
+  --require-marker 'TSC calibration:'
 
-python3 scripts/run-qemu-iso.py smp \
-  --iso build/pedigree.iso \
-  --log-dir build-verify/irq-closure/qemu \
-  --require-rtc-progress
+uv run scripts/run-qemu-uefi.py --cpus 4 \
+  --image build/pedigree-uefi.img --root build/pedigree-uefi-root.img \
+  --log-dir build-verify/irq-closure/qemu-smp \
+  --require-marker 'TSC calibration:' \
+  --require-marker 'Processor #3 started.'
 ```
 
-The RTC progress gate requires calibration plus at least one full second of
-guest log timestamp advancement. On the PC target, those timestamps use the
-RTC machine timer, so the checkpoint cannot pass if IRQ8 delivery starves after
-interrupts are enabled.
+These commands validate UEFI boot, RTC calibration and application-processor
+startup. The current marker-based runner does not measure elapsed RTC time.
+The historical IRQ8 progress checkpoint required at least one full second of
+guest log timestamp advancement after interrupts were enabled; the boot checks
+above do not replace that evidence.
 
 ## Boundary
 

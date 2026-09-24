@@ -97,13 +97,8 @@ class DiskImageLayoutTests(unittest.TestCase):
                 (binary / "src" / "po" / lang).mkdir(parents=True)
             (binary / "keymaps").mkdir(parents=True)
 
-            configdb = root / "config.db"
-            configdb.write_text("config")
-
             kernel = root / "kernel"
-            grub = root / "menu.lst"
             kernel.write_text("kernel")
-            grub.write_text("grub")
 
             sources = [
                 str(images),
@@ -111,8 +106,6 @@ class DiskImageLayoutTests(unittest.TestCase):
                 str(base),
                 str(kernel),
                 "__noinitrd__",
-                str(configdb),
-                str(grub),
                 str(musl),
                 str(pedigree_c_sdk),
                 str(binary),

@@ -21,13 +21,13 @@
 #include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 
-#define VERBOSE_X64_ELF 0
-
-#if VERBOSE_X64_ELF
-#define VERBOSE_NOTICE(x) NOTICE(x)
-#else
-#define VERBOSE_NOTICE(x)
-#endif
+static constexpr bool VerboseElf = false;
+#define VERBOSE_NOTICE(x) \
+  do {                    \
+    EMIT_IF(VerboseElf) { \
+      NOTICE(x);          \
+    }                     \
+  } while (0)
 
 // http://www.caldera.com/developers/devspecs/abi386-4.pdf
 

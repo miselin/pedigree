@@ -8,22 +8,35 @@
 #include <vector>
 
 #include "../../src/modules/subsys/pedigree-c/include/pedigree/fb.h"
+#include "../../src/modules/subsys/posix/linux-fb-abi.h"
 #include "../../src/system/kernel/machine/mach_pc/FramebufferConsole.h"
+#include "graphics-pixels.inc"
+
+static_assert(PEDIGREE_FB_FORMAT_ARGB32 == static_cast<int>(Graphics::Bits32_Argb));
+static_assert(PEDIGREE_FB_FORMAT_RGBA32 == static_cast<int>(Graphics::Bits32_Rgba));
+static_assert(PEDIGREE_FB_FORMAT_RGB32 == static_cast<int>(Graphics::Bits32_Rgb));
+static_assert(PEDIGREE_FB_FORMAT_BGR32 == static_cast<int>(Graphics::Bits32_Bgr));
+static_assert(PEDIGREE_FB_FORMAT_RGB24 == static_cast<int>(Graphics::Bits24_Rgb));
+static_assert(PEDIGREE_FB_FORMAT_BGR24 == static_cast<int>(Graphics::Bits24_Bgr));
+static_assert(PEDIGREE_FB_FORMAT_ARGB16 == static_cast<int>(Graphics::Bits16_Argb));
+static_assert(PEDIGREE_FB_FORMAT_RGB565 == static_cast<int>(Graphics::Bits16_Rgb565));
+static_assert(PEDIGREE_FB_FORMAT_RGB555 == static_cast<int>(Graphics::Bits16_Rgb555));
+static_assert(PEDIGREE_FB_FORMAT_INDEXED8 == static_cast<int>(Graphics::Bits8_Idx));
+static_assert(PEDIGREE_FB_FORMAT_RGB332 == static_cast<int>(Graphics::Bits8_Rgb332));
 
 #define DEBUG_LOG(...)
 #define NOTICE(...)
 #define ERROR(...)
 #define SYSCALL_ERROR(...)
 #define ByteSet std::memset
+#define MemoryCopy std::memcpy
+#define StringLength std::strlen
 using String = std::string;
 template <class T>
 struct List : std::list<T> {
   using Iterator = typename std::list<T>::iterator;
   using std::list<T>::operator=;
 };
-namespace Graphics {
-enum PixelFormat { Bits32_Rgb, Bits32_Bgr, Bits24_Rgb };
-}
 struct Spinlock {
   bool held = false;
 };
@@ -67,6 +80,7 @@ struct Framebuffer {
   Framebuffer* getParent() const {
     return parent;
   }
+  void setPalette(uint32_t*, size_t) {}
   void redraw(size_t = 0, size_t = 0, size_t = 0, size_t = 0, bool = false) {
     assert(consoleLock && consoleLock->held);
     ++presents;
@@ -141,16 +155,12 @@ class KernelElf {
 struct X86Vga {
   bool setFramebuffer(Framebuffer* framebuffer);
   void flush();
-  bool m_Uefi = true;
   Spinlock m_ConsoleLock;
   FramebufferConsole m_Console;
   Framebuffer* m_pConsoleFramebuffer = nullptr;
 };
 struct Vga {
   void setLargestTextMode() {}
-  void setMode(int) {}
-  void rememberMode() {}
-  void restoreMode() {}
 };
 struct Machine {
   static Machine& instance() {
@@ -180,14 +190,35 @@ struct FramebufferFile {
   void setSize(size_t size) {
     bytes = size;
   }
+  size_t getSize() const {
+    return bytes;
+  }
   GraphicsService::GraphicsParameters* m_pGraphicsParameters = nullptr;
   bool m_bTextMode = false;
   size_t m_nDepth = 32, bytes = 0;
+  uint32_t m_LinuxPalette[256] = {};
 };
 
 #include "graphics-handover.inc"
 
 int main() {
+  assert(g_DesiredWidth == 1024 && g_DesiredHeight == 768 && g_DesiredBpp == 32);
+  assert(g_BackgroundColour == 0 && g_ForegroundColour == 0xffffff);
+  assert(g_ProgressBorderColour == 0x965000 && g_ProgressColour == 0x966400);
+  assert(parseVideoMode("800x600x24"));
+  for (const char* invalid : {"", "0x600x24", "800x600", "800x600x24junk", "800x600x65",
+                              "-800x600x24", "65536x600x24", "18446744073709551616x600x24"}) {
+    assert(!parseVideoMode(invalid));
+    assert(g_DesiredWidth == 800 && g_DesiredHeight == 600 && g_DesiredBpp == 24);
+  }
+  uint32_t colour = 0;
+  assert(parseColour("aB12eF", colour) && colour == 0xab12ef);
+  for (const char* invalid : {"", "12345", "1234567", "0x1234", "12g456"}) {
+    assert(!parseColour(invalid, colour));
+    assert(colour == 0xab12ef);
+  }
+  assert(parseColour("000000", colour) && colour == 0);
+
   Display display;
   GraphicsService graphics;
   GraphicsService::GraphicsProvider gop = {};
@@ -278,8 +309,6 @@ int main() {
   invalid.parent = nullptr;
   invalid.format = Graphics::Bits24_Rgb;
   assert(!vga.setFramebuffer(&invalid));
-  vga.m_Uefi = false;
-  assert(!vga.setFramebuffer(&replacement));
 
   GraphicsService::GraphicsParameters parameters{};
   parameters.providerResult.pDisplay = &display;

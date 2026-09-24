@@ -31,7 +31,7 @@ class IoBase;
  * If set to 1, the BusMasterIde object will log fairly verbosely (outcome of
  * each DMA transfer).
  */
-#define BUSMASTER_VERBOSE_LOGGING 0
+inline constexpr bool BusMasterVerboseLogging = false;
 
 /** The Physical Region Descriptor structure */
 typedef struct {

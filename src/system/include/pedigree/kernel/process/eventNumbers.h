@@ -33,6 +33,7 @@ const size_t Interrupt = 34;
 const size_t TimedTask = 35;
 const size_t SelectEvent = 36;
 
+// Reserved for the retired userspace input callback ABI and its inhibit API.
 const size_t InputEvent = 37;
 const size_t TuiEvent = 38;
 

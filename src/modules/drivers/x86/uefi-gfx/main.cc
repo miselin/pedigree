@@ -214,4 +214,4 @@ void exit() {}
 
 }  // namespace
 
-MODULE_INFO("uefi-gfx", &entry, &exit, "config");
+MODULE_INFO("uefi-gfx", &entry, &exit);

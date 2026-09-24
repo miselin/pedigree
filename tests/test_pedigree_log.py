@@ -42,7 +42,7 @@ class PedigreeLogBoundaryTests(unittest.TestCase):
 
         self.assertEqual(old_includes, [])
         self.assertEqual(old_calls, [])
-        self.assertGreater(new_calls, 200)
+        self.assertGreater(new_calls, 0)
 
     def test_libpedigree_c_owns_the_api_for_target_and_hosted_builds(self):
         header = (PEDIGREE_C / "include/pedigree/log.h").read_text(

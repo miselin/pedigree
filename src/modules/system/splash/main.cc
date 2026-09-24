@@ -41,7 +41,6 @@
 #include "font.h"
 #include "image.h"
 #include "modules/Module.h"
-#include "modules/system/config/Config.h"
 
 static Framebuffer* g_pFramebuffer = 0;
 
@@ -49,6 +48,9 @@ static uint8_t* g_pBuffer = 0;
 static Graphics::Buffer* g_pFont = 0;
 static size_t g_Width = 0;
 static size_t g_Height = 0;
+static size_t g_DesiredWidth = 1024;
+static size_t g_DesiredHeight = 768;
+static size_t g_DesiredBpp = 32;
 
 static uint32_t g_BackgroundColour = 0x000000;
 static uint32_t g_ForegroundColour = 0xFFFFFF;
@@ -313,59 +315,57 @@ static void progress(const char* text) {
   }
 }
 
-static void getColor(const char* colorName, uint32_t& color) {
-  // The query string
-  String sQuery;
-
-  // Create the query string
-  sQuery += "select r,g,b from 'colour_scheme' where name='";
-  sQuery += colorName;
-  sQuery += "';";
-
-  // Query the database
-  Config::Result* pResult = Config::instance().query(sQuery);
-
-  // Did the query fail?
-  if (!pResult) {
-    ERROR("Splash: Error looking up '" << colorName << "' colour.");
-    return;
+static bool parseVideoMode(const char* value) {
+  size_t mode[3] = {};
+  for (size_t i = 0; i < 3; ++i) {
+    if (*value < '0' || *value > '9') {
+      return false;
+    }
+    while (*value >= '0' && *value <= '9') {
+      mode[i] = mode[i] * 10 + (*value++ - '0');
+      if (mode[i] > 65535) {
+        return false;
+      }
+    }
+    if (!mode[i] || *value != (i == 2 ? '\0' : 'x')) {
+      return false;
+    }
+    if (i != 2) {
+      ++value;
+    }
+  }
+  if (mode[2] > 64) {
+    return false;
   }
 
-  if (!pResult->succeeded()) {
-    ERROR("Splash: Error looking up '" << colorName << "' colour: " << pResult->errorMessage());
-    delete pResult;
-    return;
-  }
-
-  // Get the color from the query result
-  color = Graphics::createRgb(pResult->getNum(0, "r"), pResult->getNum(0, "g"),
-                              pResult->getNum(0, "b"));
-
-  // Dispose of the query result
-  delete pResult;
+  g_DesiredWidth = mode[0];
+  g_DesiredHeight = mode[1];
+  g_DesiredBpp = mode[2];
+  return true;
 }
 
-static void getDesiredMode(size_t& modeWidth, size_t& modeHeight, size_t& modeBpp) {
-  // Query the database
-  Config::Result* pResult =
-      Config::instance().query("select width,height,bpp from 'desired_display_mode';");
-
-  // Did the query fail?
-  if (!pResult)
-    return;
-
-  if (!pResult->succeeded()) {
-    delete pResult;
-    return;
+static bool parseColour(const char* value, uint32_t& colour) {
+  if (StringLength(value) != 6) {
+    return false;
   }
 
-  // Get the mode details from the query result
-  modeWidth = pResult->getNum(0, "width");
-  modeHeight = pResult->getNum(0, "height");
-  modeBpp = pResult->getNum(0, "bpp");
-
-  // Dispose of the query result
-  delete pResult;
+  uint32_t result = 0;
+  for (size_t i = 0; i < 6; ++i) {
+    char c = value[i];
+    uint32_t digit;
+    if (c >= '0' && c <= '9') {
+      digit = c - '0';
+    } else if (c >= 'a' && c <= 'f') {
+      digit = c - 'a' + 10;
+    } else if (c >= 'A' && c <= 'F') {
+      digit = c - 'A' + 10;
+    } else {
+      return false;
+    }
+    result = (result << 4) | digit;
+  }
+  colour = result;
+  return true;
 }
 
 static bool handleNoSplash() {
@@ -399,11 +399,6 @@ static bool handleNoSplash() {
 static bool handleSplash() {
   g_NoGraphics = false;
 
-  getColor("splash-background", g_BackgroundColour);
-  getColor("splash-foreground", g_ForegroundColour);
-  getColor("border", g_ProgressBorderColour);
-  getColor("fill", g_ProgressColour);
-
   // No text mode for us - we're the splash screen!
   g_GraphicsParams.wantTextMode = false;
 
@@ -427,9 +422,9 @@ static bool handleSplash() {
 
   Display* pDisplay = g_GraphicsParams.providerResult.pDisplay;
 
-  // Get the desired mode from the database
-  size_t nDesiredWidth = 0, nDesiredHeight = 0, nDesiredBpp = 0;
-  getDesiredMode(nDesiredWidth, nDesiredHeight, nDesiredBpp);
+  size_t nDesiredWidth = g_DesiredWidth;
+  size_t nDesiredHeight = g_DesiredHeight;
+  size_t nDesiredBpp = g_DesiredBpp;
 
   // Set up the mode we want
   if (!(nDesiredWidth && nDesiredHeight && nDesiredBpp) ||
@@ -611,6 +606,7 @@ static bool init() {
     Vector<String> cmds = String(cmdline).tokenise(' ');
     for (auto it = cmds.begin(); it != cmds.end(); it++) {
       auto cmd = *it;
+      bool valid = true;
       if (cmd == String("nosplash")) {
         g_NoGraphics = true;
         break;
@@ -618,6 +614,19 @@ static bool init() {
         g_LogMode = false;
       } else if (cmd == String("splash=log") || cmd == String("splash=logs")) {
         g_LogMode = true;
+      } else if (!StringCompareN(cmd.cstr(), "video=", 6)) {
+        valid = parseVideoMode(cmd.cstr() + 6);
+      } else if (!StringCompareN(cmd.cstr(), "splash-background=", 18)) {
+        valid = parseColour(cmd.cstr() + 18, g_BackgroundColour);
+      } else if (!StringCompareN(cmd.cstr(), "splash-foreground=", 18)) {
+        valid = parseColour(cmd.cstr() + 18, g_ForegroundColour);
+      } else if (!StringCompareN(cmd.cstr(), "splash-border=", 14)) {
+        valid = parseColour(cmd.cstr() + 14, g_ProgressBorderColour);
+      } else if (!StringCompareN(cmd.cstr(), "splash-fill=", 12)) {
+        valid = parseColour(cmd.cstr() + 12, g_ProgressColour);
+      }
+      if (!valid) {
+        WARNING("splash: ignoring invalid boot option " << cmd);
       }
     }
   }
@@ -643,7 +652,7 @@ static void destroy() {
   g_BootProgressUpdate = 0;
 }
 
-MODULE_INFO("splash", &init, &destroy, "config");
+MODULE_INFO("splash", &init, &destroy);
 // If no graphics drivers loaded, we can handle that still. But we still need
 // to run after the gfx-deps metamodule.
 MODULE_OPTIONAL_DEPENDS("gfx-deps");

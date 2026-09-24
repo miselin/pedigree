@@ -50,8 +50,6 @@ void LocalIO::initialise() {
   }
   m_pCommand[0] = '\0';
 
-  // Save the current mode.
-  m_pVga->rememberMode();
   // Copy the current screen contents into our old frame buffer.
   m_pVga->peekBuffer(reinterpret_cast<uint8_t*>(m_pOldFramebuffer),
                      MAX_CONSOLE_WIDTH * MAX_CONSOLE_HEIGHT * 2);
@@ -67,7 +65,6 @@ void LocalIO::destroy() {
   // Copy our old frame buffer to the screen.
   m_pVga->pokeBuffer(reinterpret_cast<uint8_t*>(m_pOldFramebuffer),
                      MAX_CONSOLE_WIDTH * MAX_CONSOLE_HEIGHT * 2);
-  m_pVga->restoreMode();
 }
 
 void LocalIO::setCliUpperLimit(size_t nlines) {

@@ -31,10 +31,7 @@
 #include "modules/subsys/posix/timerfd-syscalls.h"
 #include "modules/system/console/Console.h"
 #include "modules/system/vfs/File.h"
-#include "modules/system/vfs/VFS.h"
 #include "net-syscalls.h"  // to get destructor for SharedPointer<NetworkSyscalls>
-
-#define ENABLE_LOCKED_FILES 0
 
 namespace {
 constexpr int MutableStatusFlags = O_APPEND | O_NONBLOCK;
@@ -90,10 +87,6 @@ void retireIoEvent(File* file, SharedPointer<NetworkSyscalls>& networkImpl, IoEv
   }
 }
 }  // namespace
-
-#if ENABLE_LOCKED_FILES
-RadixTree<LockedFile*> g_PosixGlobalLockedFiles;
-#endif
 
 FileDescriptor::OpenFileDescription::OpenFileDescription(File* newFile, uint64_t initialOffset,
                                                          int initialStatusFlags)
@@ -293,7 +286,6 @@ void FileDescriptor::OpenFileDescription::ensureVfsLease() {
 /// Default constructor
 FileDescriptor::FileDescriptor()
     : fd(0xFFFFFFFF),
-      lockedFile(0),
       networkImpl(nullptr),
       epollImpl(nullptr),
       ioevent(nullptr),
@@ -304,9 +296,8 @@ FileDescriptor::FileDescriptor()
 
 /// Parameterised constructor
 FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, int fdFlags,
-                               int flFlags, LockedFile* lf)
+                               int flFlags)
     : fd(newFd),
-      lockedFile(lf),
       networkImpl(nullptr),
       epollImpl(nullptr),
       ioevent(nullptr),
@@ -315,17 +306,11 @@ FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, 
       m_NetworkPublished(false),
       m_EventFdPublished(false) {
   /// \todo need a copy constructor for networkImpl
-  if (getFile()) {
-#if ENABLE_LOCKED_FILES
-    lockedFile = g_PosixGlobalLockedFiles.lookup(getFile()->getFullPath());
-#endif
-  }
 }
 
 FileDescriptor::FileDescriptor(const FilesystemPathRef& path, uint64_t newOffset, size_t newFd,
-                               int fdFlags, int flFlags, LockedFile* lf)
+                               int fdFlags, int flFlags)
     : fd(newFd),
-      lockedFile(lf),
       networkImpl(nullptr),
       epollImpl(nullptr),
       ioevent(nullptr),
@@ -337,7 +322,6 @@ FileDescriptor::FileDescriptor(const FilesystemPathRef& path, uint64_t newOffset
 /// Copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor& desc)
     : fd(desc.fd),
-      lockedFile(0),
       networkImpl(desc.networkImpl),
       epollImpl(desc.epollImpl),
       ioevent(nullptr),
@@ -362,11 +346,6 @@ FileDescriptor::FileDescriptor(FileDescriptor& desc)
   if (signalFd) {
     m_SignalFdPublished = signalFd->addDescriptorOwner();
   }
-  if (getFile()) {
-#if ENABLE_LOCKED_FILES
-    lockedFile = g_PosixGlobalLockedFiles.lookup(getFile()->getFullPath());
-#endif
-  }
 
 #if THREADS
   if (desc.ioevent) {
@@ -378,7 +357,6 @@ FileDescriptor::FileDescriptor(FileDescriptor& desc)
 /// Pointer copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor* desc)
     : fd(0),
-      lockedFile(0),
       networkImpl(nullptr),
       epollImpl(nullptr),
       ioevent(nullptr),
@@ -413,11 +391,6 @@ FileDescriptor::FileDescriptor(FileDescriptor* desc)
   if (signalFd) {
     m_SignalFdPublished = signalFd->addDescriptorOwner();
   }
-  if (getFile()) {
-#if ENABLE_LOCKED_FILES
-    lockedFile = g_PosixGlobalLockedFiles.lookup(getFile()->getFullPath());
-#endif
-  }
 
 #if THREADS
   if (desc->ioevent) {
@@ -432,17 +405,6 @@ FileDescriptor::~FileDescriptor() {
 #if THREADS
   retireIoEvent(getFile(), networkImpl, ioevent);
 #endif
-
-  if (getFile()) {
-#if ENABLE_LOCKED_FILES
-    // Unlock the file we have a lock on, release from the global lock table
-    if (lockedFile) {
-      g_PosixGlobalLockedFiles.remove(getFile()->getFullPath());
-      lockedFile->unlock();
-      delete lockedFile;
-    }
-#endif
-  }
 
   if (m_OpenFile) {
     m_OpenFile->removeDescriptorOwner();

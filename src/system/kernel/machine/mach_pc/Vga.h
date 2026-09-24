@@ -21,60 +21,18 @@
 #define MACHINE_X86_VGA_H
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/machine/Vga.h"
-#include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
 #include "pedigree/kernel/processor/types.h"
 
-#include <config.h>
-
 #include "FramebufferConsole.h"
-
-#define VGA_BASE 0x3C0
-#define VGA_AC_INDEX 0x0
-#define VGA_AC_WRITE 0x0
-#define VGA_AC_READ 0x1
-#define VGA_MISC_WRITE 0x2
-#define VGA_SEQ_INDEX 0x4
-#define VGA_SEQ_DATA 0x5
-#define VGA_DAC_READ_INDEX 0x7
-#define VGA_DAC_WRITE_INDEX 0x8
-#define VGA_DAC_DATA 0x9
-#define VGA_MISC_READ 0xC
-#define VGA_GC_INDEX 0xE
-#define VGA_GC_DATA 0xF
-#define VGA_REG_ATTR_MODE_CTL 0x10
-/*                              COLOR emulation  MONO emulation */
-#define VGA_CRTC_INDEX 0x14 /* 0x3B4 */
-#define VGA_CRTC_DATA 0x15  /* 0x3B5 */
-#define VGA_INSTAT_READ 0x1A
-
-#define VGA_PAS 0x20 /* Palette Address Source */
-
-#define VGA_NUM_SEQ_REGS 5
-#define VGA_NUM_CRTC_REGS 25
-#define VGA_NUM_GC_REGS 9
-#define VGA_NUM_AC_REGS 21
-#define VGA_NUM_REGS (1 + VGA_NUM_SEQ_REGS + VGA_NUM_CRTC_REGS + VGA_NUM_GC_REGS + VGA_NUM_AC_REGS)
 
 /**
  * Vga device abstraction.
  */
 class X86Vga : public Vga {
  public:
-  X86Vga(uint32_t nRegisterBase, uint32_t nFramebufferBase);
+  X86Vga();
   virtual ~X86Vga();
-
-  /**
-   * Sets the given attribute mode control.
-   */
-  virtual void setControl(VgaControl which);
-
-  /**
-   * Clears the given attribute mode control.
-   */
-  virtual void clearControl(VgaControl which);
-
-  virtual bool setMode(int mode);
 
   /**
    * Sets the largest possible text mode.
@@ -83,40 +41,18 @@ class X86Vga : public Vga {
   virtual bool setLargestTextMode();
 
   /**
-   * Tests the current video mode.
-   * \return True if the current mode matches the given arguments.
-   */
-  virtual bool isMode(size_t nCols, size_t nRows, bool bIsText, size_t nBpp = 0);
-
-  /**
-   * Tests if the current video mode is the largest text mode.
-   * \return True if the current video mode is equal to the largest text mode.
-   */
-  virtual bool isLargestTextMode();
-
-  /**
    * \return The number of columns in the current mode.
    */
   virtual size_t getNumCols() {
-    return m_nWidth;
+    return FramebufferConsole::Columns;
   }
 
   /**
    * \return The number of rows in the current mode.
    */
   virtual size_t getNumRows() {
-    return m_nHeight;
+    return FramebufferConsole::Rows;
   }
-
-  /**
-   * Stores the current video mode.
-   */
-  virtual void rememberMode();
-
-  /**
-   * Restores the saved video mode from a rememberMode() call.
-   */
-  virtual void restoreMode();
 
   /**
    * Copies the given buffer into video memory, replacing the current
@@ -153,62 +89,14 @@ class X86Vga : public Vga {
   bool initialise();
 
   operator uint16_t*() const {
-    if (m_Uefi)
-      return const_cast<uint16_t*>(m_Console.cells());
-    if (m_Framebuffer == true)
-      return reinterpret_cast<uint16_t*>(m_Framebuffer.virtualAddress());
-    else
-      return reinterpret_cast<uint16_t*>(m_pFramebuffer);
+    return const_cast<uint16_t*>(m_Console.cells());
   }
 
  private:
   X86Vga(const X86Vga&);
   X86Vga& operator=(const X86Vga&);
 
-  uint8_t getControls();
-  void setControls(uint8_t newControls);
-
-  /**
-   * The IoPort to access control registers.
-   */
-  IoPort m_RegisterPort;
-
   MemoryMappedIo m_Framebuffer;
-
-  /**
-   * The framebuffer.
-   */
-  uint8_t* m_pFramebuffer;
-
-  /**
-   * The width of the current mode.
-   */
-  size_t m_nWidth;
-
-  /**
-   * The height of the current mode.
-   */
-  size_t m_nHeight;
-
-  /**
-   * We keep a count of the number of times we've entered the debugger without
-   * leaving it - when we enter the debugger, we increment this. When we
-   * leave, we decrement. If we leave and it reaches zero, we change out of
-   * mode 0x3 into the current video mode.
-   */
-  int m_ModeStack;
-
-  /**
-   * Current video mode.
-   */
-  int m_nMode;
-
-  /**
-   * Most recent VGA controls (as these get reset on mode change).
-   */
-  uint8_t m_nControls;
-
-  bool m_Uefi = false;
   Spinlock m_ConsoleLock{false, true};
   FramebufferConsole m_Console;
   Framebuffer* m_pConsoleFramebuffer = nullptr;

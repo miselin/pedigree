@@ -36,9 +36,6 @@
  *\date   Fri May  8 10:50:45 2009
  *\brief  Implements a Radix Tree, a kind of Trie with compressed keys. */
 
-/** Set to 1 to use a pool of nodes to reduce allocation churn. */
-#define RADIX_TREE_USE_POOLED_NODES 1
-
 /** @addtogroup kernelutilities
  * @{ */
 
@@ -283,18 +280,14 @@ class EXPORTED_PUBLIC RadixTree {
   Node* cloneNode(Node* node, Node* parent);
   /** Obtain a new Node with the same case-sensitive flag. */
   Node* getNewNode() {
-    if (RADIX_TREE_USE_POOLED_NODES) {
-      Node* p = m_NodePool.allocate(m_bCaseSensitive);
-      p->m_pParent = 0;
-      p->m_pParentTree = this;
-      return p;
-    } else {
-      return new Node(m_bCaseSensitive);
-    }
+    Node* p = m_NodePool.allocate(m_bCaseSensitive);
+    p->m_pParent = 0;
+    p->m_pParentTree = this;
+    return p;
   }
   /** Return a Node so it can be allocated again. */
   void returnNode(Node* p) {
-    if (RADIX_TREE_USE_POOLED_NODES && p) {
+    if (p) {
       p->returnAllChildren();
       // wipe out info that shouldn't go back to the pool
       p->m_Key.clear();
@@ -302,8 +295,6 @@ class EXPORTED_PUBLIC RadixTree {
       p->m_pParent = 0;
       p->m_bHasValue = false;
       m_NodePool.deallocate(p);
-    } else {
-      delete p;
     }
   }
 

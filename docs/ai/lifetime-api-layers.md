@@ -16,10 +16,8 @@ and interrupt mechanisms:
    vtable, refcount, or dynamic deleter.
 3. **Concurrent escape layer.** Work crossing a thread, queue, callback, or
    registry boundary carries an owner, registration, lease, or admission
-   ticket. `AdmittedThread` starts a detached kernel worker behind an
-   `OperationBarrier`, and releases admission from kernel text only after its
-   possibly unloadable entry point has returned. Its scheduler-owned start
-   record also retires the parameter if cancellation wins before entry begins.
+   ticket. `OperationBarrier` closes admission and waits for existing work to
+   release its leases. Join owned workers before unloading their entry points.
 4. **Active-object layer.** Shutdown remains named and ordered: stop admission,
    wake workers, drain callbacks and work, join workers, then destroy state and
    unload code. Destructors may enforce or backstop that protocol, but must not
@@ -32,33 +30,21 @@ Plain `T*` and `T&` remain appropriate for local borrows. A `Borrow<T>` wrapper
 would document intent but cannot enforce non-escape with the current toolchain,
 so the first ratchet targets actual acquisition and publication boundaries.
 
-## Spike
+## Consumers
 
-The status server is the first outer-ring conversion. Listener connections and
-received buffers have lexical owners. Each client context transfers through
-`AdmittedThread`; module teardown cannot finish draining client work until the
-client has released its resources, returned through all module frames, and
-reached the kernel trampoline. The listener is an `OwnedThread` with explicit
-stop publication and join before the client barrier drains; admission does not
-pin the producer's own module frame. The only stack-discard cleanup left is the
-narrow registration that publishes a stack `Completion` to the lwIP callback.
-
-The POSIX datagram send path is a second `UniqueResource` consumer and fixes
-the prior error-path `netbuf` leak. This is enough repetition to validate the
-one-word owner without attempting a universal lifetime framework.
+The POSIX datagram send path uses `UniqueResource` to release its `netbuf` on
+both success and error paths.
 
 ## Migration ratchet
 
 `lifetime-escape-inventory.json` and `audit-lifetime-escapes.py` establish a
-small, high-confidence baseline. The initial inventory covers 26 legacy
-`PointerGuard` expressions, 9 first-party lwIP ownership-producing calls, 10
-`detach` or `startDetached` publications (including one explicitly classified
-non-thread API), and the two declaration/definition sites of the legacy
-`runConcurrently` surface.
+small, high-confidence baseline. The inventory covers legacy `PointerGuard`
+expressions, first-party lwIP ownership-producing calls, and `detach` or
+`startDetached` publications (including explicitly classified non-thread APIs).
 Every file count must match its reviewed baseline. A migration updates the
 inventory in the same change, so removed debt cannot silently grow back.
 
-This is a four-pattern pilot, not a claim that all lifetime debt is captured.
+This is a three-pattern pilot, not a claim that all lifetime debt is captured.
 Callback registrations, queue payloads, physical-page rollback, BIOS buffers,
 framebuffer handles, alarms, other manual C cleanup pairs, and permanent
 handlers still need a symbol-aware inventory. The regex gate prevents the

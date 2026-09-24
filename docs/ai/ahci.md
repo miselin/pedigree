@@ -41,61 +41,38 @@ Discard/TRIM is deferred until filesystem allocation changes and cache
 retirement can be ordered together. Issuing it directly from block release can
 race delayed writes or reallocation.
 
-See [modern storage validation](modern-storage.md) for the current UEFI harness.
-The older ISO commands below document the historical checkpoint and require a
-checkout that still supports legacy ISO packaging.
-
 ## QEMU smoke test
 
-Use an isolated build and a disposable copy of a bootable Pedigree root image.
-The optional `ahci-smoke` module writes only after matching an entire marked
-4096-byte fixture header, its exact disk size and controller/port relationship
-to the mounted root disk.
-
-First configure an isolated x86-64 target build with the usual Pedigree
-toolchain and host-tool settings. In that configured build, enable the test:
+Use the UEFI [modern storage harness](modern-storage.md). Configure a separate
+x86-64 target build with the usual Pedigree toolchain and host-tool settings,
+then enable both storage smoke modules. The harness supplies marked disposable
+scratch disks and snapshots the boot/root image.
 
 ```sh
 cmake -S . -B build \
-  -DPEDIGREE_AHCI_SMOKE_TESTS=ON \
-  -DPEDIGREE_CRIPPLE_HDD=OFF \
-  -DPEDIGREE_WITH_INIT=OFF
-cmake --build build --target livecd --parallel 6
-uv run scripts/test_qemu_ahci.py \
-  --iso build/pedigree.iso --root-image /path/to/disposable-root.img \
-  --cpus 1 --run-dir /tmp/ahci-up
-uv run scripts/test_qemu_ahci.py \
-  --iso build/pedigree.iso --root-image /path/to/disposable-root.img \
-  --cpus 4 --run-dir /tmp/ahci-smp
-uv run scripts/test_qemu_ahci.py \
-  --iso build/pedigree.iso --root-image /path/to/disposable-root.img \
-  --cpus 4 --run-dir /tmp/ahci-error --inject-read-error
-uv run -m unittest discover -s tests -p test_qemu_ahci.py
+  -DPEDIGREE_AHCI_SMOKE_TESTS=ON -DPEDIGREE_NVME_SMOKE_TESTS=ON \
+  -DPEDIGREE_CRIPPLE_HDD=OFF -DPEDIGREE_WITH_INIT=OFF
+cmake --build build --target uefi-image --parallel 6
+uv run scripts/test_qemu_storage.py --image build/pedigree-uefi.img \
+  --root ahci --ahci-sector-size 512 --cpus 1 --run-dir /tmp/ahci-up
+uv run scripts/test_qemu_storage.py --image build/pedigree-uefi.img \
+  --root ahci --ahci-sector-size 512 --cpus 4 --run-dir /tmp/ahci-smp
+uv run -m unittest discover -s tests -p test_qemu_storage.py
 ```
 
-The run directory must be new. The harness uses QEMU `ich9-ahci`, snapshots the
-root image and creates a persistent, disposable 32 MiB scratch disk. No network
-device is attached. The IDE CD-ROM only supplies the boot image; both disks use
-AHCI.
+Each run directory must be new. The harness uses Q35 AHCI, checks patterned
+reads, invalid ranges, concurrent commands, writes and uncached rereads, and
+requires positive interrupt-completion counts. After stopping QEMU it compares
+the disposable scratch contents and checks traced guest flush commands.
+QEMU's own exit-time flushing is not evidence of a guest flush.
 
-The guest checks the actual root filesystem's backing disk, patterned reads,
-invalid-range rejection, boundary writes, checked synchronization, cache
-retirement and uncached rereads. Positive interrupt-completion counts are
-required. After stopping its own QEMU process, the harness checks every byte of
-the scratch image, including untouched neighbors, and requires traced guest ATA
-flush commands on the scratch port. QEMU's own exit-time flushing alone is not
-treated as evidence of a guest flush.
+Logs, traces, scratch images and `report.json` remain in the run directory.
+Restore the original write-protection, init and smoke-module settings after
+testing, then rebuild the normal image. Never replace an image in use by a guest.
 
-`--inject-read-error` additionally uses QEMU's `blkdebug` to inject a single EIO
-at 24 MiB on the scratch disk after the persistence checks. The guest must
-reject that read and subsequent uncached I/O promptly, release its cache pins,
-and complete a fresh hardware read on the root port. The harness requires a
-traced task-file error on the scratch port as well as the normal byte checks.
-
-Each run preserves `report.json`, the QEMU command, serial output, device traces
-and scratch image. The harness deadline bounds the VM run; it does not exercise
-the driver's timeout or unresponsive-DMA-engine paths. Emulation cannot establish
-T420 firmware handoff, link behavior or hardware errata coverage.
+The UEFI harness does not inject the scratch read error used in the historical
+checkpoint below, nor does it qualify timeout or unresponsive-DMA-engine paths.
+Emulation cannot establish T420 firmware handoff, link behavior or hardware errata.
 
 ### Validation checkpoint (2026-09-07)
 

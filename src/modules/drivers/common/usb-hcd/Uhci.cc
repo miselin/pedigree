@@ -265,9 +265,9 @@ Uhci::Uhci(Device* pDev)
   m_pBase->write16(0xC1, UHCI_CMD);
   start();
 
-#ifdef USB_VERBOSE_DEBUG
-  DEBUG_LOG("USB: UHCI: Reset complete");
-#endif
+  EMIT_IF(UsbVerboseDebug) {
+    DEBUG_LOG("USB: UHCI: Reset complete");
+  }
 
   // Give time for ports to resume and stabilise.
   Time::delay(100 * Time::Multiplier::Millisecond);
@@ -719,9 +719,9 @@ void Uhci::doDequeue() {
     m_DequeueOperations.leave();
     m_TransferOperations.leave();
 
-#ifdef USB_VERBOSE_DEBUG
-    DEBUG_LOG("Dequeue complete.");
-#endif
+    EMIT_IF(UsbVerboseDebug) {
+      DEBUG_LOG("Dequeue complete.");
+    }
   }
 }
 
@@ -753,9 +753,9 @@ IrqDisposition Uhci::irq(irq_id_t number) {
     m_pBase->write16(nStatus, UHCI_STS);
     (void)m_pBase->read16(UHCI_STS);
 
-#ifdef USB_VERBOSE_DEBUG
-    DEBUG_LOG("UHCI IRQ " << nStatus);
-#endif
+    EMIT_IF(UsbVerboseDebug) {
+      DEBUG_LOG("UHCI IRQ " << nStatus);
+    }
 
     List<QH*> persistList;
 
@@ -833,17 +833,17 @@ IrqDisposition Uhci::irq(irq_id_t number) {
               nResult = (pTD->nActLen + 1) % 0x800;
               pQH->pMetaData->nTotalBytes += nResult;
             }
-#ifdef USB_VERBOSE_DEBUG
-            DEBUG_LOG_NOLOCK("TD #" << Dec << pTD->id << " [QH #" << pQH->pMetaData->id << Hex
-                                    << "] DONE: " << Dec << pTD->nAddress << ":" << pTD->nEndpoint
-                                    << " "
-                                    << (pTD->nPid == UsbPidOut
-                                            ? "OUT"
-                                            : (pTD->nPid == UsbPidIn
-                                                   ? "IN"
-                                                   : (pTD->nPid == UsbPidSetup ? "SETUP" : "")))
-                                    << " " << nResult << Hex);
-#endif
+            EMIT_IF(UsbVerboseDebug) {
+              DEBUG_LOG_NOLOCK("TD #" << Dec << pTD->id << " [QH #" << pQH->pMetaData->id << Hex
+                                      << "] DONE: " << Dec << pTD->nAddress << ":" << pTD->nEndpoint
+                                      << " "
+                                      << (pTD->nPid == UsbPidOut
+                                              ? "OUT"
+                                              : (pTD->nPid == UsbPidIn
+                                                     ? "IN"
+                                                     : (pTD->nPid == UsbPidSetup ? "SETUP" : "")))
+                                      << " " << nResult << Hex);
+            }
 
             // Handle the "end of transfer" cases
             bEndOfTransfer = bPeriodic || (nResult < 0) || (pTD == pQH->pMetaData->pLastTD);
@@ -1405,9 +1405,9 @@ void Uhci::modifyPortControl(size_t portRegister, uint16_t clearMask, uint16_t s
 }
 
 bool Uhci::portReset(uint8_t nPort, bool bErrorResponse) {
-#ifdef USB_VERBOSE_DEBUG
-  DEBUG_LOG("USB: UHCI: Reset on port " << nPort);
-#endif
+  EMIT_IF(UsbVerboseDebug) {
+    DEBUG_LOG("USB: UHCI: Reset on port " << nPort);
+  }
 
   const size_t portRegister = UHCI_PORTSC + (nPort * 2);
   constexpr uint16_t ChangeMask = UHCI_PORTSC_CSCH | UHCI_PORTSC_EDCH;
@@ -1468,9 +1468,9 @@ bool Uhci::portReset(uint8_t nPort, bool bErrorResponse) {
     return false;
   }
 
-#ifdef USB_VERBOSE_DEBUG
-  DEBUG_LOG("USB: Post-reset status is " << m_pBase->read16(portRegister));
-#endif
+  EMIT_IF(UsbVerboseDebug) {
+    DEBUG_LOG("USB: Post-reset status is " << m_pBase->read16(portRegister));
+  }
 
   return true;
 }

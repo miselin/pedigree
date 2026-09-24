@@ -17,12 +17,10 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 """
 
-from __future__ import print_function
-
 import os
 import stat
-import sys
 import subprocess
+import sys
 import tempfile
 
 
@@ -174,21 +172,17 @@ def build_file_list(all_sources):
         baseimagesdir,
         kernel,
         initrd,
-        configdb,
-        grublst,
         musldir,
         pedigree_c_sdk_dir,
         binarydir,
-    ) = all_sources[:10]
-    additional_sources = all_sources[10:]
+    ) = all_sources[:8]
+    additional_sources = all_sources[8:]
 
     users, groups = build_user_map(baseimagesdir)
 
     # Host path -> Pedigree path mapping.
     copies = {}
 
-    add_copy(copies, configdb, "/boot/config.db")
-    add_copy(copies, grublst, "/boot/grub/menu.lst")
     add_copy(copies, kernel, "/boot/kernel")
     if initrd != "__noinitrd__":
         add_copy(copies, initrd, "/boot/initrd.tar")
@@ -381,50 +375,8 @@ def image_size(cmdlist):
 
 
 def create_base_image(target, size):
-    # Offset into the image for the partition proper to start.
-    partition_offset = 0  # 0x10000
-
-    # Build file for creating the disk image.
-    base_image = open(target, "w")
-
-    sz = size + partition_offset
-    base_image.truncate(sz)
-
-    # Add a partition table to the front of the image.
-    if partition_offset:
-        hpc = 16  # Heads per cylinder
-        spt = 63  # Sectors per track
-
-        # LBA sector count.
-        lba = sz // 512
-        end_cyl = lba // (spt * hpc)
-        end_head = (lba // spt) % hpc
-        end_sector = (lba % spt) + 1
-
-        # Sector start LBA.
-        start_lba = partition_offset // 512
-        start_cyl = start_lba // (spt * hpc)
-        start_head = (start_lba // spt) % hpc
-        start_sector = (start_lba % spt) + 1
-
-        # Partition entry.
-        entry = "\x80"  # Partition is active/bootable.
-        entry += struct.pack(
-            "BBB", start_head & 0xFF, start_sector & 0xFF, start_cyl & 0xFF
-        )
-        entry += "\x83"  # ext2 partition - ie, a Linux native filesystem.
-        entry += struct.pack("BBB", end_head & 0xFF, end_sector & 0xFF, end_cyl & 0xFF)
-        entry += struct.pack("=L", start_lba)
-        entry += struct.pack("=L", lba)
-
-        # Build partition table.
-        partition = "\x00" * 446
-        partition += entry
-        partition += "\x00" * 48
-        partition += "\x55\xaa"
-        base_image.write(partition)
-
-    base_image.close()
+    with open(target, "wb") as image:
+        image.truncate(size)
 
     mke2fs = "/sbin/mke2fs"
     if sys.platform == "darwin":
@@ -434,17 +386,10 @@ def create_base_image(target, size):
     args = [
         mke2fs,  # TODO(miselin): need to detect in CMake and pass path
         "-q",
-    ]
-    if partition_offset:
-        args += [
-            "-E",  # Don't use UID/GID from host system.
-            "offset=%d" % partition_offset,
-        ]
-    args += [
         "-O",
         "^dir_index",  # Don't (yet) use directory b-trees.
         "-I",
-        "128",  # Use 128-byte inodes, as grub-legacy can't use bigger.
+        "128",
         "-F",
         "-L",
         "pedigree",
@@ -455,58 +400,19 @@ def create_base_image(target, size):
     subprocess.check_call(args)
 
 
-def read_ext2_uuid(target):
-    with open(target, "rb") as image:
-        image.seek(1024 + 104)
-        value = image.read(16)
-    if len(value) != 16:
-        raise RuntimeError("could not read the ext2 filesystem UUID")
-    return "{}{}{}{}-{}{}-{}{}-{}{}-{}{}{}{}{}{}".format(
-        *("%02x" % byte for byte in value)
-    )
-
-
 def main():
     targetfile = sys.argv[1]
     ext2img = sys.argv[2]
     sources = sys.argv[3:]
 
-    with tempfile.TemporaryDirectory(prefix="pedigree-diskimage-") as temp_dir:
-        rendered_grub = os.path.join(temp_dir, "menu.lst")
-        with open(sources[6], "r") as source:
-            menu = source.read()
-        with open(rendered_grub, "w") as destination:
-            destination.write(
-                menu.replace(
-                    "@PEDIGREE_ROOT_UUID@", "00000000-0000-0000-0000-000000000000"
-                )
-            )
-        sources[6] = rendered_grub
-        cmdlist = build_file_list(sources)
-        create_base_image(targetfile, image_size(cmdlist))
-        root_uuid = read_ext2_uuid(targetfile)
-        with open(rendered_grub, "w") as destination:
-            destination.write(menu.replace("@PEDIGREE_ROOT_UUID@", root_uuid))
+    cmdlist = build_file_list(sources)
+    create_base_image(targetfile, image_size(cmdlist))
 
-        with open("/tmp/cmdlist", "w") as f:
-            f.write("\n".join(cmdlist))
-
-        # Dump our files into the image using ext2img (built as part of the normal
-        # Pedigree build, to run on the build system - not on Pedigree).
-        with tempfile.NamedTemporaryFile() as f:
-            f.write("\n".join(cmdlist).encode("utf-8"))
-            f.flush()
-
-            args = [
-                ext2img,
-                "-q",
-                "-c",
-                f.name,
-                "-f",
-                targetfile,
-            ]
-
-            subprocess.check_call(args)
+    # Populate the filesystem with the host-side ext2 image utility.
+    with tempfile.NamedTemporaryFile() as commands:
+        commands.write("\n".join(cmdlist).encode("utf-8"))
+        commands.flush()
+        subprocess.check_call([ext2img, "-q", "-c", commands.name, "-f", targetfile])
 
 
 if __name__ == "__main__":

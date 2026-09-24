@@ -173,7 +173,6 @@ static void addInterface(void* context) {
 
 NetworkStack::NetworkStack()
     : RequestQueue(MakeConstantString("Network Stack")),
-      m_pLoopback(0),
       m_Children(),
       m_MemPool("network-pool")
 #if THREADS || UTILITY_LINUX
@@ -198,15 +197,10 @@ NetworkStack::NetworkStack()
 
   initialise();
 
-#if X86_COMMON || HOSTED || ARM64 || ARMV7
-  // Lots of RAM to burn! Try 16 MB, then 8 MB, then 4 MB, then give up
-  if (!m_MemPool.initialise(4096, 1600))
-    if (!m_MemPool.initialise(2048, 1600))
-      if (!m_MemPool.initialise(1024, 1600))
-        ERROR("Couldn't get a valid buffer pool for networking use");
-#else
-#warning Unhandled architecture for the NetworkStack buffer pool
-#endif
+  if (!m_MemPool.initialise(4096, 1600) && !m_MemPool.initialise(2048, 1600) &&
+      !m_MemPool.initialise(1024, 1600)) {
+    ERROR("Couldn't get a valid buffer pool for networking use");
+  }
 }
 
 NetworkStack::~NetworkStack() {
@@ -226,7 +220,6 @@ NetworkStack::~NetworkStack() {
   m_Registrations.clear();
   m_Interfaces.clear();
   m_Children.clear();
-  m_pLoopback = nullptr;
 #if THREADS || UTILITY_LINUX
   m_Lock.release();
 #endif
@@ -461,15 +454,6 @@ bool NetworkStack::acquireDevice(Network* pDevice, DeviceLease& lease) {
   return true;
 }
 
-void NetworkStack::clearLoopback(Network* pCard) {
-#if THREADS || UTILITY_LINUX
-  LockGuard<Mutex> guard(m_Lock);
-#endif
-  if (m_pLoopback == pCard) {
-    m_pLoopback = nullptr;
-  }
-}
-
 void NetworkStack::deRegisterDevice(Network* pDevice) {
   DeviceRegistration* registration = nullptr;
 #if THREADS || UTILITY_LINUX
@@ -523,28 +507,6 @@ size_t NetworkStack::getHostedReceiveRequestCapacity() {
 }
 #endif
 
-NetworkStack::Packet::Packet() = default;
-
-NetworkStack::Packet::~Packet() {
-  // Packet destroyed, clean up our buffer if it existed.
-  if (m_Buffer) {
-    NetworkStack::instance().m_MemPool.free(m_Buffer);
-  }
-}
-
-bool NetworkStack::Packet::copyFrom(uintptr_t otherPacket, size_t size) {
-  uint8_t* safePacket =
-      reinterpret_cast<uint8_t*>(NetworkStack::instance().m_MemPool.allocateNow());
-  if (!safePacket) {
-    return false;
-  }
-  MemoryCopy(safePacket, reinterpret_cast<void*>(otherPacket), size);
-
-  m_Buffer = reinterpret_cast<uintptr_t>(safePacket);
-  m_PacketLength = size;
-  return true;
-}
-
 static bool entry() {
   g_NetworkStack = new NetworkStack();
 
@@ -564,8 +526,4 @@ static void exit() {
 }
 
 // NetManager exposes a Filesystem, and so needs the vfs module.
-#if ARM64
 MODULE_INFO("network-stack", &entry, &exit, "vfs", "lwip");
-#else
-MODULE_INFO("network-stack", &entry, &exit, "config", "vfs", "lwip");
-#endif

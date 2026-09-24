@@ -9,22 +9,21 @@ if [[ $(uname -s) != Linux || $(uname -m) != x86_64 ]]; then
     exit 2
 fi
 
-if (( $# != 3 )); then
-    echo "usage: scripts/test-hosted-irq-closure.sh KERNEL CONFIGDB LOG" >&2
+if (( $# != 2 )); then
+    echo "usage: scripts/test-hosted-irq-closure.sh KERNEL LOG" >&2
     exit 2
 fi
 
 script_dir=$(cd -P -- "$(dirname -- "$0")" && pwd -P)
 kernel=$(realpath "$1")
-configdb=$(realpath "$2")
-log_file=$3
+log_file=$2
 timeout_seconds=${PEDIGREE_HOSTED_IRQ_TIMEOUT_SECONDS:-30}
 
 if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
     echo "PEDIGREE_HOSTED_IRQ_TIMEOUT_SECONDS must be a positive integer." >&2
     exit 2
 fi
-for artifact in "$kernel" "$configdb"; do
+for artifact in "$kernel"; do
     if [[ ! -f "$artifact" ]]; then
         echo "Required hosted artifact is unavailable: $artifact" >&2
         exit 1
@@ -46,7 +45,7 @@ run_status=0
     cd "$scratch_dir"
     python3 "$script_dir/run-with-deadline.py" \
         --seconds "$timeout_seconds" --label "hosted IRQ closure" -- \
-        "$kernel" "$scratch_dir/empty-initrd.tar" "$configdb"
+        "$kernel" "$scratch_dir/empty-initrd.tar"
 ) >"$log_file" 2>&1 || run_status=$?
 if (( run_status != 0 )); then
     cat "$log_file"

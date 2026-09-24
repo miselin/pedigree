@@ -14,7 +14,6 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Event.h"
-#include "pedigree/kernel/process/Ipc.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
@@ -52,7 +51,6 @@ bool runHostedCacheTimerRegressions();
 #if !PEDIGREE_HOSTED_CORE_SMOKE
 bool runHostedSchedulerRegressions();
 bool runHostedCacheRegressions();
-bool runHostedCdiIrqRegressions();
 bool runHostedInputRegressions();
 bool runHostedInterruptManagerRegressions();
 EXPORTED_PUBLIC bool runHostedFatSectorRegressions();
@@ -2709,11 +2707,10 @@ bool runHostedWaitRegressions() {
 #if !PEDIGREE_HOSTED_CORE_SMOKE
       runHostedUsbCallbackDeliveryRegressions() && runHostedUsbHcdPortChangeRegressions() &&
       runHostedUsbTransferLifecycleRegressions() && runHostedMutexRegressions() &&
-      runHostedInterruptManagerRegressions() && runHostedCdiIrqRegressions() &&
-      runHostedInputRegressions() && runNetworkFilterConcurrencyRegressions() &&
-      runVfsCallbackLifetimeRegressions() && runHostedCacheRegressions() &&
-      runHostedFatSectorRegressions() && runHostedRawFsContractRegressions() &&
-      runHostedUnixDatagramRegressions() &&
+      runHostedInterruptManagerRegressions() && runHostedInputRegressions() &&
+      runNetworkFilterConcurrencyRegressions() && runVfsCallbackLifetimeRegressions() &&
+      runHostedCacheRegressions() && runHostedFatSectorRegressions() &&
+      runHostedRawFsContractRegressions() && runHostedUnixDatagramRegressions() &&
 #endif
       runHostedLifetimeLeaseRegressions() &&
 #if !PEDIGREE_HOSTED_CORE_SMOKE
@@ -2733,7 +2730,7 @@ bool runHostedWaitRegressions() {
       runHostedUsbInterruptOwnershipRegression() && runHostedUsbContainerOwnershipRegression() &&
       runHostedUsbEndpointHaltRegressions() && runHostedUsbBotRegressions() &&
       runHostedHidReportRegressions() && runHostedScsiWriteRegressions() &&
-      UsbPnP::runHostedRegistrationRegression() && Ipc::runHostedIpcInterruptionRegression() &&
+      UsbPnP::runHostedRegistrationRegression() &&
 #endif
       runHostedTimerRegressions(g_ImmediateWaiter) &&
       runHostedPrimitiveRegressions(g_ImmediateWaiter) &&

@@ -271,7 +271,6 @@ void quota(MemoryMapManager& manager, TestAccount& account, size_t pages) {
 bool rawOwnerFlows(MemoryMapManager& manager, VirtualAddressSpace& space, TestAccount& account) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const uintptr_t original = reinterpret_cast<uintptr_t>(space.getEndOfHeap());
-  auto* thread = Processor::information().getCurrentThread();
   bool passed = [&]() {
     if (!check(original && !(original & (pageSize - 1)), "isolated heap alignment") ||
         !rawState(manager, space, account, 0, "isolated raw inventory is not empty"))
@@ -327,31 +326,9 @@ bool rawOwnerFlows(MemoryMapManager& manager, VirtualAddressSpace& space, TestAc
         !rawState(manager, space, account, 0, "heap shrink retained raw charge or inventory"))
       return false;
 
-    quota(manager, account, 0);
-    if (!check(!thread->prepareInputUserStack(), "zero-quota fallback stack was admitted") ||
-        !rawState(manager, space, account, 0, "failed fallback stack published an owner"))
-      return false;
-    const size_t fallbackPages = (1024 * 1024) / pageSize;
-    quota(manager, account, fallbackPages);
-    if (!check(thread->prepareInputUserStack(), "fallback stack admission") ||
-        !rawState(manager, space, account, fallbackPages, "fallback stack charge or inventory"))
-      return false;
-    quota(manager, account, 0);
-    if (!check(thread->prepareInputUserStack(), "existing fallback stack was allocated again"))
-      return false;
-    thread->retireInputUserStack();
-    thread->retireInputUserStack();
-    if (!rawState(manager, space, account, 0, "fallback retirement retained charge or inventory"))
-      return false;
-    quota(manager, account, fallbackPages);
-    if (!check(thread->prepareInputUserStack(), "fallback stack retry") ||
-        !rawState(manager, space, account, fallbackPages, "fallback retry charge or inventory"))
-      return false;
-    thread->retireInputUserStack();
-    return rawState(manager, space, account, 0, "fallback retry teardown");
+    return true;
   }();
 
-  thread->retireInputUserStack();
   {
     MemoryMapManager::OperationGuard operation(manager);
     account.maximumPages = ~size_t(0);
@@ -364,9 +341,7 @@ bool rawOwnerFlows(MemoryMapManager& manager, VirtualAddressSpace& space, TestAc
   }
   passed = rawState(manager, space, account, 0, "raw fixture final cleanup") && passed;
   if (passed)
-    NOTICE(
-        "MEMORY-LOCK-TEST: PASS raw-owners heap=quota-byte-growth-shrink "
-        "fallback=quota-retire-retry");
+    NOTICE("MEMORY-LOCK-TEST: PASS raw-owners heap=quota-byte-growth-shrink");
   return passed;
 }
 

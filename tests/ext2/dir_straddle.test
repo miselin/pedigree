@@ -4,8 +4,8 @@
 
 mkdir /subdir
 
-write /etc/lsb-release /subdir/10_preloadd.sh
+write /etc/lsb-release /subdir/10_testfile.sh
 write /etc/lsb-release /subdir/99_ttyerm.sh
 
-verify /etc/lsb-release /subdir/10_preloadd.sh
+verify /etc/lsb-release /subdir/10_testfile.sh
 verify /etc/lsb-release /subdir/99_ttyerm.sh

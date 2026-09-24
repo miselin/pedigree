@@ -42,7 +42,7 @@ cmake -S . -B build-hosted-profile \
   -DPEDIGREE_MEMORY_LOG=OFF \
   -DPEDIGREE_TRACING=OFF \
   -DPEDIGREE_MODULE_STRIP=/usr/bin/true
-cmake --build build-hosted-profile --target kernel configdb -j8
+cmake --build build-hosted-profile --target kernel -j8
 ```
 
 `HOST_TOOLS_BUILD` must name a completed host-tools build. The path above is
@@ -121,7 +121,7 @@ than attributing them to a nearby kernel function.
 ## Unsampled function profiles
 
 Configure a separate build with the options above and
-`-DPEDIGREE_HOSTED_FUNCTION_PROFILE=ON`, then build `kernel configdb`. This adds
+`-DPEDIGREE_HOSTED_FUNCTION_PROFILE=ON`, then build `kernel`. This adds
 GCC entry/exit hooks to the kernel and static modules while retaining normal
 optimization and inlining. The recorder itself is not instrumented.
 

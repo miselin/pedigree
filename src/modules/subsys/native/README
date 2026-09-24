@@ -1,9 +1,6 @@
-This is the Pedigree native C++ subsystem for user applications. Its purpose is
-to provide a C++-style API as an alternative to the C-style POSIX API, as well
-as providing a base for future expansion in a Pedigree-specific way.
+libpedigree.so provides the Input API for userspace applications. It supports
+pollable input events from /dev/input/pedigree, event inhibition and keymap loading.
 
--- Directory Layout --
-
-./include               <-- Common include files
-./kernel                <-- Kernel-side files (specifically, the kernel module)
-./user                  <-- User-side files (libpedigree.a)
+The native IPC API has been retired. Applications use POSIX sockets and shared
+memory for IPC. Native syscall service 3, including its former operation numbers,
+remains reserved and must not be reassigned.

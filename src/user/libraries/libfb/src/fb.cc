@@ -17,8 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/native/graphics/Graphics.h"
-
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -105,16 +103,16 @@ int Framebuffer::mapMode(const pedigree_fb_mode& set_mode) {
   m_Height = set_mode.height;
 
   m_Format = CAIRO_FORMAT_ARGB32;
-  if (set_mode.format == PedigreeGraphics::Bits24_Rgb) {
+  if (set_mode.format == PEDIGREE_FB_FORMAT_RGB24) {
     if (set_mode.bytes_per_pixel != 4) {
       fprintf(stderr,
               "libfb: error: incompatible framebuffer format (bytes "
               "per pixel)\n");
       return EXIT_FAILURE;
     }
-  } else if (set_mode.format == PedigreeGraphics::Bits16_Rgb565) {
+  } else if (set_mode.format == PEDIGREE_FB_FORMAT_RGB565) {
     m_Format = CAIRO_FORMAT_RGB16_565;
-  } else if (set_mode.format > PedigreeGraphics::Bits32_Rgb) {
+  } else if (set_mode.format > PEDIGREE_FB_FORMAT_RGB32) {
     fprintf(stderr,
             "libfb: error: incompatible framebuffer format (possibly "
             "BGR or similar)\n");

@@ -34,15 +34,9 @@ ProcessorThreadAllocator::~ProcessorThreadAllocator() {
 
 void ProcessorThreadAllocator::addThread(Thread* pThread, Thread::ThreadStartFunc pStartFunction,
                                          void* pParam, bool bUsermode, void* pStack) {
-  addThread(pThread, pStartFunction, pParam, bUsermode, pStack, nullptr);
-}
-
-void ProcessorThreadAllocator::addThread(Thread* pThread, Thread::ThreadStartFunc pStartFunction,
-                                         void* pParam, bool bUsermode, void* pStack,
-                                         Thread::ThreadStartCleanup startCleanup) {
   PerProcessorScheduler* pSchedule = m_pAlgorithm->allocateThread(pThread);
   Scheduler::instance().addThread(pThread, *pSchedule);
-  pSchedule->addThread(pThread, pStartFunction, pParam, bUsermode, pStack, startCleanup);
+  pSchedule->addThread(pThread, pStartFunction, pParam, bUsermode, pStack);
 }
 
 void ProcessorThreadAllocator::addThread(Thread* pThread, SyscallState& state) {

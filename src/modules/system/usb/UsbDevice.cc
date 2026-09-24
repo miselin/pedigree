@@ -284,48 +284,26 @@ void UsbDevice::initialise(uint8_t nAddress) {
   m_UsbState = HasDescriptors;  // We now have the device descriptor
 
 // Debug dump of the device descriptor
-#ifdef USB_VERBOSE_DEBUG
-  DEBUG_LOG("USB version: " << Dec << (m_pDescriptor->nBcdUsbRelease >> 8) << "."
-                            << (m_pDescriptor->nBcdUsbRelease & 0xFF) << ".");
-  DEBUG_LOG("Device class/subclass/protocol: " << m_pDescriptor->nClass << "/"
-                                               << m_pDescriptor->nSubclass << "/"
-                                               << m_pDescriptor->nProtocol);
-  DEBUG_LOG("Maximum control packet size is " << Dec << m_pDescriptor->nMaxControlPacketSize << Hex
-                                              << " bytes.");
-  DEBUG_LOG("Vendor and product IDs: " << m_pDescriptor->nVendorId << ":"
-                                       << m_pDescriptor->nProductId << ".");
-  DEBUG_LOG("Device version: " << Dec << (m_pDescriptor->nBcdDeviceRelease >> 8) << "."
-                               << (m_pDescriptor->nBcdDeviceRelease & 0xFF) << Hex << ".");
-  DEBUG_LOG("Number of configurations: " << m_pDescriptor->nConfigurations << ".");
-  DEBUG_LOG("String indices: " << m_pDescriptor->nVendorString << ", "
-                               << m_pDescriptor->nProductString << ", "
-                               << m_pDescriptor->nSerialString);
-#endif
+  EMIT_IF(UsbVerboseDebug) {
+    DEBUG_LOG("USB version: " << Dec << (m_pDescriptor->nBcdUsbRelease >> 8) << "."
+                              << (m_pDescriptor->nBcdUsbRelease & 0xFF) << ".");
+    DEBUG_LOG("Device class/subclass/protocol: " << m_pDescriptor->nClass << "/"
+                                                 << m_pDescriptor->nSubclass << "/"
+                                                 << m_pDescriptor->nProtocol);
+    DEBUG_LOG("Maximum control packet size is " << Dec << m_pDescriptor->nMaxControlPacketSize
+                                                << Hex << " bytes.");
+    DEBUG_LOG("Vendor and product IDs: " << m_pDescriptor->nVendorId << ":"
+                                         << m_pDescriptor->nProductId << ".");
+    DEBUG_LOG("Device version: " << Dec << (m_pDescriptor->nBcdDeviceRelease >> 8) << "."
+                                 << (m_pDescriptor->nBcdDeviceRelease & 0xFF) << Hex << ".");
+    DEBUG_LOG("Number of configurations: " << m_pDescriptor->nConfigurations << ".");
+    DEBUG_LOG("String indices: " << m_pDescriptor->nVendorString << ", "
+                                 << m_pDescriptor->nProductString << ", "
+                                 << m_pDescriptor->nSerialString);
+  }
 
   // Descriptor number for the configuration descriptor
   uint8_t nConfigDescriptor = UsbDescriptor::Configuration;
-
-// Handle high-speed capable devices running at full-speed:
-// If the device works at full-speed and it has a device qualifier descriptor,
-// it means that the normal configuration descriptor is for high-speed,
-// and we need to use the other speed configuration descriptor
-/// \todo This doesn't work - HS devices at FS stall all over the place. Find
-/// out why.
-#if 0
-    if(m_pDescriptor->nBcdUsbRelease >= 0x200)
-    {
-        DeviceQualifier *pQualifier = reinterpret_cast<DeviceQualifier*>(getDescriptor(UsbDescriptor::DeviceQualifier, 0, sizeof(DeviceQualifier)));
-        if(pQualifier && ((m_Speed == LowSpeed) || (m_Speed == FullSpeed)))
-        {
-            if(pQualifier->nVersion >= 0x200)
-            {
-                nConfigDescriptor = UsbDescriptor::OtherSpeedConfiguration;
-            }
-            
-            delete pQualifier;
-        }
-    }
-#endif
 
   // Get the vendor, product and serial strings
   m_pDescriptor->sVendor = getString(m_pDescriptor->nVendorString);

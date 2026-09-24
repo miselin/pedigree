@@ -112,7 +112,7 @@ class Pic : public IrqManager, private InterruptHandler {
   virtual void interrupt(size_t interruptNumber, InterruptState& state);
 
   static void dispatchThreadedLine(void* context, uint8_t irq, size_t cookie);
-#if APIC
+#if MULTIPROCESSOR
   static bool promptThreadedWorker(void* context, uint8_t line, size_t workerProcessor);
 #endif
   static constexpr uint8_t ControllerWorkLine = PicIrqState::LineCount;

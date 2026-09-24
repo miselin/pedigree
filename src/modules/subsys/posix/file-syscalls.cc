@@ -25,15 +25,12 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
-#include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
-#include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/Pointers.h"
-#include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -61,13 +58,9 @@
 #include "metadata-syscalls.h"
 #include "modules/subsys/posix/IoEvent.h"
 #include "modules/system/console/Console.h"
-#include "modules/system/ramfs/RamFs.h"
-#include "modules/system/users/Group.h"
 #include "modules/system/users/User.h"
-#include "modules/system/users/UserManager.h"
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
-#include "modules/system/vfs/LockedFile.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/Pipe.h"
@@ -86,7 +79,7 @@
 #include <sys/statvfs.h>
 
 // Emits a lot of logs in normalisePath to help debug remaps.
-#define ENABLE_VERBOSE_NORMALISATION 0
+static constexpr bool VerboseNormalisation = false;
 
 extern int posix_getpid();
 
@@ -247,26 +240,26 @@ bool normalisePath(String& nameToOpen, const char* name, bool* onDevFs) {
   } else {
     // try the remappings
     struct Remapping* remap = g_Remappings;
-#if ENABLE_VERBOSE_NORMALISATION
-    F_NOTICE("performing remap for '" << name << "'...");
-#endif
+    EMIT_IF(VerboseNormalisation) {
+      F_NOTICE("performing remap for '" << name << "'...");
+    }
     bool ok = false;
     while (remap->from != nullptr) {
       if (!(fixFilesystemPaths || remap->all_abis)) {
-#if ENABLE_VERBOSE_NORMALISATION
-        F_NOTICE(" -> ignoring " << remap->from << " as it is not for the current ABI");
-#endif
+        EMIT_IF(VerboseNormalisation) {
+          F_NOTICE(" -> ignoring " << remap->from << " as it is not for the current ABI");
+        }
         ++remap;
         continue;
       }
 
-#if ENABLE_VERBOSE_NORMALISATION
-      F_NOTICE(" -> check against " << remap->from);
-#endif
+      EMIT_IF(VerboseNormalisation) {
+        F_NOTICE(" -> check against " << remap->from);
+      }
       if (!StringCompare(name, remap->from)) {
-#if ENABLE_VERBOSE_NORMALISATION
-        F_NOTICE(" -> direct remap to " << remap->to);
-#endif
+        EMIT_IF(VerboseNormalisation) {
+          F_NOTICE(" -> direct remap to " << remap->to);
+        }
         nameToOpen.assign(remap->to);
         ok = true;
         break;
@@ -274,9 +267,9 @@ bool normalisePath(String& nameToOpen, const char* name, bool* onDevFs) {
 
       // does not match directly, so we need to check for a partial match
       if (!StringCompareN(name, remap->from, StringLength(remap->from))) {
-#if ENABLE_VERBOSE_NORMALISATION
-        F_NOTICE(" -> possibly partial remap");
-#endif
+        EMIT_IF(VerboseNormalisation) {
+          F_NOTICE(" -> possibly partial remap");
+        }
 
         // we have a partial match, but this only OK if the following
         // character is '/' to avoid incorrectly rewriting paths
@@ -284,19 +277,19 @@ bool normalisePath(String& nameToOpen, const char* name, bool* onDevFs) {
           // good
           nameToOpen.assign(remap->to);
           nameToOpen += (name + StringLength(remap->from));
-#if ENABLE_VERBOSE_NORMALISATION
-          F_NOTICE(" -> indirect remap to create path '" << nameToOpen << "'...");
-#endif
+          EMIT_IF(VerboseNormalisation) {
+            F_NOTICE(" -> indirect remap to create path '" << nameToOpen << "'...");
+          }
           ok = true;
           break;
         }
 
 // no good
-#if ENABLE_VERBOSE_NORMALISATION
-        NOTICE(
-            " -> cannot use this remap as it is not actually "
-            "matching a path segment");
-#endif
+        EMIT_IF(VerboseNormalisation) {
+          NOTICE(
+              " -> cannot use this remap as it is not actually "
+              "matching a path segment");
+        }
       }
 
       ++remap;

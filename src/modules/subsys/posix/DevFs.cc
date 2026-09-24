@@ -640,10 +640,7 @@ int FramebufferFile::command(const size_t command, void* buffer) {
         } else {
           // Set via VGA method.
           if (Machine::instance().getNumVga()) {
-            /// \todo What if there is no text mode!?
             Vga* pVga = Machine::instance().getVga(0);
-            pVga->setMode(3);  /// \todo Magic number.
-            pVga->rememberMode();
             pVga->setLargestTextMode();
 
             m_nDepth = 0;
@@ -679,16 +676,7 @@ int FramebufferFile::command(const size_t command, void* buffer) {
 
         setSize(pFramebuffer->getHeight() * pFramebuffer->getBytesPerLine());
 
-        if (m_pGraphicsParameters->providerResult.bTextModes && m_bTextMode) {
-          // Okay, we need to 'undo' the text mode.
-          if (Machine::instance().getNumVga()) {
-            /// \todo What if there is no text mode!?
-            Vga* pVga = Machine::instance().getVga(0);
-            pVga->restoreMode();
-
-            m_bTextMode = false;
-          }
-        }
+        m_bTextMode = false;
       }
 
       return bSet ? 0 : -1;
@@ -758,10 +746,6 @@ File* Tty0File::open() {
 }
 
 physical_uintptr_t MemFile::getPhysicalPage(size_t offset) {
-#if 0
-    NOTICE("MemFile: giving matching physical page for offset " << Hex << offset);
-#endif
-
   // offset is literally the physical page for /dev/mem
   return offset & ~(PhysicalMemoryManager::getPageSize() - 1);
 }
@@ -776,7 +760,6 @@ DevFs::~DevFs() {
   InputManager::instance().removeCallback(terminalSwitchHandler, this);
 
   delete m_VtManager;
-  delete m_pTty;
   m_pRoot->emptyCache();
   if (!VFS::instance().untrackFile(m_pRoot)) {
     ERROR("DevFs: root directory did not get cleaned up");
@@ -905,77 +888,6 @@ bool DevFs::initialise(Disk* pDisk) {
 #endif
   m_pRoot->addEntry(pConsole->getName(), pConsole);
 
-#if 0
-    // Create /dev/textui for the text-only UI device.
-    m_pTty = new TextIO(String("textui"), getNextInode(), this, m_pRoot);
-    m_pTty->markPrimary();
-    if (m_pTty->initialise(false))
-    {
-        m_pRoot->addEntry(m_pTty->getName(), m_pTty);
-    }
-    else
-    {
-        WARNING("POSIX: no /dev/tty - TextIO failed to initialise.");
-        revertInode();
-        delete m_pTty;
-        m_pTty = nullptr;
-    }
-
-    // tty0 == current console
-    Tty0File *pTty0 =
-        new Tty0File(String("tty0"), getNextInode(), this, m_pRoot, this);
-    m_pRoot->addEntry(pTty0->getName(), pTty0);
-
-    // console == current console
-    Tty0File *pConsole =
-        new Tty0File(String("console"), getNextInode(), this, m_pRoot, this);
-    m_pRoot->addEntry(pConsole->getName(), pConsole);
-
-    // create tty1 which is essentially just textui but with a S_IFCHR wrapper
-    if (m_pTty)
-    {
-        ConsolePhysicalFile *pTty1 =
-            new ConsolePhysicalFile(m_pTty, String("tty1"), this);
-        m_pRoot->addEntry(pTty1->getName(), pTty1);
-
-        m_pTtys[0] = m_pTty;
-        m_pTtyFiles[0] = pTty1;
-    }
-
-    // create tty2-6 as non-overloaded TextIO instances
-    for (size_t i = 1; i < DEVFS_NUMTTYS; ++i)
-    {
-        String ttyname;
-        ttyname.Format("tty%u", i + 1);
-
-        TextIO *tio = new TextIO(ttyname, getNextInode(), this, m_pRoot);
-        if (tio->initialise(true))
-        {
-            ConsolePhysicalFile *file =
-                new ConsolePhysicalFile(tio, ttyname, this);
-            m_pRoot->addEntry(tio->getName(), file);
-
-            m_pTtys[i] = tio;
-            m_pTtyFiles[i] = file;
-
-            // activate the terminal by performing an empty write, which will
-            // ensure users switching to the terminal see a blank screen if
-            // nothing has actually opened it - this is better than seeing the
-            // previous tty's output...
-            tio->write("", 0);
-        }
-        else
-        {
-            WARNING("POSIX: failed to create " << ttyname);
-            revertInode();
-            delete tio;
-
-            m_pTtys[i] = nullptr;
-            m_pTtyFiles[i] = nullptr;
-        }
-    }
-#endif
-
   Pipe* initctl = new Pipe(String("initctl"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
   m_pRoot->addEntry(initctl->getName(), initctl);
   // initctl->increaseRefCount(false);  // pretend to be a reader
@@ -1035,8 +947,6 @@ bool DevFs::initialise(Disk* pDisk) {
 
   // add input handler for terminal switching
   InputManager::instance().installCallback(InputManager::Key, terminalSwitchHandler, this);
-
-  m_CurrentTty = 0;
 
   return true;
 }

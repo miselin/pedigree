@@ -84,12 +84,10 @@ case $mode in
         )
         ;;
     cross)
-        # Keep Pedigree's lwIP integration, CDI shims, and POSIX glue in scope.
+        # Keep Pedigree's lwIP integration and POSIX glue in scope.
         # The excluded directories are imported sources.
-        source_filter="^${escaped_repo_root}/src/(system/kernel/(?!debugger/libudis86(/|$)|machine/mach_pc/x86emu(/|$)|utilities/(md5|sha1|smhasher|spooky)(/|$))|modules/(?!system/config/sqlite3(/|$)|system/lwip/(api|core|netif)(/|$))).*\\.(c|cc|cpp|cxx)$"
+        source_filter="^${escaped_repo_root}/src/(system/kernel/(?!debugger/libudis86(/|$)|utilities/(md5|sha1|smhasher|spooky)(/|$))|modules/(?!system/lwip/(api|core|netif)(/|$))).*\\.(c|cc|cpp|cxx)$"
         required_sources=(
-            "$repo_root/src/modules/drivers/common/cdi/CdiCmos.cc"
-            "$repo_root/src/modules/drivers/common/cdi/CdiIrq.cc"
             "$repo_root/src/modules/subsys/posix/posix.cc"
             "$repo_root/src/modules/system/lwip/lwip.cc"
             "$repo_root/src/modules/system/lwip/sys_arch.cc"
@@ -102,14 +100,12 @@ case $mode in
         required_sources=(
             "$repo_root/src/user/applications/gears/gears.cc"
             "$repo_root/src/user/applications/init/main.c"
-            "$repo_root/src/user/libraries/libui/src/protocol.cc"
+            "$repo_root/src/user/libraries/libfb/src/fb.cc"
         )
 
         required_sdk_headers=(
             "$repo_root/images/local/include/GL/osmesa.h"
             "$repo_root/images/local/include/cairo/cairo.h"
-            "$repo_root/images/local/include/pango-1.0/pango/pango.h"
-            "$repo_root/images/local/libraries/glib-2.0/include/glibconfig.h"
         )
         for sdk_header in "${required_sdk_headers[@]}"; do
             if [[ ! -f $sdk_header ]]; then

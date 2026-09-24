@@ -21,7 +21,6 @@ files=$(git ls-files -- \
     src/buildutil/artifact-generators \
     src/buildutil/bootstrap \
     src/buildutil/CMakeLists.txt \
-    src/buildutil/configdb \
     src/modules/CMakeLists.txt \
     src/modules/subsys/posix/musl \
     src/modules/subsys/posix/syscalls \

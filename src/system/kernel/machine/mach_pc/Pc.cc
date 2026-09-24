@@ -21,10 +21,7 @@
 #if ACPI
 #include "Acpi.h"
 #endif
-#if SMP
-#include "Smp.h"
-#endif
-#if APIC
+#if MULTIPROCESSOR
 #include "Apic.h"
 #endif
 #include "pedigree/kernel/Log.h"
@@ -171,67 +168,22 @@ void Pc::initialise() {
   if (rtc.initialise2() == false)
     panic("Pc: Rtc initialisation phase 2 failed");
 
-// Initialise SMP
-#if SMP
-  Smp& smp = Smp::instance();
-  smp.initialise();
-#endif
-
   bool localApicInitialised = false;
-
-// Check for a local APIC
-#if APIC
-
-  // Physical address of the local APIC
-  uint64_t localApicAddress = 0;
-
-  // Get the Local APIC address & I/O APIC list from either the ACPI or the
-  // SMP tables
-  bool bLocalApicValid = false;
-#if ACPI
-  if ((bLocalApicValid = acpi.validApicInfo()) == true)
-    localApicAddress = acpi.getLocalApicAddress();
-#endif
-#if SMP
-  if (bLocalApicValid == false && (bLocalApicValid = smp.valid()) == true)
-    localApicAddress = smp.getLocalApicAddress();
-#endif
-
-  // Initialise the local APIC, if we have gotten valid data from
-  // the ACPI/SMP structures
-  if (bLocalApicValid == true && localApicAddress && m_LocalApic->initialise(localApicAddress)) {
+#if MULTIPROCESSOR && ACPI
+  const uint64_t localApicAddress = acpi.getLocalApicAddress();
+  if (acpi.validApicInfo() && localApicAddress && m_LocalApic->initialise(localApicAddress)) {
     localApicInitialised = true;
     NOTICE("Local APIC initialised");
   }
-
 #endif
 
   m_SchedulerTimerSelection.recordLocalApicInitialisation(localApicInitialised);
 
-// Check for an I/O APIC
-#if APIC
-
-  // TODO: Check for I/O Apic
-  // TODO: Initialise the I/O Apic
-  // TODO: IMCR?
-  // TODO: Mask the PICs?
-  if (false) {
+  NOTICE("Falling back to dual 8259 PIC Mode");
+  Pic& pic = Pic::instance();
+  if (pic.initialise() == false) {
+    panic("Pc: Pic initialisation failed");
   }
-
-  // Fall back to dual 8259 PICs
-  else {
-#endif
-
-    NOTICE("Falling back to dual 8259 PIC Mode");
-
-    // Initialise PIC
-    Pic& pic = Pic::instance();
-    if (pic.initialise() == false)
-      panic("Pc: Pic initialisation failed");
-
-#if APIC
-  }
-#endif
 
   // Initialise serial ports.
   m_pSerial[0]->setBase(0x3F8);
@@ -249,11 +201,6 @@ void Pc::initialise() {
   // Set up PS/2
   m_Ps2Controller->initialise();
   m_Keyboard->initialise();
-
-// Find and parse the SMBIOS tables
-#if defined(SMBIOS)
-  m_SMBios->initialise();
-#endif
 
 #if X64
   initialiseVdsoCpuId();
@@ -311,7 +258,7 @@ void Pc::initialiseDeviceTree() {
     m_pSerial[i] = new X86Serial();
   }
 
-  m_Vga = new X86Vga(0x3C0, 0xB8000);
+  m_Vga = new X86Vga();
 
   m_IsaBus = new Bus("ISA");
   m_AtaMaster = new Controller();
@@ -321,11 +268,7 @@ void Pc::initialiseDeviceTree() {
   m_Ps2Controller = new Ps2Controller();
   m_pKeyboard = m_Keyboard = new X86Keyboard(m_Ps2Controller);
 
-#ifdef SMBIOS
-  m_SMBios = new SMBios();
-#endif
-
-#if APIC
+#if MULTIPROCESSOR
   m_LocalApic = new LocalApic();
 #endif
 
@@ -386,7 +329,7 @@ IrqManager* Pc::getIrqManager() {
 }
 
 SchedulerTimer* Pc::getSchedulerTimer() {
-#if APIC
+#if MULTIPROCESSOR
   if (m_SchedulerTimerSelection.usesLocalApic()) {
     return m_LocalApic;
   }
@@ -436,10 +379,7 @@ Pc::Pc()
     : m_pSerial(),
       m_Vga(nullptr),
       m_pKeyboard(nullptr),
-#if defined(SMBIOS)
-      m_SMBios(nullptr),
-#endif
-#if APIC
+#if MULTIPROCESSOR
       m_LocalApic(nullptr),
 #endif
       m_SchedulerTimerSelection(),

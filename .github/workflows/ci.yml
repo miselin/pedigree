@@ -69,7 +69,7 @@ jobs:
       - name: Build buildutil testsuite
         run: >-
           cmake --build build/host
-          --target testsuite pedigree-configdb pedigree-initrd-builder
+          --target testsuite pedigree-initrd-builder
           --parallel
 
       - name: Run CTest

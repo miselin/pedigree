@@ -64,11 +64,6 @@
           "expected": 1,
           "classification": "async-transfer",
           "owner": "Request cancellation and lwIP receive path"
-        },
-        "src/modules/system/status_server/main.cc": {
-          "expected": 3,
-          "classification": "lexical-owner",
-          "owner": "Immediate NetconnOwner or NetbufOwner adoption"
         }
       }
     },
@@ -80,6 +75,11 @@
       "suffixes": [".cc", ".cpp", ".cxx", ".h", ".hpp"],
       "exclude_substrings": ["/hosted-smoke/", "/buildutil/"],
       "allowances": {
+        "src/modules/drivers/common/virtio-gpu/VirtioGpu.cc": {
+          "expected": 1,
+          "classification": "non-thread-api",
+          "owner": "VirtioGpu shutdown drains framebuffer callbacks before clearing its GPU binding"
+        },
         "src/modules/drivers/x86/vmware-gfx/main.cc": {
           "expected": 1,
           "classification": "non-thread-api"
@@ -114,47 +114,12 @@
         },
         "src/system/kernel/core/process/PerProcessorScheduler.cc": {
           "expected": 2,
-          "classification": "kernel-admitted-wrapper",
+          "classification": "thread-publication",
           "owner": "Hosted deferred-thread lifecycle fixtures"
-        },
-        "src/modules/system/preload/main.cc": {
-          "expected": 1,
-          "classification": "thread-publication"
-        },
-        "src/system/kernel/core/process/AdmittedThread.cc": {
-          "expected": 1,
-          "classification": "kernel-admitted-wrapper",
-          "owner": "Kernel-resident OperationBarrier lease"
         },
         "src/system/kernel/core/process/initialiseMultitasking.cc": {
           "expected": 2,
           "classification": "kernel-root-thread"
-        },
-        "src/system/kernel/linker/KernelElf.cc": {
-          "expected": 1,
-          "classification": "module-thread-publication"
-        },
-        "src/system/kernel/utilities/pocketknife.cc": {
-          "expected": 1,
-          "classification": "legacy-async-transfer"
-        }
-      }
-    },
-    {
-      "id": "legacy-run-concurrently",
-      "description": "Legacy void-pointer async helper declarations and callers.",
-      "pattern": "\\brunConcurrently\\s*\\(",
-      "roots": ["src/system", "src/modules"],
-      "suffixes": [".cc", ".cpp", ".cxx", ".h", ".hpp"],
-      "exclude_substrings": ["/hosted-smoke/", "/buildutil/"],
-      "allowances": {
-        "src/system/include/pedigree/kernel/utilities/pocketknife.h": {
-          "expected": 1,
-          "classification": "api-declaration"
-        },
-        "src/system/kernel/utilities/pocketknife.cc": {
-          "expected": 1,
-          "classification": "api-definition"
         }
       }
     }

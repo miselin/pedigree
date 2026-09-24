@@ -43,7 +43,7 @@ extern BootstrapStruct_t* g_pBootstrapInfo;
 #define LOG_MAX_DEDUPE_MESSAGES 20
 
 /** Show log timestamps in nanoseconds. */
-#define LOG_TIMESTAMPS_IN_NANOS 0
+static constexpr bool LogTimestampsInNanos = false;
 
 Log Log::m_Instance;
 EXPORTED_PUBLIC BootProgressUpdateFn g_BootProgressUpdate = 0;
@@ -750,7 +750,7 @@ const NormalStaticString& Log::getTimestamp() {
   Time::Timestamp tn = Time::getTimeNanoseconds();
   Time::Timestamp ts = Time::getTime();
   Time::Timestamp t;
-  EMIT_IF(LOG_TIMESTAMPS_IN_NANOS) {
+  EMIT_IF(LogTimestampsInNanos) {
     t = tn;
   }
   else {

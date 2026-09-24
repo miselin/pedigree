@@ -21,7 +21,7 @@
 #define KERNEL_MACHINE_X86_COMMON_APIC_H
 #include <config.h>
 
-#if APIC
+#if MULTIPROCESSOR
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqManager.h"

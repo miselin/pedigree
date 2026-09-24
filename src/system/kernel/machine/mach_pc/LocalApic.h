@@ -21,7 +21,7 @@
 #define KERNEL_MACHINE_X86_COMMON_LOCAL_APIC_H
 #include <config.h>
 
-#if APIC
+#if MULTIPROCESSOR
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"

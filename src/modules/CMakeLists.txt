@@ -28,9 +28,6 @@ if (PEDIGREE_HOSTED_DARWIN)
     endif ()
 endif ()
 
-# Preserve original linker flags
-set(PRESERVED_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS})
-
 set(PEDIGREE_POSIX_VERBOSE FALSE CACHE BOOL "Enable verbose logging for all POSIX syscalls.")
 set(PEDIGREE_POSIX_FILE_VERBOSE FALSE CACHE BOOL "Enable verbose logging for POSIX file syscalls.")
 set(PEDIGREE_POSIX_SYS_VERBOSE FALSE CACHE BOOL "Enable verbose logging for POSIX system syscalls.")
@@ -47,16 +44,6 @@ set(PEDIGREE_PCAP TRUE CACHE BOOL "Build the pcap kernel module which writes a p
 
 
 add_definitions(-DIN_PEDIGREE_KERNEL)
-
-if (NOT PEDIGREE_OVERRIDE_CXX_COMPILER_VERSION)
-    set(PEDIGREE_OVERRIDE_CXX_COMPILER_VERSION ${CMAKE_CXX_COMPILER_VERSION})
-endif ()
-
-set(GENERIC_MODULE_FLAGS "-fno-common" "-ggdb" "-g3" "-gdwarf-2")
-set(GENERIC_MODULE_CFLAGS "")
-# NOTE: userspace code is allowed to use exceptions, so we only add -fno-exceptions
-# for the module-specific build flags rather than these generic flags.
-set(GENERIC_MODULE_CXXFLAGS "-fno-rtti" "-fno-asynchronous-unwind-tables")
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     set(ARCH_MODULE_FLAGS "-fno-omit-frame-pointer" "-m64" "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx" "-fPIC")
@@ -91,9 +78,6 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     endif ()
 endif ()
 
-set(MODULE_C_FLAGS ${GENERIC_MODULE_FLAGS} ${ARCH_MODULE_FLAGS})
-set(MODULE_ASM_FLAGS ${GENERIC_MODULE_FLAGS} ${ARCH_MODULE_FLAGS})
-set(MODULE_CXX_FLAGS ${GENERIC_MODULE_FLAGS} ${GENERIC_MODULE_CXXFLAGS} ${ARCH_MODULE_FLAGS})
 
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/link.ld
@@ -137,47 +121,23 @@ else ()
     link_directories(${PEDIGREE_MUSL_PREFIX_ROOT}/lib)
 endif ()
 
-set(CDI_INCLUDE_DIRS
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/include)
-
 set(POSIX_LOGGING 0)
 if (PEDIGREE_POSIX_VERBOSE)
     set(POSIX_LOGGING 0xffffffff)
 else ()
-    if (PEDIGREE_POSIX_FILE_VERBOSE)
-        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 1")
-    endif ()
-    if (PEDIGREE_POSIX_SYS_VERBOSE)
-        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 2")
-    endif ()
-    if (PEDIGREE_POSIX_THR_VERBOSE)
-        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 4")
-    endif ()
-    if (PEDIGREE_POSIX_NET_VERBOSE)
-        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 8")
-    endif ()
-    if (PEDIGREE_POSIX_SUBSYS_VERBOSE)
-        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 16")
-    endif ()
-    if (PEDIGREE_POSIX_SIG_VERBOSE)
-        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 32")
-    endif ()
-    if (PEDIGREE_POSIX_SIG_ULTRA_VERBOSE)
-        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 64")
-    endif ()
-    if (PEDIGREE_POSIX_SYSCALL_VERBOSE)
-        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 128")
-    endif ()
-    if (PEDIGREE_POSIX_POLL_VERBOSE)
-        math(EXPR POSIX_LOGGING "${POSIX_LOGGING} + 256")
-    endif ()
+    set(POSIX_LOG_BIT 1)
+    foreach (facility FILE SYS THR NET SUBSYS SIG SIG_ULTRA SYSCALL POLL)
+        if (PEDIGREE_POSIX_${facility}_VERBOSE)
+            math(EXPR POSIX_LOGGING "${POSIX_LOGGING} | ${POSIX_LOG_BIT}")
+        endif ()
+        math(EXPR POSIX_LOG_BIT "${POSIX_LOG_BIT} << 1")
+    endforeach ()
 endif ()
 
 add_definitions(-DPOSIX_LOG_FACILITIES=${POSIX_LOGGING})
 
 set(_PEDIGREE_ARM_ALPINE_MODULES
-    config confignics console diskimage ext2 filesystems init linker lodisk lwip
+    confignics console diskimage ext2 filesystems init linker lodisk lwip
     mountroot network-stack nics nvme partition pci pci-enumeration posix ramfs
     rawfs scsi users vfs virtio-pci virtio-blk virtio-net virtio-rng virtio-input
     virtio-gpu virtio-scsi gfx-deps)
@@ -243,8 +203,6 @@ function(pedigree_module name opts libs)
     target_include_directories(${name} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/system/${name}
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/${name}
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/${name}
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/${name}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/${PEDIGREE_DRIVERDIR}/${name})
 
     if (PEDIGREE_MODULE_${name})
@@ -271,22 +229,6 @@ function(pedigree_module name opts libs)
     endif ()
 endfunction()
 
-# CDI is not part of the supported module set, but keep its independently
-# buildable compatibility shims compiling so concurrency fixes cannot decay.
-add_library(cdi-irq-compile-check OBJECT EXCLUDE_FROM_ALL
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiIrq.cc)
-if (PEDIGREE_HOSTED_DARWIN)
-    set_target_properties(
-        cdi-irq-compile-check PROPERTIES OSX_ARCHITECTURES "")
-endif ()
-if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
-    target_sources(cdi-irq-compile-check PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiCmos.cc)
-endif ()
-target_compile_options(cdi-irq-compile-check PRIVATE
-    ${PEDIGREE_MODULE_CXXFLAGS} -fno-rtti -fno-exceptions
-    -fno-asynchronous-unwind-tables)
-
 if (NOT PEDIGREE_STATIC_DRIVERS)
     if (PEDIGREE_HOSTED_DARWIN)
         add_library(module OBJECT ${CMAKE_CURRENT_SOURCE_DIR}/Module.cc)
@@ -296,36 +238,6 @@ if (NOT PEDIGREE_STATIC_DRIVERS)
     if (PEDIGREE_HOSTED_DARWIN)
         set_target_properties(module PROPERTIES OSX_ARCHITECTURES "")
     endif ()
-endif ()
-
-if (PEDIGREE_STATIC_DRIVERS)
-    set_source_files_properties(${CMAKE_BINARY_DIR}/embedconfigdb.c PROPERTIES GENERATED 1)
-endif ()
-
-pedigree_module(config "-w;-Os" ""
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/config/main.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/config/Config.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/config/sqlite3/sqlite3.c
-    $<$<BOOL:${PEDIGREE_STATIC_DRIVERS}>:${CMAKE_BINARY_DIR}/embedconfigdb.c>)
-target_compile_definitions(config PUBLIC
-    -DSQLITE_SYSTEM_MALLOC=1 -DSQLITE_OS_OTHER=1 -DSQLITE_THREADSAFE=0
-    -DSQLITE_TEMP_STORE=3 -DSQLITE_DISABLE_LFS=1 -DSQLITE_OMIT_ALTER_TABLE=1
-    -DSQLITE_OMIT_AUTHORIZATION=1 -DSQLITE_OMIT_AUTOINIT=1
-    -DSQLITE_OMIT_AUTOVACUUM=1 -DSQLITE_OMIT_BUILTIN_TEST=1
-    -DSQLITE_OMIT_COMPILEOPTION_DIAGS=1 -DSQLITE_OMIT_COMPLETE=1
-    -DSQLITE_OMIT_DECLTYPE=1 -DSQLITE_OMIT_DEPRECATED=1 -DSQLITE_OMIT_EXPLAIN=1
-    -DSQLITE_OMIT_FLAG_PRAGMAS=1 -DSQLITE_OMIT_FLOATING_POINT=1
-    -DSQLITE_OMIT_INCRBLOB=1 -DSQLITE_OMIT_INTEGRITY_CHECK=1
-    -DSQLITE_OMIT_LOAD_EXTENSION=1 -DSQLITE_OMIT_LOCALTIME=1
-    -DSQLITE_OMIT_LOOKASIDE=1 -DSQLITE_OMIT_MEMORYDB=1
-    -DSQLITE_OMIT_PROGRESS_CALLBACK=1 -DSQLITE_OMIT_SCHEMA_PRAGMAS=1
-    -DSQLITE_OMIT_SCHEMA_VERSION_PRAGMAS=1 -DSQLITE_OMIT_TCL_VARIABLE=1
-    -DSQLITE_OMIT_TEMPDB=1 -DSQLITE_OMIT_TRACE=1 -DSQLITE_OMIT_UTF16=1
-    -DSQLITE_OMIT_WAL=1)
-target_compile_options(config PRIVATE -Wno-implicit-fallthrough)
-add_dependencies(config libc)  # TODO: this shouldn't need headers.
-if (PEDIGREE_STATIC_DRIVERS)
-    add_dependencies(config embedconfigdb)
 endif ()
 
 pedigree_module(confignics "" ""
@@ -466,7 +378,6 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/usb-transfer-lifecycle-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/vfs-callback-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/wait-regressions.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiIrq.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ps2mouse/Ps2MouseCallbackRegistry.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ps2mouse/Ps2MousePacket.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/network-stack/Filter.cc
@@ -673,8 +584,6 @@ pedigree_module(pcap "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/pcap/main.cc)
 endif ()
 
-pedigree_module(preload "" ""
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/preload/main.cc)
 
 pedigree_module(ramfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ramfs/RamFile-allocation.cc
@@ -696,9 +605,6 @@ pedigree_module(rawfs "" ""
 pedigree_module(splash "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/splash/main.cc)
 
-pedigree_module(status_server "" ""
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/status_server/main.cc)
-add_dependencies(status_server lwip)
 
 set(USB_REGRESSION_SOURCES)
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
@@ -727,7 +633,6 @@ pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/File.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/FileEvent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Filesystem.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/LockedFile.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedAnonymous.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile-swap.cc
@@ -757,7 +662,7 @@ pedigree_module(vfs "" ""
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS AND
     NOT PEDIGREE_HOSTED_DARWIN)
-    add_dependencies(hosted-smoke config users vfs fat rawfs usb)
+    add_dependencies(hosted-smoke users vfs fat rawfs usb)
 endif ()
 
 pedigree_module(3c90x "" ""
@@ -956,44 +861,6 @@ if (PEDIGREE_USB_SMOKE_TESTS)
 endif ()
 
 if (PEDIGREE_DRIVERDIR STREQUAL "x86")
-    # pedigree_module(cdi "" ""
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiDisk.cc
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiIrq.cc
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiNet.cc
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiCmos.cc
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/_list.cc
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/cdi.cc
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/compat.cc
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/dma.cc
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/lists.cc
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/misc.cc
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/net.cc
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/pci.cc
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/storage.cc)
-    # target_include_directories(cdi PRIVATE ${CDI_INCLUDE_DIRS})
-
-    # pedigree_module(e1000 "-w" ""
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/e1000/device.c
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/e1000/main.c)
-    # target_include_directories(e1000 PRIVATE ${CDI_INCLUDE_DIRS})
-
-    # pedigree_module(pcnet "-w" ""
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/pcnet/pcnet.c
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/pcnet/main.c)
-    # target_include_directories(pcnet PRIVATE ${CDI_INCLUDE_DIRS})
-
-    # pedigree_module(rtl8139 "-w" ""
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/rtl8139/rtl8139.c
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/rtl8139/main.c)
-    # target_include_directories(rtl8139 PRIVATE ${CDI_INCLUDE_DIRS})
-
-    # pedigree_module(sis900 "-w" ""
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/device.c
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/eeprom.c
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/main.c
-    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/cdi/sis900/sis900_io.c)
-    # target_include_directories(sis900 PRIVATE ${CDI_INCLUDE_DIRS})
-
     pedigree_module(ib700_wdt "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ib700_wdt/main.cc)
 
@@ -1032,10 +899,6 @@ if (PEDIGREE_DRIVERDIR STREQUAL "x86")
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ps2mouse/Ps2MousePacket.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ps2mouse/Ps2Mouse.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ps2mouse/main.cc)
-
-    pedigree_module(vbe "" ""
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/vbe/VbeDisplay.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/vbe/vbe.cc)
 
     pedigree_module(uefi-gfx "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/uefi-gfx/main.cc)
@@ -1285,29 +1148,12 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/module-runtime-tests/main.cc ${runtime_images})
 endif ()
 
-pedigree_module(native "" ""
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/kernel/NativeIpc.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/kernel/NativeSyscallManager.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/kernel/main.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/kernel/native-base.cc)
-target_include_directories(native PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/kernel
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/kernel/include)
-add_dependencies(native libc)
 
 if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     NOT PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
     add_library(native-user SHARED
-        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/Object.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/cppsupport.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/demo.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/native-protocol.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/config/Config.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/graphics/Graphics.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/input/Input.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/ipc/Ipc.cc)
-    target_include_directories(native-user PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/input/Input.cc)
+    target_include_directories(native-user PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/include)
     target_link_libraries(native-user PRIVATE -nostdlib gcc)
     target_link_options(native-user PRIVATE
@@ -1325,8 +1171,6 @@ pedigree_module(pedigree-c "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/PedigreeCSyscallManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-c.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-syscalls.cc)
-target_include_directories(native PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c)
 
 if (NOT PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
 set(PEDIGREE_C_USER_SOURCES
@@ -1457,6 +1301,3 @@ endif ()
 
 set(PEDIGREE_KERNEL_MODULES ${PEDIGREE_KERNEL_MODULES} PARENT_SCOPE)
 set(PEDIGREE_KERNEL_MODULE_TARGETS ${PEDIGREE_KERNEL_MODULE_TARGETS} PARENT_SCOPE)
-
-# Restore original linker flags
-# set(CMAKE_SHARED_LINKER_FLAGS ${PRESERVED_SHARED_LINKER_FLAGS})

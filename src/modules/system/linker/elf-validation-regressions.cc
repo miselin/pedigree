@@ -46,8 +46,6 @@ class ExecutableValidationFixture final : public Elf {
     header.type = type;
 #if X64 || defined(MACH_HOSTED)
     header.machine = 62;  // EM_X86_64
-#elif X86
-    header.machine = 3;  // EM_386
 #endif
     header.version = 1;
     header.entry = type == ET_DYN ? 0x100 : 0x400100;

@@ -29,7 +29,6 @@
 #include <string.h>
 #endif
 
-#define WITH_SSE 0
 #define SSE_THRESHOLD 1024
 #define STOSB_THRESHOLD 64
 

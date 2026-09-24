@@ -50,7 +50,7 @@ run_logged "$build_root/host-configure.log" \
     -DPEDIGREE_WARNINGS=ON -DPEDIGREE_BUILDUTILS_ASAN=OFF
 run_logged "$build_root/host-build.log" \
     cmake --build "$host_build" "${parallel_args[@]}" \
-    --target testsuite headerify pedigree-configdb pedigree-initrd-builder
+    --target testsuite headerify pedigree-initrd-builder
 run_logged "$build_root/host-tests.log" \
     ctest --test-dir "$host_build" --output-on-failure --no-tests=error
 
@@ -69,8 +69,8 @@ run_logged "$build_root/linux-hosted-configure.log" \
     -DPEDIGREE_WITH_INIT=OFF
 run_logged "$build_root/linux-hosted-build.log" \
     cmake --build "$kernel_build" "${parallel_args[@]}" \
-    --target kernel configdb
+    --target kernel
 
 "$repository/scripts/test-hosted-irq-closure.sh" \
     "$kernel_build/src/system/kernel/kernel" \
-    "$kernel_build/config.db" "$log_file"
+    "$log_file"

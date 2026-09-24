@@ -53,11 +53,7 @@ class EXPORTED_PUBLIC Atomic<T, true> {
   }
   /** Atomically stores a value. */
   inline Atomic& operator=(T x) {
-#if !TARGET_HAS_NO_ATOMICS
     __atomic_store_n(&m_Atom, x, __ATOMIC_SEQ_CST);
-#else
-    m_Atom = x;
-#endif
     return *this;
   }
   /** The destructor does nothing */
@@ -67,56 +63,31 @@ class EXPORTED_PUBLIC Atomic<T, true> {
    *\param[in] x value to add
    *\return the value after the addition */
   inline T operator+=(T x) {
-#if !TARGET_HAS_NO_ATOMICS
     return __sync_add_and_fetch(&m_Atom, x);
-#else
-    m_Atom += x;
-    return m_Atom;
-#endif
   }
   /** Subtraction
    *\param[in] x value to subtract
    *\return the value after the subtraction */
   inline T operator-=(T x) {
-#if !TARGET_HAS_NO_ATOMICS
     return __sync_sub_and_fetch(&m_Atom, x);
-#else
-    m_Atom -= x;
-    return m_Atom;
-#endif
   }
   /** Bitwise or
    *\param[in] x the operand
    *\return the value after the bitwise or */
   inline T operator|=(T x) {
-#if !TARGET_HAS_NO_ATOMICS
     return __sync_or_and_fetch(&m_Atom, x);
-#else
-    m_Atom |= x;
-    return m_Atom;
-#endif
   }
   /** Bitwise and
    *\param[in] x the operand
    *\return the value after the bitwise and */
   inline T operator&=(T x) {
-#if !TARGET_HAS_NO_ATOMICS
     return __sync_and_and_fetch(&m_Atom, x);
-#else
-    m_Atom &= x;
-    return m_Atom;
-#endif
   }
   /** Bitwise xor
    *\param[in] x the operand
    *\return the value after the bitwise xor */
   inline T operator^=(T x) {
-#if !TARGET_HAS_NO_ATOMICS
     return __sync_xor_and_fetch(&m_Atom, x);
-#else
-    m_Atom ^= x;
-    return m_Atom;
-#endif
   }
   /** Compare and swap
    *\param[in] oldVal the comparision value
@@ -124,24 +95,12 @@ class EXPORTED_PUBLIC Atomic<T, true> {
    *\return true, if the Atomic had the value oldVal and the value was changed
    *to newVal, false otherwise */
   inline bool compareAndSwap(T oldVal, T newVal) {
-#if !TARGET_HAS_NO_ATOMICS
     return __sync_bool_compare_and_swap(&m_Atom, oldVal, newVal);
-#else
-    if (m_Atom == oldVal) {
-      m_Atom = newVal;
-      return true;
-    }
-    return false;
-#endif
   }
   /** Get the value
    *\return the value of the Atomic */
   inline operator T() const {
-#if !TARGET_HAS_NO_ATOMICS
     return __atomic_load_n(&m_Atom, __ATOMIC_SEQ_CST);
-#else
-    return m_Atom;
-#endif
   }
 
   /** Atomically loads the value without exposing the backing storage. */

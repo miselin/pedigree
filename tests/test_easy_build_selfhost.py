@@ -61,7 +61,7 @@ class SelfhostWrapperTests(unittest.TestCase):
                 configure[:4],
                 ["-S", str(source), "-B", str(source / "build-selfhost")],
             )
-            for product in ("HDD_IMAGE", "ISO", "UEFI"):
+            for product in ("UEFI",):
                 self.assertIn(f"-DPEDIGREE_BUILD_{product}=OFF", configure)
             self.assertIn("-DPEDIGREE_BUILD_ROLE=TARGET", configure)
             self.assertEqual(

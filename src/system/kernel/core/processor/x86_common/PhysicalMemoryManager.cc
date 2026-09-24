@@ -36,14 +36,6 @@
 
 #include "../x64/VirtualAddressSpace.h"
 
-#if X86 && DEBUGGER
-#define USE_BITMAP 1
-#else
-#define USE_BITMAP 0
-#endif
-
-static uint32_t g_PageBitmap[16384] = {0};
-
 EXPORTED_PUBLIC size_t g_FreePages = 0;
 EXPORTED_PUBLIC size_t g_AllocedPages = 0;
 
@@ -112,13 +104,6 @@ physical_uintptr_t X86CommonPhysicalMemoryManager::allocatePage(size_t pageConst
 
   trackPages(0, 1, 0);
 
-  EMIT_IF(USE_BITMAP) {
-    physical_uintptr_t ptr_bitmap = ptr / 0x1000;
-    size_t idx = ptr_bitmap / 32;
-    size_t bit = ptr_bitmap % 32;
-    g_PageBitmap[idx] |= (1 << bit);
-  }
-
   m_Lock.release();
 
   EMIT_IF(TRACK_PAGE_ALLOCATIONS) {
@@ -145,13 +130,6 @@ physical_uintptr_t X86CommonPhysicalMemoryManager::tryAllocatePage() {
   }
 
   trackPages(0, 1, 0);
-
-  EMIT_IF(USE_BITMAP) {
-    physical_uintptr_t ptr_bitmap = ptr / 0x1000;
-    size_t idx = ptr_bitmap / 32;
-    size_t bit = ptr_bitmap % 32;
-    g_PageBitmap[idx] |= (1 << bit);
-  }
 
   m_Lock.release();
 
@@ -233,23 +211,7 @@ void X86CommonPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {
     }
   }
 
-  EMIT_IF(USE_BITMAP) {
-    physical_uintptr_t ptr_bitmap = page / 0x1000;
-    size_t idx = ptr_bitmap / 32;
-    size_t bit = ptr_bitmap % 32;
-    if (!(g_PageBitmap[idx] & (1 << bit))) {
-      m_Lock.release();
-      FATAL_NOLOCK("PhysicalMemoryManager DOUBLE FREE");
-    }
-
-    g_PageBitmap[idx] &= ~(1 << bit);
-  }
-
   m_PageStack.free(page, getPageSize());
-
-  EMIT_IF(USE_BITMAP) {
-    traceAllocation(reinterpret_cast<void*>(page), MemoryTracing::PageFree, 4096);
-  }
 
   trackPages(0, -1, 0);
 }

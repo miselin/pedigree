@@ -24,8 +24,6 @@
 #include <stdarg.h>
 #include <stddef.h>
 
-#define UNROLLED_STRLEN 1
-
 extern void* malloc(size_t);
 extern void free(void*);
 
@@ -67,41 +65,28 @@ int min(size_t a, size_t b) {
 }
 
 WEAK size_t _StringLength(const char* src) {
-  if (!UNROLLED_STRLEN) {
-    if (UNLIKELY(!src)) {
-      return 0;
-    }
+  if (!src) {
+    return 0;
+  }
 
-    size_t n = 0;
-    while (*src++) {
-      ++n;
-    }
-
-    return n;
-  } else {
-    if (!src) {
-      return 0;
-    }
-
-    // Unrolled loop that still avoids reading past the end of src (instead of
-    // e.g. doing bitmasks with 64-bit views of src).
-    const char* orig = src;
-    size_t result = 0;
-    while (1) {
+  // Unrolled loop that still avoids reading past the end of src (instead of
+  // e.g. doing bitmasks with 64-bit views of src).
+  const char* orig = src;
+  size_t result = 0;
+  while (1) {
 #define UNROLL(n)  \
   if (!*(src + n)) \
     return (src + n) - orig;
-      UNROLL(0);
-      UNROLL(1);
-      UNROLL(2);
-      UNROLL(3);
-      UNROLL(4);
-      UNROLL(5);
-      UNROLL(6);
-      UNROLL(7);
+    UNROLL(0);
+    UNROLL(1);
+    UNROLL(2);
+    UNROLL(3);
+    UNROLL(4);
+    UNROLL(5);
+    UNROLL(6);
+    UNROLL(7);
 #undef UNROLL
-      src += 8;
-    }
+    src += 8;
   }
 }
 

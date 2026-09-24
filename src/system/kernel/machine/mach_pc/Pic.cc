@@ -21,7 +21,7 @@
 
 #include "LocalApicLint0Policy.h"
 #include "PicElcr.h"
-#if APIC
+#if MULTIPROCESSOR
 #include "LocalApic.h"
 #include "Pc.h"
 #endif
@@ -571,7 +571,7 @@ bool Pic::initialiseThreaded() {
   // workers to this scheduler, so the controller continuation and ExtINT
   // receiver now share one durable processor identity.
   m_DeliveryProcessor = Processor::index();
-#if APIC
+#if MULTIPROCESSOR
   // LAPIC destination IDs are physical routing identifiers, not scheduler
   // topology indexes. Capture the BSP's actual ID alongside the worker so
   // remote controller owners can force prompt BSP service.
@@ -1587,7 +1587,7 @@ void Pic::dispatchThreadedLine(void* context, uint8_t irq, size_t cookie) {
   }
 }
 
-#if APIC
+#if MULTIPROCESSOR
 bool Pic::promptThreadedWorker(void* context, uint8_t line, size_t workerProcessor) {
   Pic* pic = reinterpret_cast<Pic*>(context);
   if (!pic) {

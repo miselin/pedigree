@@ -75,7 +75,7 @@ run_native_lane()
     local build_dir=$2
     local page_size=$3
     local use_asan=$4
-    local targets=(testsuite pedigree-configdb pedigree-initrd-builder)
+    local targets=(testsuite pedigree-initrd-builder)
 
     echo
     echo "Configuring $label."
@@ -120,7 +120,7 @@ run_host_tools_lane()
         "$build_dir/config.h"
     cmake --build "$build_dir" "${parallel_args[@]}" \
         --target headerify ext2img keymap memorytracer \
-            pedigree-configdb pedigree-initrd-builder
+            pedigree-initrd-builder
 }
 
 run_darwin_lane()
@@ -156,14 +156,13 @@ run_darwin_lane()
     grep -q "ALIGN($page_size)" "$build_dir/src/modules/link.ld"
 
     cmake --build "$build_dir" "${parallel_args[@]}" \
-        --target kernel configdb hosted-core-smoke
+        --target kernel hosted-core-smoke
     python3 "$script_dir/scripts/check-elf-page-layout.py" \
         --page-size "$page_size" \
         "$build_dir/src/modules/hosted-core-smoke.o"
     "$script_dir/scripts/test-hosted-darwin.sh" \
         "$build_dir/src/system/kernel/kernel" \
         "$build_dir/src/modules/hosted-core-smoke.o" \
-        "$build_dir/config.db" \
         "$build_dir/hosted-core-smoke.log" \
         "$page_size"
 }

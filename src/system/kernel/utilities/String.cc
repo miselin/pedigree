@@ -126,9 +126,6 @@ String& String::operator+=(const String& x) {
   m_Length += x.length();
 
   m_Hash = 0;  // hash is no longer valid
-#if STRING_DISABLE_JIT_HASHING
-  computeHash();
-#endif
   return *this;
 }
 
@@ -153,9 +150,6 @@ String& String::operator+=(const char* s) {
   m_Length += slen;
 
   m_Hash = 0;
-#if STRING_DISABLE_JIT_HASHING
-  computeHash();
-#endif
   return *this;
 }
 
@@ -295,9 +289,6 @@ void String::assign(const Cord& x) {
   m_Length = offset;
 
   m_Hash = 0;
-#if STRING_DISABLE_JIT_HASHING
-  computeHash();
-#endif
 }
 
 void String::assign(const char* s, size_t len, bool unsafe) {
@@ -360,9 +351,6 @@ void String::assign(const char* s, size_t len, bool unsafe) {
 #endif
 
   m_Hash = 0;
-#if STRING_DISABLE_JIT_HASHING
-  computeHash();
-#endif
 }
 
 void String::reserve(size_t size) {
@@ -430,9 +418,6 @@ void String::ltrim(size_t n) {
   m_Data[m_Length] = 0;
 
   m_Hash = 0;
-#if STRING_DISABLE_JIT_HASHING
-  computeHash();
-#endif
 }
 
 void String::rtrim(size_t n) {
@@ -447,9 +432,6 @@ void String::rtrim(size_t n) {
   m_Length -= n;
 
   m_Hash = 0;
-#if STRING_DISABLE_JIT_HASHING
-  computeHash();
-#endif
 }
 
 String String::split(size_t offset) {
@@ -473,9 +455,6 @@ void String::split(size_t offset, String& back) {
   buf[m_Length] = 0;
 
   m_Hash = 0;
-#if STRING_DISABLE_JIT_HASHING
-  computeHash();
-#endif
 }
 
 void String::strip() {
@@ -508,9 +487,6 @@ void String::lstrip() {
   buf[m_Length] = 0;
 
   m_Hash = 0;
-#if STRING_DISABLE_JIT_HASHING
-  computeHash();
-#endif
 }
 
 void String::rstrip() {
@@ -536,9 +512,6 @@ void String::rstrip() {
   buf[m_Length] = 0;
 
   m_Hash = 0;
-#if STRING_DISABLE_JIT_HASHING
-  computeHash();
-#endif
 }
 
 Vector<String> String::tokenise(char token) {
@@ -635,9 +608,6 @@ void String::lchomp() {
   --m_Length;
 
   m_Hash = 0;
-#if STRING_DISABLE_JIT_HASHING
-  computeHash();
-#endif
 }
 
 void String::chomp() {
@@ -652,9 +622,6 @@ void String::chomp() {
   buf[m_Length] = '\0';
 
   m_Hash = 0;
-#if STRING_DISABLE_JIT_HASHING
-  computeHash();
-#endif
 }
 
 void String::Format(const char* fmt, ...) {
@@ -667,9 +634,6 @@ void String::Format(const char* fmt, ...) {
   va_end(vl);
 
   m_Hash = 0;
-#if STRING_DISABLE_JIT_HASHING
-  computeHash();
-#endif
 }
 
 bool String::endswith(const char c) const {

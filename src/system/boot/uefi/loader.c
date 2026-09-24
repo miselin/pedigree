@@ -567,15 +567,12 @@ efi_status_t efi_main(efi_handle_t image, efi_system_table_t* system_table) {
 
   static const efi_char16_t kernel_name[] = L"kernel";
   static const efi_char16_t initrd_name[] = L"initrd.tar";
-  static const efi_char16_t config_name[] = L"config.db";
   static const efi_char16_t cmdline_name[] = L"cmdline";
   efi_char16_t kernel_path[256];
   efi_char16_t initrd_path[256];
-  efi_char16_t config_path[256];
   efi_char16_t cmdline_path[256];
   if (!build_artifact_path(loaded_image, &options, kernel_name, kernel_path, 256) ||
       !build_artifact_path(loaded_image, &options, initrd_name, initrd_path, 256) ||
-      !build_artifact_path(loaded_image, &options, config_name, config_path, 256) ||
       !build_artifact_path(loaded_image, &options, cmdline_name, cmdline_path, 256)) {
     print((efi_char16_t*)L"UEFI: loader path is too long\r\n");
     return 1;
@@ -588,13 +585,11 @@ efi_status_t efi_main(efi_handle_t image, efi_system_table_t* system_table) {
   }
   uint64_t kernel_length = 0;
   uint64_t initrd_length = 0;
-  uint64_t config_length = 0;
   uint64_t cmdline_length = 0;
   uint8_t* kernel_file = (uint8_t*)read_file(root, kernel_path, &kernel_length);
   uint8_t* initrd = (uint8_t*)read_file(root, initrd_path, &initrd_length);
-  uint8_t* config = (uint8_t*)read_file(root, config_path, &config_length);
   uint8_t* cmdline = (uint8_t*)read_file(root, cmdline_path, &cmdline_length);
-  if (!kernel_file || !initrd || !config || !cmdline) {
+  if (!kernel_file || !initrd || !cmdline) {
     print((efi_char16_t*)L"UEFI: file read failed\r\n");
     return 1;
   }
@@ -653,11 +648,9 @@ efi_status_t efi_main(efi_handle_t image, efi_system_table_t* system_table) {
   zero(info, 4 * EFI_PAGE_SIZE);
   modules[0].base = (uint64_t)initrd;
   modules[0].end = modules[0].base + initrd_length;
-  modules[1].base = (uint64_t)config;
-  modules[1].end = modules[1].base + config_length;
   info->flags =
       BOOTSTRAP_FLAG_CMDLINE | BOOTSTRAP_FLAG_MODULES | BOOTSTRAP_FLAG_ELF | BOOTSTRAP_FLAG_UEFI;
-  info->module_count = 2;
+  info->module_count = 1;
   info->modules = PHYS_ALIAS + (uint64_t)modules;
   info->section_count = header->section_header_count;
   info->section_entry_size = header->section_header_size;

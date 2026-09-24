@@ -21,7 +21,7 @@
 #define KERNEL_MACHINE_X86_COMMON_IO_APIC_H
 #include <config.h>
 
-#if APIC
+#if MULTIPROCESSOR
 
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
 

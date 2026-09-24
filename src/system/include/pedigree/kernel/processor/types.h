@@ -21,10 +21,7 @@
 #define KERNEL_PROCESSOR_TYPES_H
 #include <config.h>
 
-#if X86
-#include "pedigree/kernel/processor/x86/types.h"  // IWYU pragma: export
-#define PROCESSOR_SPECIFIC_NAME(x) X86##x
-#elif X64
+#if X64
 #include "pedigree/kernel/processor/x64/types.h"  // IWYU pragma: export
 #define PROCESSOR_SPECIFIC_NAME(x) X64##x
 #elif ARM64

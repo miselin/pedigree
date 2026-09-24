@@ -58,31 +58,6 @@ bool scopes(Thread& thread) {
   return passed;
 }
 
-bool legacyAdmission(Thread& thread) {
-  const bool pin = thread.tryPinLegacyUserCallbacks();
-  bool passed = check(pin, "legacy callback pin admission");
-  if (!pin)
-    return false;
-  const bool unexpectedRequirement = thread.tryRequireSignalFrames();
-  passed &= check(!unexpectedRequirement, "legacy callback excludes tracing frame requirement");
-  if (unexpectedRequirement)
-    thread.clearSignalFrameRequirement();
-  thread.unpinLegacyUserCallbacks();
-  const bool required = thread.tryRequireSignalFrames();
-  passed &= check(required, "frame requirement after last callback pin");
-  if (required) {
-    const bool unexpectedPin = thread.tryPinLegacyUserCallbacks();
-    passed &= check(!unexpectedPin && thread.requiresSignalFrames(),
-                    "frame requirement excludes callback");
-    if (unexpectedPin)
-      thread.unpinLegacyUserCallbacks();
-    thread.clearSignalFrameRequirement();
-  }
-  if (passed)
-    NOTICE("PTRACE-FRAME-CORE: PASS legacy admission exclusion");
-  return passed;
-}
-
 #if X64 && !HOSTED
 extern "C" void pedigree_capture_user_entry(X64UserEntryMetadata*);
 extern "C" void pedigree_restore_user_entry(const X64UserEntryMetadata*);
@@ -221,7 +196,7 @@ EXPORTED_PUBLIC bool runPtraceFrameRegressions() {
   Thread* current = Processor::information().getCurrentThread();
   if (!check(current && Processor::getInterrupts(), "fixture context"))
     return false;
-  bool passed = scopes(*current) && legacyAdmission(*current);
+  bool passed = scopes(*current);
 #if X64 && !HOSTED
   passed = passed && metadataRoundTrip() && payload(*current);
 #else

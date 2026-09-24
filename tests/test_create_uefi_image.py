@@ -1,10 +1,30 @@
+import argparse
 import unittest
+from pathlib import Path
 from unittest import mock
 
-from scripts.create_uefi_image import find_tool
+from scripts.create_uefi_image import find_tool, install_variant
 
 
 class UefiImageToolTests(unittest.TestCase):
+    def test_x64_boot_artifacts_do_not_require_a_database(self):
+        args = argparse.Namespace(
+            arch="x64", mmd="mmd", mcopy="mcopy",
+            kernel=Path("kernel"), efi=Path("loader.efi"), initrd=Path("initrd.tar"),
+        )
+        with mock.patch("scripts.create_uefi_image.run") as run:
+            install_variant(args, ["-i", "esp.img"], "current", Path("cmdline"))
+        self.assertEqual(
+            [call.args[0][-1] for call in run.call_args_list],
+            [
+                "::EFI/PEDIGREE/current",
+                "::EFI/PEDIGREE/current/kernel",
+                "::EFI/PEDIGREE/current/cmdline",
+                "::EFI/PEDIGREE/current/BOOTX64.EFI",
+                "::EFI/PEDIGREE/current/initrd.tar",
+            ],
+        )
+
     def test_finds_fat_formatter_outside_user_path(self):
         for location in ("/usr/sbin/mkfs.fat", "/sbin/mkfs.vfat"):
             with self.subTest(location=location):

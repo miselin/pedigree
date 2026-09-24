@@ -36,12 +36,6 @@
 #define STRING_DISABLE_EXPENSIVE_COPY_CONSTRUCTION 1
 #endif
 
-// Disable just-in-time hashing on all string objects, which causes String
-// creation (including from substrings and copies) to be much slower, but can
-// avoid many re-hashes on const String objects that would otherwise be unable
-// to store the hash.
-#define STRING_DISABLE_JIT_HASHING 0
-
 class Cord;
 
 /** String class for ASCII strings

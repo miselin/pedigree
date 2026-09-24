@@ -10,8 +10,6 @@ int main(int argc, char** argv) {
   setvbuf(stdout, NULL, _IONBF, 0);
   if (argc > 1 && !strcmp(argv[1], "schedule-exec"))
     return sc_exec(argc, argv);
-  if (argc > 1 && !strcmp(argv[1], "schedule-input-exec"))
-    return sc_input_exec(argc, argv);
   if (argc > 3 || sc_init(argc == 3 ? atoi(argv[2]) : 0))
     return 2;
   const struct {
@@ -19,7 +17,7 @@ int main(int argc, char** argv) {
     int (*run)(void);
   } families[] = {{"api-policy", sc_api},          {"placement", sc_placement},
                   {"wakeups", sc_wakeups},         {"lifecycle", sc_lifecycle},
-                  {"permissions", sc_permissions}, {"input-pinning", sc_input}};
+                  {"permissions", sc_permissions}};
   int selected = 0;
   for (size_t i = 0; i < sizeof(families) / sizeof(families[0]); ++i) {
     if (argc >= 2 && strcmp(argv[1], "all") && strcmp(argv[1], families[i].name))

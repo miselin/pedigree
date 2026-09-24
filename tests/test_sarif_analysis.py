@@ -8,7 +8,6 @@ from scripts.run_sarif_analysis import (
     AnalysisError,
     CompileEntry,
     analysis_arguments,
-    load_compile_entries,
     run_analysis,
 )
 
@@ -145,39 +144,6 @@ class SarifAnalysisTests(unittest.TestCase):
             "-fdiagnostics-add-output="
             "sarif:version=2.1,file=/analysis/test.sarif",
         )
-
-    def test_bundled_sources_are_excluded(self):
-        with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            source_root = root / "source"
-            project_source = source_root / "src/system/kernel/owned.c"
-            bundled_source = (
-                source_root / "src/modules/system/config/sqlite3/sqlite3.c"
-            )
-            project_source.parent.mkdir(parents=True)
-            bundled_source.parent.mkdir(parents=True)
-            project_source.write_text("int owned;\n", encoding="utf-8")
-            bundled_source.write_text("int bundled;\n", encoding="utf-8")
-            database = root / "compile_commands.json"
-            database.write_text(
-                json.dumps(
-                    [
-                        {
-                            "directory": str(root),
-                            "file": str(source),
-                            "arguments": ["gcc", "-c", str(source)],
-                        }
-                        for source in (project_source, bundled_source)
-                    ]
-                ),
-                encoding="utf-8",
-            )
-
-            entries = load_compile_entries(database, source_root)
-
-            self.assertEqual(
-                [entry.source for entry in entries], [project_source.resolve()]
-            )
 
     def test_failed_analysis_does_not_publish_partial_output(self):
         with tempfile.TemporaryDirectory() as tempdir:

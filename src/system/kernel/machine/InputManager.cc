@@ -21,11 +21,9 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/InputManager.h"
-#include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/process/eventNumbers.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/Iterator.h"
@@ -33,32 +31,6 @@
 
 // Incoming relative mouse movements are divided by this
 #define MOUSE_REDUCE_FACTOR 1
-
-class InputEvent : public Event {
- public:
-  InputEvent(InputManager::InputNotification* pNote, uintptr_t param, uintptr_t handlerAddress);
-  virtual ~InputEvent();
-
-  virtual size_t serialize(uint8_t* pBuffer);
-
-  static bool unserialize(uint8_t* pBuffer, InputEvent& event);
-
-  virtual size_t getNumber();
-
-  InputManager::CallbackType getType();
-
-  uint64_t getKey();
-  ssize_t getRelX();
-  ssize_t getRelY();
-  ssize_t getRelZ();
-
-  void getButtonStates(bool states[64], size_t maxDesired = 64);
-
- private:
-  InputManager::InputNotification m_Notification;
-
-  uintptr_t m_nParam;
-};
 
 InputManager InputManager::m_Instance;
 
@@ -283,18 +255,13 @@ void InputManager::putNotification(InputNotification* note) {
 #endif
 }
 
-void InputManager::installCallback(CallbackType filter, callback_t callback, void* meta,
-                                   Thread* pThread, uintptr_t param) {
+void InputManager::installCallback(CallbackType filter, callback_t callback, void* meta) {
   if (!callback) {
     return;
   }
 
   CallbackItem* item = new CallbackItem;
   item->func = callback;
-#if THREADS
-  item->pThread = pThread;
-#endif
-  item->nParam = param;
   item->filter = filter;
   item->meta = meta;
 #if THREADS
@@ -309,18 +276,14 @@ void InputManager::installCallback(CallbackType filter, callback_t callback, voi
   m_Callbacks.pushBack(item);
 }
 
-void InputManager::removeCallback(callback_t callback, void* meta, Thread* pThread) {
+void InputManager::removeCallback(callback_t callback, void* meta) {
 #if THREADS
-  removeCallbacks(callback, meta, pThread, false);
+  removeCallbacks(callback, meta);
 #else
   LockGuard<Spinlock> guard(m_QueueLock);
   for (List<CallbackItem*>::Iterator it = m_Callbacks.begin(); it != m_Callbacks.end();) {
     if (*it) {
-      if (
-#if THREADS
-          (pThread == (*it)->pThread) &&
-#endif
-          (callback == (*it)->func) && (meta == (*it)->meta)) {
+      if ((callback == (*it)->func) && (meta == (*it)->meta)) {
         delete *it;
         it = m_Callbacks.erase(it);
         continue;
@@ -332,25 +295,11 @@ void InputManager::removeCallback(callback_t callback, void* meta, Thread* pThre
 #endif
 }
 
-bool InputManager::removeCallbackByThread(Thread* pThread) {
 #if THREADS
-  return removeCallbacks(nullptr, nullptr, pThread, true);
-#else
-  return false;
-#endif
-}
-
-#if THREADS
-bool InputManager::removeCallbacks(callback_t callback, void* meta, Thread* pThread,
-                                   bool byThread) {
-  if (byThread && !pThread) {
-    return false;
-  }
-
+void InputManager::removeCallbacks(callback_t callback, void* meta) {
   TerminationDeferral terminationDeferral;
   Vector<CallbackItem*> drain;
   Vector<CallbackItem*> deleteNow;
-  bool removed = false;
 
   Thread* current = Processor::information().getCurrentThread();
   m_QueueLock.acquire();
@@ -358,15 +307,12 @@ bool InputManager::removeCallbacks(callback_t callback, void* meta, Thread* pThr
 
   for (List<CallbackItem*>::Iterator it = m_Callbacks.begin(); it != m_Callbacks.end();) {
     CallbackItem* item = *it;
-    const bool matches =
-        byThread ? item->pThread == pThread
-                 : item->pThread == pThread && item->func == callback && item->meta == meta;
+    const bool matches = item->func == callback && item->meta == meta;
     if (!matches) {
       ++it;
       continue;
     }
 
-    removed = true;
     item->enabled = false;
 
     if (callbackContext) {
@@ -398,8 +344,6 @@ bool InputManager::removeCallbacks(callback_t callback, void* meta, Thread* pThr
   for (auto item : drain) {
     drainCallback(item);
   }
-
-  return removed;
 }
 
 void InputManager::drainCallback(CallbackItem* item) {
@@ -497,15 +441,11 @@ void InputManager::mainThread() {
     Thread* current = Processor::information().getCurrentThread();
     for (auto item : callbacks) {
       callback_t func = nullptr;
-      Thread* target = nullptr;
-      uintptr_t param = 0;
       void* meta = nullptr;
 
       m_QueueLock.acquire();
       if (item->enabled) {
         func = item->func;
-        target = item->pThread;
-        param = item->nParam;
         meta = item->meta;
         m_pCallbackDispatchThread = current;
       }
@@ -519,18 +459,8 @@ void InputManager::mainThread() {
         }
 #endif
 
-        if (!target) {
-          note->meta = meta;
-          func(*note);
-        } else {
-          InputEvent* event = new InputEvent(note, param, reinterpret_cast<uintptr_t>(func));
-          if (!target->sendEvent(event)) {
-            WARNING(
-                "InputManager - Thread::sendEvent failed, "
-                "skipping this callback");
-            delete event;
-          }
-        }
+        note->meta = meta;
+        func(*note);
       }
 
       bool deleteDeferred = false;
@@ -569,7 +499,7 @@ void InputManager::mainThread() {
       }
     }
 
-    // Yield to run the events we just transmitted.
+    // Yield before processing the next notification.
     Scheduler::instance().yield();
 
     delete note;
@@ -582,61 +512,3 @@ void InputManager::setCallbackPinHook(CallbackPinHook hook) {
   __atomic_store_n(&m_CallbackPinHook, hook, __ATOMIC_RELEASE);
 }
 #endif
-
-InputEvent::InputEvent(InputManager::InputNotification* pNote, uintptr_t param,
-                       uintptr_t handlerAddress)
-    : Event(handlerAddress, true, 0, Event::HandlerPrivilege::User),
-      m_Notification(),
-      m_nParam(param) {
-  m_Notification = *pNote;
-}
-
-InputEvent::~InputEvent() {}
-
-size_t InputEvent::serialize(uint8_t* pBuffer) {
-  void* alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(uintptr_t));
-  uintptr_t* buf = reinterpret_cast<uintptr_t*>(alignedBuffer);
-  buf[0] = EventNumbers::InputEvent;
-  buf[1] = m_nParam;
-  MemoryCopy(&buf[2], &m_Notification, sizeof(InputManager::InputNotification));
-  return sizeof(InputManager::InputNotification) + (sizeof(uintptr_t) * 2);
-}
-
-bool InputEvent::unserialize(uint8_t* pBuffer, InputEvent& event) {
-  void* alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(uintptr_t));
-  uintptr_t* buf = reinterpret_cast<uintptr_t*>(alignedBuffer);
-  if (*buf != EventNumbers::InputEvent)
-    return false;
-
-  MemoryCopy(&event.m_Notification, &buf[2], sizeof(InputManager::InputNotification));
-  return true;
-}
-
-size_t InputEvent::getNumber() {
-  return EventNumbers::InputEvent;
-}
-
-InputManager::CallbackType InputEvent::getType() {
-  return m_Notification.type;
-}
-
-uint64_t InputEvent::getKey() {
-  return m_Notification.data.key.key;
-}
-
-ssize_t InputEvent::getRelX() {
-  return m_Notification.data.pointy.relx;
-}
-
-ssize_t InputEvent::getRelY() {
-  return m_Notification.data.pointy.rely;
-}
-
-ssize_t InputEvent::getRelZ() {
-  return m_Notification.data.pointy.relz;
-}
-
-void InputEvent::getButtonStates(bool states[64], size_t maxDesired) {
-  for (size_t i = 0; i < maxDesired; i++)
-    states[i] = m_Notification.data.pointy.buttons[i];
-}

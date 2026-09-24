@@ -109,57 +109,10 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
   /** Unregisters a given network device from the stack */
   void deRegisterDevice(Network* pDevice);
 
-  /** Sets the loopback device for the stack */
-  void setLoopback(Network* pCard) {
-    m_pLoopback = pCard;
-  }
-
-  /** Gets the loopback device for the stack */
-  inline Network* getLoopback() {
-    return m_pLoopback;
-  }
-
-  /** Clears the loopback identity if it still names this device. */
-  void clearLoopback(Network* pCard);
-
   /** Grabs the memory pool for networking use */
   inline MemoryPool& getMemPool() {
     return m_MemPool;
   }
-
-  /** Abstraction for a packet. */
-  class Packet {
-    friend class NetworkStack;
-
-   public:
-    Packet();
-    virtual ~Packet();
-
-    uintptr_t getBuffer() const {
-      return m_Buffer;
-    }
-
-    size_t getLength() const {
-      return m_PacketLength;
-    }
-
-    Network* getCard() const {
-      return m_pCard;
-    }
-
-    uint32_t getOffset() const {
-      return m_Offset;
-    }
-
-   private:
-    bool copyFrom(uintptr_t otherPacket, size_t size);
-
-    uintptr_t m_Buffer;
-    size_t m_PacketLength;
-    Network* m_pCard;
-    uint32_t m_Offset;
-    Mutex m_Pushed;
-  };
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   enum class HostedReceiveEvent {
@@ -196,9 +149,6 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
 
   static constexpr size_t ReceiveRequestCapacity = 256;
 
-  /** Loopback device */
-  Network* m_pLoopback;
-
   /** Network devices registered with the stack. */
   Vector<Network*> m_Children;
 
@@ -218,9 +168,6 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
   /** Next non-zero registration generation. */
   size_t m_NextDeviceGeneration;
 
-  // Keep preallocated publication state after the pre-existing fields so
-  // their offsets remain stable for inline accessors compiled into driver
-  // modules.
   PreallocatedRequest m_ReceiveRequests[ReceiveRequestCapacity];
 
   /** Starting token for the next bounded preallocated-publication scan. */

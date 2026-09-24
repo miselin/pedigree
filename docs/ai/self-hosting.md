@@ -2,10 +2,10 @@
 
 The self-host build profile is an experimental first step toward working on a
 Pedigree checkout from within Pedigree. It builds the amd64 kernel, dynamic
-modules and initrd, configuration database, and in-tree user
-applications and libraries. It does not build an HDD image, ISO, or UEFI boot
-image, and it never installs files into `/boot`. Static-driver builds and
-compiled distribution keymaps are also excluded from this initial profile.
+modules and initrd, and in-tree user applications and libraries. It does not
+build an HDD image, ISO, or UEFI boot image, and it never installs files into
+`/boot`. Static-driver builds and compiled distribution keymaps are also
+excluded from this initial profile.
 
 Cross and native builds consume the same amd64 target profile, so kernel and
 userspace ABI settings do not depend on where the compiler is running.
@@ -32,7 +32,6 @@ Once those tools are available, this slice can rebuild:
 
 - the UEFI-bootable Pedigree kernel;
 - kernel modules and the deterministic initrd containing them;
-- the configuration database;
 - the user applications and libraries defined in this checkout.
 
 That is enough to shorten the edit-build-test loop on Pedigree, while compiler
@@ -48,7 +47,7 @@ and package self-bootstrap remain later milestones.
   provide its matching `libgcc` and `libstdc++` runtimes.
 - NASM, a POSIX shell, GNU Make, and standard POSIX command-line utilities.
 - PUP and its Python runtime, for acquiring the packaged musl SDK. A separate
-  `sqlite3`, `tar`, `gzip`, or `patch` command is not required by `boot-artifacts`.
+  `tar`, `gzip`, or `patch` command is not required by `boot-artifacts`.
 - zlib development headers and library. The native initrd builder links zlib
   directly, so no `gzip` executable is needed.
 - Development headers and libraries needed by the in-tree user applications,
@@ -99,8 +98,6 @@ cmake -S . -B build-boot \
     -DCMAKE_TOOLCHAIN_FILE=build-etc/cmake/pedigree_amd64.cmake \
     -DPEDIGREE_TOOLCHAIN_ROOT=/path/to/pedigree-toolchain \
     -DBUILD_TESTING=OFF \
-    -DPEDIGREE_BUILD_HDD_IMAGE=OFF \
-    -DPEDIGREE_BUILD_ISO=OFF \
     -DPEDIGREE_BUILD_UEFI=OFF \
     -DPEDIGREE_BUILD_KEYMAPS=OFF \
     -DPEDIGREE_BUILD_TRANSLATIONS=OFF
@@ -111,10 +108,10 @@ CMake acquires the pinned musl SDK through PUP during configuration. Subsequent
 builds reuse it without a download or libc compilation.
 
 The target tree owns incremental native sub-builds under `build/host-tools`.
-It builds the small configuration-database and initrd generators when they are
-needed, and adds the image utilities only when the requested products require
-them. Changes to those sources or their CMake files are picked up by the next
-`cmake --build build`; there is no sibling tree to refresh or export to import.
+It builds the initrd generator when needed, and adds the image utilities only
+when the requested products require them. Changes to those sources or their
+CMake files are picked up by the next `cmake --build build`; there is no sibling
+tree to refresh or export to import.
 
 There are still separate CMake compiler caches internally. CMake binds one
 compiler and platform model to each generated tree, so the target compiler
@@ -141,7 +138,7 @@ trees. That mode is explicit:
 ```sh
 cmake -S . -B build-host -DPEDIGREE_BUILD_ROLE=HOST_TOOLS
 cmake --build build-host --target \
-    pedigree-distribution-tools pedigree-configdb pedigree-initrd-builder
+    pedigree-distribution-tools pedigree-initrd-builder
 cmake -S . -B build \
     -DCMAKE_TOOLCHAIN_FILE=build-etc/cmake/pedigree_amd64.cmake \
     -DPEDIGREE_HOST_TOOLS_MODE=IMPORTED \
@@ -186,7 +183,6 @@ With the default build directory, the primary products are:
 - `build-selfhost/src/modules/initrd.tar.uncomp` — raw module initrd for the
   UEFI image;
 - `build-selfhost/src/modules/initrd.manifest` — deterministic initrd contents;
-- `build-selfhost/config.db` — boot configuration database; and
 - `build-selfhost/src/user/` — built user applications and libraries;
 - `build-selfhost/musl/usr/` — installed libc SDK payload; and
 - `build-selfhost/musl/usr/share/pedigree/libc/package.sha256` — installed
@@ -204,15 +200,14 @@ provide `grub-mkstandalone` (or the target-prefixed equivalent) with
 `PEDIGREE_UEFI_GRUB_MKSTANDALONE`.
 
 `boot-artifacts` is an aggregate build target, not an installer or staging
-directory. Copying a tested kernel, initrd, and configuration database into a
-boot environment is intentionally a separate, manual step for now.
+directory. Copying a tested kernel and initrd into a boot environment is
+intentionally a separate, manual step for now.
 
 The initrd builder uses zlib at its highest compression level and writes
 deterministic gzip metadata. Cross builds compile the utility for their host,
 while Pedigree builds compile it directly; neither path needs a `gzip` command.
-The configuration database follows the same boundary with the in-tree C
-generator. The Python implementations remain regression oracles, not
-base-artifact dependencies.
+The Python initrd implementation remains a regression oracle, not a
+base-artifact dependency.
 
 The musl PUP uses installed `/usr` paths and is staged without writing to the
 running system. Its loader symlink is relative and remains valid after the

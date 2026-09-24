@@ -39,8 +39,6 @@ bool isExpectedMachine(Elf_Half machine) {
   return machine == 183;  // EM_AARCH64
 #elif ARMV7
   return machine == 40;  // EM_ARM
-#elif X86
-  return machine == 3;  // EM_386
 #else
   return false;
 #endif

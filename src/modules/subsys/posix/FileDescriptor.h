@@ -35,7 +35,6 @@
 
 class ConsoleIoState;
 class File;
-class LockedFile;
 class UnixSocket;
 class IoEvent;
 class NetworkSyscalls;
@@ -192,10 +191,10 @@ class EXPORTED_PUBLIC FileDescriptor {
 
   /// Parameterised constructor
   FileDescriptor(File* newFile, uint64_t newOffset = 0, size_t newFd = 0xFFFFFFFF, int fdFlags = 0,
-                 int flFlags = 0, LockedFile* lf = 0);
+                 int flFlags = 0);
 
   FileDescriptor(const FilesystemPathRef& path, uint64_t newOffset = 0, size_t newFd = 0xFFFFFFFF,
-                 int fdFlags = 0, int flFlags = 0, LockedFile* lf = 0);
+                 int fdFlags = 0, int flFlags = 0);
 
   /// Copy constructor
   FileDescriptor(FileDescriptor& desc);
@@ -316,9 +315,6 @@ class EXPORTED_PUBLIC FileDescriptor {
 
   /// Descriptor number
   size_t fd;
-
-  /// Locked file, non-zero if there is an advisory lock on the file
-  LockedFile* lockedFile;
 
   /// Network syscall implementation for this descriptor (if it's a socket).
   SharedPointer<NetworkSyscalls> networkImpl;

@@ -255,7 +255,6 @@ endif ()
 set(PEDIGREE_COVERAGE FALSE CACHE BOOL "Build utilities with coverage instrumentation and reporting.")
 
 # Build artifact controls.
-set(PEDIGREE_LIVECD FALSE CACHE BOOL "Build a live CD version of the ISO image, which includes a hard disk image and relevant customizations.")
 set(PEDIGREE_IMAGESDIR "${CMAKE_SOURCE_DIR}/images/local" CACHE PATH "Directory containing the directory tree to build disk images from.")
 set(PEDIGREE_GO_CANARY "" CACHE FILEPATH "Prebuilt pedigree/amd64 Go canary to install as /usr/bin/go-canary.")
 
@@ -272,14 +271,6 @@ option(PEDIGREE_BUILD_TRANSLATIONS
     "Compile message catalogs for distribution images."
     ${_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT})
 
-set(_PEDIGREE_HDD_IMAGE_DEFAULT OFF)
-set(_PEDIGREE_ISO_DEFAULT OFF)
-option(PEDIGREE_BUILD_HDD_IMAGE
-    "Build a bootable hard disk image."
-    ${_PEDIGREE_HDD_IMAGE_DEFAULT})
-option(PEDIGREE_BUILD_ISO
-    "Build a bootable ISO image."
-    ${_PEDIGREE_ISO_DEFAULT})
 set(_PEDIGREE_BUILD_UEFI_DEFAULT OFF)
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     set(_PEDIGREE_BUILD_UEFI_DEFAULT ON)
@@ -293,18 +284,6 @@ option(PEDIGREE_BUILD_UEFI_GRUB
     "Build a standalone UEFI GRUB recovery menu for the UEFI image."
     OFF)
 
-if (PEDIGREE_BUILD_HDD_IMAGE OR PEDIGREE_BUILD_ISO)
-    message(FATAL_ERROR
-        "Legacy HDD and ISO packaging is not supported by the UEFI-only "
-        "target. Build the uefi-image target instead.")
-endif ()
-
-if (PEDIGREE_SELF_HOSTED AND
-    (PEDIGREE_BUILD_HDD_IMAGE OR PEDIGREE_BUILD_ISO))
-    message(FATAL_ERROR
-        "HDD and ISO packaging are not supported by the Pedigree-native "
-        "build profile. Build boot-artifacts and deploy them separately.")
-endif ()
 if (PEDIGREE_SELF_HOSTED AND PEDIGREE_STATIC_DRIVERS)
     message(FATAL_ERROR
         "Static-driver builds are not supported by the Pedigree-native "
@@ -440,8 +419,7 @@ if (NOT PEDIGREE_SELF_HOSTED)
 endif ()
 
 set(_PEDIGREE_NEEDS_PYTHON FALSE)
-if (NOT PEDIGREE_SELF_HOSTED AND
-    (BUILD_TESTING OR PEDIGREE_BUILD_HDD_IMAGE))
+if (NOT PEDIGREE_SELF_HOSTED AND BUILD_TESTING)
     set(_PEDIGREE_NEEDS_PYTHON TRUE)
 endif ()
 if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET" AND
@@ -463,7 +441,7 @@ if (NOT PEDIGREE_SELF_HOSTED AND BUILD_TESTING)
             ${CMAKE_SOURCE_DIR}/scripts/audit-lifetime-escapes.py
             --root ${CMAKE_SOURCE_DIR}
             --inventory
-                ${CMAKE_SOURCE_DIR}/docs/lifetime-escape-inventory.json)
+                ${CMAKE_SOURCE_DIR}/docs/ai/lifetime-escape-inventory.json)
     add_test(
         NAME target-page-assumption-audit
         COMMAND ${PYTHON_EXECUTABLE}
@@ -476,10 +454,6 @@ if (NOT PEDIGREE_SELF_HOSTED AND BUILD_TESTING)
         NAME hosted-entrypoint-tests
         COMMAND ${PYTHON_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/test_hosted_entrypoints.py -v)
-    add_test(
-        NAME create-db-tests
-        COMMAND ${PYTHON_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tests/test_create_db.py -v)
     add_test(
         NAME create-initrd-tests
         COMMAND ${PYTHON_EXECUTABLE}
@@ -534,7 +508,6 @@ endif ()
 # These tools execute on the build machine. Native Pedigree target builds add
 # them directly; ordinary host builds receive them through src/buildutil.
 if (PEDIGREE_SELF_HOSTED)
-    add_subdirectory(src/buildutil/configdb)
     add_subdirectory(src/buildutil/bootstrap)
 endif ()
 
@@ -618,10 +591,6 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
     endif ()
 
     set(_PEDIGREE_REQUIRED_HOST_UTILITIES)
-    if (NOT PEDIGREE_SELF_HOSTED)
-        list(APPEND _PEDIGREE_REQUIRED_HOST_UTILITIES
-            host-pedigree-configdb)
-    endif ()
     if (NOT PEDIGREE_SELF_HOSTED AND NOT PEDIGREE_STATIC_DRIVERS)
         list(APPEND _PEDIGREE_REQUIRED_HOST_UTILITIES
             host-pedigree-initrd-builder)
@@ -632,7 +601,7 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
     if (PEDIGREE_STATIC_DRIVERS)
         list(APPEND _PEDIGREE_REQUIRED_HOST_UTILITIES host-headerify)
     endif ()
-    if (PEDIGREE_BUILD_HDD_IMAGE OR PEDIGREE_BUILD_UEFI)
+    if (PEDIGREE_BUILD_UEFI AND PEDIGREE_ARCH_TARGET STREQUAL "X64")
         list(APPEND _PEDIGREE_REQUIRED_HOST_UTILITIES host-ext2img)
     endif ()
     list(REMOVE_DUPLICATES _PEDIGREE_REQUIRED_HOST_UTILITIES)
@@ -701,49 +670,6 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
     # Target artifacts do not use the build host's utility ABI.
     add_definitions(-DUTILITY_LINUX=0 -DPEDIGREE_BENCHMARK=0)
 
-    # Build the configuration database with an executable that matches the
-    # platform on which the build itself is running.
-    if (PEDIGREE_SELF_HOSTED)
-        set(_PEDIGREE_CONFIG_DB_COMMAND
-            $<TARGET_FILE:pedigree-configdb>
-            ${CMAKE_CURRENT_BINARY_DIR}/config.db)
-        set(_PEDIGREE_CONFIG_DB_DEPENDENCIES pedigree-configdb)
-    elseif (TARGET host-pedigree-configdb)
-        set(_PEDIGREE_CONFIG_DB_COMMAND
-            $<TARGET_FILE:host-pedigree-configdb>
-            ${CMAKE_CURRENT_BINARY_DIR}/config.db)
-        set(_PEDIGREE_CONFIG_DB_DEPENDENCIES host-pedigree-configdb)
-    else ()
-        message(FATAL_ERROR
-            "No configuration database generator is available.")
-    endif ()
-    set(_PEDIGREE_CONFIG_SCHEMAS
-        ${CMAKE_SOURCE_DIR}/src/system/kernel/schema
-        ${CMAKE_SOURCE_DIR}/src/modules/system/splash/schema)
-    if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
-        list(APPEND _PEDIGREE_CONFIG_SCHEMAS
-            ${CMAKE_SOURCE_DIR}/src/modules/drivers/x86/vbe/schema)
-    endif ()
-    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/config.db
-        COMMAND ${_PEDIGREE_CONFIG_DB_COMMAND}
-        ${_PEDIGREE_CONFIG_SCHEMAS}
-        DEPENDS ${_PEDIGREE_CONFIG_SCHEMAS}
-        ${_PEDIGREE_CONFIG_DB_DEPENDENCIES}
-        VERBATIM)
-    add_custom_target(configdb ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/config.db)
-
-    # Embed config database in a header for static driver builds
-    if (PEDIGREE_STATIC_DRIVERS)
-        # generate kernel as an embedded file
-        add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/embedconfigdb.c
-            COMMAND $<TARGET_FILE:host-headerify>
-            -i ${CMAKE_CURRENT_BINARY_DIR}/config.db
-            -o ${CMAKE_BINARY_DIR}/embedconfigdb.c
-            -v embeddedConfigDb
-            DEPENDS configdb host-headerify)
-        add_custom_target(embedconfigdb ALL DEPENDS ${CMAKE_BINARY_DIR}/embedconfigdb.c)
-    endif ()
-
     add_subdirectory(external/libvterm)
     add_subdirectory(src/modules)
     add_subdirectory(src/system/kernel)
@@ -787,7 +713,7 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
     # This is the portable self-hosting product boundary. Packaging it into a
     # disk image, ISO, or an installed /boot tree is a separate operation.
     set(_PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES
-        kernel configdb ${PEDIGREE_APPS_TARGETS}
+        kernel ${PEDIGREE_APPS_TARGETS}
         ${PEDIGREE_LIBS_TARGETS})
     if (NOT PEDIGREE_STATIC_DRIVERS)
         list(APPEND _PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES initrd)
@@ -865,8 +791,6 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             ${KERNEL_FILENAME}
             $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:${CMAKE_BINARY_DIR}/src/modules/initrd.tar>
             $<$<BOOL:${PEDIGREE_STATIC_DRIVERS}>:__noinitrd__>
-            ${CMAKE_CURRENT_BINARY_DIR}/config.db
-            ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
             ${PEDIGREE_MUSL_SDK_ROOT}
             ${PEDIGREE_C_SDK_ROOT}
             ${CMAKE_BINARY_DIR}
@@ -877,12 +801,13 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             ${PEDIGREE_C_SDK_LIBRARY}
             DEPENDS
                 host-ext2img
-                kernel configdb ${PEDIGREE_APPS_TARGETS}
+                kernel ${PEDIGREE_APPS_TARGETS}
                 ${PEDIGREE_LIBS_TARGETS}
                 ${PEDIGREE_SUBSYSTEM_LIBS}
                 pedigree-c-sdk
-                ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
-                ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst)
+                ${PEDIGREE_C_SDK_HEADERS}
+                ${PEDIGREE_C_SDK_LIBRARY}
+                ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py)
 
         set(UEFI_IMAGE ${CMAKE_CURRENT_BINARY_DIR}/pedigree-uefi.img)
         add_custom_command(OUTPUT ${UEFI_IMAGE}
@@ -892,13 +817,11 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             ${UEFI_GRUB_ARGUMENT}
             --kernel ${CMAKE_BINARY_DIR}/src/system/kernel/kernel
             --initrd ${CMAKE_BINARY_DIR}/src/modules/initrd.tar.uncomp
-            --config ${CMAKE_CURRENT_BINARY_DIR}/config.db
             --root ${UEFI_ROOT_IMAGE}
             DEPENDS ${UEFI_BOOT_DEPENDENCIES} ${UEFI_ROOT_IMAGE}
-                kernel initrd configdb
+                kernel initrd
             ${CMAKE_BINARY_DIR}/src/system/kernel/kernel
             ${CMAKE_BINARY_DIR}/src/modules/initrd.tar.uncomp
-            ${CMAKE_CURRENT_BINARY_DIR}/config.db
                 ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py
                 ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi.cfg
                 ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi-stub.cfg)
@@ -982,99 +905,6 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
         add_dependencies(boot-artifacts uefi-image)
     endif ()
 
-    if (PEDIGREE_BUILD_HDD_IMAGE)
-        # Build hard disk image ready for a live CD or imaging.
-        add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/hdd.img
-            COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
-            ${CMAKE_CURRENT_BINARY_DIR}/hdd.img  # => target image
-            $<TARGET_FILE:host-ext2img>  # => ext2img binary
-            ${PEDIGREE_IMAGESDIR}  # => image tree directory
-            ${CMAKE_SOURCE_DIR}  # => base source directory
-            ${CMAKE_SOURCE_DIR}/images/base  # => image base directory
-            ${KERNEL_FILENAME}  # => kernel
-            $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:${CMAKE_BINARY_DIR}/src/modules/initrd.tar>  # => initrd
-            $<$<BOOL:${PEDIGREE_STATIC_DRIVERS}>:__noinitrd__>
-            ${CMAKE_CURRENT_BINARY_DIR}/config.db  # => config DB
-            ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst  # => grub list
-            ${PEDIGREE_MUSL_SDK_ROOT}  # => musl SDK root
-            ${PEDIGREE_C_SDK_ROOT}  # => Pedigree C SDK root
-            ${CMAKE_BINARY_DIR}  # => build directory
-            ${PEDIGREE_KERNEL_MODULES}  # => other files to inject to image
-            ${PEDIGREE_APPS}
-            ${PEDIGREE_LIBS}
-            ${PEDIGREE_SUBSYSTEM_LIBS}
-            DEPENDS
-            kernel
-            $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:initrd>
-            ${KERNEL_FILENAME}
-            $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:${CMAKE_BINARY_DIR}/src/modules/initrd.tar>
-            ${PEDIGREE_KERNEL_MODULE_TARGETS}
-            configdb ${CMAKE_CURRENT_BINARY_DIR}/config.db
-            ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
-            ${CMAKE_SOURCE_DIR}/images/base/etc/passwd
-            ${CMAKE_SOURCE_DIR}/images/base/etc/group
-            ${CMAKE_SOURCE_DIR}/images/base/etc/shadow
-            libc ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS}
-            pedigree-c-sdk
-            ${PEDIGREE_C_SDK_HEADERS}
-            ${PEDIGREE_C_SDK_LIBRARY}
-            ${PEDIGREE_KEYMAPS_TARGETS} ${PEDIGREE_KEYMAPS}
-            host-ext2img
-            ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py)
-        add_custom_target(hddimage ALL DEPENDS
-            ${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
-    endif ()
-
-    # Build ISO file for live CD.
-    if (PEDIGREE_BUILD_ISO)
-        if (NOT PEDIGREE_TARGET_LIVECD)
-            message(FATAL_ERROR
-                "PEDIGREE_BUILD_ISO is not supported by this target profile.")
-        endif ()
-        if (PEDIGREE_LIVECD AND NOT PEDIGREE_BUILD_HDD_IMAGE)
-            message(FATAL_ERROR
-                "PEDIGREE_LIVECD requires PEDIGREE_BUILD_HDD_IMAGE.")
-        endif ()
-        find_program(MKISOFS NAMES mkisofs genisoimage xorriso REQUIRED)
-
-        if (GRUB)
-            set(STAGE2_FILENAME "stage2_eltorito-${PEDIGREE_ARCHDIR}")
-            file(COPY ${CMAKE_SOURCE_DIR}/images/grub/${STAGE2_FILENAME}
-                DESTINATION ${CMAKE_BINARY_DIR})
-        endif ()
-
-        if (PEDIGREE_LIVECD)
-            set(ISO_EXTRAFILES
-                livedisk.img=${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
-            set(ISO_EXTRADEPENDS hddimage)
-        else ()
-            set(ISO_EXTRAFILES "")
-            set(ISO_EXTRADEPENDS "")
-        endif ()
-
-        if (MKISOFS MATCHES "xorriso$")
-            set(MKISOFS_EXTRA_OPTS -as mkisofs)
-        else ()
-            set(MKISOFS_EXTRA_OPTS "")
-        endif ()
-
-        add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso
-            COMMAND ${MKISOFS} ${MKISOFS_EXTRA_OPTS} -D -joliet -graft-points -quiet -input-charset iso8859-1
-            -R -b boot/grub/stage2_eltorito -no-emul-boot -boot-load-size 4 -boot-info-table
-            -o ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso -V PEDIGREE
-            boot/grub/stage2_eltorito=${CMAKE_BINARY_DIR}/${STAGE2_FILENAME}
-            boot/grub/menu.lst=${CMAKE_SOURCE_DIR}/images/grub/menu.lst
-            boot/kernel=${CMAKE_BINARY_DIR}/src/system/kernel/kernel
-            boot/initrd.tar=${CMAKE_BINARY_DIR}/src/modules/initrd.tar
-            boot/config.db=${CMAKE_CURRENT_BINARY_DIR}/config.db
-            ${ISO_EXTRAFILES}
-            DEPENDS kernel initrd configdb ${PEDIGREE_KERNEL_MODULE_TARGETS}
-            ${CMAKE_BINARY_DIR}/src/system/kernel/kernel
-            ${CMAKE_BINARY_DIR}/src/modules/initrd.tar
-            ${CMAKE_CURRENT_BINARY_DIR}/config.db
-            ${ISO_EXTRADEPENDS})
-        add_custom_target(livecd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso)
-    endif ()
 else ()
     set(POSITION_INDEPENDENT_CODE TRUE)
 
@@ -1086,7 +916,7 @@ else ()
     set(PEDIGREE_MEMORY_TRACING FALSE)
     set(PEDIGREE_SERIAL_IS_FILE FALSE)
 
-    add_definitions(-DTHREADS=0 -DKERNEL_NEEDS_ADDRESS_SPACE_SWITCH=0)
+    add_definitions(-DTHREADS=0)
 
     # Copy over all our definitions.
     configure_file(

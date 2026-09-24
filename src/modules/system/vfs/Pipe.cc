@@ -54,9 +54,9 @@ Pipe::Pipe()
       m_HangupGeneration(0),
       m_nLifetimePins(0),
       m_bRetirementQueued(false) {
-#if VERBOSE_KERNEL
-  NOTICE("Pipe: new anonymous pipe " << reinterpret_cast<uintptr_t>(this));
-#endif
+  if constexpr (VERBOSE_KERNEL) {
+    NOTICE("Pipe: new anonymous pipe " << reinterpret_cast<uintptr_t>(this));
+  }
 }
 
 Pipe::Pipe(const String& name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
@@ -72,9 +72,9 @@ Pipe::Pipe(const String& name, Time::Timestamp accessedTime, Time::Timestamp mod
       m_HangupGeneration(0),
       m_nLifetimePins(0),
       m_bRetirementQueued(false) {
-#if VERBOSE_KERNEL
-  NOTICE("Pipe: new " << (bIsAnonymous ? "anonymous" : "named") << " pipe " << Hex << this);
-#endif
+  if constexpr (VERBOSE_KERNEL) {
+    NOTICE("Pipe: new " << (bIsAnonymous ? "anonymous" : "named") << " pipe " << Hex << this);
+  }
 }
 
 Pipe::~Pipe() {
@@ -246,9 +246,9 @@ void Pipe::decreaseRefCount(bool bIsWriter) {
 
   if (queueRetirement) {
     size_t pid = Processor::information().getCurrentThread()->getParent()->getId();
-#if VERBOSE_KERNEL
-    NOTICE("Adding pipe [" << pid << "] " << this << " to ZombieQueue");
-#endif
+    if constexpr (VERBOSE_KERNEL) {
+      NOTICE("Adding pipe [" << pid << "] " << this << " to ZombieQueue");
+    }
     ZombieQueue::instance().addObject(new ZombiePipe(this));
     return;
   }
@@ -287,9 +287,9 @@ void Pipe::releaseVfsReference() {
 
   if (queueRetirement) {
     size_t pid = Processor::information().getCurrentThread()->getParent()->getId();
-#if VERBOSE_KERNEL
-    NOTICE("Adding pipe [" << pid << "] " << this << " to ZombieQueue");
-#endif
+    if constexpr (VERBOSE_KERNEL) {
+      NOTICE("Adding pipe [" << pid << "] " << this << " to ZombieQueue");
+    }
     ZombieQueue::instance().addObject(new ZombiePipe(this));
   }
 }

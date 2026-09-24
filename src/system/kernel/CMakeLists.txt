@@ -234,7 +234,6 @@ if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Acpi.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/AcpiPower.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Apic.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Bios.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/IoApic.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Keyboard.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/LocalApic.cc
@@ -246,22 +245,9 @@ if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Ps2Controller.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Rtc.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Serial.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/SMBios.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Smp.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Trace.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Vga.cc)
 
-    set(X86EMU_SRCS
-        # /machine/mach_pc/
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/prim_ops.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/ops2.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/fpu.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/ops.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/sys.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/decode.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/debug.c)
-
-    set(WITH_X86EMU TRUE)
 elseif (PEDIGREE_MACHDIR STREQUAL "hosted")
     set(MACHINE_SRCS
         # /machine/hosted/
@@ -275,8 +261,6 @@ elseif (PEDIGREE_MACHDIR STREQUAL "hosted")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/IrqManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Machine.cc)
 
-    set(X86EMU_SRCS "")
-    set(WITH_X86EMU FALSE)
 elseif (PEDIGREE_MACHDIR STREQUAL "mach_virt")
     set(MACHINE_SRCS
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Acpi.cc
@@ -289,12 +273,8 @@ elseif (PEDIGREE_MACHDIR STREQUAL "mach_virt")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Serial.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Timer.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Trace.cc)
-    set(X86EMU_SRCS "")
-    set(WITH_X86EMU FALSE)
 else()
     set(MACHINE_SRCS "")
-    set(X86EMU_SRCS "")
-    set(WITH_X86EMU FALSE)
 endif ()
 
 set(UDIS86_SRCS
@@ -336,9 +316,6 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/Subsystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/syscallError.cc
     # /config/
-    ${CMAKE_CURRENT_SOURCE_DIR}/config/ConfigurationBackend.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/config/ConfigurationManager.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/config/MemoryBackend.cc
     # /core/
     ${CMAKE_CURRENT_SOURCE_DIR}/core/BootIO.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/BootstrapInfo.cc
@@ -353,13 +330,11 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/RelayEvent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/InfoBlock.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/initialiseMultitasking.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Ipc.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/InterruptTimeAccounting.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/LockManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/MemoryPressureKiller.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/MemoryPressureManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Mutex.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/AdmittedThread.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/OperationBarrier.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Rcu.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/PerProcessorScheduler.cc
@@ -564,7 +539,7 @@ if (PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
     add_library(kernel_shared INTERFACE)
 else ()
     add_library(kernel_shared SHARED
-        ${KERNEL_SRCS} ${PROCESSOR_SRCS} ${MACHINE_SRCS} ${UDIS86_SRCS} ${X86EMU_SRCS} ${HASH_SRCS} ${SLAM_SRCS} ${LOG_SRCS} ${CMAKE_CURRENT_SOURCE_DIR}/sharedshim.cc)
+        ${KERNEL_SRCS} ${PROCESSOR_SRCS} ${MACHINE_SRCS} ${UDIS86_SRCS} ${HASH_SRCS} ${SLAM_SRCS} ${LOG_SRCS} ${CMAKE_CURRENT_SOURCE_DIR}/sharedshim.cc)
     target_compile_options(kernel_shared PRIVATE
         $<$<COMPILE_LANGUAGE:C>:-w ${GENERIC_CFLAGS} ${KERNEL_CFLAGS}>
         $<$<COMPILE_LANGUAGE:CXX>:-w ${GENERIC_CXXFLAGS} ${GENERIC_KERNEL_CXXFLAGS}>)
@@ -594,13 +569,6 @@ add_library(slam STATIC ${SLAM_SRCS})
 target_include_directories(processor PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR})
 
-if (WITH_X86EMU)
-    add_library(x86emu STATIC ${X86EMU_SRCS})
-    target_include_directories(x86emu PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/x86emu/x86emu)
-    target_compile_options(x86emu PRIVATE -w)
-endif ()
-
 add_library(udis86 STATIC ${UDIS86_SRCS})
 target_compile_definitions(udis86 PRIVATE -D__UD_STANDALONE__)
 
@@ -609,7 +577,7 @@ target_compile_options(hash PRIVATE -w)
 
 add_executable(kernel ${KERNEL_SRCS})
 set(KERNEL_ARCHIVE_TARGETS
-    hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 machine processor slam log)
+    hash udis86 machine processor slam log)
 if (PEDIGREE_HOSTED_DARWIN)
     target_link_libraries(kernel PRIVATE
         ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS}

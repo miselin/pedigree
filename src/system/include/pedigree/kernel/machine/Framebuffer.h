@@ -28,7 +28,10 @@
  *  Each display driver specialises this class to define the "base address" of
  *  the framebuffer in its own way (eg, allocate memory, or use a DMA region).
  *  There are a variety of default software-only operations, which are used by
- *  default if the main operational methods are not overridden. */
+ *  default if the main operational methods are not overridden.
+ *  The drawing and palette entry points are retained for external display-driver
+ *  ABI compatibility, even where there are no in-tree callers. Preserve their
+ *  signatures and virtual method order. */
 class EXPORTED_PUBLIC Framebuffer {
  public:
   Framebuffer();

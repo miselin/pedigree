@@ -38,12 +38,6 @@
 
 KernelElf KernelElf::m_Instance;
 
-// Define to dump each module's dependencies in the serial log.
-#define DUMP_DEPENDENCIES 1
-
-// Define to 1 to load modules using threads.
-#define THREADED_MODULE_LOADING 0
-
 /**
  * Extend the given pointer by adding its canonical prefix again.
  * This is because in the conversion to a 32-bit object, we manage to lose
@@ -466,7 +460,7 @@ Module* KernelElf::loadModule(uint8_t* pModule, size_t len, bool silent) {
   DEBUG_LOG("KERNELELF: Module " << module->name << " consumes " << Dec << (module->loadSize / 1024)
                                  << Hex << "K of memory");
 
-  EMIT_IF(DUMP_DEPENDENCIES) {
+  {
     size_t i = 0;
     while (module->depends_opt && rebase(module, module->depends_opt)[i]) {
       DEBUG_LOG("KERNELELF: Module " << module->name << " optdepends on "
@@ -600,7 +594,7 @@ Module* KernelElf::loadModule(struct ModuleInfo* info, bool silent) {
   module->depends_opt = info->opt_dependencies;
   DEBUG_LOG("KERNELELF: Preloaded module " << module->name);
 
-  EMIT_IF(DUMP_DEPENDENCIES) {
+  {
     size_t i = 0;
     while (module->depends_opt && rebase(module, module->depends_opt)[i]) {
       DEBUG_LOG("KERNELELF: Module " << module->name << " optdepends on "
@@ -1548,15 +1542,7 @@ static int executeModuleThread(void* mod) {
 }
 
 bool KernelElf::executeModule(Module* module) {
-  EMIT_IF(THREADS && THREADED_MODULE_LOADING) {
-    Process* me = Processor::information().getCurrentThread()->getParent();
-    Thread* pThread = new Thread(me, executeModuleThread, module);
-    pThread->setName("KernelElf module execution thread");
-    pThread->detach();
-  }
-  else {
-    executeModuleThread(module);
-  }
+  executeModuleThread(module);
 
   return true;
 }

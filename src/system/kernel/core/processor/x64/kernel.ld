@@ -13,7 +13,6 @@ SECTIONS
   .init : AT(ADDR(.init) - 0xFFFFFFFF7FF00000)
   {
     PROVIDE(kernel_init = .);
-    *(.init.multiboot)
     *(.init.text)
     *(.init.data)
 

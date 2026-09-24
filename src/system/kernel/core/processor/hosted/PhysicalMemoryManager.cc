@@ -44,11 +44,7 @@ using namespace __pedigree_hosted;
 #include <stdio.h>
 #include <unistd.h>
 
-#define USE_BITMAP
-
-#ifdef USE_BITMAP
 uint32_t g_PageBitmap[16384] = {0};
-#endif
 
 HostedPhysicalMemoryManager* HostedPhysicalMemoryManager::m_Instance = nullptr;
 
@@ -99,7 +95,6 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage(size_t pageConstrai
     panic("Out of memory.");
   }
 
-#ifdef USE_BITMAP
   physical_uintptr_t ptr_bitmap = ptr / getPageSize();
   size_t idx = ptr_bitmap / 32;
   size_t bit = ptr_bitmap % 32;
@@ -108,7 +103,6 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage(size_t pageConstrai
     FATAL_NOLOCK("PhysicalMemoryManager allocate()d a page twice");
   }
   g_PageBitmap[idx] |= (1 << bit);
-#endif
 
   m_Lock.release();
 
@@ -149,7 +143,6 @@ physical_uintptr_t HostedPhysicalMemoryManager::tryAllocatePage() {
     return 0;
   }
 
-#ifdef USE_BITMAP
   physical_uintptr_t ptr_bitmap = ptr / getPageSize();
   size_t idx = ptr_bitmap / 32;
   size_t bit = ptr_bitmap % 32;
@@ -158,7 +151,6 @@ physical_uintptr_t HostedPhysicalMemoryManager::tryAllocatePage() {
     FATAL_NOLOCK("PhysicalMemoryManager allocate()d a page twice");
   }
   g_PageBitmap[idx] |= (1 << bit);
-#endif
 
   m_Lock.release();
 
@@ -218,7 +210,6 @@ void HostedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {
     }
   }
 
-#ifdef USE_BITMAP
   physical_uintptr_t ptr_bitmap = page / getPageSize();
   size_t idx = ptr_bitmap / 32;
   size_t bit = ptr_bitmap % 32;
@@ -228,7 +219,6 @@ void HostedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {
   }
 
   g_PageBitmap[idx] &= ~(1 << bit);
-#endif
 
   m_PageStack.free(page, getPageSize());
 }

@@ -22,6 +22,12 @@
 
 #include "pedigree/kernel/processor/types.h"
 
+#ifdef USB_VERBOSE_DEBUG
+inline constexpr bool UsbVerboseDebug = true;
+#else
+inline constexpr bool UsbVerboseDebug = false;
+#endif
+
 // PID types, ordered as they appear in the EHCI spec
 enum UsbPid {
   // Token PID Types

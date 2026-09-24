@@ -43,8 +43,8 @@ bool DiskImage::initialise() {
     }
   }
 
-  if (!image && moduleCount >= 3) {
-    image = &modules[2];
+  if (!image && moduleCount >= 2) {
+    image = &modules[1];
   }
   if (!image || image->end <= image->base) {
     NOTICE("no root disk image found in boot modules");
