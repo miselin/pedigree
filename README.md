@@ -5,8 +5,7 @@ A small team built the core, and since then it has received contributions from n
 It is as much a research project as it is a hobby OS kernel: exploring ideas around subsystems,
 syscall APIs, and kernel design, and the result is a powerful kernel with a flexible userspace.
 
-While regular development on Pedigree has slowed down dramatically, it is still a powerful system,
-with past demonstrations including:
+Past demonstrations include:
 
 - a publicly hosted website running in Pedigree on a VM
 - a public SSH endpoint to log into a real Pedigree system and explore
@@ -105,31 +104,17 @@ scripts/alpine/build.sh armv7
 
 Each output directory under `scripts/alpine/build/<architecture>` contains
 `rootfs.img`, the matching `rootfs/` directory and a separate `sysroot/` SDK.
-The runtime retains Alpine's APK database and accounts. CMake copies the base
-image and overlays explicitly selected Pedigree artifacts; it does not import
-the old PUP staging tree or replace Alpine libc.
+The runtime retains Alpine's APK database, accounts, and libc. CMake copies the
+base image and overlays explicitly selected Pedigree artifacts.
 
 Use `PEDIGREE_ALPINE_ROOT=/path/to/output` with Easy Build to choose another
 preparation directory. `PEDIGREE_TARGET_SYSROOT` selects a separate SDK when
 needed. Preparation is incremental; unchanged profiles reuse existing outputs.
 See the [SDK guide](docs/ai/musl-sdk.md) for direct configuration and offline reuse.
 
-Historical disk images are available in the [download archive](https://dl.pedigree-project.org).
-They may use boot paths that are no longer supported by the current source.
-
-## Reporting Issues
-
-Report any issues on the project tracker at http://pedigree-project.org
-
-## Contact
-
-You can find us in #pedigree on Freenode IRC.
-
 ## Contributing
 
-We welcome contributions. The preferred mechanism for contributing is via pull
-requests. See the issue trackers at http://pedigree-project.org if you need
-ideas. Alternatively, come join us in our IRC channel on Freenode (see above).
+We welcome contributions through [pull requests](https://github.com/miselin/pedigree/pulls).
 
 We highly recommend working through a successful build and playing with some of
 Pedigree's features in a VM before leaping into contributing. This will help
