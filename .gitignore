@@ -57,3 +57,5 @@ venv
 recovery/
 
 /build-alpine-desktop/
+/build-alpine-demo/
+/build-alpine-demo-winman/
