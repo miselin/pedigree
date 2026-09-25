@@ -169,13 +169,13 @@ void apMain() {
     Processor::information().getScheduler().setIdle(Processor::information().getCurrentThread());
   }
 
-  Processor::setInterrupts(true);
   for (;;) {
+#if THREADS
+    Processor::information().getScheduler().idleUntilInterrupt();
+    Scheduler::instance().yield();
+#else
     Processor::haltUntilInterrupt();
-
-    EMIT_IF(THREADS) {
-      Scheduler::instance().yield();
-    }
+#endif
   }
 }
 #endif
@@ -486,11 +486,11 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
 
   // This will run when nothing else is available to run
   while (!g_NeedsShutdown) {
-    // Always enable interrupts in the idle thread, and halt. There is no
-    // point yielding as if this code is running, no other thread is ready
-    // (and cannot be made ready without an interrupt).
-    Processor::setInterrupts(true);
+#if THREADS
+    Processor::information().getScheduler().idleUntilInterrupt();
+#else
     Processor::haltUntilInterrupt();
+#endif
 
     // A shutdown wake can resume this halt before the next predicate check.
     // Do not yield back to a busy ready queue before retiring the idle role.

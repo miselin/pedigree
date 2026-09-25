@@ -73,19 +73,47 @@ class TimerFdService final : public TimerHandler {
       while (m_End && !m_Timers[m_End - 1])
         --m_End;
     }
+    rearm();
+  }
+
+  void rearm() {
+    LockGuard<Mutex> guard(m_Lock);
+    if (!m_Source || !m_Source->supportsDeadlines())
+      return;
+    const PosixClockSnapshot clock = posix_clock_snapshot();
+    Time::Timestamp next = 0;
+    for (size_t i = 0; i < m_End; ++i) {
+      TimerFd* timer = m_Timers[i].get();
+      if (!timer)
+        continue;
+      Time::Timestamp deadline = 0;
+      if (!timer->m_Lock.tryAcquire()) {
+        deadline = PosixTimerState::add(clock.monotonic, Time::Multiplier::Millisecond);
+      } else {
+        if (timer->m_AdmissionOpen)
+          deadline = PosixTimerState::monotonicDeadline(timer->m_State, clock.realtime,
+                                                        clock.monotonic);
+        timer->m_Lock.release();
+      }
+      if (deadline && (!next || deadline < next))
+        next = deadline;
+    }
+    if (!m_Source->armHandler(this, next))
+      panic("timerfd service could not arm its callback");
   }
 
   void refresh(uint64_t generation) {
     TerminationDeferral lifetime;
     for (size_t i = 0; i < LinuxTimerFd::MaximumObjects; ++i) {
       SharedPointer<TimerFd> timer;
-      if (generation)
+      Timer* source = Machine::instance().getTimer();
+      if (generation || (source && source->supportsDeadlines()))
         m_Lock.acquire();
       else if (!m_Lock.tryAcquire())
         return;
       if (i >= m_End) {
         m_Lock.release();
-        return;
+        break;
       }
       timer = m_Timers[i];
       m_Lock.release();
@@ -94,6 +122,7 @@ class TimerFdService final : public TimerHandler {
       if (timer)
         timer->service(generation);
     }
+    rearm();
   }
 
   void timer(uint64_t) override {
@@ -255,6 +284,7 @@ int TimerFd::readWithCopy(size_t count, bool canBlock, PosixDescriptorReadCopy c
   m_Counter = 0;
   m_Expired = false;
   m_Lock.release();
+  timerService.rearm();
   changed();
   return value ? sizeof(value) : 0;
 }
@@ -296,6 +326,7 @@ int TimerFd::configure(int flags, Time::Timestamp value, Time::Timestamp interva
   m_State.armed = value != 0;
   update(clock);
   m_Lock.release();
+  timerService.rearm();
   changed();
   if (cancelled) {
     SYSCALL_ERROR(Cancelled);
@@ -327,6 +358,7 @@ int TimerFd::getTime(void* value) {
   m_Counter = counter;
   m_Expired = false;
   m_Lock.release();
+  timerService.rearm();
   changed();
   return 0;
 }

@@ -117,8 +117,10 @@ TEST(RtcAlarmQueue, ClaimsEveryDueAlarmAndLeavesFutureAlarmQueued) {
   queue.add(&second);
   queue.add(&future);
 
+  EXPECT_EQ(queue.nextDeadline(), 5U);
   EXPECT_EQ(queue.claimDue(10, owner), &first);
   EXPECT_EQ(queue.claimDue(10, owner), &second);
+  EXPECT_EQ(queue.nextDeadline(), 20U);
   EXPECT_EQ(queue.claimDue(10, owner), nullptr);
 
   queue.completeDispatch(&first);
@@ -129,6 +131,7 @@ TEST(RtcAlarmQueue, ClaimsEveryDueAlarmAndLeavesFutureAlarmQueued) {
   queue.completeDispatch(&future);
   EXPECT_EQ(queue.activeCount(), 0U);
   EXPECT_EQ(queue.freeCount(), 3U);
+  EXPECT_EQ(queue.nextDeadline(), ~uint64_t(0));
 }
 
 TEST(RtcAlarmQueue, CancellationRecyclesRecordsForLaterAlarms) {

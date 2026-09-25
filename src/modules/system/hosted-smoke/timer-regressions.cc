@@ -823,6 +823,94 @@ bool check(bool condition, const char* test, const char* detail) {
   return false;
 }
 
+class DeadlineRegistryHandler : public TimerHandler {
+ public:
+  explicit DeadlineRegistryHandler(TimerHandlerRegistry& registry)
+      : calls(0), deltas(), rearmDeadline(0), rearmTime(0), m_Registry(registry) {}
+
+  void timer(uint64_t delta) override {
+    if (calls < 3) {
+      deltas[calls] = delta;
+    }
+    ++calls;
+    if (rearmDeadline) {
+      m_Registry.armHandler(this, rearmDeadline, rearmTime);
+      rearmDeadline = 0;
+    }
+  }
+
+  size_t calls;
+  uint64_t deltas[3];
+  uint64_t rearmDeadline;
+  uint64_t rearmTime;
+
+ private:
+  TimerHandlerRegistry& m_Registry;
+};
+
+bool timerRegistryAbsoluteDeadlines() {
+  constexpr const char* Test = "timer-registry-absolute-deadlines";
+  TimerHandlerRegistry registry;
+  DeadlineRegistryHandler first(registry);
+  DeadlineRegistryHandler second(registry);
+  DeadlineRegistryHandler absent(registry);
+
+  bool passed = true;
+  passed &= check(!registry.armHandler(&absent, 20, 10), Test, "an unregistered handler was armed");
+  const bool firstRegistered = registry.registerHandler(&first);
+  const bool secondRegistered = registry.registerHandler(&second);
+  first.rearmDeadline = 40;
+  first.rearmTime = 20;
+  const bool firstArmed = registry.armHandler(&first, 20, 10);
+  const bool secondArmed = registry.armHandler(&second, 30, 10);
+  passed &= check(firstRegistered && secondRegistered && firstArmed && secondArmed, Test,
+                  "handlers could not be registered and armed");
+  passed &= check(registry.nextDeadline() == 20 && !registry.dispatchDue(19), Test,
+                  "a deadline fired early");
+  passed &= check(registry.dispatchDue(20) && first.calls == 1 && first.deltas[0] == 10 &&
+                      second.calls == 0 && registry.nextDeadline() == 30,
+                  Test, "the first callback did not rearm safely");
+  passed &= check(registry.dispatchDue(35) && second.calls == 1 && second.deltas[0] == 25 &&
+                      registry.nextDeadline() == 40,
+                  Test, "the second callback received the wrong elapsed time");
+  passed &= check(registry.dispatchDue(40) && first.calls == 2 && first.deltas[1] == 20 &&
+                      registry.nextDeadline() == Time::Infinity,
+                  Test, "the rearmed callback fired more than once or had the wrong delta");
+
+  const bool armedAgain = registry.armHandler(&second, 50, 35);
+  const bool disarmed = registry.armHandler(&second, 0, 35);
+  passed &= check(armedAgain && disarmed && registry.nextDeadline() == Time::Infinity &&
+                      !registry.dispatchDue(60) && second.calls == 1,
+                  Test, "disarming did not cancel a pending deadline");
+  const bool armedAfterIdle = registry.armHandler(&second, 90, 80);
+  passed &= check(
+      armedAfterIdle && registry.dispatchDue(90) && second.calls == 2 && second.deltas[1] == 10,
+      Test, "a new arm included time spent disarmed");
+  const bool armedAfterOneShot = registry.armHandler(&second, 120, 110);
+  passed &= check(
+      armedAfterOneShot && registry.dispatchDue(120) && second.calls == 3 && second.deltas[2] == 10,
+      Test, "a new one-shot inherited an old callback baseline");
+
+  const bool firstRemoved = registry.unregisterHandler(&first);
+  const bool secondRemoved = registry.unregisterHandler(&second);
+  const bool firstReused = firstRemoved && registry.registerHandler(&first);
+  passed &= check(firstRemoved && secondRemoved && firstReused &&
+                      registry.nextDeadline() == Time::Infinity && !registry.dispatchDue(100) &&
+                      first.calls == 2,
+                  Test, "a retired deadline survived slot reuse");
+  const bool rearmedAfterReuse = firstReused && registry.armHandler(&first, 110, 100);
+  passed &= check(
+      rearmedAfterReuse && registry.dispatchDue(110) && first.calls == 3 && first.deltas[2] == 10,
+      Test, "slot reuse retained a prior callback baseline");
+  passed &= check(firstReused && registry.unregisterHandler(&first), Test,
+                  "a reused handler could not be removed");
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS timer-registry-absolute-deadlines");
+  }
+  return passed;
+}
+
 bool timerWriterLockIndependentDispatch() {
   constexpr const char* Test = "timer-dispatch-writer-lock-independent";
   Timer* timer = Machine::instance().getTimer();
@@ -1472,10 +1560,11 @@ bool exactCullRetainsOwnership(Thread* thread) {
 bool runHostedTimerRegressions(Thread* thread) {
   return hostedTimerThreadContext(Processor::information().getCurrentThread()) &&
          hostedTimerOverrunAccounting() && timerWriterLockIndependentDispatch() &&
-         timerPrePinUnregisterRevalidation() && timerAtomicDrainSelfRevival() &&
-         timerPartialHazardAbandonment() && timerCommittedHazardAbandonment() &&
-         timerDeferredSelfRemovalAbandonment() && timerClockAndDeadline(thread) &&
-         timerAlarmSendLinearization() && timerAlarmRemovalLifetime() &&
-         timerHandlerLifetimeBarrier() && semaphoreQueuedTimeoutCancellation(thread) &&
-         relayUsesLatestDisposition(thread) && exactCullRetainsOwnership(thread);
+         timerRegistryAbsoluteDeadlines() && timerPrePinUnregisterRevalidation() &&
+         timerAtomicDrainSelfRevival() && timerPartialHazardAbandonment() &&
+         timerCommittedHazardAbandonment() && timerDeferredSelfRemovalAbandonment() &&
+         timerClockAndDeadline(thread) && timerAlarmSendLinearization() &&
+         timerAlarmRemovalLifetime() && timerHandlerLifetimeBarrier() &&
+         semaphoreQueuedTimeoutCancellation(thread) && relayUsesLatestDisposition(thread) &&
+         exactCullRetainsOwnership(thread);
 }

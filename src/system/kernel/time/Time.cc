@@ -78,6 +78,21 @@ bool setTimeNanoseconds(Timestamp value) {
   return true;
 }
 
+bool anchorRealtime(Timestamp value) {
+  Timer* timer = Machine::instance().getTimer();
+  if (!timer || value == Infinity) {
+    return false;
+  }
+  {
+    LockGuard<Spinlock> guard(realtimeLock);
+    realtimeBase = value;
+    monotonicBase = timer->getTickCountNano();
+    realtimeSet = true;
+  }
+  InfoBlockManager::instance().refreshTime();
+  return true;
+}
+
 Timestamp getTicks() {
   Timer* pTimer = Machine::instance().getTimer();
   if (!pTimer) {

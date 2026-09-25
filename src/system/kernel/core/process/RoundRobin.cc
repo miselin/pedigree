@@ -147,6 +147,16 @@ Thread* RoundRobin::getNext(Thread* pCurrentThread) {
   return 0;
 }
 
+bool RoundRobin::hasReady() {
+  LockGuard<Spinlock> guard(m_Lock);
+  for (size_t i = 0; i < MAX_PRIORITIES; ++i) {
+    if (m_pReadyQueueHeads[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void RoundRobin::threadStatusChanged(Thread* pThread) {
   LockGuard<Spinlock> guard(m_Lock);
 

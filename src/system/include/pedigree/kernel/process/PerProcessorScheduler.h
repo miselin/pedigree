@@ -111,6 +111,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   /** SchedulerTimerHandler callback. */
   void timer(uint64_t delta, InterruptState& state);
 
+  /** Publish the shared timer's next deadline on CPU 0. */
+  void setClockDeadline(uint64_t deadline);
+
   void removeThread(Thread* pThread);
 
   void threadStatusChanged(Thread* pThread);
@@ -132,7 +135,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   void unregisterWorkerWake(SchedulerWorkerWake& worker);
 
   /** Publishes one worker wake edge without touching a lock or ready queue. */
-  void ringIrqWorkDoorbell(SchedulerWorkerWake& worker);
+  void ringIrqWorkDoorbell(SchedulerWorkerWake& worker, bool promptOwner = true);
 
   /**
    * Publishes deferred process timer accounting from IRQ/scheduler context.
@@ -142,6 +145,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
 
   /** Reschedules once from ordinary thread context during lifecycle work. */
   void serviceIrqWorkDoorbell();
+
+  /** Services wakeups and reschedule requests at a safe scheduling boundary. */
+  void servicePendingScheduling();
 
   enum class ProcessStopGateMode {
     StopOnly,
@@ -186,6 +192,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   void requestIdleThreadWakeup();
 
   void setIdle(Thread* pThread);
+
+  /** Checks ready work with IRQs masked before the idle thread halts. */
+  void idleUntilInterrupt();
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   /** Exercises the real add-worker wait and owned shutdown path. */
@@ -254,7 +263,10 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   bool drainDeferredThreadReaps();
   bool enqueueAffinity(Thread* thread, bool accepted = false);
   void drainAffinityRequests();
-  void prompt();
+  void prompt(bool readyPublication = false);
+  void armLocalQuantumIfNeeded();
+  void updateOneShotTimer();
+  void programOneShotTimer();
   Thread* selectNext(Thread* current);
   void serviceWorkerWakeups();
 
@@ -279,6 +291,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   WaitQueue m_TimeAccountingWorkerWaiters;
   SchedulerWorkerWake m_TimeAccountingWorkerWake;
   Atomic<size_t> m_IrqWorkDoorbell;
+  Atomic<size_t> m_ReschedulePending;
+  Atomic<size_t> m_RemotePromptPending;
+  Atomic<uint64_t> m_ClockDeadline;
   Spinlock m_IrqWorkLock;
   SchedulerWorkerWake* m_pWorkerWakeHead = nullptr;
   Spinlock m_AffinityQueueLock;
@@ -289,6 +304,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   size_t m_LogicalCpu = ~size_t(0);
   size_t m_PhysicalCpu = 0;
   uint64_t m_NominalQuantumNs = 0;
+  uint64_t m_QuantumDeadline = 0;
+  uint64_t m_NextLoadSampleDeadline = 0;
+  bool m_OneShotTimer = false;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   Atomic<size_t> m_nDeferredThreadReapCompletions;

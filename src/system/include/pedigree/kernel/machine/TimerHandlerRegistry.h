@@ -29,6 +29,12 @@ class EXPORTED_PUBLIC TimerHandlerRegistry {
 
   bool registerHandler(TimerHandler* handler);
 
+  /** Arms one callback at an absolute monotonic deadline; zero disarms it. */
+  bool armHandler(TimerHandler* handler, uint64_t deadline, uint64_t now);
+
+  /** Returns the earliest armed deadline, or Time::Infinity if none exists. */
+  uint64_t nextDeadline() const;
+
   /**
    * Stops future callbacks and drains callbacks already in progress.
    *
@@ -42,6 +48,9 @@ class EXPORTED_PUBLIC TimerHandlerRegistry {
 
   /** Calls each handler admitted by the current publication. */
   bool dispatch(uint64_t delta, TimerHandler* onlyHandler = nullptr);
+
+  /** Calls each due handler once, with elapsed time since its prior callback. */
+  bool dispatchDue(uint64_t now);
 
   /** Clears quiescent registry state during timer lifecycle transitions. */
   void reset();
@@ -65,6 +74,7 @@ class EXPORTED_PUBLIC TimerHandlerRegistry {
  private:
   static constexpr size_t MaxHandlerSlots = 32;
   static constexpr size_t MaxActiveDispatches = 64;
+  static constexpr uint64_t NoDeadline = ~static_cast<uint64_t>(0);
 
   enum class SlotMode : size_t {
     Empty = 0,
@@ -92,10 +102,13 @@ class EXPORTED_PUBLIC TimerHandlerRegistry {
   };
 
   struct HandlerSlot {
-    HandlerSlot() : handler(nullptr), publication(0) {}
+    HandlerSlot()
+        : handler(nullptr), publication(0), deadline(NoDeadline), lastDispatch(NoDeadline) {}
 
     TimerHandler* handler;
     size_t publication;
+    uint64_t deadline;
+    uint64_t lastDispatch;
   };
 
   struct DispatchCleanup {
@@ -128,6 +141,7 @@ class EXPORTED_PUBLIC TimerHandlerRegistry {
   bool hasActiveDispatch(HandlerSlot& slot) const;
   bool findCurrentDispatch(void* owner, HandlerSlot* target, bool& callbackContext) const;
   static void* currentDispatchOwner();
+  bool dispatchSelected(uint64_t delta, TimerHandler* onlyHandler, bool dueOnly, uint64_t now);
 
   HandlerSlot m_Handlers[MaxHandlerSlots];
   ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];

@@ -26,6 +26,7 @@
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/machine/Trace.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Event.h"
@@ -42,9 +43,14 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/utility.h"
 #if HOSTED
 #include "pedigree/kernel/processor/hosted/Processor.h"
+#endif
+#if X86_COMMON && MULTIPROCESSOR
+#include <machine/mach_pc/LocalApic.h>
+#include <machine/mach_pc/Pc.h>
 #endif
 #if PEDIGREE_HOSTED_FUNCTION_PROFILE
 #include "pedigree/kernel/processor/hosted/FunctionProfile.h"
@@ -78,6 +84,9 @@ PerProcessorScheduler::PerProcessorScheduler()
       m_TimeAccountingWorkerWaiters(),
       m_TimeAccountingWorkerWake(),
       m_IrqWorkDoorbell(0),
+      m_ReschedulePending(0),
+      m_RemotePromptPending(0),
+      m_ClockDeadline(0),
       m_IrqWorkLock(),
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       m_nDeferredThreadReapCompletions(0),
@@ -434,6 +443,104 @@ void PerProcessorScheduler::initialise(Thread* pThread) {
     FATAL("Per-processor scheduler timer handler is already owned.");
   }
   m_NominalQuantumNs = pTimer->nominalQuantumNs();
+  m_OneShotTimer = pTimer->supportsOneShot();
+  if (m_OneShotTimer) {
+    if (m_LogicalCpu == 0) {
+      m_NextLoadSampleDeadline = Time::getTicksFast() + LoadAverage::PeriodNanoseconds;
+    }
+    updateOneShotTimer();
+  }
+}
+
+void PerProcessorScheduler::programOneShotTimer() {
+  if (!m_OneShotTimer) {
+    return;
+  }
+  uint64_t deadline = m_QuantumDeadline;
+  if (m_NextLoadSampleDeadline &&
+      (!deadline || m_NextLoadSampleDeadline < deadline)) {
+    deadline = m_NextLoadSampleDeadline;
+  }
+  const uint64_t clockDeadline = m_ClockDeadline.value();
+  if (clockDeadline && (!deadline || clockDeadline < deadline)) {
+    deadline = clockDeadline;
+  }
+  SchedulerTimer* timer = Machine::instance().getSchedulerTimer();
+  if (deadline) {
+    if (!timer->armDeadline(deadline)) {
+      FATAL_NOLOCK("Failed to arm the local scheduler deadline.");
+    }
+  } else {
+    timer->disarm();
+  }
+}
+
+void PerProcessorScheduler::setClockDeadline(uint64_t deadline) {
+  if (!m_OneShotTimer) {
+    return;
+  }
+  uint64_t previous = m_ClockDeadline.value();
+  while (!m_ClockDeadline.compareAndSwap(previous, deadline)) {
+    previous = m_ClockDeadline.value();
+  }
+  if ((!previous && !deadline) ||
+      (previous && (!deadline || deadline >= previous))) {
+    // An already programmed earlier interrupt will re-evaluate the deadline.
+    return;
+  }
+  if (this == &Processor::information().getScheduler()) {
+    const bool interrupts = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    programOneShotTimer();
+    Processor::setInterrupts(interrupts);
+    return;
+  }
+#if X86_COMMON && MULTIPROCESSOR
+  ProcessorInformation* information = Processor::informationAt(m_LogicalCpu);
+  assert(information);
+  if (!Pc::instance().getLocalApic().interProcessorInterrupt(
+          information->localApicId(), IPI_RESCHEDULE_VECTOR, LocalApic::deliveryModeFixed, true,
+          false)) {
+    FATAL_NOLOCK("Remote clock deadline rearm failed.");
+  }
+#endif
+}
+
+void PerProcessorScheduler::updateOneShotTimer() {
+  if (!m_OneShotTimer) {
+    return;
+  }
+  const bool interrupts = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  Thread* current = Processor::information().getCurrentThread();
+  if (current && current != m_pIdleThread && m_pSchedulingAlgorithm->hasReady()) {
+    const uint64_t now = Time::getTicksFast();
+    m_QuantumDeadline = now > ~uint64_t(0) - m_NominalQuantumNs
+                            ? ~uint64_t(0)
+                            : now + m_NominalQuantumNs;
+  } else {
+    m_QuantumDeadline = 0;
+  }
+  programOneShotTimer();
+  Processor::setInterrupts(interrupts);
+}
+
+void PerProcessorScheduler::armLocalQuantumIfNeeded() {
+  if (!m_OneShotTimer || m_QuantumDeadline ||
+      this != &Processor::information().getScheduler()) {
+    return;
+  }
+  const bool interrupts = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  Thread* current = Processor::information().getCurrentThread();
+  if (current && current != m_pIdleThread && !m_QuantumDeadline) {
+    const uint64_t now = Time::getTicksFast();
+    m_QuantumDeadline = now > ~uint64_t(0) - m_NominalQuantumNs
+                            ? ~uint64_t(0)
+                            : now + m_NominalQuantumNs;
+    programOneShotTimer();
+  }
+  Processor::setInterrupts(interrupts);
 }
 
 void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEvents) {
@@ -461,6 +568,14 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
   Thread* pCurrentThread = Processor::information().getCurrentThread();
   if (!pCurrentThread) {
     FATAL("Missing a current thread in PerProcessorScheduler::schedule!");
+  }
+
+  bool canServiceWorkerWakeups = bWasInterrupts;
+#if HOSTED
+  canServiceWorkerWakeups &= !pCurrentThread->getHostedSignalDepth();
+#endif
+  if (canServiceWorkerWakeups && m_IrqWorkDoorbell.compareAndSwap(1, 0)) {
+    serviceWorkerWakeups();
   }
 
   // Grab the current thread's lock.
@@ -527,6 +642,7 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
   // strand the add-thread worker, so return directly when current stays on CPU.
   if (pNextThread == pCurrentThread) {
     ActivityDiagnostics::recordSameThreadSelection();
+    updateOneShotTimer();
     const bool waitOwnsEventDispatch = pCurrentThread->hasActiveWaitUnlocked();
     pCurrentThread->getLock().release();
     Processor::setInterrupts(bWasInterrupts);
@@ -549,6 +665,7 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
     pCurrentThread->setStatusUnlocked(nextStatus);
   pNextThread->setStatusUnlocked(Thread::Running);
   Processor::information().setCurrentThread(pNextThread);
+  updateOneShotTimer();
 
   // Load the new kernel stack into the TSS, and the new TLS base and switch
   // address spaces
@@ -939,6 +1056,7 @@ void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc p
   }
   pThread->setStatusUnlocked(Thread::Running);
   Processor::information().setCurrentThread(pThread);
+  updateOneShotTimer();
   void* kernelStack = pThread->getKernelStack();
   Processor::information().setKernelStack(reinterpret_cast<uintptr_t>(kernelStack));
   Processor::switchAddressSpace(*pThread->getParent()->getAddressSpace());
@@ -1050,6 +1168,7 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
   }
   pThread->setStatusUnlocked(Thread::Running);
   Processor::information().setCurrentThread(pThread);
+  updateOneShotTimer();
   void* kernelStack = pThread->getKernelStack();
   Processor::information().setKernelStack(reinterpret_cast<uintptr_t>(kernelStack));
   Processor::switchAddressSpace(*pThread->getParent()->getAddressSpace());
@@ -1237,6 +1356,7 @@ void PerProcessorScheduler::finishCurrentThreadExit(Spinlock* pLock, bool transf
 
   pNextThread->setStatusUnlocked(Thread::Running);
   Processor::information().setCurrentThread(pNextThread);
+  owner.updateOneShotTimer();
   void* kernelStack = pNextThread->getKernelStack();
   Processor::information().setKernelStack(reinterpret_cast<uintptr_t>(kernelStack));
   EMIT_IF(!HOSTED) {
@@ -1362,7 +1482,6 @@ Thread* PerProcessorScheduler::selectNext(Thread* current) {
 }
 
 void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
-  (void)delta;
   (void)state;
   if constexpr (PEDIGREE_TIME_ACCOUNTING && PEDIGREE_SAMPLED_TIME_ACCOUNTING) {
     Thread* current = Processor::information().getCurrentThread();
@@ -1371,25 +1490,46 @@ void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
     }
   }
   ActivityDiagnostics::recordSchedulerTimer();
-  Scheduler::instance().requestLoadAverageSample();
-  // Device IRQs only publish atomic wake edges. The scheduler interrupt is a
-  // safe boundary to turn those edges into ordinary Sleeping -> Ready
-  // transitions before selecting the next thread.
-  if (m_IrqWorkDoorbell.compareAndSwap(1, 0)) {
-    serviceWorkerWakeups();
+  if (m_OneShotTimer) {
+    if (!delta) {
+      programOneShotTimer();
+      return;
+    }
+    const uint64_t now = Time::getTicksFast();
+    if (m_NextLoadSampleDeadline && now >= m_NextLoadSampleDeadline) {
+      m_NextLoadSampleDeadline = now > ~uint64_t(0) - LoadAverage::PeriodNanoseconds
+                                     ? ~uint64_t(0)
+                                     : now + LoadAverage::PeriodNanoseconds;
+      Scheduler::instance().requestLoadAverageSample();
+    }
+    if (m_QuantumDeadline && now >= m_QuantumDeadline) {
+      m_QuantumDeadline = 0;
+      m_ReschedulePending = 1;
+    }
+    const uint64_t clockDeadline = m_ClockDeadline.value();
+    if (clockDeadline && now >= clockDeadline &&
+        m_ClockDeadline.compareAndSwap(clockDeadline, 0)) {
+      Machine::instance().getTimer()->deadlineInterrupt();
+    }
+    programOneShotTimer();
+    return;
   }
-  // A scheduler tick may switch stacks, but it remains a hard interrupt
-  // until this callback returns. Kernel Events can unwind into arbitrary
-  // subsystem teardown, so leave their delivery to an ordinary syscall or
-  // WaitQueue boundary.
-  if (++m_SchedulerTickCounter >= PEDIGREE_SCHEDULER_TICK_DIVISOR) {
+  if (delta) {
+    Scheduler::instance().requestLoadAverageSample();
+  }
+  // The raw handler only records the scheduling edge. The architecture IRQ
+  // return services it after all hard-handler scopes have unwound.
+  if (!delta) {
+    m_ReschedulePending = 1;
+  } else if (++m_SchedulerTickCounter >= PEDIGREE_SCHEDULER_TICK_DIVISOR) {
     m_SchedulerTickCounter = 0;
-    schedule(Thread::Ready, false);
+    m_ReschedulePending = 1;
   }
 }
 
 void PerProcessorScheduler::threadStatusChanged(Thread* pThread) {
   bool wakeWorker = false;
+  PerProcessorScheduler* readyOwner = nullptr;
   {
     // The add worker holds the thread lock while moving a not-yet-started
     // record to the delayed list. Take that lock before checking Created so a
@@ -1416,15 +1556,22 @@ void PerProcessorScheduler::threadStatusChanged(Thread* pThread) {
     PerProcessorScheduler* owner = pThread->getScheduler();
     assert(owner);
     owner->m_pSchedulingAlgorithm->threadStatusChanged(pThread);
+    if (pThread->m_Status == Thread::Ready && !pThread->m_ReadyPublicationPending) {
+      readyOwner = owner;
+    }
   }
 
   if (wakeWorker) {
     m_NewThreadDataCondition.signal();
   }
+  if (readyOwner) {
+    readyOwner->prompt(true);
+  }
 }
 
 void PerProcessorScheduler::ringIrqWorkDoorbell() {
   m_IrqWorkDoorbell = 1;
+  prompt();
 }
 
 void PerProcessorScheduler::registerWorkerWake(SchedulerWorkerWake& worker, WaitQueue& waiters) {
@@ -1453,9 +1600,13 @@ void PerProcessorScheduler::unregisterWorkerWake(SchedulerWorkerWake& worker) {
   worker.m_Pending = 0;
 }
 
-void PerProcessorScheduler::ringIrqWorkDoorbell(SchedulerWorkerWake& worker) {
+void PerProcessorScheduler::ringIrqWorkDoorbell(SchedulerWorkerWake& worker, bool promptOwner) {
   worker.m_Pending = 1;
-  ringIrqWorkDoorbell();
+  if (promptOwner) {
+    ringIrqWorkDoorbell();
+  } else {
+    m_IrqWorkDoorbell = 1;
+  }
 }
 
 void PerProcessorScheduler::serviceWorkerWakeups() {
@@ -1494,7 +1645,25 @@ void PerProcessorScheduler::serviceIrqWorkDoorbell() {
   // scheduler tick.
   if (m_IrqWorkDoorbell.compareAndSwap(1, 0)) {
     serviceWorkerWakeups();
+    m_ReschedulePending.compareAndSwap(1, 0);
     schedule();
+  }
+}
+
+void PerProcessorScheduler::servicePendingScheduling() {
+  if (!m_pSchedulingAlgorithm || !Processor::information().getCurrentThread()) {
+    return;
+  }
+
+  m_RemotePromptPending = 0;
+  bool pending = m_ReschedulePending.compareAndSwap(1, 0);
+  if (m_IrqWorkDoorbell.compareAndSwap(1, 0)) {
+    serviceWorkerWakeups();
+    pending = true;
+    m_ReschedulePending.compareAndSwap(1, 0);
+  }
+  if (pending) {
+    schedule(Thread::Ready, false);
   }
 }
 
@@ -2051,4 +2220,22 @@ void PerProcessorScheduler::setIdle(Thread* pThread) {
   __atomic_store_n(&m_pIdleThread, pThread, __ATOMIC_RELEASE);
   if (!pThread)
     __atomic_store_n(&m_IdleWakeRequested, false, __ATOMIC_RELEASE);
+}
+
+void PerProcessorScheduler::idleUntilInterrupt() {
+  Processor::setInterrupts(false);
+  servicePendingScheduling();
+  updateOneShotTimer();
+  if (__atomic_load_n(&m_IdleWakeRequested, __ATOMIC_ACQUIRE)) {
+    Processor::setInterrupts(true);
+    return;
+  }
+  if (m_pSchedulingAlgorithm && m_pSchedulingAlgorithm->hasReady()) {
+    schedule(Thread::Ready, false);
+  } else {
+    // The ready check and STI/HLT are one interrupt-masked handshake. A
+    // remote IPI arriving after the check remains pending until STI/HLT.
+    Processor::haltUntilInterrupt();
+  }
+  Processor::setInterrupts(true);
 }

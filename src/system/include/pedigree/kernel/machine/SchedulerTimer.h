@@ -35,6 +35,12 @@ class SchedulerTimer {
    */
   virtual bool registerHandler(SchedulerTimerHandler* handler) = 0;
   virtual uint64_t nominalQuantumNs() const = 0;
+  /** Whether this timer can replace periodic ticks with CPU-local deadlines. */
+  virtual bool supportsOneShot() const { return false; }
+  /** Program an absolute monotonic deadline on the calling processor. */
+  virtual bool armDeadline(uint64_t) { return false; }
+  /** Stop timer interrupts on the calling processor. */
+  virtual void disarm() {}
   /**
    * Remove the calling processor's exact current owner.
    *

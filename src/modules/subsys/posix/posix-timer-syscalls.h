@@ -21,5 +21,6 @@ int posix_timer_delete(int timerId);
 
 void posix_timer_process_exit(Process* process);
 void posix_timer_thread_exit(Thread* thread);
+void posix_timer_clock_changed();
 
 #endif

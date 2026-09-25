@@ -26,10 +26,12 @@
 #include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/SchedulerTimer.h"
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -149,6 +151,9 @@ void Rtc::addAlarm(Event* pEvent, size_t alarmSecs, size_t alarmUsecs) {
   target = addAlarmDuration(target, alarmUsecs, Time::Multiplier::Microsecond);
   pAlarm->prepare(pEvent, target, Processor::information().getCurrentThread());
   m_AlarmQueue.add(pAlarm);
+  if (m_DeadlineMode) {
+    publishNextDeadlineLocked();
+  }
 }
 
 void Rtc::drainRemoteAlarmDispatch(Event* pEvent, void* owner) {
@@ -193,6 +198,9 @@ void Rtc::removeAlarm(Event* pEvent) {
   m_Lock.acquire();
   Alarm* reclaim = m_AlarmQueue.removeAllQueued(pEvent, owner, remoteInFlight, selfDeferred);
   m_AlarmQueue.recycleList(reclaim);
+  if (m_DeadlineMode) {
+    publishNextDeadlineLocked();
+  }
   m_Lock.release();
 
   (void)selfDeferred;
@@ -209,6 +217,9 @@ size_t Rtc::removeAlarm(class Event* pEvent, bool bRetZero) {
   RtcAlarmQueue::Removal removal = m_AlarmQueue.removeFirst(pEvent, owner);
   if (removal.record) {
     m_AlarmQueue.recycleList(removal.record);
+  }
+  if (m_DeadlineMode) {
+    publishNextDeadlineLocked();
   }
   m_Lock.release();
 
@@ -234,7 +245,70 @@ bool Rtc::registerHandler(TimerHandler* handler) {
 }
 
 bool Rtc::unregisterHandler(TimerHandler* handler) {
-  return m_HandlerRegistry.unregisterHandler(handler);
+  const bool removed = m_HandlerRegistry.unregisterHandler(handler);
+  if (removed && m_DeadlineMode) {
+    LockGuard<Spinlock> guard(m_Lock);
+    publishNextDeadlineLocked();
+  }
+  return removed;
+}
+
+bool Rtc::armHandler(TimerHandler* handler, uint64_t absoluteDeadlineNs) {
+  if (!m_DeadlineMode) {
+    return false;
+  }
+  LockGuard<Spinlock> guard(m_Lock);
+  if (!m_HandlerRegistry.armHandler(handler, absoluteDeadlineNs, getTickCountNano())) {
+    return false;
+  }
+  publishNextDeadlineLocked();
+  return true;
+}
+
+void Rtc::publishNextDeadlineLocked() {
+  assert(m_DeadlineScheduler);
+  uint64_t next = m_AlarmQueue.nextDeadline();
+  const uint64_t handlerDeadline = m_HandlerRegistry.nextDeadline();
+  if (handlerDeadline < next) {
+    next = handlerDeadline;
+  }
+  m_DeadlineScheduler->setClockDeadline(next == Time::Infinity ? 0 : next);
+}
+
+void Rtc::deadlineInterrupt() {
+  if (!m_DeadlineMode) {
+    return;
+  }
+  m_DeadlinePending = 1;
+  m_DeadlineScheduler->ringIrqWorkDoorbell(m_DeadlineWake, false);
+}
+
+int Rtc::deadlineWorkerEntry(void* context) {
+  return reinterpret_cast<Rtc*>(context)->runDeadlineWorker();
+}
+
+int Rtc::runDeadlineWorker() {
+  TerminationDeferral workerLifetime;
+  while (!m_StopDeadlineWorker.value()) {
+    if (m_DeadlinePending.compareAndSwap(1, 0)) {
+      const uint64_t now = getTickCountNano();
+      processElapsedTime(now);
+      m_HandlerRegistry.dispatchDue(now);
+      {
+        LockGuard<Spinlock> guard(m_Lock);
+        publishNextDeadlineLocked();
+      }
+      Scheduler::instance().yield();
+      continue;
+    }
+    auto guard = m_DeadlineWaiters.acquire();
+    if (!m_DeadlinePending.value() && !m_StopDeadlineWorker.value()) {
+      const WaitQueue::WakeReason reason =
+          guard.wait(WaitQueue::Channel(), Thread::CondWait, reinterpret_cast<uintptr_t>(this));
+      (void)reason;
+    }
+  }
+  return 0;
 }
 size_t Rtc::getYear() {
   return m_Year;
@@ -270,6 +344,12 @@ uint8_t Rtc::getSecond() {
 }
 uint64_t Rtc::getNanosecond() {
   return m_Nanosecond;
+}
+Time::Timestamp Rtc::getUnixTimestamp() {
+  // initialise3 anchors realtime before enabling deadline mode. Direct
+  // filesystem users must see that running clock even when no timer is due.
+  return m_DeadlineMode ? Time::getTimeNanoseconds() / Time::Multiplier::Second
+                        : Timer::getUnixTimestamp();
 }
 uint64_t Rtc::getTickCount() {
   return getTickCountNano() / Time::Multiplier::Millisecond;
@@ -483,7 +563,34 @@ bool Rtc::initialise3() {
     return false;
   }
   m_PeriodicIrqInfoIndex = selectedIndex;
-  NOTICE("RTC: periodic interrupt frequency " << Dec << periodicIrqInfo[selectedIndex].Hz << " Hz");
+  SchedulerTimer* schedulerTimer = Machine::instance().getSchedulerTimer();
+  if (schedulerTimer && schedulerTimer->supportsOneShot()) {
+    m_DeadlineScheduler = Scheduler::schedulerForCpu(0);
+    if (!m_DeadlineScheduler) {
+      return false;
+    }
+    const uint64_t baseline = getTickCountNano();
+    m_TickCount = baseline;
+    m_ProcessedTickCount = baseline;
+    if (!Time::anchorRealtime(Time::getTimeNanoseconds())) {
+      return false;
+    }
+    m_DeadlineScheduler->registerWorkerWake(m_DeadlineWake, m_DeadlineWaiters);
+    Thread* worker = new Thread(Scheduler::instance().getKernelProcess(), deadlineWorkerEntry,
+                                this, nullptr, false, true, true);
+    worker->setName("clock deadline worker");
+    m_DeadlineWorker.adopt(worker);
+    m_DeadlineMode = true;
+    if (!worker->start()) {
+      FATAL("RTC deadline worker could not be started.");
+    }
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      publishNextDeadlineLocked();
+    }
+    NOTICE("RTC: runtime IRQ8 disabled; CPU 0 LAPIC handles timer deadlines");
+    return true;
+  }
 
   IrqManager& irqManager = *Machine::instance().getIrqManager();
   m_IrqId = irqManager.registerIsaIrqHandler(8, this, IrqPolicy::levelThreaded());
@@ -494,6 +601,7 @@ bool Rtc::initialise3() {
   const uint64_t baseline = getTickCountNano();
   m_TickCount = baseline;
   m_ProcessedTickCount = baseline;
+  NOTICE("RTC: periodic interrupt frequency " << Dec << periodicIrqInfo[selectedIndex].Hz << " Hz");
   setPeriodicInterruptEnabled(true);
   return true;
 }
@@ -510,6 +618,15 @@ void Rtc::synchronise(bool tohw) {
   }
 }
 void Rtc::uninitialise() {
+  if (m_DeadlineMode) {
+    m_StopDeadlineWorker = 1;
+    m_DeadlineScheduler->setClockDeadline(0);
+    m_DeadlineScheduler->ringIrqWorkDoorbell(m_DeadlineWake);
+    m_DeadlineWorker.join();
+    m_DeadlineScheduler->unregisterWorkerWake(m_DeadlineWake);
+    advanceCivilClock(getTickCountNano());
+    m_DeadlineMode = 0;
+  }
   setPeriodicInterruptEnabled(false);
   if (m_IrqId && !Machine::instance().getIrqManager()->unregisterHandler(m_IrqId, this)) {
     panic("RTC teardown could not drain its threaded IRQ callback");
@@ -557,6 +674,13 @@ Rtc::Rtc()
       m_TickCount(0),
       m_ProcessedTickCount(0),
       m_HandlerRegistry(),
+      m_DeadlineScheduler(nullptr),
+      m_DeadlineWorker(),
+      m_DeadlineWaiters(),
+      m_DeadlineWake(),
+      m_DeadlinePending(0),
+      m_StopDeadlineWorker(0),
+      m_DeadlineMode(false),
       m_AlarmQueue(),
       m_Lock(false),
       m_CmosLock(),
@@ -588,22 +712,11 @@ IrqDisposition Rtc::irq(irq_id_t number) {
 }
 
 void Rtc::processElapsedTime(uint64_t observed) {
-  const uint64_t delta = RtcTimeAccounting::consumeElapsed(observed, m_ProcessedTickCount);
+  uint64_t elapsedSeconds = 0;
+  const uint64_t delta = advanceCivilClock(observed, &elapsedSeconds);
   if (!delta) {
     return;
   }
-  m_TickCount = m_ProcessedTickCount;
-
-  RtcTimeAccounting::CivilTime civilTime = {m_Year,   m_Month,  m_DayOfMonth, m_Hour,
-                                            m_Minute, m_Second, m_Nanosecond};
-  const uint64_t elapsedSeconds = RtcTimeAccounting::advanceCivilTime(civilTime, delta);
-  m_Year = civilTime.year;
-  m_Month = civilTime.month;
-  m_DayOfMonth = civilTime.day;
-  m_Hour = civilTime.hour;
-  m_Minute = civilTime.minute;
-  m_Second = civilTime.second;
-  m_Nanosecond = civilTime.nanosecond;
 
   // Claim one due alarm under the queue lock, then publish it without
   // carrying that lock into Event or allocator code. A remover which sees
@@ -681,7 +794,31 @@ void Rtc::processElapsedTime(uint64_t observed) {
   }
 
   // Timer delta is in nanoseconds.
-  m_HandlerRegistry.dispatch(delta);
+  if (!m_DeadlineMode) {
+    m_HandlerRegistry.dispatch(delta);
+  }
+}
+
+uint64_t Rtc::advanceCivilClock(uint64_t observed, uint64_t* elapsedSeconds) {
+  const uint64_t delta = RtcTimeAccounting::consumeElapsed(observed, m_ProcessedTickCount);
+  if (!delta) {
+    return 0;
+  }
+  m_TickCount = m_ProcessedTickCount;
+  RtcTimeAccounting::CivilTime civilTime = {m_Year,   m_Month,  m_DayOfMonth, m_Hour,
+                                            m_Minute, m_Second, m_Nanosecond};
+  const uint64_t seconds = RtcTimeAccounting::advanceCivilTime(civilTime, delta);
+  m_Year = civilTime.year;
+  m_Month = civilTime.month;
+  m_DayOfMonth = civilTime.day;
+  m_Hour = civilTime.hour;
+  m_Minute = civilTime.minute;
+  m_Second = civilTime.second;
+  m_Nanosecond = civilTime.nanosecond;
+  if (elapsedSeconds) {
+    *elapsedSeconds = seconds;
+  }
+  return delta;
 }
 
 void Rtc::setIndexLocked(uint8_t index) {

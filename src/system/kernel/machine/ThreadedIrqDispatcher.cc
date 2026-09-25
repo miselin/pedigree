@@ -275,10 +275,10 @@ bool ThreadedIrqDispatcher::Line::publishFromInterrupt(size_t cookie) {
 #endif
 
   // The worker is pinned to this scheduler. Stage its local doorbell before
-  // issuing a directed prompt so a fast IPI observes the published cookie. A
-  // 0-to-pending transition is the sole prompt obligation; later occurrences
-  // coalesce into the batch the first prompt exposed.
-  m_Scheduler->ringIrqWorkDoorbell(m_WorkerWake);
+  // issuing a directed prompt so a fast IPI observes the published cookie.
+  // A remote overwrite also prompts the scheduler: the first IPI may have
+  // already returned before this occurrence reached the pending slot.
+  m_Scheduler->ringIrqWorkDoorbell(m_WorkerWake, !remoteProducer || pending != 0);
   if (remoteProducer && !pending) {
     if (!m_Owner->m_RemoteWakeCallback(m_Owner->m_RemoteWakeCallbackContext, m_Line,
                                        m_WorkerProcessor)) {

@@ -345,6 +345,13 @@ Uhci::Uhci(Device* pDev)
     ERROR("UHCI could not register its root-port polling callback");
     return;
   }
+  if (timer->supportsDeadlines() &&
+      !timer->armHandler(this, Time::getTicks() + Time::Multiplier::Millisecond)) {
+    ERROR("UHCI could not arm its root-port polling callback");
+    timer->unregisterHandler(this);
+    m_TimerRegistered = false;
+    return;
+  }
 #endif
   m_Initialised = true;
 }
@@ -1527,6 +1534,7 @@ void Uhci::timer(uint64_t delta) {
     return;
   }
 
+  uint64_t nextPoll = Time::Multiplier::Millisecond;
   {
     LockGuard<Spinlock> portChangeGuard(m_PortChangeLock);
     if (m_PortChangesClosing) {
@@ -1535,41 +1543,46 @@ void Uhci::timer(uint64_t delta) {
 
     m_nPortCheckTicks += delta;
     if (m_nPortCheckTicks < 1000000) {
-      return;
-    }
+      nextPoll -= m_nPortCheckTicks;
+    } else {
+      // We check the ports once in a Millisecond.
+      m_nPortCheckTicks = 0;
 
-    // We check the ports once in a Millisecond.
-    m_nPortCheckTicks = 0;
+      // Check every port for a change
+      for (size_t i = 0; i < m_nPorts; i++) {
+        const size_t portRegister = UHCI_PORTSC + (i * 2);
+        const uint16_t portStatus = m_pBase->read16(portRegister);
+        constexpr uint16_t ChangeMask = UHCI_PORTSC_CSCH | UHCI_PORTSC_EDCH;
+        uint16_t acknowledgeMask = portStatus & UHCI_PORTSC_EDCH;
+        size_t acknowledgeGeneration = 0;
 
-    // Check every port for a change
-    for (size_t i = 0; i < m_nPorts; i++) {
-      const size_t portRegister = UHCI_PORTSC + (i * 2);
-      const uint16_t portStatus = m_pBase->read16(portRegister);
-      constexpr uint16_t ChangeMask = UHCI_PORTSC_CSCH | UHCI_PORTSC_EDCH;
-      uint16_t acknowledgeMask = portStatus & UHCI_PORTSC_EDCH;
-      size_t acknowledgeGeneration = 0;
-
-      if (portStatus & UHCI_PORTSC_CSCH) {
-        if (deferConnectionChangeIfSuppressed(i)) {
-          acknowledgeMask |= UHCI_PORTSC_CSCH;
-        } else {
-          const auto observation = m_PortChanges[i].observe();
-          if (UsbHcd::PortChangeRequest::canAcknowledge(observation.result)) {
+        if (portStatus & UHCI_PORTSC_CSCH) {
+          if (deferConnectionChangeIfSuppressed(i)) {
             acknowledgeMask |= UHCI_PORTSC_CSCH;
-            acknowledgeGeneration = observation.generation;
+          } else {
+            const auto observation = m_PortChanges[i].observe();
+            if (UsbHcd::PortChangeRequest::canAcknowledge(observation.result)) {
+              acknowledgeMask |= UHCI_PORTSC_CSCH;
+              acknowledgeGeneration = observation.generation;
+            }
           }
         }
-      }
 
-      if (acknowledgeMask) {
-        m_pBase->write16(UsbHcd::selectiveW1cValue(portStatus, ChangeMask, acknowledgeMask),
-                         portRegister);
-        (void)m_pBase->read16(portRegister);
-      }
-      if (acknowledgeGeneration) {
-        m_PortChanges[i].acknowledge(acknowledgeGeneration);
+        if (acknowledgeMask) {
+          m_pBase->write16(UsbHcd::selectiveW1cValue(portStatus, ChangeMask, acknowledgeMask),
+                           portRegister);
+          (void)m_pBase->read16(portRegister);
+        }
+        if (acknowledgeGeneration) {
+          m_PortChanges[i].acknowledge(acknowledgeGeneration);
+        }
       }
     }
+  }
+  Timer* source = Machine::instance().getTimer();
+  if (source && source->supportsDeadlines() &&
+      !source->armHandler(this, Time::getTicks() + nextPoll)) {
+    panic("UHCI could not rearm its root-port polling callback");
   }
 #endif
 }

@@ -62,6 +62,8 @@ bool TimerHandlerRegistry::retireSlot(HandlerSlot& slot, size_t expectedPublicat
   }
 
   assert(__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) == expectedHandler);
+  __atomic_store_n(&slot.deadline, NoDeadline, __ATOMIC_RELEASE);
+  __atomic_store_n(&slot.lastDispatch, NoDeadline, __ATOMIC_RELEASE);
   __atomic_store_n(&slot.handler, nullptr, __ATOMIC_RELEASE);
   __atomic_store_n(&slot.publication,
                    makePublication(generationOf(retiringPublication), SlotMode::Empty),
@@ -270,6 +272,8 @@ bool TimerHandlerRegistry::registerHandler(TimerHandler* handler) {
       }
 
       size_t expectedPublication = publication;
+      __atomic_store_n(&slot.deadline, NoDeadline, __ATOMIC_RELEASE);
+      __atomic_store_n(&slot.lastDispatch, NoDeadline, __ATOMIC_RELEASE);
       if (__atomic_compare_exchange_n(&slot.publication, &expectedPublication,
                                       makePublication(generationOf(publication), SlotMode::Enabled),
                                       false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
@@ -284,6 +288,8 @@ bool TimerHandlerRegistry::registerHandler(TimerHandler* handler) {
     if (modeOf(publication) == SlotMode::Empty &&
         !__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE)) {
       const size_t generation = generationOf(publication) + 1;
+      __atomic_store_n(&slot.deadline, NoDeadline, __ATOMIC_RELEASE);
+      __atomic_store_n(&slot.lastDispatch, NoDeadline, __ATOMIC_RELEASE);
       __atomic_store_n(&slot.handler, handler, __ATOMIC_RELEASE);
       __atomic_store_n(&slot.publication, makePublication(generation, SlotMode::Enabled),
                        __ATOMIC_SEQ_CST);
@@ -292,6 +298,56 @@ bool TimerHandlerRegistry::registerHandler(TimerHandler* handler) {
   }
 
   return false;
+}
+
+bool TimerHandlerRegistry::armHandler(TimerHandler* handler, uint64_t deadline, uint64_t now) {
+  if (!handler) {
+    return false;
+  }
+
+  LockGuard<Spinlock> guard(m_HandlerLock);
+  for (size_t i = 0; i < MaxHandlerSlots; ++i) {
+    HandlerSlot& slot = m_Handlers[i];
+    const size_t publication = __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+    if (modeOf(publication) != SlotMode::Enabled ||
+        __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != handler) {
+      continue;
+    }
+
+    if (!deadline) {
+      __atomic_store_n(&slot.deadline, NoDeadline, __ATOMIC_RELEASE);
+      __atomic_store_n(&slot.lastDispatch, NoDeadline, __ATOMIC_RELEASE);
+      return __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST) == publication &&
+             __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) == handler;
+    }
+
+    const uint64_t armed = __atomic_load_n(&slot.deadline, __ATOMIC_ACQUIRE);
+    if (__atomic_load_n(&slot.lastDispatch, __ATOMIC_ACQUIRE) == NoDeadline ||
+        (armed == NoDeadline && !hasActiveDispatch(slot))) {
+      __atomic_store_n(&slot.lastDispatch, now, __ATOMIC_RELEASE);
+    }
+    __atomic_store_n(&slot.deadline, deadline, __ATOMIC_RELEASE);
+    return __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST) == publication &&
+           __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) == handler;
+  }
+  return false;
+}
+
+uint64_t TimerHandlerRegistry::nextDeadline() const {
+  uint64_t earliest = NoDeadline;
+  for (size_t i = 0; i < MaxHandlerSlots; ++i) {
+    const HandlerSlot& slot = m_Handlers[i];
+    const size_t publication = __atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE);
+    if (modeOf(publication) != SlotMode::Enabled) {
+      continue;
+    }
+    const uint64_t deadline = __atomic_load_n(&slot.deadline, __ATOMIC_ACQUIRE);
+    if (__atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE) == publication &&
+        deadline < earliest) {
+      earliest = deadline;
+    }
+  }
+  return earliest;
 }
 
 bool TimerHandlerRegistry::unregisterHandler(TimerHandler* handler) {
@@ -466,6 +522,15 @@ bool TimerHandlerRegistry::unregisterHandler(TimerHandler* handler) {
 }
 
 bool TimerHandlerRegistry::dispatch(uint64_t delta, TimerHandler* onlyHandler) {
+  return dispatchSelected(delta, onlyHandler, false, 0);
+}
+
+bool TimerHandlerRegistry::dispatchDue(uint64_t now) {
+  return dispatchSelected(0, nullptr, true, now);
+}
+
+bool TimerHandlerRegistry::dispatchSelected(uint64_t delta, TimerHandler* onlyHandler, bool dueOnly,
+                                            uint64_t now) {
   bool admitted = false;
 
   for (size_t i = 0; i < MaxHandlerSlots; ++i) {
@@ -478,6 +543,12 @@ bool TimerHandlerRegistry::dispatch(uint64_t delta, TimerHandler* onlyHandler) {
     TimerHandler* handler = __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
     if (!handler || (onlyHandler && handler != onlyHandler)) {
       continue;
+    }
+    if (dueOnly) {
+      const uint64_t deadline = __atomic_load_n(&slot.deadline, __ATOMIC_ACQUIRE);
+      if (deadline == NoDeadline || deadline > now) {
+        continue;
+      }
     }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -515,6 +586,26 @@ bool TimerHandlerRegistry::dispatch(uint64_t delta, TimerHandler* onlyHandler) {
       continue;
     }
 
+    uint64_t callbackDelta = delta;
+    if (dueOnly) {
+      uint64_t deadline = __atomic_load_n(&slot.deadline, __ATOMIC_ACQUIRE);
+      while (deadline != NoDeadline && deadline <= now) {
+        if (__atomic_compare_exchange_n(&slot.deadline, &deadline, NoDeadline, false,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+          const uint64_t previous = __atomic_exchange_n(&slot.lastDispatch, now, __ATOMIC_ACQ_REL);
+          callbackDelta = previous == NoDeadline || now < previous ? 0 : now - previous;
+          break;
+        }
+      }
+      if (deadline == NoDeadline || deadline > now) {
+        unpublishDispatch(&dispatchCleanup, slot, publication, true);
+        if (thread) {
+          thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
+        }
+        continue;
+      }
+    }
+
     admitted = true;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -527,7 +618,7 @@ bool TimerHandlerRegistry::dispatch(uint64_t delta, TimerHandler* onlyHandler) {
     // Keep callback entry and return independent of ordinary deferred-scope
     // state: a timer interrupt can arrive while that state is being
     // mutated.
-    handler->timer(delta);
+    handler->timer(callbackDelta);
     unpublishDispatch(&dispatchCleanup, slot, publication, true);
     if (thread) {
       thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
@@ -543,6 +634,8 @@ void TimerHandlerRegistry::reset() {
     HandlerSlot& slot = m_Handlers[i];
     assert(!hasActiveDispatch(slot));
     const size_t publication = __atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE);
+    __atomic_store_n(&slot.deadline, NoDeadline, __ATOMIC_RELEASE);
+    __atomic_store_n(&slot.lastDispatch, NoDeadline, __ATOMIC_RELEASE);
     __atomic_store_n(&slot.handler, nullptr, __ATOMIC_RELEASE);
     __atomic_store_n(&slot.publication,
                      makePublication(generationOf(publication) + 1, SlotMode::Empty),

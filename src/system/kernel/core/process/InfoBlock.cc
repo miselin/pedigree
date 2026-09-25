@@ -92,14 +92,19 @@ bool InfoBlockManager::initialise() {
   }
 #endif
 
-  // Register ourselves with the main timer.
   __atomic_store_n(&m_bInitialised, true, __ATOMIC_RELEASE);
+#if X64 && !HOSTED
+  // The vDSO's time exports sample the kernel clock directly on amd64.
+  // Refreshing a shared snapshot would keep an otherwise idle CPU ticking.
+  return true;
+#else
   Timer* timer = Machine::instance().getTimer();
   if (timer && timer->registerHandler(this)) {
     m_pTimer = timer;
     return true;
   }
   return false;
+#endif
 }
 
 bool InfoBlockManager::shutdown() {

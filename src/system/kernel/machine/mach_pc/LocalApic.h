@@ -61,6 +61,7 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
       : m_IoSpace("Local APIC"),
         m_Handlers(),
         m_BusFrequency(0),
+        m_TimerState(),
         m_ProcessorControlOwner(),
         m_TlbMutations(),
         m_TlbTerminalFailure(),
@@ -162,6 +163,9 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
   // SchedulerTimer interface
   //
   uint64_t nominalQuantumNs() const override;
+  bool supportsOneShot() const override { return true; }
+  bool armDeadline(uint64_t absoluteMonotonicNs) override;
+  void disarm() override;
   virtual bool registerHandler(SchedulerTimerHandler* handler) {
     // Logical Processor::id() is assigned after early BSP timer setup and
     // can change during topology construction. The LAPIC's raw physical
@@ -227,6 +231,13 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
 
   /** System bus frequency, for setting up the initial timer counter. */
   size_t m_BusFrequency;
+
+  struct TimerState {
+    uint64_t lastInterruptNs;
+    bool oneShot;
+    uint64_t armedDeadlineNs;
+  };
+  TimerState m_TimerState[LocalApicTimerHandlerSlots::Capacity];
 
   /** Owner of the processor-control state and its mutation-gate closure. */
   LocalApicProcessorControlOwner m_ProcessorControlOwner;

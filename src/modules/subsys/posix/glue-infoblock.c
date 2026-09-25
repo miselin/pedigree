@@ -28,6 +28,7 @@
 #include <time.h>
 
 #include <sys/select.h>
+#include <sys/syscall.h>
 
 /// \todo this is hardcoded for x64
 #if X86_COMMON
@@ -46,6 +47,15 @@ int __vdso_getcpu(unsigned* cpu, unsigned* node, struct getcpu_cache* cache);
 time_t __vdso_time(time_t* tloc);
 
 int __vdso_clock_gettime(clockid_t clock_id, struct timespec* tp) {
+#if X64 && !HOSTED
+  // A shared snapshot can be arbitrarily old without periodic interrupts.
+  long result = SYS_clock_gettime;
+  __asm__ volatile("syscall"
+                   : "+a"(result)
+                   : "D"(clock_id), "S"(tp)
+                   : "rcx", "r11", "memory", "cc");
+  return (int)result;
+#else
   if (!tp) {
     return -EFAULT;
   }
@@ -65,9 +75,18 @@ int __vdso_clock_gettime(clockid_t clock_id, struct timespec* tp) {
   tp->tv_nsec = now - seconds * 1000000000U;
 
   return 0;
+#endif
 }
 
 int __vdso_gettimeofday(struct timeval* tv, void* tz) {
+#if X64 && !HOSTED
+  long result = SYS_gettimeofday;
+  __asm__ volatile("syscall"
+                   : "+a"(result)
+                   : "D"(tv), "S"(tz)
+                   : "rcx", "r11", "memory", "cc");
+  return (int)result;
+#else
   if (tv) {
     // 'now' is in nanoseconds.
     uint64_t now = infoBlock->now;
@@ -79,6 +98,7 @@ int __vdso_gettimeofday(struct timeval* tv, void* tz) {
   /// \todo use tz
 
   return 0;
+#endif
 }
 
 int __vdso_getcpu(unsigned* cpu, unsigned* node, struct getcpu_cache* cache) {
@@ -111,12 +131,21 @@ int __vdso_getcpu(unsigned* cpu, unsigned* node, struct getcpu_cache* cache) {
 }
 
 time_t __vdso_time(time_t* tloc) {
+#if X64 && !HOSTED
+  long result = SYS_time;
+  __asm__ volatile("syscall"
+                   : "+a"(result)
+                   : "D"(tloc)
+                   : "rcx", "r11", "memory", "cc");
+  return (time_t)result;
+#else
   const time_t now = infoBlock->now_s;
   if (tloc) {
     *tloc = now;
   }
 
   return now;
+#endif
 }
 
 __asm__(".symver __vdso_clock_gettime,__vdso_clock_gettime@LINUX_2.6");

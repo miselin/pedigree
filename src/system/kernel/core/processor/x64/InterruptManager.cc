@@ -303,6 +303,11 @@ void X64InterruptManager::returnFromInterrupt(InterruptState& interruptState) {
   if (vector == 2)
     return;
 #endif
+#if THREADS
+  if (vector >= 32 && Processor::information().getCurrentThread()) {
+    Processor::information().getScheduler().servicePendingScheduling();
+  }
+#endif
   if (interruptState.kernelMode()) {
     return;
   }

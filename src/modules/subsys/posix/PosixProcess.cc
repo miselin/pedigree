@@ -174,10 +174,11 @@ IntervalTimer::IntervalTimer(PosixProcess* pProcess, Mode mode)
       m_Mode(mode),
       m_Value(0),
       m_Interval(0),
-      m_LastCpuTotal(0),
+      m_LastTotal(0),
       m_Lock(false),
       m_Armed(false),
       m_pTimer(nullptr) {
+  m_LastTotal = absoluteTotal();
   if (m_Mode == Hardware) {
     Timer* t = Machine::instance().getTimer();
     if (t && t->registerHandler(this)) {
@@ -185,8 +186,6 @@ IntervalTimer::IntervalTimer(PosixProcess* pProcess, Mode mode)
     } else {
       ERROR("IntervalTimer could not register its hardware callback");
     }
-  } else {
-    m_LastCpuTotal = absoluteCpuTotal();
   }
 }
 
@@ -203,14 +202,13 @@ void IntervalTimer::setInterval(Time::Timestamp interval, Time::Timestamp* prevI
   bool needsSignal = false;
   {
     LockGuard<Spinlock> guard(m_Lock);
-    if (m_Mode != Hardware) {
-      needsSignal = advanceCpuTimeLocked(absoluteCpuTotal());
-    }
+    needsSignal = advanceTimeLocked(absoluteTotal());
 
     if (prevInterval) {
       *prevInterval = m_Interval;
     }
     m_Interval = interval;
+    armHardwareLocked();
   }
   if (needsSignal) {
     signal();
@@ -221,15 +219,14 @@ void IntervalTimer::setTimerValue(Time::Timestamp value, Time::Timestamp* prevVa
   bool needsSignal = false;
   {
     LockGuard<Spinlock> guard(m_Lock);
-    if (m_Mode != Hardware) {
-      needsSignal = advanceCpuTimeLocked(absoluteCpuTotal());
-    }
+    needsSignal = advanceTimeLocked(absoluteTotal());
 
     if (prevValue) {
       *prevValue = m_Value;
     }
     m_Value = value;
     setArmedLocked(m_Value > 0);
+    armHardwareLocked();
   }
   if (needsSignal) {
     signal();
@@ -241,9 +238,7 @@ void IntervalTimer::setIntervalAndValue(Time::Timestamp interval, Time::Timestam
   bool needsSignal = false;
   {
     LockGuard<Spinlock> guard(m_Lock);
-    if (m_Mode != Hardware) {
-      needsSignal = advanceCpuTimeLocked(absoluteCpuTotal());
-    }
+    needsSignal = advanceTimeLocked(absoluteTotal());
 
     if (prevInterval) {
       *prevInterval = m_Interval;
@@ -256,6 +251,7 @@ void IntervalTimer::setIntervalAndValue(Time::Timestamp interval, Time::Timestam
     m_Interval = interval;
     m_Value = value;
     setArmedLocked(m_Value > 0);
+    armHardwareLocked();
   }
   if (needsSignal) {
     signal();
@@ -264,27 +260,25 @@ void IntervalTimer::setIntervalAndValue(Time::Timestamp interval, Time::Timestam
 
 void IntervalTimer::disarm() {
   LockGuard<Spinlock> guard(m_Lock);
-  if (m_Mode != Hardware) {
-    const Time::Timestamp current = absoluteCpuTotal();
-    if (current > m_LastCpuTotal) {
-      m_LastCpuTotal = current;
-    }
+  const Time::Timestamp current = absoluteTotal();
+  if (current > m_LastTotal) {
+    m_LastTotal = current;
   }
   m_Value = 0;
   m_Interval = 0;
   setArmedLocked(false);
+  armHardwareLocked();
 }
 
 void IntervalTimer::getIntervalAndValue(Time::Timestamp& interval, Time::Timestamp& value) {
   bool needsSignal = false;
   {
     LockGuard<Spinlock> guard(m_Lock);
-    if (m_Mode != Hardware) {
-      needsSignal = advanceCpuTimeLocked(absoluteCpuTotal());
-    }
+    needsSignal = advanceTimeLocked(absoluteTotal());
 
     interval = m_Interval;
     value = m_Value;
+    armHardwareLocked();
   }
   if (needsSignal) {
     signal();
@@ -299,7 +293,7 @@ void IntervalTimer::consumeCpuTime(Time::Timestamp absoluteTotal) {
   bool needsSignal = false;
   {
     LockGuard<Spinlock> guard(m_Lock);
-    needsSignal = advanceCpuTimeLocked(absoluteTotal);
+    needsSignal = advanceTimeLocked(absoluteTotal);
   }
 
   if (needsSignal) {
@@ -307,7 +301,10 @@ void IntervalTimer::consumeCpuTime(Time::Timestamp absoluteTotal) {
   }
 }
 
-Time::Timestamp IntervalTimer::absoluteCpuTotal() const {
+Time::Timestamp IntervalTimer::absoluteTotal() const {
+  if (m_Mode == Hardware) {
+    return Time::getTicks();
+  }
   if (m_Mode == Virtual) {
     return m_Process->getUserTime();
   }
@@ -317,14 +314,26 @@ Time::Timestamp IntervalTimer::absoluteCpuTotal() const {
   return 0;
 }
 
-bool IntervalTimer::advanceCpuTimeLocked(Time::Timestamp absoluteTotal) {
+bool IntervalTimer::advanceTimeLocked(Time::Timestamp absoluteTotal) {
   const PosixIntervalTimerState::AbsoluteConsumption result =
-      PosixIntervalTimerState::consumeAbsolute(m_Value, m_Interval, m_Armed, m_LastCpuTotal,
+      PosixIntervalTimerState::consumeAbsolute(m_Value, m_Interval, m_Armed, m_LastTotal,
                                                absoluteTotal);
   m_Value = result.timer.value;
   setArmedLocked(result.timer.armed);
-  m_LastCpuTotal = result.baseline;
+  m_LastTotal = result.baseline;
   return result.timer.expired;
+}
+
+void IntervalTimer::armHardwareLocked() {
+  if (m_Mode != Hardware || !m_pTimer || !m_pTimer->supportsDeadlines()) {
+    return;
+  }
+  const Time::Timestamp maximum = Time::Infinity - 1;
+  const Time::Timestamp deadline =
+      !m_Armed ? 0 : (m_Value > maximum - m_LastTotal ? maximum : m_LastTotal + m_Value);
+  if (!m_pTimer->armHandler(this, deadline)) {
+    FATAL("IntervalTimer could not arm its hardware callback");
+  }
 }
 
 void IntervalTimer::setArmedLocked(bool armed) {
@@ -346,6 +355,7 @@ Time::Timestamp IntervalTimer::getValue() const {
 }
 
 void IntervalTimer::timer(uint64_t delta) {
+  (void)delta;
   if (m_Mode != Hardware) {
     return;
   }
@@ -359,11 +369,8 @@ void IntervalTimer::timer(uint64_t delta) {
       return;
     }
 
-    const PosixIntervalTimerState::Consumption result =
-        PosixIntervalTimerState::consume(m_Value, m_Interval, m_Armed, delta);
-    m_Value = result.value;
-    m_Armed = result.armed;
-    needsSignal = result.expired;
+    needsSignal = advanceTimeLocked(absoluteTotal());
+    armHardwareLocked();
   }
 
   if (needsSignal) {

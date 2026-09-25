@@ -397,6 +397,7 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
 
   // No syscall handler, return-action lease, or accounting scope survives
   // this boundary. Keep IRQs disabled from the final mask check through SYSRET.
+  Processor::information().getScheduler().servicePendingScheduling();
   Thread* current = syscallThread;
   if (finishAffinityReturn(syscallState, interruptedWithoutProgress ? &originalState : nullptr,
                            diagnosticSample)) {

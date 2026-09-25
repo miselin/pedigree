@@ -45,9 +45,13 @@ int signal_timer_test_raw_clock(void) {
     const int64_t after = direct_clock(CLOCK_MONOTONIC);
     const int64_t libc_raw = nanoseconds(libc_value), vdso_raw = nanoseconds(vdso_value);
     CHECK(before >= 0 && raw >= before && raw <= after && raw >= previous_direct);
-    // The info block is a periodically refreshed snapshot, unlike the syscall.
+#if defined(__x86_64__)
+    CHECK(libc_raw >= before && libc_raw <= after);
+    CHECK(vdso_raw >= before && vdso_raw <= after);
+#else
     CHECK(libc_raw >= 0 && libc_raw >= before - 1000000000 && libc_raw <= after);
     CHECK(vdso_raw >= 0 && vdso_raw >= before - 1000000000 && vdso_raw <= after);
+#endif
     CHECK(libc_raw >= previous_libc && vdso_raw >= previous_vdso);
     previous_libc = libc_raw;
     previous_vdso = vdso_raw;
