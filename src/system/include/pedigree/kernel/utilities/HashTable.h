@@ -228,7 +228,7 @@ class HashTable {
     bucket* b = &m_Buckets[hash];
     if (b->set) {
       // If key matches, this is more than just a hash collision.
-      if (b->key == k) {
+      if (b->key == k || findNextSet(hash, k, khash)) {
         return false;
       }
 

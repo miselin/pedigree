@@ -377,6 +377,27 @@ TEST(PedigreeRadixTree, IterationIncludesZeroValues) {
   EXPECT_TRUE(sawZero);
 }
 
+TEST(PedigreeRadixTree, IterationIncludesEmptyKey) {
+  RadixTree<int> x;
+  x.insert(String(), 7);
+  x.insert(String("next"), 9);
+
+  auto it = x.begin();
+  ASSERT_NE(it, x.end());
+  EXPECT_EQ(*it++, 7);
+  ASSERT_NE(it, x.end());
+  EXPECT_EQ(*it++, 9);
+  EXPECT_EQ(it, x.end());
+
+  const RadixTree<int>& readonly = x;
+  auto constIt = readonly.begin();
+  ASSERT_NE(constIt, readonly.end());
+  EXPECT_EQ(*constIt++, 7);
+  ASSERT_NE(constIt, readonly.end());
+  EXPECT_EQ(*constIt++, 9);
+  EXPECT_EQ(constIt, readonly.end());
+}
+
 TEST(PedigreeRadixTree, Erase) {
   RadixTree<int> x;
   x.insert(String("foo"), 1);

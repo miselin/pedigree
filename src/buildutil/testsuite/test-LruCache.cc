@@ -73,3 +73,23 @@ TEST(PedigreeList, DontFillTooMuch) {
   EXPECT_TRUE(cache.get(1, x));
   EXPECT_EQ(x, 1);
 }
+
+TEST(PedigreeList, ReplacingStoredKeyKeepsOtherEntries) {
+  LruCache<int, int, 4> cache;
+
+  cache.store(1, 10);
+  cache.store(2, 20);
+  cache.store(3, 30);
+  cache.store(4, 40);
+  cache.store(2, 21);
+
+  int value = 0;
+  EXPECT_TRUE(cache.get(1, value));
+  EXPECT_EQ(value, 10);
+  EXPECT_TRUE(cache.get(2, value));
+  EXPECT_EQ(value, 21);
+
+  cache.store(2, 22);
+  EXPECT_TRUE(cache.get(2, value));
+  EXPECT_EQ(value, 22);
+}

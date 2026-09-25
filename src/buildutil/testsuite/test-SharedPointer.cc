@@ -81,6 +81,30 @@ TEST(PedigreeSharedPointer, CopyOwnership) {
   EXPECT_TRUE(p2);
 }
 
+TEST(PedigreeSharedPointer, SelfCopyAssignmentRetainsOwnership) {
+  int destroyed = 0;
+  struct Value {
+    explicit Value(int& count) : count(count) {}
+    ~Value() {
+      ++count;
+    }
+    int& count;
+  };
+
+  auto first = SharedPointer<Value>::tryAdopt(new Value(destroyed));
+  auto second = first;
+  Value* held = second.get();
+  auto& same = second;
+  second = same;
+  EXPECT_EQ(first.get(), held);
+  EXPECT_EQ(second.get(), held);
+  EXPECT_EQ(first.refcount(), 2U);
+  second.reset();
+  EXPECT_EQ(destroyed, 0);
+  first.reset();
+  EXPECT_EQ(destroyed, 1);
+}
+
 TEST(PedigreeSharedPointer, MoveOwnership) {
   // Should not provide a hit when run under Valgrind, either.
   SharedPointer<int> p(new int);

@@ -143,6 +143,27 @@ TEST(PedigreeHashTable, CollidingHashes) {
   EXPECT_EQ(hashtable.lookup(key2).value(), 6);
 }
 
+template <bool Quadratic>
+static void checkRepeatedCollidingKey() {
+  HashTable<CollidingHashableInteger, int, CollidingHashableInteger, 4, Quadratic> table;
+  CollidingHashableInteger first(1), second(2);
+
+  EXPECT_TRUE(table.insert(first, 10));
+  EXPECT_TRUE(table.insert(second, 20));
+  EXPECT_FALSE(table.insert(second, 30));
+  EXPECT_EQ(table.count(), 2U);
+  EXPECT_EQ(table.lookup(second).value(), 20);
+
+  table.remove(second);
+  EXPECT_FALSE(table.contains(second));
+  EXPECT_EQ(table.count(), 1U);
+}
+
+TEST(PedigreeHashTable, RepeatedCollidingKeyIsNotInsertedTwice) {
+  checkRepeatedCollidingKey<true>();
+  checkRepeatedCollidingKey<false>();
+}
+
 TEST(PedigreeHashTable, InsertionNoChains) {
   HashTable<HashableInteger, int> hashtable;
 

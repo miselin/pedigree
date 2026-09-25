@@ -213,6 +213,10 @@ T& SharedPointer<T>::operator*() const {
 
 template <class T>
 SharedPointer<T>& SharedPointer<T>::operator=(const SharedPointer<T>& p) {
+  if (this == &p) {
+    return *this;
+  }
+
   // If the other is assigned, boost its refcount before we release. If it
   // happens that the other is in fact pointing to the same place, the counts
   // will not potentially drop to zero then back to one this way (causing a

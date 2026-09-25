@@ -61,7 +61,11 @@ void Symlink::initialise(bool bForce) {
   const size_t bytesRead = read(0ULL, sz, reinterpret_cast<uintptr_t>(pBuffer));
 
   // Convert to String object, wipe out whitespace.
-  m_sTarget.assign(pBuffer, bytesRead);
+  if (bytesRead) {
+    m_sTarget.assign(pBuffer, bytesRead, true);
+  } else {
+    m_sTarget.clear();
+  }
   m_sTarget.rstrip();
   delete[] pBuffer;
 }

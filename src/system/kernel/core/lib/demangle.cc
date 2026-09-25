@@ -21,6 +21,8 @@
 #include "pedigree/kernel/utilities/demangle.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include <limits.h>
+
 // Uncomment these if running standalone.
 // include <stdio.h>
 // include <stdlib.h>
@@ -113,6 +115,10 @@ static void addSubstitution(LargeStaticString str, demangle_t& data) {
   if (str[0] == ':' && str[1] == ':')
     str.stripFirst(2);
 
+  if (data.nSubstitutions >= sizeof(data.substitutions) / sizeof(data.substitutions[0])) {
+    return;
+  }
+
   data.substitutions[data.nSubstitutions++] = str;
 }
 
@@ -148,6 +154,10 @@ static int parseMangledName(LargeStaticString& src, LargeStaticString& dest, dem
 
   data.nParams = 0;
   do {
+    if (data.nParams >= sizeof(data.params) / sizeof(data.params[0])) {
+      END_FAIL("MangledName");
+    }
+    data.params[data.nParams].clear();
     if (parseType(src, data.params[data.nParams], data) == FAIL)
       END_FAIL("MangledName");
     data.nParams++;
@@ -591,13 +601,21 @@ static int parseNumber(LargeStaticString& src, LargeStaticString& dest, demangle
   size_t nLength = 0;
   char str[32];
   while (src[nLength] >= '0' && src[nLength] <= '9') {
+    if (nLength == sizeof(str) - 1) {
+      END_FAIL("Number");
+    }
     str[nLength] = src[nLength];
     nLength++;
   }
   str[nLength] = '\0';
-  lval = StringToUnsignedLong(str, 0, 10);
-  if (bNegative)
+  const unsigned long value = StringToUnsignedLong(str, 0, 10);
+  if (value > INT_MAX) {
+    END_FAIL("Number");
+  }
+  lval = static_cast<int>(value);
+  if (bNegative) {
     lval = -lval;
+  }
 
   src.stripFirst(nLength);
 
@@ -1004,8 +1022,9 @@ static int parseTemplateParam(LargeStaticString& src, LargeStaticString& dest, d
   src.stripFirst(1);
 
   // Now, look up the substitution.
-  if (nId >= static_cast<int>(data.nTemplateParams))
+  if (nId < 0 || nId >= static_cast<int>(data.nTemplateParams)) {
     END_FAIL("TemplateParam");
+  }
 
   // Else, stick it in!
   dest += data.templateParams[nId];
@@ -1050,6 +1069,9 @@ static int parseTemplateArgs(LargeStaticString& src, LargeStaticString& dest, de
       END_FAIL("TemplateArgs");
     dest += tmp;
     if (data.nNameParseLevel == 1) {
+      if (data.nTemplateParams >= sizeof(data.templateParams) / sizeof(data.templateParams[0])) {
+        END_FAIL("TemplateArgs");
+      }
       data.templateParams[data.nTemplateParams] = tmp;
       data.nTemplateParams++;
     }
@@ -1267,8 +1289,9 @@ static int parseSubstitution(LargeStaticString& src, LargeStaticString& dest, de
   src.stripFirst(1);
 
   // Now, look up the substitution.
-  if (nId >= static_cast<int>(data.nSubstitutions))
+  if (nId < 0 || nId >= static_cast<int>(data.nSubstitutions)) {
     END_FAIL("Substitution");
+  }
 
   // Else, stick it in!
   dest += data.substitutions[nId];
@@ -1286,11 +1309,18 @@ static int parseSeqId(LargeStaticString& src, LargeStaticString& dest, demangle_
   char str[32];
   while ((src[nLength] >= '0' && src[nLength] <= '9') ||
          ((src[nLength] >= 'A') && src[nLength] <= 'Z')) {
+    if (nLength == sizeof(str) - 1) {
+      END_FAIL("SeqId");
+    }
     str[nLength] = src[nLength];
     nLength++;
   }
   str[nLength] = '\0';
-  lval = StringToUnsignedLong(str, 0, 36);
+  const unsigned long value = StringToUnsignedLong(str, 0, 36);
+  if (value >= INT_MAX) {
+    END_FAIL("SeqId");
+  }
+  lval = static_cast<int>(value);
 
   src.stripFirst(nLength);
   END_SUCCESS("SeqId");
@@ -1354,6 +1384,8 @@ void demangle(LargeStaticString src, symbol_t* sym) {
   static demangle_t data;
   data.nLevel = 0;
   data.nSubstitutions = 0;
+  data.nTemplateParams = 0;
+  data.nParams = 0;
   data.nNameParseLevel = 0;
   int code = parseMangledName(src, sym->name, data);
   // HACK:: Bit of a hack here - we prepend "::" to every identifier. It looks
@@ -1377,6 +1409,7 @@ void demangle_full(LargeStaticString src, LargeStaticString& dest) {
   static demangle_t data;
   data.nLevel = 0;
   data.nSubstitutions = 0;
+  data.nTemplateParams = 0;
   data.nNameParseLevel = 0;
   data.nParams = 0;
 

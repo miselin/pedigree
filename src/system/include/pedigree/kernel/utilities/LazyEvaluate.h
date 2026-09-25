@@ -88,6 +88,10 @@ class LazyEvaluate {
     return m_Ok;
   }
 
+  operator bool() {
+    return m_Ok;
+  }
+
   operator T*() {
     return get();
   }

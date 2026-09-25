@@ -39,24 +39,31 @@ ExtensibleBitmap::ExtensibleBitmap(const ExtensibleBitmap& other)
       m_nFirstClearBit(other.m_nFirstClearBit),
       m_nLastSetBit(other.m_nLastSetBit),
       m_nLastClearBit(other.m_nLastClearBit) {
-  m_pDynamicMap = new uint8_t[m_DynamicMapSize];
-  MemoryCopy(m_pDynamicMap, other.m_pDynamicMap, m_DynamicMapSize);
+  if (m_DynamicMapSize) {
+    m_pDynamicMap = new uint8_t[m_DynamicMapSize];
+    MemoryCopy(m_pDynamicMap, other.m_pDynamicMap, m_DynamicMapSize);
+  }
 }
 
 ExtensibleBitmap& ExtensibleBitmap::operator=(const ExtensibleBitmap& other) {
+  if (this == &other) {
+    return *this;
+  }
+
   m_StaticMap = other.m_StaticMap;
 
   if (m_DynamicMapSize < other.m_DynamicMapSize) {
     uint8_t* pMap = new uint8_t[other.m_DynamicMapSize];
-    ByteSet(pMap, 0, other.m_DynamicMapSize);
-    if (m_DynamicMapSize)
-      delete[] m_pDynamicMap;
+    delete[] m_pDynamicMap;
     m_pDynamicMap = pMap;
     m_DynamicMapSize = other.m_DynamicMapSize;
   }
 
-  if (other.m_DynamicMapSize)
+  if (other.m_DynamicMapSize) {
     MemoryCopy(m_pDynamicMap, other.m_pDynamicMap, other.m_DynamicMapSize);
+  } else if (m_pDynamicMap) {
+    ByteSet(m_pDynamicMap, 0, m_DynamicMapSize);
+  }
   m_nMaxBit = other.m_nMaxBit;
   m_nFirstSetBit = other.m_nFirstSetBit;
   m_nFirstClearBit = other.m_nFirstClearBit;
@@ -129,50 +136,42 @@ void ExtensibleBitmap::set(size_t n) {
 }
 
 void ExtensibleBitmap::clear(size_t n) {
+  if (!test(n)) {
+    return;
+  }
+
+  if (n < sizeof(uintptr_t) * 8) {
+    m_StaticMap &= ~(1UL << n);
+  } else {
+    const size_t dynamicBit = n - sizeof(uintptr_t) * 8;
+    m_pDynamicMap[dynamicBit / 8] &= ~(1UL << (dynamicBit % 8));
+  }
+
   // Check if the bit we'll clear becomes the first clear bit
-  if (n < m_nFirstClearBit)
+  if (n < m_nFirstClearBit) {
     m_nFirstClearBit = n;
+  }
   // Check if the bit we'll clear replaces the first set bit
   if (n == m_nFirstSetBit) {
-    for (size_t i = n; i <= sizeof(uintptr_t) * 8 + m_nMaxBit; i++) {
+    m_nFirstSetBit = ~0U;
+    for (size_t i = n + 1; i <= m_nLastSetBit; ++i) {
       if (test(i)) {
         m_nFirstSetBit = i;
         break;
       }
     }
-
-    if (n == m_nFirstSetBit) {
-      m_nFirstSetBit = ~0U;
-    }
   }
   // Check if the bit we'll clear replaces the last set bit
   if (n == m_nLastSetBit) {
-    // In case we won't find any set bit, this assures any bit set later
-    // will become the last set bit
-    m_nLastSetBit = 0;
-    for (size_t i = n; i; i--) {
+    m_nLastSetBit = ~0U;
+    for (size_t i = n; i > 0;) {
+      --i;
       if (test(i)) {
         m_nLastSetBit = i;
         break;
       }
     }
-
-    if (n == m_nLastSetBit) {
-      m_nLastSetBit = ~0U;
-    }
   }
-
-  if (n < sizeof(uintptr_t) * 8) {
-    m_StaticMap &= ~(1UL << n);
-    return;
-  }
-
-  n -= sizeof(uintptr_t) * 8;
-
-  // If its outside the range of possible set bits, it must be clear already.
-  if (n > m_nMaxBit || !m_pDynamicMap)
-    return;
-  m_pDynamicMap[n / 8] &= ~(1UL << (n % 8));
 }
 
 bool ExtensibleBitmap::test(size_t n) const {

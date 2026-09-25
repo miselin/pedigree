@@ -44,6 +44,20 @@ TEST(PedigreeExtensibleBitmap, CopyConstruct) {
   EXPECT_TRUE(bitmap2.test(128));
 }
 
+TEST(PedigreeExtensibleBitmap, EmptyCopyHasNoDynamicBits) {
+  ExtensibleBitmap original;
+  ExtensibleBitmap copy(original);
+
+  EXPECT_FALSE(copy.test(sizeof(uintptr_t) * 8));
+  EXPECT_FALSE(copy.test(sizeof(uintptr_t) * 8 + 1));
+
+  ExtensibleBitmap assigned;
+  assigned.set(128);
+  assigned = original;
+  EXPECT_FALSE(assigned.test(sizeof(uintptr_t) * 8));
+  EXPECT_FALSE(assigned.test(128));
+}
+
 TEST(PedigreeExtensibleBitmap, Assignment) {
   ExtensibleBitmap bitmap;
   bitmap.set(1);
@@ -82,6 +96,21 @@ TEST(PedigreeExtensibleBitmap, SetThenClear) {
   EXPECT_EQ(bitmap.getFirstClear(), 0U);
   EXPECT_EQ(bitmap.getLastSet(), ~0U);
   EXPECT_EQ(bitmap.getLastClear(), 0U);
+}
+
+TEST(PedigreeExtensibleBitmap, ClearUpdatesSetBoundaries) {
+  ExtensibleBitmap bitmap;
+  bitmap.set(0);
+  bitmap.set(1);
+
+  bitmap.clear(0);
+  EXPECT_EQ(bitmap.getFirstSet(), 1U);
+  EXPECT_EQ(bitmap.getLastSet(), 1U);
+
+  bitmap.set(0);
+  bitmap.clear(1);
+  EXPECT_EQ(bitmap.getFirstSet(), 0U);
+  EXPECT_EQ(bitmap.getLastSet(), 0U);
 }
 
 TEST(PedigreeExtensibleBitmap, SetMultiple) {

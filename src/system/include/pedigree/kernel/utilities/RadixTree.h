@@ -248,18 +248,18 @@ class EXPORTED_PUBLIC RadixTree {
   /** Get an iterator pointing to the beginning of the List
    *\return iterator pointing to the beginning of the List */
   inline Iterator begin() {
-    if (!m_pRoot)
+    if (!m_pRoot) {
       return Iterator(0);
-    Iterator it(m_pRoot->next());
-    return it;
+    }
+    return Iterator(m_pRoot->hasValue() ? m_pRoot : m_pRoot->next());
   }
   /** Get a constant iterator pointing to the beginning of the List
    *\return constant iterator pointing to the beginning of the List */
   inline ConstIterator begin() const {
-    if (!m_pRoot)
+    if (!m_pRoot) {
       return ConstIterator(0);
-    ConstIterator it(m_pRoot->next());
-    return it;
+    }
+    return ConstIterator(m_pRoot->hasValue() ? m_pRoot : m_pRoot->next());
   }
   /** Get an iterator pointing to the end of the List + 1
    *\return iterator pointing to the end of the List + 1 */

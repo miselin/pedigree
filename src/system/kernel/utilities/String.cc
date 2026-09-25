@@ -408,6 +408,10 @@ void String::clear() noexcept {
 void String::ltrim(size_t n) {
   assert(assignable());
 
+  if (!n) {
+    return;
+  }
+
   if (n > m_Length) {
     clear();
     return;
@@ -422,6 +426,10 @@ void String::ltrim(size_t n) {
 
 void String::rtrim(size_t n) {
   assert(assignable());
+
+  if (!n) {
+    return;
+  }
 
   if (n > m_Length) {
     clear();
@@ -493,7 +501,7 @@ void String::rstrip() {
   assert(assignable());
 
   char* buf = extract();
-  if (!buf) {
+  if (!buf || !m_Length) {
     // nothing to strip
     return;
   }

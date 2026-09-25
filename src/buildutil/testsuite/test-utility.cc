@@ -21,6 +21,7 @@
 
 #include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
+#include "pedigree/kernel/utilities/demangle.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "modules/drivers/common/DmaBuffer.h"
@@ -31,6 +32,42 @@ static_assert(BS32(0x01234567U) == 0x67452301U);
 static_assert(BS64(0x0123456789ABCDEFULL) == 0xEFCDAB8967452301ULL);
 static_assert(TargetInfo::getPageSize() == PAGE_SIZE);
 static_assert(TargetInfo::getPointerBits() == sizeof(void*) * __CHAR_BIT__);
+
+TEST(PedigreeDemangle, RepeatedCallsResetParameterText) {
+  LargeStaticString source("_Z1iii");
+  LargeStaticString first;
+  LargeStaticString second;
+  demangle_full(source, first);
+  demangle_full(source, second);
+  EXPECT_STREQ(first, "i(int, int)");
+  EXPECT_STREQ(second, "i(int, int)");
+
+  symbol_t symbol;
+  demangle(source, &symbol);
+  ASSERT_EQ(symbol.nParams, 2U);
+  EXPECT_STREQ(symbol.params[0], "int");
+  EXPECT_STREQ(symbol.params[1], "int");
+  demangle(source, &symbol);
+  ASSERT_EQ(symbol.nParams, 2U);
+  EXPECT_STREQ(symbol.params[0], "int");
+  EXPECT_STREQ(symbol.params[1], "int");
+}
+
+TEST(PedigreeDemangle, LongMalformedNamesStayWithinParserBuffers) {
+  constexpr const char* Names[] = {
+      "_ZdlIdltptvvvvvv",
+      "_ZN0S333333333_",
+      "_Z999999999999999999999999999999999999999f",
+  };
+  for (const char* name : Names) {
+    LargeStaticString source(name);
+    LargeStaticString first;
+    LargeStaticString second;
+    demangle_full(source, first);
+    demangle_full(source, second);
+    EXPECT_STREQ(first, second);
+  }
+}
 
 namespace {
 class TestDmaAddressSpace {

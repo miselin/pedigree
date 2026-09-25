@@ -37,6 +37,14 @@ TEST(PedigreeLazyEvaluate, CreationIsLazy) {
   EXPECT_FALSE(evaluate.active());
 }
 
+TEST(PedigreeLazyEvaluate, BooleanCheckDoesNotEvaluate) {
+  LazyEvaluate<int, int, createInt, destroyInt> evaluate(5);
+  if (!evaluate) {
+    FAIL() << "lazy evaluation should remain available";
+  }
+  EXPECT_FALSE(evaluate.active());
+}
+
 TEST(PedigreeLazyEvaluate, BecomeActive) {
   LazyEvaluate<int, int, createInt, destroyInt> evaluate(5);
 

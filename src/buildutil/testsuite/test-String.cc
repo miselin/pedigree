@@ -105,6 +105,15 @@ TEST(PedigreeString, Strip) {
   EXPECT_EQ(s, "hello");
 }
 
+TEST(PedigreeString, StripAllWhitespace) {
+  String s(" \t ");
+  s.strip();
+  s.rstrip();
+  EXPECT_EQ(s.length(), 0U);
+  ASSERT_NE(s.cstr(), nullptr);
+  EXPECT_EQ(s.cstr()[0], '\0');
+}
+
 TEST(PedigreeString, Rstrip) {
   String s(" hello ");
   s.rstrip();
@@ -698,6 +707,14 @@ TEST(PedigreeString, RTrim) {
   String s1("hello world");
   s1.rtrim(6);
   EXPECT_STREQ(s1.cstr(), "hello");
+}
+
+TEST(PedigreeString, ZeroTrimOnEmptyStringIsNoOp) {
+  String s;
+  s.ltrim(0);
+  s.rtrim(0);
+  EXPECT_EQ(s.length(), 0U);
+  EXPECT_EQ(s.cstr(), nullptr);
 }
 
 TEST(PedigreeString, TrimmingInvalidatesCachedHash) {

@@ -504,6 +504,11 @@ void Vector<T>::insert(size_t index, const T& value) {
 
   reserve(m_Count + 1, true);
 
+  if ((m_Start + m_Count + 1) > m_Size) {
+    pedigree_std::copy(m_Data, m_Data + m_Start, m_Count);
+    m_Start = 0;
+  }
+
   pedigree_std::copy(m_Data + m_Start + index + 1, m_Data + m_Start + index, m_Count - index);
 
   m_Data[m_Start + index] = value;

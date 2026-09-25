@@ -286,6 +286,24 @@ TEST(PedigreeVector, Insertion6) {
   EXPECT_EQ(x[4], 1);
 }
 
+TEST(PedigreeVector, InsertAfterPopFrontCompactsWhenTailIsFull) {
+  Vector<int> x(8);
+  for (int i = 1; i <= 8; ++i) {
+    x.pushBack(i);
+  }
+  x.popFront();
+  x.popFront();
+  x.popFront();
+
+  x.insert(2, 99);
+
+  const int expected[] = {4, 5, 99, 6, 7, 8};
+  ASSERT_EQ(x.count(), sizeof(expected) / sizeof(expected[0]));
+  for (size_t i = 0; i < x.count(); ++i) {
+    EXPECT_EQ(x[i], expected[i]);
+  }
+}
+
 TEST(PedigreeVector, InsertionComplex) {
   typedef SharedPointer<int> sharedintptr_t;
 

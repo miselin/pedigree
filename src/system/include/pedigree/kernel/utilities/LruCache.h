@@ -69,9 +69,13 @@ class LruCache {
 
   /** Store an item as the most recently used item. */
   void store(const K& key, const T& object) {
-    // Already the most recently used item.
-    if (m_Slots[0].set && m_Slots[0].key == key) {
-      return;
+    for (size_t i = 0; i < Slots; ++i) {
+      if (m_Slots[i].set && m_Slots[i].key == key) {
+        pedigree_std::copy(&m_Slots[1], &m_Slots[0], i);
+        m_Slots[0].key = key;
+        m_Slots[0].object = object;
+        return;
+      }
     }
 
     pedigree_std::copy(&m_Slots[1], &m_Slots[0], Slots - 1);
