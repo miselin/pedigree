@@ -657,7 +657,12 @@ void ProcessorBase::_reset() {
 void ProcessorBase::_haltUntilInterrupt() {
   sigset_t set;
   sigemptyset(&set);
+  // The signal mask stays blocked until sigsuspend atomically releases it,
+  // but its handler must observe the matching logical interrupt state.
+  const bool interrupts = m_bInterrupts;
+  m_bInterrupts = true;
   sigsuspend(&set);
+  m_bInterrupts = interrupts;
 }
 
 void ProcessorBase::breakpoint() {
