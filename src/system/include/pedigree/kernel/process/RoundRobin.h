@@ -40,6 +40,8 @@ class RoundRobin : public SchedulingAlgorithm {
 
   virtual Thread* getNext(Thread* pCurrentThread);
 
+  virtual bool hasReady();
+
   virtual void threadStatusChanged(Thread* pThread);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

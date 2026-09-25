@@ -78,6 +78,8 @@ PerProcessorScheduler::PerProcessorScheduler()
       m_TimeAccountingWorkerWaiters(),
       m_TimeAccountingWorkerWake(),
       m_IrqWorkDoorbell(0),
+      m_ReschedulePending(0),
+      m_RemotePromptPending(0),
       m_IrqWorkLock(),
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       m_nDeferredThreadReapCompletions(0),
@@ -1362,7 +1364,6 @@ Thread* PerProcessorScheduler::selectNext(Thread* current) {
 }
 
 void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
-  (void)delta;
   (void)state;
   if constexpr (PEDIGREE_TIME_ACCOUNTING && PEDIGREE_SAMPLED_TIME_ACCOUNTING) {
     Thread* current = Processor::information().getCurrentThread();
@@ -1371,25 +1372,22 @@ void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
     }
   }
   ActivityDiagnostics::recordSchedulerTimer();
-  Scheduler::instance().requestLoadAverageSample();
-  // Device IRQs only publish atomic wake edges. The scheduler interrupt is a
-  // safe boundary to turn those edges into ordinary Sleeping -> Ready
-  // transitions before selecting the next thread.
-  if (m_IrqWorkDoorbell.compareAndSwap(1, 0)) {
-    serviceWorkerWakeups();
+  if (delta) {
+    Scheduler::instance().requestLoadAverageSample();
   }
-  // A scheduler tick may switch stacks, but it remains a hard interrupt
-  // until this callback returns. Kernel Events can unwind into arbitrary
-  // subsystem teardown, so leave their delivery to an ordinary syscall or
-  // WaitQueue boundary.
-  if (++m_SchedulerTickCounter >= PEDIGREE_SCHEDULER_TICK_DIVISOR) {
+  // The raw handler only records the scheduling edge. The architecture IRQ
+  // return services it after all hard-handler scopes have unwound.
+  if (!delta) {
+    m_ReschedulePending = 1;
+  } else if (++m_SchedulerTickCounter >= PEDIGREE_SCHEDULER_TICK_DIVISOR) {
     m_SchedulerTickCounter = 0;
-    schedule(Thread::Ready, false);
+    m_ReschedulePending = 1;
   }
 }
 
 void PerProcessorScheduler::threadStatusChanged(Thread* pThread) {
   bool wakeWorker = false;
+  PerProcessorScheduler* readyOwner = nullptr;
   {
     // The add worker holds the thread lock while moving a not-yet-started
     // record to the delayed list. Take that lock before checking Created so a
@@ -1416,15 +1414,22 @@ void PerProcessorScheduler::threadStatusChanged(Thread* pThread) {
     PerProcessorScheduler* owner = pThread->getScheduler();
     assert(owner);
     owner->m_pSchedulingAlgorithm->threadStatusChanged(pThread);
+    if (pThread->m_Status == Thread::Ready && !pThread->m_ReadyPublicationPending) {
+      readyOwner = owner;
+    }
   }
 
   if (wakeWorker) {
     m_NewThreadDataCondition.signal();
   }
+  if (readyOwner) {
+    readyOwner->prompt();
+  }
 }
 
 void PerProcessorScheduler::ringIrqWorkDoorbell() {
   m_IrqWorkDoorbell = 1;
+  prompt();
 }
 
 void PerProcessorScheduler::registerWorkerWake(SchedulerWorkerWake& worker, WaitQueue& waiters) {
@@ -1453,9 +1458,13 @@ void PerProcessorScheduler::unregisterWorkerWake(SchedulerWorkerWake& worker) {
   worker.m_Pending = 0;
 }
 
-void PerProcessorScheduler::ringIrqWorkDoorbell(SchedulerWorkerWake& worker) {
+void PerProcessorScheduler::ringIrqWorkDoorbell(SchedulerWorkerWake& worker, bool promptOwner) {
   worker.m_Pending = 1;
-  ringIrqWorkDoorbell();
+  if (promptOwner) {
+    ringIrqWorkDoorbell();
+  } else {
+    m_IrqWorkDoorbell = 1;
+  }
 }
 
 void PerProcessorScheduler::serviceWorkerWakeups() {
@@ -1494,7 +1503,25 @@ void PerProcessorScheduler::serviceIrqWorkDoorbell() {
   // scheduler tick.
   if (m_IrqWorkDoorbell.compareAndSwap(1, 0)) {
     serviceWorkerWakeups();
+    m_ReschedulePending.compareAndSwap(1, 0);
     schedule();
+  }
+}
+
+void PerProcessorScheduler::servicePendingScheduling() {
+  if (!m_pSchedulingAlgorithm || !Processor::information().getCurrentThread()) {
+    return;
+  }
+
+  m_RemotePromptPending = 0;
+  bool pending = m_ReschedulePending.compareAndSwap(1, 0);
+  if (m_IrqWorkDoorbell.compareAndSwap(1, 0)) {
+    serviceWorkerWakeups();
+    pending = true;
+    m_ReschedulePending.compareAndSwap(1, 0);
+  }
+  if (pending) {
+    schedule(Thread::Ready, false);
   }
 }
 
@@ -2051,4 +2078,21 @@ void PerProcessorScheduler::setIdle(Thread* pThread) {
   __atomic_store_n(&m_pIdleThread, pThread, __ATOMIC_RELEASE);
   if (!pThread)
     __atomic_store_n(&m_IdleWakeRequested, false, __ATOMIC_RELEASE);
+}
+
+void PerProcessorScheduler::idleUntilInterrupt() {
+  Processor::setInterrupts(false);
+  servicePendingScheduling();
+  if (__atomic_load_n(&m_IdleWakeRequested, __ATOMIC_ACQUIRE)) {
+    Processor::setInterrupts(true);
+    return;
+  }
+  if (m_pSchedulingAlgorithm && m_pSchedulingAlgorithm->hasReady()) {
+    schedule(Thread::Ready, false);
+  } else {
+    // The ready check and STI/HLT are one interrupt-masked handshake. A
+    // remote IPI arriving after the check remains pending until STI/HLT.
+    Processor::haltUntilInterrupt();
+  }
+  Processor::setInterrupts(true);
 }

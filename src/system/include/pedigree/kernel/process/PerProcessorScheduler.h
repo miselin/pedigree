@@ -132,7 +132,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   void unregisterWorkerWake(SchedulerWorkerWake& worker);
 
   /** Publishes one worker wake edge without touching a lock or ready queue. */
-  void ringIrqWorkDoorbell(SchedulerWorkerWake& worker);
+  void ringIrqWorkDoorbell(SchedulerWorkerWake& worker, bool promptOwner = true);
 
   /**
    * Publishes deferred process timer accounting from IRQ/scheduler context.
@@ -142,6 +142,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
 
   /** Reschedules once from ordinary thread context during lifecycle work. */
   void serviceIrqWorkDoorbell();
+
+  /** Services wakeups and reschedule requests at a safe scheduling boundary. */
+  void servicePendingScheduling();
 
   enum class ProcessStopGateMode {
     StopOnly,
@@ -186,6 +189,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   void requestIdleThreadWakeup();
 
   void setIdle(Thread* pThread);
+
+  /** Checks ready work with IRQs masked before the idle thread halts. */
+  void idleUntilInterrupt();
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   /** Exercises the real add-worker wait and owned shutdown path. */
@@ -279,6 +285,8 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   WaitQueue m_TimeAccountingWorkerWaiters;
   SchedulerWorkerWake m_TimeAccountingWorkerWake;
   Atomic<size_t> m_IrqWorkDoorbell;
+  Atomic<size_t> m_ReschedulePending;
+  Atomic<size_t> m_RemotePromptPending;
   Spinlock m_IrqWorkLock;
   SchedulerWorkerWake* m_pWorkerWakeHead = nullptr;
   Spinlock m_AffinityQueueLock;

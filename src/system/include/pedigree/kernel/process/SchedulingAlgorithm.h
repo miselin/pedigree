@@ -46,6 +46,9 @@ class SchedulingAlgorithm {
    * other such values itself. */
   virtual Thread* getNext(Thread* pCurrentThread) = 0;
 
+  /** Whether the ready queue contains a runnable peer. */
+  virtual bool hasReady() = 0;
+
   /** Notifies us that the status of a thread has changed, and that we may
    * need to take action. */
   virtual void threadStatusChanged(Thread* pThread) = 0;

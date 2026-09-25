@@ -243,13 +243,19 @@ AffinityResult Thread::completeAffinityAtSafePoint(bool* waited) {
 }
 
 void Thread::publishReadyNotification() {
-  LockGuard<Spinlock> guard(m_Lock);
-  assert(m_ReadyPublicationPending);
-  __atomic_store_n(&m_ReadyPublicationPending, false, __ATOMIC_RELEASE);
-  if (m_Status == Ready) {
-    PerProcessorScheduler* owner = getScheduler();
-    assert(owner);
-    owner->m_pSchedulingAlgorithm->threadStatusChanged(this);
+  PerProcessorScheduler* owner = nullptr;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    assert(m_ReadyPublicationPending);
+    __atomic_store_n(&m_ReadyPublicationPending, false, __ATOMIC_RELEASE);
+    if (m_Status == Ready) {
+      owner = getScheduler();
+      assert(owner);
+      owner->m_pSchedulingAlgorithm->threadStatusChanged(this);
+    }
+  }
+  if (owner) {
+    owner->prompt();
   }
 }
 
@@ -269,16 +275,17 @@ bool PerProcessorScheduler::enqueueAffinity(Thread* thread, bool accepted) {
 }
 
 void PerProcessorScheduler::prompt() {
-  ringIrqWorkDoorbell();
+  m_ReschedulePending = 1;
 #if X86_COMMON && MULTIPROCESSOR
-  if (this != &Processor::information().getScheduler()) {
+  if (this != &Processor::information().getScheduler() &&
+      m_RemotePromptPending.compareAndSwap(0, 1)) {
     ProcessorInformation* information = Processor::informationAt(m_LogicalCpu);
     assert(information);
     const uint8_t apicId = information->localApicId();
-    // Failed prompts leave accepted work visible to the periodic tick.
-    const bool submitted = Pc::instance().getLocalApic().interProcessorInterrupt(
-        apicId, IPI_RESCHEDULE_VECTOR, LocalApic::deliveryModeFixed, true, false);
-    (void)submitted;
+    if (!Pc::instance().getLocalApic().interProcessorInterrupt(
+            apicId, IPI_RESCHEDULE_VECTOR, LocalApic::deliveryModeFixed, true, false)) {
+      FATAL_NOLOCK("Scheduler remote prompt failed after ready publication.");
+    }
   }
 #endif
 }
