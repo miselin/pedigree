@@ -529,6 +529,14 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
     FATAL("Missing a current thread in PerProcessorScheduler::schedule!");
   }
 
+  bool canServiceWorkerWakeups = bWasInterrupts;
+#if HOSTED
+  canServiceWorkerWakeups &= !pCurrentThread->getHostedSignalDepth();
+#endif
+  if (canServiceWorkerWakeups && m_IrqWorkDoorbell.compareAndSwap(1, 0)) {
+    serviceWorkerWakeups();
+  }
+
   // Grab the current thread's lock.
   pCurrentThread->getLock().acquire();
 
