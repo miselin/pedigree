@@ -255,7 +255,7 @@ void Thread::publishReadyNotification() {
     }
   }
   if (owner) {
-    owner->prompt();
+    owner->prompt(true);
   }
 }
 
@@ -274,8 +274,11 @@ bool PerProcessorScheduler::enqueueAffinity(Thread* thread, bool accepted) {
   return true;
 }
 
-void PerProcessorScheduler::prompt() {
+void PerProcessorScheduler::prompt(bool readyPublication) {
   m_ReschedulePending = 1;
+  if (readyPublication) {
+    armLocalQuantumIfNeeded();
+  }
 #if X86_COMMON && MULTIPROCESSOR
   if (this != &Processor::information().getScheduler() &&
       m_RemotePromptPending.compareAndSwap(0, 1)) {

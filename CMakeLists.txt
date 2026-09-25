@@ -149,12 +149,15 @@ set(PEDIGREE_BENCHMARK_VM_DIAGNOSTICS FALSE CACHE BOOL
 set(PEDIGREE_READY_QUEUE_COUNTS TRUE CACHE BOOL "Maintain ready-queue counts to bound scheduler selection scans.")
 set(PEDIGREE_TIME_ACCOUNTING TRUE CACHE BOOL "Collect per-thread and per-process CPU-time accounting.")
 set(PEDIGREE_SAMPLED_TIME_ACCOUNTING_DEFAULT OFF)
-if (PEDIGREE_ARCH_TARGET MATCHES "^(X64|HOSTED)$")
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     set(PEDIGREE_SAMPLED_TIME_ACCOUNTING_DEFAULT ON)
 endif ()
 option(PEDIGREE_SAMPLED_TIME_ACCOUNTING
     "Estimate CPU time from scheduler ticks instead of timing each kernel transition."
     ${PEDIGREE_SAMPLED_TIME_ACCOUNTING_DEFAULT})
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64" AND PEDIGREE_SAMPLED_TIME_ACCOUNTING)
+    message(FATAL_ERROR "x64 one-shot scheduling requires precise CPU-time accounting")
+endif ()
 set(PEDIGREE_SCHEDULER_TICK_DIVISOR 1 CACHE STRING "Schedule once per this many scheduler timer ticks.")
 if (PEDIGREE_SCHEDULER_TICK_DIVISOR LESS 1)
     message(FATAL_ERROR "PEDIGREE_SCHEDULER_TICK_DIVISOR must be at least 1")

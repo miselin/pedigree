@@ -191,6 +191,8 @@ bool LocalApic::initialiseProcessor() {
     }
   }
 
+  m_TimerState[getId()] = {0, false};
+
   // Set the LVT timer register.
   m_IoSpace.write32(LAPIC_TIMER_PERIODIC | TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
 
@@ -201,6 +203,62 @@ bool LocalApic::initialiseProcessor() {
   m_IoSpace.write32(0x3, LAPIC_REG_DIVIDE_CONFIG);
 
   return true;
+}
+
+bool LocalApic::armDeadline(uint64_t absoluteMonotonicNs) {
+  if (!m_BusFrequency) {
+    return false;
+  }
+
+  const bool restoreInterrupts = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+
+  TimerState& timer = m_TimerState[getId()];
+  const uint64_t now = Time::getTicksFast();
+  if (!timer.lastInterruptNs) {
+    timer.lastInterruptNs = now;
+  }
+
+  const uint64_t remaining = absoluteMonotonicNs > now ? absoluteMonotonicNs - now : 0;
+  const unsigned __int128 count =
+      (static_cast<unsigned __int128>(remaining) * m_BusFrequency +
+       Time::Multiplier::Second - 1) /
+      Time::Multiplier::Second;
+  uint32_t initialCount = 1;
+  if (count > 0xFFFFFFFFU) {
+    initialCount = 0xFFFFFFFFU;
+  } else if (count) {
+    initialCount = static_cast<uint32_t>(count);
+  }
+
+  // A saturated count expires before a distant deadline. The scheduler
+  // reevaluates its absolute deadline at that interrupt and arms another
+  // chunk as needed.
+  if (!timer.oneShot) {
+    m_IoSpace.write32(LAPIC_MASKED | TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
+    m_IoSpace.write32(0, LAPIC_REG_INITIAL_COUNT);
+    timer.oneShot = true;
+  }
+  m_IoSpace.write32(initialCount, LAPIC_REG_INITIAL_COUNT);
+  m_IoSpace.write32(TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
+
+  Processor::setInterrupts(restoreInterrupts);
+  return true;
+}
+
+void LocalApic::disarm() {
+  const bool restoreInterrupts = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+
+  TimerState& timer = m_TimerState[getId()];
+  if (!timer.lastInterruptNs) {
+    timer.lastInterruptNs = Time::getTicksFast();
+  }
+  timer.oneShot = true;
+  m_IoSpace.write32(LAPIC_MASKED | TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
+  m_IoSpace.write32(0, LAPIC_REG_INITIAL_COUNT);
+
+  Processor::setInterrupts(restoreInterrupts);
 }
 
 bool LocalApic::interProcessorInterrupt(uint8_t destinationApicId, uint8_t vector,
@@ -933,6 +991,16 @@ void LocalApic::interrupt(size_t nInterruptNumber, InterruptState& state) {
     // its hard frame while the remote producer waits for progress.
     ack();
 
+    uint64_t delta = 0;
+    if (nInterruptNumber == TIMER_VECTOR) {
+      TimerState& timer = m_TimerState[getId()];
+      const uint64_t now = Time::getTicksFast();
+      // Zero identifies a reschedule IPI to the scheduler.
+      delta = timer.oneShot ? (now > timer.lastInterruptNs ? now - timer.lastInterruptNs : 1)
+                            : nominalQuantumNs();
+      timer.lastInterruptNs = now;
+    }
+
     // Load only after acknowledging the delivered vector. The slot is
     // qualified by the receiving physical processor's scheduler owner,
     // so an IPI can neither borrow another CPU's timer callback nor carry
@@ -941,7 +1009,6 @@ void LocalApic::interrupt(size_t nInterruptNumber, InterruptState& state) {
     if (LIKELY(m_Handlers.beginDispatch(getId(), dispatch))) {
       SchedulerTimerDispatchCleanup dispatchCleanup(dispatch);
       ExecutionContextGuard schedulerContext(ExecutionContext::SchedulerIrq);
-      const uint64_t delta = nInterruptNumber == TIMER_VECTOR ? nominalQuantumNs() : 0;
       dispatch.handler()->timer(delta, state);
     }
     return;

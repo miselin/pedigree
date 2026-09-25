@@ -42,6 +42,7 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/utility.h"
 #if HOSTED
 #include "pedigree/kernel/processor/hosted/Processor.h"
@@ -436,6 +437,69 @@ void PerProcessorScheduler::initialise(Thread* pThread) {
     FATAL("Per-processor scheduler timer handler is already owned.");
   }
   m_NominalQuantumNs = pTimer->nominalQuantumNs();
+  m_OneShotTimer = pTimer->supportsOneShot();
+  if (m_OneShotTimer) {
+    if (m_LogicalCpu == 0) {
+      m_NextLoadSampleDeadline = Time::getTicksFast() + LoadAverage::PeriodNanoseconds;
+    }
+    updateOneShotTimer();
+  }
+}
+
+void PerProcessorScheduler::programOneShotTimer() {
+  if (!m_OneShotTimer) {
+    return;
+  }
+  uint64_t deadline = m_QuantumDeadline;
+  if (m_NextLoadSampleDeadline &&
+      (!deadline || m_NextLoadSampleDeadline < deadline)) {
+    deadline = m_NextLoadSampleDeadline;
+  }
+  SchedulerTimer* timer = Machine::instance().getSchedulerTimer();
+  if (deadline) {
+    if (!timer->armDeadline(deadline)) {
+      FATAL_NOLOCK("Failed to arm the local scheduler deadline.");
+    }
+  } else {
+    timer->disarm();
+  }
+}
+
+void PerProcessorScheduler::updateOneShotTimer() {
+  if (!m_OneShotTimer) {
+    return;
+  }
+  const bool interrupts = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  Thread* current = Processor::information().getCurrentThread();
+  if (current && current != m_pIdleThread && m_pSchedulingAlgorithm->hasReady()) {
+    const uint64_t now = Time::getTicksFast();
+    m_QuantumDeadline = now > ~uint64_t(0) - m_NominalQuantumNs
+                            ? ~uint64_t(0)
+                            : now + m_NominalQuantumNs;
+  } else {
+    m_QuantumDeadline = 0;
+  }
+  programOneShotTimer();
+  Processor::setInterrupts(interrupts);
+}
+
+void PerProcessorScheduler::armLocalQuantumIfNeeded() {
+  if (!m_OneShotTimer || m_QuantumDeadline ||
+      this != &Processor::information().getScheduler()) {
+    return;
+  }
+  const bool interrupts = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  Thread* current = Processor::information().getCurrentThread();
+  if (current && current != m_pIdleThread && !m_QuantumDeadline) {
+    const uint64_t now = Time::getTicksFast();
+    m_QuantumDeadline = now > ~uint64_t(0) - m_NominalQuantumNs
+                            ? ~uint64_t(0)
+                            : now + m_NominalQuantumNs;
+    programOneShotTimer();
+  }
+  Processor::setInterrupts(interrupts);
 }
 
 void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEvents) {
@@ -529,6 +593,7 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
   // strand the add-thread worker, so return directly when current stays on CPU.
   if (pNextThread == pCurrentThread) {
     ActivityDiagnostics::recordSameThreadSelection();
+    updateOneShotTimer();
     const bool waitOwnsEventDispatch = pCurrentThread->hasActiveWaitUnlocked();
     pCurrentThread->getLock().release();
     Processor::setInterrupts(bWasInterrupts);
@@ -551,6 +616,7 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
     pCurrentThread->setStatusUnlocked(nextStatus);
   pNextThread->setStatusUnlocked(Thread::Running);
   Processor::information().setCurrentThread(pNextThread);
+  updateOneShotTimer();
 
   // Load the new kernel stack into the TSS, and the new TLS base and switch
   // address spaces
@@ -941,6 +1007,7 @@ void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc p
   }
   pThread->setStatusUnlocked(Thread::Running);
   Processor::information().setCurrentThread(pThread);
+  updateOneShotTimer();
   void* kernelStack = pThread->getKernelStack();
   Processor::information().setKernelStack(reinterpret_cast<uintptr_t>(kernelStack));
   Processor::switchAddressSpace(*pThread->getParent()->getAddressSpace());
@@ -1052,6 +1119,7 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
   }
   pThread->setStatusUnlocked(Thread::Running);
   Processor::information().setCurrentThread(pThread);
+  updateOneShotTimer();
   void* kernelStack = pThread->getKernelStack();
   Processor::information().setKernelStack(reinterpret_cast<uintptr_t>(kernelStack));
   Processor::switchAddressSpace(*pThread->getParent()->getAddressSpace());
@@ -1239,6 +1307,7 @@ void PerProcessorScheduler::finishCurrentThreadExit(Spinlock* pLock, bool transf
 
   pNextThread->setStatusUnlocked(Thread::Running);
   Processor::information().setCurrentThread(pNextThread);
+  owner.updateOneShotTimer();
   void* kernelStack = pNextThread->getKernelStack();
   Processor::information().setKernelStack(reinterpret_cast<uintptr_t>(kernelStack));
   EMIT_IF(!HOSTED) {
@@ -1372,6 +1441,25 @@ void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
     }
   }
   ActivityDiagnostics::recordSchedulerTimer();
+  if (m_OneShotTimer) {
+    if (!delta) {
+      m_ReschedulePending = 1;
+      return;
+    }
+    const uint64_t now = Time::getTicksFast();
+    if (m_NextLoadSampleDeadline && now >= m_NextLoadSampleDeadline) {
+      m_NextLoadSampleDeadline = now > ~uint64_t(0) - LoadAverage::PeriodNanoseconds
+                                     ? ~uint64_t(0)
+                                     : now + LoadAverage::PeriodNanoseconds;
+      Scheduler::instance().requestLoadAverageSample();
+    }
+    if (m_QuantumDeadline && now >= m_QuantumDeadline) {
+      m_QuantumDeadline = 0;
+      m_ReschedulePending = 1;
+    }
+    programOneShotTimer();
+    return;
+  }
   if (delta) {
     Scheduler::instance().requestLoadAverageSample();
   }
@@ -1423,7 +1511,7 @@ void PerProcessorScheduler::threadStatusChanged(Thread* pThread) {
     m_NewThreadDataCondition.signal();
   }
   if (readyOwner) {
-    readyOwner->prompt();
+    readyOwner->prompt(true);
   }
 }
 
@@ -2083,6 +2171,7 @@ void PerProcessorScheduler::setIdle(Thread* pThread) {
 void PerProcessorScheduler::idleUntilInterrupt() {
   Processor::setInterrupts(false);
   servicePendingScheduling();
+  updateOneShotTimer();
   if (__atomic_load_n(&m_IdleWakeRequested, __ATOMIC_ACQUIRE)) {
     Processor::setInterrupts(true);
     return;

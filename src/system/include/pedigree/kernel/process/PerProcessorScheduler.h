@@ -260,7 +260,10 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   bool drainDeferredThreadReaps();
   bool enqueueAffinity(Thread* thread, bool accepted = false);
   void drainAffinityRequests();
-  void prompt();
+  void prompt(bool readyPublication = false);
+  void armLocalQuantumIfNeeded();
+  void updateOneShotTimer();
+  void programOneShotTimer();
   Thread* selectNext(Thread* current);
   void serviceWorkerWakeups();
 
@@ -297,6 +300,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   size_t m_LogicalCpu = ~size_t(0);
   size_t m_PhysicalCpu = 0;
   uint64_t m_NominalQuantumNs = 0;
+  uint64_t m_QuantumDeadline = 0;
+  uint64_t m_NextLoadSampleDeadline = 0;
+  bool m_OneShotTimer = false;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   Atomic<size_t> m_nDeferredThreadReapCompletions;
