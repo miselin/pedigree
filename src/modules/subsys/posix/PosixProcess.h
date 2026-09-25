@@ -96,8 +96,9 @@ class IntervalTimer : public TimerHandler {
  private:
   virtual void timer(uint64_t delta);
 
-  Time::Timestamp absoluteCpuTotal() const;
-  bool advanceCpuTimeLocked(Time::Timestamp absoluteTotal);
+  Time::Timestamp absoluteTotal() const;
+  bool advanceTimeLocked(Time::Timestamp absoluteTotal);
+  void armHardwareLocked();
   void setArmedLocked(bool armed);
   void signal();
 
@@ -105,7 +106,7 @@ class IntervalTimer : public TimerHandler {
   Mode m_Mode;
   Time::Timestamp m_Value;
   Time::Timestamp m_Interval;
-  Time::Timestamp m_LastCpuTotal;
+  Time::Timestamp m_LastTotal;
   Spinlock m_Lock;
   bool m_Armed;
   Timer* m_pTimer;

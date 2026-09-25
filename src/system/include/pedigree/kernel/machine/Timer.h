@@ -78,6 +78,23 @@ class Timer {
   virtual bool registerHandler(TimerHandler* handler) = 0;
   virtual bool unregisterHandler(TimerHandler* handler) = 0;
 
+  /**
+   * Arms a registered handler for one callback at an absolute monotonic
+   * nanosecond deadline. A zero deadline disarms it. The handler may rearm
+   * itself from its callback.
+   */
+  virtual bool armHandler(TimerHandler*, uint64_t) {
+    return false;
+  }
+
+  /** Whether absolute handler deadlines are available on this timer. */
+  virtual bool supportsDeadlines() const {
+    return false;
+  }
+
+  /** Notifies the timekeeper of a clockevent from hard interrupt context. */
+  virtual void deadlineInterrupt() {}
+
   /** Dispatches the Event \p pEvent to the current thread in \p alarmSecs
    *time. \param pEvent Event to dispatch. \param alarmSecs Number of seconds
    *to wait.

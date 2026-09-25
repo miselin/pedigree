@@ -235,6 +235,7 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
   struct TimerState {
     uint64_t lastInterruptNs;
     bool oneShot;
+    uint64_t armedDeadlineNs;
   };
   TimerState m_TimerState[LocalApicTimerHandlerSlots::Capacity];
 

@@ -86,19 +86,40 @@ class Registry : public TimerHandler {
     entry = Entry();
   }
 
+  void armNextLocked() {
+    if (!source || !source->supportsDeadlines())
+      return;
+    const Time::Timestamp monotonic = Time::getTicks();
+    const Time::Timestamp realtime = Time::getTimeNanoseconds();
+    Time::Timestamp next = 0;
+    for (const Entry& entry : entries) {
+      if (!entry.owner)
+        continue;
+      const Time::Timestamp deadline =
+          PosixTimerState::monotonicDeadline(entry.state, realtime, monotonic);
+      if (deadline && (!next || deadline < next))
+        next = deadline;
+    }
+    if (!source->armHandler(this, next))
+      panic("POSIX timer registry could not arm its callback");
+  }
+
   void timer(uint64_t) override {
-    // The RTC and hosted timer dispatch from their IRQ workers. Skipping a
-    // busy registry never loses expirations because deadlines are absolute.
+    // A deadline callback must wait for mutations: there is no periodic tick
+    // to retry it if the registry is busy.
     if (Processor::inDeviceHardIrq())
       return;
     TerminationDeferral lifetime;
-    if (!lock.tryAcquire())
+    if (source && source->supportsDeadlines())
+      lock.acquire();
+    else if (!lock.tryAcquire())
       return;
     const Time::Timestamp monotonic = Time::getTicks();
     const Time::Timestamp realtime = Time::getTimeNanoseconds();
     for (Entry& entry : entries)
       if (entry.owner)
         advance(entry, entry.state.realtime ? realtime : monotonic);
+    armNextLocked();
     lock.release();
   }
 
@@ -227,6 +248,7 @@ int posix_timer_settime(int timerId, int flags, const void* setting, void* previ
   if (previous) {
     const PosixTimerState::Setting old = PosixTimerState::snapshot(entry->state, oldNow);
     if (!PosixSubsystem::copyToUser(previous, &old, sizeof(old))) {
+      timers.armNextLocked();
       SYSCALL_ERROR(BadAddress);
       return -1;
     }
@@ -239,6 +261,7 @@ int posix_timer_settime(int timerId, int flags, const void* setting, void* previ
   entry->state.interval = value ? interval : 0;
   entry->state.deadline = flags & Absolute ? value : PosixTimerState::add(now, value);
   timers.advance(*entry, now);
+  timers.armNextLocked();
   return 0;
 }
 
@@ -251,6 +274,7 @@ int posix_timer_gettime(int timerId, void* setting) {
   }
   const Time::Timestamp now = entry->state.realtime ? Time::getTimeNanoseconds() : Time::getTicks();
   timers.advance(*entry, now);
+  timers.armNextLocked();
   const PosixTimerState::Setting result = PosixTimerState::snapshot(entry->state, now);
   if (!PosixSubsystem::copyToUser(setting, &result, sizeof(result))) {
     SYSCALL_ERROR(BadAddress);
@@ -277,6 +301,7 @@ int posix_timer_delete(int timerId) {
     return -1;
   }
   timers.remove(*entry);
+  timers.armNextLocked();
   return 0;
 }
 
@@ -287,6 +312,7 @@ void posix_timer_process_exit(Process* process) {
   for (Entry& entry : timers.entries)
     if (entry.owner == process)
       timers.remove(entry);
+  timers.armNextLocked();
 }
 
 void posix_timer_thread_exit(Thread* thread) {
@@ -296,4 +322,10 @@ void posix_timer_thread_exit(Thread* thread) {
   for (Entry& entry : timers.entries)
     if (entry.owner && entry.target == thread)
       timers.remove(entry);
+  timers.armNextLocked();
+}
+
+void posix_timer_clock_changed() {
+  LockGuard<Mutex> guard(timers.lock);
+  timers.armNextLocked();
 }

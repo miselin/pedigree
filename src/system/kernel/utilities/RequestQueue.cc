@@ -789,6 +789,10 @@ bool RequestQueue::resume() {
     Timer* timer = Machine::instance().getTimer();
     if (timer && timer->registerHandler(&m_OverrunChecker)) {
       m_pOverrunTimer = timer;
+      if (timer->supportsDeadlines() &&
+          !timer->armHandler(&m_OverrunChecker, Time::getTicks() + Time::Multiplier::Second)) {
+        FATAL("RequestQueue could not arm its overrun checker");
+      }
     }
   }
   return true;
@@ -1240,10 +1244,19 @@ RequestQueue::OverrunStatus RequestQueue::RequestQueueOverrunChecker::sample(siz
 
 void RequestQueue::RequestQueueOverrunChecker::timer(uint64_t delta) {
   m_Tick += delta;
+  Timer* source = queue->m_pOverrunTimer;
   if (m_Tick < Time::Multiplier::Second) {
+    if (source && source->supportsDeadlines() &&
+        !source->armHandler(this, Time::getTicks() + Time::Multiplier::Second - m_Tick)) {
+      FATAL("RequestQueue could not rearm its overrun checker");
+    }
     return;
   }
   m_Tick %= Time::Multiplier::Second;
+  if (source && source->supportsDeadlines() &&
+      !source->armHandler(this, Time::getTicks() + Time::Multiplier::Second - m_Tick)) {
+    FATAL("RequestQueue could not rearm its overrun checker");
+  }
 
   size_t lastSize = 0;
   size_t currentSize = 0;

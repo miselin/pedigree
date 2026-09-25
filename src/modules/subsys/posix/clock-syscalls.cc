@@ -18,6 +18,7 @@
 #include "clock-syscalls.h"
 #include "linux-wait-abi.h"
 #include "mqueue-syscalls.h"
+#include "posix-timer-syscalls.h"
 #include "pthread-syscalls.h"
 #include "system-syscalls.h"
 #include "timerfd-syscalls.h"
@@ -174,6 +175,7 @@ bool posix_clock_step(int64_t nanoseconds) {
   posix_futex_clock_changed();
   posix_mqueue_clock_changed();
   posix_timerfd_clock_changed(generation);
+  posix_timer_clock_changed();
   return true;
 }
 
@@ -298,6 +300,7 @@ int posix_clock_settime(clockid_t clockId, const LinuxKernelTimespec* value) {
   posix_futex_clock_changed();
   posix_mqueue_clock_changed();
   posix_timerfd_clock_changed(generation);
+  posix_timer_clock_changed();
   return 0;
 }
 

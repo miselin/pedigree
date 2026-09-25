@@ -68,9 +68,11 @@ class EXPORTED_PUBLIC HidInputManager : public TimerHandler {
     /// The resolved key
     uint64_t key;
 
-    /// The time left until the next key repeat
-    uint64_t nLeftTicks;
+    /// Monotonic time of the next key repeat.
+    uint64_t nextRepeat;
   };
+
+  void armNextRepeatLocked();
 
   /// Current key states (for periodic callbacks while a key is down)
   Tree<uint8_t, KeyState*> m_KeyStates;
@@ -83,6 +85,7 @@ class EXPORTED_PUBLIC HidInputManager : public TimerHandler {
 
   /** Non-null only while key-repeat callbacks are admitted. */
   Timer* m_pTimer;
+  uint64_t m_NextArmed;
 };
 
 #endif

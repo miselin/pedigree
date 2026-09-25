@@ -51,6 +51,15 @@ inline Time::Timestamp add(Time::Timestamp start, Time::Timestamp duration) {
   return start >= MaximumTime || duration > MaximumTime - start ? MaximumTime : start + duration;
 }
 
+inline Time::Timestamp monotonicDeadline(const State& state, Time::Timestamp realtime,
+                                        Time::Timestamp monotonic) {
+  if (!state.armed)
+    return 0;
+  if (!state.realtime)
+    return state.deadline;
+  return state.deadline <= realtime ? monotonic : add(monotonic, state.deadline - realtime);
+}
+
 // Advancing from the previous deadline preserves phase even after many missed
 // periods. The remainder avoids overflowing a period-count multiplication.
 inline uint64_t advance(State& state, Time::Timestamp now) {

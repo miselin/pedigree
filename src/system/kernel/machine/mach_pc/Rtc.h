@@ -26,7 +26,10 @@
 #include "pedigree/kernel/machine/TimerHandlerRegistry.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OwnedThread.h"
+#include "pedigree/kernel/process/SchedulerWorkerWake.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -38,6 +41,7 @@
 #include "TscClock.h"
 
 class TimerHandler;
+class PerProcessorScheduler;
 
 /** @addtogroup kernelmachinex86common
  * @{ */
@@ -54,6 +58,9 @@ class Rtc : public Timer, private IrqHandler {
   //
   virtual bool registerHandler(TimerHandler* handler);
   virtual bool unregisterHandler(TimerHandler* handler);
+  bool armHandler(TimerHandler* handler, uint64_t absoluteDeadlineNs) override;
+  bool supportsDeadlines() const override { return m_DeadlineMode.value() != 0; }
+  void deadlineInterrupt() override;
   virtual void addAlarm(class Event* pEvent, size_t alarmSecs, size_t alarmUsecs = 0);
   virtual void removeAlarm(class Event* pEvent);
   virtual size_t removeAlarm(class Event* pEvent, bool bRetZero);
@@ -65,6 +72,7 @@ class Rtc : public Timer, private IrqHandler {
   virtual uint8_t getMinute();
   virtual uint8_t getSecond();
   virtual uint64_t getNanosecond();
+  Time::Timestamp getUnixTimestamp() override;
   virtual uint64_t getTickCount();
   virtual uint64_t getTickCountNano();
   virtual uint64_t getTickCountNanoFast();
@@ -112,6 +120,10 @@ class Rtc : public Timer, private IrqHandler {
 
   /** Applies every elapsed interval observed by the IRQ8 worker. */
   void processElapsedTime(uint64_t observed);
+  uint64_t advanceCivilClock(uint64_t observed, uint64_t* elapsedSeconds = nullptr);
+  static int deadlineWorkerEntry(void* context);
+  int runDeadlineWorker();
+  void publishNextDeadlineLocked();
 
   /** Atomically changes the RTC periodic-interrupt source and clears C. */
   void setPeriodicInterruptEnabled(bool enabled);
@@ -216,6 +228,14 @@ class Rtc : public Timer, private IrqHandler {
 
   /** Timer handlers and their callback lifetime state. */
   TimerHandlerRegistry m_HandlerRegistry;
+
+  PerProcessorScheduler* m_DeadlineScheduler;
+  OwnedThread m_DeadlineWorker;
+  WaitQueue m_DeadlineWaiters;
+  SchedulerWorkerWake m_DeadlineWake;
+  Atomic<size_t> m_DeadlinePending;
+  Atomic<size_t> m_StopDeadlineWorker;
+  Atomic<size_t> m_DeadlineMode;
 
   using Alarm = RtcAlarmQueue::Record;
 

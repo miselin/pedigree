@@ -133,6 +133,16 @@ class RtcAlarmQueue {
     m_pLast = record;
   }
 
+  uint64_t nextDeadline() const {
+    uint64_t next = ~uint64_t(0);
+    for (Record* record = m_pFirst; record; record = record->m_pNext) {
+      if (!record->m_bDispatching && record->m_Deadline < next) {
+        next = record->m_Deadline;
+      }
+    }
+    return next;
+  }
+
   Record* claimDue(uint64_t now, void* owner) {
     assert(owner);
     for (Record* record = m_pFirst; record; record = record->m_pNext) {

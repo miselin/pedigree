@@ -111,6 +111,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   /** SchedulerTimerHandler callback. */
   void timer(uint64_t delta, InterruptState& state);
 
+  /** Publish the shared timer's next deadline on CPU 0. */
+  void setClockDeadline(uint64_t deadline);
+
   void removeThread(Thread* pThread);
 
   void threadStatusChanged(Thread* pThread);
@@ -290,6 +293,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   Atomic<size_t> m_IrqWorkDoorbell;
   Atomic<size_t> m_ReschedulePending;
   Atomic<size_t> m_RemotePromptPending;
+  Atomic<uint64_t> m_ClockDeadline;
   Spinlock m_IrqWorkLock;
   SchedulerWorkerWake* m_pWorkerWakeHead = nullptr;
   Spinlock m_AffinityQueueLock;

@@ -26,6 +26,7 @@
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/machine/Trace.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Event.h"
@@ -46,6 +47,10 @@
 #include "pedigree/kernel/utilities/utility.h"
 #if HOSTED
 #include "pedigree/kernel/processor/hosted/Processor.h"
+#endif
+#if X86_COMMON && MULTIPROCESSOR
+#include <machine/mach_pc/LocalApic.h>
+#include <machine/mach_pc/Pc.h>
 #endif
 #if PEDIGREE_HOSTED_FUNCTION_PROFILE
 #include "pedigree/kernel/processor/hosted/FunctionProfile.h"
@@ -81,6 +86,7 @@ PerProcessorScheduler::PerProcessorScheduler()
       m_IrqWorkDoorbell(0),
       m_ReschedulePending(0),
       m_RemotePromptPending(0),
+      m_ClockDeadline(0),
       m_IrqWorkLock(),
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       m_nDeferredThreadReapCompletions(0),
@@ -455,6 +461,10 @@ void PerProcessorScheduler::programOneShotTimer() {
       (!deadline || m_NextLoadSampleDeadline < deadline)) {
     deadline = m_NextLoadSampleDeadline;
   }
+  const uint64_t clockDeadline = m_ClockDeadline.value();
+  if (clockDeadline && (!deadline || clockDeadline < deadline)) {
+    deadline = clockDeadline;
+  }
   SchedulerTimer* timer = Machine::instance().getSchedulerTimer();
   if (deadline) {
     if (!timer->armDeadline(deadline)) {
@@ -463,6 +473,37 @@ void PerProcessorScheduler::programOneShotTimer() {
   } else {
     timer->disarm();
   }
+}
+
+void PerProcessorScheduler::setClockDeadline(uint64_t deadline) {
+  if (!m_OneShotTimer) {
+    return;
+  }
+  uint64_t previous = m_ClockDeadline.value();
+  while (!m_ClockDeadline.compareAndSwap(previous, deadline)) {
+    previous = m_ClockDeadline.value();
+  }
+  if ((!previous && !deadline) ||
+      (previous && (!deadline || deadline >= previous))) {
+    // An already programmed earlier interrupt will re-evaluate the deadline.
+    return;
+  }
+  if (this == &Processor::information().getScheduler()) {
+    const bool interrupts = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    programOneShotTimer();
+    Processor::setInterrupts(interrupts);
+    return;
+  }
+#if X86_COMMON && MULTIPROCESSOR
+  ProcessorInformation* information = Processor::informationAt(m_LogicalCpu);
+  assert(information);
+  if (!Pc::instance().getLocalApic().interProcessorInterrupt(
+          information->localApicId(), IPI_RESCHEDULE_VECTOR, LocalApic::deliveryModeFixed, true,
+          false)) {
+    FATAL_NOLOCK("Remote clock deadline rearm failed.");
+  }
+#endif
 }
 
 void PerProcessorScheduler::updateOneShotTimer() {
@@ -1451,7 +1492,7 @@ void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
   ActivityDiagnostics::recordSchedulerTimer();
   if (m_OneShotTimer) {
     if (!delta) {
-      m_ReschedulePending = 1;
+      programOneShotTimer();
       return;
     }
     const uint64_t now = Time::getTicksFast();
@@ -1464,6 +1505,11 @@ void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
     if (m_QuantumDeadline && now >= m_QuantumDeadline) {
       m_QuantumDeadline = 0;
       m_ReschedulePending = 1;
+    }
+    const uint64_t clockDeadline = m_ClockDeadline.value();
+    if (clockDeadline && now >= clockDeadline &&
+        m_ClockDeadline.compareAndSwap(clockDeadline, 0)) {
+      Machine::instance().getTimer()->deadlineInterrupt();
     }
     programOneShotTimer();
     return;

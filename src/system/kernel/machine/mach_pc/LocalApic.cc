@@ -191,7 +191,7 @@ bool LocalApic::initialiseProcessor() {
     }
   }
 
-  m_TimerState[getId()] = {0, false};
+  m_TimerState[getId()] = {0, false, 0};
 
   // Set the LVT timer register.
   m_IoSpace.write32(LAPIC_TIMER_PERIODIC | TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
@@ -214,12 +214,22 @@ bool LocalApic::armDeadline(uint64_t absoluteMonotonicNs) {
   Processor::setInterrupts(false);
 
   TimerState& timer = m_TimerState[getId()];
+  if (timer.oneShot && timer.armedDeadlineNs == absoluteMonotonicNs) {
+    Processor::setInterrupts(restoreInterrupts);
+    return true;
+  }
   const uint64_t now = Time::getTicksFast();
   if (!timer.lastInterruptNs) {
     timer.lastInterruptNs = now;
   }
 
-  const uint64_t remaining = absoluteMonotonicNs > now ? absoluteMonotonicNs - now : 0;
+  // An immediate count can expire during the register writes under TCG, and
+  // repeated scheduling boundaries must not restart the same near deadline.
+  constexpr uint64_t MinimumDelayNs = 100000;
+  const uint64_t remaining = absoluteMonotonicNs > now &&
+                                     absoluteMonotonicNs - now > MinimumDelayNs
+                                 ? absoluteMonotonicNs - now
+                                 : MinimumDelayNs;
   const unsigned __int128 count =
       (static_cast<unsigned __int128>(remaining) * m_BusFrequency +
        Time::Multiplier::Second - 1) /
@@ -239,8 +249,11 @@ bool LocalApic::armDeadline(uint64_t absoluteMonotonicNs) {
     m_IoSpace.write32(0, LAPIC_REG_INITIAL_COUNT);
     timer.oneShot = true;
   }
-  m_IoSpace.write32(initialCount, LAPIC_REG_INITIAL_COUNT);
   m_IoSpace.write32(TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
+  // Start the countdown only after the vector is unmasked. A short count can
+  // otherwise expire while the LVT is still masked under TCG.
+  m_IoSpace.write32(initialCount, LAPIC_REG_INITIAL_COUNT);
+  timer.armedDeadlineNs = absoluteMonotonicNs;
 
   Processor::setInterrupts(restoreInterrupts);
   return true;
@@ -255,6 +268,7 @@ void LocalApic::disarm() {
     timer.lastInterruptNs = Time::getTicksFast();
   }
   timer.oneShot = true;
+  timer.armedDeadlineNs = 0;
   m_IoSpace.write32(LAPIC_MASKED | TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
   m_IoSpace.write32(0, LAPIC_REG_INITIAL_COUNT);
 
@@ -994,6 +1008,7 @@ void LocalApic::interrupt(size_t nInterruptNumber, InterruptState& state) {
     uint64_t delta = 0;
     if (nInterruptNumber == TIMER_VECTOR) {
       TimerState& timer = m_TimerState[getId()];
+      timer.armedDeadlineNs = 0;
       const uint64_t now = Time::getTicksFast();
       // Zero identifies a reschedule IPI to the scheduler.
       delta = timer.oneShot ? (now > timer.lastInterruptNs ? now - timer.lastInterruptNs : 1)

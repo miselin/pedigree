@@ -162,6 +162,11 @@ bool Ib700Watchdog::initialise() {
     // A word write also touches the next byte port and rearms QEMU's IB700
     // with the high byte, replacing the intended 10-second timeout.
     m_pBase->write8(Seconds10, 2);
+    if (t->supportsDeadlines() &&
+        !t->armHandler(this, Time::getTicks() + Time::Multiplier::Second)) {
+      shutdown();
+      return false;
+    }
 
     return true;
   }
@@ -176,10 +181,18 @@ void Ib700Watchdog::getName(String& str) {
 void Ib700Watchdog::timer(uint64_t delta) {
   if (delta < m_RefreshRemaining) {
     m_RefreshRemaining -= delta;
+    if (m_pTimer && m_pTimer->supportsDeadlines() &&
+        !m_pTimer->armHandler(this, Time::getTicks() + m_RefreshRemaining)) {
+      FATAL("IB700 watchdog could not rearm its timer callback");
+    }
     return;
   }
   // RTC callbacks are serialized by their IRQ worker. A delayed callback
   // needs one refresh now, followed by a full interval until the next write.
   m_RefreshRemaining = Time::Multiplier::Second;
   m_pBase->write8(Seconds10, 2);
+  if (m_pTimer && m_pTimer->supportsDeadlines() &&
+      !m_pTimer->armHandler(this, Time::getTicks() + m_RefreshRemaining)) {
+    FATAL("IB700 watchdog could not rearm its timer callback");
+  }
 }

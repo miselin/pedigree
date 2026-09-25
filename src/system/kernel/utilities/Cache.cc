@@ -194,6 +194,10 @@ void CacheManager::initialise() {
   Timer* t = Machine::instance().getTimer();
   if (t && t->registerHandler(this)) {
     m_pTimer = t;
+    const Time::Timestamp interval = CACHE_WRITEBACK_PERIOD * Time::Multiplier::Millisecond;
+    if (t->supportsDeadlines() && !t->armHandler(this, Time::getTicks() + interval)) {
+      FATAL("CacheManager could not arm its timer callback");
+    }
   } else {
     FATAL("CacheManager could not register its timer callback");
   }
@@ -292,6 +296,13 @@ bool CacheManager::trimAll(size_t count) {
 void CacheManager::timer(uint64_t delta) {
   if (static_cast<size_t>(m_TerminalState))
     return;
+#if !STANDALONE_CACHE
+  const Time::Timestamp interval = CACHE_WRITEBACK_PERIOD * Time::Multiplier::Millisecond;
+  if (m_pTimer && m_pTimer->supportsDeadlines() &&
+      !m_pTimer->armHandler(this, Time::getTicks() + interval)) {
+    FATAL("CacheManager could not rearm its timer callback");
+  }
+#endif
   bool memoryPressure = false;
 #if THREADS
   // Keep the pressure check at timer cadence without waking an idle worker.
