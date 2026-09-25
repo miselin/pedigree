@@ -1,5 +1,6 @@
 
 set(PEDIGREE_BUILDUTILS_ASAN OFF CACHE BOOL "Build build utilities with the address sanitizer enabled.")
+set(PEDIGREE_BUILDUTILS_FUZZ OFF CACHE BOOL "Build host utility libFuzzer targets.")
 
 include(CheckCCompilerFlag)
 if (PEDIGREE_COVERAGE)
@@ -35,6 +36,21 @@ if (PEDIGREE_BUILDUTILS_ASAN AND HAVE_ASAN)
     set(BUILDUTIL_CFLAGS ${BUILDUTIL_CFLAGS} -fsanitize=address)
     set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_CXXFLAGS} -fsanitize=address)
     set(BUILDUTIL_LINKFLAGS "${BUILDUTIL_LINKFLAGS} -fsanitize=address")
+endif ()
+
+if (PEDIGREE_BUILDUTILS_FUZZ)
+    if (NOT PEDIGREE_BUILDUTILS_ASAN OR NOT HAVE_ASAN)
+        message(FATAL_ERROR "Host fuzz targets require PEDIGREE_BUILDUTILS_ASAN=ON.")
+    endif ()
+    include(CheckCXXSourceCompiles)
+    set(CMAKE_REQUIRED_FLAGS "-fsanitize=fuzzer,address")
+    check_cxx_source_compiles(
+        "extern \"C\" int LLVMFuzzerTestOneInput(const unsigned char*, unsigned long) { return 0; }"
+        HAVE_LIBFUZZER)
+    unset(CMAKE_REQUIRED_FLAGS)
+    if (NOT HAVE_LIBFUZZER)
+        message(FATAL_ERROR "Host fuzz targets require a Clang toolchain with libFuzzer.")
+    endif ()
 endif ()
 
 set(NONCOVERAGE_FLAGS -Os)
@@ -419,6 +435,120 @@ target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
 if (PEDIGREE_COVERAGE)
     target_compile_options(testsuite PRIVATE ${COVERAGE_FLAGS})
     target_link_libraries(testsuite PRIVATE ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
+endif ()
+
+if (PEDIGREE_BUILDUTILS_FUZZ)
+    add_executable(fuzz-RadixTree testsuite/fuzz-RadixTree.cc)
+    target_link_libraries(fuzz-RadixTree PRIVATE utility kernel Threads::Threads)
+    target_compile_options(fuzz-RadixTree PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz-RadixTree PRIVATE -fsanitize=fuzzer,address)
+    add_test(NAME fuzz-RadixTree
+        COMMAND $<TARGET_FILE:fuzz-RadixTree> -runs=10000 -max_len=256 -timeout=5)
+
+    add_executable(fuzz-RangeList testsuite/fuzz-RangeList.cc)
+    target_link_libraries(fuzz-RangeList PRIVATE utility kernel Threads::Threads)
+    target_compile_options(fuzz-RangeList PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz-RangeList PRIVATE -fsanitize=fuzzer,address)
+    add_test(NAME fuzz-RangeList
+        COMMAND $<TARGET_FILE:fuzz-RangeList> -runs=10000 -max_len=512 -timeout=5)
+
+    add_executable(fuzz-ModuleImage
+        testsuite/fuzz-ModuleImage.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/ModuleImage.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/Elf-validation.cc)
+    target_link_libraries(fuzz-ModuleImage PRIVATE utility kernel Threads::Threads)
+    target_compile_options(fuzz-ModuleImage PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz-ModuleImage PRIVATE -fsanitize=fuzzer,address)
+    add_test(NAME fuzz-ModuleImage
+        COMMAND $<TARGET_FILE:fuzz-ModuleImage> -runs=10000 -max_len=1024 -timeout=5)
+
+    add_executable(fuzz-Ext2Xattr
+        testsuite/fuzz-Ext2Xattr.cc
+        ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Xattr.cc)
+    target_link_libraries(fuzz-Ext2Xattr PRIVATE ext2 vfs utility kernel Threads::Threads)
+    target_compile_options(fuzz-Ext2Xattr PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz-Ext2Xattr PRIVATE -fsanitize=fuzzer,address)
+    add_test(NAME fuzz-Ext2Xattr
+        COMMAND $<TARGET_FILE:fuzz-Ext2Xattr> -runs=10000 -max_len=256 -timeout=5)
+
+    add_executable(fuzz-IntrusiveMpscQueue testsuite/fuzz-IntrusiveMpscQueue.cc)
+    target_link_libraries(fuzz-IntrusiveMpscQueue PRIVATE utility kernel Threads::Threads)
+    target_compile_options(fuzz-IntrusiveMpscQueue PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz-IntrusiveMpscQueue PRIVATE -fsanitize=fuzzer,address)
+    add_test(NAME fuzz-IntrusiveMpscQueue
+        COMMAND $<TARGET_FILE:fuzz-IntrusiveMpscQueue> -runs=10000 -max_len=256 -timeout=5)
+
+    add_executable(fuzz-UtilitySequences
+        testsuite/fuzz-UtilitySequences.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/String.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Buffer.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cord.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RingBuffer.cc)
+    target_link_libraries(fuzz-UtilitySequences PRIVATE utility kernel Threads::Threads)
+    target_compile_options(fuzz-UtilitySequences PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz-UtilitySequences PRIVATE -fsanitize=fuzzer,address)
+    add_test(NAME fuzz-UtilitySequences
+        COMMAND $<TARGET_FILE:fuzz-UtilitySequences> -runs=1000 -max_len=256 -timeout=5)
+
+    add_executable(fuzz-UtilityCollections
+        testsuite/fuzz-UtilityCollections.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/BloomFilter.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ExtensibleBitmap.cc)
+    target_link_libraries(fuzz-UtilityCollections PRIVATE utility kernel Threads::Threads)
+    target_compile_options(fuzz-UtilityCollections PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz-UtilityCollections PRIVATE -fsanitize=fuzzer,address)
+    add_test(NAME fuzz-UtilityCollections
+        COMMAND $<TARGET_FILE:fuzz-UtilityCollections> -runs=1000 -max_len=256 -timeout=5)
+
+    add_executable(fuzz-UtilityFoundations
+        testsuite/fuzz-UtilityFoundations.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/demangle.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/md5/md5.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/sha1/sha1.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/smhasher/MurmurHash3.cpp
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/spooky/spooky.cc)
+    target_link_libraries(fuzz-UtilityFoundations PRIVATE utility kernel Threads::Threads)
+    target_compile_options(fuzz-UtilityFoundations PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz-UtilityFoundations PRIVATE -fsanitize=fuzzer,address)
+    add_test(NAME fuzz-UtilityFoundations
+        COMMAND $<TARGET_FILE:fuzz-UtilityFoundations> -runs=1000 -max_len=256 -timeout=5)
+
+    add_executable(fuzz-UtilityWorkers
+        testsuite/fuzz-UtilityWorkers.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/ProducerConsumer.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/UnlikelyLock.cc)
+    target_link_libraries(fuzz-UtilityWorkers PRIVATE utility kernel Threads::Threads)
+    target_compile_options(fuzz-UtilityWorkers PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz-UtilityWorkers PRIVATE -fsanitize=fuzzer,address)
+    add_test(NAME fuzz-UtilityWorkers
+        COMMAND $<TARGET_FILE:fuzz-UtilityWorkers> -runs=100 -max_len=128 -timeout=5)
+
+    add_executable(fuzz-Cache
+        testsuite/fuzz-Cache.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cache.cc)
+    target_link_libraries(fuzz-Cache PRIVATE utility kernel Threads::Threads)
+    target_compile_options(fuzz-Cache PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz-Cache PRIVATE -fsanitize=fuzzer,address)
+    add_test(NAME fuzz-Cache
+        COMMAND $<TARGET_FILE:fuzz-Cache> -runs=1000 -max_len=256 -timeout=5)
+
+    add_executable(fuzz-RequestQueue
+        testsuite/fuzz-RequestQueue.cc
+        ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/RequestQueue.cc)
+    target_link_libraries(fuzz-RequestQueue PRIVATE utility kernel Threads::Threads)
+    target_compile_options(fuzz-RequestQueue PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz-RequestQueue PRIVATE -fsanitize=fuzzer,address)
+    add_test(NAME fuzz-RequestQueue
+        COMMAND $<TARGET_FILE:fuzz-RequestQueue> -runs=1000 -max_len=256 -timeout=5)
+
+    if (OpenSSL_FOUND)
+        add_executable(fuzz-SecureRandom testsuite/fuzz-SecureRandom.cc)
+        target_link_libraries(fuzz-SecureRandom PRIVATE OpenSSL::Crypto)
+        target_compile_options(fuzz-SecureRandom PRIVATE -fsanitize=fuzzer,address)
+        target_link_options(fuzz-SecureRandom PRIVATE -fsanitize=fuzzer,address)
+        add_test(NAME fuzz-SecureRandom
+            COMMAND $<TARGET_FILE:fuzz-SecureRandom> -runs=10000 -max_len=512 -timeout=5)
+    endif ()
 endif ()
 
 # ASAN testsuite
