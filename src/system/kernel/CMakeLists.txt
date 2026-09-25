@@ -240,6 +240,8 @@ if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Machine.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Pc.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Pci.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/PciMessageInterrupts.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/PciIoApicInterrupts.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Pic.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Pit.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Ps2Controller.cc
@@ -265,6 +267,7 @@ elseif (PEDIGREE_MACHDIR STREQUAL "mach_virt")
     set(MACHINE_SRCS
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Acpi.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/DeviceTree.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/GicIts.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/IrqManager.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Keyboard.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_virt/Machine.cc

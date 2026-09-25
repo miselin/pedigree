@@ -304,8 +304,7 @@ bool VirtioInputDevice::initialise() {
     }
   }
 
-  m_Irq = Machine::instance().getIrqManager()->registerPciIrqHandler(this, m_Pci,
-                                                                     IrqPolicy::pciIntxThreaded());
+  m_Irq = m_Transport.registerInterrupt(this);
   if (!m_Irq) {
     ERROR("virtio-input: could not register PCI interrupt");
     return false;

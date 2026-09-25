@@ -37,6 +37,8 @@ class EXPORTED_PUBLIC AhciDisk final : public ScsiDisk {
   uint64_t doRead(uint64_t location) override;
   uint64_t doWrite(uint64_t location) override;
   uint64_t doWriteDirect(uint64_t location, uintptr_t page) override;
+  uint64_t doWriteDirectPhysical(uint64_t location, uintptr_t page,
+                                 physical_uintptr_t physical) override;
   uint64_t doSync(uint64_t location) override;
 
   AhciController* controller() const {
@@ -48,6 +50,9 @@ class EXPORTED_PUBLIC AhciDisk final : public ScsiDisk {
 
  protected:
   bool supportsBufferTransfers() const override {
+    return true;
+  }
+  bool supportsDirectCacheWrite() const override {
     return true;
   }
   bool transferBuffer(uint64_t location, void* buffer, size_t length, bool writing) override;

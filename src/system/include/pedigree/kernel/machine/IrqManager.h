@@ -299,6 +299,15 @@ class IrqManager {
   virtual irq_id_t registerPciIrqHandler(IrqHandler* handler, Device* pDevice,
                                          const IrqPolicy& policy) = 0;
 
+  /** Prefer a PCI message interrupt, falling back to INTx with the given policy. */
+  virtual irq_id_t registerPciMessageIrqHandler(IrqHandler* handler, Device* pDevice,
+                                                const IrqPolicy& intxFallbackPolicy);
+
+  /** Register distinct MSI-X entries as one group. Failure permits a fallback only when
+   * fallbackSafe is true. */
+  virtual bool registerPciMsixIrqHandlers(Device* device, IrqHandler* const* handlers, size_t count,
+                                          irq_id_t* ids, bool& fallbackSafe);
+
   /** Register an ISA handler which must run in hard IRQ context. */
   virtual irq_id_t registerHardIsaIrqHandler(uint8_t irq, HardIrqHandler* handler,
                                              const IrqPolicy& policy) = 0;
@@ -306,6 +315,10 @@ class IrqManager {
   /** Register a PCI handler which must run in hard IRQ context. */
   virtual irq_id_t registerHardPciIrqHandler(HardIrqHandler* handler, Device* pDevice,
                                              const IrqPolicy& policy) = 0;
+
+  /** Prefer a PCI message interrupt for a hard handler, with an INTx fallback. */
+  virtual irq_id_t registerHardPciMessageIrqHandler(HardIrqHandler* handler, Device* pDevice,
+                                                    const IrqPolicy& intxFallbackPolicy);
 
   /**
    * Install the platform's dedicated scheduler-timer interrupt source.

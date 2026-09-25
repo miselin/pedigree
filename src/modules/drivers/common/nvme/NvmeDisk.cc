@@ -74,8 +74,9 @@ uint64_t NvmeDisk::doRead(uint64_t location) {
   if (existed)
     return bytes;
   ByteSet(reinterpret_cast<void*>(page), 0, TargetInfo::getPageSize());
+  // Ordinary eviction cannot retire this Editing page during the synchronous read.
   if (!m_Controller->readWrite(m_Nsid, location / m_BlockBytes, bytes / m_BlockBytes,
-                               reinterpret_cast<void*>(page), bytes, false)) {
+                               reinterpret_cast<void*>(page), bytes, false, true)) {
     if (!getCache().discardEditing(location))
       FATAL("NVMe: failed to discard incomplete cache fill");
     return 0;
@@ -105,6 +106,21 @@ uint64_t NvmeDisk::doWriteDirect(uint64_t location, uintptr_t page) {
     return 0;
   return m_Controller->readWrite(m_Nsid, location / m_BlockBytes, bytes / m_BlockBytes,
                                  reinterpret_cast<void*>(page), bytes, true)
+             ? bytes
+             : 0;
+#endif
+}
+uint64_t NvmeDisk::doWriteDirectPhysical(uint64_t location, uintptr_t page,
+                                         physical_uintptr_t physical) {
+#if CRIPPLE_HDD
+  return 0;
+#else
+  const size_t bytes = validPageLength(location);
+  if (!page || !physical || !bytes) {
+    return 0;
+  }
+  return m_Controller->readWrite(m_Nsid, location / m_BlockBytes, bytes / m_BlockBytes,
+                                 reinterpret_cast<void*>(page), bytes, true, false, physical)
              ? bytes
              : 0;
 #endif

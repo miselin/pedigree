@@ -23,6 +23,7 @@
 
 #if MULTIPROCESSOR
 
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
 
 /** @addtogroup kernelmachinex86common
@@ -34,12 +35,20 @@ class IoApic {
   IoApic();
   virtual ~IoApic();
 
+  bool initialise(physical_uintptr_t address, uint32_t gsiBase);
+  bool contains(uint32_t gsi) const;
+  bool route(uint32_t gsi, uint8_t vector, uint8_t destination, bool activeLow);
+  bool mask(uint32_t gsi, bool masked);
+
  private:
   IoApic(const IoApic&) = delete;
   IoApic& operator=(const IoApic&) = delete;
 
   /** The I/O APIC memory-mapped I/O space */
   MemoryMappedIo m_IoSpace;
+  Spinlock m_Lock;
+  uint32_t m_GsiBase;
+  uint32_t m_Count;
 };
 
 /** @} */

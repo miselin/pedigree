@@ -156,10 +156,31 @@ bool NvmeQueue::complete(bool fromInterrupt) {
 
 NvmeQueue::Result NvmeQueue::execute(Nvme::Command command, void* buffer, size_t bytes,
                                      bool writing, bool interrupts, size_t timeoutSeconds,
-                                     uint32_t* result, bool interruptProbe) {
+                                     uint32_t* result, bool interruptProbe, bool cacheFill,
+                                     physical_uintptr_t directWritePhysical) {
   TerminationDeferral lifetime;
   if (bytes > m_TransferBytes || (bytes && !buffer))
     return Result::CommandError;
+  const bool directWrite = directWritePhysical != 0;
+  if (directWrite && (!writing || cacheFill || !bytes || bytes > Nvme::PageSize ||
+                      (reinterpret_cast<uintptr_t>(buffer) & (Nvme::PageSize - 1)) ||
+                      (directWritePhysical & (Nvme::PageSize - 1)) ||
+                      uint64_t{directWritePhysical} >= (uint64_t{1} << 32))) {
+    return Result::CommandError;
+  }
+  physical_uintptr_t directPage = 0;
+  bool direct = false;
+  if (cacheFill && !writing && bytes && bytes <= Nvme::PageSize &&
+      !(reinterpret_cast<uintptr_t>(buffer) & (Nvme::PageSize - 1))) {
+    size_t flags = 0;
+    auto& space = VirtualAddressSpace::getKernelAddressSpace();
+    direct = space.getMapping(buffer, directPage, flags) && directPage &&
+             !(directPage & (Nvme::PageSize - 1)) && directPage < (uint64_t{1} << 32) &&
+             (flags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write)) ==
+                 (VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) &&
+             !(flags & (VirtualAddressSpace::Swapped | VirtualAddressSpace::CopyOnWrite |
+                        VirtualAddressSpace::NoAccess));
+  }
   if (!m_Available.acquireForCompletion(1, timeoutSeconds)) {
     stop();
     return Result::TransportError;
@@ -186,10 +207,11 @@ NvmeQueue::Result NvmeQueue::execute(Nvme::Command command, void* buffer, size_t
     slot.done = false;
     slot.status = 0;
     if (bytes) {
-      if (writing)
+      if (writing && !directWrite) {
         MemoryCopy(slot.data.virtualAddress(), buffer, bytes);
-      command.prp1 = slot.firstPage;
-      command.prp2 = bytes <= Nvme::PageSize ? 0
+      }
+      command.prp1 = directWrite ? directWritePhysical : direct ? directPage : slot.firstPage;
+      command.prp2 = directWrite || bytes <= Nvme::PageSize ? 0
                      : bytes <= 2 * Nvme::PageSize
                          ? static_cast<uint64_t*>(slot.prps.virtualAddress())[0]
                          : slot.prps.physicalAddress();
@@ -226,7 +248,9 @@ NvmeQueue::Result NvmeQueue::execute(Nvme::Command command, void* buffer, size_t
         const bool success = !slot.status;
         if (success && bytes && !writing) {
           FENCE();
-          MemoryCopy(buffer, slot.data.virtualAddress(), bytes);
+          if (!direct) {
+            MemoryCopy(buffer, slot.data.virtualAddress(), bytes);
+          }
         }
         if (result)
           *result = slot.result;

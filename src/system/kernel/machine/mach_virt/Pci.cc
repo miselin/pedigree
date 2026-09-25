@@ -10,6 +10,7 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/machine/PciMessageBar.h"
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
@@ -38,6 +39,9 @@ struct FunctionConfig {
   }
   bool write16(uint16_t offset, uint16_t value) {
     return PciBus::instance().writeConfig16(device, offset, value);
+  }
+  bool write32(uint16_t offset, uint32_t value) {
+    return PciBus::instance().writeConfig32(device, offset, value);
   }
 };
 
@@ -106,6 +110,22 @@ struct UpstreamBridge {
   uint8_t function;
 };
 
+struct BridgeWindow {
+  uint64_t base = 0;
+  uint64_t limit = 0;
+  bool open = false;
+
+  bool contains(uint64_t address, uint64_t bytes) const {
+    return open && address >= base && address <= limit && bytes - 1 <= limit - address;
+  }
+};
+
+struct BridgeWindows {
+  BridgeWindow io;
+  BridgeWindow memory;
+  BridgeWindow prefetch;
+};
+
 bool findUpstreamBridge(uint8_t childBus, UpstreamBridge& upstream) {
   bool found = false;
   for (uint32_t bus = host.firstBus; bus < childBus; ++bus) {
@@ -141,6 +161,78 @@ bool findUpstreamBridge(uint8_t childBus, UpstreamBridge& upstream) {
     }
   }
   return found;
+}
+
+bool readBridgeWindows(const UpstreamBridge& bridge, BridgeWindows& windows) {
+  uint32_t header = 0, command = 0, io = 0, memory = 0, prefetch = 0;
+  uint32_t ioUpper = 0, prefetchBaseUpper = 0, prefetchLimitUpper = 0;
+  if (!read(bridge.bus, bridge.device, bridge.function, 0x0e, 1, header) || (header & 0x7f) != 1 ||
+      !read(bridge.bus, bridge.device, bridge.function, 0x04, 2, command) ||
+      !read(bridge.bus, bridge.device, bridge.function, 0x1c, 4, io) ||
+      !read(bridge.bus, bridge.device, bridge.function, 0x20, 4, memory) ||
+      !read(bridge.bus, bridge.device, bridge.function, 0x24, 4, prefetch) ||
+      !read(bridge.bus, bridge.device, bridge.function, 0x28, 4, prefetchBaseUpper) ||
+      !read(bridge.bus, bridge.device, bridge.function, 0x2c, 4, prefetchLimitUpper) ||
+      !read(bridge.bus, bridge.device, bridge.function, 0x30, 4, ioUpper)) {
+    return false;
+  }
+
+  const uint8_t ioBase = io & 0xff;
+  const uint8_t ioLimit = (io >> 8) & 0xff;
+  const uint8_t ioType = ioBase & 0x0f;
+  if ((command & 1U) && ioType == (ioLimit & 0x0f) && ioType <= 1) {
+    windows.io.base = uint64_t(ioBase & 0xf0) << 8;
+    windows.io.limit = (uint64_t(ioLimit & 0xf0) << 8) | 0xfff;
+    if (ioType == 1) {
+      windows.io.base |= uint64_t(ioUpper & 0xffff) << 16;
+      windows.io.limit |= uint64_t(ioUpper >> 16) << 16;
+    }
+    windows.io.open = windows.io.base <= windows.io.limit;
+  }
+
+  if (command & 2U) {
+    windows.memory.base = uint64_t(memory & 0xfff0) << 16;
+    windows.memory.limit = (uint64_t((memory >> 16) & 0xfff0) << 16) | 0xfffff;
+    windows.memory.open = windows.memory.base <= windows.memory.limit;
+
+    const uint16_t prefetchBase = prefetch & 0xffff;
+    const uint16_t prefetchLimit = prefetch >> 16;
+    const uint8_t prefetchType = prefetchBase & 0x0f;
+    if (prefetchType == (prefetchLimit & 0x0f) && prefetchType <= 1) {
+      windows.prefetch.base = uint64_t(prefetchBase & 0xfff0) << 16;
+      windows.prefetch.limit = (uint64_t(prefetchLimit & 0xfff0) << 16) | 0xfffff;
+      if (prefetchType == 1) {
+        windows.prefetch.base |= uint64_t(prefetchBaseUpper) << 32;
+        windows.prefetch.limit |= uint64_t(prefetchLimitUpper) << 32;
+      }
+      windows.prefetch.open = windows.prefetch.base <= windows.prefetch.limit;
+    }
+  }
+  return true;
+}
+
+bool bridgesForward(uint8_t bus, uint64_t address, uint64_t bytes, bool io, bool prefetch) {
+  while (bus != host.firstBus) {
+    UpstreamBridge bridge = {};
+    BridgeWindows windows;
+    if (!findUpstreamBridge(bus, bridge) || !readBridgeWindows(bridge, windows)) {
+      return false;
+    }
+    bool forwarded = false;
+    if (io) {
+      forwarded = windows.io.contains(address, bytes);
+    } else if (prefetch) {
+      forwarded =
+          windows.prefetch.contains(address, bytes) || windows.memory.contains(address, bytes);
+    } else {
+      forwarded = windows.memory.contains(address, bytes);
+    }
+    if (!forwarded) {
+      return false;
+    }
+    bus = bridge.bus;
+  }
+  return true;
 }
 }  // namespace
 
@@ -247,14 +339,73 @@ bool PciBus::updateCommand(Device* device, uint16_t clearBits, uint16_t setBits)
          command == desired;
 }
 
-bool PciBus::inspectFunction(Device* device, PciFunctionState::State& state) {
+bool PciBus::inspectFunction(Device* device, PciFunctionState::State& state,
+                             bool requireLegacyInterrupt) {
   FunctionConfig function{device};
-  return PciFunctionState::inspect(function, state, false);
+  if (!device || !PciFunctionState::inspect(function, state, false))
+    return false;
+  return !requireLegacyInterrupt || state.interruptPin;
 }
 
 bool PciBus::disableMessageInterrupts(Device* device, const PciFunctionState::State& state) {
   FunctionConfig function{device};
   return PciFunctionState::disableMessageInterrupts(function, state);
+}
+bool PciBus::enableMsi(Device* device, uint64_t address, uint16_t data) {
+  FunctionConfig function{device};
+  PciFunctionState::State state;
+  return device && PciFunctionState::inspect(function, state, false) &&
+         PciFunctionState::enableMsi(function, state, address, data);
+}
+bool PciBus::disableMsi(Device* device) {
+  FunctionConfig function{device};
+  PciFunctionState::State state;
+  return device && PciFunctionState::inspect(function, state, false) &&
+         PciFunctionState::disableMsi(function, state);
+}
+bool PciBus::enableMsix(Device* device, uint64_t address, uint32_t data) {
+  return enableMsixVectors(device, address, &data, 1);
+}
+bool PciBus::enableMsixVectors(Device* device, uint64_t address, const uint32_t* data,
+                               size_t count, bool* touched) {
+  if (touched) {
+    *touched = false;
+  }
+  FunctionConfig function{device};
+  PciFunctionState::State state;
+  PciFunctionState::MsixTable table;
+  if (!device || !data || !count || !PciFunctionState::inspect(function, state, false) ||
+      !PciFunctionState::msixTable(function, state, table) || count > table.vectors) {
+    return false;
+  }
+  IoBase* io = PciFunctionState::msixTableIo(device, state, table, true);
+  if (touched && io) {
+    *touched = true;
+  }
+  return io && PciFunctionState::enableMsixVectors(function, state, *io, table.offset, address,
+                                                   data, count);
+}
+bool PciBus::setMsixVectorMask(Device* device, size_t index, bool masked) {
+  FunctionConfig function{device};
+  PciFunctionState::State state;
+  PciFunctionState::MsixTable table;
+  if (!device || !PciFunctionState::inspect(function, state, false) ||
+      !PciFunctionState::msixTable(function, state, table) || index >= table.vectors) {
+    return false;
+  }
+  IoBase* io = PciFunctionState::msixTableIo(device, state, table, false);
+  return io &&
+         PciFunctionState::setMsixVectorMask(function, state, *io, table.offset, index, masked);
+}
+bool PciBus::disableMsix(Device* device) {
+  FunctionConfig function{device};
+  PciFunctionState::State state;
+  PciFunctionState::MsixTable table;
+  if (!device || !PciFunctionState::inspect(function, state, false) ||
+      !PciFunctionState::msixTable(function, state, table))
+    return false;
+  IoBase* io = PciFunctionState::msixTableIo(device, state, table, false);
+  return io && PciFunctionState::disableMsix(function, state, *io, table.offset);
 }
 
 bool PciBus::resourcesUnchanged(Device* device, const PciFunctionState::State& state) {
@@ -321,13 +472,22 @@ bool PciBus::assignBar(Device* device, uint8_t index, uint32_t low, uint32_t hig
   if (!bytes || (bytes & (bytes - 1))) {
     return false;
   }
+  const uint8_t bus = device->getPciBusPosition();
+  const bool behindBridge = bus != host.firstBus;
+  const bool prefetchable = !io && (low & 8U);
+  if (behindBridge && !original) {
+    // The host cursor does not reserve resources for sibling bridge windows.
+    return false;
+  }
 
   LockGuard<Spinlock> guard(configLock);
   for (size_t i = 0; i < windowCount; ++i) {
     VirtPciWindow& window = windows[i];
     if ((window.space == 0x01000000) != io || original < window.pciBase ||
         original - window.pciBase >= window.size ||
-        bytes > window.size - (original - window.pciBase)) {
+        bytes > window.size - (original - window.pciBase) ||
+        (behindBridge && !io && !prefetchable && window.space == 0x03000000) ||
+        (behindBridge && original && !bridgesForward(bus, original, bytes, io, prefetchable))) {
       continue;
     }
     if (original) {

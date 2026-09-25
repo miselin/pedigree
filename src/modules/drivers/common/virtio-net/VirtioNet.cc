@@ -128,8 +128,7 @@ bool VirtioNet::initialise() {
     }
   }
 
-  m_IrqId = Machine::instance().getIrqManager()->registerPciIrqHandler(
-      this, m_PciDevice, IrqPolicy::pciIntxThreaded());
+  m_IrqId = m_Transport.registerInterrupt(this);
   if (!m_IrqId) {
     ERROR("virtio-net: could not register PCI interrupt");
     return false;

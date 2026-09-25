@@ -22,6 +22,22 @@
 IrqManager::IrqManager() = default;
 IrqManager::~IrqManager() = default;
 
+irq_id_t IrqManager::registerPciMessageIrqHandler(IrqHandler* handler, Device* device,
+                                                  const IrqPolicy& intxFallbackPolicy) {
+  return registerPciIrqHandler(handler, device, intxFallbackPolicy);
+}
+
+bool IrqManager::registerPciMsixIrqHandlers(Device*, IrqHandler* const*, size_t, irq_id_t*,
+                                            bool& fallbackSafe) {
+  fallbackSafe = true;
+  return false;
+}
+
+irq_id_t IrqManager::registerHardPciMessageIrqHandler(HardIrqHandler* handler, Device* device,
+                                                      const IrqPolicy& intxFallbackPolicy) {
+  return registerHardPciIrqHandler(handler, device, intxFallbackPolicy);
+}
+
 irq_id_t IrqManager::registerSchedulerIrqHandler(uint8_t, SchedulerIrqHandler*, const IrqPolicy&) {
   return 0;
 }

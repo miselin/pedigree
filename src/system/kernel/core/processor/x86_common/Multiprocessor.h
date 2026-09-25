@@ -47,13 +47,15 @@ class Multiprocessor {
   /** Information about one I/O APIC. This information is provided by the
    *  SMP or the ACPI tables. */
   struct IoApicInformation {
-    inline IoApicInformation(uint8_t apicid, physical_uintptr_t Address)
-        : apicId(apicid), address(Address) {}
+    inline IoApicInformation(uint8_t apicid, physical_uintptr_t Address, uint32_t base)
+        : apicId(apicid), address(Address), gsiBase(base) {}
 
     /** The id of the I/O APIC */
     uint8_t apicId;
     /** The physical address of the I/O APIC register set */
     physical_uintptr_t address;
+    /** First global system interrupt served by this controller. */
+    uint32_t gsiBase;
   };
 
   /** Startup and initialise all processors

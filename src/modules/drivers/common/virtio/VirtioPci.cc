@@ -2,6 +2,9 @@
 #include "VirtioPci.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/IoBase.h"
@@ -40,7 +43,8 @@ PciTransport::PciTransport(Device* device)
       m_PciChanged(false),
       m_Initialised(false),
       m_Negotiated(false),
-      m_DmaActive(false) {}
+      m_DmaActive(false),
+      m_UsingMsix(false) {}
 
 PciTransport::~PciTransport() {
   if (m_Common.io && !reset()) {
@@ -153,7 +157,7 @@ bool PciTransport::initialise() {
     return false;
   }
   auto& pci = PciBus::instance();
-  if (!pci.inspectFunction(m_Device, m_Original)) {
+  if (!pci.inspectFunction(m_Device, m_Original, false)) {
     ERROR("virtio-pci: invalid PCI function state");
     return false;
   }
@@ -254,6 +258,65 @@ bool PciTransport::setupQueue(uint16_t index, Queue& queue) {
   return true;
 }
 
+bool PciTransport::configureMsix() {
+  m_UsingMsix = false;
+  if (!m_Original.msix) {
+    return true;
+  }
+  uint16_t control = 0;
+  if (!PciBus::instance().readConfig16(m_Device, m_Original.msix + 2, control)) {
+    return false;
+  }
+  if (!(control & 0x8000U)) {
+    return true;
+  }
+
+  auto* io = m_Common.io;
+  const uint32_t base = m_Common.offset;
+  io->write16(0, base + 16);
+  if (io->read16(base + 16) != 0) {
+    return false;
+  }
+  for (size_t index = 0; index < MaxQueues; ++index) {
+    if (!m_Queues[index]) {
+      continue;
+    }
+    io->write16(index, base + 22);
+    io->write16(0, base + 26);
+    if (io->read16(base + 26) != 0) {
+      return false;
+    }
+  }
+  m_UsingMsix = true;
+  return true;
+}
+
+irq_id_t PciTransport::registerInterrupt(IrqHandler* handler) {
+  if (!m_Negotiated || m_DmaActive || !handler) {
+    return 0;
+  }
+  IrqManager* manager = Machine::instance().getIrqManager();
+  const IrqPolicy policy = IrqPolicy::pciIntxThreaded();
+  irq_id_t id = manager->registerPciMessageIrqHandler(handler, m_Device, policy);
+  if (!id) {
+    return 0;
+  }
+  if (configureMsix()) {
+    return id;
+  }
+  if (!manager->unregisterHandler(id, handler)) {
+    panic("virtio-pci: could not retire rejected MSI-X route");
+  }
+  id = manager->registerPciIrqHandler(handler, m_Device, policy);
+  if (id && !configureMsix()) {
+    if (!manager->unregisterHandler(id, handler)) {
+      panic("virtio-pci: could not retire invalid INTx route");
+    }
+    return 0;
+  }
+  return id;
+}
+
 bool PciTransport::ready() {
   if (!m_Negotiated || m_DmaActive) {
     return false;
@@ -302,6 +365,7 @@ bool PciTransport::reset() {
   m_Negotiated = false;
   m_Initialised = false;
   m_Features = 0;
+  m_UsingMsix = false;
   for (auto*& queue : m_Queues) {
     if (queue) {
       queue->stop();
@@ -314,7 +378,10 @@ bool PciTransport::reset() {
 }
 
 uint8_t PciTransport::readIsr() {
-  return m_Initialised && m_Isr.io ? m_Isr.io->read8(m_Isr.offset) : 0;
+  if (!m_Initialised) {
+    return 0;
+  }
+  return m_UsingMsix ? 1 : (m_Isr.io ? m_Isr.io->read8(m_Isr.offset) : 0);
 }
 
 void PciTransport::notify(uint16_t index) {

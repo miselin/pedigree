@@ -684,12 +684,18 @@ bool ScsiDisk::zero(uint64_t location, size_t length) {
     const uintptr_t page = existing ? existing : m_Cache.insert(location);
     if (!page)
       return false;
+    if (existing && !m_Cache.beginMutableLoan(location)) {
+      m_Cache.release(location);
+      return false;
+    }
     ByteSet(reinterpret_cast<void*>(page), 0, ScsiCachePageBytes);
     if (!existing)
       m_Cache.markNoLongerEditing(location);
     m_Cache.markDirty(location);
-    if (existing)
+    if (existing) {
+      m_Cache.endMutableLoan(location);
       m_Cache.release(location);
+    }
     location += ScsiCachePageBytes;
     length -= ScsiCachePageBytes;
   }
@@ -768,17 +774,28 @@ bool ScsiDisk::transferBufferRange(uint64_t location, void* buffer, size_t lengt
             CachePageGuard guard(m_Cache, key);
             auto* cached = reinterpret_cast<uint8_t*>(page) + offset;
             if (writing) {
+              if (!m_Cache.beginMutableLoan(key)) {
+                return false;
+              }
               MemoryCopy(cached, bytes, chunk);
               m_Cache.markDirty(key);
+              m_Cache.endMutableLoan(key);
               const uintptr_t cacheKey = key;
               if (!m_Cache.syncBatch(
                       &cacheKey, 1,
                       [](const Cache::WritebackPage* pages, size_t count, void* context) {
                         auto* disk = static_cast<ScsiDisk*>(context);
                         for (size_t i = 0; i < count; ++i) {
-                          if (disk->doWriteDirect(pages[i].key, pages[i].location) !=
-                              disk->getCachePageValidLength(pages[i].key))
+                          Cache::DirectWritebackLease lease;
+                          const uint64_t written =
+                              disk->supportsDirectCacheWrite() &&
+                                      lease.acquire(disk->m_Cache, pages[i].key, pages[i].location)
+                                  ? disk->doWriteDirectPhysical(pages[i].key, pages[i].location,
+                                                                lease.physical())
+                                  : disk->doWriteDirect(pages[i].key, pages[i].location);
+                          if (written != disk->getCachePageValidLength(pages[i].key)) {
                             return false;
+                          }
                         }
                         return true;
                       },
@@ -1040,10 +1057,15 @@ bool ScsiDisk::syncCacheBatch(const Cache::WritebackPage* pages, size_t count, v
   for (size_t first = 0; first < count; first += MaxWriteBuffers) {
     const size_t n = count - first < MaxWriteBuffers ? count - first : MaxWriteBuffers;
     WriteBuffer buffers[MaxWriteBuffers];
+    Cache::DirectWritebackLease leases[MaxWriteBuffers];
     for (size_t i = 0; i < n; ++i) {
       const auto& page = pages[first + i];
       buffers[i] = {page.key, reinterpret_cast<const void*>(page.location),
                     disk->getCachePageValidLength(page.key), false};
+      if (disk->supportsDirectCacheWrite() &&
+          leases[i].acquire(disk->m_Cache, page.key, page.location)) {
+        buffers[i].dmaPhysical = leases[i].physical();
+      }
     }
     if (disk->supportsBufferTransfers()) {
       succeeded = disk->transferWriteBuffers(buffers, n) && succeeded;
@@ -1051,9 +1073,13 @@ bool ScsiDisk::syncCacheBatch(const Cache::WritebackPage* pages, size_t count, v
       auto* controller = static_cast<ScsiController*>(disk->m_pParent);
       for (size_t i = 0; i < n; ++i) {
         const auto& b = buffers[i];
-        const uint64_t written = controller->addRequest(
-            0, RequestQueue::NewRequest, SCSI_REQUEST_WRITE_DIRECT,
-            reinterpret_cast<uint64_t>(disk), b.location, reinterpret_cast<uintptr_t>(b.buffer));
+        const uint64_t written =
+            b.dmaPhysical
+                ? disk->doWriteDirectPhysical(b.location, reinterpret_cast<uintptr_t>(b.buffer),
+                                              b.dmaPhysical)
+                : controller->addRequest(0, RequestQueue::NewRequest, SCSI_REQUEST_WRITE_DIRECT,
+                                         reinterpret_cast<uint64_t>(disk), b.location,
+                                         reinterpret_cast<uintptr_t>(b.buffer));
         succeeded = written == b.length && succeeded;
       }
     }
@@ -1157,9 +1183,13 @@ bool ScsiDisk::flushCachePage(uint64_t location, uintptr_t page) {
 
   // The caller owns a pin even if retirement closes admission meanwhile.
   // Direct writes borrow it without another lookup or transferred reference.
+  Cache::DirectWritebackLease lease;
   const uint64_t writeResult =
-      pParent->addRequest(0, RequestQueue::NewRequest, SCSI_REQUEST_WRITE_DIRECT,
-                          reinterpret_cast<uint64_t>(this), pageLocation, page);
+      supportsDirectCacheWrite() && lease.acquire(m_Cache, pageLocation, page)
+          ? doWriteDirectPhysical(pageLocation, page, lease.physical())
+          : pParent->addRequest(0, RequestQueue::NewRequest, SCSI_REQUEST_WRITE_DIRECT,
+                                reinterpret_cast<uint64_t>(this), pageLocation, page);
+  lease.release();
   const uint64_t syncResult =
       pParent->addRequest(0, SCSI_REQUEST_SYNC, reinterpret_cast<uint64_t>(this), pageLocation);
   const bool success = writeResult == validLength && syncResult != 0;
@@ -1387,6 +1417,12 @@ uint64_t ScsiDisk::doWriteDirect(uint64_t location, uintptr_t page) {
 
   const size_t validLength = getCachePageValidLength(location);
   return writePageBuffer(location, page) ? validLength : 0;
+}
+
+uint64_t ScsiDisk::doWriteDirectPhysical(uint64_t location, uintptr_t page,
+                                         physical_uintptr_t physical) {
+  (void)physical;
+  return doWriteDirect(location, page);
 }
 
 bool ScsiDisk::writePageBuffer(uint64_t location, uintptr_t page) {

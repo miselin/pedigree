@@ -16,6 +16,7 @@ constexpr uint32_t MadtSignature = 0x43495041;
 constexpr uint32_t GtdtSignature = 0x54445447;
 constexpr uint32_t SpcrSignature = 0x52435053;
 constexpr uint32_t McfgSignature = 0x4746434d;
+constexpr uint32_t IortSignature = 0x54524f49;
 constexpr uint32_t FadtSignature = 0x50434146;
 constexpr uint32_t HeaderSize = 36;
 
@@ -353,8 +354,18 @@ void parseMadt(const uint8_t* table, VirtAcpiInfo& out) {
     if (type == 12 && bytes >= 24) {
       out.gicDistributor = read64(entry + 8);
       out.gicVersion = entry[20];
+    } else if (type == 13 && bytes >= 24 &&
+               out.msiController.type == VirtMsiController::Type::None) {
+      out.msiController = {
+          VirtMsiController::Type::GicV2m, read64(entry + 8), 0x1000,
+          static_cast<uint16_t>((read32(entry + 16) & 1) ? read16(entry + 22) : 0),
+          static_cast<uint16_t>((read32(entry + 16) & 1) ? read16(entry + 20) : 0)};
     } else if (type == 14 && bytes >= 16) {
       out.gicRedistributor = read64(entry + 4);
+    } else if (type == 15 && bytes >= 20 &&
+               out.msiController.type == VirtMsiController::Type::None) {
+      out.msiController = {VirtMsiController::Type::GicV3Its, read64(entry + 8), 0x20000, 0, 0};
+      out.msiItsId = read32(entry + 4);
     } else if (type == 11 && bytes >= 40 && (read32(entry + 12) & 1)) {
       out.gicCpu = read64(entry + 32);
     }
@@ -395,6 +406,57 @@ void parseMcfg(const uint8_t* table, VirtAcpiInfo& out) {
   }
 }
 
+bool pciMsiIdentity(const uint8_t* table, const VirtAcpiInfo& info) {
+  if (!table || info.msiController.type != VirtMsiController::Type::GicV3Its ||
+      !info.pciHost.size) {
+    return false;
+  }
+  const size_t length = read32(table + 4);
+  if (length < 48) {
+    return false;
+  }
+  const uint32_t count = read32(table + 36);
+  size_t offset = read32(table + 40);
+  if (count > 1024 || offset < 48 || offset >= length) {
+    return false;
+  }
+  const uint32_t firstId = info.pciHost.firstBus << 8;
+  const uint32_t lastId = (info.pciHost.lastBus << 8) | 0xff;
+  for (uint32_t index = 0; index < count; ++index) {
+    if (offset > length - 16) {
+      return false;
+    }
+    const uint8_t* node = table + offset;
+    const size_t size = read16(node + 1);
+    if (size < 16 || size > length - offset) {
+      return false;
+    }
+    if (node[0] == 2 && size >= 36 && !read32(node + 28)) {
+      const uint32_t mappings = read32(node + 8);
+      const size_t mappingOffset = read32(node + 12);
+      if (mappingOffset >= 36 && mappingOffset <= size && mappings <= (size - mappingOffset) / 20) {
+        for (uint32_t i = 0; i < mappings; ++i) {
+          const uint8_t* map = node + mappingOffset + i * 20;
+          const uint32_t input = read32(map);
+          const uint32_t output = read32(map + 8);
+          const uint32_t target = read32(map + 12);
+          if (read32(map + 16) || input > firstId || output != input ||
+              uint64_t(input) + read32(map + 4) < lastId || target > length - 24) {
+            continue;
+          }
+          const uint8_t* its = table + target;
+          if (its[0] == 0 && read16(its + 1) >= 24 && read16(its + 1) <= length - target &&
+              read32(its + 16) && read32(its + 20) == info.msiItsId) {
+            return true;
+          }
+        }
+      }
+    }
+    offset += size;
+  }
+  return false;
+}
+
 uint64_t parseFadt(const uint8_t* table, VirtAcpiInfo& out) {
   const size_t length = read32(table + 4);
   if (length >= 132) {
@@ -425,6 +487,7 @@ bool virtParseAcpi(uint64_t rsdpPhysical, const BootstrapStruct_t::MemoryMapEntr
   }
   info = {};
   uint64_t dsdtPhysical = 0;
+  const uint8_t* iort = nullptr;
   const size_t count = (read32(xsdt + 4) - HeaderSize) / 8;
   for (size_t i = 0; i < count; ++i) {
     const uint8_t* table = tableAt(read64(xsdt + HeaderSize + i * 8));
@@ -444,6 +507,9 @@ bool virtParseAcpi(uint64_t rsdpPhysical, const BootstrapStruct_t::MemoryMapEntr
       case McfgSignature:
         parseMcfg(table, info);
         break;
+      case IortSignature:
+        iort = table;
+        break;
       case FadtSignature:
         dsdtPhysical = parseFadt(table, info);
         break;
@@ -461,6 +527,7 @@ bool virtParseAcpi(uint64_t rsdpPhysical, const BootstrapStruct_t::MemoryMapEntr
       rtcResource(dsdt + HeaderSize, read32(dsdt + 4) - HeaderSize, info);
     }
   }
+  info.pciMsiIdentity = pciMsiIdentity(iort, info);
   return info.uart && info.gicDistributor &&
          ((info.gicVersion == 2 && info.gicCpu) ||
           (info.gicVersion == 3 && info.gicRedistributor)) &&

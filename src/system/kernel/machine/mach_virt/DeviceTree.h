@@ -38,6 +38,15 @@ struct VirtPciWindow {
   uint64_t size;
 };
 
+struct VirtMsiController {
+  enum class Type : uint8_t { None, GicV2m, GicV3Its };
+  Type type;
+  uint64_t base;
+  uint64_t size;
+  uint16_t spiBase;
+  uint16_t spiCount;
+};
+
 /** Early, allocation-free discovery of ARM virt platform hardware. */
 class VirtDeviceTree {
  public:
@@ -52,6 +61,8 @@ class VirtDeviceTree {
   static bool pciWindow(size_t index, VirtPciWindow& window);
   static bool pciTranslate(uint64_t address, uint64_t size, bool io, uint64_t& physical);
   static uint32_t pciInterrupt(uint8_t bus, uint8_t device, uint8_t function, uint8_t pin);
+  static bool pciMsiController(VirtMsiController& controller);
+  static bool pciMsiDeviceId(uint8_t bus, uint8_t device, uint8_t function, uint32_t& id);
   /** Kernel direct-map virtual addresses for platform MMIO. */
   static uintptr_t uartBase();
   static uint32_t uartIrq();
@@ -60,6 +71,7 @@ class VirtDeviceTree {
   static uintptr_t gicDistributorBase();
   static uintptr_t gicCpuBase();
   static uintptr_t gicRedistributorBase();
+  static uint64_t gicRedistributorPhysical();
   static uint32_t physicalTimerIrq();
   static uint32_t virtualTimerIrq();
   static bool psciAvailable();

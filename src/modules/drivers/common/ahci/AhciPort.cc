@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include "AhciPort.h"
+#include "modules/drivers/common/DmaBuffer.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/TargetInfo.h"
@@ -32,6 +33,17 @@
 #include "Registers.h"
 
 using namespace Ahci;
+
+namespace {
+physical_uintptr_t usableDirectWrite(physical_uintptr_t physical, size_t bytes) {
+  const size_t pageSize = TargetInfo::getPageSize();
+  if (!physical || !bytes || bytes > pageSize || physical % pageSize ||
+      !DriverDma::physicalRangeFits(physical, bytes, 0xffffffffU)) {
+    return 0;
+  }
+  return physical;
+}
+}  // namespace
 
 AhciPort::AhciPort(IoBase* registers, size_t port)
     : m_Registers(registers),
@@ -255,8 +267,8 @@ bool AhciPort::chooseSlot(bool queued, size_t& index) {
 }
 
 bool AhciPort::issueCommand(size_t index, uint8_t opcode, uint64_t lba, uint16_t sectors,
-                            void* buffer, size_t bytes, bool writing, bool queued,
-                            bool interrupts) {
+                            void* buffer, size_t bytes, bool writing, bool queued, bool interrupts,
+                            physical_uintptr_t directPhysical) {
   Slot& slot = m_Slots[index];
   const uint32_t mask = 1U << index;
   auto* header = static_cast<CommandHeader*>(m_Control.virtualAddress()) + index;
@@ -269,10 +281,11 @@ bool AhciPort::issueCommand(size_t index, uint8_t opcode, uint64_t lba, uint16_t
       return false;
     ByteSet(header, 0, sizeof(*header));
     ByteSet(table, 0, sizeof(*table));
-    if (writing && bytes)
+    if (writing && bytes && !directPhysical) {
       MemoryCopy(slot.data.virtualAddress(), buffer, bytes);
+    }
     const size_t pageSize = TargetInfo::getPageSize();
-    const size_t prds = (bytes + pageSize - 1) / pageSize;
+    const size_t prds = directPhysical ? 1 : (bytes + pageSize - 1) / pageSize;
     header->flags = 5U | (writing ? 1U << 6 : 0U) | (prds << 16);
     header->table = static_cast<uint32_t>(m_Control.physicalAddress() + tableOffset);
     table->fis[0] = 0x27;
@@ -295,7 +308,8 @@ bool AhciPort::issueCommand(size_t index, uint8_t opcode, uint64_t lba, uint16_t
     for (size_t page = 0; page < prds; ++page) {
       const size_t remaining = bytes - page * pageSize;
       const size_t count = remaining < pageSize ? remaining : pageSize;
-      table->data[page].address = static_cast<uint32_t>(slot.pages[page]);
+      table->data[page].address =
+          static_cast<uint32_t>(directPhysical ? directPhysical : slot.pages[page]);
       table->data[page].byteCount = static_cast<uint32_t>(count - 1);
     }
     // Observe previous commands before acknowledging shared port status.
@@ -323,7 +337,7 @@ bool AhciPort::issueCommand(size_t index, uint8_t opcode, uint64_t lba, uint16_t
 }
 
 bool AhciPort::reapCommand(size_t index, uint8_t opcode, void* buffer, size_t bytes, bool writing,
-                           bool queued, bool interrupts, bool interruptProbe) {
+                           bool queued, bool interrupts, bool interruptProbe, bool directRead) {
   Slot& slot = m_Slots[index];
   const uint32_t mask = 1U << index;
   auto* header = static_cast<CommandHeader*>(m_Control.virtualAddress()) + index;
@@ -361,7 +375,7 @@ bool AhciPort::reapCommand(size_t index, uint8_t opcode, void* buffer, size_t by
           }
           if (!stopEngines())
             panic("AHCI: cannot stop failed port DMA; refusing to release memory");
-        } else if (!writing && bytes) {
+        } else if (!writing && bytes && !directRead) {
           MemoryCopy(buffer, slot.data.virtualAddress(), bytes);
         }
         m_Active &= ~mask;
@@ -383,9 +397,29 @@ bool AhciPort::reapCommand(size_t index, uint8_t opcode, void* buffer, size_t by
 }
 
 bool AhciPort::command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buffer, size_t bytes,
-                       bool writing, bool interrupts, bool interruptProbe) {
+                       bool writing, bool interrupts, bool interruptProbe, bool cacheFill,
+                       physical_uintptr_t dmaPhysical) {
   if (bytes > MaxTransfer || (bytes && (!buffer || (bytes & 1U))) || (lba >> 48))
     return false;
+  physical_uintptr_t directPhysical =
+      writing && opcode == 0x35 ? usableDirectWrite(dmaPhysical, bytes) : 0;
+  const size_t pageSize = TargetInfo::getPageSize();
+  // Ordinary eviction cannot retire an Editing cache page during this synchronous command.
+  if (cacheFill && opcode == 0x25 && !writing && bytes && bytes <= pageSize &&
+      !(reinterpret_cast<uintptr_t>(buffer) & (pageSize - 1))) {
+    physical_uintptr_t physical = 0;
+    size_t flags = 0;
+    auto& addressSpace = VirtualAddressSpace::getKernelAddressSpace();
+    if (addressSpace.getMapping(buffer, physical, flags) && physical &&
+        !(physical & (pageSize - 1)) &&
+        (flags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write)) ==
+            (VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) &&
+        !(flags & (VirtualAddressSpace::Swapped | VirtualAddressSpace::CopyOnWrite |
+                   VirtualAddressSpace::NoAccess)) &&
+        DriverDma::physicalRangeFits(physical, bytes, 0xffffffffU)) {
+      directPhysical = physical;
+    }
+  }
   TerminationDeferral lifetime;
   LockGuard<Mutex> command(m_CommandLock);
   const bool queued = m_QueueDepth && (opcode == 0x25 || opcode == 0x35);
@@ -409,14 +443,16 @@ bool AhciPort::command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buf
   if (writing) {
     m_WritesPending = true;
   }
-  if (!issueCommand(index, opcode, lba, sectors, buffer, bytes, writing, queued, interrupts))
+  if (!issueCommand(index, opcode, lba, sectors, buffer, bytes, writing, queued, interrupts,
+                    directPhysical))
     return false;
   if (queued) {
     m_CommandLock.release();
     command.disown();
   }
   const bool succeeded =
-      reapCommand(index, opcode, buffer, bytes, writing, queued, interrupts, interruptProbe);
+      reapCommand(index, opcode, buffer, bytes, writing, queued, interrupts, interruptProbe,
+                  directPhysical != 0);
   // A nonqueued barrier holds the submission gate through completion, so no
   // later write can be mistaken for part of this successful flush.
   if (flush && succeeded) {
@@ -482,19 +518,21 @@ bool AhciPort::writeBatch(Disk::WriteBuffer* buffers, size_t count, bool interru
   if (count > Disk::MaxWriteBuffers || (count && !buffers))
     return false;
   Disk::ReadBuffer transfers[Disk::MaxWriteBuffers];
+  physical_uintptr_t dmaPhysical[Disk::MaxWriteBuffers] = {};
   for (size_t i = 0; i < count; ++i) {
     buffers[i].complete = false;
     transfers[i] = {buffers[i].location, const_cast<void*>(buffers[i].buffer), buffers[i].length,
                     false};
+    dmaPhysical[i] = buffers[i].dmaPhysical;
   }
-  const bool success = transferBatch(transfers, count, interrupts, true);
+  const bool success = transferBatch(transfers, count, interrupts, true, dmaPhysical);
   for (size_t i = 0; i < count; ++i)
     buffers[i].complete = transfers[i].complete;
   return success;
 }
 
-bool AhciPort::transferBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupts,
-                             bool writing) {
+bool AhciPort::transferBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupts, bool writing,
+                             const physical_uintptr_t* dmaPhysical) {
   if (count > Disk::MaxReadBuffers || (count && !buffers))
     return false;
   for (size_t i = 0; i < count; ++i)
@@ -515,7 +553,8 @@ bool AhciPort::transferBatch(Disk::ReadBuffer* buffers, size_t count, bool inter
       auto& buffer = buffers[i];
       buffer.complete =
           command(writing ? 0x35 : 0x25, buffer.location / m_SectorBytes,
-                  buffer.length / m_SectorBytes, buffer.buffer, buffer.length, writing, interrupts);
+                  buffer.length / m_SectorBytes, buffer.buffer, buffer.length, writing, interrupts,
+                  false, false, writing && dmaPhysical ? dmaPhysical[i] : 0);
       if (!buffer.complete)
         return false;
     }
@@ -554,9 +593,11 @@ bool AhciPort::transferBatch(Disk::ReadBuffer* buffers, size_t count, bool inter
         if (writing) {
           m_WritesPending = true;
         }
-        if (!issueCommand(index, writing ? 0x61 : 0x60, buffer.location / m_SectorBytes,
-                          buffer.length / m_SectorBytes, buffer.buffer, buffer.length, writing,
-                          true, interrupts)) {
+        if (!issueCommand(
+                index, writing ? 0x61 : 0x60, buffer.location / m_SectorBytes,
+                buffer.length / m_SectorBytes, buffer.buffer, buffer.length, writing, true,
+                interrupts,
+                writing && dmaPhysical ? usableDirectWrite(dmaPhysical[next], buffer.length) : 0)) {
           admitted = false;
           break;
         }

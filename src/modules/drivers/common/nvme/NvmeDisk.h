@@ -22,7 +22,12 @@ class EXPORTED_PUBLIC NvmeDisk final : public ScsiDisk {
   uint64_t doRead(uint64_t location) override;
   uint64_t doWrite(uint64_t location) override;
   uint64_t doWriteDirect(uint64_t location, uintptr_t page) override;
+  uint64_t doWriteDirectPhysical(uint64_t location, uintptr_t page,
+                                 physical_uintptr_t physical) override;
   uint64_t doSync(uint64_t location) override;
+  bool supportsDirectCacheWrite() const override {
+    return true;
+  }
   NvmeController* controller() const {
     return m_Controller;
   }

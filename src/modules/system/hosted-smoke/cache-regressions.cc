@@ -11,6 +11,7 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
@@ -509,7 +510,8 @@ bool failedPublicationDiscard() {
   cache.setCallback(discardEditingCallback, &context);
 
   const uintptr_t failedPage = cache.insert(Key);
-  const bool discarded = failedPage != 0 && cache.discardEditing(Key);
+  const bool ordinaryRejected = failedPage != 0 && !cache.evict(Key) && cache.exists(Key, PageSize);
+  const bool discarded = ordinaryRejected && cache.discardEditing(Key);
   const bool removed = !cache.exists(Key, PageSize);
   const bool suppressedWriteback = context.writebacks == 0 && context.evictions == 1;
 
@@ -529,6 +531,8 @@ bool failedPublicationDiscard() {
   cache.empty();
 
   const bool passed =
+      checkNamed(ordinaryRejected, "cache-failed-publication-discard",
+                 "ordinary eviction reclaimed an unpublished Editing page") &&
       checkNamed(discarded && removed, "cache-failed-publication-discard",
                  "an unpinned Editing page was not synchronously removed") &&
       checkNamed(suppressedWriteback, "cache-failed-publication-discard",
@@ -1667,6 +1671,111 @@ bool explicitWritebackThreading(bool redirty) {
   }
   return passed;
 }
+
+struct DirectWritebackContext {
+  Cache* cache = nullptr;
+  uintptr_t key = 0;
+  uintptr_t page = 0;
+  Semaphore entered{0};
+  Semaphore allowReturn{0};
+  Atomic<size_t> callbacks{0};
+  Atomic<size_t> direct{0};
+  Atomic<size_t> observed{0};
+  Atomic<size_t> syncResult{0};
+  Atomic<size_t> writerResult{0};
+};
+
+bool directWritebackCallback(const Cache::WritebackPage* pages, size_t count, void* parameter) {
+  auto& context = *static_cast<DirectWritebackContext*>(parameter);
+  if (count != 1 || pages[0].key != context.key) {
+    return false;
+  }
+  Cache::DirectWritebackLease lease;
+  if (!lease.acquire(*context.cache, pages[0].key, pages[0].location)) {
+    return false;
+  }
+  context.direct = lease.physical() != 0;
+  const size_t call = context.callbacks += 1;
+  if (call == 1) {
+    context.entered.release();
+    const bool released = context.allowReturn.acquireForCompletion();
+    (void)released;
+  }
+  context.observed = *reinterpret_cast<const uint8_t*>(pages[0].location);
+  return true;
+}
+
+int directWritebackSync(void* parameter) {
+  auto& context = *static_cast<DirectWritebackContext*>(parameter);
+  context.syncResult =
+      context.cache->syncBatch(&context.key, 1, directWritebackCallback, &context) ? 1 : 0;
+  return 0;
+}
+
+int directWritebackWriter(void* parameter) {
+  auto& context = *static_cast<DirectWritebackContext*>(parameter);
+  if (!context.cache->pin(context.key)) {
+    return 0;
+  }
+  if (context.cache->beginMutableLoan(context.key)) {
+    *reinterpret_cast<uint8_t*>(context.page) = 0xA6;
+    context.cache->markDirty(context.key);
+    context.cache->endMutableLoan(context.key);
+    context.writerResult = 1;
+  }
+  context.cache->release(context.key);
+  return 0;
+}
+
+bool directWritebackLoan() {
+  constexpr const char* Test = "cache-direct-writeback-loan";
+  DirectWritebackContext context;
+  Cache cache(PhysicalMemoryManager::below4GB);
+  context.cache = &cache;
+  context.key = 0xCA7FA00;
+  cache.setDirtyTracking(Cache::DirtyTracking::Explicit);
+  cache.setCallback([](CacheConstants::CallbackCause, uintptr_t, uintptr_t, void*) { return true; },
+                    nullptr);
+  context.page = cache.insert(context.key);
+  if (!checkNamed(context.page != 0, Test, "could not create the test page")) {
+    return false;
+  }
+  *reinterpret_cast<uint8_t*>(context.page) = 0x57;
+  cache.markNoLongerEditing(context.key);
+  cache.markDirty(context.key);
+
+  Thread* sync = new Thread(Scheduler::instance().getKernelProcess(), directWritebackSync, &context,
+                            nullptr, false, true);
+  sync->setName("hosted Cache direct writeback");
+  const bool entered = context.entered.acquire(1, 2);
+  Thread* writer = nullptr;
+  bool queued = false;
+  bool frozen = false;
+  if (entered) {
+    writer = new Thread(Scheduler::instance().getKernelProcess(), directWritebackWriter, &context,
+                        nullptr, false, true);
+    writer->setName("hosted Cache direct writeback writer");
+    queued = waitUntilQueuedAt(writer, Thread::CallbackDrain, context.key);
+    frozen = *reinterpret_cast<const uint8_t*>(context.page) == 0x57;
+  }
+  context.allowReturn.release();
+  const bool synced = sync->joinForCompletion();
+  const bool writerJoined = !writer || writer->joinForCompletion();
+  const bool first = context.syncResult == 1 && context.direct == 1 && context.observed == 0x57 &&
+                     context.writerResult == 1;
+  const bool second = cache.syncBatch(&context.key, 1, directWritebackCallback, &context) &&
+                      context.callbacks == 2 && context.observed == 0xA6;
+  const bool reclaimed = cache.empty();
+  const bool passed =
+      checkNamed(entered && queued && frozen && synced && writerJoined, Test,
+                 "writer did not wait for the immutable DMA lease") &&
+      checkNamed(first && second, Test, "writeback lost the old or new page contents") &&
+      checkNamed(reclaimed, Test, "test page retained a reference");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
 }  // namespace
 
 bool runHostedCacheDiscardRegressions() {
@@ -1677,6 +1786,10 @@ bool runHostedCacheDiscardRegressions() {
 bool runHostedCacheSyncRegressions() {
   return syncAllJoinsCallback() && syncAllJoinsRetirement(true) && syncAllJoinsRetirement(false) &&
          syncAllFromCacheManager();
+}
+
+bool runHostedCacheDirectWritebackRegressions() {
+  return directWritebackLoan();
 }
 
 bool runHostedCacheTimerRegressions() {
@@ -1690,5 +1803,5 @@ bool runHostedCacheRegressions() {
          runHostedCacheDiscardRegressions() && retireWritebackContract() && rangeExistence() &&
          strictRangeGeometry() && runHostedCacheSyncRegressions() &&
          runHostedCacheTimerRegressions() && explicitWritebackThreading(false) &&
-         explicitWritebackThreading(true);
+         explicitWritebackThreading(true) && directWritebackLoan();
 }

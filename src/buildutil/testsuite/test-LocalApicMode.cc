@@ -18,3 +18,10 @@ TEST(LocalApicMode, FirmwareAddressAndBootstrapBitDoNotChangeMode) {
   EXPECT_EQ(LocalApicMode::decode(FirmwareState | LocalApicMode::Enabled | LocalApicMode::Extended),
             Mode::X2Apic);
 }
+
+TEST(LocalApicMode, X2ApicRegisterAndIcrEncoding) {
+  EXPECT_EQ(LocalApicMode::x2ApicMsr(0x20), 0x802U);
+  EXPECT_EQ(LocalApicMode::x2ApicMsr(0xB0), 0x80BU);
+  EXPECT_EQ(LocalApicMode::x2ApicMsr(0x3E0), 0x83EU);
+  EXPECT_EQ(LocalApicMode::x2ApicIcr(0x12000000, 0x000040FA), 0x12000040FAULL);
+}

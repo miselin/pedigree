@@ -105,10 +105,9 @@ bool VirtioScsiController::initialiseController() {
   ByteSet(m_Control.virtualAddress(), 0, TargetInfo::getPageSize());
   ByteSet(m_Data.virtualAddress(), 0, TargetInfo::getPageSize());
 
-  m_Irq = Machine::instance().getIrqManager()->registerPciIrqHandler(this, m_Pci,
-                                                                     IrqPolicy::pciIntxThreaded());
+  m_Irq = m_Transport.registerInterrupt(this);
   if (!m_Irq) {
-    ERROR("Virtio SCSI: could not register PCI INTx");
+    ERROR("Virtio SCSI: could not register PCI interrupt");
     return false;
   }
   if (!m_Transport.ready()) {

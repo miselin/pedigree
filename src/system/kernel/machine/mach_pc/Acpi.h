@@ -30,6 +30,8 @@
 #include "pedigree/kernel/utilities/new"
 
 #include "../../core/processor/x86_common/Multiprocessor.h"
+#include "AcpiDmar.h"
+#include "AcpiPciRouting.h"
 
 /** @addtogroup kernelmachinex86common
  * @{ */
@@ -52,6 +54,14 @@ class Acpi {
 
   uint8_t getRtcCenturyIndex() const {
     return m_bValid ? m_pFacp->cmosCenturyIndex : 0;
+  }
+
+  bool pciConfigurationAddress(uint8_t bus, uint64_t& address) const;
+  bool pciBusRange(uint8_t& first, uint8_t& last) const;
+  bool pciInterruptRoute(uint8_t slot, uint8_t pin, AcpiPciRouting::Route& route) const;
+
+  const AcpiDmar::Info* dmarInfo() const {
+    return m_bValid && m_DmarPresent ? &m_DmarInfo : nullptr;
   }
 
 #if MULTIPROCESSOR
@@ -112,6 +122,14 @@ class Acpi {
     uint32_t creatorRevision;
   } PACKED;
 
+  struct PciConfigurationRange {
+    uint64_t base;
+    uint16_t segment;
+    uint8_t firstBus;
+    uint8_t lastBus;
+    uint32_t reserved;
+  } PACKED;
+
   struct FixedACPIDescriptionTable {
     SystemDescriptionTableHeader header;
 
@@ -170,7 +188,7 @@ class Acpi {
   struct InterruptSourceOverride {
     uint8_t bus;
     uint8_t source;
-    uint8_t globalSystemInterrupt;
+    uint32_t globalSystemInterrupt;
     uint16_t flags;
   } PACKED;
 
@@ -188,6 +206,12 @@ class Acpi {
   MemoryRegion m_AcpiMemoryRegion;
   SystemDescriptionTableHeader* m_pRsdt;
   FixedACPIDescriptionTable* m_pFacp;
+  Vector<PciConfigurationRange> m_PciConfigurationRanges;
+  AcpiDmar::Info m_DmarInfo;
+  AcpiPciRouting::Route m_PciInterruptRoutes[32][4];
+  bool m_PciInterruptRoutesPresent = false;
+  bool m_DmarPresent = false;
+  bool m_DmarSeen = false;
   bool m_PowerOffValid = false;
   uint8_t m_SleepTypeA = 0;
   uint8_t m_SleepTypeB = 0;

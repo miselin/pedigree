@@ -4,10 +4,12 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/PciFunctionState.h"
+#include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/processor/types.h"
 
 class Device;
 class IoBase;
+class IrqHandler;
 
 namespace Virtio {
 
@@ -21,6 +23,7 @@ class EXPORTED_PUBLIC PciTransport {
   bool initialise();
   bool negotiate(uint64_t supportedFeatures, uint64_t requiredFeatures = 0);
   bool setupQueue(uint16_t index, Queue& queue);
+  irq_id_t registerInterrupt(IrqHandler* handler);
   bool ready();
   // A successful reset acknowledges DMA quiescence before buffers may be freed.
   bool reset();
@@ -49,6 +52,7 @@ class EXPORTED_PUBLIC PciTransport {
   bool locateCapabilities();
   bool readConfig(uint16_t offset, unsigned width, uint64_t& value);
   bool status(uint8_t bits);
+  bool configureMsix();
   bool isDmaActive() const {
     return m_DmaActive;
   }
@@ -68,6 +72,7 @@ class EXPORTED_PUBLIC PciTransport {
   bool m_Initialised;
   bool m_Negotiated;
   bool m_DmaActive;
+  bool m_UsingMsix;
 };
 
 }  // namespace Virtio

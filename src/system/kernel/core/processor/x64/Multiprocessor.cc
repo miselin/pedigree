@@ -30,6 +30,7 @@
 #include "InterruptManager.h"
 #include "SyscallManager.h"
 #include "gdt.h"
+#include "machine/mach_pc/LocalApic.h"
 #include "machine/mach_pc/Pc.h"
 
 void Multiprocessor::applicationProcessorStartup() {
@@ -39,6 +40,9 @@ void Multiprocessor::applicationProcessorStartup() {
 
   // Initialise this processor's interrupt handling
   X64InterruptManager::initialiseProcessor();
+
+  // INIT/SIPI can leave an AP in xAPIC mode even when the BSP inherited x2APIC.
+  Pc::instance().getLocalApic().prepareApplicationProcessor();
 
   // Signal the Bootstrap processor that this processor is started and the BSP
   // can continue to boot up other processors.

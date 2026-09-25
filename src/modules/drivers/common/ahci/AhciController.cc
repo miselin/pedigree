@@ -96,8 +96,8 @@ bool AhciController::initialiseController() {
     return false;
   auto& pci = PciBus::instance();
   PciFunctionState::State inherited;
-  if (!pci.inspectFunction(m_Pci, inherited)) {
-    ERROR("AHCI: unsupported PCI state (D0, valid capabilities and PIC INTx required)");
+  if (!pci.inspectFunction(m_Pci, inherited, false)) {
+    ERROR("AHCI: unsupported PCI state (D0 and valid capabilities required)");
     return false;
   }
   m_OriginalCommand = inherited.command;
@@ -171,10 +171,10 @@ bool AhciController::initialiseController() {
   if (!getNumChildren())
     return false;
   m_Registers->write32(m_Implemented, Is);
-  m_Irq = Machine::instance().getIrqManager()->registerPciIrqHandler(this, m_Pci,
-                                                                     IrqPolicy::pciIntxThreaded());
+  m_Irq = Machine::instance().getIrqManager()->registerPciMessageIrqHandler(
+      this, m_Pci, IrqPolicy::pciIntxThreaded());
   if (!m_Irq) {
-    ERROR("AHCI: could not register PCI INTx");
+    ERROR("AHCI: could not register PCI interrupt");
     return false;
   }
   {
@@ -204,7 +204,7 @@ bool AhciController::initialiseController() {
     disk->publishEndpoint();
     NOTICE("AHCI: SATA disk ready on port " << disk->port());
   }
-  NOTICE("AHCI: controller ready with " << getNumChildren() << " SATA disks, shared INTx");
+  NOTICE("AHCI: controller ready with " << getNumChildren() << " SATA disks");
   return true;
 }
 IrqDisposition AhciController::irq(irq_id_t) {
@@ -235,13 +235,17 @@ bool AhciController::identify(size_t port, uint16_t* words, bool interruptProbe)
 }
 bool AhciController::readWrite(size_t port, uint64_t lba, uint16_t sectors, void* buffer,
                                size_t bytes, bool writing) {
+  return readWrite(port, lba, sectors, buffer, bytes, writing, false);
+}
+bool AhciController::readWrite(size_t port, uint64_t lba, uint16_t sectors, void* buffer,
+                               size_t bytes, bool writing, bool cacheFill) {
   if (port >= 32 || !m_Ports[port] || !sectors ||
       bytes != static_cast<size_t>(sectors) * m_Ports[port]->sectorBytes() || lba >= (1ULL << 48) ||
       sectors > (1ULL << 48) - lba)
     return false;
   return port < 32 && m_Ports[port] &&
          m_Ports[port]->command(writing ? 0x35 : 0x25, lba, sectors, buffer, bytes, writing,
-                                m_Interrupts);
+                                m_Interrupts, false, cacheFill);
 }
 void AhciController::configureDisk(size_t port, size_t sectorBytes, size_t queueDepth) {
   if (port < 32 && m_Ports[port])

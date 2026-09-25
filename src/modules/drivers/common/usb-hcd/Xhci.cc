@@ -126,7 +126,7 @@ bool Xhci::initialiseController() {
 #endif
   auto& pci = PciBus::instance();
   PciFunctionState::State pciState{};
-  if (!pci.inspectFunction(m_Pci, pciState)) {
+  if (!pci.inspectFunction(m_Pci, pciState, false)) {
     ERROR("xHCI: unsupported inherited PCI function state");
     return false;
   }
@@ -227,8 +227,8 @@ bool Xhci::initialiseController() {
       return false;
   m_DeliveryThread =
       new Thread(Processor::information().getCurrentThread()->getParent(), deliveryWorker, this);
-  m_Irq = Machine::instance().getIrqManager()->registerPciIrqHandler(this, m_Pci,
-                                                                     IrqPolicy::pciIntxThreaded());
+  m_Irq = Machine::instance().getIrqManager()->registerPciMessageIrqHandler(
+      this, m_Pci, IrqPolicy::pciIntxThreaded());
   if (!m_Irq)
     return false;
   {
@@ -251,8 +251,8 @@ bool Xhci::initialiseController() {
     if (status & 1U)
       notifyPortLocked(port);
   }
-  NOTICE("xHCI: controller ready, " << Dec << m_PortCount << " ports, " << m_SlotCount
-                                    << " slots, shared INTx" << Hex);
+  NOTICE("xHCI: controller ready, " << Dec << m_PortCount << " ports, " << m_SlotCount << " slots"
+                                    << Hex);
   return true;
 }
 bool Xhci::command(Trb trb, uint8_t* returnedSlot) {

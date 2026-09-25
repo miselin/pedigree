@@ -328,6 +328,11 @@ set(TESTSUITE_SRCS
     testsuite/test-PciConfigAccess.cc
     testsuite/test-IntelPirq.cc
     testsuite/test-PciFunctionState.cc
+    testsuite/test-PciExtendedCapabilities.cc
+    testsuite/test-PciAer.cc
+    testsuite/test-PciSriov.cc
+    testsuite/test-AcpiDmar.cc
+    testsuite/test-AcpiPciRouting.cc
     testsuite/test-EhciLegacy.cc
     testsuite/test-EhciHandoff.cc
     testsuite/test-UsbStartup.cc

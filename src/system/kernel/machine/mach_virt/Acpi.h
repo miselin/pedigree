@@ -9,15 +9,18 @@ struct VirtAcpiInfo {
   VirtPciWindow pciWindows[8];
   size_t pciWindowCount;
   uint32_t pciIrq[32][4];
+  VirtMsiController msiController;
   uintptr_t uart;
   uintptr_t rtc;
   uintptr_t gicDistributor;
   uintptr_t gicCpu;
   uintptr_t gicRedistributor;
   uint32_t gicVersion;
+  uint32_t msiItsId;
   uint32_t uartIrq;
   uint32_t physicalTimerIrq;
   uint32_t virtualTimerIrq;
+  bool pciMsiIdentity;
   bool psciAvailable;
   bool psciHvc;
 };

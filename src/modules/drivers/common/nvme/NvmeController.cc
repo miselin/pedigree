@@ -21,11 +21,13 @@ NvmeController::NvmeController(Device* pci)
       m_ReadyMilliseconds(500),
       m_MaxTransfer(MaxTransfer),
       m_Irq(0),
+      m_IoIrq(0),
       m_OriginalCommand(0),
       m_PciChanged(false),
       m_HardwareOwned(false),
       m_DmaInstalled(false),
       m_Interrupts(false),
+      m_BatchInitialising(false),
       m_Failed(false),
       m_Stopping(false),
       m_Shutdown(false),
@@ -67,23 +69,24 @@ void NvmeController::failController() {
     m_Admin.stop();
     m_Io.stop();
   }
-  // Callers only lend CPU buffers. Queue and bounce pages remain ours until
-  // the controller acknowledges reset, including commands with lost completions.
+  // A cache fill may use a page as a DMA target. Stop the controller before
+  // the failed fill can discard that page, even if its completion was lost.
   if (!disable())
     panic("NVMe: controller cannot stop DMA; refusing to release memory");
   m_DmaInstalled = false;
   m_Failed = true;
 }
 bool NvmeController::command(NvmeQueue& queue, Command request, void* buffer, size_t bytes,
-                             bool writing, uint32_t* result, bool interruptProbe) {
+                             bool writing, uint32_t* result, bool interruptProbe, bool cacheFill,
+                             physical_uintptr_t directWritePhysical) {
   bool interrupts;
   {
     LockGuard<Mutex> irqLock(m_IrqLock);
     interrupts = m_Interrupts;
   }
   const size_t timeout = (&queue == &m_Io && (request.opcode & 255U) == 0) ? 120 : 30;
-  const auto status =
-      queue.execute(request, buffer, bytes, writing, interrupts, timeout, result, interruptProbe);
+  const auto status = queue.execute(request, buffer, bytes, writing, interrupts, timeout, result,
+                                    interruptProbe, cacheFill, directWritePhysical);
   if (status == NvmeQueue::Result::TransportError)
     failController();
   return status == NvmeQueue::Result::Success;
@@ -105,8 +108,8 @@ bool NvmeController::initialiseController() {
     return false;
   auto& pci = PciBus::instance();
   PciFunctionState::State inherited;
-  if (!pci.inspectFunction(m_Pci, inherited)) {
-    ERROR("NVMe: unsupported PCI state (D0, valid capabilities and PIC INTx required)");
+  if (!pci.inspectFunction(m_Pci, inherited, false)) {
+    ERROR("NVMe: unsupported PCI state (D0 and valid capabilities required)");
     return false;
   }
   m_OriginalCommand = inherited.command;
@@ -190,21 +193,44 @@ bool NvmeController::initialiseController() {
   while (length && m_Model[length - 1] == ' ')
     --length;
   m_Model[length] = 0;
-  if (!createIoQueue())
+  IrqManager* irqManager = Machine::instance().getIrqManager();
+  IrqHandler* handlers[2] = {this, this};
+  irq_id_t vectors[2] = {};
+  bool fallbackSafe = true;
+  {
+    LockGuard<Mutex> irqLock(m_IrqLock);
+    m_BatchInitialising = true;
+  }
+  if (irqManager->registerPciMsixIrqHandlers(m_Pci, handlers, 2, vectors, fallbackSafe)) {
+    m_Irq = vectors[0];
+    m_IoIrq = vectors[1];
+    NOTICE("NVMe: MSI-X admin/IO vectors " << Dec << m_Irq << "/" << m_IoIrq << Hex);
+  } else {
+    LockGuard<Mutex> irqLock(m_IrqLock);
+    m_BatchInitialising = false;
+    if (!fallbackSafe) {
+      ERROR("NVMe: MSI-X setup failed without a safe single-vector fallback");
+      return false;
+    }
+  }
+  if (!createIoQueue(m_IoIrq ? 1 : 0)) {
     return false;
+  }
   const uint32_t maximumId = controller[516] | (uint32_t{controller[517]} << 8) |
                              (uint32_t{controller[518]} << 16) | (uint32_t{controller[519]} << 24);
   if (!maximumId || !discoverNamespaces(maximumId) || !getNumChildren())
     return false;
-  m_Irq = Machine::instance().getIrqManager()->registerPciIrqHandler(this, m_Pci,
-                                                                     IrqPolicy::pciIntxThreaded());
   if (!m_Irq) {
-    ERROR("NVMe: could not register PCI INTx");
+    m_Irq = irqManager->registerPciMessageIrqHandler(this, m_Pci, IrqPolicy::pciIntxThreaded());
+  }
+  if (!m_Irq) {
+    ERROR("NVMe: could not register PCI interrupt");
     return false;
   }
   {
     LockGuard<Mutex> irqLock(m_IrqLock);
     m_Interrupts = true;
+    m_BatchInitialising = false;
     if (!pci.updateCommand(m_Pci, 0x400U, 6U))
       return false;
     m_Registers->write32(1, InterruptMaskClear);
@@ -215,13 +241,22 @@ bool NvmeController::initialiseController() {
     ERROR("NVMe: interrupt delivery probe failed");
     return false;
   }
+  if (m_IoIrq) {
+    Command flush{};
+    flush.nsid = static_cast<NvmeDisk*>(getChild(0))->namespaceId();
+    if (!InterruptProbe::run([&] { return command(m_Io, flush, nullptr, 0, false, nullptr, true); },
+                             [&] { return m_Io.interruptCompletions(); })) {
+      ERROR("NVMe: I/O vector delivery probe failed");
+      return false;
+    }
+  }
   for (size_t i = 0; i < getNumChildren(); ++i)
     static_cast<NvmeDisk*>(getChild(i))->publishEndpoint();
   NOTICE("NVMe: '" << m_Model << "' ready, " << Dec << getNumChildren() << " namespaces, "
-                   << depth - 1U << " command slots, shared INTx" << Hex);
+                   << depth - 1U << " command slots" << Hex);
   return true;
 }
-bool NvmeController::createIoQueue() {
+bool NvmeController::createIoQueue(uint16_t interruptVector) {
   Command request{};
   request.opcode = 9;
   request.cdw10 = 7;
@@ -231,7 +266,7 @@ bool NvmeController::createIoQueue() {
   request.opcode = 5;
   request.prp1 = m_Io.completionAddress();
   request.cdw10 = 1U | ((m_Io.depth() - 1U) << 16);
-  request.cdw11 = 3;
+  request.cdw11 = 3U | (uint32_t(interruptVector) << 16);
   if (!command(m_Admin, request))
     return false;
   request = {};
@@ -275,6 +310,11 @@ NvmeDisk* NvmeController::findNamespace(uint32_t nsid) {
 }
 bool NvmeController::readWrite(uint32_t nsid, uint64_t lba, uint32_t blocks, void* buffer,
                                size_t bytes, bool writing) {
+  return readWrite(nsid, lba, blocks, buffer, bytes, writing, false);
+}
+bool NvmeController::readWrite(uint32_t nsid, uint64_t lba, uint32_t blocks, void* buffer,
+                               size_t bytes, bool writing, bool cacheFill,
+                               physical_uintptr_t directWritePhysical) {
   OperationBarrier::Lease lease;
   if (!m_Commands.tryAcquire(lease))
     return false;
@@ -291,7 +331,8 @@ bool NvmeController::readWrite(uint32_t nsid, uint64_t lba, uint32_t blocks, voi
   request.cdw10 = lba;
   request.cdw11 = lba >> 32;
   request.cdw12 = blocks - 1;
-  return command(m_Io, request, buffer, bytes, writing);
+  return command(m_Io, request, buffer, bytes, writing, nullptr, false, cacheFill,
+                 directWritePhysical);
 }
 bool NvmeController::flush(uint32_t nsid) {
   OperationBarrier::Lease lease;
@@ -303,12 +344,28 @@ bool NvmeController::flush(uint32_t nsid) {
   request.nsid = nsid;
   return command(m_Io, request);
 }
-IrqDisposition NvmeController::irq(irq_id_t) {
+IrqDisposition NvmeController::irq(irq_id_t id) {
   LockGuard<Mutex> irqLock(m_IrqLock);
   if (m_Stopping)
     return IrqDisposition::Quiesced;
+  if (m_BatchInitialising) {
+    m_Admin.complete(true);
+    m_Io.complete(true);
+    return IrqDisposition::Handled;
+  }
   if (!m_Interrupts)
     return IrqDisposition::NotHandled;
+  if (m_IoIrq) {
+    if (id == m_Irq) {
+      m_Admin.complete(true);
+      return IrqDisposition::Handled;
+    }
+    if (id == m_IoIrq) {
+      m_Io.complete(true);
+      return IrqDisposition::Handled;
+    }
+    return IrqDisposition::NotHandled;
+  }
   const bool admin = m_Admin.complete(true);
   const bool io = m_Io.complete(true);
   return admin || io ? IrqDisposition::Handled : IrqDisposition::NotHandled;
@@ -332,6 +389,10 @@ void NvmeController::shutdown() {
   if (m_Irq && !Machine::instance().getIrqManager()->unregisterHandler(m_Irq, this))
     panic("NVMe: synchronous interrupt retirement failed");
   m_Irq = 0;
+  if (m_IoIrq && !Machine::instance().getIrqManager()->unregisterHandler(m_IoIrq, this)) {
+    panic("NVMe: synchronous I/O vector retirement failed");
+  }
+  m_IoIrq = 0;
   m_Admin.stop();
   m_Io.stop();
   if (m_DmaInstalled && !m_Failed && (m_Registers->read32(Status) & 1U)) {

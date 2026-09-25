@@ -129,10 +129,11 @@ class EXPORTED_PUBLIC IrqHandlerRegistry {
    * Handled dominating NotHandled.
    */
   bool dispatchHard(uint8_t irq, InterruptState& state, HardIrqDisposition& disposition,
-                    HardIrqHandler* onlyHandler = nullptr, size_t dispatchGeneration = 0);
+                    HardIrqHandler* onlyHandler = nullptr, size_t dispatchGeneration = 0,
+                    irq_id_t callbackId = 0);
   bool dispatchHard(uint8_t irq, InterruptState& state, HardIrqDisposition& disposition,
                     HardIrqHandler* onlyHandler, size_t dispatchGeneration,
-                    AdmissionCutoff admissionCutoff);
+                    AdmissionCutoff admissionCutoff, irq_id_t callbackId = 0);
 
   /** Reports a sticky KeepMasked result from any live hard source. */
   bool hardLineQuarantined(uint8_t irq) const;
@@ -192,9 +193,12 @@ class EXPORTED_PUBLIC IrqHandlerRegistry {
    * callback which actually handled the occurrence.
    */
   bool dispatchThreaded(uint8_t irq, size_t dispatchGeneration, ThreadedDispatchResult& result,
-                        IrqHandler* onlyHandler = nullptr);
+                        IrqHandler* onlyHandler = nullptr, irq_id_t callbackId = 0);
 
   size_t handlerCount(uint8_t irq);
+
+  /** Returns whether this handler is currently registered on the line. */
+  bool containsHandler(uint8_t irq, IrqHandlerBase* handler) const;
 
   /** Returns the delivery type of an enabled physical line. */
   LineMode lineMode(uint8_t irq);

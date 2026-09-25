@@ -127,6 +127,8 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   // ready to process our request.
   virtual uint64_t doRead(uint64_t location);
   virtual uint64_t doWrite(uint64_t location);
+  virtual uint64_t doWriteDirectPhysical(uint64_t location, uintptr_t page,
+                                         physical_uintptr_t physical);
   virtual uint64_t doSync(uint64_t location);
   virtual PagingStatus doPagingTransfer(PagingOperation operation, uint64_t offset, void* page);
 
@@ -162,6 +164,9 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   void releaseView(uint64_t token, bool writable) override;
 
   virtual bool supportsBufferTransfers() const {
+    return false;
+  }
+  virtual bool supportsDirectCacheWrite() const {
     return false;
   }
   virtual bool transferBuffer(uint64_t location, void* buffer, size_t length, bool writing);

@@ -59,6 +59,8 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
   /** The default constructor */
   inline LocalApic()
       : m_IoSpace("Local APIC"),
+        m_PhysicalAddress(0),
+        m_X2Apic(false),
         m_Handlers(),
         m_BusFrequency(0),
         m_TimerState(),
@@ -79,6 +81,8 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
    *processor's Local APIC have been initialised successfully, false otherwise
    */
   bool initialise(uint64_t physicalAddress) INITIALISATION_ONLY;
+  /** Restore the selected APIC mode after an application processor's INIT/SIPI. */
+  void prepareApplicationProcessor() INITIALISATION_ONLY;
   /** Initialise the local APIC on the current processor
    *\return true, if this processor's Local APIC has been initialised
    *successfully. LINT0 is configured for the virtual-wire PIC role; LINT1 is
@@ -196,6 +200,8 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
   /** Wait for the local interrupt-command register to become idle. */
   bool waitForIcrIdle();
   bool submitIcr(uint32_t high, uint32_t low);
+  uint32_t readRegister(uint32_t offset);
+  void writeRegister(uint32_t value, uint32_t offset);
 
   ProcessorControlState processorControlState() const;
   bool acquireProcessorControlOwner(bool acceptRetained, ProcessorControlOwnership& ownership);
@@ -225,6 +231,8 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
 
   /** The local APIC memory-mapped I/O space */
   MemoryMappedIo m_IoSpace;
+  uint64_t m_PhysicalAddress;
+  bool m_X2Apic;
 
   /** Atomically published timer handlers, tracked per processor. */
   LocalApicTimerHandlerSlots m_Handlers;

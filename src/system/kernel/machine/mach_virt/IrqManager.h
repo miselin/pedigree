@@ -14,6 +14,8 @@
 #include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
 #include "pedigree/kernel/processor/state_forward.h"
 
+#include "GicIts.h"
+
 class VirtIrqManager : public IrqManager {
  public:
   static VirtIrqManager& instance();
@@ -27,10 +29,16 @@ class VirtIrqManager : public IrqManager {
                                  const IrqPolicy& policy) override;
   irq_id_t registerPciIrqHandler(IrqHandler* handler, Device* device,
                                  const IrqPolicy& policy) override;
+  irq_id_t registerPciMessageIrqHandler(IrqHandler* handler, Device* device,
+                                        const IrqPolicy& intxFallbackPolicy) override;
+  bool registerPciMsixIrqHandlers(Device* device, IrqHandler* const* handlers, size_t count,
+                                  irq_id_t* ids, bool& fallbackSafe) override;
   irq_id_t registerHardIsaIrqHandler(uint8_t irq, HardIrqHandler* handler,
                                      const IrqPolicy& policy) override;
   irq_id_t registerHardPciIrqHandler(HardIrqHandler* handler, Device* device,
                                      const IrqPolicy& policy) override;
+  irq_id_t registerHardPciMessageIrqHandler(HardIrqHandler* handler, Device* device,
+                                            const IrqPolicy& intxFallbackPolicy) override;
   irq_id_t registerSchedulerIrqHandler(uint8_t irq, SchedulerIrqHandler* handler,
                                        const IrqPolicy& policy) override;
   bool unregisterSchedulerIrqHandler(irq_id_t id, SchedulerIrqHandler* handler) override;
@@ -39,7 +47,7 @@ class VirtIrqManager : public IrqManager {
 
  private:
   static constexpr size_t MaxIrqs = 256;
-  static constexpr size_t MaxPciLines = 4;
+  static constexpr size_t MaxPciLines = 16;
 
   struct PciLine {
     uint32_t irq;
@@ -49,17 +57,29 @@ class VirtIrqManager : public IrqManager {
     bool removing;
     bool quarantined;
     bool hard;
+    bool reserved;
+    bool message;
+    bool msix;
+    bool lpi;
+    uint8_t msixIndex;
+    uint32_t deviceId;
+    Device* device;
   };
 
   VirtIrqManager();
   static void dispatchPciLine(void* context, uint8_t line, size_t cookie);
   irq_id_t registerPciHandler(IrqHandlerBase* handler, Device* device, const IrqPolicy& policy,
                               bool hard);
+  irq_id_t registerPciMessageHandler(IrqHandlerBase* handler, Device* device, bool hard,
+                                     bool& allowFallback);
   size_t pciLine(uint32_t irq) const;
+  uint8_t pciRegistryLine(size_t slot) const;
   uint32_t acknowledge();
   void complete(uint32_t acknowledgeValue);
-  void setEnabled(uint32_t irq, bool enabled);
+  bool setEnabled(uint32_t irq, bool enabled);
   void setLevel(uint32_t irq);
+  void setEdge(uint32_t irq);
+  bool initialiseMsi();
   bool initialiseV2();
   bool initialiseV3();
 
@@ -69,7 +89,13 @@ class VirtIrqManager : public IrqManager {
   ThreadedIrqDispatcher m_PciDispatcher;
   Spinlock m_PciLock;
   PciLine m_PciLines[MaxPciLines];
+  GicIts m_Its;
   uint32_t m_Version;
+  uint32_t m_IrqCount;
+  uint32_t m_MsiFirst;
+  uint32_t m_MsiLast;
+  uint64_t m_MsiAddress;
+  bool m_MsiReady;
   bool m_Initialised;
 
   static VirtIrqManager m_Instance;

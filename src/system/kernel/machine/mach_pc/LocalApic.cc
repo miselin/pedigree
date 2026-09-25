@@ -77,6 +77,14 @@ static constexpr size_t IcrDeliveryPollLimit = 100000;
 static constexpr size_t ProcessorControlPollLimit = 10000000;
 static constexpr size_t TlbShootdownPollLimit = 10000000;
 
+[[noreturn]] static void haltInvalidApicMode(const char* reason) {
+  __asm__ volatile("cli" ::: "memory");
+  ERROR_NOLOCK("Local APIC: " << reason);
+  for (;;) {
+    __asm__ volatile("hlt");
+  }
+}
+
 bool LocalApic::initialise(uint64_t physicalAddress) {
   // Detect local APIC presence
   uint32_t eax, ebx, ecx, edx;
@@ -86,21 +94,35 @@ bool LocalApic::initialise(uint64_t physicalAddress) {
     return false;
   }
 
+  const uint64_t apicBase = Processor::readMachineSpecificRegister(LocalApicMode::BaseMsr);
+  m_X2Apic = LocalApicMode::decode(apicBase) == LocalApicMode::Mode::X2Apic;
+  m_PhysicalAddress = physicalAddress;
+
   // Some checks
   if (check(physicalAddress) == false)
     return false;
 
+  if (m_X2Apic && (ecx & (1U << 21)) == 0) {
+    haltInvalidApicMode("x2APIC mode inherited without CPU support");
+  }
+  if (m_X2Apic && readRegister(LAPIC_REG_ID) > 0xFF) {
+    haltInvalidApicMode("x2APIC ID exceeds the current 8-bit processor topology");
+  }
+  NOTICE("Local APIC: " << (m_X2Apic ? "x2APIC" : "xAPIC") << " mode");
+
   // Allocate the local APIC memory-mapped I/O space
-  PhysicalMemoryManager& physicalMemoryManager = PhysicalMemoryManager::instance();
-  if (physicalMemoryManager.allocateRegion(
-          m_IoSpace, 1,
-          PhysicalMemoryManager::continuous | PhysicalMemoryManager::nonRamMemory |
-              PhysicalMemoryManager::force,
-          VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write |
-              VirtualAddressSpace::CacheDisable,
-          physicalAddress) == false) {
-    ERROR("Local APIC: Could not allocate the memory region");
-    return false;
+  if (!m_X2Apic) {
+    PhysicalMemoryManager& physicalMemoryManager = PhysicalMemoryManager::instance();
+    if (physicalMemoryManager.allocateRegion(
+            m_IoSpace, 1,
+            PhysicalMemoryManager::continuous | PhysicalMemoryManager::nonRamMemory |
+                PhysicalMemoryManager::force,
+            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write |
+                VirtualAddressSpace::CacheDisable,
+            physicalAddress) == false) {
+      ERROR("Local APIC: Could not allocate the memory region");
+      return false;
+    }
   }
 
   // Register the timer vector.
@@ -124,24 +146,54 @@ bool LocalApic::initialise(uint64_t physicalAddress) {
   return initialiseProcessor();
 }
 
+void LocalApic::prepareApplicationProcessor() {
+  const uint64_t apicBase = Processor::readMachineSpecificRegister(LocalApicMode::BaseMsr);
+  if (m_X2Apic) {
+    uint32_t eax, ebx, ecx, edx;
+    Processor::cpuid(1, 0, eax, ebx, ecx, edx);
+    if ((ecx & (1U << 21)) == 0) {
+      haltInvalidApicMode("application processor does not support x2APIC");
+    }
+    if (LocalApicMode::decode(apicBase) == LocalApicMode::Mode::XApic) {
+      if ((apicBase & 0xFFFFFFFFFFFFF000ULL) != m_PhysicalAddress) {
+        haltInvalidApicMode("application processor has a different APIC base");
+      }
+      Processor::writeMachineSpecificRegister(LocalApicMode::BaseMsr,
+                                              apicBase | LocalApicMode::Extended);
+    }
+  }
+
+  if (!check(m_PhysicalAddress)) {
+    haltInvalidApicMode("application processor's local APIC is unavailable");
+  }
+  if (m_X2Apic && readRegister(LAPIC_REG_ID) > 0xFF) {
+    haltInvalidApicMode("x2APIC ID exceeds the current 8-bit processor topology");
+  }
+  NOTICE("Local APIC: processor #" << Dec << static_cast<size_t>(getId())
+                                   << (m_X2Apic ? " x2APIC" : " xAPIC") << " mode" << Hex);
+}
+
 bool LocalApic::initialiseProcessor() {
   // Some checks
-  if (check(m_IoSpace.physicalAddress()) == false)
+  if (check(m_PhysicalAddress) == false)
     return false;
+  if (m_X2Apic && readRegister(LAPIC_REG_ID) > 0xFF) {
+    haltInvalidApicMode("x2APIC ID exceeds the current 8-bit processor topology");
+  }
 
   // Enable the Local APIC and set the spurious interrupt vector
-  uint32_t tmp = m_IoSpace.read32(LAPIC_REG_SPURIOUS_INT);
-  m_IoSpace.write32((tmp & 0xFFFFFE00) | 0x100 | SPURIOUS_VECTOR, LAPIC_REG_SPURIOUS_INT);
+  uint32_t tmp = readRegister(LAPIC_REG_SPURIOUS_INT);
+  writeRegister((tmp & 0xFFFFFE00) | 0x100 | SPURIOUS_VECTOR, LAPIC_REG_SPURIOUS_INT);
 
   const uint64_t apicBase =
       Processor::readMachineSpecificRegister(LocalApicLint0Policy::ApicBaseMsr);
-  tmp = m_IoSpace.read32(LAPIC_REG_LVT_LINT0);
+  tmp = readRegister(LAPIC_REG_LVT_LINT0);
   const uint32_t lint0 = LocalApicLint0Policy::configuredValue(tmp, apicBase);
-  m_IoSpace.write32(lint0, LAPIC_REG_LVT_LINT0);
-  const uint32_t lint0Readback = m_IoSpace.read32(LAPIC_REG_LVT_LINT0);
+  writeRegister(lint0, LAPIC_REG_LVT_LINT0);
+  const uint32_t lint0Readback = readRegister(LAPIC_REG_LVT_LINT0);
   if (!LocalApicLint0Policy::matchesRole(lint0Readback, apicBase)) {
-    m_IoSpace.write32(lint0Readback | LocalApicLint0Policy::Masked, LAPIC_REG_LVT_LINT0);
-    const uint32_t maskedReadback = m_IoSpace.read32(LAPIC_REG_LVT_LINT0);
+    writeRegister(lint0Readback | LocalApicLint0Policy::Masked, LAPIC_REG_LVT_LINT0);
+    const uint32_t maskedReadback = readRegister(LAPIC_REG_LVT_LINT0);
     if (!(maskedReadback & LocalApicLint0Policy::Masked)) {
       FATAL("Local APIC: failed to mask an invalid LINT0 route");
     }
@@ -149,21 +201,21 @@ bool LocalApic::initialiseProcessor() {
   }
 
   // Set the task priority to 0
-  tmp = m_IoSpace.read32(LAPIC_REG_TASK_PRIORITY);
-  m_IoSpace.write32(tmp & 0xFFFFFF00, LAPIC_REG_TASK_PRIORITY);
+  tmp = readRegister(LAPIC_REG_TASK_PRIORITY);
+  writeRegister(tmp & 0xFFFFFF00, LAPIC_REG_TASK_PRIORITY);
 
   // No error-vector handler exists yet, so keep this source masked rather
   // than routing an interrupt that cannot be acknowledged safely.
-  tmp = m_IoSpace.read32(LAPIC_REG_LVT_ERROR);
-  m_IoSpace.write32((tmp & 0xFFFEEF00) | LAPIC_MASKED | ERROR_VECTOR, LAPIC_REG_LVT_ERROR);
+  tmp = readRegister(LAPIC_REG_LVT_ERROR);
+  writeRegister((tmp & 0xFFFEEF00) | LAPIC_MASKED | ERROR_VECTOR, LAPIC_REG_LVT_ERROR);
 
   if (!m_BusFrequency) {
     // Divide by 16
-    m_IoSpace.write32(0x3, LAPIC_REG_DIVIDE_CONFIG);
+    writeRegister(0x3, LAPIC_REG_DIVIDE_CONFIG);
 
     // Set the maximum count so we can calculate the frequency without this
     // rolling over.
-    m_IoSpace.write32(0xFFFFFFFF, LAPIC_REG_INITIAL_COUNT);
+    writeRegister(0xFFFFFFFF, LAPIC_REG_INITIAL_COUNT);
 
     // Measure the delay with the RTC-calibrated monotonic clock instead of
     // assuming a platform-specific port-0x80 delay.
@@ -172,7 +224,7 @@ bool LocalApic::initialiseProcessor() {
       uint8_t a = 0;
       __asm__ __volatile__("outb %0, %1" ::"a"(a), "Nd"(0x80));
     }
-    uint32_t out = m_IoSpace.read32(LAPIC_REG_CURRENT_COUNT);
+    uint32_t out = readRegister(LAPIC_REG_CURRENT_COUNT);
 
     uint32_t ticks = 0xFFFFFFFFU - out;
     const Time::Timestamp calibrationElapsed = Time::getTicks() - calibrationStart;
@@ -194,13 +246,13 @@ bool LocalApic::initialiseProcessor() {
   m_TimerState[getId()] = {0, false, 0};
 
   // Set the LVT timer register.
-  m_IoSpace.write32(LAPIC_TIMER_PERIODIC | TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
+  writeRegister(LAPIC_TIMER_PERIODIC | TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
 
   // Initialise the intial-count register
-  m_IoSpace.write32(m_BusFrequency / INITIAL_HZ, LAPIC_REG_INITIAL_COUNT);
+  writeRegister(m_BusFrequency / INITIAL_HZ, LAPIC_REG_INITIAL_COUNT);
 
   // Initialise the divisor register. (Divide by 16)
-  m_IoSpace.write32(0x3, LAPIC_REG_DIVIDE_CONFIG);
+  writeRegister(0x3, LAPIC_REG_DIVIDE_CONFIG);
 
   return true;
 }
@@ -245,14 +297,14 @@ bool LocalApic::armDeadline(uint64_t absoluteMonotonicNs) {
   // reevaluates its absolute deadline at that interrupt and arms another
   // chunk as needed.
   if (!timer.oneShot) {
-    m_IoSpace.write32(LAPIC_MASKED | TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
-    m_IoSpace.write32(0, LAPIC_REG_INITIAL_COUNT);
+    writeRegister(LAPIC_MASKED | TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
+    writeRegister(0, LAPIC_REG_INITIAL_COUNT);
     timer.oneShot = true;
   }
-  m_IoSpace.write32(TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
+  writeRegister(TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
   // Start the countdown only after the vector is unmasked. A short count can
   // otherwise expire while the LVT is still masked under TCG.
-  m_IoSpace.write32(initialCount, LAPIC_REG_INITIAL_COUNT);
+  writeRegister(initialCount, LAPIC_REG_INITIAL_COUNT);
   timer.armedDeadlineNs = absoluteMonotonicNs;
 
   Processor::setInterrupts(restoreInterrupts);
@@ -269,8 +321,8 @@ void LocalApic::disarm() {
   }
   timer.oneShot = true;
   timer.armedDeadlineNs = 0;
-  m_IoSpace.write32(LAPIC_MASKED | TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
-  m_IoSpace.write32(0, LAPIC_REG_INITIAL_COUNT);
+  writeRegister(LAPIC_MASKED | TIMER_VECTOR, LAPIC_REG_LVT_TIMER);
+  writeRegister(0, LAPIC_REG_INITIAL_COUNT);
 
   Processor::setInterrupts(restoreInterrupts);
 }
@@ -937,12 +989,15 @@ LocalApic::ProcessorControlResult LocalApic::haltAllOtherProcessors(size_t expec
 }
 
 bool LocalApic::waitForIcrIdle() {
+  if (m_X2Apic) {
+    return true;
+  }
   for (size_t poll = 0; poll < IcrDeliveryPollLimit; ++poll) {
-    if ((m_IoSpace.read32(LAPIC_REG_INT_CMD_LOW) & 0x1000) == 0)
+    if ((readRegister(LAPIC_REG_INT_CMD_LOW) & 0x1000) == 0)
       return true;
     Processor::pause();
   }
-  return (m_IoSpace.read32(LAPIC_REG_INT_CMD_LOW) & 0x1000) == 0;
+  return (readRegister(LAPIC_REG_INT_CMD_LOW) & 0x1000) == 0;
 }
 
 bool LocalApic::submitIcr(uint32_t high, uint32_t low) {
@@ -951,9 +1006,14 @@ bool LocalApic::submitIcr(uint32_t high, uint32_t low) {
 
   bool submitted = waitForIcrIdle();
   if (submitted) {
-    m_IoSpace.write32(high, LAPIC_REG_INT_CMD_HIGH);
-    m_IoSpace.write32(low, LAPIC_REG_INT_CMD_LOW);
-    submitted = waitForIcrIdle();
+    if (m_X2Apic) {
+      Processor::writeMachineSpecificRegister(LocalApicMode::X2ApicIcrMsr,
+                                              LocalApicMode::x2ApicIcr(high, low));
+    } else {
+      writeRegister(high, LAPIC_REG_INT_CMD_HIGH);
+      writeRegister(low, LAPIC_REG_INT_CMD_LOW);
+      submitted = waitForIcrIdle();
+    }
   }
 
   Processor::setInterrupts(transaction.restoreInterrupts());
@@ -961,23 +1021,17 @@ bool LocalApic::submitIcr(uint32_t high, uint32_t low) {
 }
 
 uint8_t LocalApic::getId() {
-  return ((m_IoSpace.read32(LAPIC_REG_ID) >> 24) & 0xFF);
+  const uint32_t id = readRegister(LAPIC_REG_ID);
+  return m_X2Apic ? id : (id >> 24) & 0xFF;
 }
 
 bool LocalApic::check(uint64_t physicalAddress) {
   const uint64_t apicBase = Processor::readMachineSpecificRegister(LocalApicMode::BaseMsr);
   const LocalApicMode::Mode mode = LocalApicMode::decode(apicBase);
-  // x2APIC disables this backend's MMIO interface. Its inherited interrupt
-  // routing cannot safely be treated as an ordinary PIC/PIT fallback.
-  if (mode == LocalApicMode::Mode::X2Apic || mode == LocalApicMode::Mode::Invalid) {
-    __asm__ volatile("cli" ::: "memory");
-    if (mode == LocalApicMode::Mode::X2Apic)
-      ERROR_NOLOCK("Local APIC: inherited x2APIC mode is unsupported");
-    else
-      ERROR_NOLOCK("Local APIC: invalid inherited APIC mode");
-    // panic() sends stop IPIs when APs exist, which would use the forbidden MMIO.
-    for (;;)
-      __asm__ volatile("hlt");
+  // An invalid or changed inherited mode cannot use either register backend.
+  if (mode == LocalApicMode::Mode::Invalid || (mode == LocalApicMode::Mode::X2Apic) != m_X2Apic) {
+    // panic() sends stop IPIs, which could use the wrong register backend.
+    haltInvalidApicMode("inherited APIC mode changed or is invalid");
   }
   if (mode == LocalApicMode::Mode::Disabled) {
     ERROR("Local APIC: Disabled");
@@ -985,12 +1039,27 @@ bool LocalApic::check(uint64_t physicalAddress) {
   }
 
   // Check Local APIC base address
-  if ((apicBase & 0xFFFFFF000ULL) != physicalAddress) {
+  if ((apicBase & 0xFFFFFFFFFFFFF000ULL) != physicalAddress) {
     ERROR("Local APIC: Wrong physical address");
     return false;
   }
 
   return true;
+}
+
+uint32_t LocalApic::readRegister(uint32_t offset) {
+  if (m_X2Apic) {
+    return Processor::readMachineSpecificRegister(LocalApicMode::x2ApicMsr(offset));
+  }
+  return m_IoSpace.read32(offset);
+}
+
+void LocalApic::writeRegister(uint32_t value, uint32_t offset) {
+  if (m_X2Apic) {
+    Processor::writeMachineSpecificRegister(LocalApicMode::x2ApicMsr(offset), value);
+  } else {
+    m_IoSpace.write32(value, offset);
+  }
 }
 
 void LocalApic::interrupt(size_t nInterruptNumber, InterruptState& state) {
@@ -1062,7 +1131,7 @@ void LocalApic::interrupt(size_t nInterruptNumber, InterruptState& state) {
 
 void LocalApic::ack() {
   // Send EOI.
-  m_IoSpace.write32(0x00000000, LAPIC_REG_EOI);
+  writeRegister(0, LAPIC_REG_EOI);
 }
 
 #endif

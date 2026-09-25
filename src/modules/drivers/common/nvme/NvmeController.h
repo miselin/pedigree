@@ -39,12 +39,16 @@ class EXPORTED_PUBLIC NvmeController final : public ScsiController, public IrqHa
   }
 
  private:
+  friend class NvmeDisk;
   bool waitReady(bool ready);
   bool disable();
   void failController();
   bool command(NvmeQueue& queue, Nvme::Command command, void* buffer = nullptr, size_t bytes = 0,
-               bool writing = false, uint32_t* result = nullptr, bool interruptProbe = false);
-  bool createIoQueue();
+               bool writing = false, uint32_t* result = nullptr, bool interruptProbe = false,
+               bool cacheFill = false, physical_uintptr_t directWritePhysical = 0);
+  bool readWrite(uint32_t nsid, uint64_t lba, uint32_t blocks, void* buffer, size_t bytes,
+                 bool writing, bool cacheFill, physical_uintptr_t directWritePhysical = 0);
+  bool createIoQueue(uint16_t interruptVector);
   bool discoverNamespaces(uint32_t maximumId);
   NvmeDisk* findNamespace(uint32_t nsid);
   Device* m_Pci;
@@ -58,11 +62,13 @@ class EXPORTED_PUBLIC NvmeController final : public ScsiController, public IrqHa
   size_t m_ReadyMilliseconds;
   size_t m_MaxTransfer;
   irq_id_t m_Irq;
+  irq_id_t m_IoIrq;
   uint16_t m_OriginalCommand;
   bool m_PciChanged;
   bool m_HardwareOwned;
   bool m_DmaInstalled;
   bool m_Interrupts;
+  bool m_BatchInitialising;
   bool m_Failed;
   bool m_Stopping;
   bool m_Shutdown;

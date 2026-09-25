@@ -158,13 +158,13 @@ bool writeRange(AhciDisk& disk, const Range& range) {
     pageOffsets[viewIndex] = offset;
     for (size_t i = 0; i < view.size(); ++i)
       view[i] = pattern(offset + i, WriteSeed);
-    // sync() retains a separate cache reference and checks write plus FLUSH.
-    if (!disk.sync(offset, false))
+    // Keep one legacy single-page flush covered while this view is writable.
+    if (!viewIndex && !disk.sync(offset, false))
       synced = false;
     offset += view.size();
   }
   disk.unpinViews(range.offset, views);
-  if (!synced || !disk.syncAll())
+  if (!synced || !disk.syncPages(pageOffsets, count) || !disk.syncAll())
     return fail("checked disk sync");
   // Retire only after dropping every pin, so the reread must reach the disk.
   for (size_t i = 0; i < count; ++i) {

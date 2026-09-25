@@ -221,6 +221,7 @@ class EXPORTED_PUBLIC Cache {
     size_t refcnt;
     size_t writebackPins;
     size_t mutableLoans;
+    bool directWriteback;
 
     bool callbackActive;
 #if THREADS
@@ -508,6 +509,29 @@ class EXPORTED_PUBLIC Cache {
   struct WritebackPage {
     uintptr_t key;
     uintptr_t location;
+  };
+  /** Holds a published cache page stable for device reads while no writable
+   * loan exists. Writers arriving during the lease wait for DMA completion.
+   * The callback's writeback pin must outlive this lease. */
+  class DirectWritebackLease {
+   public:
+    DirectWritebackLease() : m_Cache(nullptr), m_Page(nullptr), m_Physical(0) {}
+    ~DirectWritebackLease() {
+      release();
+    }
+    DirectWritebackLease(const DirectWritebackLease&) = delete;
+    DirectWritebackLease& operator=(const DirectWritebackLease&) = delete;
+
+    bool acquire(Cache& cache, uintptr_t key, uintptr_t location);
+    void release();
+    physical_uintptr_t physical() const {
+      return m_Physical;
+    }
+
+   private:
+    Cache* m_Cache;
+    CachePage* m_Page;
+    physical_uintptr_t m_Physical;
   };
   using writeback_batch_t = bool (*)(const WritebackPage*, size_t, void*);
   /** Optional durable timer callback, installed before pages; shares setCallback metadata. */

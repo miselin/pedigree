@@ -21,6 +21,7 @@
 #define PCI_COMMON_H
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/PciExtendedCapabilities.h"
 #include "pedigree/kernel/machine/PciFunctionState.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -83,11 +84,21 @@ class EXPORTED_PUBLIC PciBus {
   bool writeConfig8(Device* device, uint16_t offset, uint8_t value);
   bool writeConfig16(Device* device, uint16_t offset, uint16_t value);
   bool writeConfig32(Device* device, uint16_t offset, uint32_t value);
+  PciExtendedCapabilities::FindResult findExtendedCapability(
+      Device* device, uint16_t id, PciExtendedCapabilities::Capability& result);
   // Reserve a level-triggered PIC line before programming a chipset route.
   bool reserveLegacyInterrupt(uint8_t irq);
   bool updateCommand(Device* device, uint16_t clearBits, uint16_t setBits);
-  bool inspectFunction(Device* device, PciFunctionState::State& state);
+  bool inspectFunction(Device* device, PciFunctionState::State& state,
+                       bool requireLegacyInterrupt = true);
   bool disableMessageInterrupts(Device* device, const PciFunctionState::State& state);
+  bool enableMsi(Device* device, uint64_t address, uint16_t data);
+  bool disableMsi(Device* device);
+  bool enableMsix(Device* device, uint64_t address, uint32_t data);
+  bool enableMsixVectors(Device* device, uint64_t address, const uint32_t* data, size_t count,
+                         bool* touched = nullptr);
+  bool setMsixVectorMask(Device* device, size_t index, bool masked);
+  bool disableMsix(Device* device);
   bool resourcesUnchanged(Device* device, const PciFunctionState::State& state);
   /** Translate a PCI BAR address into the CPU's physical address space. */
   bool translateAddress(uint64_t pciAddress, uint64_t bytes, bool io, uint64_t& cpuPhysical);
@@ -127,5 +138,20 @@ class EXPORTED_PUBLIC PciBus {
  private:
   static PciBus m_Instance;
 };
+
+inline PciExtendedCapabilities::FindResult PciBus::findExtendedCapability(
+    Device* device, uint16_t id, PciExtendedCapabilities::Capability& result) {
+  if (!device) {
+    return PciExtendedCapabilities::FindResult::Unavailable;
+  }
+  struct Config {
+    PciBus& bus;
+    Device* device;
+    bool read32(uint16_t offset, uint32_t& value) {
+      return bus.readConfig32(device, offset, value);
+    }
+  } config{*this, device};
+  return PciExtendedCapabilities::find(config, id, result);
+}
 
 #endif

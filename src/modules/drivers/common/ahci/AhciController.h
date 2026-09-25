@@ -51,6 +51,9 @@ class AhciController : public ScsiController, public IrqHandler {
   }
 
  private:
+  friend class AhciDisk;
+  bool readWrite(size_t port, uint64_t lba, uint16_t sectors, void* buffer, size_t bytes,
+                 bool write, bool cacheFill);
   bool claimOwnership(uint32_t version);
   bool reset();
   Device* m_Pci;

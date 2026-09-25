@@ -47,6 +47,7 @@ bool runHostedTimerRegressions(Thread* thread);
 bool runHostedStoragePageRegressions();
 bool runHostedCacheDiscardRegressions();
 bool runHostedCacheTimerRegressions();
+bool runHostedCacheDirectWritebackRegressions();
 #endif
 #if !PEDIGREE_HOSTED_CORE_SMOKE
 bool runHostedSchedulerRegressions();
@@ -2702,7 +2703,7 @@ bool runHostedWaitRegressions() {
       runHostedRequestQueueRegressions() &&
 #if PEDIGREE_HOSTED_CORE_SMOKE
       runHostedStoragePageRegressions() && runHostedCacheDiscardRegressions() &&
-      runHostedCacheTimerRegressions() &&
+      runHostedCacheTimerRegressions() && runHostedCacheDirectWritebackRegressions() &&
 #endif
 #if !PEDIGREE_HOSTED_CORE_SMOKE
       runHostedUsbCallbackDeliveryRegressions() && runHostedUsbHcdPortChangeRegressions() &&

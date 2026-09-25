@@ -128,6 +128,8 @@ class EXPORTED_PUBLIC Disk : public Device {
     const void* buffer;
     size_t length;
     bool complete;
+    /** Pinned, stable physical source for a single-page cache writeback. */
+    physical_uintptr_t dmaPhysical = 0;
   };
   static constexpr size_t MaxWriteBuffers = 32;
   /**

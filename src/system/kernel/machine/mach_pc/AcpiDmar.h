@@ -1,0 +1,107 @@
+/* Copyright (c) 2026, Pedigree Developers. SPDX-License-Identifier: ISC */
+#ifndef PEDIGREE_PC_ACPI_DMAR_H
+#define PEDIGREE_PC_ACPI_DMAR_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+namespace AcpiDmar {
+struct Info {
+  bool interruptRemapping = false;
+  bool x2ApicOptOut = false;
+  bool dmaControlPlatformOptIn = false;
+  bool reservedMemoryRegions = false;
+  size_t hardwareUnitCount = 0;
+  size_t segmentZeroUnitCount = 0;
+  size_t segmentZeroIncludeAllCount = 0;
+  uint64_t firstSegmentZeroIncludeAllAddress = 0;
+};
+
+inline uint16_t read16(const uint8_t* bytes) {
+  return uint16_t(bytes[0]) | (uint16_t(bytes[1]) << 8);
+}
+
+inline uint32_t read32(const uint8_t* bytes) {
+  return uint32_t(read16(bytes)) | (uint32_t(read16(bytes + 2)) << 16);
+}
+
+inline uint64_t read64(const uint8_t* bytes) {
+  return uint64_t(read32(bytes)) | (uint64_t(read32(bytes + 4)) << 32);
+}
+
+/** Validate a complete ACPI DMAR table before publishing any discovery result. */
+inline bool parse(const uint8_t* table, size_t available, Info& result) {
+  constexpr size_t HeaderBytes = 48;
+  if (!table || available < HeaderBytes || read32(table) != 0x52414d44U) {
+    return false;
+  }
+  const size_t length = read32(table + 4);
+  if (length < HeaderBytes || length > available || table[36] < 31 || table[36] > 63 ||
+      (table[37] & ~7U)) {
+    return false;
+  }
+
+  uint8_t checksum = 0;
+  for (size_t i = 0; i < length; ++i) {
+    checksum += table[i];
+  }
+  if (checksum) {
+    return false;
+  }
+
+  Info found;
+  found.interruptRemapping = table[37] & 1U;
+  found.x2ApicOptOut = table[37] & 2U;
+  found.dmaControlPlatformOptIn = table[37] & 4U;
+  for (size_t offset = HeaderBytes; offset < length;) {
+    if (length - offset < 4) {
+      return false;
+    }
+    const uint16_t type = read16(table + offset);
+    const size_t bytes = read16(table + offset + 2);
+    if (bytes < 4 || bytes > length - offset) {
+      return false;
+    }
+    if (type == 0) {
+      if (bytes < 16 || (table[offset + 4] & ~1U) || table[offset + 5] ||
+          !read64(table + offset + 8) || (read64(table + offset + 8) & 0xfffU)) {
+        return false;
+      }
+      for (size_t scope = offset + 16; scope < offset + bytes;) {
+        if (offset + bytes - scope < 8) {
+          return false;
+        }
+        const size_t scopeBytes = table[scope + 1];
+        if (!table[scope] || scopeBytes < 8 || (scopeBytes & 1U) ||
+            scopeBytes > offset + bytes - scope) {
+          return false;
+        }
+        scope += scopeBytes;
+      }
+      ++found.hardwareUnitCount;
+      if (!read16(table + offset + 6)) {
+        ++found.segmentZeroUnitCount;
+        if (table[offset + 4] & 1U) {
+          ++found.segmentZeroIncludeAllCount;
+          if (!found.firstSegmentZeroIncludeAllAddress) {
+            found.firstSegmentZeroIncludeAllAddress = read64(table + offset + 8);
+          }
+        }
+      }
+    } else if (type == 1) {
+      if (bytes < 24) {
+        return false;
+      }
+      found.reservedMemoryRegions = true;
+    }
+    offset += bytes;
+  }
+  if (!found.hardwareUnitCount) {
+    return false;
+  }
+  result = found;
+  return true;
+}
+}  // namespace AcpiDmar
+
+#endif

@@ -15,7 +15,8 @@ class NvmeQueue {
   bool initialise(IoBase* registers, uint16_t id, uint16_t depth, size_t stride,
                   size_t transferBytes);
   Result execute(Nvme::Command command, void* buffer, size_t bytes, bool writing, bool interrupts,
-                 size_t timeoutSeconds, uint32_t* result = nullptr, bool interruptProbe = false);
+                 size_t timeoutSeconds, uint32_t* result = nullptr, bool interruptProbe = false,
+                 bool cacheFill = false, physical_uintptr_t directWritePhysical = 0);
   bool complete(bool fromInterrupt);
   void stop();
   size_t interruptCompletions() const;

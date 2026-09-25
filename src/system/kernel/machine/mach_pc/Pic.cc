@@ -24,11 +24,16 @@
 #if MULTIPROCESSOR
 #include "LocalApic.h"
 #include "Pc.h"
+#include "PciMessageInterrupts.h"
+#if ACPI
+#include "PciIoApicInterrupts.h"
+#endif
 #endif
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/machine/SchedulerIrqHandler.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
@@ -280,6 +285,15 @@ void Pic::restorePciTriggerLocked(uint8_t irq) {
 irq_id_t Pic::registerPciIrqHandler(IrqHandler* handler, Device* pDevice, const IrqPolicy& policy) {
   if (UNLIKELY(!pDevice))
     return 0;
+#if MULTIPROCESSOR && ACPI
+  if (m_Intx) {
+    bool routed = false;
+    const irq_id_t id = m_Intx->registerThreaded(pDevice, handler, policy, routed);
+    if (id || routed) {
+      return id;
+    }
+  }
+#endif
   irq_id_t irq = pDevice->getInterruptNumber();
   if (UNLIKELY(irq >= PicIrqState::LineCount || !handler || !m_ThreadedDispatcher.isInitialised() ||
                !policy.validForThreaded() || policy.trigger() != IrqTrigger::Level))
@@ -324,6 +338,15 @@ irq_id_t Pic::registerHardPciIrqHandler(HardIrqHandler* handler, Device* pDevice
                                         const IrqPolicy& policy) {
   if (UNLIKELY(!pDevice))
     return 0;
+#if MULTIPROCESSOR && ACPI
+  if (m_Intx) {
+    bool routed = false;
+    const irq_id_t id = m_Intx->registerHard(pDevice, handler, policy, routed);
+    if (id || routed) {
+      return id;
+    }
+  }
+#endif
   irq_id_t irq = pDevice->getInterruptNumber();
   if (UNLIKELY(irq >= PicIrqState::LineCount || !handler || !policy.validForHard() ||
                policy.trigger() != IrqTrigger::Level))
@@ -361,6 +384,61 @@ irq_id_t Pic::registerHardPciIrqHandler(HardIrqHandler* handler, Device* pDevice
   publishDiagnosticLineLocked(irq);
 
   return irq + BASE_INTERRUPT_VECTOR;
+}
+
+irq_id_t Pic::registerPciMessageIrqHandler(IrqHandler* handler, Device* device,
+                                           const IrqPolicy& intxFallbackPolicy) {
+#if MULTIPROCESSOR
+  if (m_Messages) {
+    bool fallbackSafe = true;
+    const irq_id_t id = m_Messages->registerThreaded(device, handler, fallbackSafe);
+    if (id) {
+      return id;
+    }
+    if (!fallbackSafe) {
+      return 0;
+    }
+  }
+#endif
+  PciFunctionState::State state;
+  if (!PciBus::instance().inspectFunction(device, state) ||
+      !PciBus::instance().disableMessageInterrupts(device, state)) {
+    return 0;
+  }
+  return registerPciIrqHandler(handler, device, intxFallbackPolicy);
+}
+
+bool Pic::registerPciMsixIrqHandlers(Device* device, IrqHandler* const* handlers, size_t count,
+                                     irq_id_t* ids, bool& fallbackSafe) {
+  fallbackSafe = true;
+#if MULTIPROCESSOR
+  if (m_Messages) {
+    return m_Messages->registerThreadedVectors(device, handlers, count, ids, fallbackSafe);
+  }
+#endif
+  return false;
+}
+
+irq_id_t Pic::registerHardPciMessageIrqHandler(HardIrqHandler* handler, Device* device,
+                                               const IrqPolicy& intxFallbackPolicy) {
+#if MULTIPROCESSOR
+  if (m_Messages) {
+    bool fallbackSafe = true;
+    const irq_id_t id = m_Messages->registerHard(device, handler, fallbackSafe);
+    if (id) {
+      return id;
+    }
+    if (!fallbackSafe) {
+      return 0;
+    }
+  }
+#endif
+  PciFunctionState::State state;
+  if (!PciBus::instance().inspectFunction(device, state) ||
+      !PciBus::instance().disableMessageInterrupts(device, state)) {
+    return 0;
+  }
+  return registerHardPciIrqHandler(handler, device, intxFallbackPolicy);
 }
 
 irq_id_t Pic::registerSchedulerIrqHandler(uint8_t irq, SchedulerIrqHandler* handler,
@@ -467,6 +545,16 @@ void Pic::finishHandlerUnregisterLocked(uint8_t irq, IrqHandlerRegistry::Unregis
 }
 
 bool Pic::unregisterHandler(irq_id_t Id, IrqHandlerBase* handler) {
+#if MULTIPROCESSOR
+  if (PciMessageInterrupts::contains(Id)) {
+    return m_Messages && m_Messages->unregisterHandler(Id, handler);
+  }
+#if ACPI
+  if (PciIoApicInterrupts::contains(Id)) {
+    return m_Intx && m_Intx->unregisterHandler(Id, handler);
+  }
+#endif
+#endif
   if (Id < BASE_INTERRUPT_VECTOR || Id >= BASE_INTERRUPT_VECTOR + PicIrqState::LineCount ||
       !handler)
     return false;
@@ -556,6 +644,26 @@ bool Pic::initialise() {
   // Disable all IRQ's (exept IRQ2)
   enableAll(false);
 
+#if MULTIPROCESSOR
+  if (Pc::instance().localApicAvailable()) {
+    m_Messages = new PciMessageInterrupts();
+    if (!m_Messages->initialise()) {
+      WARNING("PCI message interrupts unavailable; using PIC INTx");
+      delete m_Messages;
+      m_Messages = nullptr;
+    }
+#if ACPI
+    m_Intx = new PciIoApicInterrupts();
+    if (!m_Intx->initialise()) {
+      delete m_Intx;
+      m_Intx = nullptr;
+    } else {
+      NOTICE("PCI INTx: IOAPIC routing available");
+    }
+#endif
+  }
+#endif
+
   return true;
 }
 
@@ -580,7 +688,20 @@ bool Pic::initialiseThreaded() {
     return false;
   }
 #endif
-  return m_ThreadedDispatcher.initialise();
+  if (!m_ThreadedDispatcher.initialise()) {
+    return false;
+  }
+#if MULTIPROCESSOR
+  if (m_Messages && !m_Messages->initialiseThreaded()) {
+    WARNING("PCI message IRQ workers unavailable; using PIC INTx");
+  }
+#if ACPI
+  if (m_Intx && !m_Intx->initialiseThreaded()) {
+    WARNING("PCI IOAPIC INTx workers unavailable; using PIC INTx");
+  }
+#endif
+#endif
+  return true;
 }
 
 bool Pic::shutdownThreaded() {
@@ -591,6 +712,16 @@ bool Pic::shutdownThreaded() {
   if (!m_ThreadedDispatcher.canShutdown()) {
     return false;
   }
+#if MULTIPROCESSOR
+  if (m_Messages && !m_Messages->shutdownThreaded()) {
+    return false;
+  }
+#if ACPI
+  if (m_Intx && !m_Intx->shutdownThreaded()) {
+    return false;
+  }
+#endif
+#endif
 
   TerminationDeferral shutdownTermination;
   {
@@ -628,6 +759,12 @@ Pic::Pic()
       m_OwnedElcr(0),
       m_OriginalElcr(0),
       m_Handlers(),
+#if MULTIPROCESSOR
+      m_Messages(nullptr),
+#if ACPI
+      m_Intx(nullptr),
+#endif
+#endif
       m_SchedulerIrqHandler(nullptr),
       m_IrqState(),
       m_ControllerStateGate(),
@@ -1692,6 +1829,22 @@ void Pic::setEnabledLocked(uint8_t irq, bool enable) {
 }
 
 void Pic::enable(uint8_t irq, bool enable) {
+#if MULTIPROCESSOR
+  if (PciMessageInterrupts::contains(irq)) {
+    if (m_Messages) {
+      m_Messages->enable(irq, enable);
+    }
+    return;
+  }
+#if ACPI
+  if (PciIoApicInterrupts::contains(irq)) {
+    if (m_Intx) {
+      m_Intx->enable(irq, enable);
+    }
+    return;
+  }
+#endif
+#endif
   if (irq >= PicIrqState::LineCount) {
     return;
   }

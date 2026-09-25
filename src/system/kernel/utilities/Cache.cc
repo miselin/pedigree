@@ -1133,6 +1133,10 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
     if (page->evictionState != CachePage::EvictionState::None) {
       return false;
     }
+    // Ordinary eviction must leave a page mapped while its inserter fills it.
+    if (mode == EvictionMode::Ordinary && page->status == CachePage::Editing) {
+      return false;
+    }
 
     callback = m_Callback;
     callbackMeta = m_CallbackMeta;
@@ -1772,6 +1776,61 @@ bool Cache::syncBatch(const uintptr_t* keys, size_t count, writeback_batch_t cal
   return syncBatchInternal(keys, count, callback, metadata, false);
 }
 
+bool Cache::DirectWritebackLease::acquire(Cache& cache, uintptr_t key, uintptr_t location) {
+  if (m_Cache || !cache.ensureUsable("DirectWritebackLease")) {
+    return false;
+  }
+  {
+    LockGuard<Spinlock> guard(cache.m_Lock);
+    CachePage* page = cache.m_Pages.lookup(key);
+    if (!page || page->location != location || !page->callbackActive ||
+        page->status == CachePage::Editing || page->mutableLoans || page->externallyWritable ||
+        page->directWriteback) {
+      return false;
+    }
+    page->directWriteback = true;
+    m_Cache = &cache;
+    m_Page = page;
+  }
+
+#if !STANDALONE_CACHE
+  physical_uintptr_t physical = 0;
+  size_t flags = 0;
+  auto& addressSpace = VirtualAddressSpace::getKernelAddressSpace();
+  if (addressSpace.getMapping(reinterpret_cast<void*>(location), physical, flags) && physical &&
+      !(physical & (CachePageSize - 1)) &&
+      uint64_t{physical} <= 0xffffffffULL - (CachePageSize - 1) &&
+      (flags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write)) ==
+          (VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) &&
+      !(flags & (VirtualAddressSpace::Swapped | VirtualAddressSpace::CopyOnWrite |
+                 VirtualAddressSpace::NoAccess | VirtualAddressSpace::Borrowed))) {
+    m_Physical = physical;
+    return true;
+  }
+#endif
+  release();
+  return false;
+}
+
+void Cache::DirectWritebackLease::release() {
+  if (!m_Cache) {
+    return;
+  }
+  Cache* cache = m_Cache;
+  CachePage* page = m_Page;
+  {
+    LockGuard<Spinlock> guard(cache->m_Lock);
+    assert(page->directWriteback);
+    page->directWriteback = false;
+  }
+  m_Cache = nullptr;
+  m_Page = nullptr;
+  m_Physical = 0;
+#if THREADS
+  cache->m_EvictionWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(page));
+#endif
+}
+
 // syncAll owns snapshot pins before retirement can start draining these pages.
 bool Cache::syncBatchInternal(const uintptr_t* keys, size_t count, writeback_batch_t callback,
                               void* metadata, bool snapshot) {
@@ -2032,25 +2091,49 @@ void Cache::markExternallyWritable(uintptr_t key) {
 }
 
 bool Cache::beginMutableLoan(uintptr_t key) {
-  if (!ensureUsable("beginMutableLoan"))
+  if (!ensureUsable("beginMutableLoan")) {
     return false;
-  LockGuard<Spinlock> guard(m_Lock);
-  CachePage* page = m_Pages.lookup(key);
-  if (!page || page->evictionState == CachePage::EvictionState::Retiring ||
-      page->mutableLoans == ~size_t{0})
-    return false;
-
-  const bool tracked = tracksChecksum(page);
-  ++page->mutableLoans;
-  if (!tracked) {
-    calculateChecksum(page);
-    // This callback captured no checksum before the writable alias existed.
-    // Its older generation must not settle modifications made by this loan.
-    if (page->callbackActive)
-      recordMutation(page);
   }
-  updateWritebackIndex(page);
-  return true;
+  while (true) {
+#if THREADS
+    auto waitGuard = m_EvictionWaiters.acquire();
+#endif
+    CachePage* page = nullptr;
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      page = m_Pages.lookup(key);
+      if (!page || page->evictionState == CachePage::EvictionState::Retiring ||
+          page->mutableLoans == ~size_t{0}) {
+        return false;
+      }
+      if (!page->directWriteback) {
+        const bool tracked = tracksChecksum(page);
+        ++page->mutableLoans;
+        if (!tracked) {
+          calculateChecksum(page);
+          // An existing writeback must not settle modifications made by this loan.
+          if (page->callbackActive) {
+            recordMutation(page);
+          }
+        }
+        updateWritebackIndex(page);
+        return true;
+      }
+#if THREADS
+      Thread* current = Processor::information().getCurrentThread();
+      if (!current || page->callbackOwner == current) {
+        return false;
+      }
+#else
+      return false;
+#endif
+    }
+#if THREADS
+    const auto reason =
+        waitGuard.waitForCompletion(WaitQueue::Channel(page), Thread::CallbackDrain, key);
+    (void)reason;
+#endif
+  }
 }
 
 void Cache::endMutableLoan(uintptr_t key) {

@@ -205,7 +205,7 @@ uint64_t AhciDisk::doRead(uint64_t location) {
   ByteSet(reinterpret_cast<void*>(page), 0, TargetInfo::getPageSize());
   if (!m_Controller->readWrite(m_Port, location / m_SectorBytes,
                                static_cast<uint16_t>(bytes / m_SectorBytes),
-                               reinterpret_cast<void*>(page), bytes, false)) {
+                               reinterpret_cast<void*>(page), bytes, false, true)) {
     if (!getCache().discardEditing(location))
       FATAL("AHCI: failed to discard an incomplete cache fill");
     return 0;
@@ -255,6 +255,20 @@ uint64_t AhciDisk::doWriteDirect(uint64_t location, uintptr_t page) {
                                  reinterpret_cast<void*>(page), bytes, true)
              ? bytes
              : 0;
+#endif
+}
+
+uint64_t AhciDisk::doWriteDirectPhysical(uint64_t location, uintptr_t page,
+                                         physical_uintptr_t physical) {
+#if CRIPPLE_HDD
+  return 0;
+#else
+  const size_t bytes = validPageLength(location);
+  if (!page || !physical || !bytes) {
+    return 0;
+  }
+  WriteBuffer buffer = {location, reinterpret_cast<const void*>(page), bytes, false, physical};
+  return transferWriteBuffers(&buffer, 1) && buffer.complete ? bytes : 0;
 #endif
 }
 

@@ -42,6 +42,8 @@ class HardIrqHandler;
 class IrqHandler;
 class IrqHandlerBase;
 class SchedulerIrqHandler;
+class PciMessageInterrupts;
+class PciIoApicInterrupts;
 
 /** @addtogroup kernelmachinex86common
  * @{ */
@@ -68,6 +70,12 @@ class Pic : public IrqManager, private InterruptHandler {
                                              const IrqPolicy& policy);
   virtual irq_id_t registerHardPciIrqHandler(HardIrqHandler* handler, Device* pDevice,
                                              const IrqPolicy& policy);
+  irq_id_t registerPciMessageIrqHandler(IrqHandler* handler, Device* device,
+                                        const IrqPolicy& intxFallbackPolicy) override;
+  bool registerPciMsixIrqHandlers(Device* device, IrqHandler* const* handlers, size_t count,
+                                  irq_id_t* ids, bool& fallbackSafe) override;
+  irq_id_t registerHardPciMessageIrqHandler(HardIrqHandler* handler, Device* device,
+                                            const IrqPolicy& intxFallbackPolicy) override;
   virtual irq_id_t registerSchedulerIrqHandler(uint8_t irq, SchedulerIrqHandler* handler,
                                                const IrqPolicy& policy);
   virtual bool unregisterSchedulerIrqHandler(irq_id_t Id, SchedulerIrqHandler* handler);
@@ -163,6 +171,12 @@ class Pic : public IrqManager, private InterruptHandler {
 
   /** IRQ handlers and their callback lifetime state. */
   IrqHandlerRegistry m_Handlers;
+#if MULTIPROCESSOR
+  PciMessageInterrupts* m_Messages;
+#if ACPI
+  PciIoApicInterrupts* m_Intx;
+#endif
+#endif
   /** Dedicated IRQ0 callback which may abandon its interrupt frame. */
   SchedulerIrqHandler* m_SchedulerIrqHandler;
   /** Trigger mode, registration ownership and the complete 16-bit mask. */

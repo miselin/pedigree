@@ -158,8 +158,8 @@ bool run(NvmeDisk& disk) {
     if (view) {
       for (size_t i = 0; i < view.size(); ++i)
         view[i] = pattern(CachedOffset + i, 0xa5);
-      passed &= disk.sync(CachedOffset, false);
       disk.unpin(CachedOffset);
+      passed &= disk.syncPages(&CachedOffset, 1) && disk.sync(CachedOffset, false);
     }
     passed &= disk.syncAll() && disk.retireCachePage(CachedOffset);
     if (passed) {

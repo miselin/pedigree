@@ -1082,13 +1082,14 @@ IrqHandlerRegistry::UnregisterResult IrqHandlerRegistry::unregisterHandler(
 
 bool IrqHandlerRegistry::dispatchHard(uint8_t irq, InterruptState& state,
                                       HardIrqDisposition& disposition, HardIrqHandler* onlyHandler,
-                                      size_t dispatchGeneration) {
+                                      size_t dispatchGeneration, irq_id_t callbackId) {
   AdmissionCutoff admissionCutoff = {};
   if (!captureAdmissionCutoff(irq, admissionCutoff)) {
     disposition = HardIrqDisposition::NotHandled;
     return false;
   }
-  return dispatchHard(irq, state, disposition, onlyHandler, dispatchGeneration, admissionCutoff);
+  return dispatchHard(irq, state, disposition, onlyHandler, dispatchGeneration, admissionCutoff,
+                      callbackId);
 }
 
 bool IrqHandlerRegistry::captureAdmissionCutoff(uint8_t irq, AdmissionCutoff& cutoff) {
@@ -1260,7 +1261,8 @@ void IrqHandlerRegistry::abandonAdmissionCutoff(void* context) {
 
 bool IrqHandlerRegistry::dispatchHard(uint8_t irq, InterruptState& state,
                                       HardIrqDisposition& disposition, HardIrqHandler* onlyHandler,
-                                      size_t dispatchGeneration, AdmissionCutoff admissionCutoff) {
+                                      size_t dispatchGeneration, AdmissionCutoff admissionCutoff,
+                                      irq_id_t callbackId) {
   ActivityDiagnostics::HardDispatchScope activityScope(irq);
   AdmissionCutoffCleanup cutoffCleanup(this, admissionCutoff);
   beginAdmissionCutoffCleanup(cutoffCleanup);
@@ -1393,7 +1395,7 @@ bool IrqHandlerRegistry::dispatchHard(uint8_t irq, InterruptState& state,
       DeviceHardIrqContext deviceHardIrqContext(dispatchCleanup.previousDeviceHardIrqDepth,
                                                 dispatchCleanup.restoreDeviceHardIrqDepth);
       const HardIrqDisposition callbackDisposition =
-          static_cast<HardIrqHandler*>(handler)->irq(irq, state);
+          static_cast<HardIrqHandler*>(handler)->irq(callbackId ? callbackId : irq, state);
       if (callbackDisposition == HardIrqDisposition::KeepMasked) {
         size_t expected = generationOf(publication) << 1;
         if (__atomic_compare_exchange_n(&slot.hardHandoffState, &expected, expected | 1U, false,
@@ -1645,7 +1647,8 @@ bool IrqHandlerRegistry::publishThreadedDispatch(uint8_t irq, size_t dispatchGen
 }
 
 bool IrqHandlerRegistry::dispatchThreaded(uint8_t irq, size_t dispatchGeneration,
-                                          ThreadedDispatchResult& result, IrqHandler* onlyHandler) {
+                                          ThreadedDispatchResult& result, IrqHandler* onlyHandler,
+                                          irq_id_t callbackId) {
   result = {false, false};
   bool admitted = false;
   if (!threadedGenerationValid(irq, dispatchGeneration)) {
@@ -1839,7 +1842,8 @@ bool IrqHandlerRegistry::dispatchThreaded(uint8_t irq, size_t dispatchGeneration
 
       admitted = true;
 
-      const IrqDisposition disposition = static_cast<IrqHandler*>(handler)->irq(irq);
+      const IrqDisposition disposition =
+          static_cast<IrqHandler*>(handler)->irq(callbackId ? callbackId : irq);
       if (disposition == IrqDisposition::Handled) {
         result.handled = true;
         result.allowRearm = true;
@@ -1954,6 +1958,22 @@ size_t IrqHandlerRegistry::handlerCount(uint8_t irq) {
     }
   }
   return count;
+}
+
+bool IrqHandlerRegistry::containsHandler(uint8_t irq, IrqHandlerBase* handler) const {
+  if (!handler) {
+    return false;
+  }
+  for (size_t i = 0; i < MaxHandlerSlots; ++i) {
+    const HandlerSlot& slot = m_Handlers[i];
+    const size_t publication = __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+    if (modeOf(publication) == SlotMode::Enabled && irqOf(publication) == irq &&
+        __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) == handler &&
+        __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST) == publication) {
+      return true;
+    }
+  }
+  return false;
 }
 
 IrqHandlerRegistry::LineMode IrqHandlerRegistry::lineMode(uint8_t irq) {

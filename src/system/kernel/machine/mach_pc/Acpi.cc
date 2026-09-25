@@ -175,7 +175,60 @@ void Acpi::initialise() {
     else if (pSystemDescTable->signature == 0x43495041)
       m_pApic = pSystemDescTable;
 #endif
-    else {
+    else if (pSystemDescTable->signature == 0x52414d44) {
+      if (m_DmarSeen) {
+        m_DmarPresent = false;
+        ERROR("Acpi: duplicate DMAR table");
+        continue;
+      }
+      m_DmarSeen = true;
+      AcpiDmar::Info info;
+      if (!AcpiDmar::parse(reinterpret_cast<const uint8_t*>(pSystemDescTable),
+                           pSystemDescTable->length, info)) {
+        ERROR("Acpi: invalid DMAR table");
+      } else {
+        m_DmarInfo = info;
+        m_DmarPresent = true;
+        NOTICE(" ACPI DMAR: " << Dec << info.hardwareUnitCount << " DMA remapping units ("
+                              << info.segmentZeroUnitCount << " on PCI segment 0), interrupt "
+                              << (info.interruptRemapping ? "remapping advertised"
+                                                          : "remapping absent"));
+      }
+    } else if (pSystemDescTable->signature == 0x4746434d) {
+      constexpr size_t entriesOffset = sizeof(SystemDescriptionTableHeader) + 8;
+      if (pSystemDescTable->length < entriesOffset ||
+          (pSystemDescTable->length - entriesOffset) % sizeof(PciConfigurationRange)) {
+        ERROR("Acpi: invalid MCFG length");
+        continue;
+      }
+      const size_t count =
+          (pSystemDescTable->length - entriesOffset) / sizeof(PciConfigurationRange);
+      for (size_t entryIndex = 0; entryIndex < count; ++entryIndex) {
+        const auto* entry =
+            adjust_pointer(reinterpret_cast<const PciConfigurationRange*>(pSystemDescTable),
+                           entriesOffset + entryIndex * sizeof(PciConfigurationRange));
+        if (entry->segment || entry->firstBus > entry->lastBus ||
+            (entry->base & ((1ULL << 20) - 1))) {
+          continue;
+        }
+        const uint64_t bytes = uint64_t(entry->lastBus + 1) << 20;
+        if (!entry->base || entry->base + bytes < entry->base) {
+          continue;
+        }
+        bool overlap = false;
+        for (const auto& range : m_PciConfigurationRanges) {
+          if (entry->firstBus <= range.lastBus && entry->lastBus >= range.firstBus) {
+            overlap = true;
+            break;
+          }
+        }
+        if (!overlap) {
+          m_PciConfigurationRanges.pushBack(*entry);
+          NOTICE(" ACPI MCFG segment 0 buses " << Dec << entry->firstBus << ".." << entry->lastBus
+                                               << " at " << Hex << entry->base);
+        }
+      }
+    } else {
       NOTICE("   unknown table");
     }
   }
@@ -189,6 +242,21 @@ void Acpi::initialise() {
   // Parse the FACP
   parseFixedACPIDescriptionTable();
   initialisePowerManagement();
+
+  if (m_pFacp->dsdt && mappedRangeContains(m_AcpiMemoryRegion, m_pFacp->dsdt,
+                                           sizeof(SystemDescriptionTableHeader))) {
+    const auto* dsdt =
+        m_AcpiMemoryRegion.convertPhysicalPointer<SystemDescriptionTableHeader>(m_pFacp->dsdt);
+    if (dsdt->signature == 0x54445344 && dsdt->length >= sizeof(SystemDescriptionTableHeader) &&
+        mappedRangeContains(m_AcpiMemoryRegion, m_pFacp->dsdt, dsdt->length) && checksum(dsdt)) {
+      m_PciInterruptRoutesPresent = AcpiPciRouting::parse(
+          reinterpret_cast<const uint8_t*>(dsdt) + sizeof(SystemDescriptionTableHeader),
+          dsdt->length - sizeof(SystemDescriptionTableHeader), m_PciInterruptRoutes);
+      if (m_PciInterruptRoutesPresent) {
+        NOTICE(" ACPI PCI IOAPIC routes available");
+      }
+    }
+  }
 
 #if MULTIPROCESSOR
   // If we have an Multiple APIC Description Table parse it
@@ -204,7 +272,11 @@ Acpi::Acpi()
       m_pRsdtPointer(0),
       m_AcpiMemoryRegion("ACPI"),
       m_pRsdt(0),
-      m_pFacp(0)
+      m_pFacp(0),
+      m_PciConfigurationRanges(),
+      m_DmarInfo(),
+      m_DmarPresent(false),
+      m_DmarSeen(false)
 #if MULTIPROCESSOR
       ,
       m_pApic(0),
@@ -216,6 +288,44 @@ Acpi::Acpi()
       m_Processors()
 #endif
 {
+}
+
+bool Acpi::pciConfigurationAddress(uint8_t bus, uint64_t& address) const {
+  if (!m_bValid) {
+    return false;
+  }
+  for (const auto& range : m_PciConfigurationRanges) {
+    if (bus >= range.firstBus && bus <= range.lastBus) {
+      address = range.base + (uint64_t(bus) << 20);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool Acpi::pciBusRange(uint8_t& first, uint8_t& last) const {
+  if (!m_bValid || !m_PciConfigurationRanges.size()) {
+    return false;
+  }
+  first = 255;
+  last = 0;
+  for (const auto& range : m_PciConfigurationRanges) {
+    if (range.firstBus < first) {
+      first = range.firstBus;
+    }
+    if (range.lastBus > last) {
+      last = range.lastBus;
+    }
+  }
+  return true;
+}
+
+bool Acpi::pciInterruptRoute(uint8_t slot, uint8_t pin, AcpiPciRouting::Route& route) const {
+  if (!m_bValid || !m_PciInterruptRoutesPresent || slot >= 32 || pin < 1 || pin > 4) {
+    return false;
+  }
+  route = m_PciInterruptRoutes[slot][pin - 1];
+  return route.gsi >= 16;
 }
 
 void Acpi::parseFixedACPIDescriptionTable() {
@@ -271,6 +381,11 @@ void Acpi::parseFixedACPIDescriptionTable() {
 void Acpi::parseMultipleApicDescriptionTable() {
   NOTICE("ACPI: Multiple APIC Description Table (APIC)");
 
+  if (m_pApic->length < sizeof(SystemDescriptionTableHeader) + 8) {
+    ERROR("ACPI: truncated Multiple APIC Description Table");
+    return;
+  }
+
   // Parse the Multiple APIC Description Table
   uint32_t* pLocalApicAddress =
       reinterpret_cast<uint32_t*>(adjust_pointer(m_pApic, sizeof(SystemDescriptionTableHeader)));
@@ -280,9 +395,15 @@ void Acpi::parseMultipleApicDescriptionTable() {
   m_bHasPICs = (((*pFlags) & 0x01) == 0x01);
 
   uint8_t* pType = reinterpret_cast<uint8_t*>(adjust_pointer(pFlags, 4));
-  for (; pType < reinterpret_cast<uint8_t*>(adjust_pointer(m_pApic, m_pApic->length));) {
+  uint8_t* const end = reinterpret_cast<uint8_t*>(adjust_pointer(m_pApic, m_pApic->length));
+  for (; end - pType >= 2;) {
+    const uint8_t entryLength = pType[1];
+    if (entryLength < 2 || entryLength > end - pType) {
+      ERROR("ACPI: invalid Multiple APIC Description Table entry");
+      return;
+    }
     // Processor Local APIC
-    if (*pType == 0) {
+    if (*pType == 0 && entryLength >= 8) {
       ProcessorLocalApic* pLocalApic =
           reinterpret_cast<ProcessorLocalApic*>(adjust_pointer(pType, 2));
       bool bUsable = ((pLocalApic->flags & 0x01) == 0x01);
@@ -298,22 +419,20 @@ void Acpi::parseMultipleApicDescriptionTable() {
       }
     }
     // I/O APIC
-    else if (*pType == 1) {
+    else if (*pType == 1 && entryLength >= 12) {
       IoApic* pIoApic = reinterpret_cast<IoApic*>(adjust_pointer(pType, 2));
 
       NOTICE(" I/O APIC #" << Dec << pIoApic->apicId << " at " << Hex << pIoApic->address
                            << ", global system interrupt base "
                            << pIoApic->globalSystemInterruptBase);
 
-      // TODO: What should we do with the global system interrupt base?
-
       // Add to the I/O APIC list
-      Multiprocessor::IoApicInformation* pIoApicInfo =
-          new Multiprocessor::IoApicInformation(pIoApic->apicId, pIoApic->address);
+      Multiprocessor::IoApicInformation* pIoApicInfo = new Multiprocessor::IoApicInformation(
+          pIoApic->apicId, pIoApic->address, pIoApic->globalSystemInterruptBase);
       m_IoApics.pushBack(pIoApicInfo);
     }
     // Interrupt Source override
-    else if (*pType == 2) {
+    else if (*pType == 2 && entryLength >= 10) {
       InterruptSourceOverride* pInterruptSourceOverride =
           reinterpret_cast<InterruptSourceOverride*>(adjust_pointer(pType, 2));
 
@@ -352,8 +471,7 @@ void Acpi::parseMultipleApicDescriptionTable() {
     }
 
     // Go to the next entry;
-    uint8_t* sTable = adjust_pointer(pType, 1);
-    pType = adjust_pointer(pType, *sTable);
+    pType += entryLength;
   }
 
   m_bValidApicInfo = true;

@@ -105,10 +105,9 @@ bool VirtioBlkController::initialiseController() {
   ByteSet(m_Control.virtualAddress(), 0, page);
   ByteSet(m_Data.virtualAddress(), 0, page);
 
-  m_Irq = Machine::instance().getIrqManager()->registerPciIrqHandler(this, m_Pci,
-                                                                     IrqPolicy::pciIntxThreaded());
+  m_Irq = m_Transport.registerInterrupt(this);
   if (!m_Irq) {
-    ERROR("Virtio block: could not register PCI INTx");
+    ERROR("Virtio block: could not register PCI interrupt");
     return false;
   }
   if (!m_Transport.ready()) {
@@ -130,7 +129,7 @@ bool VirtioBlkController::initialiseController() {
   disk->publishEndpoint();
   NOTICE("Virtio block: " << Dec << sectors << " sectors, " << m_Bytes << " bytes, "
                           << m_SectorBytes << "-byte blocks, "
-                          << (m_ReadOnly ? "read-only" : "read-write") << ", shared INTx" << Hex);
+                          << (m_ReadOnly ? "read-only" : "read-write") << Hex);
   return true;
 }
 

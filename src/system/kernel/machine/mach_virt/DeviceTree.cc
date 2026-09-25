@@ -37,10 +37,15 @@ struct PlatformInfo {
   size_t pciWindowCount;
   const uint8_t* pciInterruptMap;
   size_t pciInterruptMapSize;
+  const uint8_t* pciMsiMap;
+  size_t pciMsiMapSize;
+  uint32_t pciMsiMapMask;
   uint32_t pciInterruptMask[4];
   uint32_t acpiPciIrq[32][4];
   uint32_t gicPhandle;
   uint32_t gicAddressCells;
+  uint32_t msiPhandle;
+  VirtMsiController msiController;
   uintptr_t uart;
   uintptr_t rtc;
   uintptr_t gicDistributor;
@@ -57,6 +62,7 @@ struct PlatformInfo {
   bool psciAvailable;
   bool psciHvc;
   bool acpi;
+  bool pciMsiIdentity;
   bool valid;
 };
 
@@ -73,6 +79,9 @@ struct Node {
   size_t interruptMapSize;
   const uint8_t* interruptMapMask;
   size_t interruptMapMaskSize;
+  const uint8_t* msiMap;
+  size_t msiMapSize;
+  uint32_t msiMapMask;
   uint32_t firstBus;
   uint32_t lastBus;
   uint32_t phandle;
@@ -81,6 +90,8 @@ struct Node {
   bool rtc;
   bool gic;
   bool gicV3;
+  bool gicV2m;
+  bool gicIts;
   bool timer;
   bool psci;
   bool psciHvc;
@@ -205,6 +216,15 @@ void finishNode(const Node& node, const Node& parent, PlatformInfo& out) {
     }
   }
 
+  if ((node.gicV2m || node.gicIts) && node.phandle &&
+      out.msiController.type == VirtMsiController::Type::None &&
+      firstReg(node, parent, base, size)) {
+    out.msiController = {
+        node.gicV2m ? VirtMsiController::Type::GicV2m : VirtMsiController::Type::GicV3Its, base,
+        size, 0, 0};
+    out.msiPhandle = node.phandle;
+  }
+
   if (node.timer && node.interruptsSize >= 36) {
     out.physicalTimerIrq = gicIrq(node.interrupts + 12, node.interruptsSize - 12);
     out.virtualTimerIrq = gicIrq(node.interrupts + 24, node.interruptsSize - 24);
@@ -229,6 +249,11 @@ void finishNode(const Node& node, const Node& parent, PlatformInfo& out) {
         for (size_t i = 0; i < 4; ++i) {
           out.pciInterruptMask[i] = read32(node.interruptMapMask + i * 4);
         }
+      }
+      if (node.msiMap && node.msiMapSize && !(node.msiMapSize % 16)) {
+        out.pciMsiMap = node.msiMap;
+        out.pciMsiMapSize = node.msiMapSize;
+        out.pciMsiMapMask = node.msiMapMask;
       }
       if (node.ranges && parent.addressCells <= 2) {
         const size_t stride = (node.addressCells + parent.addressCells + node.sizeCells) * 4;
@@ -307,6 +332,7 @@ bool parse(const uint8_t* dtb, PlatformInfo& out) {
       node = {};
       node.addressCells = depth ? stack[depth - 1].addressCells : 2;
       node.sizeCells = depth ? stack[depth - 1].sizeCells : 1;
+      node.msiMapMask = 0xffff;
       node.memory = depth == 1 && nameLength >= 6 && structure[start] == 'm' &&
                     structure[start + 1] == 'e' && structure[start + 2] == 'm' &&
                     structure[start + 3] == 'o' && structure[start + 4] == 'r' &&
@@ -352,6 +378,11 @@ bool parse(const uint8_t* dtb, PlatformInfo& out) {
       } else if (equal(name, "interrupt-map-mask")) {
         node.interruptMapMask = data;
         node.interruptMapMaskSize = length;
+      } else if (equal(name, "msi-map")) {
+        node.msiMap = data;
+        node.msiMapSize = length;
+      } else if (equal(name, "msi-map-mask") && length == 4) {
+        node.msiMapMask = read32(data);
       } else if (equal(name, "bus-range") && length == 8) {
         node.firstBus = read32(data);
         node.lastBus = read32(data + 4);
@@ -366,6 +397,8 @@ bool parse(const uint8_t* dtb, PlatformInfo& out) {
         node.gic = hasString(data, length, "arm,cortex-a15-gic") ||
                    hasString(data, length, "arm,gic-400") || hasString(data, length, "arm,gic-v3");
         node.gicV3 = hasString(data, length, "arm,gic-v3");
+        node.gicV2m = hasString(data, length, "arm,gic-v2m-frame");
+        node.gicIts = hasString(data, length, "arm,gic-v3-its");
         node.timer = hasString(data, length, "arm,armv8-timer") ||
                      hasString(data, length, "arm,armv7-timer");
         node.psci =
@@ -448,6 +481,8 @@ bool VirtDeviceTree::initialiseAcpi(uint64_t rsdpPhysical,
   platform.gicCpu = acpi.gicCpu;
   platform.gicRedistributor = acpi.gicRedistributor;
   platform.gicVersion = acpi.gicVersion;
+  platform.msiController = acpi.msiController;
+  platform.pciMsiIdentity = acpi.pciMsiIdentity;
   platform.physicalTimerIrq = acpi.physicalTimerIrq;
   platform.virtualTimerIrq = acpi.virtualTimerIrq;
   platform.psciAvailable = acpi.psciAvailable;
@@ -543,6 +578,58 @@ uint32_t VirtDeviceTree::pciInterrupt(uint8_t bus, uint8_t device, uint8_t funct
   return 0;
 }
 
+bool VirtDeviceTree::pciMsiController(VirtMsiController& controller) {
+  if (!g_Platform.valid || !g_Platform.pciHost.size || !g_Platform.msiController.base ||
+      (g_Platform.gicVersion == 2 &&
+       g_Platform.msiController.type != VirtMsiController::Type::GicV2m) ||
+      (g_Platform.gicVersion == 3 &&
+       g_Platform.msiController.type != VirtMsiController::Type::GicV2m &&
+       g_Platform.msiController.type != VirtMsiController::Type::GicV3Its) ||
+      (g_Platform.acpi && g_Platform.msiController.type == VirtMsiController::Type::GicV3Its &&
+       !g_Platform.pciMsiIdentity)) {
+    return false;
+  }
+  if (!g_Platform.acpi && (!g_Platform.pciMsiMap || !g_Platform.msiPhandle)) {
+    return false;
+  }
+  controller = g_Platform.msiController;
+  return true;
+}
+
+bool VirtDeviceTree::pciMsiDeviceId(uint8_t bus, uint8_t device, uint8_t function, uint32_t& id) {
+  if (!g_Platform.valid || bus < g_Platform.pciHost.firstBus || bus > g_Platform.pciHost.lastBus ||
+      device >= 32 || function >= 8) {
+    return false;
+  }
+  const uint32_t rid = (uint32_t(bus) << 8) | (uint32_t(device) << 3) | function;
+  if (g_Platform.acpi) {
+    if (g_Platform.msiController.type == VirtMsiController::Type::GicV3Its &&
+        !g_Platform.pciMsiIdentity) {
+      return false;
+    }
+    id = rid;
+    return true;
+  }
+  if (!g_Platform.pciMsiMap || !g_Platform.msiPhandle) {
+    return false;
+  }
+  const uint32_t masked = rid & g_Platform.pciMsiMapMask;
+  for (size_t offset = 0; offset < g_Platform.pciMsiMapSize; offset += 16) {
+    const uint8_t* entry = g_Platform.pciMsiMap + offset;
+    const uint32_t start = read32(entry);
+    const uint32_t phandle = read32(entry + 4);
+    const uint32_t base = read32(entry + 8);
+    const uint32_t count = read32(entry + 12);
+    if (phandle != g_Platform.msiPhandle || !count || masked < start || masked - start >= count ||
+        base > UINT32_MAX - (masked - start)) {
+      continue;
+    }
+    id = base + (masked - start);
+    return true;
+  }
+  return false;
+}
+
 uintptr_t VirtDeviceTree::uartBase() {
   return g_Platform.uart ? DirectMapBase + g_Platform.uart : 0;
 }
@@ -569,6 +656,10 @@ uintptr_t VirtDeviceTree::gicCpuBase() {
 
 uintptr_t VirtDeviceTree::gicRedistributorBase() {
   return g_Platform.gicRedistributor ? DirectMapBase + g_Platform.gicRedistributor : 0;
+}
+
+uint64_t VirtDeviceTree::gicRedistributorPhysical() {
+  return g_Platform.gicRedistributor;
 }
 
 uint32_t VirtDeviceTree::physicalTimerIrq() {

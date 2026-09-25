@@ -9,6 +9,8 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/SplitIrqHandler.h"
 #include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
@@ -109,6 +111,44 @@ bool threadedDispatcherLifecycle() {
 
   if (passed) {
     NOTICE("HOSTED-IRQ-CLOSURE: PASS threaded-dispatcher-lifecycle");
+  }
+  return passed;
+}
+
+class CallbackIdProbe final : public IrqHandler {
+ public:
+  CallbackIdProbe() : seen(0) {}
+  IrqDisposition irq(irq_id_t id) override {
+    seen = id;
+    return IrqDisposition::Handled;
+  }
+  irq_id_t seen;
+};
+
+bool registryCallbackId() {
+  constexpr const char* Test = "registry-callback-id";
+  constexpr uint8_t Key = 2;
+  constexpr irq_id_t PublicId = 35;
+  static IrqHandlerRegistry registry;
+  CallbackIdProbe probe;
+  if (!check(registry.registerThreadedHandler(Key, &probe, IrqPolicy::edgeThreaded()), Test,
+             "registration failed")) {
+    return false;
+  }
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  const bool published = registry.publishThreadedDispatch(Key, 1);
+  Processor::setInterrupts(interruptsWereEnabled);
+  IrqHandlerRegistry::ThreadedDispatchResult result = {};
+  const bool admitted = published && registry.dispatchThreaded(Key, 1, result, nullptr, PublicId);
+  registry.invalidateThreadedLine(Key, 1);
+  const bool retired =
+      registry.unregisterHandler(Key, &probe) == IrqHandlerRegistry::UnregisterResult::Completed;
+  const bool passed =
+      check(admitted && result.handled && result.allowRearm && probe.seen == PublicId && retired,
+            Test, "callback did not receive the public IRQ ID");
+  if (passed) {
+    NOTICE("HOSTED-IRQ-CLOSURE: PASS " << Test);
   }
   return passed;
 }
@@ -422,6 +462,7 @@ bool runHostedIrqClosureRegressions() {
   NOTICE("HOSTED-IRQ-CLOSURE: BEGIN");
   bool passed = hardIrqOperationGuards();
   passed &= threadedDispatcherLifecycle();
+  passed &= registryCallbackId();
   passed &= splitHandlerLifecycle();
   passed &= hostedTimerSplitDelivery();
   passed &= runHostedInterruptManagerRegressions();
