@@ -176,7 +176,7 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void* virtu
       }
     }
 
-    size_t Flags = toFlags(flags, true);
+    size_t Flags = toFlags(flags, virtualAddress, true);
     for (size_t i = 0; i < numHugePages; ++i) {
       size_t pml4Index = PML4_INDEX(virtualAddress);
       uint64_t* pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
@@ -228,7 +228,7 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void* virtu
 bool X64VirtualAddressSpace::mapUnlocked(physical_uintptr_t physAddress, void* virtualAddress,
                                          size_t flags, X64MappingMutationScope& mutation,
                                          bool locked) {
-  size_t Flags = toFlags(flags, true);
+  size_t Flags = toFlags(flags, virtualAddress, true);
   size_t pml4Index = PML4_INDEX(virtualAddress);
   uint64_t* pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
 
@@ -557,7 +557,7 @@ void X64VirtualAddressSpace::setFlags(void* virtualAddress, size_t newFlags) {
   }
 
   // Set the flags
-  PAGE_SET_FLAGS(pageTableEntry, toFlags(newFlags, true));
+  PAGE_SET_FLAGS(pageTableEntry, toFlags(newFlags, virtualAddress, true));
 
   // Flush TLB - modified the mapping for this address.
   if (!invalidateMapping(virtualAddress, mutation)) {
@@ -578,7 +578,7 @@ bool X64VirtualAddressSpace::trySetFlags(void* virtualAddress, size_t newFlags) 
   }
 
   // Set the flags
-  PAGE_SET_FLAGS(pageTableEntry, toFlags(newFlags, true));
+  PAGE_SET_FLAGS(pageTableEntry, toFlags(newFlags, virtualAddress, true));
 
   // Flush TLB - modified the mapping for this address.
   if (!invalidateMapping(virtualAddress, mutation)) {
@@ -906,7 +906,7 @@ bool X64VirtualAddressSpace::mapPageStructures(physical_uintptr_t physAddress, v
   }
   LockGuard<Spinlock> guard(m_Lock);
 
-  size_t Flags = toFlags(flags);
+  size_t Flags = toFlags(flags, virtualAddress);
   size_t pml4Index = PML4_INDEX(virtualAddress);
   uint64_t* pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
 
@@ -949,7 +949,7 @@ bool X64VirtualAddressSpace::mapPageStructuresAbove4GB(physical_uintptr_t physAd
   }
   LockGuard<Spinlock> guard(m_Lock);
 
-  size_t Flags = toFlags(flags);
+  size_t Flags = toFlags(flags, virtualAddress);
   size_t pml4Index = PML4_INDEX(virtualAddress);
   uint64_t* pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
 
@@ -1227,6 +1227,7 @@ void X64VirtualAddressSpace::freeStack(Stack* pStack) {
 }
 
 X64VirtualAddressSpace::~X64VirtualAddressSpace() {
+  assert(m_bKernelSpace || !m_ResidentProcessors.value());
   PhysicalMemoryManager& physicalMemoryManager = PhysicalMemoryManager::instance();
 
   /// \todo validate that we're cleaning up enough stuff here
@@ -1243,6 +1244,7 @@ X64VirtualAddressSpace::~X64VirtualAddressSpace() {
 X64VirtualAddressSpace::X64VirtualAddressSpace()
     : VirtualAddressSpace(USERSPACE_VIRTUAL_HEAP),
       m_PhysicalPML4(0),
+      m_ResidentProcessors(0),
       m_pStackTop(USERSPACE_VIRTUAL_STACK),
       m_freeStacks(),
       m_bKernelSpace(false),
@@ -1264,6 +1266,7 @@ X64VirtualAddressSpace::X64VirtualAddressSpace(void* Heap, physical_uintptr_t Ph
                                                void* VirtualStack)
     : VirtualAddressSpace(Heap),
       m_PhysicalPML4(PhysicalPML4),
+      m_ResidentProcessors(0),
       m_pStackTop(VirtualStack),
       m_freeStacks(),
       m_bKernelSpace(true),
@@ -1319,10 +1322,15 @@ bool X64VirtualAddressSpace::invalidateMapping(void* virtualAddress,
                                                     : Process::VmInvalidationInactive);
   }
 #endif
-  // Upper-half mappings are shared by every address space. Lower-half
-  // mappings can also be active on more than one processor, and no residency
-  // mask currently identifies a narrower destination set. Use the same
-  // address-specific barrier conservatively for both.
+  if (!m_bKernelSpace && virtualAddress < KERNEL_SPACE_START) {
+    // Pair PTE publication with switchAddressSpace's incoming residency bit.
+    // A CPU missed here must load CR3 after the new PTE is visible; a CPU
+    // leaving the mask has already flushed its private translations.
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    return mutation.invalidate(virtualAddress, m_ResidentProcessors.value());
+  }
+  // The upper half is shared; bootstrap also installs the kernel CR3 before
+  // residency tracking is available.
   return mutation.invalidate(virtualAddress);
 }
 
@@ -1442,12 +1450,16 @@ size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,
   return detachedCount;
 }
 
-uint64_t X64VirtualAddressSpace::toFlags(size_t flags, bool bFinal) const {
+uint64_t X64VirtualAddressSpace::toFlags(size_t flags, void* virtualAddress, bool bFinal) const {
   uint64_t Flags = 0;
-  if ((flags & KernelMode) == KernelMode)
-    Flags |= PAGE_GLOBAL;
-  else
+  if ((flags & KernelMode) == KernelMode) {
+    // Private supervisor mappings must also be flushed by a CR3 switch.
+    if (virtualAddress >= KERNEL_SPACE_START) {
+      Flags |= PAGE_GLOBAL;
+    }
+  } else {
     Flags |= PAGE_USER;
+  }
   if ((flags & Write) == Write)
     Flags |= PAGE_WRITE;
   if ((flags & WriteCombine) == WriteCombine)
@@ -1529,7 +1541,7 @@ size_t X64VirtualAddressSpace::fromFlags(uint64_t Flags, bool bFinal) const {
 
 bool X64VirtualAddressSpace::conditionalTableEntryAllocation(uint64_t* tableEntry, uint64_t flags) {
   // Convert VirtualAddressSpace::* flags to X64 flags.
-  flags = toFlags(flags);
+  flags = toFlags(flags, nullptr);
 
   if ((*tableEntry & PAGE_PRESENT) != PAGE_PRESENT) {
     // Allocate a page
@@ -1565,7 +1577,7 @@ bool X64VirtualAddressSpace::conditionalTableEntryAllocation(uint64_t* tableEntr
 bool X64VirtualAddressSpace::conditionalTableEntryMapping(uint64_t* tableEntry,
                                                           uint64_t physAddress, uint64_t flags) {
   // Convert VirtualAddressSpace::* flags to X64 flags.
-  flags = toFlags(flags, true);
+  flags = toFlags(flags, nullptr, true);
 
   if ((*tableEntry & PAGE_PRESENT) != PAGE_PRESENT) {
     // Map the page. Add the WRITE and USER flags so that these can be

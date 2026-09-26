@@ -91,13 +91,18 @@ bool runSlamAllocatorConcurrencyRegression() {
   cache.initialise(&allocator, ObjectSize);
 
   uintptr_t objects[ObjectCount] = {};
-  for (size_t i = 0; i < ObjectCount; ++i) {
+  // The slab header consumes object slots; fill exactly one slab.
+  const size_t objectCount = cache.slabObjectCount();
+  if (!objectCount || objectCount > ObjectCount) {
+    return false;
+  }
+  for (size_t i = 0; i < objectCount; ++i) {
     objects[i] = cache.allocate();
     prepareAllocation(cache, objects[i]);
   }
 
   const size_t allocatingProcessor = Processor::index();
-  RemoteFreeContext firstFree(cache, objects, ObjectCount, allocatingProcessor);
+  RemoteFreeContext firstFree(cache, objects, objectCount, allocatingProcessor);
   if (!runRemoteFree(firstFree) || firstFree.processor == allocatingProcessor) {
     ERROR(
         "QEMU-CONCURRENCY-TEST: FAIL slam-cross-cpu-recovery-smp: "

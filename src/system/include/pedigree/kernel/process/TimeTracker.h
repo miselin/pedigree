@@ -64,6 +64,13 @@ class TimeTracker {
 
   /** Retires the tracker while leaving the kernel interval for user return. */
   ALWAYS_INLINE void finishForUserReturn() {
+#if PEDIGREE_BENCHMARK_SYSCALL_TIMING
+    if (m_bSyscallAttributed) {
+      // Publish the final attributed interval before clearing its syscall slot.
+      finishInKernel();
+      return;
+    }
+#endif
     Thread* thread = m_pThread;
     if (!m_pProcess || !thread)
       return;

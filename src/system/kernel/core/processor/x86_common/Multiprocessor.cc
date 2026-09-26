@@ -120,6 +120,9 @@ size_t Multiprocessor::initialise1() {
   volatile uintptr_t* trampolineKernelEntry;
   volatile uintptr_t* trampolineKernelGsAnchor = reinterpret_cast<volatile uintptr_t*>(0x7FE0);
 
+  // Shared page-table cache flags must have the same meaning on every CPU.
+  *reinterpret_cast<volatile uint64_t*>(0x7FD8) = Processor::readMachineSpecificRegister(0x277);
+
   // Parameters for the trampoline code
   trampolineStack = reinterpret_cast<volatile uintptr_t*>(0x7FF0);
   trampolineKernelEntry = reinterpret_cast<volatile uintptr_t*>(0x7FE8);

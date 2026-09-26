@@ -18,6 +18,9 @@
  */
 
 #include "Rtc.h"
+#if ACPI
+#include "Acpi.h"
+#endif
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
@@ -83,6 +86,62 @@ ALWAYS_INLINE inline uint64_t readOrderedTsc() {
   asm volatile("lfence\nrdtsc" : "=d"(edx), "=a"(eax) : : "memory");
   return (static_cast<uint64_t>(edx) << 32U) | eax;
 }
+
+#if ACPI
+bool calibrateTscFromPmTimer(uint64_t& tsc0, uint64_t& tsc1, uint64_t& elapsedNanoseconds) {
+  uint16_t port = 0;
+  uint32_t mask = 0;
+  if (!Acpi::instance().getPmTimerPort(port, mask)) {
+    return false;
+  }
+  IoPort timer("ACPI PM timer calibration");
+  if (!timer.allocate(port, 4)) {
+    WARNING("RTC: ACPI PM timer port unavailable; using RTC calibration");
+    return false;
+  }
+
+  constexpr uint64_t Frequency = 3579545;
+  constexpr uint64_t SampleTicks = Frequency / 10;
+  size_t polls = 0;
+  for (size_t attempt = 0; attempt < 3; ++attempt) {
+    const uint64_t startBefore = readOrderedTsc();
+    uint32_t previous = timer.read32() & mask;
+    const uint64_t startAfter = readOrderedTsc();
+    uint64_t elapsedTicks = 0;
+    while (elapsedTicks < SampleTicks) {
+      const uint32_t current = timer.read32() & mask;
+      // Both counter widths may wrap between reads.
+      elapsedTicks += (current - previous) & mask;
+      previous = current;
+      if (++polls >= RtcCalibrationMaximumPolls) {
+        WARNING("RTC: ACPI PM timer calibration timed out; using RTC calibration");
+        return false;
+      }
+      Processor::pause();
+    }
+    const uint64_t endBefore = readOrderedTsc();
+    const uint32_t current = timer.read32() & mask;
+    const uint64_t endAfter = readOrderedTsc();
+    elapsedTicks += (current - previous) & mask;
+
+    if (startAfter < startBefore || endBefore <= startAfter || endAfter < endBefore) {
+      continue;
+    }
+    const uint64_t startSpan = startAfter - startBefore;
+    const uint64_t endSpan = endAfter - endBefore;
+    tsc0 = startBefore + startSpan / 2;
+    tsc1 = endBefore + endSpan / 2;
+    // Bound endpoint uncertainty, including host deschedules, to 0.1%.
+    if (startSpan + endSpan > (tsc1 - tsc0) / 1000) {
+      continue;
+    }
+    elapsedNanoseconds = elapsedTicks * Time::Multiplier::Second / Frequency;
+    return true;
+  }
+  WARNING("RTC: ACPI PM timer calibration endpoints were delayed; using RTC calibration");
+  return false;
+}
+#endif
 }  // namespace
 
 Rtc::periodicIrqInfo_t Rtc::periodicIrqInfo[12] = {
@@ -453,42 +512,49 @@ bool Rtc::initialise1(uint8_t centuryIndex) {
 bool Rtc::initialise2() {
   NOTICE("Rtc::initialise2");
 
-  // Calibrate against TSC without making pre-scheduler IRQ callbacks do
-  // runtime policy work. IRQ8 is still masked because it has no handler;
-  // register C remains pollable and clears each periodic occurrence.
-  constexpr size_t CalibrationPeriods = 50;
-  setPeriodicInterruptEnabled(true);
-  size_t calibrationPolls = 0;
-  while (!(read(0x0C) & RtcPeriodicFlag)) {
-    if (++calibrationPolls >= RtcCalibrationMaximumPolls) {
-      setPeriodicInterruptEnabled(false);
-      ERROR("RTC: timed out waiting for TSC calibration to start");
-      return false;
-    }
-    Processor::pause();
-  }
-
-  const uint64_t tsc0 = readOrderedTsc();
-
-  size_t periods = 0;
-  while (periods < CalibrationPeriods) {
-    if (read(0x0C) & RtcPeriodicFlag) {
-      ++periods;
-    }
-    if (++calibrationPolls >= RtcCalibrationMaximumPolls) {
-      setPeriodicInterruptEnabled(false);
-      ERROR("RTC: timed out collecting periodic TSC calibration samples");
-      return false;
-    }
-    Processor::pause();
-  }
-
-  const uint64_t tsc1 = readOrderedTsc();
-  setPeriodicInterruptEnabled(false);
-
+  uint64_t tsc0 = 0;
+  uint64_t tsc1 = 0;
   uint64_t elapsedNanoseconds = 0;
-  for (size_t i = 0; i < CalibrationPeriods; ++i) {
-    elapsedNanoseconds += periodicIrqInfo[m_PeriodicIrqInfoIndex].ns[i & 1];
+  bool usedPmTimer = false;
+#if ACPI
+  usedPmTimer = calibrateTscFromPmTimer(tsc0, tsc1, elapsedNanoseconds);
+#endif
+  if (!usedPmTimer) {
+    // IRQ8 is still masked. The RTC fallback cannot distinguish coalesced
+    // periods, so prefer the cumulative ACPI counter when it is available.
+    constexpr size_t CalibrationPeriods = 50;
+    setPeriodicInterruptEnabled(true);
+    size_t calibrationPolls = 0;
+    while (!(read(0x0C) & RtcPeriodicFlag)) {
+      if (++calibrationPolls >= RtcCalibrationMaximumPolls) {
+        setPeriodicInterruptEnabled(false);
+        ERROR("RTC: timed out waiting for TSC calibration to start");
+        return false;
+      }
+      Processor::pause();
+    }
+
+    tsc0 = readOrderedTsc();
+
+    size_t periods = 0;
+    while (periods < CalibrationPeriods) {
+      if (read(0x0C) & RtcPeriodicFlag) {
+        ++periods;
+      }
+      if (++calibrationPolls >= RtcCalibrationMaximumPolls) {
+        setPeriodicInterruptEnabled(false);
+        ERROR("RTC: timed out collecting periodic TSC calibration samples");
+        return false;
+      }
+      Processor::pause();
+    }
+
+    tsc1 = readOrderedTsc();
+    setPeriodicInterruptEnabled(false);
+
+    for (size_t i = 0; i < CalibrationPeriods; ++i) {
+      elapsedNanoseconds += periodicIrqInfo[m_PeriodicIrqInfoIndex].ns[i & 1];
+    }
   }
   if (tsc1 <= tsc0 || !elapsedNanoseconds) {
     ERROR("RTC: invalid TSC calibration interval");
@@ -496,7 +562,8 @@ bool Rtc::initialise2() {
   }
   const uint64_t elapsedCycles = tsc1 - tsc0;
   m_TscCalibration = PcTscClock::Calibration(elapsedCycles, elapsedNanoseconds);
-  NOTICE("TSC calibration: " << elapsedCycles << " cycles / " << elapsedNanoseconds << " ns");
+  NOTICE("TSC calibration: " << elapsedCycles << " cycles / " << elapsedNanoseconds << " ns ("
+                             << (usedPmTimer ? "ACPI PM timer" : "RTC") << ")");
 
   m_TickCount = 0;
   m_ProcessedTickCount = 0;

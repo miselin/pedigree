@@ -50,6 +50,17 @@ mp_trampoline32:
   mov gs, ax
   mov ss, ax
 
+  ; Install the BSP's PAT with caches disabled and no live paging entries.
+  mov eax, cr0
+  or eax, 0x40000000
+  and eax, 0xdfffffff
+  mov cr0, eax
+  wbinvd
+  mov ecx, 0x277
+  mov eax, [0x7FD8]
+  mov edx, [0x7FDC]
+  wrmsr
+
   ; Set cr4.PAE
   mov eax, cr4
   or eax, 0x20
@@ -77,8 +88,9 @@ pmode1:
   or eax, esi
   wrmsr
 
-  ; Enable Paging
+  ; Firmware may leave AP caching disabled across INIT. Enable it with paging.
   mov eax, cr0
+  and eax, 0x9fffffff
   or eax, 0x80000000
   mov cr0, eax
 
@@ -104,6 +116,9 @@ longmode:
   ; Jump to the kernel's Multiprocessor::applicationProcessorStartup() function
   mov rax, [0x7FE8]
   jmp rax
+
+; The BSP copies exactly 256 bytes; reject growth beyond that startup window.
+times 0x100 - ($ - mp_trampoline32) db 0
 
 ;##########################################################################
 ;##### Global descriptor table                                        #####

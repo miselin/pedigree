@@ -412,6 +412,13 @@ class EXPORTED_PUBLIC ProcessorBase {
   MUST_USE_RESULT static TlbInvalidationResult invalidateAll(void* pAddress,
                                                              TlbInvalidationGuard& guard);
 
+#if X86_COMMON && !HOSTED
+  /** Invalidate locally and on the selected dense processor slots under a lease. */
+  MUST_USE_RESULT static TlbInvalidationResult invalidateProcessors(void* pAddress,
+                                                                    TlbInvalidationGuard& guard,
+                                                                    uint64_t processors);
+#endif
+
   /** True after a failed invalidation has permanently closed admission. */
   static bool tlbInvalidationFailureActive();
 

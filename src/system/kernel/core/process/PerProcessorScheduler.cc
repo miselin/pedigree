@@ -1811,6 +1811,15 @@ bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state,
     return finishWork(true);
   }
 
+#if PEDIGREE_FAST_USER_RETURN
+  // Resolving the deferred fault may have retired the only pending work.
+  if ((origin == UserReturnFrame::Origin::Syscall ||
+       origin == UserReturnFrame::Origin::Interrupt) &&
+      !frame.m_Terminal && owner->canSkipUserReturnWork()) {
+    return finishWork(false);
+  }
+#endif
+
   stageStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
   terminal = Processor::information().getScheduler().serviceProcessStopAtUserReturn();
   if (diagnosticSample) {

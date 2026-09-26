@@ -366,6 +366,46 @@ TEST(LocalApicTlbShootdown, PublishesAddressAndWaitsForEveryProcessor) {
   EXPECT_TRUE(shootdown.release());
 }
 
+TEST(LocalApicTlbShootdown, ServicesOnlySelectedProcessorsAcrossGenerations) {
+  LocalApicTlbShootdown shootdown;
+  ASSERT_TRUE(shootdown.tryAcquire());
+  ASSERT_TRUE(shootdown.publish(0x400000, 1, 4, 0xA));
+  EXPECT_EQ(shootdown.expectedMask(), 0xAULL);
+  LocalApicTlbShootdown::Service service;
+  EXPECT_FALSE(shootdown.beginService(0, service));
+  EXPECT_FALSE(shootdown.beginService(2, service));
+  EXPECT_TRUE(shootdown.drained());
+  EXPECT_FALSE(shootdown.complete());
+  ASSERT_TRUE(shootdown.beginService(3, service));
+  EXPECT_TRUE(shootdown.finishService(service));
+  EXPECT_TRUE(shootdown.complete());
+  shootdown.close();
+  ASSERT_TRUE(shootdown.release());
+
+  ASSERT_TRUE(shootdown.tryAcquire());
+  ASSERT_TRUE(shootdown.publish(0x401000, 0, 4, 0x5));
+  EXPECT_FALSE(shootdown.beginService(3, service));
+  EXPECT_FALSE(shootdown.complete());
+  ASSERT_TRUE(shootdown.beginService(2, service));
+  EXPECT_TRUE(shootdown.finishService(service));
+  EXPECT_TRUE(shootdown.complete());
+  shootdown.close();
+  EXPECT_TRUE(shootdown.release());
+}
+
+TEST(LocalApicTlbShootdown, RejectsMasksOutsideTopologyOrMissingInitiator) {
+  LocalApicTlbShootdown shootdown;
+  ASSERT_TRUE(shootdown.tryAcquire());
+  EXPECT_FALSE(shootdown.publish(0x400000, 1, 4, 0));
+  EXPECT_FALSE(shootdown.publish(0x400000, 1, 4, 0x1));
+  EXPECT_FALSE(shootdown.publish(0x400000, 1, 4, 0x12));
+  EXPECT_EQ(shootdown.generation(), 0U);
+  ASSERT_TRUE(shootdown.publish(0x400000, 1, 4, 0x2));
+  EXPECT_TRUE(shootdown.complete());
+  shootdown.close();
+  EXPECT_TRUE(shootdown.release());
+}
+
 TEST(LocalApicTlbShootdown, HoldsGenerationUntilServiceLeaseDrains) {
   LocalApicTlbShootdown shootdown;
   ASSERT_TRUE(shootdown.tryAcquire());

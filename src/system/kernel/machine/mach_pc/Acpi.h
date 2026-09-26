@@ -58,6 +58,8 @@ class Acpi {
     return m_bValid ? m_pFacp->cmosCenturyIndex : 0;
   }
 
+  bool getPmTimerPort(uint16_t& port, uint32_t& mask) const;
+
   bool pciConfigurationAddress(uint8_t bus, uint64_t& address) const;
   bool pciBusRange(uint8_t& first, uint8_t& last) const;
   bool pciInterruptRoute(uint8_t slot, uint8_t pin, AcpiPciRouting::Route& route) const;

@@ -1388,6 +1388,12 @@ static void test_sigsuspend(void) {
   status("OK");
 }
 
+void test_process_stop_contracts(void) {
+  test_wait_stop_continue();
+  test_multithreaded_process_stop_gate();
+  test_stopped_process_sigkill();
+}
+
 void test_process(const char* program) {
   printf("Testing process compatibility...\n");
   test_proc_self_fd();
@@ -1403,9 +1409,7 @@ void test_process(const char* program) {
   test_exec_signal_state(program);
   test_exec_partial_page_bss();
   test_exec_failure_boundary();
-  test_wait_stop_continue();
-  test_multithreaded_process_stop_gate();
-  test_stopped_process_sigkill();
+  test_process_stop_contracts();
   test_thread_signal_syscalls();
   test_sigsuspend();
 }

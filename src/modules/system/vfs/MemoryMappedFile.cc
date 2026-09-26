@@ -1532,15 +1532,14 @@ MemoryMapManager::FaultResolution MemoryMapManager::resolveUserFault(uintptr_t a
     return FaultResolution::Unhandled;
   }
   void* page = reinterpret_cast<void*>(pageAddress);
-  if (!space.isMapped(page)) {
+  physical_uintptr_t physical;
+  size_t flags;
+  if (!space.getMapping(page, physical, flags)) {
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
     process->recordBenchmarkVmCounter(Process::VmFaultUnhandled);
 #endif
     return FaultResolution::Unhandled;
   }
-  physical_uintptr_t physical;
-  size_t flags;
-  space.getMapping(page, physical, flags);
   const bool accessible =
       !(flags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::NoAccess |
                  VirtualAddressSpace::Swapped)) &&
@@ -1672,10 +1671,9 @@ bool MemoryMapManager::handleTrapUnlocked(uintptr_t address, bool bIsWrite, bool
 
   // A mapping published while this fault waited is only a completed resolution
   // if it permits the access which originally faulted.
-  if (va.isMapped(reinterpret_cast<void*>(pageAddress))) {
-    physical_uintptr_t physicalAddress = 0;
-    size_t flags = 0;
-    va.getMapping(reinterpret_cast<void*>(pageAddress), physicalAddress, flags);
+  physical_uintptr_t physicalAddress = 0;
+  size_t flags = 0;
+  if (va.getMapping(reinterpret_cast<void*>(pageAddress), physicalAddress, flags)) {
     const bool userAccessible =
         !(flags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::NoAccess |
                    VirtualAddressSpace::Swapped));

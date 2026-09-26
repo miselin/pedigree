@@ -764,7 +764,7 @@ int main(void) {
   if (!quick) {
     command("compile-warm-2", successful, 0);
     char* preprocess[] = {"gcc", "-E", "which.cc", "-o", "which.ii", NULL};
-    char* codegen[] = {"gcc", "-ftime-report", "-S", "which.ii", "-o", "which.s", NULL};
+    char* codegen[] = {"gcc", "-S", "which.ii", "-o", "which.s", NULL};
     char* assemble[] = {"gcc", "-c", "which.s", "-o", "which.o", NULL};
     char* link[] = {"gcc", "-o", "which", "which.o", "-lstdc++", NULL};
     command("preprocess", preprocess, 0);

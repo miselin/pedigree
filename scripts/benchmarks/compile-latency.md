@@ -7,6 +7,12 @@ counters. Run one guest at a time. Use fresh disposable overlays for each arm,
 and freeze their backing images, kernels, initrds, symbols, and compiler files.
 These QEMU TCG comparisons do not establish physical T420 timings.
 
+Compare host and guest elapsed time in the five-second idle control before
+comparing guest CPU seconds across boots. A similar host/guest ratio in idle
+and compilation indicates a clock-calibration scale error. RTC periodic flags
+can coalesce under emulation; use host elapsed time for throughput comparisons
+when the boot falls back to RTC-based TSC calibration.
+
 The guest gate rechecks COM1 with a short finite poll timeout. The current x86
 serial device is polling-only and does not publish a readiness edge, so an
 infinite `poll` can sleep forever if the admission byte arrives after the
@@ -113,9 +119,10 @@ post-fork command child; compiler descendants inherit it across fork and exec.
 The benchmark parent remains disabled and snapshots the aggregate after it has
 reaped the command child.
 
-This diagnostic reuses the CPU-accounting samples already taken at syscall and
-scheduler boundaries. It adds no clock reads and excludes time that a syscall
-spends descheduled. Metrics contain `scN_calls` and `scN_kernel_ns` for each
+This diagnostic reuses CPU-accounting samples at syscall and scheduler
+boundaries. At fast syscall returns, it takes one additional sample before
+retiring the syscall's attribution. It excludes time that a syscall spends
+descheduled. Metrics contain `scN_calls` and `scN_kernel_ns` for each
 nonzero raw Linux amd64 syscall number, with slot 512 collecting numbers outside
 0 through 511. `syscall_timing_kernel_ns` must not exceed `system_us * 1000`;
 the remainder includes user page faults, interrupts, process setup and teardown,
@@ -174,6 +181,8 @@ enabled, and `anonymous-contract 1`. Default full mode first runs the exact
 `gcc -o which which.cc`, retains its exit status, and adds `-lstdc++` if it fails.
 It then measures two warm repeats, preprocessing, code generation, assembly,
 linking, execution, sync, anonymous write faults at 1/4/16/64 MiB, and the contract.
+Timed code generation omits `-ftime-report`: GCC's pass timers can add millions
+of clock syscalls. Collect that report separately from throughput measurements.
 `link-cxx` plus host `--linked` skips the initially unlinked attempt in full mode.
 Keep guest markers and host options in agreement; unexpected phases fail closed.
 
@@ -204,6 +213,10 @@ compilation alone do not establish disk persistence.
 
 ## RTC-rate experiments
 
+On x64 with a one-shot LAPIC, runtime RTC IRQ8 is disabled and `--rtc-hz`
+does not change the runtime interrupt rate. The following experiment applies
+only to the periodic RTC fallback; confirm the selected mode in the boot log.
+
 Use the same kernel, initrd, compiler, and workload with separate frozen image
 copies. In the ESP `cmdline` file described above, add exactly one standalone
 `--rtc-hz=128` or `--rtc-hz=64` token, preserving the other boot arguments and
@@ -214,7 +227,7 @@ repeated values reject boot. Without the option, the default remains 512 Hz
 
 The override changes runtime interrupts after the unchanged TSC calibration.
 Confirm the kernel's `RTC: periodic interrupt frequency ... Hz` message and
-measure IRQ8 deltas. The LAPIC scheduler remains independently at 100 Hz.
+measure IRQ8 deltas. Scheduler timer deadlines are independent of this setting.
 At 128/64 Hz, timer service and vDSO clock refresh occur about every
 7.8125/15.625 ms. Kernel monotonic accounting still uses the TSC, but alarm
 delivery, voluntary cache-pressure checks, USB connection polling, and key

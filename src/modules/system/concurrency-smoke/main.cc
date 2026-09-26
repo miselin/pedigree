@@ -508,7 +508,7 @@ bool entry() {
     FATAL("QEMU anonymous MemoryRegion regression failed");
   }
   if (!runTlbShootdownConcurrencyRegression()) {
-    FATAL("QEMU shared-kernel TLB shootdown regression failed");
+    FATAL("QEMU TLB shootdown regression failed");
   }
   if (!runSlamAllocatorConcurrencyRegression()) {
     FATAL("QEMU SLAM allocator concurrency regression failed");

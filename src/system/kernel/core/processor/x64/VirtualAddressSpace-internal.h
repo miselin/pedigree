@@ -141,8 +141,8 @@ class X64MappingMutationScope {
     panicWithoutRestoringInterrupts("Mapping mutation reacquired an unknown VAS lock");
   }
 
-  bool invalidate(void* virtualAddress) {
-    m_Result = Processor::invalidateAll(virtualAddress, m_Invalidation);
+  bool invalidate(void* virtualAddress, uint64_t processors = ~uint64_t(0)) {
+    m_Result = Processor::invalidateProcessors(virtualAddress, m_Invalidation, processors);
     if (m_Result == TlbInvalidationResult::Success) {
       return true;
     }

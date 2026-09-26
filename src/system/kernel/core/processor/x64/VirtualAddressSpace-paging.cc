@@ -1,5 +1,4 @@
 /* Copyright (c) 2026, Pedigree Developers. */
-#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -16,6 +15,7 @@ bool X64VirtualAddressSpace::tryMapUserPage(physical_uintptr_t physical, void* a
     return false;
   const size_t indexes[] = {PML4_INDEX(address), PAGE_DIRECTORY_POINTER_INDEX(address),
                             PAGE_DIRECTORY_INDEX(address), PAGE_TABLE_INDEX(address)};
+  uint64_t* leaf = nullptr;
   auto missing = [&]() -> size_t {
     physical_uintptr_t table = m_PhysicalPML4;
     for (size_t level = 0; level < 3; ++level) {
@@ -26,13 +26,22 @@ bool X64VirtualAddressSpace::tryMapUserPage(physical_uintptr_t physical, void* a
         return 4;
       table = entry & 0x000ffffffffff000ULL;
     }
-    return (*TABLE_ENTRY(table, indexes[3]) & (PAGE_PRESENT | PAGE_NO_ACCESS | PAGE_SWAPPED)) ? 4
-                                                                                              : 0;
+    leaf = TABLE_ENTRY(table, indexes[3]);
+    return (*leaf & (PAGE_PRESENT | PAGE_NO_ACCESS | PAGE_SWAPPED)) ? 4 : 0;
   };
   size_t count;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    X64MappingMutationScope mutation;
+    mutation.lock(m_Lock);
     count = missing();
+    if (!count) {
+      // Existing page tables need neither allocation nor a second locked walk.
+      *leaf = physical | toFlags(flags, address, true);
+      if (!invalidateMapping(address, mutation)) {
+        mutation.panicInvalidationFailure();
+      }
+      return true;
+    }
   }
   if (count > 3)
     return false;
@@ -58,7 +67,7 @@ bool X64VirtualAddressSpace::tryMapUserPage(physical_uintptr_t physical, void* a
           *entry = pages[used++] | PAGE_PRESENT | PAGE_USER | PAGE_WRITE;
         table = PAGE_GET_PHYSICAL_ADDRESS(entry);
       }
-      *TABLE_ENTRY(table, indexes[3]) = physical | toFlags(flags, true);
+      *TABLE_ENTRY(table, indexes[3]) = physical | toFlags(flags, address, true);
       if (!invalidateMapping(address, mutation))
         mutation.panicInvalidationFailure();
       mapped = true;

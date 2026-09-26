@@ -117,10 +117,12 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
   MUST_USE_RESULT bool interProcessorInterruptAllExcludingThis(uint8_t vector, size_t deliveryMode);
 
   /**
-   * Synchronously invalidate one address on every online processor.
+   * Synchronously invalidate one address on the selected online processors.
+   * An all-ones mask selects the entire topology; the caller is always included.
    * See Processor::invalidateAll for the caller and failure contract.
    */
-  MUST_USE_RESULT TlbInvalidationResult invalidateAllProcessors(void* address);
+  MUST_USE_RESULT TlbInvalidationResult invalidateAllProcessors(void* address,
+                                                                uint64_t processors = ~uint64_t(0));
 
   /** Admit a page-table mutation before its first PTE write. */
   MUST_USE_RESULT TlbInvalidationResult beginTlbInvalidation(bool& global);

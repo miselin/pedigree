@@ -304,10 +304,17 @@ class LocalApicTlbShootdown {
     return m_Owner.compareAndSwap(false, true);
   }
 
-  bool publish(uintptr_t address, size_t processor, size_t processorCount) {
-    uint64_t expected = 0;
+  bool publish(uintptr_t address, size_t processor, size_t processorCount,
+               uint64_t expected = ~uint64_t(0)) {
+    uint64_t available = 0;
     if (!m_Owner || m_Generation || processor >= processorCount ||
-        !processorMask(processorCount, expected)) {
+        !processorMask(processorCount, available)) {
+      return false;
+    }
+    if (expected == ~uint64_t(0)) {
+      expected = available;
+    }
+    if (!expected || (expected & ~available) || !(expected & (uint64_t(1) << processor))) {
       return false;
     }
 
@@ -337,7 +344,7 @@ class LocalApicTlbShootdown {
     }
 
     const size_t generation = m_Generation.value();
-    if (!generation) {
+    if (!generation || !(m_Expected.value() & (uint64_t(1) << processor))) {
       return false;
     }
 

@@ -78,8 +78,9 @@ static int doInitialise64(const BootstrapStruct_t& info) {
 }
 
 void ProcessorBase::switchAddressSpace(VirtualAddressSpace& AddressSpace) {
-  const X64VirtualAddressSpace& x64AddressSpace =
-      static_cast<const X64VirtualAddressSpace&>(AddressSpace);
+  X64VirtualAddressSpace& x64AddressSpace = static_cast<X64VirtualAddressSpace&>(AddressSpace);
+  const bool restoreInterrupts = getInterrupts();
+  setInterrupts(false);
 
   // Get the current page directory
   uint64_t cr3;
@@ -87,13 +88,21 @@ void ProcessorBase::switchAddressSpace(VirtualAddressSpace& AddressSpace) {
 
   // Do we need to set a new page directory?
   if (cr3 != x64AddressSpace.m_PhysicalPML4) {
-    // Set the new page directory
-    asm volatile("mov %0, %%cr3" ::"r"(x64AddressSpace.m_PhysicalPML4));
-
-    // Update the information in the ProcessorInformation structure
     ProcessorInformation& processorInformation = Processor::information();
+    X64VirtualAddressSpace& previous =
+        static_cast<X64VirtualAddressSpace&>(processorInformation.getVirtualAddressSpace());
+    const size_t processor = Processor::index();
+    const uint64_t bit = processor < 64 ? uint64_t(1) << processor : 0;
+
+    // Publish before loading any private translation. Keep the outgoing bit
+    // until CR3 has flushed it. No PCIDs or global lower-half leaves survive
+    // this switch, so an invalidator can safely omit CPUs outside the mask.
+    x64AddressSpace.m_ResidentProcessors |= bit;
+    asm volatile("mov %0, %%cr3" ::"r"(x64AddressSpace.m_PhysicalPML4) : "memory");
     processorInformation.setVirtualAddressSpace(AddressSpace);
+    previous.m_ResidentProcessors &= ~bit;
   }
+  setInterrupts(restoreInterrupts);
 }
 
 void ProcessorBase::deinitialise() {

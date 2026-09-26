@@ -338,7 +338,7 @@ bool LocalApic::interProcessorInterruptAllExcludingThis(uint8_t vector, size_t d
   return submitIcr(0, vector | (deliveryMode << 8) | (1 << 14) | (0x3 << 18));
 }
 
-TlbInvalidationResult LocalApic::invalidateAllProcessors(void* address) {
+TlbInvalidationResult LocalApic::invalidateAllProcessors(void* address, uint64_t processors) {
   const ExecutionContext context = Processor::executionContext();
   if (!LocalApicTlbShootdown::supportsContext(context)) {
     return TlbInvalidationResult::InvalidContext;
@@ -350,10 +350,21 @@ TlbInvalidationResult LocalApic::invalidateAllProcessors(void* address) {
       processor >= processorCount) {
     return TlbInvalidationResult::UnsupportedTopology;
   }
+  const uint64_t available =
+      processorCount == 64 ? ~uint64_t(0) : (uint64_t(1) << processorCount) - 1;
+  if (processors == ~uint64_t(0)) {
+    processors = available;
+  }
+  if (processors & ~available) {
+    return TlbInvalidationResult::UnsupportedTopology;
+  }
+  const uint64_t self = uint64_t(1) << processor;
+  processors |= self;
+  const uint64_t remote = processors & ~self;
   const bool terminalSelfOnly = processorControlState() == ProcessorControlState::Terminal &&
                                 LocalApicTlbShootdown::onlyCurrentProcessorServiceable(
                                     processorCount, m_TerminalProcessorCount.value());
-  if (processorCount == 1 || terminalSelfOnly) {
+  if (!remote || terminalSelfOnly) {
     // Terminal processors have acknowledged their permanent CLI+HLT loop and
     // can never execute with a stale translation again. Processor::getCount()
     // intentionally remains the immutable discovered topology at shutdown.
@@ -382,11 +393,30 @@ TlbInvalidationResult LocalApic::invalidateAllProcessors(void* address) {
   // it copied the prior address and its generation tag cannot acknowledge the
   // request published last below.
   Processor::invalidate(address);
-  if (!m_TlbShootdown.publish(reinterpret_cast<uintptr_t>(address), processor, processorCount)) {
+  if (!m_TlbShootdown.publish(reinterpret_cast<uintptr_t>(address), processor, processorCount,
+                              processors)) {
     return TlbInvalidationResult::UnsupportedTopology;
   }
 
-  if (!interProcessorInterruptAllExcludingThis(IPI_TLB_SHOOTDOWN_VECTOR, deliveryModeFixed)) {
+  bool submitted = true;
+  if (processors == available) {
+    submitted =
+        interProcessorInterruptAllExcludingThis(IPI_TLB_SHOOTDOWN_VECTOR, deliveryModeFixed);
+  } else {
+    for (size_t target = 0; target < processorCount; ++target) {
+      if (!(remote & (uint64_t(1) << target))) {
+        continue;
+      }
+      ProcessorInformation* information = Processor::informationAt(target);
+      if (!information ||
+          !interProcessorInterrupt(information->localApicId(), IPI_TLB_SHOOTDOWN_VECTOR,
+                                   deliveryModeFixed, true, false)) {
+        submitted = false;
+        break;
+      }
+    }
+  }
+  if (!submitted) {
     m_TlbShootdown.close();
     for (size_t poll = 0; !m_TlbShootdown.drained() && poll < TlbShootdownPollLimit; ++poll) {
       Processor::pause();

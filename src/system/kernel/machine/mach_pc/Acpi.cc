@@ -294,6 +294,32 @@ Acpi::Acpi()
   }
 }
 
+bool Acpi::getPmTimerPort(uint16_t& port, uint32_t& mask) const {
+  if (!m_bValid || !m_pFacp || (m_pFacp->flags & (1U << 20)) || m_pFacp->pmTimerLength != 4) {
+    return false;
+  }
+
+  uint64_t address = m_pFacp->pmTimerBlock;
+  // X_PM_TMR_BLK takes precedence when the extended FADT provides it.
+  if (m_pFacp->header.length >= 220) {
+    const uint8_t* gas = reinterpret_cast<const uint8_t*>(m_pFacp) + 208;
+    uint64_t extendedAddress = 0;
+    MemoryCopy(&extendedAddress, gas + 4, sizeof(extendedAddress));
+    if (extendedAddress) {
+      if (gas[0] != 1 || (gas[1] != 24 && gas[1] != 32) || gas[2] || (gas[3] != 0 && gas[3] != 3)) {
+        return false;
+      }
+      address = extendedAddress;
+    }
+  }
+  if (!address || address > 0xfffc) {
+    return false;
+  }
+  port = static_cast<uint16_t>(address);
+  mask = (m_pFacp->flags & (1U << 8)) ? 0xffffffffU : 0x00ffffffU;
+  return true;
+}
+
 bool Acpi::pciConfigurationAddress(uint8_t bus, uint64_t& address) const {
   if (!m_bValid) {
     return false;

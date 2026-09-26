@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_X64_VIRTUALADDRESSSPACE_H
 #define KERNEL_PROCESSOR_X64_VIRTUALADDRESSSPACE_H
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
@@ -288,7 +289,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
    *flag representation \param[in] bFinal whether this is for the actual page
    *or just an intermediate PTE/PDE \return the proessor specific flag
    *representation */
-  uint64_t toFlags(size_t flags, bool bFinal = false) const PURE;
+  uint64_t toFlags(size_t flags, void* virtualAddress, bool bFinal = false) const PURE;
   /** Convert processor's representation of the flags to the processor
    *independant representation \param[in] Flags the processor specific flag
    *representation \param[in] bFinal whether this is for the actual page or
@@ -326,6 +327,8 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
 
   /** Physical address of the Page Map Level 4 */
   physical_uintptr_t m_PhysicalPML4;
+  /** CPUs which may retain private translations, including a switch in flight. */
+  Atomic<uint64_t> m_ResidentProcessors;
   ssize_t m_RemapPreparationFailure = -1;
   /** Current top of the stacks */
   void* m_pStackTop;

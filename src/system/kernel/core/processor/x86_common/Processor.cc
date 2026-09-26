@@ -291,13 +291,19 @@ TlbInvalidationResult ProcessorBase::invalidateAll(void* pAddress) {
 }
 
 TlbInvalidationResult ProcessorBase::invalidateAll(void* pAddress, TlbInvalidationGuard& guard) {
+  return invalidateProcessors(pAddress, guard, ~uint64_t(0));
+}
+
+TlbInvalidationResult ProcessorBase::invalidateProcessors(void* pAddress,
+                                                          TlbInvalidationGuard& guard,
+                                                          uint64_t processors) {
   if (!guard.m_Active) {
     return TlbInvalidationResult::InvalidContext;
   }
 
 #if MULTIPROCESSOR
   if (guard.m_Global) {
-    return Pc::instance().getLocalApic().invalidateAllProcessors(pAddress);
+    return Pc::instance().getLocalApic().invalidateAllProcessors(pAddress, processors);
   }
 #endif
 
