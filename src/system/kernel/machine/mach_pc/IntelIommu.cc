@@ -258,21 +258,27 @@ bool IntelIommu::makeDomain(Domain& domain) {
 
   auto* pdpt = reinterpret_cast<uint64_t*>(physicalAddress(pdptPage));
   physical_uintptr_t directoryPages[4] = {};
-  for (size_t group = 0; group < 4; ++group) {
+  domain.tokenBase = domain.isolated ? IsolatedTokenBase : m_ReservedTokens.physicalAddress();
+  domain.tokenCount = domain.isolated ? IsolatedTokenPages : TokenPages;
+  const size_t firstGroup = domain.isolated ? domain.tokenBase / (512 * LargePageBytes) : 0;
+  const size_t lastGroup = domain.isolated ? firstGroup + 1 : 4;
+  for (size_t group = firstGroup; group < lastGroup; ++group) {
     if (!addPage(directoryPages[group])) {
       freeDomain(domain);
       return false;
     }
     pdpt[group] = directoryPages[group] | 3;
-    auto* directory = reinterpret_cast<uint64_t*>(physicalAddress(directoryPages[group]));
-    for (size_t entry = 0; entry < 512; ++entry) {
-      directory[entry] = (uint64_t(group * 512 + entry) * LargePageBytes) | (1U << 7) | 3;
+    if (!domain.isolated) {
+      auto* directory = reinterpret_cast<uint64_t*>(physicalAddress(directoryPages[group]));
+      for (size_t entry = 0; entry < 512; ++entry) {
+        directory[entry] = (uint64_t(group * 512 + entry) * LargePageBytes) | (1U << 7) | 3;
+      }
     }
   }
 
-  const uint64_t tokenBase = m_ReservedTokens.physicalAddress();
-  const uint64_t firstBlock = tokenBase / LargePageBytes;
-  const uint64_t lastBlock = (tokenBase + TokenPages * PageBytes - 1) / LargePageBytes;
+  const uint64_t firstBlock = domain.tokenBase / LargePageBytes;
+  const uint64_t lastBlock =
+      (domain.tokenBase + domain.tokenCount * PageBytes - 1) / LargePageBytes;
   for (uint64_t block = firstBlock; block <= lastBlock; ++block) {
     physical_uintptr_t tablePage = 0;
     if (!addPage(tablePage)) {
@@ -280,14 +286,16 @@ bool IntelIommu::makeDomain(Domain& domain) {
       return false;
     }
     auto* table = reinterpret_cast<uint64_t*>(physicalAddress(tablePage));
-    for (size_t index = 0; index < 512; ++index) {
-      table[index] = (block * LargePageBytes + index * PageBytes) | 3;
+    domain.tokenTables[block - firstBlock] = table;
+    if (!domain.isolated) {
+      for (size_t index = 0; index < 512; ++index) {
+        table[index] = (block * LargePageBytes + index * PageBytes) | 3;
+      }
     }
-    for (size_t slot = 0; slot < TokenPages; ++slot) {
-      const uint64_t iova = tokenBase + slot * PageBytes;
+    for (size_t slot = 0; slot < domain.tokenCount; ++slot) {
+      const uint64_t iova = domain.tokenBase + slot * PageBytes;
       if (iova / LargePageBytes == block) {
-        domain.tokenEntries[slot] = &table[(iova / PageBytes) & 511];
-        *domain.tokenEntries[slot] = 0;
+        table[(iova / PageBytes) & 511] = 0;
       }
     }
     auto* directory = reinterpret_cast<uint64_t*>(physicalAddress(directoryPages[block / 512]));
@@ -298,6 +306,17 @@ bool IntelIommu::makeDomain(Domain& domain) {
     flushLines(reinterpret_cast<void*>(physicalAddress(domain.pages[i])), PageBytes);
   }
   return true;
+}
+
+uint64_t* IntelIommu::tokenEntry(const Domain& domain, size_t slot) {
+  if (slot >= domain.tokenCount) {
+    return nullptr;
+  }
+  const uint64_t iova = domain.tokenBase + slot * PageBytes;
+  const size_t table = iova / LargePageBytes - domain.tokenBase / LargePageBytes;
+  return table < 2 && domain.tokenTables[table]
+             ? &domain.tokenTables[table][(iova / PageBytes) & 511]
+             : nullptr;
 }
 
 IntelIommu::Domain* IntelIommu::findDomain(const Device* device) {
@@ -318,14 +337,14 @@ const IntelIommu::Domain* IntelIommu::findDomain(const Device* device) const {
   return nullptr;
 }
 
-bool IntelIommu::attach(Device* device) {
+bool IntelIommu::attach(Device* device, bool isolated) {
   if (!device || device->getPciBusPosition() > 255 || device->getPciDevicePosition() > 31 ||
       device->getPciFunctionNumber() > 7) {
     return false;
   }
   LockGuard<Mutex> guard(m_Lock);
-  if (findDomain(device)) {
-    return true;
+  if (const Domain* domain = findDomain(device)) {
+    return domain->isolated == isolated;
   }
   const AcpiDmar::Info* info = Acpi::instance().dmarInfo();
   if (!info ||
@@ -351,6 +370,7 @@ bool IntelIommu::attach(Device* device) {
   Domain domain;
   domain.device = device;
   domain.id = static_cast<uint16_t>(m_DomainCount + 2);
+  domain.isolated = isolated;
   if (!makeDomain(domain)) {
     return false;
   }
@@ -386,7 +406,8 @@ bool IntelIommu::attach(Device* device) {
   m_Domains[m_DomainCount++] = domain;
   NOTICE("Intel VT-d: attached PCI " << Dec << static_cast<uint32_t>(bus) << ":"
                                      << static_cast<uint32_t>(function >> 3) << "."
-                                     << static_cast<uint32_t>(function & 7) << " to domain "
+                                     << static_cast<uint32_t>(function & 7)
+                                     << (isolated ? " to isolated domain " : " to domain ")
                                      << static_cast<uint32_t>(domain.id));
   return true;
 }
@@ -394,6 +415,12 @@ bool IntelIommu::attach(Device* device) {
 bool IntelIommu::attached(const Device* device) const {
   LockGuard<Mutex> guard(m_Lock);
   return m_Enabled && findDomain(device);
+}
+
+bool IntelIommu::isolated(const Device* device) const {
+  LockGuard<Mutex> guard(m_Lock);
+  const Domain* domain = findDomain(device);
+  return m_Enabled && domain && domain->isolated;
 }
 
 bool IntelIommu::mapPage(Device* device, physical_uintptr_t physical, uint32_t& dmaAddress,
@@ -407,9 +434,9 @@ bool IntelIommu::mapPage(Device* device, physical_uintptr_t physical, uint32_t& 
     return false;
   }
 
-  const uint64_t tokenBase = m_ReservedTokens.physicalAddress();
-  if (physical < (1ULL << 32)) {
-    if (physical >= tokenBase && physical < tokenBase + TokenPages * PageBytes) {
+  if (!domain->isolated && physical < (1ULL << 32)) {
+    if (physical >= domain->tokenBase &&
+        physical < domain->tokenBase + domain->tokenCount * PageBytes) {
       return false;
     }
     dmaAddress = static_cast<uint32_t>(physical);
@@ -417,20 +444,24 @@ bool IntelIommu::mapPage(Device* device, physical_uintptr_t physical, uint32_t& 
     return true;
   }
 
-  for (size_t slot = 0; slot < TokenPages; ++slot) {
-    if (domain->tokenUsed[slot]) {
+  for (size_t slot = 0; slot < domain->tokenCount; ++slot) {
+    const uint32_t mask = 1U << (slot & 31);
+    if (domain->tokenUsed[slot / 32] & mask) {
       continue;
     }
-    uint64_t* entry = domain->tokenEntries[slot];
+    uint64_t* entry = tokenEntry(*domain, slot);
+    if (!entry) {
+      FATAL("Intel VT-d: IOVA page table missing");
+    }
     *entry = physical | 3;
     flushLines(entry, sizeof(*entry));
     if (!invalidateIotlb()) {
       FATAL("Intel VT-d: failed to publish IOVA mapping");
     }
-    domain->tokenUsed[slot] = true;
-    dmaAddress = static_cast<uint32_t>(tokenBase + slot * PageBytes);
+    domain->tokenUsed[slot / 32] |= mask;
+    dmaAddress = static_cast<uint32_t>(domain->tokenBase + slot * PageBytes);
     token = static_cast<uint16_t>(slot + 1);
-    if (!domain->loggedHighMapping) {
+    if (physical >= (1ULL << 32) && !domain->loggedHighMapping) {
       NOTICE("Intel VT-d: high physical page " << Hex << physical << " mapped to IOVA "
                                                << dmaAddress << " in domain " << Dec << domain->id);
       domain->loggedHighMapping = true;
@@ -446,16 +477,22 @@ void IntelIommu::unmapPage(Device* device, uint16_t token) {
   }
   LockGuard<Mutex> guard(m_Lock);
   Domain* domain = findDomain(device);
-  if (!m_Enabled || !domain || token > TokenPages || !domain->tokenUsed[token - 1]) {
+  const size_t slot = token - 1;
+  const uint32_t mask = 1U << (slot & 31);
+  if (!m_Enabled || !domain || slot >= domain->tokenCount ||
+      !(domain->tokenUsed[slot / 32] & mask)) {
     FATAL("Intel VT-d: invalid IOVA unmap");
   }
-  uint64_t* entry = domain->tokenEntries[token - 1];
+  uint64_t* entry = tokenEntry(*domain, slot);
+  if (!entry) {
+    FATAL("Intel VT-d: IOVA page table missing");
+  }
   *entry = 0;
   flushLines(entry, sizeof(*entry));
   if (!invalidateIotlb()) {
     FATAL("Intel VT-d: failed to revoke IOVA mapping");
   }
-  domain->tokenUsed[token - 1] = false;
+  domain->tokenUsed[slot / 32] &= ~mask;
   logFault();
 }
 

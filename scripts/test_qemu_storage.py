@@ -214,7 +214,7 @@ def run(args):
     folder.mkdir(parents=True, exist_ok=False)
     report = {"success": False, "cpus": args.cpus, "root": args.root,
               "ahci_sector_size": args.ahci_sector_size, "ram_mib": args.ram_mib,
-              "intel_iommu": args.intel_iommu}
+              "intel_iommu": args.intel_iommu, "trace_iommu": args.trace_iommu}
     child = None
     try:
         if args.root_image:
@@ -227,7 +227,10 @@ def run(args):
             gpt_root(args.image, folder / "root-gpt.img", folder / "boot.img")
         for sector in (512, 4096):
             nvme_fixture(folder / f"nvme-{sector}.img", sector)
-        (folder / "trace-events").write_text("\n".join((*ahci.TRACE_EVENTS, "pci_nvme_flush_ns")) + "\n")
+        trace_events = (*ahci.TRACE_EVENTS, "pci_nvme_flush_ns")
+        if args.trace_iommu:
+            trace_events += ("vtd_dmar_translate", "vtd_dmar_fault")
+        (folder / "trace-events").write_text("\n".join(trace_events) + "\n")
         argv = command(args, folder)
         (folder / "command.json").write_text(json.dumps(argv, indent=2) + "\n")
         with (folder / "qemu.log").open("wb") as output:
@@ -254,6 +257,8 @@ def run(args):
                 raise RuntimeError("root filesystem was not proved on the NVMe namespace")
         if args.intel_iommu:
             report["remapped_high_domains"] = verify_iommu(serial, args.ram_mib > 4096)
+            if "NVMe: using isolated DMA domain" not in serial:
+                raise RuntimeError("NVMe did not attach an isolated DMA domain")
         for sector in (512, 4096):
             nvme_fixture(folder / f"nvme-{sector}.img", sector, True)
         trace = (folder / "trace.log").read_text(errors="replace")
@@ -284,6 +289,7 @@ def main():
     parser.add_argument("--cpus", choices=(1, 4), type=int, default=4)
     parser.add_argument("--ram-mib", type=int, default=768)
     parser.add_argument("--intel-iommu", action="store_true")
+    parser.add_argument("--trace-iommu", action="store_true")
     parser.add_argument("--iommu-aw-bits", choices=(39, 48), type=int, default=39)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--qemu", default="qemu-system-x86_64")
@@ -294,6 +300,8 @@ def main():
             not args.ovmf.is_file() or not 0 < args.timeout <= 3600 or
             not 128 <= args.ram_mib <= 65536):
         parser.error("image/root/OVMF must exist, RAM must be 128-65536 MiB, and timeout must be between 0 and 3600")
+    if args.trace_iommu and not args.intel_iommu:
+        parser.error("trace-iommu requires intel-iommu")
     args.image = args.image.resolve()
     if args.root_image:
         args.root_image = args.root_image.resolve()

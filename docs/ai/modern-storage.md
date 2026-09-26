@@ -46,6 +46,12 @@ available. Check the serial log for VT-d enable, attached storage functions,
 and a high physical page mapped to a low IOVA before treating the run as DMA
 remapping evidence.
 
+The NVMe profile opts into a restricted VT-d domain on supported x86 hosts.
+Use `--root nvme --intel-iommu --trace-iommu --ram-mib 5120` to record QEMU's
+DMA translations and faults in `trace.log`; the harness requires the NVMe
+isolation marker. Other PCI functions retain their existing DMA policy, and
+SR-IOV virtual functions remain withheld from drivers.
+
 After testing, restore the original CMake values for write protection, init and
 smoke modules, and rebuild the normal image. Never replace an image used by a
 running guest. Smoke images are for these disposable fixtures only.

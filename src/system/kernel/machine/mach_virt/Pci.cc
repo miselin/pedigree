@@ -330,6 +330,14 @@ bool PciBus::hasDmaRemapping(Device*) const {
   return false;
 }
 
+bool PciBus::attachIsolatedDma(Device*) {
+  return false;
+}
+
+bool PciBus::hasDmaIsolation(Device*) const {
+  return false;
+}
+
 bool PciBus::mapDmaPage(Device* device, physical_uintptr_t physical, size_t bytes,
                         DmaMapping& mapping) {
   if (!device || mapping.m_Device || !physical || !bytes || bytes > TargetInfo::getPageSize() ||

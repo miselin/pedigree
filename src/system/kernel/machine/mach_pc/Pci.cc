@@ -371,6 +371,24 @@ bool PciBus::hasDmaRemapping(Device* device) const {
 #endif
 }
 
+bool PciBus::attachIsolatedDma(Device* device) {
+#if X64 && ACPI
+  return device && IntelIommu::instance().attach(device, true);
+#else
+  (void)device;
+  return false;
+#endif
+}
+
+bool PciBus::hasDmaIsolation(Device* device) const {
+#if X64 && ACPI
+  return device && IntelIommu::instance().isolated(device);
+#else
+  (void)device;
+  return false;
+#endif
+}
+
 bool PciBus::mapDmaPage(Device* device, physical_uintptr_t physical, size_t bytes,
                         DmaMapping& mapping) {
   constexpr uint64_t HighestDmaAddress = 0xffffffffULL;
@@ -381,7 +399,11 @@ bool PciBus::mapDmaPage(Device* device, physical_uintptr_t physical, size_t byte
 
   uint32_t address = 0;
   uint16_t token = 0;
-  if (uint64_t{physical} <= HighestDmaAddress - (bytes - 1)) {
+  bool isolated = false;
+#if X64 && ACPI
+  isolated = IntelIommu::instance().isolated(device);
+#endif
+  if (!isolated && uint64_t{physical} <= HighestDmaAddress - (bytes - 1)) {
     address = static_cast<uint32_t>(physical);
   } else {
 #if X64 && ACPI

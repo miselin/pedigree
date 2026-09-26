@@ -165,7 +165,11 @@ bool NvmeController::initialiseController() {
       !pci.disableMessageInterrupts(m_Pci, inherited) || !pci.resourcesUnchanged(m_Pci, inherited)) {
     return false;
   }
-  (void)pci.attachDmaRemapping(m_Pci);
+  if (pci.attachIsolatedDma(m_Pci)) {
+    NOTICE("NVMe: using isolated DMA domain");
+  } else {
+    (void)pci.attachDmaRemapping(m_Pci);
+  }
   const uint16_t depth = (cap & 0xffffU) >= QueueDepth - 1 ? QueueDepth : (cap & 0xffffU) + 1;
   if (!m_Admin.initialise(m_Registers, 0, depth, stride, PageSize, m_Pci) ||
       !m_Io.initialise(m_Registers, 1, depth, stride, MaxTransfer, m_Pci))

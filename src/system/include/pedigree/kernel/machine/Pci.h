@@ -132,6 +132,9 @@ class EXPORTED_PUBLIC PciBus {
   /** Attach a PCI function to a translated DMA domain before bus mastering. */
   bool attachDmaRemapping(Device* device);
   bool hasDmaRemapping(Device* device) const;
+  /** Restrict this function to explicitly mapped DMA pages before bus mastering. */
+  bool attachIsolatedDma(Device* device);
+  bool hasDmaIsolation(Device* device) const;
   /** Map one pinned physical page to a 32-bit device address for the mapping lifetime. */
   bool mapDmaPage(Device* device, physical_uintptr_t physical, size_t bytes, DmaMapping& mapping);
   void unmapDmaPage(Device* device, uint16_t token);

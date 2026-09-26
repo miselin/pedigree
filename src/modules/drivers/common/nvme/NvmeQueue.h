@@ -24,10 +24,10 @@ class NvmeQueue {
   size_t interruptCompletions() const;
   size_t maximumOutstanding() const;
   uint64_t submissionAddress() const {
-    return m_Submission.physicalAddress();
+    return m_SubmissionDma.address();
   }
   uint64_t completionAddress() const {
-    return m_Completion.physicalAddress();
+    return m_CompletionDma.address();
   }
   uint16_t depth() const {
     return m_Depth;
@@ -39,6 +39,8 @@ class NvmeQueue {
     MemoryRegion data;
     physical_uintptr_t firstPage = 0;
     MemoryRegion prps;
+    PciBus::DmaMapping dataDma[Nvme::MaxTransfer / Nvme::PageSize];
+    PciBus::DmaMapping prpsDma;
     Semaphore completion;
     bool active;
     bool done;
@@ -51,6 +53,8 @@ class NvmeQueue {
   Device* m_DmaDevice;
   MemoryRegion m_Submission;
   MemoryRegion m_Completion;
+  PciBus::DmaMapping m_SubmissionDma;
+  PciBus::DmaMapping m_CompletionDma;
   Slot m_Slots[Nvme::QueueDepth - 1];
   mutable Mutex m_Lock;
   Semaphore m_Available;

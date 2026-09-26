@@ -13,14 +13,17 @@ class IntelIommu {
  public:
   static IntelIommu& instance();
 
-  bool attach(Device* device);
+  bool attach(Device* device, bool isolated = false);
   bool attached(const Device* device) const;
+  bool isolated(const Device* device) const;
   bool mapPage(Device* device, physical_uintptr_t physical, uint32_t& dmaAddress, uint16_t& token);
   void unmapPage(Device* device, uint16_t token);
 
  private:
   static constexpr size_t MaxDomains = 8;
   static constexpr size_t TokenPages = 32;
+  static constexpr size_t IsolatedTokenPages = 1024;
+  static constexpr uint32_t IsolatedTokenBase = 0x10000000U;
 
   struct Domain {
     Device* device = nullptr;
@@ -28,8 +31,11 @@ class IntelIommu {
     physical_uintptr_t root = 0;
     physical_uintptr_t pages[8] = {};
     size_t pageCount = 0;
-    uint64_t* tokenEntries[TokenPages] = {};
-    bool tokenUsed[TokenPages] = {};
+    uint64_t tokenBase = 0;
+    uint16_t tokenCount = 0;
+    uint64_t* tokenTables[2] = {};
+    uint32_t tokenUsed[IsolatedTokenPages / 32] = {};
+    bool isolated = false;
     bool loggedHighMapping = false;
   };
 
@@ -44,6 +50,7 @@ class IntelIommu {
   bool waitForStatus(uint32_t bit, bool set);
   void flushLines(const void* address, size_t bytes) const;
   void logFault();
+  static uint64_t* tokenEntry(const Domain& domain, size_t slot);
   Domain* findDomain(const Device* device);
   const Domain* findDomain(const Device* device) const;
 

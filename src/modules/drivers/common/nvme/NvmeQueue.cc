@@ -56,6 +56,13 @@ bool NvmeQueue::initialise(IoBase* registers, uint16_t id, uint16_t depth, size_
   if (!memory.allocateRegion(m_Submission, 1, constraints, flags) ||
       !memory.allocateRegion(m_Completion, 1, constraints, flags))
     return false;
+  auto& pci = PciBus::instance();
+  if (!pci.mapDmaPage(m_DmaDevice, m_Submission.physicalAddress(), Nvme::PageSize,
+                      m_SubmissionDma) ||
+      !pci.mapDmaPage(m_DmaDevice, m_Completion.physicalAddress(), Nvme::PageSize,
+                      m_CompletionDma)) {
+    return false;
+  }
   ByteSet(m_Submission.virtualAddress(), 0, Nvme::PageSize);
   ByteSet(m_Completion.virtualAddress(), 0, Nvme::PageSize);
   for (size_t i = 0; i < depth - 1U; ++i) {
@@ -64,6 +71,9 @@ bool NvmeQueue::initialise(IoBase* registers, uint16_t id, uint16_t depth, size_
                                PhysicalMemoryManager::below4GB, flags) ||
         !memory.allocateRegion(slot.prps, 1, constraints, flags))
       return false;
+    if (!pci.mapDmaPage(m_DmaDevice, slot.prps.physicalAddress(), Nvme::PageSize, slot.prpsDma)) {
+      return false;
+    }
     ByteSet(slot.data.virtualAddress(), 0, transferBytes);
     ByteSet(slot.prps.virtualAddress(), 0, Nvme::PageSize);
     auto* prps = static_cast<uint64_t*>(slot.prps.virtualAddress());
@@ -75,12 +85,13 @@ bool NvmeQueue::initialise(IoBase* registers, uint16_t id, uint16_t depth, size_
       VirtualAddressSpace::getKernelAddressSpace().getMapping(
           static_cast<uint8_t*>(slot.data.virtualAddress()) + page * Nvme::PageSize, address,
           mappingFlags);
-      if (address >= (uint64_t{1} << 32))
+      if (!pci.mapDmaPage(m_DmaDevice, address, Nvme::PageSize, slot.dataDma[page])) {
         return false;
+      }
       if (!page)
-        slot.firstPage = address;
+        slot.firstPage = slot.dataDma[page].address();
       else
-        prps[page - 1] = address;
+        prps[page - 1] = slot.dataDma[page].address();
     }
   }
   FENCE();
@@ -186,12 +197,8 @@ NvmeQueue::Result NvmeQueue::execute(Nvme::Command command, void* buffer, size_t
             (VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) &&
         !(flags & (VirtualAddressSpace::Swapped | VirtualAddressSpace::CopyOnWrite |
                    VirtualAddressSpace::NoAccess | VirtualAddressSpace::Borrowed))) {
-      if (uint64_t{physical} <= 0xffffffffULL - (pageOffset + bytes - 1)) {
-        directPage = physical + pageOffset;
-        direct = true;
-      } else if (m_DmaDevice && directReadMapping &&
-                 PciBus::instance().mapDmaPage(m_DmaDevice, physical, Nvme::PageSize,
-                                               *directReadMapping)) {
+      if (directReadMapping && PciBus::instance().mapDmaPage(m_DmaDevice, physical, Nvme::PageSize,
+                                                             *directReadMapping)) {
         directPage = directReadMapping->address() + pageOffset;
         direct = true;
       }
@@ -230,7 +237,7 @@ NvmeQueue::Result NvmeQueue::execute(Nvme::Command command, void* buffer, size_t
       command.prp2 = directWrite || bytes <= Nvme::PageSize ? 0
                      : bytes <= 2 * Nvme::PageSize
                          ? static_cast<uint64_t*>(slot.prps.virtualAddress())[0]
-                         : slot.prps.physicalAddress();
+                         : slot.prpsDma.address();
     }
     command.opcode = (command.opcode & 0xffffU) | (cid << 16);
     auto* submission = static_cast<Nvme::Command*>(m_Submission.virtualAddress());
