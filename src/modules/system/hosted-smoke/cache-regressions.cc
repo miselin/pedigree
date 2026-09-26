@@ -308,6 +308,7 @@ bool queuedRequestLifetime() {
     return false;
   }
   blocker.markNoLongerEditing(BlockerKey);
+  blocker.markDirty(BlockerKey);
   blocker.sync(BlockerKey, true);
   if (!checkNamed(context.blockerEntered.acquire(1, 2), "cache-queued-lifetime",
                   "the blocking Cache callback did not start")) {
@@ -324,6 +325,7 @@ bool queuedRequestLifetime() {
     return false;
   }
   context.target->markNoLongerEditing(TargetKey);
+  context.target->markDirty(TargetKey);
   context.target->sync(TargetKey, true);
 
   Thread* deleter = new Thread(Scheduler::instance().getKernelProcess(), deleteQueuedCache,
@@ -648,6 +650,7 @@ bool retirePrepublicationWriteback() {
     return false;
   }
   cache.markNoLongerEditing(Key);
+  cache.markDirty(Key);
   cache.startAtomic();
   cache.setWritebackAdmissionHookForTest(retireAdmissionHook, &context);
 
@@ -798,6 +801,7 @@ bool preparedDiscardPublication(bool cancel) {
   }
   cache.markNoLongerEditing(PrefixKey);
   cache.markNoLongerEditing(Key);
+  cache.markDirty(Key);
   cache.setWritebackAdmissionHookForTest(retireAdmissionHook, &publication);
   Thread* producer = new Thread(Scheduler::instance().getKernelProcess(), publishRetireWriteback,
                                 &publication, nullptr, false, true);
@@ -950,6 +954,7 @@ bool rejectedLastWritebackPin() {
   }
   reinterpret_cast<uint8_t*>(publication.page)[0] = 0xa7;
   cache.markNoLongerEditing(Key);
+  cache.markDirty(Key);
   cache.setWritebackAdmissionHookForTest(retireAdmissionHook, &publication);
   Thread* producer = new Thread(Scheduler::instance().getKernelProcess(), publishRejectedWriteback,
                                 &context, nullptr, false, true);
@@ -1223,6 +1228,7 @@ bool syncAllJoinsCallback() {
     return false;
   }
   cache.markNoLongerEditing(Key);
+  cache.markDirty(Key);
   SyncAllCall first(context, Key, SyncAllCall::All);
   Thread* writer = new Thread(Scheduler::instance().getKernelProcess(), syncAllWorker, &first,
                               nullptr, false, true);
@@ -1250,7 +1256,7 @@ bool syncAllJoinsCallback() {
       checkNamed(queueRejected && producerJoined, "cache-sync-all",
                  "the CacheManager worker blocked behind a direct callback") &&
       checkNamed(joinedCallback && writerJoined && joinerJoined && first.result == 1 &&
-                     second.result == 1 && context.writes == 2,
+                     second.result == 1 && context.writes == 1,
                  "cache-sync-all", "synchronous drain did not join an active callback");
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS cache-sync-all-callback");
@@ -1269,6 +1275,7 @@ bool syncAllJoinsRetirement(bool succeeds) {
     return false;
   }
   cache.markNoLongerEditing(Key);
+  cache.markDirty(Key);
   SyncAllCall retirement(context, Key, SyncAllCall::Retire);
   Thread* retirer = new Thread(Scheduler::instance().getKernelProcess(), syncAllWorker, &retirement,
                                nullptr, false, true);
@@ -1312,6 +1319,8 @@ bool syncAllFromCacheManager() {
   }
   lower.markNoLongerEditing(Key);
   upper.markNoLongerEditing(Key);
+  lower.markDirty(Key);
+  upper.markDirty(Key);
   const bool passed = checkNamed(
       upper.sync(Key, false) && upperContext.nestedSucceeded == 1 && lowerContext.writes == 1,
       "cache-sync-all", "a CacheManager callback could not drain an independent lower cache");
@@ -1517,6 +1526,7 @@ bool timerWritebackCoalescing(bool failFirst, bool mutateDuringWriteback) {
   }
   const bool oneActiveAdmission = context.admissions == 1;
   context.allowCallbackReturn.release();
+  fence.markDirty(0);
   const bool firstDrained = fence.sync(0, false);
   const bool oneInitialCallback = context.callbacks == 1;
 
@@ -1525,6 +1535,7 @@ bool timerWritebackCoalescing(bool failFirst, bool mutateDuringWriteback) {
   bool retriesDrained = true;
   for (size_t i = 0; i < 3; ++i) {
     tickWriteback(cache);
+    fence.markDirty(0);
     retriesDrained = fence.sync(0, false) && retriesDrained;
   }
   const size_t expected = failFirst || mutateDuringWriteback ? 2 : 1;

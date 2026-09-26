@@ -100,6 +100,10 @@ def trace_summary(text):
     fis_bytes = None
     target_read_pending = False
     flushes = []
+    clean_page_reads = 0
+    clean_page_writes = 0
+    clean_first = READ_RANGES[0][0] // 512
+    clean_last = (READ_RANGES[0][0] + READ_RANGES[0][1]) // 512
     taskfile_errors = 0
     root_reads_after_error = 0
     for line in text.splitlines():
@@ -115,6 +119,17 @@ def trace_summary(text):
         row = re.fullmatch(r"\s*0x00:\s+((?:[0-9a-fA-F]{2}\s+){15}[0-9a-fA-F]{2})\s*", line)
         if row and port is not None:
             fis_bytes = bytes.fromhex(row.group(1))
+            opcode = fis_bytes[2]
+            if (port == 1 and fis_bytes[0] == 0x27 and fis_bytes[1] & 0x80 and
+                    fis_bytes[7] & 0x40 and opcode in (0x25, 0x35, 0x60, 0x61)):
+                lba = int.from_bytes(fis_bytes[4:7] + fis_bytes[8:11], "little")
+                sectors = ((fis_bytes[11] << 8) | fis_bytes[3] if opcode in (0x60, 0x61)
+                           else int.from_bytes(fis_bytes[12:14], "little")) or 65536
+                if lba < clean_last and lba + sectors > clean_first:
+                    if opcode in (0x35, 0x61):
+                        clean_page_writes += 1
+                    else:
+                        clean_page_reads += 1
         command = re.search(r"ide_bus_exec_cmd.*cmd 0x([0-9a-fA-F]+)", line)
         if command:
             opcode = int(command.group(1), 16)
@@ -133,6 +148,8 @@ def trace_summary(text):
             port = None
             fis_bytes = None
     return {"scratch_flush_commands": len(flushes), "scratch_flush_opcodes": sorted(set(flushes)),
+            "scratch_clean_page_read_commands": clean_page_reads,
+            "scratch_clean_page_write_commands": clean_page_writes,
             "scratch_taskfile_errors": taskfile_errors,
             "root_reads_after_scratch_error": root_reads_after_error}
 

@@ -342,6 +342,11 @@ def run(args):
         if args.root == "ahci":
             report.update(ahci.verify_fixture(folder / "ahci.img"))
             report.update(ahci.trace_summary(trace))
+            if ("AHCI-SMOKE: PASS clean-page-sync" not in serial or
+                    not report["scratch_clean_page_read_commands"]):
+                raise RuntimeError("missing clean-page sync and read evidence")
+            if report["scratch_clean_page_write_commands"]:
+                raise RuntimeError("read-only scratch page was written back")
             report["maximum_ncq_outstanding"] = ncq_maximum(trace)
             if report["maximum_ncq_outstanding"] < 2:
                 raise RuntimeError("no overlapping scratch NCQ commands traced")

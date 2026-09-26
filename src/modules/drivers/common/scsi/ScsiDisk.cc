@@ -1005,6 +1005,9 @@ bool ScsiDisk::sync(uint64_t location, bool async) {
     return m_Cache.sync(pageLocation, true);
   }
 
+#if CRIPPLE_HDD
+  return false;
+#else
   // A filesystem cache callback can synchronously flush this lower cache.
   // Re-entering the shared CacheManager queue would reject that nested request.
   const uintptr_t page = m_Cache.lookup(pageLocation);
@@ -1012,11 +1015,21 @@ bool ScsiDisk::sync(uint64_t location, bool async) {
     return false;
   }
   CachePageGuard pageGuard(m_Cache, pageLocation);
-  const bool succeeded = flushCachePage(pageLocation, page);
-  if (!succeeded) {
-    m_Cache.markDirty(pageLocation);
-  }
-  return succeeded;
+  const uintptr_t key = pageLocation;
+  struct SyncContext {
+    ScsiDisk* disk;
+    bool submitted;
+  } context = {this, false};
+  const bool succeeded = m_Cache.syncBatch(
+      &key, 1,
+      [](const Cache::WritebackPage* pages, size_t count, void* metadata) {
+        auto* context = static_cast<SyncContext*>(metadata);
+        context->submitted = true;
+        return syncCacheBatch(pages, count, context->disk);
+      },
+      &context);
+  return succeeded && (context.submitted || syncData());
+#endif
 }
 
 bool ScsiDisk::syncPages(const uint64_t* locations, size_t count) {

@@ -1685,13 +1685,33 @@ bool scsiCheckedSync() {
   constexpr uint8_t SuccessfulWrites[] = {0x2a, 0x2a, 0x2a, 0xaa};
   constexpr uint8_t FailedSyncs[] = {0x35, 0x35, 0x35, 0x91, 0x91, 0x91};
   constexpr uint8_t RetriedSyncs[] = {0x35, 0x35, 0x35, 0x91};
+  constexpr uint8_t CleanSyncs[] = {0x35, 0x35};
   Fixture fixture;
-  if (!fixture.ready || !fixture.disk.preparePage(CheckedSyncLocation)) {
+  if (!fixture.ready) {
     ERROR("HOSTED-WAIT-TEST: FAIL scsi-checked-sync: fixture setup");
     return false;
   }
-  const uintptr_t page = fixture.disk.pageAddress(CheckedSyncLocation);
-  fixture.disk.checksumPage(CheckedSyncLocation);
+  fixture.disk.pauseBackgroundWriteback();
+  const BufferView read = fixture.disk.read(CheckedSyncLocation);
+  const uintptr_t page = read.address();
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginSync(SyncMode::Pass10);
+  const bool cleanSynced = read && fixture.disk.sync(CheckedSyncLocation, false) &&
+                           fixture.disk.sync(CheckedSyncLocation, false) &&
+                           fixture.controller.hasNoDirectActivity() &&
+                           fixture.controller.syncTraceMatches(CleanSyncs, sizeof(CleanSyncs));
+  if (read) {
+    fixture.disk.unpin(CheckedSyncLocation);
+  }
+  fixture.disk.resumeBackgroundWriteback();
+  const bool cleanBackground = fixture.disk.runBackgroundWriteback() &&
+                               fixture.controller.hasNoDirectActivity() &&
+                               fixture.controller.syncTraceMatches(CleanSyncs, sizeof(CleanSyncs));
+  fixture.disk.pauseBackgroundWriteback();
+  auto writer = fixture.disk.writeView(CheckedSyncLocation);
+  const uint8_t value = 0x7d;
+  const bool changed = writer && writer.writeAt(value, 0);
+  writer.reset();
   fixture.controller.beginWrites(WriteMode::PassWrite12);
   fixture.controller.beginSync(SyncMode::FailAll);
   fixture.disk.beginUnpinObservation();
@@ -1729,15 +1749,23 @@ bool scsiCheckedSync() {
   }
   fixture.controller.beginWrites(WriteMode::PassWrite12);
   fixture.controller.beginSync(SyncMode::Pass10);
+  const bool repeated = fixture.disk.sync(CheckedSyncLocation, false) &&
+                        fixture.disk.sync(CheckedSyncLocation, false) &&
+                        fixture.controller.hasNoDirectActivity() &&
+                        fixture.controller.syncTraceMatches(CleanSyncs, sizeof(CleanSyncs));
+  fixture.disk.resumeBackgroundWriteback();
   const bool cleaned =
-      fixture.disk.evictPage(CheckedSyncLocation) && !fixture.disk.hasPage(CheckedSyncLocation);
-  const bool passed = failureReported && retained && retryReported && callerPinPreserved && cleaned;
+      fixture.disk.runBackgroundWriteback() && fixture.disk.evictPage(CheckedSyncLocation) &&
+      !fixture.disk.hasPage(CheckedSyncLocation) && fixture.controller.hasNoDirectActivity() &&
+      fixture.controller.syncTraceMatches(CleanSyncs, sizeof(CleanSyncs));
+  const bool passed = cleanSynced && cleanBackground && changed && failureReported && retained &&
+                      retryReported && callerPinPreserved && repeated && cleaned;
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS scsi-checked-sync");
   } else {
     ERROR(
-        "HOSTED-WAIT-TEST: FAIL scsi-checked-sync: error retention, retry, or borrowed pin "
-        "ownership");
+        "HOSTED-WAIT-TEST: FAIL scsi-checked-sync: clean writes, error retention, retry, or "
+        "borrowed pin ownership");
   }
   return passed;
 }

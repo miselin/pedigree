@@ -204,6 +204,7 @@ TEST(CacheDiscard, ActualQueuePinsAreReleasedAfterCallbackFailure) {
   Cache cache;
   cache.setCallback(CallbackState::callback, &state);
   ASSERT_NE(publish(cache, Page), 0U);
+  cache.markDirty(Page);
   ASSERT_TRUE(cache.pin(Page));
   Gate done;
   std::atomic<bool> syncResult{true};
@@ -248,6 +249,7 @@ TEST(CacheDiscard, LastWritebackReferenceStillSchedulesOrdinaryEviction) {
   Cache cache;
   cache.setCallback(CallbackState::callback, &state);
   ASSERT_NE(publish(cache, Page), 0U);
+  cache.markDirty(Page);
   Gate done;
   std::atomic<bool> syncResult{false};
   std::thread writer([&] {

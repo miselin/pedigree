@@ -166,7 +166,7 @@ bool CacheManager::shutdown() {
           break;
         afterId = cacheId;
         if (!scan) {
-          succeeded = cache->syncAllInternal(nullptr, nullptr, true) && succeeded;
+          succeeded = cache->syncAll() && succeeded;
         } else {
           LockGuard<Spinlock> guard(cache->m_Lock);
           if (cache->m_Callback) {
@@ -431,8 +431,7 @@ uint64_t CacheManager::cacheGenerationWatermark() {
 
 uint64_t CacheManager::addCacheRequest(Cache* cache, bool asynchronous,
                                        CacheConstants::CallbackCause cause, uintptr_t key,
-                                       uintptr_t location, bool transferredPin, bool onlyIfDirty,
-                                       bool batch) {
+                                       uintptr_t location, bool transferredPin, bool batch) {
   if (static_cast<size_t>(m_TerminalState)) {
     if (batch)
       cache->releaseBackgroundWriteback(reinterpret_cast<Cache::BackgroundWriteback*>(key));
@@ -476,16 +475,14 @@ uint64_t CacheManager::addCacheRequest(Cache* cache, bool asynchronous,
   const uint64_t requestToken = 0;
 #endif
 
-  // p7 selects forced, conditional, or batch writeback. A batch owns its p3 payload.
+  // A batch is identified by p7 and owns its p3 payload.
   if (asynchronous) {
     return addAsyncRequest(1, reinterpret_cast<uint64_t>(cache), cause, key, location,
-                           transferredPin ? 1 : 0, generation, batch ? 2 : (onlyIfDirty ? 1 : 0),
-                           requestToken);
+                           transferredPin ? 1 : 0, generation, batch ? 2 : 0, requestToken);
   }
 
   return addRequest(1, RequestQueue::NewRequest, reinterpret_cast<uint64_t>(cache), cause, key,
-                    location, transferredPin ? 1 : 0, generation, batch ? 2 : (onlyIfDirty ? 1 : 0),
-                    requestToken);
+                    location, transferredPin ? 1 : 0, generation, batch ? 2 : 0, requestToken);
 }
 
 uint64_t CacheManager::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
@@ -1584,15 +1581,10 @@ bool Cache::sync(uintptr_t key, bool async) {
       return false;
     }
 
-    if (m_DirtyTracking == DirtyTracking::Explicit && pPage->status != CachePage::Editing &&
-        !pPage->callbackActive && pPage->evictionState == CachePage::EvictionState::None &&
-        !needsWriteback(pPage)) {
+    if (pPage->status != CachePage::Editing && !pPage->callbackActive &&
+        pPage->evictionState == CachePage::EvictionState::None && !needsWriteback(pPage)) {
       return true;
     }
-
-    // Preserve legacy forced writeback if queue admission fails.
-    if (m_DirtyTracking == DirtyTracking::Checksum)
-      recordMutation(pPage);
 
     ++pPage->refcnt;
     ++pPage->writebackPins;
@@ -1625,10 +1617,6 @@ bool Cache::syncAll() {
 }
 
 bool Cache::syncAll(writeback_batch_t callback, void* metadata) {
-  return syncAllInternal(callback, metadata, false);
-}
-
-bool Cache::syncAllInternal(writeback_batch_t callback, void* metadata, bool onlyIfDirty) {
 #if THREADS
   TerminationDeferral terminationDeferral;
   OperationBarrier::Lease operation;
@@ -1754,7 +1742,7 @@ bool Cache::syncAllInternal(writeback_batch_t callback, void* metadata, bool onl
       if (callback) {
         keys.pushBack(entry.key);
       } else {
-        const bool written = writebackPage(entry.key, entry.location, true, onlyIfDirty);
+        const bool written = writebackPage(entry.key, entry.location, true);
         succeeded = written && succeeded;
         releaseWriteback(entry.key);
       }
@@ -1910,8 +1898,9 @@ bool Cache::syncBatchInternal(const uintptr_t* keys, size_t count, writeback_bat
         writeCount = 0;
         for (size_t i = 0; i < count; ++i) {
           CachePage* page = submissions[i].page;
-          if ((snapshot || m_DirtyTracking == DirtyTracking::Explicit) && !needsWriteback(page))
+          if (!needsWriteback(page)) {
             continue;
+          }
           ++page->refcnt;
           ++page->writebackPins;
           page->callbackActive = true;
@@ -1975,7 +1964,7 @@ bool Cache::syncBatchInternal(const uintptr_t* keys, size_t count, writeback_bat
   return succeeded;
 }
 
-bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait, bool onlyIfDirty) {
+bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait) {
   CachePage* page = nullptr;
   writeback_t callback = nullptr;
   void* callbackMeta = nullptr;
@@ -1997,15 +1986,14 @@ bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait, bool onl
       if (!page || page->location != location || !m_Callback) {
         return false;
       }
-      if ((wait || onlyIfDirty || m_DirtyTracking == DirtyTracking::Explicit) &&
-          page->status == CachePage::Editing) {
+      if (page->status == CachePage::Editing) {
         return false;
       }
       if (!page->callbackActive && page->evictionState != CachePage::EvictionState::WriteBack) {
         // A durable batch can supersede a timer request already in the queue.
-        // Legacy sync stays forced; explicit owners submit only known changes.
-        if ((onlyIfDirty || m_DirtyTracking == DirtyTracking::Explicit) && !needsWriteback(page))
+        if (!needsWriteback(page)) {
           return true;
+        }
         // A previously admitted writeback pin is allowed to finish while a
         // retirement waits in Draining for precisely these pins to disappear.
         page->callbackActive = true;
@@ -2208,8 +2196,7 @@ void Cache::timer(uint64_t delta) {
   auto submitBatch = [&] {
     if (batch) {
       CacheManager::instance().addCacheRequest(this, true, CacheConstants::WriteBack,
-                                               reinterpret_cast<uintptr_t>(batch), 0, false, true,
-                                               true);
+                                               reinterpret_cast<uintptr_t>(batch), 0, false, true);
       batch = nullptr;
     }
   };
@@ -2313,7 +2300,7 @@ void Cache::timer(uint64_t delta) {
       }
     }
     CacheManager::instance().addCacheRequest(this, true, CacheConstants::WriteBack, key, location,
-                                             true, true);
+                                             true);
   }
   submitBatch();
 }
@@ -2408,7 +2395,7 @@ uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p
 
   // Never block the shared worker behind a direct callback which may itself
   // submit work to CacheManager. A rejected request retains dirty data.
-  const bool succeeded = writebackPage(p3, p4, false, p7 != 0);
+  const bool succeeded = writebackPage(p3, p4, false);
 
   // Unpin page, writeback complete
   releaseWriteback(p3);

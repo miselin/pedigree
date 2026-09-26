@@ -128,8 +128,27 @@ class EvidenceTests(unittest.TestCase):
 """
         self.assertEqual(smoke.trace_summary(trace), {
             "scratch_flush_commands": 2, "scratch_flush_opcodes": ["0xe7", "0xea"],
+            "scratch_clean_page_read_commands": 0, "scratch_clean_page_write_commands": 0,
             "scratch_taskfile_errors": 0, "root_reads_after_scratch_error": 0})
         self.assertEqual(smoke.trace_summary("")["scratch_flush_commands"], 0)
+
+    def test_clean_page_trace_counts_dma_and_ncq_overlap_on_scratch_only(self):
+        for opcode in (0x25, 0x35, 0x60, 0x61):
+            fis = bytearray.fromhex("27 80 00 00 08 00 00 40 00 00 00 00 08 00 00 00")
+            fis[2] = opcode
+            if opcode in (0x60, 0x61):
+                fis[3], fis[12] = 8, 0
+            trace = "handle_cmd_fis_dump ahci(0xabc)[1]: FIS:\n0x00: " + fis.hex(" ") + "\n"
+            result = smoke.trace_summary(trace)
+            self.assertEqual(result["scratch_clean_page_read_commands"], int(opcode in (0x25, 0x60)))
+            self.assertEqual(result["scratch_clean_page_write_commands"], int(opcode in (0x35, 0x61)))
+            for unrelated in (trace.replace("[1]", "[0]"), trace.replace("08 00 00 40", "10 00 00 40")):
+                result = smoke.trace_summary(unrelated)
+                self.assertEqual(result["scratch_clean_page_read_commands"], 0)
+                self.assertEqual(result["scratch_clean_page_write_commands"], 0)
+            overlapping = trace.replace("08 00 00 40", "04 00 00 40")
+            self.assertEqual(smoke.trace_summary(overlapping)["scratch_clean_page_write_commands"],
+                             int(opcode in (0x35, 0x61)))
 
     def test_qemu_root_is_snapshot_and_scratch_is_persistent(self):
         args = argparse.Namespace(qemu="qemu", cpus=4, iso=Path("/test/a,b.iso"),

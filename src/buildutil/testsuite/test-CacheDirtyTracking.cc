@@ -66,6 +66,49 @@ struct Observer {
 };
 }  // namespace
 
+TEST(CacheDirtyTracking, ChecksumSyncWritesOnlyChangedPages) {
+  Observer observer;
+  Cache cache;
+  observer.cache = &cache;
+  cache.setCallback(Observer::write, &observer);
+  constexpr uintptr_t Keys[] = {0, Page, 2 * Page};
+  uintptr_t pages[3] = {};
+  for (size_t i = 0; i < 3; ++i) {
+    pages[i] = fill(cache, Keys[i]);
+    ASSERT_NE(pages[i], 0U);
+  }
+
+  EXPECT_TRUE(cache.sync(Keys[0], false));
+  EXPECT_TRUE(cache.sync(Keys[1], true));
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_TRUE(cache.syncBatch(Keys, 3, Observer::batch, &observer));
+  for (size_t i = 0; i < 3; ++i) {
+    cache.timer(Period);
+  }
+  EXPECT_TRUE(observer.writes.empty());
+
+  *reinterpret_cast<unsigned char*>(pages[1]) = 0xA6;
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_EQ(observer.writes, (std::vector<uintptr_t>{Page}));
+  EXPECT_TRUE(cache.syncAll());
+  EXPECT_EQ(observer.writes.size(), 1U);
+
+  *reinterpret_cast<unsigned char*>(pages[2]) = 0xB7;
+  EXPECT_TRUE(cache.syncBatch(Keys, 3, Observer::batch, &observer));
+  EXPECT_EQ(observer.batchKeys, (std::vector<uintptr_t>{2 * Page}));
+  EXPECT_EQ(observer.writtenBytes, (std::vector<unsigned char>{0xA6, 0xB7}));
+
+  *reinterpret_cast<unsigned char*>(pages[0]) = 0xC8;
+  EXPECT_TRUE(cache.sync(Keys[0], false));
+  EXPECT_TRUE(cache.sync(Keys[0], false));
+  EXPECT_TRUE(cache.syncAll(Observer::batch, &observer));
+  for (size_t i = 0; i < 3; ++i) {
+    cache.timer(Period);
+  }
+  EXPECT_TRUE(cache.empty());
+  EXPECT_EQ(observer.writes, (std::vector<uintptr_t>{Page, 2 * Page, 0}));
+}
+
 #if STANDALONE_CACHE && (defined(__unix__) || defined(__APPLE__))
 TEST(CacheDirtyTracking, CleanExplicitPagesDoNotReadPayloadOnPublicationSyncOrEviction) {
   size_t writes = 0;
@@ -222,6 +265,7 @@ TEST(CacheDirtyTracking, StableLookupDistinguishesBusyPagesFromMissesAndPreserve
     EXPECT_FALSE(cache.lookupStable(key, result));
     EXPECT_EQ(result, 0U);
   };
+  cache.markDirty(0);
   EXPECT_TRUE(cache.sync(0, false));
   EXPECT_FALSE(cache.evict(0));
   cache.release(0);

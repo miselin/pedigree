@@ -293,6 +293,12 @@ bool entry() {
       return false;
   }
   NOTICE("AHCI-SMOKE: PASS patterned-reads");
+  for (size_t i = 0; i < 2; ++i) {
+    if (!scratch->sync(ReadRanges[0].offset, false) || !scratch->syncAll()) {
+      return fail("clean page sync");
+    }
+  }
+  NOTICE("AHCI-SMOKE: PASS clean-page-sync");
   if (!concurrentReads(*scratch))
     return false;
   for (const Range& range : WriteRanges) {

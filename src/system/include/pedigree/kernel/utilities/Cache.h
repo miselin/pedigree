@@ -157,7 +157,7 @@ class EXPORTED_PUBLIC CacheManager :
   /** Publishes a request which owns the target Cache lifetime. */
   uint64_t addCacheRequest(Cache* cache, bool asynchronous, CacheConstants::CallbackCause cause,
                            uintptr_t key, uintptr_t location = 0, bool transferredPin = false,
-                           bool onlyIfDirty = false, bool batch = false);
+                           bool batch = false);
 
   /**
    * RequestQueue doer - children give us new jobs, and we call out to
@@ -494,7 +494,7 @@ class EXPORTED_PUBLIC Cache {
    * Synchronises the given cache key back to a backing store, if a
    * callback has been assigned to the Cache. Synchronous calls report the
    * callback result; asynchronous calls report queue admission only. Clean
-   * explicit pages need no payload callback; owners must still flush hardware.
+   * pages need no payload callback; owners must still flush hardware.
    */
   bool sync(uintptr_t key, bool async);
 
@@ -545,7 +545,7 @@ class EXPORTED_PUBLIC Cache {
   /**
    * Claims up to MaxWritebackPages distinct resident pages for one durable
    * callback. No page is settled or released before the shared result; a failed
-   * callback leaves every submitted page retryable. Clean explicit pages are
+   * callback leaves every submitted page retryable. Clean pages are
    * omitted, so the callback can receive fewer pages than requested or be
    * skipped entirely. Owners must still flush hardware. Keys must remain valid
    * for this call.
@@ -729,11 +729,10 @@ class EXPORTED_PUBLIC Cache {
     uintptr_t keys[MaxWritebackPages];
   };
   void releaseBackgroundWriteback(BackgroundWriteback* batch);
-  bool syncAllInternal(writeback_batch_t callback, void* metadata, bool onlyIfDirty);
   bool syncBatchInternal(const uintptr_t* keys, size_t count, writeback_batch_t callback,
                          void* metadata, bool snapshot);
   /** Writes an already pinned page, optionally joining an active callback. */
-  bool writebackPage(uintptr_t key, uintptr_t location, bool wait, bool onlyIfDirty = false);
+  bool writebackPage(uintptr_t key, uintptr_t location, bool wait);
 
   /** Key-item pairs. */
   Tree<uintptr_t, CachePage*> m_Pages;

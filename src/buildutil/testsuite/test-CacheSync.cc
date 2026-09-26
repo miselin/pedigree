@@ -256,6 +256,8 @@ TEST_F(CacheManagerShutdown, FlushesDirtyPagesWithoutRevokingRetainedLoans) {
   EXPECT_TRUE(ram.exists(0, Page));
   EXPECT_TRUE(manager.shutdown());
   EXPECT_EQ(observer.writes, 1U);
+  EXPECT_TRUE(cache.sync(0, true));
+  cache.markDirty(0);
   EXPECT_FALSE(cache.sync(0, true));
   cache.release(0);
 }
@@ -332,7 +334,7 @@ TEST(CacheSync, DrainsEveryPageAndRetainsFailureForRetry) {
   EXPECT_TRUE(cache.exists(Page, Page));
   observer.failedKey = ~uintptr_t{0};
   EXPECT_TRUE(cache.syncAll());
-  EXPECT_EQ(observer.writes, 7U);
+  EXPECT_EQ(observer.writes, 5U);
   EXPECT_TRUE(cache.evict(Page));
 }
 
@@ -349,7 +351,7 @@ TEST(CacheSync, PinsSnapshotAndExcludesLaterPublication) {
   EXPECT_EQ(observer.writes, 2U);
   EXPECT_TRUE(cache.exists(2 * Page, Page));
   EXPECT_TRUE(cache.syncAll());
-  EXPECT_EQ(observer.writes, 5U);
+  EXPECT_EQ(observer.writes, 3U);
 }
 
 TEST(CacheSync, SkipsUnpublishedEditingDataAndRejectsSameCacheRecursion) {
@@ -362,6 +364,7 @@ TEST(CacheSync, SkipsUnpublishedEditingDataAndRejectsSameCacheRecursion) {
   EXPECT_FALSE(cache.syncAll());
   EXPECT_EQ(observer.writes, 0U);
   cache.markNoLongerEditing(0);
+  cache.markDirty(0);
   EXPECT_TRUE(cache.syncAll());
   EXPECT_FALSE(observer.nestedResult);
   EXPECT_EQ(observer.writes, 1U);
@@ -791,7 +794,7 @@ TEST(CacheSync, BatchValidatesEveryKeyBeforeInvokingCallback) {
   EXPECT_TRUE(cache.evict(0));
 }
 
-TEST(CacheSync, CompletedBatchSupersedesQueuedConditionalWritesButNotExplicitSync) {
+TEST(CacheSync, CompletedBatchSupersedesQueuedWritesAndRepeatedSync) {
   BatchObserver observer;
   Cache cache;
   observer.cache = &cache;
@@ -811,10 +814,10 @@ TEST(CacheSync, CompletedBatchSupersedesQueuedConditionalWritesButNotExplicitSyn
   EXPECT_EQ(observer.ordinaryWrites, 1U);
   EXPECT_EQ(observer.lastWritten, 0xA6);
   EXPECT_EQ(cache.executeRequest(0, CacheConstants::WriteBack, Keys[1], pages[1], 0, 0, 0, 0), 2U);
-  EXPECT_EQ(observer.ordinaryWrites, 2U);
+  EXPECT_EQ(observer.ordinaryWrites, 1U);
   EXPECT_TRUE(cache.evict(Keys[0]));
   EXPECT_TRUE(cache.evict(Keys[1]));
-  EXPECT_EQ(observer.ordinaryWrites, 2U);
+  EXPECT_EQ(observer.ordinaryWrites, 1U);
 }
 
 TEST(CacheSync, ConditionalWritesRetryFailedBatchesAndRejectEditingPages) {
