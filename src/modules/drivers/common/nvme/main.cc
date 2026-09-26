@@ -1,62 +1,73 @@
 /* Copyright (c) 2026, Pedigree Developers. SPDX-License-Identifier: ISC */
-#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/linker/KernelElf.h"
-#include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/machine/PciDrivers.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/utilities/new"
 
 #include "NvmeController.h"
 #include "modules/Module.h"
 namespace {
-List<Device*> candidates;
-List<NvmeController*> controllers;
-void collect(Device* pci) {
-  for (size_t i = 0; i < pci->getNumChildren(); ++i) {
-    if (pci->getChild(i)->getSpecificType() == String("nvme-controller"))
-      return;
+Device* attach(Device* pci) {
+  auto* controller = new NvmeController(pci);
+  if (!controller) {
+    return nullptr;
   }
-  candidates.pushBack(pci);
-}
-Module::UnloadAdmission admitUnload(bool) {
-  for (auto* controller : controllers) {
-    if (!controller->prepareDiskRemoval()) {
-      for (auto* rollback : controllers)
-        rollback->cancelDiskRemoval();
-      return Module::UnloadAdmission::Busy;
-    }
-  }
-  return Module::UnloadAdmission::Ready;
-}
-bool entry() {
-  Device::searchByClassSubclassAndProgInterface(1, 8, 2, collect);
-  while (candidates.count()) {
-    Device* pci = candidates.popFront();
-    auto* controller = new NvmeController(pci);
-    if (!controller->initialiseController()) {
-      controller->shutdown();
-      delete controller;
-      continue;
-    }
-    {
-      Device::TreeLockGuard guard;
-      controller->setParent(pci);
-      pci->addChild(controller);
-    }
-    controllers.pushBack(controller);
-  }
-  if (!controllers.count())
-    return false;
-  return KernelElf::instance().registerUnloadAdmission(&entry, &admitUnload);
-}
-void exit() {
-  while (controllers.count()) {
-    NvmeController* controller = controllers.popFront();
+  if (!controller->initialiseController()) {
     controller->shutdown();
-    {
-      Device::TreeLockGuard guard;
-      controller->getParent()->removeChild(controller);
-      controller->setParent(nullptr);
-    }
     delete controller;
+    return nullptr;
+  }
+  {
+    Device::TreeLockGuard guard;
+    controller->setParent(pci);
+    pci->addChild(controller);
+  }
+  auto& services = ServiceManager::instance();
+  for (size_t i = 0; i < controller->getNumChildren(); ++i) {
+    auto* disk = static_cast<Disk*>(controller->getChild(i));
+    services.serve(String("partition"), ServiceFeatures::touch, disk, sizeof(disk));
+  }
+  return controller;
+}
+
+bool prepareRemove(Device* controller) {
+  return static_cast<NvmeController*>(controller)->prepareDiskRemoval();
+}
+
+void cancelRemove(Device* controller) {
+  static_cast<NvmeController*>(controller)->cancelDiskRemoval();
+}
+
+void remove(Device* device) {
+  auto* controller = static_cast<NvmeController*>(device);
+  controller->shutdown();
+  {
+    Device::TreeLockGuard guard;
+    controller->getParent()->removeChild(controller);
+    controller->setParent(nullptr);
+  }
+  delete controller;
+}
+
+const PciDrivers::Driver driver{1, 8, 2, attach, prepareRemove, cancelRemove, remove};
+
+Module::UnloadAdmission admitUnload(bool) {
+  return PciDrivers::prepareUnregisterDriver(&driver) ? Module::UnloadAdmission::Ready
+                                                      : Module::UnloadAdmission::Busy;
+}
+
+bool entry() {
+  if (!KernelElf::instance().registerUnloadAdmission(&entry, &admitUnload)) {
+    return false;
+  }
+  return PciDrivers::registerDriver(&driver);
+}
+
+void exit() {
+  if (!PciDrivers::unregisterDriver(&driver)) {
+    panic("NVMe: PCI driver registration still owns live bindings during unload");
   }
 }
 }  // namespace

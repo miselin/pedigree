@@ -20,12 +20,14 @@
 #ifndef SERVICE_MANAGER_H
 #define SERVICE_MANAGER_H
 
+#include "pedigree/kernel/ServiceFeatures.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/String.h"
 
 class Service;
-class ServiceFeatures;
 
 /// \todo Integrate with the Event system somehow
 
@@ -47,18 +49,28 @@ class EXPORTED_PUBLIC ServiceManager {
 
   /**
    *  Enumerates all possible operations that can be performed for a
-   *  given Service
+   *  given Service. The caller must externally pin the service lifetime.
    */
   ServiceFeatures* enumerateOperations(const String& serviceName);
 
   /** Adds a service to the manager */
   void addService(const String& serviceName, Service* s, ServiceFeatures* feats);
 
-  /** Removes a service from the manager */
+  /** Removes a service and drains admitted calls before its owner deletes it.
+   * A service callback must not remove or replace its own registration.
+   */
   void removeService(const String& serviceName);
 
-  /** Gets the Service object for a service */
+  /** Gets a Service pointer whose lifetime the caller must externally pin. */
   Service* getService(const String& serviceName);
+
+  /** Nonblocking lookup for diagnostics. Returned objects require an external
+   * lifetime guarantee; unavailable or contended lookup resets both outputs.
+   */
+  bool tryGetService(const String& serviceName, Service*& service, ServiceFeatures*& features);
+
+  /** Invokes a supported operation while retaining the registered service. */
+  bool serve(const String& serviceName, ServiceFeatures::Type type, void* data, size_t dataLen);
 
  private:
   static ServiceManager m_Instance;
@@ -71,9 +83,12 @@ class EXPORTED_PUBLIC ServiceManager {
 
     /// Service operation enumeration
     ServiceFeatures* pFeatures;
+
+    OperationBarrier operations;
   };
 
   /** Services we know about */
+  Mutex m_Lock;
   RadixTree<InternalService*> m_Services;
 };
 #endif

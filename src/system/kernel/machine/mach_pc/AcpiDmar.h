@@ -8,6 +8,7 @@
 namespace AcpiDmar {
 struct Info {
   static constexpr size_t MaxDirectEndpoints = 128;
+  static constexpr size_t MaxDirectBridges = 128;
 
   uint8_t hostAddressWidth = 0;
   bool interruptRemapping = false;
@@ -23,6 +24,8 @@ struct Info {
   uint8_t firstSegmentZeroIncludeAllRegisterPagesLog2 = 0;
   uint16_t directEndpoints[MaxDirectEndpoints] = {};
   size_t directEndpointCount = 0;
+  uint16_t directBridges[MaxDirectBridges] = {};
+  size_t directBridgeCount = 0;
 
   bool includesDirectEndpoint(uint8_t bus, uint8_t device, uint8_t function) const {
     const uint16_t sourceId = (uint16_t(bus) << 8) | (uint16_t(device) << 3) | function;
@@ -100,15 +103,22 @@ inline bool parse(const uint8_t* table, size_t available, Info& result) {
             scopeBytes > offset + bytes - scope) {
           return false;
         }
-        if (!read16(table + offset + 6) && table[scope] == 1 && scopeBytes == 8 &&
-            !table[scope + 2] && !table[scope + 3] && !table[scope + 4] && table[scope + 6] < 32 &&
-            table[scope + 7] < 8) {
-          if (found.directEndpointCount == Info::MaxDirectEndpoints) {
-            return false;
+        if (!read16(table + offset + 6) && (table[scope] == 1 || table[scope] == 2) &&
+            scopeBytes == 8 && !table[scope + 2] && !table[scope + 3] && !table[scope + 4] &&
+            table[scope + 6] < 32 && table[scope + 7] < 8) {
+          const uint16_t sourceId = (uint16_t(table[scope + 5]) << 8) |
+                                    (uint16_t(table[scope + 6]) << 3) | table[scope + 7];
+          if (table[scope] == 1) {
+            if (found.directEndpointCount == Info::MaxDirectEndpoints) {
+              return false;
+            }
+            found.directEndpoints[found.directEndpointCount++] = sourceId;
+          } else {
+            if (found.directBridgeCount == Info::MaxDirectBridges) {
+              return false;
+            }
+            found.directBridges[found.directBridgeCount++] = sourceId;
           }
-          found.directEndpoints[found.directEndpointCount++] = (uint16_t(table[scope + 5]) << 8) |
-                                                               (uint16_t(table[scope + 6]) << 3) |
-                                                               table[scope + 7];
         }
         scope += scopeBytes;
       }

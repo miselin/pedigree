@@ -14,6 +14,8 @@ class IntelIommu {
   static IntelIommu& instance();
 
   bool attach(Device* device, bool isolated = false);
+  bool detachIsolated(Device* device, bool requesterDisabled = false);
+  bool isolatedIdle(Device* device) const;
   bool attached(const Device* device) const;
   bool isolated(const Device* device) const;
   bool mapPage(Device* device, physical_uintptr_t physical, uint32_t& dmaAddress, uint16_t& token);
@@ -21,6 +23,7 @@ class IntelIommu {
 
  private:
   static constexpr size_t MaxDomains = 8;
+  static_assert(MaxDomains + 2 <= 16, "VT-d ND=0 supports only 16 domain IDs");
   static constexpr size_t TokenPages = 32;
   static constexpr size_t IsolatedTokenPages = 1024;
   static constexpr uint32_t IsolatedTokenBase = 0x10000000U;
@@ -61,7 +64,6 @@ class IntelIommu {
   physical_uintptr_t m_DefaultContext = 0;
   physical_uintptr_t m_BusContexts[256] = {};
   Domain m_Domains[MaxDomains];
-  size_t m_DomainCount = 0;
   size_t m_IotlbOffset = 0;
   uint64_t m_MaxPhysical = 0;
   uint8_t m_Aw = 0;

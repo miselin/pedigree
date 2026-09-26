@@ -1306,6 +1306,28 @@ TEST(PicIrqState, PciRouteReservationWithoutHandlersRemainsMasked) {
   EXPECT_FALSE(state.enabled(10));
 }
 
+TEST(PicIrqState, IoApicReservationExcludesAllPicOwnersAndStaysMasked) {
+  PicIrqState state;
+  ASSERT_TRUE(state.canReserveIoApic(10));
+  state.reservePciRoute(10);
+  state.reserveIoApic(10);
+  state.setEnabled(10, true);
+  state.setAllEnabled(true);
+  EXPECT_FALSE(state.enabled(10));
+  EXPECT_FALSE(state.canRegister(10, IrqPolicy::edgeHard(), IrqDelivery::Hard));
+  EXPECT_FALSE(state.canRegister(10, IrqPolicy::pciIntxThreaded(), IrqDelivery::Threaded));
+  EXPECT_FALSE(state.canReservePciRoute(10));
+  EXPECT_TRUE(state.canReserveIoApic(10));
+
+  state.handlerRegistered(11, IrqPolicy::pciIntxThreaded(), IrqDelivery::Threaded);
+  EXPECT_FALSE(state.canReserveIoApic(11));
+  state.handlerUnregistered(11, IrqDelivery::Threaded);
+  EXPECT_TRUE(state.canReserveIoApic(11));
+  for (size_t irq : {0U, 1U, 2U, 8U, 13U, 16U, 255U}) {
+    EXPECT_FALSE(state.canReserveIoApic(irq));
+  }
+}
+
 TEST(PicIrqState, PciRouteReservationCannotStealEdgeSchedulerOrFixedEdgeLines) {
   PicIrqState state;
   for (size_t irq : {0U, 1U, 2U, 8U, 13U, 16U, 255U})

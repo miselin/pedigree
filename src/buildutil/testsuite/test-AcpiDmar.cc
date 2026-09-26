@@ -98,10 +98,48 @@ TEST(AcpiDmar, MatchesOnlyExplicitDirectEndpoints) {
   EXPECT_EQ(info.segmentZeroIncludeAllCount, 0U);
   EXPECT_EQ(info.firstSegmentZeroUnitAddress, 0xfed90000U);
   EXPECT_EQ(info.directEndpointCount, 1U);
+  ASSERT_EQ(info.directBridgeCount, 1U);
+  EXPECT_EQ(info.directBridges[0], 4U << 3);
   EXPECT_TRUE(info.includesDirectEndpoint(2, 3, 4));
   EXPECT_FALSE(info.includesDirectEndpoint(2, 3, 5));
   EXPECT_FALSE(info.includesDirectEndpoint(0, 4, 0));
   EXPECT_FALSE(info.includesDirectEndpoint(0, 1, 0));
+}
+
+TEST(AcpiDmar, RecordsOnlyValidatedDirectSegmentZeroBridges) {
+  auto bytes = dmar();
+  bytes[52] = 0;
+  bytes[64] = 2;
+  bytes[70] = 3;
+  seal(bytes);
+  AcpiDmar::Info info;
+  ASSERT_TRUE(AcpiDmar::parse(bytes.data(), bytes.size(), info));
+  ASSERT_EQ(info.directBridgeCount, 1U);
+  EXPECT_EQ(info.directBridges[0], 3U << 3);
+  EXPECT_EQ(info.directEndpointCount, 0U);
+
+  const auto direct = bytes;
+  for (size_t offset : {66U, 67U, 68U, 70U, 71U}) {
+    bytes = direct;
+    bytes[offset] = 0xff;
+    seal(bytes);
+    ASSERT_TRUE(AcpiDmar::parse(bytes.data(), bytes.size(), info));
+    EXPECT_EQ(info.directBridgeCount, 0U);
+  }
+  bytes = direct;
+  write16(bytes, 54, 1);
+  seal(bytes);
+  ASSERT_TRUE(AcpiDmar::parse(bytes.data(), bytes.size(), info));
+  EXPECT_EQ(info.directBridgeCount, 0U);
+
+  bytes = direct;
+  bytes.resize(74);
+  write16(bytes, 50, 26);
+  bytes[65] = 10;
+  bytes[72] = 1;
+  seal(bytes);
+  ASSERT_TRUE(AcpiDmar::parse(bytes.data(), bytes.size(), info));
+  EXPECT_EQ(info.directBridgeCount, 0U);
 }
 
 TEST(AcpiDmar, DistinguishesOtherSegmentsAndReservedMemory) {

@@ -60,6 +60,8 @@ class HostedRequestQueue : public RequestQueue {
     Sum = 1,
     SelfSubmit,
     SelfSubmitInner,
+    SelfAsync,
+    SelfAsyncInner,
     SelfHalt,
     HoldWorker,
     CancelQueued,
@@ -78,6 +80,7 @@ class HostedRequestQueue : public RequestQueue {
         recordedCount(0),
         recordFailures(0),
         selfHaltRejections(0),
+        selfAsyncAccepted(0),
         cancelHaltRejections(0),
         cancelResumeRejections(0),
         cancelPublicationRejections(0),
@@ -97,6 +100,7 @@ class HostedRequestQueue : public RequestQueue {
   Atomic<size_t> recordedCount;
   Atomic<size_t> recordFailures;
   Atomic<size_t> selfHaltRejections;
+  Atomic<size_t> selfAsyncAccepted;
   Atomic<size_t> cancelHaltRejections;
   Atomic<size_t> cancelResumeRejections;
   Atomic<size_t> cancelPublicationRejections;
@@ -134,6 +138,16 @@ class HostedRequestQueue : public RequestQueue {
         return p2 + p3;
       case SelfSubmit:
         return addRequest(0, SelfSubmitInner, p2, p3);
+      case SelfAsync:
+        if (publishAsyncRequest(0, SelfAsyncInner, p2, p3)) {
+          selfAsyncAccepted += 1;
+        }
+        if (publishAsyncRequest(0, SelfAsyncInner, p2, p3)) {
+          selfAsyncAccepted += 1;
+        }
+        return 0;
+      case SelfAsyncInner:
+        return p2 + p3;
       case SelfHalt:
         if (!halt()) {
           selfHaltRejections += 1;
@@ -181,6 +195,9 @@ class HostedRequestQueue : public RequestQueue {
         cancelPublicationRejections += 1;
       }
       if (addAsyncRequest(0, CancelLifecycleProbe) == 0) {
+        cancelPublicationRejections += 1;
+      }
+      if (!publishAsyncRequest(0, CancelLifecycleProbe)) {
         cancelPublicationRejections += 1;
       }
       if (publishPreallocated(cancelPreallocated, 0, CancelLifecycleProbe) ==
@@ -333,6 +350,27 @@ bool watchdogProgressRegression() {
   }
 
   NOTICE("HOSTED-WAIT-TEST: PASS requestqueue-watchdog-progress");
+  return true;
+}
+
+bool recursiveAsyncPublicationRegression() {
+  HostedRequestQueue queue;
+  queue.setMaxAsyncRequests(1);
+  queue.setMatchEqualPayload(true);
+  queue.initialise();
+
+  const bool accepted = queue.publishAsyncRequest(0, HostedRequestQueue::SelfAsync, 20, 22);
+  const bool drained = queue.drain();
+  queue.destroy();
+
+  const bool passed = accepted && drained && queue.selfAsyncAccepted == 2 &&
+                      queue.executions == 3 && queue.comparisons == 0 &&
+                      !queue.publishAsyncRequest(0, HostedRequestQueue::Sum, 20, 22);
+  if (!check(passed, "recursive async publication stalled, deduplicated, or escaped destroy")) {
+    return false;
+  }
+
+  NOTICE("HOSTED-WAIT-TEST: PASS requestqueue-recursive-async-publication");
   return true;
 }
 
@@ -1342,6 +1380,10 @@ bool runHostedRequestQueueRegressions() {
     return false;
   }
 
+  if (!recursiveAsyncPublicationRegression()) {
+    return false;
+  }
+
   {
     HostedRequestQueue activeRequestQueue;
     activeRequestQueue.initialise();
@@ -1484,7 +1526,7 @@ bool runHostedRequestQueueRegressions() {
                   "destroy did not wake and reject the queued synchronous caller");
   passed &=
       check(queue.cancelHaltRejections == 1 && queue.cancelResumeRejections == 1 &&
-                queue.cancelPublicationRejections == 2 && queue.cancelPreallocatedRejections == 1 &&
+                queue.cancelPublicationRejections == 3 && queue.cancelPreallocatedRejections == 1 &&
                 queue.cancelPreallocated.isAvailable(),
             "destroy cancellation did not reject recursive lifecycle entry");
 

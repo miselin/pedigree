@@ -15,6 +15,7 @@
 #include "LocalApic.h"
 #include "Pc.h"
 #include "PciIoApicInterrupts.h"
+#include "Pic.h"
 
 PciIoApicInterrupts::PciIoApicInterrupts()
     : m_Lock(false),
@@ -57,6 +58,48 @@ bool PciIoApicInterrupts::initialiseThreaded() {
   return m_Ready && m_Dispatcher.initialise();
 }
 
+bool PciIoApicInterrupts::containsGsi(uint32_t gsi) const {
+  for (size_t i = 0; m_Ready && i < m_ControllerCount; ++i) {
+    if (m_Controllers[i].contains(gsi)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool PciIoApicInterrupts::reserveGsi(uint32_t gsi, bool activeLow) {
+  LockGuard<Spinlock> guard(m_Lock);
+  if (!m_Ready || m_ShuttingDown) {
+    return false;
+  }
+  size_t slot = VectorCount;
+  for (size_t i = 0; i < VectorCount; ++i) {
+    const Line& line = m_Lines[i];
+    if (line.used && line.gsi == gsi) {
+      return line.activeLow == activeLow && !line.quarantined && !line.removing;
+    }
+    if (!line.used && slot == VectorCount) {
+      slot = i;
+    }
+  }
+  if (slot == VectorCount) {
+    return false;
+  }
+  for (size_t i = 0; i < m_ControllerCount; ++i) {
+    if (m_Controllers[i].contains(gsi)) {
+      Line& line = m_Lines[slot];
+      line.controller = &m_Controllers[i];
+      line.gsi = gsi;
+      line.activeLow = activeLow;
+      line.used = true;
+      line.quarantined =
+          !line.controller->route(gsi, FirstVector + slot, m_DestinationApicId, activeLow);
+      return !line.quarantined;
+    }
+  }
+  return false;
+}
+
 bool PciIoApicInterrupts::shutdownThreaded() {
   if (!m_Ready) {
     return true;
@@ -83,21 +126,8 @@ bool PciIoApicInterrupts::findRoute(Device* device, uint32_t& gsi, bool& activeL
   if (!PciBus::instance().readConfig8(device, 0x3d, pin) || pin < 1 || pin > 4) {
     return false;
   }
-  Device* current = device;
-  for (size_t depth = 0; current->getPciBusPosition(); ++depth) {
-    if (depth == 8) {
-      return false;
-    }
-    Device* bus = current->getParent();
-    Device* bridge = bus ? bus->getParent() : nullptr;
-    if (!bridge || bridge->getPciClassCode() != 6 || bridge->getPciSubclassCode() != 4) {
-      return false;
-    }
-    pin = static_cast<uint8_t>(((pin - 1 + current->getPciDevicePosition()) & 3) + 1);
-    current = bridge;
-  }
   AcpiPciRouting::Route route = {};
-  if (!Acpi::instance().pciInterruptRoute(current->getPciDevicePosition(), pin, route)) {
+  if (!Acpi::instance().pciInterruptRoute(device, pin, route)) {
     return false;
   }
   gsi = route.gsi;
@@ -123,6 +153,8 @@ irq_id_t PciIoApicInterrupts::registerHandler(Device* device, IrqHandlerBase* ha
                               : !policy.validForHard())) {
     return 0;
   }
+  // Once AML selected APIC mode, PCI InterruptLine may describe the old PIC route.
+  routed = Acpi::instance().hasPciInterruptRouter();
   uint32_t gsi = 0;
   bool activeLow = false;
   if (!findRoute(device, gsi, activeLow)) {
@@ -139,6 +171,9 @@ irq_id_t PciIoApicInterrupts::registerHandler(Device* device, IrqHandlerBase* ha
     return 0;
   }
   routed = true;
+  if (!Pic::instance().reservePciGsi(gsi, activeLow)) {
+    return 0;
+  }
 
   LockGuard<Spinlock> guard(m_Lock);
   if (m_ShuttingDown) {
@@ -152,26 +187,14 @@ irq_id_t PciIoApicInterrupts::registerHandler(Device* device, IrqHandlerBase* ha
     }
   }
   if (slot == VectorCount) {
-    for (size_t i = 0; i < VectorCount; ++i) {
-      if (!m_Lines[i].used) {
-        slot = i;
-        break;
-      }
-    }
-  }
-  if (slot == VectorCount) {
     return 0;
   }
   Line& line = m_Lines[slot];
-  if (line.removing || line.quarantined ||
-      (line.used && (line.controller != controller || line.activeLow != activeLow ||
-                     (line.handlers && line.mode != mode)))) {
+  if (line.removing || line.quarantined || line.controller != controller ||
+      line.activeLow != activeLow || (line.handlers && line.mode != mode)) {
     return 0;
   }
   const uint8_t vector = FirstVector + slot;
-  if (!line.used && !controller->route(gsi, vector, m_DestinationApicId, activeLow)) {
-    return 0;
-  }
   const bool registered =
       mode == Mode::Threaded
           ? m_Handlers.registerThreadedHandler(vector, static_cast<IrqHandler*>(handler), policy)

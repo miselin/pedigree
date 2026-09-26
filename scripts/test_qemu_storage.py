@@ -189,7 +189,8 @@ def command(args, folder):
               "-display", "none", "-monitor", "none", "-nic", "none", "-no-reboot",
               "-serial", f"file:{folder / 'serial.log'}", "-drive",
               f"if=pflash,format=raw,readonly=on,file={args.ovmf}",
-              "-device", "nvme,id=nvme,serial=PEDIGREE-STORAGE,mdts=7"]
+              "-device", ("nvme,id=nvme,serial=PEDIGREE-STORAGE,mdts=7,"
+                          f"max_ioqpairs={args.nvme_queues},msix_qsize={args.nvme_vectors}")]
     if args.intel_iommu:
         result += ["-device", f"intel-iommu,aw-bits={args.iommu_aw_bits},caching-mode=on"]
     if args.root == "ahci":
@@ -205,6 +206,27 @@ def command(args, folder):
     for sector, nsid in ((512, 7), (4096, 23)):
         result += ["-drive", drive(folder / f"nvme-{sector}.img", f"nvme{sector}"),
                    "-device", f"nvme-ns,drive=nvme{sector},bus=nvme,nsid={nsid},shared=off,logical_block_size={sector},physical_block_size={sector}"]
+    if args.sriov:
+        result += [
+            "-device", "pcie-root-port,id=sriov-port,chassis=3,slot=3",
+            "-device", "nvme-subsys,id=sriov-subsystem,nqn=pedigree-sriov",
+            "-device", ("nvme,id=vf-primary,bus=sriov-port,serial=PEDIGREE-SRIOV,"
+                       "model=PEDIGREE-SRIOV-SMOKE,subsys=sriov-subsystem,"
+                       "sriov_max_vfs=1,sriov_vq_flexible=2,sriov_vi_flexible=2,"
+                       "max_ioqpairs=8,msix_qsize=8"),
+            "-drive", drive(folder / "nvme-vf.img", "vf-disk"),
+            "-device", ("nvme-ns,drive=vf-disk,bus=vf-primary,nsid=1,shared=off,detached=on,"
+                       "logical_block_size=4096,physical_block_size=4096"),
+        ]
+    if args.hotplug:
+        result += [
+            "-qmp", "stdio",
+            "-global", "ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off",
+            "-device", "pcie-root-port,id=hot-port,chassis=4,slot=4",
+            "-drive", drive(folder / "nvme-hotplug.img", "hot-disk"),
+            "-device", ("nvme,id=hot-nvme,bus=hot-port,drive=hot-disk,"
+                       "serial=PEDIGREE-HOTPLUG,model=PEDIGREE-HOTPLUG-SMOKE,mdts=7"),
+        ]
     result += ["-trace", f"events={folder / 'trace-events'},file={folder / 'trace.log'}"]
     return result
 
@@ -227,24 +249,64 @@ def run(args):
             gpt_root(args.image, folder / "root-gpt.img", folder / "boot.img")
         for sector in (512, 4096):
             nvme_fixture(folder / f"nvme-{sector}.img", sector)
+        if args.sriov:
+            nvme_fixture(folder / "nvme-vf.img", 4096)
+        if args.hotplug:
+            nvme_fixture(folder / "nvme-hotplug.img", 512)
         trace_events = (*ahci.TRACE_EVENTS, "pci_nvme_flush_ns")
         if args.trace_iommu:
             trace_events += ("vtd_dmar_translate", "vtd_dmar_fault")
+        if args.sriov:
+            trace_events += ("sriov_register_vfs", "sriov_unregister_vfs", "sriov_config_write")
         (folder / "trace-events").write_text("\n".join(trace_events) + "\n")
         argv = command(args, folder)
         (folder / "command.json").write_text(json.dumps(argv, indent=2) + "\n")
-        with (folder / "qemu.log").open("wb") as output:
-            child = subprocess.Popen(argv, stdout=output, stderr=output, stdin=subprocess.DEVNULL,
+        with (folder / "qemu.log").open("wb") as output, (folder / "qmp.log").open("wb") as transcript:
+            child = subprocess.Popen(argv, stdout=subprocess.PIPE if args.hotplug else output,
+                                     stderr=output, stdin=subprocess.PIPE if args.hotplug else subprocess.DEVNULL,
                                      start_new_session=True)
             deadline = time.monotonic() + args.timeout
+            qmp = None
+            sent = set()
+            if args.hotplug:
+                usb_spec = importlib.util.spec_from_file_location(
+                    "usb_smoke", Path(__file__).with_name("test_qemu_usb.py"))
+                usb = importlib.util.module_from_spec(usb_spec)
+                usb_spec.loader.exec_module(usb)
+                def check_qemu():
+                    if child.poll() is not None:
+                        raise RuntimeError("QEMU exited during hotplug")
+                qmp = usb.Qmp(child, transcript, check_qemu)
+                greeting = qmp.receive(deadline)
+                if "QMP" not in greeting:
+                    raise RuntimeError("missing QMP greeting")
+                qmp.execute("qmp_capabilities", None, deadline)
             while True:
                 serial_path = folder / "serial.log"
                 serial = serial_path.read_text(errors="replace") if serial_path.exists() else ""
                 if re.search(r"(?:AHCI|NVME)-SMOKE: FAIL|panic:|fatal:|page fault exception|\(FF\)", serial, re.I):
                     raise RuntimeError("guest failure; inspect serial.log")
+                if qmp:
+                    for cycle in (1, 2):
+                        for stage in ("busy", "remove"):
+                            marker = f"NVME-SMOKE: READY hotplug-{stage} cycle={cycle}"
+                            if marker in serial and marker not in sent:
+                                if stage == "remove" and serial.count("eject denied: device busy") < cycle:
+                                    raise RuntimeError("missing busy-eject refusal before releasing disk use")
+                                qmp.execute("device_del", {"id": "hot-nvme"}, deadline)
+                                sent.add(marker)
+                    marker = "NVME-SMOKE: READY hotplug-insert"
+                    if marker in serial and marker not in sent and "orderly eject complete" in serial:
+                        qmp.execute("device_add", {
+                            "driver": "nvme", "id": "hot-nvme", "bus": "hot-port",
+                            "drive": "hot-disk", "serial": "PEDIGREE-HOTPLUG",
+                            "model": "PEDIGREE-HOTPLUG-SMOKE", "mdts": 7,
+                        }, deadline)
+                        sent.add(marker)
                 nvme_done = "NVME-SMOKE: PASS complete namespaces=2" in serial
                 ahci_done = args.root != "ahci" or "AHCI-SMOKE: PASS complete" in serial
-                if nvme_done and ahci_done:
+                hotplug_done = not args.hotplug or serial.count("orderly eject complete") == 2
+                if nvme_done and ahci_done and hotplug_done:
                     break
                 if child.poll() is not None or time.monotonic() >= deadline:
                     raise RuntimeError("guest exited or timed out before required smoke completion")
@@ -261,7 +323,21 @@ def run(args):
                 raise RuntimeError("NVMe did not attach an isolated DMA domain")
         for sector in (512, 4096):
             nvme_fixture(folder / f"nvme-{sector}.img", sector, True)
+        if args.sriov:
+            if not all(f"NVME-SMOKE: PASS sriov-cycle={cycle}" in serial for cycle in (1, 2)):
+                raise RuntimeError("missing repeated VF I/O and retirement evidence")
+            nvme_fixture(folder / "nvme-vf.img", 4096, True)
+            report["sriov_cycles"] = 2
+        if args.hotplug:
+            if not all(f"NVME-SMOKE: PASS hotplug-removed cycle={cycle}" in serial for cycle in (1, 2)):
+                raise RuntimeError("missing repeated hotplug I/O and removal evidence")
+            if "driver bound=true" not in serial:
+                raise RuntimeError("reinserted controller was not dynamically bound")
+            nvme_fixture(folder / "nvme-hotplug.img", 512, True)
+            report["hotplug_cycles"] = 2
         trace = (folder / "trace.log").read_text(errors="replace")
+        if args.trace_iommu and "vtd_dmar_fault" in trace:
+            raise RuntimeError("IOMMU fault during storage I/O")
         verify_nvme_flushes(trace)
         if args.root == "ahci":
             report.update(ahci.verify_fixture(folder / "ahci.img"))
@@ -289,6 +365,12 @@ def main():
     parser.add_argument("--cpus", choices=(1, 4), type=int, default=4)
     parser.add_argument("--ram-mib", type=int, default=768)
     parser.add_argument("--intel-iommu", action="store_true")
+    parser.add_argument("--nvme-queues", type=int, default=64,
+                        help="I/O queue pairs offered by the primary test controller")
+    parser.add_argument("--nvme-vectors", type=int, default=65,
+                        help="MSI-X entries offered by the primary test controller")
+    parser.add_argument("--sriov", action="store_true", help="exercise isolated NVMe VF creation, I/O, and retirement twice")
+    parser.add_argument("--hotplug", action="store_true", help="exercise busy-eject refusal, removal and reinsertion with NVMe I/O")
     parser.add_argument("--trace-iommu", action="store_true")
     parser.add_argument("--iommu-aw-bits", choices=(39, 48), type=int, default=39)
     parser.add_argument("--run-dir", type=Path, required=True)
@@ -300,8 +382,12 @@ def main():
             not args.ovmf.is_file() or not 0 < args.timeout <= 3600 or
             not 128 <= args.ram_mib <= 65536):
         parser.error("image/root/OVMF must exist, RAM must be 128-65536 MiB, and timeout must be between 0 and 3600")
+    if not 1 <= args.nvme_queues <= 64 or not 1 <= args.nvme_vectors <= 2048:
+        parser.error("NVMe queues must be 1-64 and vectors must be 1-2048")
     if args.trace_iommu and not args.intel_iommu:
         parser.error("trace-iommu requires intel-iommu")
+    if args.sriov and not args.intel_iommu:
+        parser.error("sriov requires intel-iommu")
     args.image = args.image.resolve()
     if args.root_image:
         args.root_image = args.root_image.resolve()

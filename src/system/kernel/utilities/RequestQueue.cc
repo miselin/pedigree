@@ -594,6 +594,49 @@ uint64_t RequestQueue::addAsyncRequest(size_t priority, uint64_t p1, uint64_t p2
   return addAsyncRequestInternal(priority, p1, p2, p3, p4, p5, p6, p7, p8);
 }
 
+bool RequestQueue::publishAsyncRequest(size_t priority, uint64_t p1, uint64_t p2, uint64_t p3,
+                                       uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7,
+                                       uint64_t p8) {
+#if THREADS
+  if (priority >= REQUEST_QUEUE_NUM_PRIORITIES ||
+      Processor::executionContext() != ExecutionContext::WaitableThread ||
+      !Processor::getInterrupts() || callbackActiveOnCurrentThread() ||
+      m_LifecycleMutex.isOwnedByCurrentThread() ||
+      static_cast<LifecycleState>(m_State.value()) != LifecycleState::Accepting) {
+    return false;
+  }
+
+  Request* request = new Request(priority, true, p1, p2, p3, p4, p5, p6, p7, p8);
+  if (!request) {
+    return false;
+  }
+
+  const size_t admission = (m_PublicationState += 1);
+  if (admission & PublicationClosed) {
+    m_PublicationState -= 1;
+    delete request;
+    return false;
+  }
+
+  m_nAsyncRequests += 1;
+  m_nTotalRequests += 1;
+  publishRequest(request);
+  m_PublicationState -= 1;
+  return true;
+#else
+  (void)priority;
+  (void)p1;
+  (void)p2;
+  (void)p3;
+  (void)p4;
+  (void)p5;
+  (void)p6;
+  (void)p7;
+  (void)p8;
+  return false;
+#endif
+}
+
 RequestQueue::PreallocatedPublishResult RequestQueue::publishPreallocated(
     PreallocatedRequest& token, size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
     uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8) {

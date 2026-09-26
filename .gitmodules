@@ -1,3 +1,6 @@
 [submodule "external/googletest"]
 	path = external/googletest
 	url = https://github.com/google/googletest
+[submodule "external/uacpi"]
+	path = external/uacpi
+	url = https://github.com/uACPI/uACPI.git

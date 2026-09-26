@@ -329,6 +329,17 @@ class EXPORTED_PUBLIC RequestQueue {
                            uint64_t p4 = 0, uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0,
                            uint64_t p8 = 0);
 
+  /**
+   * Publish distinct asynchronous work, including from this queue's worker.
+   * This path allocates a request, then uses the non-waiting intake gate: it
+   * does not compare requests or wait for backlog space. The caller must be
+   * in a waitable thread context and retains payload ownership on rejection.
+   * It is not a hard-IRQ publication path.
+   */
+  MUST_USE_RESULT bool publishAsyncRequest(size_t priority, uint64_t p1 = 0, uint64_t p2 = 0,
+                                           uint64_t p3 = 0, uint64_t p4 = 0, uint64_t p5 = 0,
+                                           uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
+
   /** False for worker/callback callers or contexts which cannot sleep. */
   bool canWaitForCompletion();
 

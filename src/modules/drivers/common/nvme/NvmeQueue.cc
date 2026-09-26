@@ -115,6 +115,17 @@ void NvmeQueue::stop() {
   stopLocked();
 }
 
+void NvmeQueue::releaseDma() {
+  m_SubmissionDma.release();
+  m_CompletionDma.release();
+  for (auto& slot : m_Slots) {
+    slot.prpsDma.release();
+    for (auto& mapping : slot.dataDma) {
+      mapping.release();
+    }
+  }
+}
+
 bool NvmeQueue::observe(bool fromInterrupt, bool interruptsEnabled) {
   const bool credited = fromInterrupt && m_PolledInterrupt;
   if (fromInterrupt)

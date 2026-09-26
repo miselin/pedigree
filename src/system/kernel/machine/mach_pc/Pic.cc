@@ -26,6 +26,7 @@
 #include "Pc.h"
 #include "PciMessageInterrupts.h"
 #if ACPI
+#include "Acpi.h"
 #include "PciIoApicInterrupts.h"
 #endif
 #endif
@@ -252,6 +253,49 @@ bool Pic::reservePciRoute(uint8_t irq) {
   return true;
 }
 
+bool Pic::hasIoApic() const {
+#if MULTIPROCESSOR && ACPI
+  return m_Intx != nullptr;
+#else
+  return false;
+#endif
+}
+
+bool Pic::reservePciGsi(uint32_t gsi, bool activeLow) {
+#if MULTIPROCESSOR && ACPI
+  if (!m_Intx || !m_Intx->containsGsi(gsi)) {
+    return false;
+  }
+  uint16_t isa = 0;
+  if (!Acpi::instance().isaIrqsForGsi(gsi, isa)) {
+    return false;
+  }
+  {
+    StateGuard guard(*this);
+    if (!guard.owned() || m_ShuttingDown) {
+      return false;
+    }
+    for (size_t irq = 0; irq < PicIrqState::LineCount; ++irq) {
+      if ((isa & (1U << irq)) &&
+          (m_UnregisterReservations[irq] || !m_IrqState.canReserveIoApic(irq))) {
+        return false;
+      }
+    }
+    for (size_t irq = 0; irq < PicIrqState::LineCount; ++irq) {
+      if (isa & (1U << irq)) {
+        beginLineTransitionLocked(irq);
+        m_IrqState.reserveIoApic(irq);
+        finishLineTransitionLocked(irq);
+        publishDiagnosticLineLocked(irq);
+      }
+    }
+  }
+  return m_Intx->reserveGsi(gsi, activeLow);
+#else
+  return false;
+#endif
+}
+
 bool Pic::claimPciTriggerLocked(uint8_t irq) {
   if (!m_ElcrPort)
     return false;
@@ -409,11 +453,12 @@ irq_id_t Pic::registerPciMessageIrqHandler(IrqHandler* handler, Device* device,
 }
 
 bool Pic::registerPciMsixIrqHandlers(Device* device, IrqHandler* const* handlers, size_t count,
-                                     irq_id_t* ids, bool& fallbackSafe) {
+                                     irq_id_t* ids, bool& fallbackSafe, const size_t* processors) {
   fallbackSafe = true;
 #if MULTIPROCESSOR
   if (m_Messages) {
-    return m_Messages->registerThreadedVectors(device, handlers, count, ids, fallbackSafe);
+    return m_Messages->registerThreadedVectors(device, handlers, count, ids, fallbackSafe,
+                                               processors);
   }
 #endif
   return false;

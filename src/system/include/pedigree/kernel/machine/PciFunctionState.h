@@ -8,6 +8,7 @@ namespace PciFunctionState {
 struct State {
   uint16_t command = 0;
   uint32_t bars[6] = {};
+  uint8_t barCount = 6;
   uint8_t interruptLine = 0, interruptPin = 0;
   uint8_t pm = 0, msi = 0, msix = 0;
 };
@@ -30,17 +31,24 @@ bool writeVerified32(Config& config, uint16_t offset, uint32_t value) {
   return config.write32(offset, value) && config.read32(offset, actual) && actual == value;
 }
 
+// virtualFunction is supplied by the PF owner; raw VF Vendor/Device IDs may
+// read FFFF:FFFF. Header and capability checks still establish configuration.
 template <class Config>
-bool inspect(Config& config, State& result, bool requireLegacyInterrupt = true) {
+bool inspect(Config& config, State& result, bool requireLegacyInterrupt = true,
+             bool virtualFunction = false) {
   State state;
   uint32_t identity = 0;
   uint16_t status = 0;
   uint8_t header = 0;
-  if (!config.read32(0, identity) || (identity & 0xffff) == 0xffff || !(identity & 0xffff) ||
-      !config.read8(14, header) || (header & 0x7f) != 0 || !config.read16(4, state.command) ||
-      !config.read16(6, status) || !config.read8(0x3c, state.interruptLine) ||
-      !config.read8(0x3d, state.interruptPin))
+  if (!config.read32(0, identity) ||
+      (((identity & 0xffff) == 0xffff || !(identity & 0xffff)) &&
+       !(virtualFunction && identity == 0xffffffffU)) ||
+      !config.read8(14, header) || (header & 0x7f) > (virtualFunction ? 0 : 1) ||
+      !config.read16(4, state.command) || !config.read16(6, status) ||
+      !config.read8(0x3c, state.interruptLine) || !config.read8(0x3d, state.interruptPin)) {
     return false;
+  }
+  state.barCount = (header & 0x7f) == 1 ? 2 : 6;
   if (state.interruptPin > 4 || (requireLegacyInterrupt && !state.interruptPin)) {
     return false;
   }
@@ -50,9 +58,11 @@ bool inspect(Config& config, State& result, bool requireLegacyInterrupt = true) 
       (state.interruptLine >= 16 || !(0xdef8U & (1U << state.interruptLine)))) {
     return false;
   }
-  for (unsigned i = 0; i < 6; ++i)
-    if (!config.read32(0x10 + 4 * i, state.bars[i]))
+  for (unsigned i = 0; i < state.barCount; ++i) {
+    if (!config.read32(0x10 + 4 * i, state.bars[i])) {
       return false;
+    }
+  }
   uint8_t cap = 0;
   if ((status & 0x10) && !config.read8(0x34, cap))
     return false;
@@ -106,13 +116,16 @@ bool inspect(Config& config, State& result, bool requireLegacyInterrupt = true) 
 
 template <class Config>
 bool msixTable(Config& config, const State& state, MsixTable& result) {
-  if (!state.msix)
+  if (!state.msix || (state.barCount != 2 && state.barCount != 6)) {
     return false;
+  }
   uint16_t control = 0;
   uint32_t table = 0, pba = 0;
   if (!config.read16(state.msix + 2, control) || !config.read32(state.msix + 4, table) ||
-      !config.read32(state.msix + 8, pba) || (table & 7U) >= 6 || (pba & 7U) >= 6)
+      !config.read32(state.msix + 8, pba) || (table & 7U) >= state.barCount ||
+      (pba & 7U) >= state.barCount) {
     return false;
+  }
   const uint16_t vectors = (control & 0x7ffU) + 1;
   const uint8_t bar = table & 7U, pbaBar = pba & 7U;
   const uint64_t tableEnd = uint64_t(table & ~7U) + uint64_t(vectors) * 16;
@@ -186,11 +199,17 @@ bool disableMsi(Config& config, const State& state) {
 
 template <class Config, class Io>
 bool enableMsixVectors(Config& config, const State& state, Io& table, uint32_t offset,
-                       uint64_t address, const uint32_t* data, size_t count) {
-  constexpr size_t MaxVectors = 16;
-  if (!state.msix || !data || !count || count > MaxVectors || (address & 3U) ||
+                       uint64_t address, const uint32_t* data, size_t count,
+                       const uint64_t* addresses = nullptr) {
+  constexpr size_t MaxVectors = 64;
+  if (!state.msix || !data || !count || count > MaxVectors ||
       uint64_t(offset) + count * 16 > table.size())
     return false;
+  for (size_t i = 0; i < count; ++i) {
+    if ((addresses ? addresses[i] : address) & 3U) {
+      return false;
+    }
+  }
   uint16_t control = 0, command = 0, msiControl = 0;
   if (!config.read16(state.msix + 2, control) || !config.read16(4, command) ||
       (control & 0x8000U) || count > (control & 0x7ffU) + 1 ||
@@ -210,16 +229,19 @@ bool enableMsixVectors(Config& config, const State& state, Io& table, uint32_t o
   for (size_t i = 0; i < count; ++i) {
     const uint32_t entry = offset + i * 16;
     table.write32(previous[i][3] | 1U, entry + 12);
-    table.write32(uint32_t(address), entry);
-    table.write32(uint32_t(address >> 32), entry + 4);
+    const uint64_t destination = addresses ? addresses[i] : address;
+    table.write32(uint32_t(destination), entry);
+    table.write32(uint32_t(destination >> 32), entry + 4);
     table.write32(data[i], entry + 8);
   }
   FENCE();
   for (size_t i = 0; i < count; ++i) {
     const uint32_t entry = offset + i * 16;
-    programmed =
-        programmed && (table.read32(entry + 12) & 1U) && table.read32(entry) == uint32_t(address) &&
-        table.read32(entry + 4) == uint32_t(address >> 32) && table.read32(entry + 8) == data[i];
+    const uint64_t destination = addresses ? addresses[i] : address;
+    programmed = programmed && (table.read32(entry + 12) & 1U) &&
+                 table.read32(entry) == uint32_t(destination) &&
+                 table.read32(entry + 4) == uint32_t(destination >> 32) &&
+                 table.read32(entry + 8) == data[i];
   }
   if (programmed)
     programmed = writeVerified16(config, 4, command | 0x400U) &&
@@ -303,8 +325,20 @@ bool disableMessageInterrupts(Config& config, const State& state) {
 }
 
 template <class Config>
-bool resourcesUnchanged(Config& config, const State& state) {
-  for (unsigned i = 0; i < 6; ++i) {
+bool resourcesUnchanged(Config& config, const State& state, bool virtualFunction = false) {
+  if (state.barCount != 2 && state.barCount != 6) {
+    return false;
+  }
+  uint32_t identity = 0;
+  uint8_t header = 0;
+  if (!config.read32(0, identity) ||
+      (((identity & 0xffff) == 0xffff || !(identity & 0xffff)) &&
+       !(virtualFunction && identity == 0xffffffffU)) ||
+      !config.read8(14, header) || (header & 0x7f) > (virtualFunction ? 0 : 1) ||
+      state.barCount != ((header & 0x7f) == 1 ? 2 : 6)) {
+    return false;
+  }
+  for (unsigned i = 0; i < state.barCount; ++i) {
     uint32_t bar = 0;
     if (!config.read32(0x10 + 4 * i, bar) || bar != state.bars[i])
       return false;

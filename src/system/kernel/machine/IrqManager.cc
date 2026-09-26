@@ -28,7 +28,7 @@ irq_id_t IrqManager::registerPciMessageIrqHandler(IrqHandler* handler, Device* d
 }
 
 bool IrqManager::registerPciMsixIrqHandlers(Device*, IrqHandler* const*, size_t, irq_id_t*,
-                                            bool& fallbackSafe) {
+                                            bool& fallbackSafe, const size_t*) {
   fallbackSafe = true;
   return false;
 }

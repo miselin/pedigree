@@ -334,6 +334,18 @@ bool PciBus::attachIsolatedDma(Device*) {
   return false;
 }
 
+bool PciBus::detachIsolatedDma(Device*) {
+  return false;
+}
+
+bool PciBus::isolatedDmaIdle(Device*) const {
+  return false;
+}
+
+bool PciBus::detachDisabledIsolatedDma(Device*) {
+  return false;
+}
+
 bool PciBus::hasDmaIsolation(Device*) const {
   return false;
 }
@@ -373,8 +385,10 @@ bool PciBus::updateCommand(Device* device, uint16_t clearBits, uint16_t setBits)
 bool PciBus::inspectFunction(Device* device, PciFunctionState::State& state,
                              bool requireLegacyInterrupt) {
   FunctionConfig function{device};
-  if (!device || !PciFunctionState::inspect(function, state, false))
+  if (!device ||
+      !PciFunctionState::inspect(function, state, false, device->getPhysicalFunction())) {
     return false;
+  }
   return !requireLegacyInterrupt || state.interruptPin;
 }
 
@@ -385,27 +399,30 @@ bool PciBus::disableMessageInterrupts(Device* device, const PciFunctionState::St
 bool PciBus::enableMsi(Device* device, uint64_t address, uint16_t data) {
   FunctionConfig function{device};
   PciFunctionState::State state;
-  return device && PciFunctionState::inspect(function, state, false) &&
+  return device &&
+         PciFunctionState::inspect(function, state, false, device->getPhysicalFunction()) &&
          PciFunctionState::enableMsi(function, state, address, data);
 }
 bool PciBus::disableMsi(Device* device) {
   FunctionConfig function{device};
   PciFunctionState::State state;
-  return device && PciFunctionState::inspect(function, state, false) &&
+  return device &&
+         PciFunctionState::inspect(function, state, false, device->getPhysicalFunction()) &&
          PciFunctionState::disableMsi(function, state);
 }
 bool PciBus::enableMsix(Device* device, uint64_t address, uint32_t data) {
   return enableMsixVectors(device, address, &data, 1);
 }
-bool PciBus::enableMsixVectors(Device* device, uint64_t address, const uint32_t* data,
-                               size_t count, bool* touched) {
+bool PciBus::enableMsixVectors(Device* device, uint64_t address, const uint32_t* data, size_t count,
+                               bool* touched, const uint64_t* addresses) {
   if (touched) {
     *touched = false;
   }
   FunctionConfig function{device};
   PciFunctionState::State state;
   PciFunctionState::MsixTable table;
-  if (!device || !data || !count || !PciFunctionState::inspect(function, state, false) ||
+  if (!device || !data || !count ||
+      !PciFunctionState::inspect(function, state, false, device->getPhysicalFunction()) ||
       !PciFunctionState::msixTable(function, state, table) || count > table.vectors) {
     return false;
   }
@@ -414,13 +431,14 @@ bool PciBus::enableMsixVectors(Device* device, uint64_t address, const uint32_t*
     *touched = true;
   }
   return io && PciFunctionState::enableMsixVectors(function, state, *io, table.offset, address,
-                                                   data, count);
+                                                   data, count, addresses);
 }
 bool PciBus::setMsixVectorMask(Device* device, size_t index, bool masked) {
   FunctionConfig function{device};
   PciFunctionState::State state;
   PciFunctionState::MsixTable table;
-  if (!device || !PciFunctionState::inspect(function, state, false) ||
+  if (!device ||
+      !PciFunctionState::inspect(function, state, false, device->getPhysicalFunction()) ||
       !PciFunctionState::msixTable(function, state, table) || index >= table.vectors) {
     return false;
   }
@@ -432,16 +450,19 @@ bool PciBus::disableMsix(Device* device) {
   FunctionConfig function{device};
   PciFunctionState::State state;
   PciFunctionState::MsixTable table;
-  if (!device || !PciFunctionState::inspect(function, state, false) ||
-      !PciFunctionState::msixTable(function, state, table))
+  if (!device ||
+      !PciFunctionState::inspect(function, state, false, device->getPhysicalFunction()) ||
+      !PciFunctionState::msixTable(function, state, table)) {
     return false;
+  }
   IoBase* io = PciFunctionState::msixTableIo(device, state, table, false);
   return io && PciFunctionState::disableMsix(function, state, *io, table.offset);
 }
 
 bool PciBus::resourcesUnchanged(Device* device, const PciFunctionState::State& state) {
   FunctionConfig function{device};
-  return PciFunctionState::resourcesUnchanged(function, state);
+  return device &&
+         PciFunctionState::resourcesUnchanged(function, state, device->getPhysicalFunction());
 }
 
 bool PciBus::translateAddress(uint64_t pciAddress, uint64_t bytes, bool io, uint64_t& cpuPhysical) {

@@ -60,6 +60,9 @@ class Pic : public IrqManager, private InterruptHandler {
   /** Retains a motherboard PCI route's level trigger for the rest of boot. */
   bool reservePciRoute(uint8_t irq);
 
+  EXPORTED_PUBLIC bool hasIoApic() const;
+  EXPORTED_PUBLIC bool reservePciGsi(uint32_t gsi, bool activeLow);
+
   //
   // IrqManager interface
   //
@@ -73,7 +76,8 @@ class Pic : public IrqManager, private InterruptHandler {
   irq_id_t registerPciMessageIrqHandler(IrqHandler* handler, Device* device,
                                         const IrqPolicy& intxFallbackPolicy) override;
   bool registerPciMsixIrqHandlers(Device* device, IrqHandler* const* handlers, size_t count,
-                                  irq_id_t* ids, bool& fallbackSafe) override;
+                                  irq_id_t* ids, bool& fallbackSafe,
+                                  const size_t* processors = nullptr) override;
   irq_id_t registerHardPciMessageIrqHandler(HardIrqHandler* handler, Device* device,
                                             const IrqPolicy& intxFallbackPolicy) override;
   virtual irq_id_t registerSchedulerIrqHandler(uint8_t irq, SchedulerIrqHandler* handler,
@@ -240,7 +244,7 @@ class Pic : public IrqManager, private InterruptHandler {
   /** Mitigation thresholds */
   size_t m_MitigationThreshold[16];
   /** The Pic instance */
-  static Pic m_Instance;
+  static EXPORTED_PUBLIC Pic m_Instance;
 };
 
 /** @} */

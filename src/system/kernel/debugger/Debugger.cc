@@ -151,14 +151,13 @@ void Debugger::start(InterruptState& state, LargeStaticString& description) {
   ByteSet(&params, 0, sizeof(params));
   params.wantTextMode = false;
 
-  ServiceFeatures* pFeatures = ServiceManager::instance().enumerateOperations(graphicsService);
-  Service* pService = ServiceManager::instance().getService(graphicsService);
+  ServiceFeatures* pFeatures = nullptr;
+  Service* pService = nullptr;
   bool bSuccess = false;
-  if (pFeatures && pFeatures->provides(ServiceFeatures::probe)) {
-    if (pService) {
-      bSuccess =
-          pService->serve(ServiceFeatures::probe, reinterpret_cast<void*>(&params), sizeof(params));
-    }
+  if (ServiceManager::instance().tryGetService(graphicsService, pService, pFeatures) &&
+      pFeatures->provides(ServiceFeatures::probe)) {
+    bSuccess =
+        pService->serve(ServiceFeatures::probe, reinterpret_cast<void*>(&params), sizeof(params));
   }
 
   if (bSuccess && params.providerFound) {

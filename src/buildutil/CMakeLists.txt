@@ -331,6 +331,7 @@ set(TESTSUITE_SRCS
     testsuite/test-PciExtendedCapabilities.cc
     testsuite/test-PciAer.cc
     testsuite/test-PciSriov.cc
+    testsuite/test-PciExpress.cc
     testsuite/test-AcpiDmar.cc
     testsuite/test-AcpiPciRouting.cc
     testsuite/test-EhciLegacy.cc

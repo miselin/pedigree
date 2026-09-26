@@ -137,7 +137,7 @@ endif ()
 add_definitions(-DPOSIX_LOG_FACILITIES=${POSIX_LOGGING})
 
 set(_PEDIGREE_ARM_ALPINE_MODULES
-    confignics console diskimage ext2 filesystems init linker lodisk lwip
+    acpi confignics console diskimage ext2 filesystems init linker lodisk lwip
     mountroot network-stack nics nvme partition pci pci-enumeration posix ramfs
     rawfs scsi users vfs virtio-pci virtio-blk virtio-net virtio-rng virtio-input
     virtio-gpu virtio-scsi gfx-deps)
@@ -669,6 +669,21 @@ pedigree_module(3c90x "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/3c90x/3Com90x.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/3c90x/main.cc)
 
+if (PEDIGREE_MACHINE_HASPCI)
+    include(${CMAKE_SOURCE_DIR}/external/uacpi/uacpi.cmake)
+    pedigree_module(acpi "" ""
+        ${UACPI_SOURCES}
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/acpi/KernelApi.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/acpi/AcpiEvents.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/acpi/PciFirmware.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/acpi/PciRouting.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/acpi/main.cc)
+    target_include_directories(acpi PRIVATE ${UACPI_INCLUDES})
+    target_compile_definitions(acpi PRIVATE UACPI_USE_BUILTIN_STRING)
+    set_source_files_properties(${UACPI_SOURCES} PROPERTIES
+        COMPILE_OPTIONS "-Wno-write-strings;-Wno-cast-qual")
+endif ()
+
 if (PEDIGREE_MACHINE_HASPCI AND
     (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR
      PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$"))
@@ -745,8 +760,14 @@ endif ()
 
 if (PEDIGREE_ARCH_TARGET MATCHES "^(ARM64|ARMV7)$")
     pedigree_module(pci-enumeration "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/Resources.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/Sriov.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/enumeration.cc)
+    add_dependencies(pci-enumeration acpi)
     pedigree_module(pci "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/Drivers.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/Runtime.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/PciePorts.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/pci.cc)
     add_dependencies(pci pci-enumeration)
 endif ()
@@ -875,13 +896,19 @@ if (PEDIGREE_DRIVERDIR STREQUAL "x86")
         "Build the chipset kernel module.")
 
     pedigree_module(pci-enumeration "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/Resources.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/Sriov.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/enumeration.cc)
+    add_dependencies(pci-enumeration acpi)
 
     pedigree_module(chipset "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/chipset/main.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/chipset/Qm67.cc)
 
     pedigree_module(pci "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/Drivers.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/Runtime.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/PciePorts.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/pci.cc)
     add_dependencies(chipset pci-enumeration)
     add_dependencies(pci chipset)

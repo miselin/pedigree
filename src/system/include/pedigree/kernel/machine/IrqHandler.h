@@ -77,6 +77,13 @@ class EXPORTED_PUBLIC IrqHandler : public IrqHandlerBase {
   /** Handles a pending IRQ in thread context. */
   virtual IrqDisposition irq(irq_id_t number) = 0;
 
+  /** A recyclable message vector may deliver a late edge from its previous
+   * source. Opt in only when the callback verifies its own device's pending
+   * work and an empty invocation has no side effects. */
+  virtual bool acceptsSpuriousInterrupts() const {
+    return false;
+  }
+
  protected:
   /** Virtual destructor */
   virtual ~IrqHandler();

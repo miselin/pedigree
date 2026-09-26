@@ -50,11 +50,12 @@ class PicIrqState {
       m_RequestedEnabled[i] = true;
       m_SchedulerOwned[i] = false;
       m_PciRouteReserved[i] = false;
+      m_IoApicReserved[i] = false;
     }
   }
 
   bool canRegister(size_t irq, const IrqPolicy& policy, IrqDelivery delivery) const {
-    if (irq >= LineCount || irq == CascadeIrq || m_SchedulerOwned[irq] ||
+    if (irq >= LineCount || irq == CascadeIrq || m_SchedulerOwned[irq] || m_IoApicReserved[irq] ||
         (delivery != IrqDelivery::Hard && delivery != IrqDelivery::Threaded)) {
       return false;
     }
@@ -93,6 +94,19 @@ class PicIrqState {
   bool pciRouteReserved(size_t irq) const {
     assert(irq < LineCount);
     return m_PciRouteReserved[irq];
+  }
+
+  bool canReserveIoApic(size_t irq) const {
+    return irq < LineCount && (PicElcrProgrammable & bit(irq)) && !handlerCount(irq) &&
+           !m_SchedulerOwned[irq] && !m_AcknowledgementPending[irq] && !m_ThreadedPending[irq];
+  }
+
+  /** The same input must never be enabled on both interrupt controllers. */
+  void reserveIoApic(size_t irq) {
+    assert(canReserveIoApic(irq));
+    m_IoApicReserved[irq] = true;
+    m_RequestedEnabled[irq] = false;
+    rebuildMask();
   }
 
   bool canRegisterScheduler(size_t irq, const IrqPolicy& policy) const {
@@ -396,7 +410,8 @@ class PicIrqState {
     uint16_t mask = 0;
     for (size_t i = 0; i < LineCount; ++i) {
       if (!m_RequestedEnabled[i] || m_AcknowledgementPending[i] || m_ThreadedPending[i] ||
-          m_TransitionPending[i] || (m_PciRouteReserved[i] && !handlerCount(i))) {
+          m_TransitionPending[i] || m_IoApicReserved[i] ||
+          (m_PciRouteReserved[i] && !handlerCount(i))) {
         mask |= bit(i);
       }
     }
@@ -422,6 +437,7 @@ class PicIrqState {
   bool m_RequestedEnabled[LineCount];
   bool m_SchedulerOwned[LineCount];
   bool m_PciRouteReserved[LineCount];
+  bool m_IoApicReserved[LineCount];
 };
 
 struct PicContentionLineResult {

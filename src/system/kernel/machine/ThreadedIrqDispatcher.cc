@@ -117,10 +117,13 @@ void ThreadedIrqDispatcher::Line::configure(ThreadedIrqDispatcher* owner, uint8_
   m_CallbackContext = callbackContext;
 }
 
-bool ThreadedIrqDispatcher::Line::start() {
+bool ThreadedIrqDispatcher::Line::start(size_t processor) {
 #if THREADS
-  if (__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE) ||
-      __atomic_load_n(&m_Thread, __ATOMIC_ACQUIRE) || m_PendingCookies || !m_Owner || !m_Callback) {
+  if (__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE)) {
+    return m_WorkerProcessor == processor && !publicationClosed();
+  }
+  if (__atomic_load_n(&m_Thread, __ATOMIC_ACQUIRE) || m_PendingCookies || !m_Owner || !m_Callback ||
+      !Scheduler::onlineAffinity().contains(processor)) {
     return false;
   }
 
@@ -153,14 +156,13 @@ bool ThreadedIrqDispatcher::Line::start() {
   __atomic_store_n(&m_LastCallbackRuntime, static_cast<size_t>(0), __ATOMIC_RELEASE);
   __atomic_store_n(&m_MaximumCallbackRuntime, static_cast<size_t>(0), __ATOMIC_RELEASE);
 
-  m_Scheduler = &Processor::information().getScheduler();
-  // The worker cannot migrate between scheduler instances. Capture the
-  // topology index once so a remote hard producer can request an immediate
-  // reschedule of this exact scheduler rather than waiting for its next
-  // periodic timer interrupt.
-  m_WorkerProcessor = Processor::index();
+  ThreadPlacement placement;
+  placement.allowed.set(processor);
   Thread* thread = new Thread(Scheduler::instance().getKernelProcess(), workerEntry, this, nullptr,
-                              false, true, true);
+                              false, true, true, &placement);
+  m_Scheduler = thread->getScheduler();
+  m_WorkerProcessor = m_Scheduler->logicalCpu();
+  assert(m_WorkerProcessor == processor);
   __atomic_store_n(&m_Thread, thread, __ATOMIC_RELEASE);
   const String workerName(static_cast<const char*>(m_Owner->m_Name), m_Owner->m_Name.length());
   thread->setName(workerName);
@@ -215,7 +217,7 @@ bool ThreadedIrqDispatcher::Line::join() {
 }
 
 bool ThreadedIrqDispatcher::Line::publishFromInterrupt(size_t cookie) {
-  if (!cookie) {
+  if (!cookie || !__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE)) {
     return false;
   }
 
@@ -520,7 +522,7 @@ bool ThreadedIrqDispatcher::Line::generationReached(size_t current, size_t targe
 
 ThreadedIrqDispatcher::ThreadedIrqDispatcher(const String& name, size_t lineCount,
                                              DispatchCallback callback, void* callbackContext)
-    : m_Lines(),
+    : m_Lines(nullptr),
       m_Name(name),
       m_LineCount(lineCount),
       m_Callback(callback),
@@ -530,6 +532,7 @@ ThreadedIrqDispatcher::ThreadedIrqDispatcher(const String& name, size_t lineCoun
       m_RemoteWakeCallbackContext(nullptr),
       m_ConfigurationClosed(0),
       m_Initialised(false),
+      m_Stopping(0),
       m_ShutdownClaimed(0)
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
@@ -605,9 +608,10 @@ ThreadedIrqDispatcher::~ThreadedIrqDispatcher() {
   if (__atomic_load_n(&m_Initialised, __ATOMIC_ACQUIRE)) {
     FATAL("Threaded IRQ dispatcher was destroyed before shutdown.");
   }
+  delete[] m_Lines;
 }
 
-bool ThreadedIrqDispatcher::initialise() {
+bool ThreadedIrqDispatcher::initialise(bool lazy) {
 #if THREADS
   if (__atomic_load_n(&m_Initialised, __ATOMIC_ACQUIRE) || !m_LineCount || !m_Callback) {
     return false;
@@ -628,10 +632,18 @@ bool ThreadedIrqDispatcher::initialise() {
   __atomic_store_n(&m_RemotePublicationRejectionsForTest, static_cast<size_t>(0), __ATOMIC_RELEASE);
 #endif
   __atomic_store_n(&m_ShutdownClaimed, static_cast<size_t>(0), __ATOMIC_RELEASE);
+  __atomic_store_n(&m_Stopping, static_cast<size_t>(0), __ATOMIC_RELEASE);
 
-  for (size_t i = 0; i < m_LineCount; ++i) {
-    m_Lines[i].configure(this, static_cast<uint8_t>(i), m_Callback, m_CallbackContext);
-    if (!m_Lines[i].start()) {
+  if (!m_Lines) {
+    Line* lines = new Line[m_LineCount];
+    for (size_t i = 0; i < m_LineCount; ++i) {
+      lines[i].configure(this, static_cast<uint8_t>(i), m_Callback, m_CallbackContext);
+    }
+    __atomic_store_n(&m_Lines, lines, __ATOMIC_RELEASE);
+  }
+
+  for (size_t i = 0; !lazy && i < m_LineCount; ++i) {
+    if (!m_Lines[i].start(Processor::index())) {
       for (size_t j = 0; j < i; ++j) {
         m_Lines[j].beginStop();
       }
@@ -651,6 +663,18 @@ bool ThreadedIrqDispatcher::initialise() {
 #endif
 }
 
+bool ThreadedIrqDispatcher::prepareLine(uint8_t line, size_t processor) {
+#if THREADS
+  if (!isInitialised() || line >= m_LineCount || __atomic_load_n(&m_Stopping, __ATOMIC_ACQUIRE) ||
+      Processor::executionContext() != ExecutionContext::WaitableThread) {
+    return false;
+  }
+  return m_Lines[line].start(processor);
+#else
+  return false;
+#endif
+}
+
 bool ThreadedIrqDispatcher::shutdown() {
 #if THREADS
   if (!__atomic_load_n(&m_Initialised, __ATOMIC_ACQUIRE)) {
@@ -666,6 +690,7 @@ bool ThreadedIrqDispatcher::shutdown() {
     // caller must not join the same workers or free the same arrays.
     return !__atomic_load_n(&m_Initialised, __ATOMIC_ACQUIRE);
   }
+  __atomic_store_n(&m_Stopping, static_cast<size_t>(1), __ATOMIC_RELEASE);
 
   for (size_t i = 0; i < m_LineCount; ++i) {
     m_Lines[i].beginStop();
@@ -707,9 +732,13 @@ bool ThreadedIrqDispatcher::isInitialised() const {
 
 bool ThreadedIrqDispatcher::isCurrentWorker() const {
 #if THREADS
+  const Line* lines = __atomic_load_n(&m_Lines, __ATOMIC_ACQUIRE);
+  if (!lines) {
+    return false;
+  }
   const Thread* current = Processor::information().getCurrentThread();
   for (size_t i = 0; i < m_LineCount; ++i) {
-    if (m_Lines[i].isWorker(current)) {
+    if (lines[i].isWorker(current)) {
       return true;
     }
   }
@@ -735,36 +764,44 @@ bool ThreadedIrqDispatcher::hasPending(uint8_t line) const {
 }
 
 size_t ThreadedIrqDispatcher::pendingCookie(uint8_t line) const {
-  return line < m_LineCount ? m_Lines[line].pendingCookie() : 0;
+  const Line* lines = __atomic_load_n(&m_Lines, __ATOMIC_ACQUIRE);
+  return lines && line < m_LineCount ? lines[line].pendingCookie() : 0;
 }
 
 size_t ThreadedIrqDispatcher::activeCookie(uint8_t line) const {
-  return line < m_LineCount ? m_Lines[line].activeCookie() : 0;
+  const Line* lines = __atomic_load_n(&m_Lines, __ATOMIC_ACQUIRE);
+  return lines && line < m_LineCount ? lines[line].activeCookie() : 0;
 }
 
 size_t ThreadedIrqDispatcher::completedBatches(uint8_t line) const {
-  return line < m_LineCount ? m_Lines[line].completedBatches() : 0;
+  const Line* lines = __atomic_load_n(&m_Lines, __ATOMIC_ACQUIRE);
+  return lines && line < m_LineCount ? lines[line].completedBatches() : 0;
 }
 
 size_t ThreadedIrqDispatcher::completedCookie(uint8_t line) const {
-  return line < m_LineCount ? m_Lines[line].completedCookie() : 0;
+  const Line* lines = __atomic_load_n(&m_Lines, __ATOMIC_ACQUIRE);
+  return lines && line < m_LineCount ? lines[line].completedCookie() : 0;
 }
 
 uintptr_t ThreadedIrqDispatcher::workerIdentity(uint8_t line) const {
-  return line < m_LineCount ? m_Lines[line].workerIdentity() : 0;
+  const Line* lines = __atomic_load_n(&m_Lines, __ATOMIC_ACQUIRE);
+  return lines && line < m_LineCount ? lines[line].workerIdentity() : 0;
 }
 
 bool ThreadedIrqDispatcher::callbackActive(uint8_t line) const {
-  return line < m_LineCount && m_Lines[line].callbackActive();
+  const Line* lines = __atomic_load_n(&m_Lines, __ATOMIC_ACQUIRE);
+  return lines && line < m_LineCount && lines[line].callbackActive();
 }
 
 bool ThreadedIrqDispatcher::publicationClosed(uint8_t line) const {
-  return line < m_LineCount && m_Lines[line].publicationClosed();
+  const Line* lines = __atomic_load_n(&m_Lines, __ATOMIC_ACQUIRE);
+  return line < m_LineCount && (!lines || lines[line].publicationClosed());
 }
 
 void ThreadedIrqDispatcher::snapshotDiagnostics(uint8_t line,
                                                 IrqLineDiagnosticSnapshot& snapshot) const {
-  if (line < m_LineCount) {
-    m_Lines[line].snapshotDiagnostics(snapshot);
+  const Line* lines = __atomic_load_n(&m_Lines, __ATOMIC_ACQUIRE);
+  if (lines && line < m_LineCount) {
+    lines[line].snapshotDiagnostics(snapshot);
   }
 }

@@ -117,7 +117,7 @@ class EXPORTED_PUBLIC PciBus {
   bool disableMsi(Device* device);
   bool enableMsix(Device* device, uint64_t address, uint32_t data);
   bool enableMsixVectors(Device* device, uint64_t address, const uint32_t* data, size_t count,
-                         bool* touched = nullptr);
+                         bool* touched = nullptr, const uint64_t* addresses = nullptr);
   bool setMsixVectorMask(Device* device, size_t index, bool masked);
   bool disableMsix(Device* device);
   bool resourcesUnchanged(Device* device, const PciFunctionState::State& state);
@@ -134,6 +134,12 @@ class EXPORTED_PUBLIC PciBus {
   bool hasDmaRemapping(Device* device) const;
   /** Restrict this function to explicitly mapped DMA pages before bus mastering. */
   bool attachIsolatedDma(Device* device);
+  /** Revoke an idle isolated domain after bus mastering has been disabled. */
+  bool detachIsolatedDma(Device* device);
+  /** Caller serializes VF lifecycle and prevents new mappings during teardown. */
+  bool isolatedDmaIdle(Device* device) const;
+  /** PF owner has cleared VFE and waited for VF removal before this call. */
+  bool detachDisabledIsolatedDma(Device* device);
   bool hasDmaIsolation(Device* device) const;
   /** Map one pinned physical page to a 32-bit device address for the mapping lifetime. */
   bool mapDmaPage(Device* device, physical_uintptr_t physical, size_t bytes, DmaMapping& mapping);

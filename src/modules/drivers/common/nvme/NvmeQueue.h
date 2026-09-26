@@ -21,6 +21,8 @@ class NvmeQueue {
                  PciBus::DmaMapping* directReadMapping = nullptr);
   bool complete(bool fromInterrupt);
   void stop();
+  /** Release mappings after the controller has stopped DMA and drained commands. */
+  void releaseDma();
   size_t interruptCompletions() const;
   size_t maximumOutstanding() const;
   uint64_t submissionAddress() const {

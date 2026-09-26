@@ -26,6 +26,8 @@ class PciIoApicInterrupts : private InterruptHandler {
 
   PciIoApicInterrupts();
   bool initialise();
+  bool containsGsi(uint32_t gsi) const;
+  bool reserveGsi(uint32_t gsi, bool activeLow);
   bool initialiseThreaded();
   bool shutdownThreaded();
   irq_id_t registerThreaded(Device* device, IrqHandler* handler, const IrqPolicy& policy,

@@ -29,6 +29,7 @@
 
 #include "Bar.h"
 #include "ProbeBars.h"
+#include "Resources.h"
 #include "modules/Module.h"
 #include "pci_list.h"
 
@@ -318,10 +319,13 @@ static bool entry() {
     }
   }
 
+  if (!PciResources::initialize()) {
+    WARNING("PCI: resource allocation unavailable");
+  }
   return true;
 }
 
 static void exit() {}
 
 // The enumerated nodes outlive module initialization and have no removal path.
-MODULE_INFO_NON_UNLOADABLE("pci-enumeration", &entry, &exit);
+MODULE_INFO_NON_UNLOADABLE("pci-enumeration", &entry, &exit, "acpi");

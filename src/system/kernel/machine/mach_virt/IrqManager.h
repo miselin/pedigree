@@ -32,7 +32,8 @@ class VirtIrqManager : public IrqManager {
   irq_id_t registerPciMessageIrqHandler(IrqHandler* handler, Device* device,
                                         const IrqPolicy& intxFallbackPolicy) override;
   bool registerPciMsixIrqHandlers(Device* device, IrqHandler* const* handlers, size_t count,
-                                  irq_id_t* ids, bool& fallbackSafe) override;
+                                  irq_id_t* ids, bool& fallbackSafe,
+                                  const size_t* processors = nullptr) override;
   irq_id_t registerHardIsaIrqHandler(uint8_t irq, HardIrqHandler* handler,
                                      const IrqPolicy& policy) override;
   irq_id_t registerHardPciIrqHandler(HardIrqHandler* handler, Device* device,
@@ -59,6 +60,7 @@ class VirtIrqManager : public IrqManager {
     bool hard;
     bool reserved;
     bool message;
+    bool spuriousSafe;
     bool msix;
     bool lpi;
     uint8_t msixIndex;

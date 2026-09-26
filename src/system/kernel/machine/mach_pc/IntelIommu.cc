@@ -3,6 +3,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
@@ -21,6 +22,47 @@ constexpr uint32_t QueuedInvalidationEnabled = 1U << 26;
 constexpr uint64_t PageBytes = 4096;
 constexpr uint64_t LargePageBytes = 2 * 1024 * 1024;
 constexpr size_t PollLimit = 1000000;
+
+bool includesRequester(const AcpiDmar::Info& info, Device* device) {
+  if (info.hardwareUnitCount != 1 || info.segmentZeroUnitCount != 1) {
+    return false;
+  }
+  const uint8_t bus = device->getPciBusPosition();
+  const uint16_t requester =
+      (uint16_t(bus) << 8) | (device->getPciDevicePosition() << 3) | device->getPciFunctionNumber();
+  if (info.segmentZeroIncludeAllCount ||
+      info.includesDirectEndpoint(bus, device->getPciDevicePosition(),
+                                  device->getPciFunctionNumber())) {
+    return true;
+  }
+
+  auto& pci = PciBus::instance();
+  for (size_t index = 0; index < info.directBridgeCount; ++index) {
+    const uint16_t source = info.directBridges[index];
+    Device bridge;
+    bridge.setPciPosition(source >> 8, (source >> 3) & 31, source & 7);
+    uint16_t vendor = 0;
+    uint8_t header = 0;
+    uint32_t classCode = 0, buses = 0;
+    if (!pci.readConfig16(&bridge, 0, vendor) || !vendor || vendor == 0xffff ||
+        !pci.readConfig8(&bridge, 0x0e, header) || (header & 0x7fU) != 1 ||
+        !pci.readConfig32(&bridge, 8, classCode) || (classCode >> 16) != 0x0604 ||
+        !pci.readConfig32(&bridge, 0x18, buses)) {
+      continue;
+    }
+    const uint8_t primary = buses;
+    const uint8_t secondary = buses >> 8;
+    const uint8_t subordinate = buses >> 16;
+    if (primary != source >> 8 || secondary <= primary || subordinate < secondary) {
+      continue;
+    }
+    // A sub-hierarchy scope includes its bridge and every downstream bus.
+    if (requester == source || (bus >= secondary && bus <= subordinate)) {
+      return true;
+    }
+  }
+  return false;
+}
 }  // namespace
 
 IntelIommu& IntelIommu::instance() {
@@ -105,7 +147,8 @@ bool IntelIommu::invalidateIotlb() {
 bool IntelIommu::initialise() {
   const AcpiDmar::Info* info = Acpi::instance().dmarInfo();
   if (!info || info->hardwareUnitCount != 1 || info->segmentZeroUnitCount != 1 ||
-      (!info->segmentZeroIncludeAllCount && !info->directEndpointCount) ||
+      (!info->segmentZeroIncludeAllCount && !info->directEndpointCount &&
+       !info->directBridgeCount) ||
       info->reservedMemoryRegions || info->firstSegmentZeroUnitRegisterPagesLog2 > 4) {
     if (info) {
       NOTICE("Intel VT-d: unsupported DMAR layout, units="
@@ -148,11 +191,12 @@ bool IntelIommu::initialise() {
   const uint64_t ecap = m_Registers.read64(0x10);
   const uint32_t status = m_Registers.read32(0x1c);
   const uint8_t mgaw = static_cast<uint8_t>(((cap >> 16) & 0x3f) + 1);
+  const uint8_t domainCountEncoding = static_cast<uint8_t>(cap & 7);
   const bool aw39 = cap & (1ULL << 9);
   const bool aw48 = cap & (1ULL << 10);
   m_IotlbOffset = size_t((ecap >> 8) & 0x3ff) * 16;
-  if (((version >> 4) & 0xf) == 0 || ((version >> 4) & 0xf) >= 6 || !(ecap & (1ULL << 6)) ||
-      !(cap & (1ULL << 34)) || mgaw < 32 || (!aw39 && !aw48) ||
+  if (((version >> 4) & 0xf) == 0 || ((version >> 4) & 0xf) >= 6 || domainCountEncoding == 7 ||
+      !(ecap & (1ULL << 6)) || !(cap & (1ULL << 34)) || mgaw < 32 || (!aw39 && !aw48) ||
       m_IotlbOffset + 16 > m_Registers.size() ||
       (status & (TranslationEnable | QueuedInvalidationEnabled))) {
     NOTICE("Intel VT-d: unsupported register capabilities, version="
@@ -216,7 +260,7 @@ bool IntelIommu::initialise() {
     return abort();
   }
   if (!command(TranslationEnable, true)) {
-    FATAL("Intel VT-d: translation enable did not complete");
+    panic("Intel VT-d: translation enable did not complete");
   }
   m_Enabled = true;
   const uint8_t tableWidth = m_Aw == 2 ? 48 : 39;
@@ -320,8 +364,8 @@ uint64_t* IntelIommu::tokenEntry(const Domain& domain, size_t slot) {
 }
 
 IntelIommu::Domain* IntelIommu::findDomain(const Device* device) {
-  for (size_t i = 0; i < m_DomainCount; ++i) {
-    if (m_Domains[i].device == device) {
+  for (size_t i = 0; i < MaxDomains; ++i) {
+    if (m_Domains[i].device && m_Domains[i].device == device) {
       return &m_Domains[i];
     }
   }
@@ -329,8 +373,8 @@ IntelIommu::Domain* IntelIommu::findDomain(const Device* device) {
 }
 
 const IntelIommu::Domain* IntelIommu::findDomain(const Device* device) const {
-  for (size_t i = 0; i < m_DomainCount; ++i) {
-    if (m_Domains[i].device == device) {
+  for (size_t i = 0; i < MaxDomains; ++i) {
+    if (m_Domains[i].device && m_Domains[i].device == device) {
       return &m_Domains[i];
     }
   }
@@ -346,11 +390,23 @@ bool IntelIommu::attach(Device* device, bool isolated) {
   if (const Domain* domain = findDomain(device)) {
     return domain->isolated == isolated;
   }
+  size_t slot = MaxDomains;
+  for (size_t i = 0; i < MaxDomains; ++i) {
+    Device* other = m_Domains[i].device;
+    if (other && other->getPciBusPosition() == device->getPciBusPosition() &&
+        other->getPciDevicePosition() == device->getPciDevicePosition() &&
+        other->getPciFunctionNumber() == device->getPciFunctionNumber()) {
+      return false;
+    }
+    if (!other && slot == MaxDomains) {
+      slot = i;
+    }
+  }
   const AcpiDmar::Info* info = Acpi::instance().dmarInfo();
-  if (!info ||
-      (!info->segmentZeroIncludeAllCount &&
-       !info->includesDirectEndpoint(device->getPciBusPosition(), device->getPciDevicePosition(),
-                                     device->getPciFunctionNumber()))) {
+  if (!info || !includesRequester(*info, device)) {
+    NOTICE("Intel VT-d: requester outside supported DMAR scope, PCI "
+           << Dec << device->getPciBusPosition() << ":" << device->getPciDevicePosition() << "."
+           << device->getPciFunctionNumber());
     return false;
   }
   uint16_t pciCommand = 0;
@@ -359,7 +415,7 @@ bool IntelIommu::attach(Device* device, bool isolated) {
     NOTICE("Intel VT-d: attach requires bus mastering disabled, PCI command=" << Hex << pciCommand);
     return false;
   }
-  if (m_Failed || m_DomainCount == MaxDomains) {
+  if (m_Failed || slot == MaxDomains) {
     return false;
   }
   if (!m_Enabled && !initialise()) {
@@ -369,7 +425,7 @@ bool IntelIommu::attach(Device* device, bool isolated) {
 
   Domain domain;
   domain.device = device;
-  domain.id = static_cast<uint16_t>(m_DomainCount + 2);
+  domain.id = static_cast<uint16_t>(slot + 2);
   domain.isolated = isolated;
   if (!makeDomain(domain)) {
     return false;
@@ -390,7 +446,7 @@ bool IntelIommu::attach(Device* device, bool isolated) {
     roots[bus * 2] = busContext | 1;
     flushLines(&roots[bus * 2], sizeof(uint64_t));
     if (!invalidateContext() || !invalidateIotlb()) {
-      FATAL("Intel VT-d: failed to publish bus context");
+      panic("Intel VT-d: failed to publish bus context");
     }
     m_BusContexts[bus] = busContext;
   }
@@ -400,15 +456,74 @@ bool IntelIommu::attach(Device* device, bool isolated) {
   contexts[function * 2] = domain.root | 1;
   flushLines(&contexts[function * 2], 2 * sizeof(uint64_t));
   if (!invalidateContext() || !invalidateIotlb()) {
-    FATAL("Intel VT-d: failed to publish device context");
+    panic("Intel VT-d: failed to publish device context");
   }
 
-  m_Domains[m_DomainCount++] = domain;
+  m_Domains[slot] = domain;
   NOTICE("Intel VT-d: attached PCI " << Dec << static_cast<uint32_t>(bus) << ":"
                                      << static_cast<uint32_t>(function >> 3) << "."
                                      << static_cast<uint32_t>(function & 7)
                                      << (isolated ? " to isolated domain " : " to domain ")
                                      << static_cast<uint32_t>(domain.id));
+  return true;
+}
+
+bool IntelIommu::isolatedIdle(Device* device) const {
+  LockGuard<Mutex> guard(m_Lock);
+  const Domain* domain = findDomain(device);
+  if (!m_Enabled || !domain || !domain->isolated) {
+    return false;
+  }
+  uint16_t command = 0;
+  if (!PciBus::instance().readConfig16(device, 4, command) || (command & 4)) {
+    return false;
+  }
+  for (uint32_t used : domain->tokenUsed) {
+    if (used) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool IntelIommu::detachIsolated(Device* device, bool requesterDisabled) {
+  if (!device) {
+    return false;
+  }
+  LockGuard<Mutex> guard(m_Lock);
+  Domain* domain = findDomain(device);
+  if (!m_Enabled || !domain || !domain->isolated) {
+    return false;
+  }
+  uint16_t pciCommand = 0;
+  if (!requesterDisabled &&
+      (!PciBus::instance().readConfig16(device, 4, pciCommand) || (pciCommand & 4))) {
+    return false;
+  }
+  for (uint32_t used : domain->tokenUsed) {
+    if (used) {
+      return false;
+    }
+  }
+
+  const size_t bus = device->getPciBusPosition();
+  const size_t function = (device->getPciDevicePosition() << 3) | device->getPciFunctionNumber();
+  if (!m_BusContexts[bus]) {
+    panic("Intel VT-d: isolated domain context missing");
+  }
+  auto* contexts = reinterpret_cast<uint64_t*>(physicalAddress(m_BusContexts[bus]));
+  if (contexts[function * 2] != (domain->root | 1) ||
+      contexts[function * 2 + 1] != ((uint64_t(domain->id) << 8) | m_Aw)) {
+    panic("Intel VT-d: isolated domain context mismatch");
+  }
+  contexts[function * 2] = 0;
+  flushLines(&contexts[function * 2], sizeof(uint64_t));
+  if (!invalidateContext() || !invalidateIotlb()) {
+    panic("Intel VT-d: failed to revoke isolated domain context");
+  }
+  contexts[function * 2 + 1] = 0;
+  flushLines(&contexts[function * 2 + 1], sizeof(uint64_t));
+  freeDomain(*domain);
   return true;
 }
 
@@ -451,12 +566,12 @@ bool IntelIommu::mapPage(Device* device, physical_uintptr_t physical, uint32_t& 
     }
     uint64_t* entry = tokenEntry(*domain, slot);
     if (!entry) {
-      FATAL("Intel VT-d: IOVA page table missing");
+      panic("Intel VT-d: IOVA page table missing");
     }
     *entry = physical | 3;
     flushLines(entry, sizeof(*entry));
     if (!invalidateIotlb()) {
-      FATAL("Intel VT-d: failed to publish IOVA mapping");
+      panic("Intel VT-d: failed to publish IOVA mapping");
     }
     domain->tokenUsed[slot / 32] |= mask;
     dmaAddress = static_cast<uint32_t>(domain->tokenBase + slot * PageBytes);
@@ -481,16 +596,16 @@ void IntelIommu::unmapPage(Device* device, uint16_t token) {
   const uint32_t mask = 1U << (slot & 31);
   if (!m_Enabled || !domain || slot >= domain->tokenCount ||
       !(domain->tokenUsed[slot / 32] & mask)) {
-    FATAL("Intel VT-d: invalid IOVA unmap");
+    panic("Intel VT-d: invalid IOVA unmap");
   }
   uint64_t* entry = tokenEntry(*domain, slot);
   if (!entry) {
-    FATAL("Intel VT-d: IOVA page table missing");
+    panic("Intel VT-d: IOVA page table missing");
   }
   *entry = 0;
   flushLines(entry, sizeof(*entry));
   if (!invalidateIotlb()) {
-    FATAL("Intel VT-d: failed to revoke IOVA mapping");
+    panic("Intel VT-d: failed to revoke IOVA mapping");
   }
   domain->tokenUsed[slot / 32] &= ~mask;
   logFault();

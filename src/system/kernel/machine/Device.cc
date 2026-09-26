@@ -37,10 +37,20 @@ Mutex Device::m_TreeLock;
 /** Singleton Device instantiation. */
 Device Device::m_Root;
 
+bool Device::treeLockHeldByCurrentThread() {
+#if THREADS && !defined(STANDALONE_MUTEXES)
+  return m_TreeLock.isOwnedByCurrentThread();
+#else
+  return false;
+#endif
+}
+
 Device::Device()
     : m_Addresses(),
       m_Children(),
       m_pParent(0),
+      m_PhysicalFunction(nullptr),
+      m_VirtualFunctionIndex(0),
       m_InterruptNumber(0),
       m_SpecificType(),
       m_ConfigHeader(),
@@ -57,6 +67,8 @@ Device::Device(Device* p)
     : m_Addresses(),
       m_Children(),
       m_pParent(0),
+      m_PhysicalFunction(p->m_PhysicalFunction),
+      m_VirtualFunctionIndex(p->m_VirtualFunctionIndex),
       m_InterruptNumber(p->m_InterruptNumber),
       m_SpecificType(p->m_SpecificType),
       m_ConfigHeader(p->m_ConfigHeader),

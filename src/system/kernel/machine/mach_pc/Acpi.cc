@@ -23,6 +23,7 @@
 
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/RangeList.h"
@@ -288,6 +289,9 @@ Acpi::Acpi()
       m_Processors()
 #endif
 {
+  for (size_t irq = 0; irq < 16; ++irq) {
+    m_IsaGsis[irq] = irq;
+  }
 }
 
 bool Acpi::pciConfigurationAddress(uint8_t bus, uint64_t& address) const {
@@ -326,6 +330,61 @@ bool Acpi::pciInterruptRoute(uint8_t slot, uint8_t pin, AcpiPciRouting::Route& r
   }
   route = m_PciInterruptRoutes[slot][pin - 1];
   return route.gsi >= 16;
+}
+
+void Acpi::setPciInterruptRouter(PciInterruptRouter router) {
+  __atomic_store_n(&m_PciInterruptRouter, router, __ATOMIC_RELEASE);
+}
+
+bool Acpi::hasPciInterruptRouter() const {
+  return __atomic_load_n(&m_PciInterruptRouter, __ATOMIC_ACQUIRE) != nullptr;
+}
+
+bool Acpi::pciInterruptRoute(Device* device, uint8_t pin, AcpiPciRouting::Route& route) const {
+  if (!device || pin < 1 || pin > 4) {
+    return false;
+  }
+  const auto router = __atomic_load_n(&m_PciInterruptRouter, __ATOMIC_ACQUIRE);
+  if (router) {
+    return router(device, pin, route);
+  }
+  Device* current = device;
+  for (size_t depth = 0; current->getPciBusPosition(); ++depth) {
+    if (depth == 8) {
+      return false;
+    }
+    Device* bus = current->getParent();
+    Device* bridge = bus ? bus->getParent() : nullptr;
+    if (!bridge || bridge->getPciClassCode() != 6 || bridge->getPciSubclassCode() != 4) {
+      return false;
+    }
+    pin = static_cast<uint8_t>(((pin - 1 + current->getPciDevicePosition()) & 3) + 1);
+    current = bridge;
+  }
+  return pciInterruptRoute(current->getPciDevicePosition(), pin, route);
+}
+
+bool Acpi::isaIrqsForGsi(uint32_t gsi, uint16_t& irqs) const {
+  irqs = 0;
+#if MULTIPROCESSOR
+  if (!m_bValidApicInfo) {
+    return false;
+  }
+#endif
+  if (!m_bValid || !m_IsaRoutingValid) {
+    return false;
+  }
+  for (uint32_t nmi : m_NmiGsis) {
+    if (nmi == gsi) {
+      return false;
+    }
+  }
+  for (size_t irq = 0; irq < 16; ++irq) {
+    if (m_IsaGsis[irq] == gsi) {
+      irqs |= uint16_t(1U << irq);
+    }
+  }
+  return true;
 }
 
 void Acpi::parseFixedACPIDescriptionTable() {
@@ -441,11 +500,24 @@ void Acpi::parseMultipleApicDescriptionTable() {
                                     << " -> #" << pInterruptSourceOverride->globalSystemInterrupt
                                     << ", flags " << Hex << pInterruptSourceOverride->flags);
 
-      // TODO
+      const auto& source = *pInterruptSourceOverride;
+      if (source.bus || source.source >= 16 || (m_IsaOverrides & (1U << source.source)) ||
+          (source.flags & ~0xfU) || (source.flags & 3) == 2 || ((source.flags >> 2) & 3) == 2) {
+        m_IsaRoutingValid = false;
+      } else {
+        m_IsaGsis[source.source] = source.globalSystemInterrupt;
+        m_IsaOverrides |= uint16_t(1U << source.source);
+      }
     }
     // Non-maskable Interrupt Source (NMI)
     else if (*pType == 3) {
       ERROR(" NMI source");
+      if (entryLength < 8) {
+        m_IsaRoutingValid = false;
+      } else {
+        m_NmiGsis.pushBack(uint32_t(pType[4]) | (uint32_t(pType[5]) << 8) |
+                           (uint32_t(pType[6]) << 16) | (uint32_t(pType[7]) << 24));
+      }
     }
     // Local APIC NMI
     else if (*pType == 4) {

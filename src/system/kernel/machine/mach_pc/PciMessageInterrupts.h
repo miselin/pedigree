@@ -9,6 +9,7 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 
 class Device;
@@ -16,11 +17,11 @@ class HardIrqHandler;
 class IrqHandler;
 class IrqHandlerBase;
 
-/** PCI message vectors delivered to the bootstrap local APIC. */
+/** PCI message vectors with CPU-local completion workers. */
 class PciMessageInterrupts : private InterruptHandler {
  public:
   static constexpr uint8_t FirstVector = 0x40;
-  static constexpr uint8_t VectorCount = 16;
+  static constexpr uint8_t VectorCount = 64;
 
   PciMessageInterrupts();
 
@@ -29,7 +30,8 @@ class PciMessageInterrupts : private InterruptHandler {
   bool shutdownThreaded();
   irq_id_t registerThreaded(Device* device, IrqHandler* handler, bool& fallbackSafe);
   bool registerThreadedVectors(Device* device, IrqHandler* const* handlers, size_t count,
-                               irq_id_t* ids, bool& fallbackSafe);
+                               irq_id_t* ids, bool& fallbackSafe,
+                               const size_t* processors = nullptr);
   irq_id_t registerHard(Device* device, HardIrqHandler* handler, bool& fallbackSafe);
   bool unregisterHandler(irq_id_t id, IrqHandlerBase* handler);
   void enable(irq_id_t id, bool enabled);
@@ -45,8 +47,12 @@ class PciMessageInterrupts : private InterruptHandler {
     IrqHandlerBase* handler = nullptr;
     Mode mode = Mode::None;
     size_t cookie = 0;
-    // A retired vector is not reused: a posted MSI may arrive after disable.
+    // Exposed vectors keep their destination; late posted messages may remain.
+    size_t processor = 0;
     bool used = false;
+    bool workerPrepared = false;
+    bool reusable = false;
+    bool spuriousSafe = false;
     bool enabled = false;
     bool removing = false;
     bool deferred = false;
@@ -55,12 +61,20 @@ class PciMessageInterrupts : private InterruptHandler {
     uint8_t unhandled = 0;
   };
 
+  static size_t advanceCookie(Line& line) {
+    if (!++line.cookie) {
+      ++line.cookie;
+    }
+    return line.cookie;
+  }
+
   irq_id_t registerHandler(Device* device, IrqHandlerBase* handler, Mode mode, bool& fallbackSafe);
   bool disableSource(Device* device, bool msix, uint8_t msixIndex);
   void quarantine(uint8_t slot, size_t expectedCookie = 0);
   void interrupt(size_t interruptNumber, InterruptState& state) override;
   static void dispatchThreaded(void* context, uint8_t slot, size_t cookie);
 
+  Mutex m_RegistrationLock;
   Spinlock m_Lock;
   IrqHandlerRegistry m_Handlers;
   ThreadedIrqDispatcher m_Dispatcher;

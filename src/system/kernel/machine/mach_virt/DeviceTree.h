@@ -36,6 +36,7 @@ struct VirtPciWindow {
   uint64_t pciBase;
   uint64_t cpuBase;
   uint64_t size;
+  bool prefetchable = false;
 };
 
 struct VirtMsiController {

@@ -439,6 +439,7 @@ irq_id_t VirtIrqManager::registerPciMessageHandler(IrqHandlerBase* handler, Devi
     line.deviceId = deviceId;
     line.device = device;
     line.hard = hard;
+    line.spuriousSafe = !hard && static_cast<IrqHandler*>(handler)->acceptsSpuriousInterrupts();
     if (!lpi) {
       setEnabled(irq, false);
       setEdge(irq);
@@ -530,7 +531,8 @@ irq_id_t VirtIrqManager::registerPciMessageIrqHandler(IrqHandler* handler, Devic
 }
 
 bool VirtIrqManager::registerPciMsixIrqHandlers(Device* device, IrqHandler* const* handlers,
-                                                size_t count, irq_id_t* ids, bool& fallbackSafe) {
+                                                size_t count, irq_id_t* ids, bool& fallbackSafe,
+                                                const size_t*) {
   fallbackSafe = true;
   if (!m_MsiReady || !m_PciDispatcher.isInitialised() || !device || !handlers || !ids || !count ||
       count > MaxPciLines) {
@@ -651,6 +653,8 @@ bool VirtIrqManager::registerPciMsixIrqHandlers(Device* device, IrqHandler* cons
         break;
       }
       m_PciLines[slots[registered]].handlers = 1;
+      m_PciLines[slots[registered]].spuriousSafe =
+          handlers[registered]->acceptsSpuriousInterrupts();
     }
   }
 
@@ -972,7 +976,7 @@ void VirtIrqManager::dispatchPciLine(void* context, uint8_t slot, size_t cookie)
       return;
     }
     line.inFlight = false;
-    if (!admitted || !result.allowRearm) {
+    if (!admitted || (!result.allowRearm && !(line.message && line.spuriousSafe))) {
       line.quarantined = true;
     }
     if (line.handlers && !line.removing && !line.quarantined) {

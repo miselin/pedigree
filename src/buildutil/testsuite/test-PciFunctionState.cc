@@ -77,7 +77,7 @@ struct Config {
   }
 };
 struct Table {
-  std::array<uint32_t, 128> words{};
+  std::array<uint32_t, 512> words{};
   size_t size() const {
     return words.size() * 4;
   }
@@ -115,6 +115,33 @@ TEST(PciFunctionState, RejectsPowerModesWithoutPowerOrPmeWrites) {
     EXPECT_EQ(config.bytes, before);
     EXPECT_TRUE(config.writes.empty());
   }
+}
+TEST(PciFunctionState, BridgeMessageInterruptsUseOnlyTwoBars) {
+  Config config;
+  config.bytes[0x0e] = 0x81;
+  config.set32(0x18, 0x00030200);
+  PciFunctionState::State state;
+  ASSERT_TRUE(PciFunctionState::inspect(config, state, false));
+  EXPECT_EQ(state.barCount, 2);
+  EXPECT_EQ(state.bars[2], 0U);
+  ASSERT_TRUE(PciFunctionState::disableMessageInterrupts(config, state));
+  ASSERT_TRUE(PciFunctionState::enableMsi(config, state, 0xfee00000ULL, 0x40));
+  EXPECT_EQ(config.bytes[0x19], 2);
+  config.set32(0x18, 0x00050400);
+  EXPECT_TRUE(PciFunctionState::resourcesUnchanged(config, state));
+  PciFunctionState::MsixTable table;
+  config.set32(0x74, 0x1000);
+  config.set32(0x78, 0x2000);
+  EXPECT_TRUE(PciFunctionState::msixTable(config, state, table));
+  config.set32(0x74, 0x1002);
+  EXPECT_FALSE(PciFunctionState::msixTable(config, state, table));
+  config.set32(0x74, 0x1000);
+  config.set32(0x78, 0x2002);
+  EXPECT_FALSE(PciFunctionState::msixTable(config, state, table));
+  config.set32(0x14, 2);
+  EXPECT_FALSE(PciFunctionState::resourcesUnchanged(config, state));
+  config.bytes[0x0e] = 2;
+  EXPECT_FALSE(PciFunctionState::inspect(config, state, false));
 }
 TEST(PciFunctionState, RejectsTruncatedCapabilitiesAndOverlaps) {
   for (uint8_t kind : {1U, 5U, 0x11U}) {
@@ -155,6 +182,27 @@ TEST(PciFunctionState, DetectsRejectedMessageControlWrites) {
   ASSERT_TRUE(PciFunctionState::inspect(config, state));
   config.refuse = true;
   EXPECT_FALSE(PciFunctionState::disableMessageInterrupts(config, state));
+}
+TEST(PciFunctionState, VirtualFunctionsRequireExplicitOwnershipAndRespondingHeaders) {
+  Config config;
+  config.set32(0, 0xffffffffU);
+  config.bytes[0x3c] = 0;
+  config.bytes[0x3d] = 0;
+  for (unsigned i = 0; i < 6; ++i) {
+    config.set32(0x10 + 4 * i, 0);
+  }
+  PciFunctionState::State state;
+  EXPECT_FALSE(PciFunctionState::inspect(config, state, false));
+  ASSERT_TRUE(PciFunctionState::inspect(config, state, false, true));
+  EXPECT_FALSE(PciFunctionState::resourcesUnchanged(config, state));
+  EXPECT_TRUE(PciFunctionState::resourcesUnchanged(config, state, true));
+  ASSERT_TRUE(PciFunctionState::disableMessageInterrupts(config, state));
+  config.bytes[0x0e] = 1;
+  EXPECT_FALSE(PciFunctionState::inspect(config, state, false, true));
+  EXPECT_FALSE(PciFunctionState::resourcesUnchanged(config, state, true));
+  config.bytes.fill(0xff);
+  EXPECT_FALSE(PciFunctionState::inspect(config, state, false, true));
+  EXPECT_FALSE(PciFunctionState::resourcesUnchanged(config, state, true));
 }
 TEST(PciFunctionState, AcceptsMessageOnlyFunctionsButStillRequiresAUsableCapability) {
   Config config;
@@ -306,4 +354,33 @@ TEST(PciFunctionState, RejectsMsixBatchWithoutLeavingPartialEntries) {
   config.set16(0x72, 0);
   EXPECT_FALSE(
       PciFunctionState::enableMsixVectors(config, state, table, 0x100, 0xfee00000ULL, data, 2));
+}
+
+TEST(PciFunctionState, ProgramsFullMsixBatchWithPerVectorDestinations) {
+  Config config;
+  PciFunctionState::State state;
+  ASSERT_TRUE(PciFunctionState::inspect(config, state));
+  ASSERT_TRUE(PciFunctionState::disableMessageInterrupts(config, state));
+  config.set16(0x72, 63);
+  Table table;
+  uint32_t data[64];
+  uint64_t addresses[64];
+  for (size_t i = 0; i < 64; ++i) {
+    data[i] = 0x40 + i;
+    addresses[i] = 0xfee00000ULL | ((i % 8) << 12);
+  }
+  const auto before = config.bytes;
+  addresses[63] |= 1;
+  EXPECT_FALSE(
+      PciFunctionState::enableMsixVectors(config, state, table, 0x100, 0, data, 64, addresses));
+  EXPECT_EQ(config.bytes, before);
+  EXPECT_EQ(table.read32(0x100), 0U);
+  addresses[63] &= ~1ULL;
+  ASSERT_TRUE(
+      PciFunctionState::enableMsixVectors(config, state, table, 0x100, 0, data, 64, addresses));
+  for (size_t i = 0; i < 64; ++i) {
+    EXPECT_EQ(table.read32(0x100 + i * 16), addresses[i]);
+    EXPECT_EQ(table.read32(0x108 + i * 16), data[i]);
+    EXPECT_EQ(table.read32(0x10c + i * 16) & 1U, 0U);
+  }
 }

@@ -62,6 +62,11 @@ class EXPORTED_PUBLIC Device {
     TreeLockGuard& operator=(const TreeLockGuard&) = delete;
   };
 
+  /** Allows callbacks shared by tree traversals and runtime discovery to
+   * preserve the caller's existing tree lock without acquiring it twice.
+   */
+  static bool treeLockHeldByCurrentThread();
+
   /** Every device has a type. This can be used to downcast to a more specific
    * class during runtime without RTTI. */
   enum Type {
@@ -240,6 +245,18 @@ class EXPORTED_PUBLIC Device {
     return m_PciFunctionNum;
   }
 
+  Device* getPhysicalFunction() const {
+    return m_PhysicalFunction;
+  }
+  size_t getVirtualFunctionIndex() const {
+    return m_VirtualFunctionIndex;
+  }
+  /** Set by the PF owner, which retains the VF's BAR apertures and lifetime. */
+  void setVirtualFunction(Device* physicalFunction, size_t index) {
+    m_PhysicalFunction = physicalFunction;
+    m_VirtualFunctionIndex = index;
+  }
+
   /** Dumps a textual representation of the device into the given string. */
   virtual void dump(String& str) {
     str.assign("Abstract Device", 16);
@@ -334,6 +351,8 @@ class EXPORTED_PUBLIC Device {
   Vector<Device*> m_Children;
   /** This device's parent. */
   Device* m_pParent;
+  Device* m_PhysicalFunction;
+  size_t m_VirtualFunctionIndex;
   /** The root node. */
   static Device m_Root;
   /** The interrupt number */

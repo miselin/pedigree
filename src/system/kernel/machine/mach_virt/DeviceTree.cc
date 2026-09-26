@@ -270,7 +270,8 @@ void finishNode(const Node& node, const Node& parent, PlatformInfo& out) {
               readCells(entry + 12 + parent.addressCells * 4, stride - 12 - parent.addressCells * 4,
                         node.sizeCells, length) &&
               length && pciBase <= UINT64_MAX - length && cpuBase <= UINT64_MAX - length) {
-            out.pciWindows[out.pciWindowCount++] = {space, pciBase, cpuBase, length};
+            out.pciWindows[out.pciWindowCount++] = {space, pciBase, cpuBase, length,
+                                                    bool(read32(entry) & 0x40000000U)};
           }
         }
       }

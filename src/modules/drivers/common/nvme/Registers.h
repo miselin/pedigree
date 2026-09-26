@@ -6,7 +6,45 @@
 namespace Nvme {
 constexpr size_t PageSize = 4096;
 constexpr size_t QueueDepth = 16;
+constexpr size_t MaxIoQueues = 8;
+// Bound permanently mapped transfer buffers across all I/O queues.
+constexpr size_t MaxIoSlots = 32;
 constexpr size_t MaxTransfer = 65536;
+enum class VirtualResource : uint8_t { Queue = 0, Interrupt = 1 };
+enum class VirtualizationAction : uint8_t {
+  AllocatePrimary = 1,
+  Offline = 7,
+  Assign = 8,
+  Online = 9,
+};
+struct VirtualResourceCapabilities {
+  uint32_t flexibleTotal;
+  uint32_t flexibleAssigned;
+  uint16_t flexibleAllocatedToPrimary;
+  uint16_t privateTotal;
+  uint16_t secondaryMaximum;
+  uint16_t preferredGranularity;
+};
+struct PrimaryControllerCapabilities {
+  uint16_t controllerId;
+  uint16_t portId;
+  uint8_t resourceTypes;
+  VirtualResourceCapabilities queues;
+  VirtualResourceCapabilities interrupts;
+};
+struct SecondaryController {
+  uint16_t controllerId;
+  uint16_t primaryControllerId;
+  bool online;
+  // The NVMe VF Number is one-based; zero denotes a non-SR-IOV controller.
+  uint16_t virtualFunction;
+  uint16_t queueResources;
+  uint16_t interruptResources;
+};
+struct SecondaryControllerList {
+  uint8_t count;
+  SecondaryController entries[127];
+};
 enum Register : size_t {
   Cap = 0x00,
   Version = 0x08,

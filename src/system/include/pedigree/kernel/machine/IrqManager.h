@@ -304,9 +304,11 @@ class IrqManager {
                                                 const IrqPolicy& intxFallbackPolicy);
 
   /** Register distinct MSI-X entries as one group. Failure permits a fallback only when
-   * fallbackSafe is true. */
+   * fallbackSafe is true. Optional dense processor indices are placement hints;
+   * platforms without affinity support may retain their default destination. */
   virtual bool registerPciMsixIrqHandlers(Device* device, IrqHandler* const* handlers, size_t count,
-                                          irq_id_t* ids, bool& fallbackSafe);
+                                          irq_id_t* ids, bool& fallbackSafe,
+                                          const size_t* processors = nullptr);
 
   /** Register an ISA handler which must run in hard IRQ context. */
   virtual irq_id_t registerHardIsaIrqHandler(uint8_t irq, HardIrqHandler* handler,

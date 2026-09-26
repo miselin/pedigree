@@ -11,13 +11,16 @@
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 
 #include "LocalApic.h"
 #include "Pc.h"
 #include "PciMessageInterrupts.h"
 
 PciMessageInterrupts::PciMessageInterrupts()
-    : m_Lock(false),
+    : m_RegistrationLock(),
+      m_Lock(false),
       m_Handlers(),
       m_Dispatcher(MakeConstantString("PCI message IRQ"), VectorCount, dispatchThreaded, this),
       m_Lines(),
@@ -42,10 +45,15 @@ bool PciMessageInterrupts::initialise() {
 }
 
 bool PciMessageInterrupts::initialiseThreaded() {
-  return m_Initialised && m_Dispatcher.initialise();
+  LockGuard<Mutex> registration(m_RegistrationLock);
+  return m_Initialised && m_Dispatcher.initialise(true);
 }
 
 bool PciMessageInterrupts::shutdownThreaded() {
+  if (!m_Dispatcher.canShutdown()) {
+    return false;
+  }
+  LockGuard<Mutex> registration(m_RegistrationLock);
   if (!m_Initialised) {
     return true;
   }
@@ -70,16 +78,21 @@ irq_id_t PciMessageInterrupts::registerThreaded(Device* device, IrqHandler* hand
 }
 
 bool PciMessageInterrupts::registerThreadedVectors(Device* device, IrqHandler* const* handlers,
-                                                   size_t count, irq_id_t* ids,
-                                                   bool& fallbackSafe) {
+                                                   size_t count, irq_id_t* ids, bool& fallbackSafe,
+                                                   const size_t* processors) {
   fallbackSafe = true;
   if (!device || !handlers || !ids || !count || count > VectorCount || !m_Initialised ||
       !m_Dispatcher.isInitialised()) {
     return false;
   }
+  if (Processor::executionContext() != ExecutionContext::WaitableThread ||
+      m_Dispatcher.isCurrentWorker()) {
+    return false;
+  }
+  LockGuard<Mutex> registration(m_RegistrationLock);
   for (size_t i = 0; i < count; ++i) {
     ids[i] = 0;
-    if (!handlers[i]) {
+    if (!handlers[i] || (processors && !Processor::informationAt(processors[i]))) {
       return false;
     }
   }
@@ -96,6 +109,9 @@ bool PciMessageInterrupts::registerThreadedVectors(Device* device, IrqHandler* c
 
   uint8_t slots[VectorCount] = {};
   uint32_t data[VectorCount] = {};
+  uint64_t addresses[VectorCount] = {};
+  bool selected[VectorCount] = {};
+  bool reused[VectorCount] = {};
   {
     LockGuard<Spinlock> guard(m_Lock);
     if (m_ShuttingDown) {
@@ -103,18 +119,44 @@ bool PciMessageInterrupts::registerThreadedVectors(Device* device, IrqHandler* c
     }
     for (const Line& line : m_Lines) {
       if (line.device == device) {
+        fallbackSafe = false;
         return false;
       }
     }
-    size_t available = 0;
-    for (size_t slot = 0; slot < VectorCount && available < count; ++slot) {
-      if (!m_Lines[slot].used) {
-        slots[available++] = static_cast<uint8_t>(slot);
+    for (size_t i = 0; i < count; ++i) {
+      const size_t cpu = processors ? processors[i] : 0;
+      const bool spuriousSafe = handlers[i]->acceptsSpuriousInterrupts();
+      size_t slot = 0;
+      for (; slot < VectorCount; ++slot) {
+        const Line& line = m_Lines[slot];
+        if (!selected[slot] && !line.device && (!line.used || (line.reusable && spuriousSafe)) &&
+            (!(line.used || line.workerPrepared) || line.processor == cpu)) {
+          break;
+        }
       }
+      if (slot == VectorCount) {
+        return false;
+      }
+      slots[i] = static_cast<uint8_t>(slot);
+      selected[slot] = true;
+      reused[i] = m_Lines[slot].used;
     }
-    if (available != count) {
+  }
+  // Worker creation may allocate and schedule; registration serialization keeps
+  // these unpublished slots reserved without holding an interrupt spinlock.
+  for (size_t i = 0; i < count; ++i) {
+    const size_t cpu = processors ? processors[i] : 0;
+    if (!m_Dispatcher.prepareLine(slots[i], cpu)) {
       return false;
     }
+    LockGuard<Spinlock> guard(m_Lock);
+    Line& line = m_Lines[slots[i]];
+    line.workerPrepared = true;
+    line.processor = cpu;
+    addresses[i] = 0xFEE00000ULL | (uint64_t{Processor::informationAt(cpu)->localApicId()} << 12);
+  }
+  {
+    LockGuard<Spinlock> guard(m_Lock);
     for (size_t i = 0; i < count; ++i) {
       const uint8_t vector = FirstVector + slots[i];
       if (!m_Handlers.registerThreadedHandler(vector, handlers[i], IrqPolicy::edgeThreaded())) {
@@ -124,7 +166,11 @@ bool PciMessageInterrupts::registerThreadedVectors(Device* device, IrqHandler* c
               IrqHandlerRegistry::UnregisterResult::Completed) {
             FATAL("PCI message registration could not drain its unpublished handler");
           }
-          m_Lines[slots[j]] = Line{};
+          Line& previousLine = m_Lines[slots[j]];
+          previousLine.device = nullptr;
+          previousLine.handler = nullptr;
+          previousLine.mode = Mode::None;
+          previousLine.enabled = false;
         }
         return false;
       }
@@ -132,25 +178,36 @@ bool PciMessageInterrupts::registerThreadedVectors(Device* device, IrqHandler* c
       line.device = device;
       line.handler = handlers[i];
       line.mode = Mode::Threaded;
-      line.cookie = 1;
-      line.used = true;
-      line.enabled = true;
+      advanceCookie(line);
+      line.spuriousSafe = handlers[i]->acceptsSpuriousInterrupts();
+      line.removing = false;
+      line.deferred = false;
+      line.unhandled = 0;
+      line.enabled = false;
       line.msix = true;
       line.msixIndex = static_cast<uint8_t>(i);
       data[i] = vector;
     }
+    for (size_t i = 0; i < count; ++i) {
+      m_Lines[slots[i]].enabled = true;
+    }
   }
 
-  const uint64_t address = 0xFEE00000ULL | (uint64_t{m_DestinationApicId} << 12);
   bool touched = false;
-  if (pci.enableMsixVectors(device, address, data, count, &touched)) {
-    LockGuard<Spinlock> guard(m_Lock);
-    if (!m_ShuttingDown) {
+  if (pci.enableMsixVectors(device, addresses[0], data, count, &touched, addresses)) {
+    {
+      LockGuard<Spinlock> guard(m_Lock);
       for (size_t i = 0; i < count; ++i) {
+        m_Lines[slots[i]].used = true;
+        m_Lines[slots[i]].reusable = false;
         ids[i] = static_cast<irq_id_t>(data[i]);
       }
-      return true;
     }
+    for (size_t i = 0; i < count; ++i) {
+      NOTICE("PCI MSI-X: vector " << Dec << data[i] << " CPU " << m_Lines[slots[i]].processor
+                                  << (reused[i] ? " reused" : " allocated") << Hex);
+    }
+    return true;
   }
 
   uint16_t command = 0;
@@ -171,7 +228,7 @@ bool PciMessageInterrupts::registerThreadedVectors(Device* device, IrqHandler* c
       Line& line = m_Lines[slots[i]];
       line.enabled = false;
       line.removing = true;
-      cookies[i] = ++line.cookie;
+      cookies[i] = advanceCookie(line);
     }
   }
   for (size_t i = 0; i < count; ++i) {
@@ -189,7 +246,8 @@ bool PciMessageInterrupts::registerThreadedVectors(Device* device, IrqHandler* c
       line.device = nullptr;
       line.handler = nullptr;
       line.mode = Mode::None;
-      line.used = touched || !disabled;
+      line.used = line.used || touched || !disabled;
+      line.reusable = disabled;
     }
   }
   if (!disabled) {
@@ -211,6 +269,13 @@ irq_id_t PciMessageInterrupts::registerHandler(Device* device, IrqHandlerBase* h
       (mode == Mode::Threaded && !m_Dispatcher.isInitialised())) {
     return 0;
   }
+  if (Processor::executionContext() != ExecutionContext::WaitableThread ||
+      m_Dispatcher.isCurrentWorker()) {
+    return 0;
+  }
+  LockGuard<Mutex> registration(m_RegistrationLock);
+  const bool spuriousSafe =
+      mode == Mode::Threaded && static_cast<IrqHandler*>(handler)->acceptsSpuriousInterrupts();
   PciBus& pci = PciBus::instance();
   PciFunctionState::State state;
   if (!pci.inspectFunction(device, state, false) || (!state.msi && !state.msix)) {
@@ -228,13 +293,24 @@ irq_id_t PciMessageInterrupts::registerHandler(Device* device, IrqHandlerBase* h
         fallbackSafe = false;
         return 0;
       }
-      if (slot == VectorCount && !m_Lines[i].used) {
+      const Line& candidate = m_Lines[i];
+      if (slot == VectorCount && !candidate.device &&
+          (!candidate.used || (candidate.reusable && spuriousSafe)) &&
+          (!(candidate.used || candidate.workerPrepared) || !candidate.processor)) {
         slot = i;
       }
     }
     if (slot == VectorCount) {
       return 0;
     }
+  }
+  if (mode == Mode::Threaded && !m_Dispatcher.prepareLine(slot, 0)) {
+    return 0;
+  }
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    m_Lines[slot].processor = 0;
+    m_Lines[slot].workerPrepared |= mode == Mode::Threaded;
     const uint8_t vector = FirstVector + slot;
     const bool registered =
         mode == Mode::Threaded
@@ -251,7 +327,11 @@ irq_id_t PciMessageInterrupts::registerHandler(Device* device, IrqHandlerBase* h
     line.device = device;
     line.handler = handler;
     line.mode = mode;
-    line.cookie = 1;
+    advanceCookie(line);
+    line.spuriousSafe = spuriousSafe;
+    line.reusable = false;
+    line.removing = false;
+    line.unhandled = 0;
     line.used = true;
     line.enabled = true;
     line.deferred = false;
@@ -288,7 +368,7 @@ irq_id_t PciMessageInterrupts::registerHandler(Device* device, IrqHandlerBase* h
   size_t cookie = 0;
   {
     LockGuard<Spinlock> guard(m_Lock);
-    cookie = ++m_Lines[slot].cookie;
+    cookie = advanceCookie(m_Lines[slot]);
   }
   m_Handlers.invalidateThreadedLine(vector, cookie);
   if (m_Handlers.unregisterHandler(vector, handler) !=
@@ -300,6 +380,7 @@ irq_id_t PciMessageInterrupts::registerHandler(Device* device, IrqHandlerBase* h
     m_Lines[slot].device = nullptr;
     m_Lines[slot].handler = nullptr;
     m_Lines[slot].mode = Mode::None;
+    m_Lines[slot].reusable = fallbackSafe;
   }
   if (!fallbackSafe) {
     ERROR("PCI message setup failed without a safe INTx fallback");
@@ -316,6 +397,11 @@ bool PciMessageInterrupts::unregisterHandler(irq_id_t id, IrqHandlerBase* handle
   if (!contains(id) || !handler) {
     return false;
   }
+  if (Processor::executionContext() != ExecutionContext::WaitableThread ||
+      m_Dispatcher.isCurrentWorker()) {
+    return false;
+  }
+  LockGuard<Mutex> registration(m_RegistrationLock);
   const uint8_t slot = id - FirstVector;
   {
     LockGuard<Spinlock> guard(m_Lock);
@@ -332,7 +418,7 @@ bool PciMessageInterrupts::unregisterHandler(irq_id_t id, IrqHandlerBase* handle
   size_t cookie = 0;
   {
     LockGuard<Spinlock> guard(m_Lock);
-    cookie = ++m_Lines[slot].cookie;
+    cookie = advanceCookie(m_Lines[slot]);
   }
   m_Handlers.invalidateThreadedLine(id, cookie);
   const IrqHandlerRegistry::UnregisterResult result = m_Handlers.unregisterHandler(id, handler);
@@ -373,6 +459,7 @@ bool PciMessageInterrupts::unregisterHandler(irq_id_t id, IrqHandlerBase* handle
     line.device = nullptr;
     line.handler = nullptr;
     line.mode = Mode::None;
+    line.reusable = true;
   }
   return true;
 }
@@ -437,7 +524,7 @@ void PciMessageInterrupts::interrupt(size_t interruptNumber, InterruptState& sta
     Line& line = m_Lines[slot];
     if (line.enabled && !line.removing && !m_ShuttingDown) {
       mode = line.mode;
-      cookie = ++line.cookie;
+      cookie = advanceCookie(line);
       const uint8_t vector = FirstVector + slot;
       if (m_Handlers.captureAdmissionCutoff(vector, cutoff)) {
         if (mode == Mode::Threaded) {
@@ -458,10 +545,10 @@ void PciMessageInterrupts::interrupt(size_t interruptNumber, InterruptState& sta
     const bool admitted =
         m_Handlers.dispatchHard(FirstVector + slot, state, result, nullptr, cookie, cutoff);
     if (!admitted || result != HardIrqDisposition::Handled) {
-      quarantine(slot);
+      quarantine(slot, cookie);
     }
   } else if (mode != Mode::None && !published) {
-    quarantine(slot);
+    quarantine(slot, cookie);
   }
   Pc::instance().getLocalApic().ack();
 }
@@ -484,10 +571,10 @@ void PciMessageInterrupts::dispatchThreaded(void* context, uint8_t slot, size_t 
   if (admitted) {
     LockGuard<Spinlock> guard(self->m_Lock);
     Line& line = self->m_Lines[slot];
-    if (line.enabled && !line.removing && line.mode == Mode::Threaded) {
+    if (line.enabled && !line.removing && line.mode == Mode::Threaded && cookie == line.cookie) {
       if (result.allowRearm) {
         line.unhandled = 0;
-      } else {
+      } else if (!line.spuriousSafe) {
         // Polling can consume a completion before its queued MSI worker runs.
         // Tolerate a few empty edges, but mask a persistently unclaimed source.
         if (line.unhandled < 8) {

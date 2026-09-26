@@ -34,7 +34,7 @@ struct IrqLineDiagnosticSnapshot;
  */
 class EXPORTED_PUBLIC ThreadedIrqDispatcher {
  public:
-  static constexpr size_t MaxLines = 17;
+  static constexpr size_t MaxLines = 64;
   using DispatchCallback = void (*)(void*, uint8_t, size_t);
   /**
    * Prompts the worker processor after a remote producer has made a batch
@@ -47,8 +47,15 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher {
                         void* callbackContext);
   ~ThreadedIrqDispatcher();
 
-  /** Starts every stable per-line worker after scheduler initialisation. */
-  bool initialise();
+  /** Starts workers after scheduler initialisation, unless preparation is deferred. */
+  bool initialise(bool lazy = false);
+
+  /**
+   * Starts a deferred worker pinned to processor. Repeated preparation must
+   * name the same processor. The caller serialises preparation with shutdown
+   * and must prepare the line before enabling its interrupt source.
+   */
+  bool prepareLine(uint8_t line, size_t processor);
 
   /** Rejects new publications and joins every worker. */
   bool shutdown();
@@ -147,7 +154,7 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher {
 
     void configure(ThreadedIrqDispatcher* owner, uint8_t line, DispatchCallback callback,
                    void* callbackContext);
-    bool start();
+    bool start(size_t processor);
     void beginStop();
     bool join();
     bool publishFromInterrupt(size_t cookie);
@@ -202,7 +209,8 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher {
     Line& operator=(const Line&) = delete;
   };
 
-  Line m_Lines[MaxLines];
+  /** Allocated at first initialise and retained for concurrent diagnostics. */
+  Line* m_Lines;
   /** Inline so global interrupt-controller constructors cannot enter the
    * heap. */
   NormalStaticString m_Name;
@@ -217,6 +225,8 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher {
   /** Closes callback configuration before the first worker is created. */
   size_t m_ConfigurationClosed;
   size_t m_Initialised;
+  /** Remains closed across retries of an incomplete shutdown. */
+  size_t m_Stopping;
   /** Exactly one normal-context caller may join and release workers. */
   size_t m_ShutdownClaimed;
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

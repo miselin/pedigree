@@ -91,6 +91,16 @@ bool PartitionService::serve(ServiceFeatures::Type type, void* pData, size_t dat
     // We only provide Touch services
     if (type & ServiceFeatures::touch) {
       Disk* pDisk = static_cast<Disk*>(pData);
+      if (!pDisk) {
+        return false;
+      }
+      // Boot and ATAPI discovery can already be inside Device::foreach.
+      // Runtime notifications need the same serialization for probing and
+      // publishing children, including the existing-partition check.
+      if (Device::treeLockHeldByCurrentThread()) {
+        return probeDevice(pDisk);
+      }
+      Device::TreeLockGuard guard;
       return probeDevice(pDisk);
     }
   }

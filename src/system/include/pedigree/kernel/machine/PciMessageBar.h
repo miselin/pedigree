@@ -8,21 +8,25 @@
 
 namespace PciFunctionState {
 inline IoBase* msixTableIo(Device* device, const State& state, const MsixTable& table, bool map) {
-  if (!device)
+  if (!device || (state.barCount != 2 && state.barCount != 6)) {
     return nullptr;
+  }
   const PciBus::ConfigSpace original = device->getPciConfigHeader();
   const auto findBar = [&](uint8_t index, uint64_t end) -> Device::Address* {
-    if (index >= 6 || state.bars[index] != original.bar[index] || (state.bars[index] & 1U) ||
-        ((state.bars[index] & 6U) != 0 && (state.bars[index] & 6U) != 4))
+    if (index >= state.barCount || state.bars[index] != original.bar[index] ||
+        (state.bars[index] & 1U) ||
+        ((state.bars[index] & 6U) != 0 && (state.bars[index] & 6U) != 4)) {
       return nullptr;
+    }
     for (uint8_t i = 0; i < index;) {
       i += !(state.bars[i] & 1U) && (state.bars[i] & 6U) == 4 ? 2 : 1;
       if (i > index)
         return nullptr;
     }
     if ((state.bars[index] & 6U) == 4 &&
-        (index == 5 || state.bars[index + 1] != original.bar[index + 1]))
+        (index + 1 >= state.barCount || state.bars[index + 1] != original.bar[index + 1])) {
       return nullptr;
+    }
     char name[] = "bar0";
     name[3] = '0' + index;
     for (auto* address : device->addresses()) {

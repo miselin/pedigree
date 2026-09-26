@@ -33,6 +33,8 @@
 #include "AcpiDmar.h"
 #include "AcpiPciRouting.h"
 
+class Device;
+
 /** @addtogroup kernelmachinex86common
  * @{ */
 
@@ -59,6 +61,11 @@ class Acpi {
   bool pciConfigurationAddress(uint8_t bus, uint64_t& address) const;
   bool pciBusRange(uint8_t& first, uint8_t& last) const;
   bool pciInterruptRoute(uint8_t slot, uint8_t pin, AcpiPciRouting::Route& route) const;
+  bool pciInterruptRoute(Device* device, uint8_t pin, AcpiPciRouting::Route& route) const;
+  using PciInterruptRouter = bool (*)(Device*, uint8_t, AcpiPciRouting::Route&);
+  EXPORTED_PUBLIC void setPciInterruptRouter(PciInterruptRouter router);
+  bool hasPciInterruptRouter() const;
+  bool isaIrqsForGsi(uint32_t gsi, uint16_t& irqs) const;
 
   const AcpiDmar::Info* dmarInfo() const {
     return m_bValid && m_DmarPresent ? &m_DmarInfo : nullptr;
@@ -210,6 +217,11 @@ class Acpi {
   AcpiDmar::Info m_DmarInfo;
   AcpiPciRouting::Route m_PciInterruptRoutes[32][4];
   bool m_PciInterruptRoutesPresent = false;
+  PciInterruptRouter m_PciInterruptRouter = nullptr;
+  uint32_t m_IsaGsis[16] = {};
+  uint16_t m_IsaOverrides = 0;
+  bool m_IsaRoutingValid = true;
+  Vector<uint32_t> m_NmiGsis;
   bool m_DmarPresent = false;
   bool m_DmarSeen = false;
   bool m_PowerOffValid = false;
@@ -230,7 +242,7 @@ class Acpi {
   Vector<Multiprocessor::ProcessorInformation*> m_Processors;
 #endif
 
-  static Acpi m_Instance;
+  static EXPORTED_PUBLIC Acpi m_Instance;
 };
 
 /** @} */
