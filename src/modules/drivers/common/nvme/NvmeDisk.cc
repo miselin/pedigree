@@ -2,14 +2,26 @@
 #include "NvmeDisk.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/TargetInfo.h"
+#include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "NvmeController.h"
 
 NvmeDisk::NvmeDisk(NvmeController* controller, uint32_t nsid)
-    : m_Controller(controller), m_Nsid(nsid), m_Blocks(0), m_Bytes(0), m_BlockBytes(0) {
+    : ScsiDisk(controller && PciBus::instance().hasDmaRemapping(controller->pciDevice())
+                   ? 0
+                   : PhysicalMemoryManager::below4GB),
+      m_Controller(controller),
+      m_Nsid(nsid),
+      m_Blocks(0),
+      m_Bytes(0),
+      m_BlockBytes(0) {
   m_pParent = controller;
   setSpecificType(String("nvme-disk"));
+}
+Device* NvmeDisk::dmaDevice() const {
+  return m_Controller ? m_Controller->pciDevice() : nullptr;
 }
 NvmeDisk::~NvmeDisk() {
   retireEndpoint();
@@ -83,6 +95,42 @@ uint64_t NvmeDisk::doRead(uint64_t location) {
   }
   getCache().markNoLongerEditing(location);
   return bytes;
+}
+bool NvmeDisk::transferBuffer(uint64_t location, void* buffer, size_t length, bool writing) {
+#if CRIPPLE_HDD
+  if (writing) {
+    return false;
+  }
+#endif
+  if (!m_Controller || !m_BlockBytes || !buffer || !length || location >= m_Bytes ||
+      length > m_Bytes - location || location % m_BlockBytes || length % m_BlockBytes ||
+      length > m_Controller->maxTransfer()) {
+    return false;
+  }
+  return m_Controller->readWrite(m_Nsid, location / m_BlockBytes, length / m_BlockBytes, buffer,
+                                 length, writing, !writing);
+}
+bool NvmeDisk::transferWriteBuffers(WriteBuffer* buffers, size_t count) {
+  if (count > MaxWriteBuffers || (count && !buffers)) {
+    return false;
+  }
+  bool succeeded = true;
+  for (size_t i = 0; i < count; ++i) {
+    auto& buffer = buffers[i];
+    buffer.complete = false;
+#if !CRIPPLE_HDD
+    if (m_Controller && m_BlockBytes && buffer.buffer && buffer.length &&
+        buffer.location < m_Bytes && buffer.length <= m_Bytes - buffer.location &&
+        !(buffer.location % m_BlockBytes) && !(buffer.length % m_BlockBytes) &&
+        buffer.length <= m_Controller->maxTransfer()) {
+      buffer.complete = m_Controller->readWrite(
+          m_Nsid, buffer.location / m_BlockBytes, buffer.length / m_BlockBytes,
+          const_cast<void*>(buffer.buffer), buffer.length, true, false, buffer.dmaPhysical);
+    }
+#endif
+    succeeded = buffer.complete && succeeded;
+  }
+  return succeeded;
 }
 uint64_t NvmeDisk::doWrite(uint64_t location) {
 #if CRIPPLE_HDD

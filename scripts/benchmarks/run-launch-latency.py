@@ -111,6 +111,9 @@ def main():
     parser.add_argument("--firmware-code", type=Path, required=True)
     parser.add_argument("--firmware-vars", type=Path)
     parser.add_argument("--cpus", type=int, choices=(1, 4), default=4)
+    parser.add_argument("--ram-mib", type=int, default=4096)
+    parser.add_argument("--intel-iommu", action="store_true")
+    parser.add_argument("--iommu-aw-bits", type=int, choices=(39, 48), default=39)
     parser.add_argument("--mode", choices=("launch", "read-sequential", "read-permuted", "write", "pwrite", "verify-write",
                                           "mmap-sequential", "mmap-permuted", "sync", "durability"),
                         default="launch")
@@ -128,8 +131,9 @@ def main():
     args = parser.parse_args()
     if args.write_iops < 0:
         parser.error("write-iops must be nonnegative")
-    if not 1 <= args.iterations <= 100 or args.timeout <= 0:
-        parser.error("iterations must be 1..100 and timeout positive")
+    if (not 1 <= args.iterations <= 100 or args.timeout <= 0 or
+            not 128 <= args.ram_mib <= 65536):
+        parser.error("iterations must be 1..100, timeout positive, and RAM 128-65536 MiB")
     if args.mode in ("sync", "durability") and (args.iterations != 1 or args.prewarm):
         parser.error("the sync fixture requires --iterations 1 and no prewarm")
     if args.shutdown and args.mode not in ("sync", "durability"):
@@ -152,7 +156,10 @@ def main():
     image = args.image.resolve(strict=True)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
-    report = {"result": "FAIL", "image": str(image), "cpus": args.cpus, "shutdown": args.shutdown,
+    report = {"result": "FAIL", "image": str(image), "cpus": args.cpus,
+              "ram_mib": args.ram_mib, "intel_iommu": args.intel_iommu,
+              "iommu_aw_bits": args.iommu_aw_bits if args.intel_iommu else None,
+              "shutdown": args.shutdown,
               "trace_enabled": not args.no_trace, "write_iops": args.write_iops,
               "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               "expected_phases": expected, "phases": []}
@@ -170,8 +177,10 @@ def main():
         if args.firmware_vars:
             firmware += ",readonly=on"
         command = [args.qemu, "-machine", "q35", "-accel", "tcg,thread=multi",
-                   "-smp", str(args.cpus), "-m", "4096", "-cpu",
+                   "-smp", str(args.cpus), "-m", str(args.ram_mib), "-cpu",
                    "SandyBridge,-rdrand,-rdseed", "-drive", firmware]
+        if args.intel_iommu:
+            command += ["-device", f"intel-iommu,aw-bits={args.iommu_aw_bits},caching-mode=on"]
         if args.firmware_vars:
             shutil.copyfile(args.firmware_vars, output / "firmware-vars.fd")
             command += ["-drive", f"if=pflash,format=raw,file={output}/firmware-vars.fd"]

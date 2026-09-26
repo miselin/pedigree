@@ -6,6 +6,7 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/new"
@@ -79,6 +80,8 @@ void NvmeController::failController() {
 bool NvmeController::command(NvmeQueue& queue, Command request, void* buffer, size_t bytes,
                              bool writing, uint32_t* result, bool interruptProbe, bool cacheFill,
                              physical_uintptr_t directWritePhysical) {
+  TerminationDeferral lifetime;
+  PciBus::DmaMapping directReadMapping;
   bool interrupts;
   {
     LockGuard<Mutex> irqLock(m_IrqLock);
@@ -86,7 +89,8 @@ bool NvmeController::command(NvmeQueue& queue, Command request, void* buffer, si
   }
   const size_t timeout = (&queue == &m_Io && (request.opcode & 255U) == 0) ? 120 : 30;
   const auto status = queue.execute(request, buffer, bytes, writing, interrupts, timeout, result,
-                                    interruptProbe, cacheFill, directWritePhysical);
+                                    interruptProbe, cacheFill, directWritePhysical,
+                                    &directReadMapping);
   if (status == NvmeQueue::Result::TransportError)
     failController();
   return status == NvmeQueue::Result::Success;
@@ -158,11 +162,13 @@ bool NvmeController::initialiseController() {
   if (!disable())
     return false;
   if (!pci.updateCommand(m_Pci, 4U, 2U | 0x400U) ||
-      !pci.disableMessageInterrupts(m_Pci, inherited) || !pci.resourcesUnchanged(m_Pci, inherited))
+      !pci.disableMessageInterrupts(m_Pci, inherited) || !pci.resourcesUnchanged(m_Pci, inherited)) {
     return false;
+  }
+  (void)pci.attachDmaRemapping(m_Pci);
   const uint16_t depth = (cap & 0xffffU) >= QueueDepth - 1 ? QueueDepth : (cap & 0xffffU) + 1;
-  if (!m_Admin.initialise(m_Registers, 0, depth, stride, PageSize) ||
-      !m_Io.initialise(m_Registers, 1, depth, stride, MaxTransfer))
+  if (!m_Admin.initialise(m_Registers, 0, depth, stride, PageSize, m_Pci) ||
+      !m_Io.initialise(m_Registers, 1, depth, stride, MaxTransfer, m_Pci))
     return false;
   m_Registers->write32((depth - 1U) | ((depth - 1U) << 16), AdminAttributes);
   m_Registers->write32(m_Admin.submissionAddress(), AdminSubmission);

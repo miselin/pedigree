@@ -52,6 +52,7 @@ class PciMessageInterrupts : private InterruptHandler {
     bool deferred = false;
     bool msix = false;
     uint8_t msixIndex = 0;
+    uint8_t unhandled = 0;
   };
 
   irq_id_t registerHandler(Device* device, IrqHandlerBase* handler, Mode mode, bool& fallbackSafe);

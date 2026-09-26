@@ -19,6 +19,9 @@ class EXPORTED_PUBLIC NvmeController final : public ScsiController, public IrqHa
   bool flush(uint32_t nsid);
   size_t interruptCompletions() const;
   size_t maximumOutstanding() const;
+  Device* pciDevice() const {
+    return m_Pci;
+  }
   size_t maxTransfer() const {
     return m_MaxTransfer;
   }

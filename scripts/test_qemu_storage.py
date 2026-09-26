@@ -74,6 +74,20 @@ def ncq_maximum(trace):
     return maximum
 
 
+def verify_iommu(serial, require_high):
+    if "Intel VT-d: DMA remapping enabled" not in serial:
+        raise RuntimeError("Intel VT-d was not enabled in the guest")
+    high_domains = set()
+    mapping = (r"Intel VT-d: high physical page 0x([0-9a-fA-F]+) "
+               r"mapped to IOVA 0x([0-9a-fA-F]+) in domain (\d+)")
+    for physical, iova, domain in re.findall(mapping, serial):
+        if int(physical, 16) >= 1 << 32 and int(iova, 16) < 1 << 32:
+            high_domains.add(int(domain))
+    if require_high and len(high_domains) < 2:
+        raise RuntimeError("missing high-page IOVA mappings for both storage controllers")
+    return len(high_domains)
+
+
 def copy_range(source, target, offset, length):
     source.seek(offset)
     while length:
@@ -85,6 +99,36 @@ def copy_range(source, target, offset, length):
         else:
             target.seek(len(chunk), 1)
         length -= len(chunk)
+
+
+def combined_uefi_image(esp_image, root_image, destination):
+    sector = 512
+    alignment = 2048
+    root_size = root_image.stat().st_size
+    esp_size = esp_image.stat().st_size
+    if not root_size or root_size % 4096 or not esp_size or esp_size % sector:
+        raise RuntimeError("UEFI root/ESP images need complete filesystem sectors")
+    root_first = alignment
+    root_blocks = root_size // sector
+    esp_first = (root_first + root_blocks + alignment - 1) // alignment * alignment
+    esp_blocks = esp_size // sector
+    if esp_first + esp_blocks > 0xffffffff:
+        raise RuntimeError("combined UEFI fixture exceeds MBR capacity")
+    mbr = bytearray(sector)
+    mbr[450] = 0x83
+    mbr[466] = 0xef
+    struct.pack_into("<II", mbr, 454, root_first, root_blocks)
+    struct.pack_into("<II", mbr, 470, esp_first, esp_blocks)
+    mbr[510:512] = b"\x55\xaa"
+    with destination.open("xb") as output:
+        output.write(mbr)
+        with root_image.open("rb") as root:
+            output.seek(root_first * sector)
+            copy_range(root, output, 0, root_size)
+        with esp_image.open("rb") as esp:
+            output.seek(esp_first * sector)
+            copy_range(esp, output, 0, esp_size)
+        output.truncate((esp_first + esp_blocks) * sector)
 
 
 def gpt_root(source, destination, boot_destination):
@@ -141,11 +185,13 @@ def command(args, folder):
     def drive(path, name, snapshot=False):
         value = f"file={str(path).replace(',', ',,')},format=raw,if=none,id={name},cache=writeback"
         return value + (",snapshot=on" if snapshot else "")
-    result = [args.qemu, "-machine", "q35,i8042=off", "-m", "768", "-smp", str(args.cpus),
+    result = [args.qemu, "-machine", "q35,i8042=off", "-m", str(args.ram_mib), "-smp", str(args.cpus),
               "-display", "none", "-monitor", "none", "-nic", "none", "-no-reboot",
               "-serial", f"file:{folder / 'serial.log'}", "-drive",
               f"if=pflash,format=raw,readonly=on,file={args.ovmf}",
               "-device", "nvme,id=nvme,serial=PEDIGREE-STORAGE,mdts=7"]
+    if args.intel_iommu:
+        result += ["-device", f"intel-iommu,aw-bits={args.iommu_aw_bits},caching-mode=on"]
     if args.root == "ahci":
         result += ["-drive", drive(args.image, "root", True),
                    "-device", "ide-hd,drive=root,bus=ide.0",
@@ -167,9 +213,14 @@ def run(args):
     folder = args.run_dir.resolve()
     folder.mkdir(parents=True, exist_ok=False)
     report = {"success": False, "cpus": args.cpus, "root": args.root,
-              "ahci_sector_size": args.ahci_sector_size}
+              "ahci_sector_size": args.ahci_sector_size, "ram_mib": args.ram_mib,
+              "intel_iommu": args.intel_iommu}
     child = None
     try:
+        if args.root_image:
+            combined = folder / "combined-uefi.img"
+            combined_uefi_image(args.image, args.root_image, combined)
+            args.image = combined
         if args.root == "ahci":
             ahci.create_fixture(folder / "ahci.img")
         else:
@@ -201,6 +252,8 @@ def run(args):
                 raise RuntimeError("missing native 4Kn GPT evidence")
             if "NVME-SMOKE: root namespace=1" not in serial:
                 raise RuntimeError("root filesystem was not proved on the NVMe namespace")
+        if args.intel_iommu:
+            report["remapped_high_domains"] = verify_iommu(serial, args.ram_mib > 4096)
         for sector in (512, 4096):
             nvme_fixture(folder / f"nvme-{sector}.img", sector, True)
         trace = (folder / "trace.log").read_text(errors="replace")
@@ -225,17 +278,25 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", type=Path, required=True)
+    parser.add_argument("--root-image", type=Path)
     parser.add_argument("--root", choices=("ahci", "nvme"), default="ahci")
     parser.add_argument("--ahci-sector-size", choices=(512,), type=int, default=512)
     parser.add_argument("--cpus", choices=(1, 4), type=int, default=4)
+    parser.add_argument("--ram-mib", type=int, default=768)
+    parser.add_argument("--intel-iommu", action="store_true")
+    parser.add_argument("--iommu-aw-bits", choices=(39, 48), type=int, default=39)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--qemu", default="qemu-system-x86_64")
     parser.add_argument("--ovmf", type=Path, default=Path("/opt/homebrew/share/qemu/edk2-x86_64-code.fd"))
     parser.add_argument("--timeout", type=float, default=240)
     args = parser.parse_args()
-    if not args.image.is_file() or not args.ovmf.is_file() or not 0 < args.timeout <= 3600:
-        parser.error("image/OVMF must exist and timeout must be between 0 and 3600")
+    if (not args.image.is_file() or (args.root_image and not args.root_image.is_file()) or
+            not args.ovmf.is_file() or not 0 < args.timeout <= 3600 or
+            not 128 <= args.ram_mib <= 65536):
+        parser.error("image/root/OVMF must exist, RAM must be 128-65536 MiB, and timeout must be between 0 and 3600")
     args.image = args.image.resolve()
+    if args.root_image:
+        args.root_image = args.root_image.resolve()
     args.ovmf = args.ovmf.resolve()
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     result = run(args)

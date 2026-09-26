@@ -35,6 +35,14 @@ class EXPORTED_PUBLIC NvmeDisk final : public ScsiDisk {
     return m_Nsid;
   }
 
+ protected:
+  Device* dmaDevice() const override;
+  bool supportsBufferTransfers() const override {
+    return true;
+  }
+  bool transferBuffer(uint64_t location, void* buffer, size_t length, bool writing) override;
+  bool transferWriteBuffers(WriteBuffer* buffers, size_t count) override;
+
  private:
   friend class NvmeController;
   size_t validPageLength(uint64_t location) const;

@@ -396,6 +396,9 @@ void PciMessageInterrupts::enable(irq_id_t id, bool enabled) {
                          : PciBus::instance().enableMsi(line.device, address, id))
             : disableSource(line.device, line.msix, line.msixIndex);
     line.enabled = enabled && success;
+    if (line.enabled) {
+      line.unhandled = 0;
+    }
   }
   if (!success) {
     WARNING("PCI message IRQ " << Dec << id << " could not be "
@@ -477,8 +480,24 @@ void PciMessageInterrupts::dispatchThreaded(void* context, uint8_t slot, size_t 
   }
   IrqHandlerRegistry::ThreadedDispatchResult result = {};
   const bool admitted = self->m_Handlers.dispatchThreaded(FirstVector + slot, cookie, result);
-  if (!admitted || !result.allowRearm) {
-    // A newer edge can replace this worker's generation during dispatch.
+  bool mask = !admitted;
+  if (admitted) {
+    LockGuard<Spinlock> guard(self->m_Lock);
+    Line& line = self->m_Lines[slot];
+    if (line.enabled && !line.removing && line.mode == Mode::Threaded) {
+      if (result.allowRearm) {
+        line.unhandled = 0;
+      } else {
+        // Polling can consume a completion before its queued MSI worker runs.
+        // Tolerate a few empty edges, but mask a persistently unclaimed source.
+        if (line.unhandled < 8) {
+          ++line.unhandled;
+        }
+        mask = line.unhandled == 8;
+      }
+    }
+  }
+  if (mask) {
     self->quarantine(slot, cookie);
   }
 }

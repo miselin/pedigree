@@ -128,7 +128,7 @@ class EXPORTED_PUBLIC Disk : public Device {
     const void* buffer;
     size_t length;
     bool complete;
-    /** Pinned, stable physical source for a single-page cache writeback. */
+    /** Device-visible address of a pinned, stable single-page writeback source. */
     physical_uintptr_t dmaPhysical = 0;
   };
   static constexpr size_t MaxWriteBuffers = 32;
@@ -140,7 +140,8 @@ class EXPORTED_PUBLIC Disk : public Device {
   MUST_USE_RESULT virtual bool writeFromBatch(WriteBuffer* buffers, size_t count);
 
   /**
-   * Reads up to MaxReadBuffers independent ranges into caller-owned storage.
+   * Reads up to MaxReadBuffers independent ranges into caller-owned, pinned
+   * storage. Physical mappings must remain stable until return.
    * Every issued transfer is drained before return, including on failure.
    * complete is reset on entry and set only for fully initialised buffers;
    * successful buffers remain usable when another range fails.

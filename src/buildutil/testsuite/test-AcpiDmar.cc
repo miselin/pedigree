@@ -55,8 +55,53 @@ TEST(AcpiDmar, DiscoversValidatedSegmentZeroHardwareAndInterruptRemapping) {
   EXPECT_EQ(info.hardwareUnitCount, 1U);
   EXPECT_EQ(info.segmentZeroUnitCount, 1U);
   EXPECT_EQ(info.segmentZeroIncludeAllCount, 1U);
+  EXPECT_EQ(info.firstSegmentZeroUnitAddress, 0xfed90000U);
   EXPECT_EQ(info.firstSegmentZeroIncludeAllAddress, 0xfed90000U);
+  EXPECT_EQ(info.hostAddressWidth, 48U);
+  EXPECT_EQ(info.firstSegmentZeroIncludeAllRegisterPagesLog2, 0U);
   EXPECT_FALSE(info.reservedMemoryRegions);
+}
+
+TEST(AcpiDmar, TracksRemappingRegisterSetSize) {
+  auto bytes = dmar();
+  bytes[53] = 2;  // Four 4-KiB register pages.
+  seal(bytes);
+  AcpiDmar::Info info;
+  ASSERT_TRUE(AcpiDmar::parse(bytes.data(), bytes.size(), info));
+  EXPECT_EQ(info.firstSegmentZeroIncludeAllRegisterPagesLog2, 2U);
+
+  write64(bytes, 56, 0xfed91000U);
+  seal(bytes);
+  EXPECT_FALSE(AcpiDmar::parse(bytes.data(), bytes.size(), info));
+}
+
+TEST(AcpiDmar, MatchesOnlyExplicitDirectEndpoints) {
+  auto bytes = dmar();
+  bytes[52] = 0;  // The sole hardware unit has explicit scopes, not INCLUDE_ALL.
+  bytes[64] = 1;
+  bytes[69] = 2;
+  bytes[70] = 3;
+  bytes[71] = 4;
+  bytes.resize(90);
+  write16(bytes, 50, 42);
+  bytes[72] = 2;  // A bridge scope is not a direct endpoint.
+  bytes[73] = 8;
+  bytes[78] = 4;
+  bytes[80] = 1;  // A two-hop endpoint scope needs PCI bridge traversal.
+  bytes[81] = 10;
+  bytes[86] = 1;
+  bytes[88] = 3;
+  seal(bytes);
+
+  AcpiDmar::Info info;
+  ASSERT_TRUE(AcpiDmar::parse(bytes.data(), bytes.size(), info));
+  EXPECT_EQ(info.segmentZeroIncludeAllCount, 0U);
+  EXPECT_EQ(info.firstSegmentZeroUnitAddress, 0xfed90000U);
+  EXPECT_EQ(info.directEndpointCount, 1U);
+  EXPECT_TRUE(info.includesDirectEndpoint(2, 3, 4));
+  EXPECT_FALSE(info.includesDirectEndpoint(2, 3, 5));
+  EXPECT_FALSE(info.includesDirectEndpoint(0, 4, 0));
+  EXPECT_FALSE(info.includesDirectEndpoint(0, 1, 0));
 }
 
 TEST(AcpiDmar, DistinguishesOtherSegmentsAndReservedMemory) {
@@ -93,11 +138,20 @@ TEST(AcpiDmar, RejectsBadChecksumLengthsAndHardwareEntries) {
   seal(bad);
   EXPECT_FALSE(AcpiDmar::parse(bad.data(), bad.size(), info));
   bad = valid;
+  bad.resize(53);
+  write16(bad, 50, 5);
+  seal(bad);
+  EXPECT_FALSE(AcpiDmar::parse(bad.data(), bad.size(), info));
+  bad = valid;
   bad[65] = 7;
   seal(bad);
   EXPECT_FALSE(AcpiDmar::parse(bad.data(), bad.size(), info));
   bad = valid;
   bad[52] = 2;
+  seal(bad);
+  EXPECT_FALSE(AcpiDmar::parse(bad.data(), bad.size(), info));
+  bad = valid;
+  bad[53] = 0x10;
   seal(bad);
   EXPECT_FALSE(AcpiDmar::parse(bad.data(), bad.size(), info));
   bad = valid;

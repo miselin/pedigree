@@ -30,6 +30,27 @@ class Device;
 /** Architecture-independent interface to a PCI bus */
 class EXPORTED_PUBLIC PciBus {
  public:
+  class DmaMapping {
+   public:
+    DmaMapping() = default;
+    ~DmaMapping() {
+      release();
+    }
+    DmaMapping(const DmaMapping&) = delete;
+    DmaMapping& operator=(const DmaMapping&) = delete;
+
+    uint32_t address() const {
+      return m_Address;
+    }
+    void release();
+
+   private:
+    friend class PciBus;
+    Device* m_Device = nullptr;
+    uint32_t m_Address = 0;
+    uint16_t m_Token = 0;
+  };
+
   PciBus();
   virtual ~PciBus();
 
@@ -108,6 +129,12 @@ class EXPORTED_PUBLIC PciBus {
   /** Assign an unconfigured BAR from a host bridge window. */
   bool assignBar(Device* device, uint8_t index, uint32_t low, uint32_t high, uint32_t maskLow,
                  uint32_t maskHigh);
+  /** Attach a PCI function to a translated DMA domain before bus mastering. */
+  bool attachDmaRemapping(Device* device);
+  bool hasDmaRemapping(Device* device) const;
+  /** Map one pinned physical page to a 32-bit device address for the mapping lifetime. */
+  bool mapDmaPage(Device* device, physical_uintptr_t physical, size_t bytes, DmaMapping& mapping);
+  void unmapDmaPage(Device* device, uint16_t token);
 
   struct ConfigSpace {
     uint16_t vendor;
@@ -138,6 +165,15 @@ class EXPORTED_PUBLIC PciBus {
  private:
   static PciBus m_Instance;
 };
+
+inline void PciBus::DmaMapping::release() {
+  if (m_Token) {
+    PciBus::instance().unmapDmaPage(m_Device, m_Token);
+  }
+  m_Device = nullptr;
+  m_Address = 0;
+  m_Token = 0;
+}
 
 inline PciExtendedCapabilities::FindResult PciBus::findExtendedCapability(
     Device* device, uint16_t id, PciExtendedCapabilities::Capability& result) {

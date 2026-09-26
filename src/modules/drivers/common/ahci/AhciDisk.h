@@ -49,6 +49,7 @@ class EXPORTED_PUBLIC AhciDisk final : public ScsiDisk {
   }
 
  protected:
+  Device* dmaDevice() const override;
   bool supportsBufferTransfers() const override {
     return true;
   }

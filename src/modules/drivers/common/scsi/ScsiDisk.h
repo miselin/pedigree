@@ -27,6 +27,7 @@
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/WaitQueue.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/CacheConstants.h"
@@ -89,7 +90,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
     uint32_t BlockSize;
   } PACKED;
 
-  ScsiDisk();
+  explicit ScsiDisk(size_t cacheConstraints = PhysicalMemoryManager::below4GB);
   virtual ~ScsiDisk();
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -168,6 +169,9 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   }
   virtual bool supportsDirectCacheWrite() const {
     return false;
+  }
+  virtual Device* dmaDevice() const {
+    return nullptr;
   }
   virtual bool transferBuffer(uint64_t location, void* buffer, size_t length, bool writing);
   virtual bool transferReadBuffers(ReadBuffer* buffers, size_t count);

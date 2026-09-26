@@ -40,6 +40,9 @@ class AhciController : public ScsiController, public IrqHandler {
   void configureDisk(size_t port, size_t sectorBytes, size_t queueDepth);
   EXPORTED_PUBLIC size_t interruptCompletions() const;
   EXPORTED_PUBLIC size_t maximumOutstanding(size_t port) const;
+  Device* pciDevice() const {
+    return m_Pci;
+  }
   IrqDisposition irq(irq_id_t number) override;
   bool sendCommand(size_t, uintptr_t, uint8_t, uintptr_t, uint16_t, bool) override {
     return false;

@@ -249,6 +249,9 @@ if (PEDIGREE_MACHDIR STREQUAL "mach_pc")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Serial.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Trace.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/Vga.cc)
+    if (PEDIGREE_ARCHDIR STREQUAL "x64")
+        list(APPEND MACHINE_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/machine/mach_pc/IntelIommu.cc)
+    endif ()
 
 elseif (PEDIGREE_MACHDIR STREQUAL "hosted")
     set(MACHINE_SRCS

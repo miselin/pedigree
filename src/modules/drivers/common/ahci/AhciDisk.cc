@@ -17,12 +17,16 @@
 #include "AhciDisk.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/TargetInfo.h"
+#include "pedigree/kernel/machine/Pci.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "AhciController.h"
 
 AhciDisk::AhciDisk(AhciController* controller, size_t port)
-    : ScsiDisk(),
+    : ScsiDisk(controller && PciBus::instance().hasDmaRemapping(controller->pciDevice())
+                   ? 0
+                   : PhysicalMemoryManager::below4GB),
       m_Controller(controller),
       m_Port(port),
       m_Sectors(0),
@@ -33,6 +37,10 @@ AhciDisk::AhciDisk(AhciController* controller, size_t port)
       m_Model{} {
   m_pParent = controller;
   setSpecificType(String("ahci-disk"));
+}
+
+Device* AhciDisk::dmaDevice() const {
+  return m_Controller ? m_Controller->pciDevice() : nullptr;
 }
 
 AhciDisk::~AhciDisk() {

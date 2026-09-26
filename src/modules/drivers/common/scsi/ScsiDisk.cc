@@ -24,6 +24,7 @@
 #include "pedigree/kernel/ServiceFeatures.h"
 #include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/TargetInfo.h"
+#include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -240,9 +241,9 @@ bool ScsiDisk::retireCachePageCallback(uintptr_t key, uintptr_t page, void* meta
   return result == disk->getCachePageValidLength(key);
 }
 
-ScsiDisk::ScsiDisk()
+ScsiDisk::ScsiDisk(size_t cacheConstraints)
     : Disk(),
-      m_Cache(PhysicalMemoryManager::below4GB),
+      m_Cache(cacheConstraints),
       m_Inquiry(0),
       m_CacheRangeWaiters(),
       m_FirstCacheRangeAdmission(nullptr),
@@ -787,11 +788,20 @@ bool ScsiDisk::transferBufferRange(uint64_t location, void* buffer, size_t lengt
                         auto* disk = static_cast<ScsiDisk*>(context);
                         for (size_t i = 0; i < count; ++i) {
                           Cache::DirectWritebackLease lease;
+                          PciBus::DmaMapping mapping;
+                          const bool direct =
+                              disk->supportsDirectCacheWrite() && disk->dmaDevice() &&
+                              lease.acquire(disk->m_Cache, pages[i].key, pages[i].location) &&
+                              PciBus::instance().mapDmaPage(
+                                  disk->dmaDevice(), lease.physical(),
+                                  disk->getCachePageValidLength(pages[i].key), mapping);
+                          if (!direct) {
+                            lease.release();
+                          }
                           const uint64_t written =
-                              disk->supportsDirectCacheWrite() &&
-                                      lease.acquire(disk->m_Cache, pages[i].key, pages[i].location)
+                              direct
                                   ? disk->doWriteDirectPhysical(pages[i].key, pages[i].location,
-                                                                lease.physical())
+                                                                mapping.address())
                                   : disk->doWriteDirect(pages[i].key, pages[i].location);
                           if (written != disk->getCachePageValidLength(pages[i].key)) {
                             return false;
@@ -1058,13 +1068,19 @@ bool ScsiDisk::syncCacheBatch(const Cache::WritebackPage* pages, size_t count, v
     const size_t n = count - first < MaxWriteBuffers ? count - first : MaxWriteBuffers;
     WriteBuffer buffers[MaxWriteBuffers];
     Cache::DirectWritebackLease leases[MaxWriteBuffers];
+    PciBus::DmaMapping mappings[MaxWriteBuffers];
     for (size_t i = 0; i < n; ++i) {
       const auto& page = pages[first + i];
       buffers[i] = {page.key, reinterpret_cast<const void*>(page.location),
                     disk->getCachePageValidLength(page.key), false};
-      if (disk->supportsDirectCacheWrite() &&
+      if (disk->supportsDirectCacheWrite() && disk->dmaDevice() &&
           leases[i].acquire(disk->m_Cache, page.key, page.location)) {
-        buffers[i].dmaPhysical = leases[i].physical();
+        if (PciBus::instance().mapDmaPage(disk->dmaDevice(), leases[i].physical(),
+                                          buffers[i].length, mappings[i])) {
+          buffers[i].dmaPhysical = mappings[i].address();
+        } else {
+          leases[i].release();
+        }
       }
     }
     if (disk->supportsBufferTransfers()) {
@@ -1184,11 +1200,16 @@ bool ScsiDisk::flushCachePage(uint64_t location, uintptr_t page) {
   // The caller owns a pin even if retirement closes admission meanwhile.
   // Direct writes borrow it without another lookup or transferred reference.
   Cache::DirectWritebackLease lease;
+  PciBus::DmaMapping mapping;
+  const bool direct =
+      supportsDirectCacheWrite() && dmaDevice() && lease.acquire(m_Cache, pageLocation, page) &&
+      PciBus::instance().mapDmaPage(dmaDevice(), lease.physical(), validLength, mapping);
   const uint64_t writeResult =
-      supportsDirectCacheWrite() && lease.acquire(m_Cache, pageLocation, page)
-          ? doWriteDirectPhysical(pageLocation, page, lease.physical())
+      direct
+          ? doWriteDirectPhysical(pageLocation, page, mapping.address())
           : pParent->addRequest(0, RequestQueue::NewRequest, SCSI_REQUEST_WRITE_DIRECT,
                                 reinterpret_cast<uint64_t>(this), pageLocation, page);
+  mapping.release();
   lease.release();
   const uint64_t syncResult =
       pParent->addRequest(0, SCSI_REQUEST_SYNC, reinterpret_cast<uint64_t>(this), pageLocation);

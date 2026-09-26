@@ -143,6 +143,9 @@ def main():
     parser.add_argument("--firmware-code", type=Path, required=True)
     parser.add_argument("--firmware-vars", type=Path)
     parser.add_argument("--cpus", type=int, choices=(1, 4), default=1)
+    parser.add_argument("--ram-mib", type=int, default=4096)
+    parser.add_argument("--intel-iommu", action="store_true")
+    parser.add_argument("--iommu-aw-bits", type=int, choices=(39, 48), default=39)
     parser.add_argument("--linked", action="store_true",
                         help="Image contains /root/compile-bench/link-cxx; start with -lstdc++")
     parser.add_argument("--quick", action="store_true",
@@ -169,8 +172,9 @@ def main():
                         help="QEMU TCG plugin specification (repeatable; instrumentation changes timing)")
     parser.add_argument("--qemu-img", default="qemu-img")
     args = parser.parse_args()
-    if args.timeout <= 0 or args.sample_interval < 0:
-        parser.error("timeout must be positive and sample-interval nonnegative")
+    if (args.timeout <= 0 or args.sample_interval < 0 or
+            not 128 <= args.ram_mib <= 65536):
+        parser.error("timeout must be positive, sample-interval nonnegative, and RAM 128-65536 MiB")
     if args.sample_stacks and not args.sample_interval:
         parser.error("sample-stacks requires a positive sample-interval")
     if args.sample_jitter and not args.sample_interval:
@@ -210,6 +214,8 @@ def main():
         expected.remove("sync")
     disk = args.reuse_overlay.resolve(strict=True) if args.reuse_overlay else output / "disk.qcow2"
     report = {"result": "FAIL", "image": str(image), "cpus": args.cpus,
+              "ram_mib": args.ram_mib, "intel_iommu": args.intel_iommu,
+              "iommu_aw_bits": args.iommu_aw_bits if args.intel_iommu else None,
               "quick": args.quick, "verify_persisted": args.verify_persisted,
               "sync_skipped": args.skip_sync,
               "overlay": str(disk), "overlay_reused": bool(args.reuse_overlay),
@@ -248,8 +254,10 @@ def main():
         if args.firmware_vars:
             firmware += ",readonly=on"
         command = [args.qemu, "-machine", "q35", "-accel", "tcg,thread=multi",
-                   "-smp", str(args.cpus), "-m", "4096", "-cpu",
+                   "-smp", str(args.cpus), "-m", str(args.ram_mib), "-cpu",
                    "SandyBridge,-rdrand,-rdseed", "-drive", firmware]
+        if args.intel_iommu:
+            command += ["-device", f"intel-iommu,aw-bits={args.iommu_aw_bits},caching-mode=on"]
         for plugin in args.plugin:
             command += ["-plugin", plugin]
         if args.firmware_vars:

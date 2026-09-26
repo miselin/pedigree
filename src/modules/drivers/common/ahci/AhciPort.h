@@ -21,9 +21,10 @@
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
 class IoBase;
+class Device;
 class AhciPort {
  public:
-  AhciPort(IoBase* registers, size_t port);
+  AhciPort(IoBase* registers, size_t port, Device* dmaDevice);
   ~AhciPort();
   bool initialise(uint32_t capabilities, uint32_t version, uint32_t extendedCapabilities);
   void shutdown();
@@ -31,7 +32,8 @@ class AhciPort {
   bool interrupt(bool pending);
   bool command(uint8_t opcode, uint64_t lba, uint16_t sectors, void* buffer, size_t bytes,
                bool write, bool interrupts, bool interruptProbe = false, bool cacheFill = false,
-               physical_uintptr_t dmaPhysical = 0);
+               physical_uintptr_t dmaPhysical = 0,
+               const physical_uintptr_t* directReadPages = nullptr);
   bool readBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupts);
   bool writeBatch(Disk::WriteBuffer* buffers, size_t count, bool interrupts);
   size_t interruptCompletions() const;
@@ -43,7 +45,8 @@ class AhciPort {
 
  private:
   bool transferBatch(Disk::ReadBuffer* buffers, size_t count, bool interrupts, bool writing,
-                     const physical_uintptr_t* dmaPhysical = nullptr);
+                     const physical_uintptr_t* dmaPhysical = nullptr,
+                     const physical_uintptr_t* const* directReadPages = nullptr);
   uint32_t read(size_t reg) const;
   void write(size_t reg, uint32_t value);
   void waitForProgress();
@@ -56,11 +59,13 @@ class AhciPort {
   bool chooseSlot(bool queued, size_t& index);
   bool issueCommand(size_t index, uint8_t opcode, uint64_t lba, uint16_t sectors, void* buffer,
                     size_t bytes, bool writing, bool queued, bool interrupts,
-                    physical_uintptr_t directPhysical = 0);
+                    physical_uintptr_t directPhysical = 0,
+                    const physical_uintptr_t* directReadPages = nullptr);
   bool reapCommand(size_t index, uint8_t opcode, void* buffer, size_t bytes, bool writing,
                    bool queued, bool interrupts, bool interruptProbe, bool directRead = false);
 
   IoBase* m_Registers;
+  Device* m_DmaDevice;
   size_t m_Port;
   MemoryRegion m_Control;
   struct Slot {

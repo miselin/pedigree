@@ -144,15 +144,21 @@ bool AhciController::initialiseController() {
   const uint32_t extended = version >= 0x00010200 ? m_Registers->read32(Cap2) : 0;
   if (capabilities & (1U << 7))
     m_Registers->write32(0, CccCtl);
-  // DMA addresses are below 4 GiB even on controllers advertising S64A.
+  // Attach remapping with bus mastering disabled after the HBA reset.
   if (!pci.disableMessageInterrupts(m_Pci, inherited) ||
-      !pci.resourcesUnchanged(m_Pci, inherited) || !pci.updateCommand(m_Pci, 0, 6U | 0x400U))
+      !pci.resourcesUnchanged(m_Pci, inherited) ||
+      !pci.updateCommand(m_Pci, 4U, 2U | 0x400U)) {
     return false;
+  }
+  (void)pci.attachDmaRemapping(m_Pci);
+  if (!pci.updateCommand(m_Pci, 0, 6U | 0x400U)) {
+    return false;
+  }
   for (size_t i = 0; i < 32; ++i) {
     if (!(m_Implemented & (1U << i)))
       continue;
     m_Registers->write32(speedLimits[i], PortBase + i * PortStride + Sctl);
-    auto* port = new AhciPort(m_Registers, i);
+    auto* port = new AhciPort(m_Registers, i, m_Pci);
     m_Ports[i] = port;
     if (!port->initialise(capabilities, version, extended)) {
       delete port;

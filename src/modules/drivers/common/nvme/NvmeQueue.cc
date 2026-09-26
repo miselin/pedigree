@@ -21,6 +21,7 @@ NvmeQueue::Slot::Slot()
       result(0) {}
 NvmeQueue::NvmeQueue()
     : m_Registers(nullptr),
+      m_DmaDevice(nullptr),
       m_Submission("NVMe SQ"),
       m_Completion("NVMe CQ"),
       m_Available(0, false),
@@ -39,11 +40,12 @@ NvmeQueue::NvmeQueue()
       m_MaximumOutstanding(0) {}
 
 bool NvmeQueue::initialise(IoBase* registers, uint16_t id, uint16_t depth, size_t stride,
-                           size_t transferBytes) {
+                           size_t transferBytes, Device* dmaDevice) {
   if (TargetInfo::getPageSize() != Nvme::PageSize || depth < 2 || depth > Nvme::QueueDepth ||
       !transferBytes || transferBytes > Nvme::MaxTransfer || transferBytes % Nvme::PageSize)
     return false;
   m_Registers = registers;
+  m_DmaDevice = dmaDevice;
   m_Id = id;
   m_Depth = depth;
   m_Stride = stride;
@@ -157,7 +159,8 @@ bool NvmeQueue::complete(bool fromInterrupt) {
 NvmeQueue::Result NvmeQueue::execute(Nvme::Command command, void* buffer, size_t bytes,
                                      bool writing, bool interrupts, size_t timeoutSeconds,
                                      uint32_t* result, bool interruptProbe, bool cacheFill,
-                                     physical_uintptr_t directWritePhysical) {
+                                     physical_uintptr_t directWritePhysical,
+                                     PciBus::DmaMapping* directReadMapping) {
   TerminationDeferral lifetime;
   if (bytes > m_TransferBytes || (bytes && !buffer))
     return Result::CommandError;
@@ -170,16 +173,29 @@ NvmeQueue::Result NvmeQueue::execute(Nvme::Command command, void* buffer, size_t
   }
   physical_uintptr_t directPage = 0;
   bool direct = false;
-  if (cacheFill && !writing && bytes && bytes <= Nvme::PageSize &&
-      !(reinterpret_cast<uintptr_t>(buffer) & (Nvme::PageSize - 1))) {
+  const size_t pageOffset = reinterpret_cast<uintptr_t>(buffer) & (Nvme::PageSize - 1);
+  // PRP1 may have a page offset, but its address must remain DWORD aligned.
+  if (cacheFill && !writing && bytes && !(pageOffset & 3U) &&
+      bytes <= Nvme::PageSize - pageOffset) {
     size_t flags = 0;
     auto& space = VirtualAddressSpace::getKernelAddressSpace();
-    direct = space.getMapping(buffer, directPage, flags) && directPage &&
-             !(directPage & (Nvme::PageSize - 1)) && directPage < (uint64_t{1} << 32) &&
-             (flags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write)) ==
-                 (VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) &&
-             !(flags & (VirtualAddressSpace::Swapped | VirtualAddressSpace::CopyOnWrite |
-                        VirtualAddressSpace::NoAccess));
+    physical_uintptr_t physical = 0;
+    void* page = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(buffer) - pageOffset);
+    if (space.getMapping(page, physical, flags) && physical && !(physical & (Nvme::PageSize - 1)) &&
+        (flags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write)) ==
+            (VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) &&
+        !(flags & (VirtualAddressSpace::Swapped | VirtualAddressSpace::CopyOnWrite |
+                   VirtualAddressSpace::NoAccess | VirtualAddressSpace::Borrowed))) {
+      if (uint64_t{physical} <= 0xffffffffULL - (pageOffset + bytes - 1)) {
+        directPage = physical + pageOffset;
+        direct = true;
+      } else if (m_DmaDevice && directReadMapping &&
+                 PciBus::instance().mapDmaPage(m_DmaDevice, physical, Nvme::PageSize,
+                                               *directReadMapping)) {
+        directPage = directReadMapping->address() + pageOffset;
+        direct = true;
+      }
+    }
   }
   if (!m_Available.acquireForCompletion(1, timeoutSeconds)) {
     stop();

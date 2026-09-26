@@ -1799,7 +1799,6 @@ bool Cache::DirectWritebackLease::acquire(Cache& cache, uintptr_t key, uintptr_t
   auto& addressSpace = VirtualAddressSpace::getKernelAddressSpace();
   if (addressSpace.getMapping(reinterpret_cast<void*>(location), physical, flags) && physical &&
       !(physical & (CachePageSize - 1)) &&
-      uint64_t{physical} <= 0xffffffffULL - (CachePageSize - 1) &&
       (flags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write)) ==
           (VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write) &&
       !(flags & (VirtualAddressSpace::Swapped | VirtualAddressSpace::CopyOnWrite |

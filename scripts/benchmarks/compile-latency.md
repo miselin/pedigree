@@ -152,6 +152,11 @@ uv run --no-project python scripts/benchmarks/run-compile-latency.py \
 ```
 
 Use `--firmware-vars` for split OVMF firmware. Every output directory must be new.
+
+Use `--ram-mib 5120 --intel-iommu` to test a device with VT-d while allowing
+guest physical pages above 4 GiB; `--iommu-aw-bits` selects 39 or 48 bits.
+Run the same image and RAM size without `--intel-iommu` as the control.
+
 The default creates `disk.qcow2` against the immutable image. Retained artifacts
 include `report.json`, `serial.log`, `qemu.log`, `command.json`, and
 `samples.jsonl`; failures retain their partial measurements. The timeout covers

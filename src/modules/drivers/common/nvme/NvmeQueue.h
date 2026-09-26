@@ -1,6 +1,7 @@
 /* Copyright (c) 2026, Pedigree Developers. SPDX-License-Identifier: ISC */
 #ifndef NVME_QUEUE_H
 #define NVME_QUEUE_H
+#include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
@@ -13,10 +14,11 @@ class NvmeQueue {
   enum class Result { Success, CommandError, TransportError };
   NvmeQueue();
   bool initialise(IoBase* registers, uint16_t id, uint16_t depth, size_t stride,
-                  size_t transferBytes);
+                  size_t transferBytes, Device* dmaDevice);
   Result execute(Nvme::Command command, void* buffer, size_t bytes, bool writing, bool interrupts,
                  size_t timeoutSeconds, uint32_t* result = nullptr, bool interruptProbe = false,
-                 bool cacheFill = false, physical_uintptr_t directWritePhysical = 0);
+                 bool cacheFill = false, physical_uintptr_t directWritePhysical = 0,
+                 PciBus::DmaMapping* directReadMapping = nullptr);
   bool complete(bool fromInterrupt);
   void stop();
   size_t interruptCompletions() const;
@@ -46,6 +48,7 @@ class NvmeQueue {
   bool observe(bool fromInterrupt, bool interruptsEnabled = false);
   void stopLocked();
   IoBase* m_Registers;
+  Device* m_DmaDevice;
   MemoryRegion m_Submission;
   MemoryRegion m_Completion;
   Slot m_Slots[Nvme::QueueDepth - 1];

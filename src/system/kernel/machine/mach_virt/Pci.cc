@@ -8,6 +8,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/machine/PciMessageBar.h"
@@ -320,6 +321,28 @@ bool PciBus::writeConfig16(Device* device, uint16_t offset, uint16_t value) {
 bool PciBus::writeConfig32(Device* device, uint16_t offset, uint32_t value) {
   return writeFunction(device, offset, 4, value);
 }
+
+bool PciBus::attachDmaRemapping(Device*) {
+  return false;
+}
+
+bool PciBus::hasDmaRemapping(Device*) const {
+  return false;
+}
+
+bool PciBus::mapDmaPage(Device* device, physical_uintptr_t physical, size_t bytes,
+                        DmaMapping& mapping) {
+  if (!device || mapping.m_Device || !physical || !bytes || bytes > TargetInfo::getPageSize() ||
+      (physical & (TargetInfo::getPageSize() - 1)) ||
+      uint64_t{physical} > 0xffffffffULL - (bytes - 1)) {
+    return false;
+  }
+  mapping.m_Device = device;
+  mapping.m_Address = static_cast<uint32_t>(physical);
+  return true;
+}
+
+void PciBus::unmapDmaPage(Device*, uint16_t) {}
 
 bool PciBus::reserveLegacyInterrupt(uint8_t) {
   return false;

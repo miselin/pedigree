@@ -9,8 +9,10 @@ cmake -S . -B build -DPEDIGREE_CRIPPLE_HDD=OFF -DPEDIGREE_WITH_INIT=OFF \
   -DPEDIGREE_AHCI_SMOKE_TESTS=ON -DPEDIGREE_NVME_SMOKE_TESTS=ON
 cmake --build build --target uefi-image --parallel 6
 uv run scripts/test_qemu_storage.py --image build/pedigree-uefi.img \
+  --root-image build/pedigree-uefi-root.img \
   --root ahci --ahci-sector-size 512 --cpus 4 --run-dir /tmp/storage-ahci-smp
 uv run scripts/test_qemu_storage.py --image build/pedigree-uefi.img \
+  --root-image build/pedigree-uefi-root.img \
   --root nvme --cpus 4 --run-dir /tmp/storage-nvme-smp
 ```
 
@@ -35,6 +37,14 @@ and uncached rereads. NVMe tests also exercise a PRP list. The harness requires
 completion markers, guest-issued flush traces for each scratch device, and
 compares the backing-image contents after stopping QEMU. Logs, traces, fixture
 images and `report.json` remain in the run directory, including on failure.
+When `--root-image` is supplied, the harness assembles a disposable combined
+boot fixture from the current separate ESP and root images.
+
+For Intel VT-d coverage, run either profile with `--intel-iommu --ram-mib 5120`
+and a fresh run directory. `--iommu-aw-bits 39` is the default; 48 is also
+available. Check the serial log for VT-d enable, attached storage functions,
+and a high physical page mapped to a low IOVA before treating the run as DMA
+remapping evidence.
 
 After testing, restore the original CMake values for write protection, init and
 smoke modules, and rebuild the normal image. Never replace an image used by a

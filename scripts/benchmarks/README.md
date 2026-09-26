@@ -390,6 +390,9 @@ remain available. The parser rejects competing kernel serial logs rather than
 attempting to repair interleaved measurements. Malformed or incomplete
 measurements fail, and the original serial bytes remain in the log.
 
+For a VT-d comparison, use the same frozen image and `--ram-mib 5120` in both
+runs, adding `--intel-iommu` to one. `--iommu-aw-bits` selects 39 or 48 bits.
+
 Compare command counts and sizes as well as elapsed time. Reducing 4 KiB commands
 through batching can help while still using queue depth one. Increasing NCQ depth
 requires overlapping requests; a larger userspace buffer alone does not prove

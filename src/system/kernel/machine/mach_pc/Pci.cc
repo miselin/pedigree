@@ -25,6 +25,7 @@
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/machine/PciConfigAccess.h"
 #include "pedigree/kernel/machine/PciMessageBar.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -32,6 +33,9 @@
 
 #if ACPI
 #include "Acpi.h"
+#endif
+#if X64 && ACPI
+#include "IntelIommu.h"
 #endif
 #include "Pic.h"
 
@@ -347,6 +351,62 @@ uint32_t PciBus::interruptRoute(uint8_t, uint8_t, uint8_t, uint8_t) {
 
 bool PciBus::assignBar(Device*, uint8_t, uint32_t, uint32_t, uint32_t, uint32_t) {
   return true;
+}
+
+bool PciBus::attachDmaRemapping(Device* device) {
+#if X64 && ACPI
+  return device && IntelIommu::instance().attach(device);
+#else
+  (void)device;
+  return false;
+#endif
+}
+
+bool PciBus::hasDmaRemapping(Device* device) const {
+#if X64 && ACPI
+  return device && IntelIommu::instance().attached(device);
+#else
+  (void)device;
+  return false;
+#endif
+}
+
+bool PciBus::mapDmaPage(Device* device, physical_uintptr_t physical, size_t bytes,
+                        DmaMapping& mapping) {
+  constexpr uint64_t HighestDmaAddress = 0xffffffffULL;
+  if (!device || mapping.m_Device || !physical || !bytes || bytes > TargetInfo::getPageSize() ||
+      (physical & (TargetInfo::getPageSize() - 1))) {
+    return false;
+  }
+
+  uint32_t address = 0;
+  uint16_t token = 0;
+  if (uint64_t{physical} <= HighestDmaAddress - (bytes - 1)) {
+    address = static_cast<uint32_t>(physical);
+  } else {
+#if X64 && ACPI
+    if (!IntelIommu::instance().mapPage(device, physical, address, token)) {
+      return false;
+    }
+#else
+    return false;
+#endif
+  }
+  mapping.m_Device = device;
+  mapping.m_Address = address;
+  mapping.m_Token = token;
+  return true;
+}
+
+void PciBus::unmapDmaPage(Device* device, uint16_t token) {
+#if X64 && ACPI
+  if (device && token) {
+    IntelIommu::instance().unmapPage(device, token);
+  }
+#else
+  (void)device;
+  (void)token;
+#endif
 }
 
 bool PciBus::reserveLegacyInterrupt(uint8_t irq) {
