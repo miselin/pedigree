@@ -696,6 +696,9 @@ SlamCache::Node* SlamCache::initialiseSlab(uintptr_t slab) {
 
   if (m_ObjectSize >= getPageSize()) {
     LockGuard<Spinlock> guard(m_RecoveryLock);
+    EMIT_IF(USING_MAGIC) {
+      reinterpret_cast<Node*>(slab)->magic = TEMP_MAGIC;
+    }
     reinterpret_cast<SlamAllocator::AllocHeader*>(slab)->cache = this;
     m_pParentAllocator->markSlabReady(slab, m_SlabSize);
     return reinterpret_cast<Node*>(slab);

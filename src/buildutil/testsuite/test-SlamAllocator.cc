@@ -150,9 +150,18 @@ TEST_F(SlamAllocatorCorrectnessTest, LargeAllocationsAreValidAcrossReuse) {
   for (size_t objectSize : objectSizes) {
     SCOPED_TRACE(objectSize);
     const size_t requested = objectSize - framing;
+    // Physical pages can retain a free-node marker from a previous boot.
+    allocator.setSlabTransitionHookForTest(
+        [](SlamAllocator::SlabTransitionForTest transition, uintptr_t address, void*) {
+          if (transition == SlamAllocator::SlabTransitionForTest::Mapped) {
+            reinterpret_cast<SlamCache::Node*>(address)->magic = MAGIC_VALUE;
+          }
+        },
+        nullptr);
     uintptr_t allocation = allocator.allocate(requested);
+    allocator.setSlabTransitionHookForTest(nullptr, nullptr);
     ASSERT_NE(allocation, 0U);
-    EXPECT_TRUE(allocator.isPointerValid(allocation));
+    ASSERT_TRUE(allocator.isPointerValid(allocation));
     EXPECT_EQ(allocator.allocSize(allocation), requested);
 
     allocator.free(allocation);
