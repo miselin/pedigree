@@ -19,6 +19,8 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include <climits>
+#include <cstdint>
 #include <iostream>
 
 #include <gtest/gtest.h>
@@ -396,6 +398,24 @@ TEST(PedigreeString, Sprintf) {
   s.Format("Hello, %s! %d %d\n", "world", 42, 84);
   EXPECT_EQ(s, "Hello, world! 42 84\n");
 }
+
+#if ULONG_MAX == UINT64_MAX && UINTPTR_MAX == UINT64_MAX
+TEST(PedigreeString, SprintfFullWidthNumbers) {
+  String s;
+  s.Format("%lu", 5000000000UL);
+  EXPECT_EQ(s, "5000000000");
+
+  s.Format("%lu", ULONG_MAX);
+  EXPECT_EQ(s, "18446744073709551615");
+
+  s.Format("%ld", LONG_MIN);
+  EXPECT_EQ(s, "-9223372036854775808");
+
+  const uintptr_t address = UINT64_C(0xffffffff80123456);
+  s.Format("%lx %p", (unsigned long)address, reinterpret_cast<void*>(address));
+  EXPECT_EQ(s, "ffffffff80123456 FFFFFFFF80123456");
+}
+#endif
 
 TEST(PedigreeString, Free) {
   String s("hello");

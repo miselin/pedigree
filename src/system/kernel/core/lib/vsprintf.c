@@ -51,25 +51,10 @@ static int skip_atoi(const char** s) {
 #define SPECIAL 32 /* 0x */
 #define SMALL 64   /* use 'abcdef' instead of 'ABCDEF' */
 
-#ifdef TARGET_IS_X86
-#define do_div(n, base)                                                   \
-  ({                                                                      \
-    int __res;                                                            \
-    __asm__("div %4" : "=a"(n), "=d"(__res) : "0"(n), "1"(0), "r"(base)); \
-    __res;                                                                \
-  })
-#else
-#define do_div(n, base)   \
-  ({                      \
-    int __res = n % base; \
-    n = n / base;         \
-    __res;                \
-  })
-#endif
-
 static char* number(char* str, int64_t num, int base, int size, int precision, int type) {
   char c, sign, tmp[36];
   const char* digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  uint64_t magnitude = (uint64_t)num;
   int i;
 
   if (type & SMALL)
@@ -81,7 +66,8 @@ static char* number(char* str, int64_t num, int base, int size, int precision, i
   c = (type & ZEROPAD) ? '0' : ' ';
   if (type & SIGN && num < 0) {
     sign = '-';
-    num = -num;
+    // Unsigned subtraction also handles the magnitude of INT64_MIN.
+    magnitude = (uint64_t)0 - magnitude;
   } else
     sign = (type & PLUS) ? '+' : ((type & SPACE) ? ' ' : 0);
   if (sign)
@@ -93,14 +79,16 @@ static char* number(char* str, int64_t num, int base, int size, int precision, i
       size--;
   }
   i = 0;
-  if (num == 0)
+  if (magnitude == 0) {
     tmp[i++] = '0';
-  else
-    while (num != 0) {
-      int d = do_div(num, base);
+  } else {
+    while (magnitude != 0) {
+      int d = (int)(magnitude % (uint64_t)base);
+      magnitude /= (uint64_t)base;
       tmp[i++] = digits[d];
       assert(i < 36);
     }
+  }
   if (i > precision)
     precision = i;
   size -= precision;
