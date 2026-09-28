@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import random
@@ -21,6 +22,118 @@ SPEC.loader.exec_module(LAUNCH)
 PHASES = ["idle", "cpu", "compile-exact", "compile-warm-1", "compile-warm-2",
           "preprocess", "codegen", "assemble", "link", "run", "sync",
           "anon-1mib", "anon-4mib", "anon-16mib", "anon-64mib", "anon-contract"]
+METRICS_CAPACITY = 64 * 1024
+METRIC_NAME = r"[a-zA-Z_:][a-zA-Z0-9_:]*"
+
+
+def parse_metrics_snapshot(raw, cpus):
+    """Parse the kernel's bounded counter/gauge format, preserving integer counters."""
+    if not raw.endswith("# EOF\n") or len(raw) >= METRICS_CAPACITY or not raw.isascii():
+        raise RuntimeError("incomplete or oversized metrics snapshot")
+    types, values, cpu_labels = {}, {}, set()
+    for line in raw.splitlines()[:-1]:
+        metadata = re.fullmatch(rf"# TYPE ({METRIC_NAME}) (counter|gauge)", line)
+        if metadata:
+            name, kind = metadata.groups()
+            if name in types:
+                raise RuntimeError(f"duplicate metrics type: {name}")
+            types[name] = kind
+            continue
+        if re.fullmatch(rf"# HELP {METRIC_NAME} .+", line):
+            continue
+        sample = re.fullmatch(rf'({METRIC_NAME})(?:\{{([^{{}}]+)\}})? (-?[0-9]+(?:\.[0-9]+)?)', line)
+        if not sample or sample[1] not in types:
+            raise RuntimeError(f"invalid or untyped metrics sample: {line}")
+        name, label_text, number = sample.groups()
+        labels = {}
+        for label in label_text.split(",") if label_text else []:
+            parsed = re.fullmatch(r'(cpu|policy)="([a-z_]+|[0-9]+)"', label)
+            if not parsed or parsed[1] in labels:
+                raise RuntimeError(f"invalid metrics labels: {line}")
+            label_name, value = parsed.groups()
+            if label_name == "cpu":
+                if not re.fullmatch(r"0|[1-9][0-9]*", value):
+                    raise RuntimeError(f"invalid metrics CPU: {line}")
+                cpu_labels.add(int(value))
+            elif not re.fullmatch(r"[a-z_]+", value):
+                raise RuntimeError(f"invalid metrics policy: {line}")
+            labels[label_name] = value
+        key = name
+        if labels:
+            key += "{" + ",".join(f'{key}="{value}"' for key, value in sorted(labels.items())) + "}"
+        if key in values:
+            raise RuntimeError(f"duplicate metrics sample: {key}")
+        if types[name] == "counter":
+            if not number.isdecimal():
+                raise RuntimeError(f"invalid metrics counter: {line}")
+            values[key] = int(number)
+        else:
+            values[key] = float(number)
+            if not math.isfinite(values[key]):
+                raise RuntimeError(f"nonfinite metrics gauge: {line}")
+    if set(types) != {key.split("{", 1)[0] for key in values}:
+        raise RuntimeError("metrics family missing samples")
+    if (values.get("pedigree_metrics_enabled") != 1 or values.get("pedigree_cpus") != cpus or
+            types.get("pedigree_uptime_seconds") != "gauge" or
+            values.get("pedigree_uptime_seconds", -1) < 0 or cpu_labels != set(range(cpus))):
+        raise RuntimeError("metrics unavailable or CPU set does not match guest topology")
+    return {"raw": raw, "types": types, "values": values, "cpus": sorted(cpu_labels)}
+
+
+def metrics_delta(before, after):
+    if (before["types"] != after["types"] or before["values"].keys() != after["values"].keys() or
+            before["cpus"] != after["cpus"]):
+        raise RuntimeError("metrics series or CPU set changed between snapshots")
+    seconds = after["values"]["pedigree_uptime_seconds"] - before["values"]["pedigree_uptime_seconds"]
+    if seconds <= 0:
+        raise RuntimeError("metrics uptime did not advance")
+    deltas = {}
+    for key, value in before["values"].items():
+        if before["types"][key.split("{", 1)[0]] == "counter":
+            delta = after["values"][key] - value
+            if delta < 0:
+                raise RuntimeError(f"metrics counter decreased: {key}")
+            deltas[key] = delta
+    return {"scope": "system-wide, independently collected; includes snapshot collection work",
+            "window_seconds": seconds, "counter_deltas": deltas,
+            "counter_rates_per_second": {key: value / seconds for key, value in deltas.items()}}
+
+
+def collect_metrics_line(line, report, current, capture):
+    marker = re.fullmatch(r"METRICS (BEGIN|END) phase=(\S+) edge=(before|after)", line)
+    if marker:
+        action, phase, edge = marker.groups()
+        if (not report.get("metrics_stats") or current is not None or not report["phases"] or
+                report["phases"][-1]["phase"] != phase):
+            raise RuntimeError(f"unexpected metrics block: {line}")
+        pair = report["phases"][-1].setdefault("metrics", {})
+        if action == "BEGIN":
+            if capture is not None or edge in pair or (edge == "after" and "before" not in pair):
+                raise RuntimeError(f"duplicate or out-of-order metrics block: {line}")
+            return {"phase": phase, "edge": edge, "raw": ""}, True
+        if capture is None or (phase, edge) != (capture["phase"], capture["edge"]):
+            raise RuntimeError(f"mismatched metrics end: {line}")
+        pair[edge] = parse_metrics_snapshot(capture["raw"], report["cpus"])
+        if edge == "after":
+            pair.update(metrics_delta(pair["before"], pair["after"]))
+        return None, True
+    if line.startswith("METRICS ") or (capture is not None and line.startswith("COMPILEBENCH ")):
+        raise RuntimeError(f"malformed or incomplete metrics block: {line}")
+    if capture is not None:
+        capture["raw"] += line + "\n"
+        if len(capture["raw"]) >= METRICS_CAPACITY:
+            raise RuntimeError("oversized metrics block")
+        return capture, True
+    return None, False
+
+
+def require_complete_metrics(report, capture):
+    if capture is not None:
+        raise RuntimeError("incomplete metrics block")
+    if report.get("metrics_stats"):
+        for phase in report["phases"]:
+            if "counter_deltas" not in phase.get("metrics", {}):
+                raise RuntimeError(f"missing metrics pair for phase: {phase['phase']}")
 
 
 def public_phase_state(current):
@@ -224,9 +337,11 @@ def main():
               "sample_jitter_seed": 0 if args.sample_jitter else None,
               "sample_stacks": args.sample_stacks,
               "paused_samples": args.paused_samples,
+              "metrics_stats": False,
               "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               "expected_phases": expected, "phases": []}
     process = guest = current = None
+    metrics_capture = None
     serial_base = serial_input_fd = serial_output_fd = None
     started = time.monotonic()
     try:
@@ -334,6 +449,22 @@ def main():
                         raise RuntimeError(line)
                     if "COMPILEBENCH FAIL" in line:
                         raise RuntimeError(line)
+                    metrics_capture, consumed = collect_metrics_line(
+                        line, report, current, metrics_capture)
+                    if consumed:
+                        if metrics_capture is None:
+                            write_report(output, report, result="RUNNING")
+                        continue
+                    match = re.fullmatch(r"COMPILEBENCH configuration (.+)", line)
+                    if match:
+                        if "configuration" in report or current is not None or report["phases"]:
+                            raise RuntimeError("duplicate or late benchmark configuration")
+                        configuration = dict(item.split("=", 1) for item in match[1].split())
+                        metrics_stats = configuration.get("benchmark_metrics_stats", "0")
+                        if metrics_stats not in ("0", "1"):
+                            raise RuntimeError("invalid benchmark metrics configuration")
+                        report["configuration"] = configuration
+                        report["metrics_stats"] = metrics_stats == "1"
                     if line == "COMPILEBENCH skipped phase=sync reason=writes-disabled-performance-only":
                         if not args.skip_sync:
                             raise RuntimeError("unrequested sync omission")
@@ -347,6 +478,7 @@ def main():
                                                "fnv1a64": match[3]}
                     match = re.fullmatch(r"COMPILEBENCH READY phase=(\S+)", line)
                     if match:
+                        require_complete_metrics(report, metrics_capture)
                         index = len(report["phases"])
                         if current is not None or index >= len(expected) or match[1] != expected[index]:
                             raise RuntimeError(f"unexpected phase: {line}")
@@ -402,6 +534,7 @@ def main():
                         current = None
                         next_sample = float("inf")
                     if line == "COMPILEBENCH PASS END":
+                        require_complete_metrics(report, metrics_capture)
                         if current is not None or len(report["phases"]) != len(expected):
                             raise RuntimeError("premature success marker")
                         if any(p["metric"]["rc"] for p in report["phases"]

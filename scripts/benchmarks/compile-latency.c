@@ -45,12 +45,16 @@ static uint64_t timeval_us(struct timeval t) {
 #define SYSCALL_TIMING_SLOT_COUNT (SYSCALL_TIMING_RAW_SLOT_COUNT + 1)
 #define VM_DIAGNOSTIC_COUNTER_COUNT 57
 #define LATENCY_SNAPSHOT_CAPACITY (64 * 1024)
+#define METRICS_SNAPSHOT_CAPACITY (64 * 1024)
 
 static int benchmark_syscall_timing;
 static int benchmark_vm_diagnostics;
 static int benchmark_latency_stats;
+static int benchmark_metrics_stats;
 static char latency_before[LATENCY_SNAPSHOT_CAPACITY];
 static char latency_after[LATENCY_SNAPSHOT_CAPACITY];
+static char metrics_before[METRICS_SNAPSHOT_CAPACITY];
+static char metrics_after[METRICS_SNAPSHOT_CAPACITY];
 
 static const char* vm_diagnostic_names[VM_DIAGNOSTIC_COUNTER_COUNT] = {
     "mmap_calls",
@@ -306,6 +310,48 @@ static void dump_latency_snapshot(const char* phase, const char* edge, const cha
          snapshot, phase, edge);
 }
 
+static void metrics_snapshot(char* buffer) {
+  int fd = open("/proc/metrics", O_RDONLY);
+  if (fd < 0) {
+    fail("metrics-open");
+  }
+  size_t used = 0;
+  for (;;) {
+    ssize_t n = read(fd, buffer + used, METRICS_SNAPSHOT_CAPACITY - 1 - used);
+    if (n < 0 && errno == EINTR) {
+      continue;
+    }
+    if (n < 0) {
+      fail("metrics-read");
+    }
+    if (!n) {
+      break;
+    }
+    used += (size_t)n;
+    if (used == METRICS_SNAPSHOT_CAPACITY - 1) {
+      errno = EOVERFLOW;
+      fail("metrics-truncated");
+    }
+  }
+  if (close(fd)) {
+    fail("metrics-close");
+  }
+  buffer[used] = 0;
+  if (used < sizeof("# EOF\n") - 1 || strcmp(buffer + used - (sizeof("# EOF\n") - 1), "# EOF\n")) {
+    errno = EIO;
+    fail("metrics-incomplete");
+  }
+  if (!strstr(buffer, "\npedigree_metrics_enabled 1\n")) {
+    errno = ENOTSUP;
+    fail("metrics-disabled");
+  }
+}
+
+static void dump_metrics_snapshot(const char* phase, const char* edge, const char* snapshot) {
+  printf("METRICS BEGIN phase=%s edge=%s\n%sMETRICS END phase=%s edge=%s\n", phase, edge, snapshot,
+         phase, edge);
+}
+
 static void gate(const char* phase) {
   printf("COMPILEBENCH READY phase=%s\n", phase);
   for (;;) {
@@ -314,6 +360,9 @@ static void gate(const char* phase) {
     if (n == 1 && c == 'g') {
       if (benchmark_latency_stats) {
         latency_snapshot(latency_before);
+      }
+      if (benchmark_metrics_stats) {
+        metrics_snapshot(metrics_before);
       }
       printf("COMPILEBENCH ACK phase=%s\n", phase);
       return;
@@ -342,6 +391,9 @@ static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
                    int have_activity, const struct activity_snapshot* activity) {
   if (benchmark_latency_stats) {
     latency_snapshot(latency_after);
+  }
+  if (benchmark_metrics_stats) {
+    metrics_snapshot(metrics_after);
   }
   printf(
       "COMPILEBENCH metric phase=%s total_us=%llu rc=%d user_us=%llu system_us=%llu "
@@ -481,6 +533,10 @@ static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
   if (benchmark_latency_stats) {
     dump_latency_snapshot(phase, "before", latency_before);
     dump_latency_snapshot(phase, "after", latency_after);
+  }
+  if (benchmark_metrics_stats) {
+    dump_metrics_snapshot(phase, "before", metrics_before);
+    dump_metrics_snapshot(phase, "after", metrics_after);
   }
 }
 
@@ -755,10 +811,12 @@ int main(void) {
   benchmark_syscall_timing = !access("time-syscalls", F_OK);
   benchmark_vm_diagnostics = !access("trace-vm", F_OK);
   benchmark_latency_stats = !access("latency-stats", F_OK);
+  benchmark_metrics_stats = !access("metrics-stats", F_OK);
   printf("COMPILEBENCH BEGIN\n");
   printf(
-      "COMPILEBENCH configuration benchmark_syscall_timing=%d benchmark_vm_diagnostics=%d\n",
-      benchmark_syscall_timing, benchmark_vm_diagnostics);
+      "COMPILEBENCH configuration benchmark_syscall_timing=%d benchmark_vm_diagnostics=%d "
+      "benchmark_metrics_stats=%d\n",
+      benchmark_syscall_timing, benchmark_vm_diagnostics, benchmark_metrics_stats);
   static char kernel_log[256 * 1024];
   long log_size = syscall(SYS_syslog, 3, kernel_log, sizeof(kernel_log) - 1);
   if (log_size > 0) {

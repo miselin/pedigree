@@ -83,6 +83,91 @@ class ReportStateTest(unittest.TestCase):
             self.assertFalse((output / "report.json.tmp").exists())
 
 
+def metrics_text(uptime=10, count=9007199254740993, cpus=1):
+    return (
+        "# HELP pedigree_metrics_enabled Whether cheap counters are enabled.\n"
+        "# TYPE pedigree_metrics_enabled gauge\npedigree_metrics_enabled 1\n"
+        f"# TYPE pedigree_cpus gauge\npedigree_cpus {cpus}\n"
+        f"# TYPE pedigree_uptime_seconds gauge\npedigree_uptime_seconds {uptime}\n"
+        "# TYPE pedigree_spinlock_acquires_total counter\n" +
+        "".join(f'pedigree_spinlock_acquires_total{{policy="no_irq",cpu="{cpu}"}} {count}\n'
+                for cpu in range(cpus)) + "# EOF\n")
+
+
+class MetricsSnapshotTest(unittest.TestCase):
+    def test_integer_counter_precision_labels_and_rate(self):
+        before = RUNNER.parse_metrics_snapshot(metrics_text(cpus=4), 4)
+        after = RUNNER.parse_metrics_snapshot(metrics_text(12, 9007199254740999, 4), 4)
+        key = 'pedigree_spinlock_acquires_total{cpu="0",policy="no_irq"}'
+        self.assertEqual(before["values"][key], 9007199254740993)
+        self.assertEqual(before["raw"], metrics_text(cpus=4))
+        result = RUNNER.metrics_delta(before, after)
+        self.assertEqual(result["window_seconds"], 2)
+        self.assertEqual(result["counter_deltas"][key], 6)
+        self.assertEqual(result["counter_rates_per_second"][key], 3)
+        self.assertNotIn("pedigree_uptime_seconds", result["counter_deltas"])
+
+    def test_unavailable_incomplete_or_ambiguous_samples_fail(self):
+        original = metrics_text()
+        invalid = [
+            original.removesuffix("# EOF\n"),
+            original.replace("pedigree_metrics_enabled 1", "pedigree_metrics_enabled 0"),
+            original.replace('cpu="0"', 'cpu="1"'),
+            original.replace('cpu="0"', 'cpu="0",cpu="0"'),
+            original.replace('cpu="0"', 'thread="0"'),
+            original.replace("9007199254740993", "9.5"),
+            original.replace("# EOF\n", "pedigree_cpus 1\n# EOF\n"),
+            original.replace("# EOF\n", "# TYPE absent_total counter\n# EOF\n"),
+        ]
+        for raw in invalid:
+            with self.subTest(raw=raw), self.assertRaises(RuntimeError):
+                RUNNER.parse_metrics_snapshot(raw, 1)
+
+    def test_decreasing_counters_stalled_clock_and_changed_cpu_set_fail(self):
+        before = RUNNER.parse_metrics_snapshot(metrics_text(), 1)
+        for raw, cpus in ((metrics_text(11, 1), 1), (metrics_text(), 1),
+                          (metrics_text(11, cpus=4), 4)):
+            with self.subTest(raw=raw), self.assertRaises(RuntimeError):
+                RUNNER.metrics_delta(before, RUNNER.parse_metrics_snapshot(raw, cpus))
+
+    def test_blocks_pair_after_done_before_next_phase(self):
+        report = {"metrics_stats": True, "cpus": 1, "phases": [{"phase": "cpu"}]}
+        capture = None
+        for edge, raw in (("before", metrics_text()), ("after", metrics_text(12, 9007199254740999))):
+            lines = [f"METRICS BEGIN phase=cpu edge={edge}", *raw.splitlines(),
+                     f"METRICS END phase=cpu edge={edge}"]
+            for line in lines:
+                capture, consumed = RUNNER.collect_metrics_line(line, report, None, capture)
+                self.assertTrue(consumed)
+        RUNNER.require_complete_metrics(report, capture)
+        self.assertEqual(report["phases"][0]["metrics"]["window_seconds"], 2)
+        with self.assertRaisesRegex(RuntimeError, "duplicate"):
+            RUNNER.collect_metrics_line("METRICS BEGIN phase=cpu edge=before", report, None, None)
+
+    def test_missing_mismatched_and_interrupted_blocks_fail(self):
+        report = {"metrics_stats": True, "cpus": 1, "phases": [{"phase": "cpu"}]}
+        with self.assertRaisesRegex(RuntimeError, "missing metrics pair"):
+            RUNNER.require_complete_metrics(report, None)
+        with self.assertRaisesRegex(RuntimeError, "unexpected"):
+            RUNNER.collect_metrics_line("METRICS BEGIN phase=idle edge=before", report, None, None)
+        with self.assertRaisesRegex(RuntimeError, "out-of-order"):
+            RUNNER.collect_metrics_line("METRICS BEGIN phase=cpu edge=after", report, None, None)
+        capture, _ = RUNNER.collect_metrics_line(
+            "METRICS BEGIN phase=cpu edge=before", report, None, None)
+        with self.assertRaisesRegex(RuntimeError, "mismatched"):
+            RUNNER.collect_metrics_line("METRICS END phase=cpu edge=after", report, None, capture)
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            RUNNER.collect_metrics_line("COMPILEBENCH READY phase=run", report, None, capture)
+
+    def test_old_fixtures_do_not_require_metrics(self):
+        report = {"cpus": 1, "phases": [{"phase": "cpu"}]}
+        RUNNER.require_complete_metrics(report, None)
+        self.assertEqual(RUNNER.collect_metrics_line(
+            "COMPILEBENCH READY phase=run", report, None, None), (None, False))
+        with self.assertRaisesRegex(RuntimeError, "unexpected"):
+            RUNNER.collect_metrics_line("METRICS BEGIN phase=cpu edge=before", report, None, None)
+
+
 class SerialTransportTest(unittest.TestCase):
     def test_fifo_transport_bridges_host_and_qemu_ends(self):
         with tempfile.TemporaryDirectory(prefix="compile-latency-fifo-") as directory:

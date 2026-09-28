@@ -47,6 +47,7 @@ In an offline disposable ext2 root, install the driver as `/usr/bin/init`, mode
 | `persist-check` | Optional empty marker to create a persistence sentinel during sync |
 | `trace-vm` | Enable process-scoped VM cardinality counters when supported by the kernel |
 | `latency-stats` | Capture system-wide `/proc/kernel/latency` counters around each phase |
+| `metrics-stats` | Capture and summarize system-wide `/proc/metrics` counters around each phase |
 
 Do not seed `persisted-output`: the driver creates it from the compiled binary.
 On its next boot, an existing sentinel with `persist-check` selects verification
@@ -78,6 +79,60 @@ in the adjacent `cmdline` file and add a separate `--disable-log-to-serial` toke
 without a trailing newline. This retains kernel log generation while keeping
 benchmark records intact. Freeze the exact raw archive and matching module
 symbol files for later profiling.
+
+### Cheap kernel counters
+
+`/proc/metrics` exposes [Prometheus text](https://prometheus.io/docs/instrumenting/exposition_formats/)
+counters for scheduler activity, preemption,
+spinlocks, and x64 interrupt, exception and syscall entries. `PEDIGREE_METRICS`
+defaults to `ON`. Its hooks increment counters without clock reads, allocation,
+locking or interrupt masking. Counts show how often an operation happens; they
+do not measure lock wait duration, runnable delay or IRQ-off time.
+
+Each open captures immutable text: partial reads and seeks on that descriptor
+retain the same snapshot. Reopen for fresh data. Counters are collected separately
+for each CPU, without freezing the system. The `cpu` label is the logical CPU
+observed by the counter hook; execution can migrate between observing it and
+incrementing its bank. Aggregate CPU labels when exact per-CPU attribution is
+unnecessary. `pedigree_uptime_seconds`, `pedigree_cpus` and
+`pedigree_metrics_enabled` are gauges; cumulative operation counts have type
+`counter` and names ending in `_total`.
+
+Scheduler selections include attempts that retain the current thread. Context
+switches count changes of thread, including initial dispatch and exit, but exclude
+same-thread event-stack changes. Reschedule service calls include empty attempts;
+deferrals require pending work. Preemption counts include nested calls and state
+queries. Spinlock counts include successful recursive acquisitions, with
+`policy="plain"`, `"no_preempt"` or `"no_irq"`. A contended acquisition paused at
+least once before succeeding; the counter does not count pauses or failed
+nonblocking attempts. Balancing counts completed automatic thread donations on
+the source CPU, excluding explicit affinity changes. The endpoint's `HELP` lines
+describe individual series.
+
+Add `metrics-stats` to capture each benchmark phase. The driver opens the file
+before `ACK` and after the guest workload timer stops, then emits paired
+`METRICS BEGIN` / `METRICS END` blocks after `DONE`. Each snapshot is bounded to
+64 KiB and must end with `# EOF`. The runner requires enabled counters and CPU
+labels matching its one- or four-CPU topology. Missing, duplicate, malformed or
+mismatched snapshots, changing series, and decreasing counters fail the run.
+Fixtures without the marker retain their existing behavior.
+
+Each phase's `metrics` object in `report.json` retains `before` and `after`
+snapshots containing raw text, family types and values keyed by metric name plus
+sorted labels. `counter_deltas` preserve integer counts;
+`counter_rates_per_second` divide those deltas by `window_seconds`, the difference
+in `pedigree_uptime_seconds`. This is an independently collected system-wide
+window, including snapshot work and activity outside the benchmark process.
+Guest `total_us` excludes collection; host gate-to-`DONE` time includes it. Serial
+dumps occur after `DONE` and are excluded from that phase's host time.
+
+Measure counter overhead with matched `PEDIGREE_METRICS=ON` and `OFF` builds,
+using fresh overlays and the same workload. Remove `metrics-stats` from the
+`OFF` fixture because requested capture rejects disabled counters. To isolate
+hook overhead from snapshot overhead, omit the marker in both timing arms and
+collect counter deltas in a separate enabled run.
+
+### Optional timing and attribution diagnostics
 
 For a syscall-count diagnostic, configure the target with
 `-DPEDIGREE_SYSCALL_COUNTER=TRUE` and rebuild the kernel, POSIX module and
