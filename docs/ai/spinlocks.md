@@ -32,7 +32,7 @@ replace a scheduler thread lock without preserving the scheduler handoff.
 
 `NoPreemptSpinlock` pins execution to the current CPU before attempting the atomic
 acquisition. Its per-CPU preemption depth nests across locks and explicit
-`Preemption::disable()` / `enable()` pairs. Only counter updates briefly mask
+`Preemption::disable()` / `enable()` pairs. Depth updates and queries briefly mask
 IRQs; contention and the critical section retain the caller's IRQ state.
 IRQ and debugger handlers must not acquire this lock, including recursively.
 
@@ -112,8 +112,16 @@ release, outside any hosted signal frame.
 Fresh one- and four-CPU QEMU/TCG boots passed kernel-thread procfs, scheduling
 policy, placement, wakeup, and affinity-race checks. Existing lifecycle and
 permissions contract failures involving process/task ID assumptions remain
-separate. These runs do not establish physical-hardware timing or a throughput
-improvement from the policy split.
+separate. These runs do not establish physical-hardware timing.
+
+The subsequent matched before/after measurements found a one-CPU performance
+regression: warm GCC took 6.1% longer, while network download/upload throughput
+fell 52.3%/38.2%. Four-CPU warm GCC was essentially unchanged and networking
+improved modestly. Instrumented GCC IRQ-off duty did not decrease. An ordinary
+IRQ-enabled no-preempt lock pair currently creates three brief masked intervals
+for depth updates and the release check; preemption queries elsewhere add more.
+See the [policy-split comparison](performance-cliffs-rca.md#spinlock-policy-split-comparison-2026-09-28)
+for conditions, repeated measurements and attribution limits.
 
 ## One-CPU measurement, 2026-09-19
 

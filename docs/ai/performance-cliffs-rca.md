@@ -249,6 +249,102 @@ Validation includes fresh enabled and disabled UEFI images, one-/four-CPU compil
 
 These gauges establish frequent short masking in this fixture; they do not establish a new common cause for the unexplained cross-workload slowdown. They include host vCPU descheduling and probe overhead, and neither quantify native-hardware masking nor rule out workload-specific long sections in networking or storage. The existing benchmark documentation describes capture, units, coverage and boundary error. Evidence is retained under `/private/tmp/pedigree-latency-accounting`, with frozen enabled/disabled payloads under `/private/tmp/pedigree-global-rca/latency-accounting-*`. Source/configuration snapshots, raw counters, derived rates, commands and logs accompany the measurements.
 
+## Spinlock policy split comparison, 2026-09-28
+
+The comparison isolates `9b89234f6c` immediately before the split from
+`b4b1fb9656` after it. The earlier scheduler, storage and network fixes are present
+in both. The split passes the tested runtime contracts but introduces a substantial
+one-CPU performance regression. It does not reduce aggregate IRQ masking in this
+GCC fixture.
+
+Both versions use the same cross-compiler, guest feature settings and workload
+files. Paired generated `config.h` files and GCC image bytes outside the ESP are
+identical. The baseline worktree uses file-prefix mapping to normalize source
+paths. Runs are sequential QEMU 11.1.1 TCG on the same arm64 macOS host, with fresh
+writable overlays/snapshots, no concurrent builds and no guest profiling. Precise
+accounting remains enabled; sampled accounting, built-in packet capture and lock
+tracking are disabled. Latency probes are OFF for throughput and ON only for the
+separate IRQ measurements. HDD writes remain crippled; this is not a persistence
+test or a physical-hardware qualification.
+
+GCC uses the existing RAM-root quick fixture, q35/SandyBridge and 4 GiB RAM. Two
+boots per version and CPU count run in before/after/after/before order. Values
+below are means of the two runs; with two observations these also equal medians.
+
+| CPUs | Phase | Before guest wall | After guest wall | Change | Before / after host wall |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 1 | Cold GCC | 17.205 s | 18.179 s | +5.7% | 17.220 / 18.193 s |
+| 1 | Warm GCC | 16.058 s | 17.038 s | +6.1% | 16.072 / 17.054 s |
+| 4 | Cold GCC | 18.873 s | 18.471 s | -2.1% | 18.889 / 18.488 s |
+| 4 | Warm GCC | 17.120 s | 16.994 s | -0.7% | 17.136 / 17.007 s |
+
+One-CPU warm ranges are 15.992–16.124 s before and 16.955–17.122 s after.
+Warm system time rises 3.258 → 3.633 s (+11.5%); user time rises
+12.529 → 13.108 s. The unaccounted remainder changes only 0.271 → 0.297 s.
+This is predominantly additional accounted execution, not a new large wall/CPU
+gap. Four-CPU warm ranges overlap (16.811–17.428 / 16.848–17.141 s), so that
+difference is not a demonstrated speedup. Five-second idle controls remain close
+to five seconds; the short CPU controls vary, further limiting interpretation of
+small SMP timing differences. All timed phases have zero block reads and writes.
+
+Separate probe-enabled boots also use two repetitions per version/topology, with
+the second pair reversing order. Warm GCC measurements are:
+
+| CPUs | Before / after IRQ-off CPU-s/s | Before / after machine capacity | Before / after intervals per compile | Before / after mean interval |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 0.136778 / 0.139569 | 13.678% / 13.957% | 8.028M / 9.083M | 322.7 / 304.7 ns |
+| 4 | 0.174543 / 0.180045 | 4.364% / 4.501% | 8.207M / 9.510M | 421.9 / 371.4 ns |
+
+Rates and counts are means across boots; interval durations are weighted by
+completed count. These remain instrumented-kernel measurements: warm probe-enabled
+times are roughly 15–18% longer than the corresponding OFF means. One baseline
+SMP warm snapshot has an open interval at an edge, retaining the boundary error
+described above. None of the measured compiles has a completed IRQ-off interval
+at least 10 ms long. More, shorter intervals do not establish improved aggregate
+duty or a better worst-case latency distribution.
+
+The network comparison uses the existing q35/512 MiB native virtio-net fixture,
+SLIRP and the same localhost HTTP server. Each fresh boot performs two 16 MiB
+warmups, ten small requests, three 64 MiB downloads and three 64 MiB uploads.
+There are two boots per version/topology, reversing version order on the repeat.
+The table averages the two per-boot medians; host packet capture is enabled
+identically in both versions.
+
+| CPUs | Direction | Before | After | Change |
+| --- | --- | ---: | ---: | ---: |
+| 1 | Download | 114.651 Mbit/s | 54.670 Mbit/s | -52.3% |
+| 1 | Upload | 139.501 Mbit/s | 86.237 Mbit/s | -38.2% |
+| 4 | Download | 203.708 Mbit/s | 209.955 Mbit/s | +3.1% |
+| 4 | Upload | 190.166 Mbit/s | 200.491 Mbit/s | +5.4% |
+
+All 48 measured transfers completed without repeated TCP segments or zero-window
+advertisements. One-CPU download ACK turnaround, taking the median of each
+transfer's median, increases 0.632 → 4.411 ms; four-CPU turnaround stays near
+0.349 → 0.357 ms. Upload host ACKs remain fast. The evidence supports slower guest
+service on one CPU, not the earlier packet-loss/retransmission-timeout cliff.
+It does not yet locate the exact scheduling or execution cost responsible.
+
+Source inspection identifies additional IRQ transitions in the new bookkeeping.
+An uncontended IRQ-enabled `NoPreemptSpinlock` pair masks separately in
+`Preemption::disable()`, release's `Preemption::disabled()` ownership check, and
+`Preemption::enable()`. The old lock used one continuous masked interval.
+`Processor::executionContext()` and scheduler/affinity queries now also call the
+masking depth query. Eligible outermost releases call `servicePendingScheduling()`
+even when no request is pending; that path performs two pending-bit CAS operations.
+The counter coalesces nested disables, so these added boundaries are real pulses,
+not double-counted nested masking. The mechanisms explain how counts can rise and
+provide concrete optimization targets; they do not quantify their share of GCC
+cost or prove the cause of the larger network regression. A controlled ablation
+is still needed for that attribution.
+
+All 16 GCC boots passed compilation, execution and anonymous-memory contracts;
+all eight network boots completed. The normal OFF configuration was restored and
+the CMake cache matches its initial contents. Raw logs, commands, payload hashes,
+frozen kernels/images, packet captures and summaries are retained in
+`/private/tmp/pedigree-spinlock-ab`; `summary.json`, `comparison.json` and
+`network/summary.json` contain the derived results. These temporary artifacts
+preserve the evidence, while the two Git revisions identify the source comparison.
+
 ## Demonstrated causes of earlier cliffs
 
 ### GCC and SMP
