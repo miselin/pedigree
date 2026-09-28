@@ -48,7 +48,7 @@ Buffer<T, allowShortOperation>::Buffer(size_t bufferSize)
       m_ReadCondition(),
       m_DrainCondition(),
       m_Segments(),
-      m_MonitorTargets(),
+      m_Monitors(),
       m_bCanRead(true),
       m_bCanWrite(true),
       m_bClosing(false),
@@ -74,15 +74,7 @@ Buffer<T, allowShortOperation>::~Buffer() {
   m_Segments.clear();
   m_DataSize = 0;
 
-  for (auto pTarget : m_MonitorTargets) {
-#if THREADS
-    if (pTarget->pSemaphore) {
-      pTarget->pSemaphore->release();
-    }
-#endif
-    delete pTarget;
-  }
-  m_MonitorTargets.clear();
+  m_Monitors.clear();
   m_Lock.release();
 }
 
@@ -613,11 +605,7 @@ void Buffer<T, allowShortOperation>::monitor(Thread* pThread, Event* pEvent) {
 
 #if THREADS
   LockGuard<Mutex> guard(m_Lock);
-  Event::SendLease registration;
-  if (pEvent->tryAcquireRegistration(registration)) {
-    MonitorTarget* pTarget = new MonitorTarget(pThread, pEvent, pedigree_std::move(registration));
-    m_MonitorTargets.pushBack(pTarget);
-  }
+  m_Monitors.add(pThread, pEvent);
 #endif
 }
 
@@ -630,8 +618,7 @@ void Buffer<T, allowShortOperation>::monitor(Semaphore* pSemaphore) {
 
 #if THREADS
   LockGuard<Mutex> guard(m_Lock);
-  MonitorTarget* pTarget = new MonitorTarget(pSemaphore);
-  m_MonitorTargets.pushBack(pTarget);
+  m_Monitors.add(pSemaphore);
 #endif
 }
 
@@ -644,17 +631,7 @@ void Buffer<T, allowShortOperation>::cullMonitorTargets(Thread* pThread) {
 
 #if THREADS
   LockGuard<Mutex> guard(m_Lock);
-  for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end(); ++it) {
-    MonitorTarget* pMT = *it;
-
-    if (pMT->pThread == pThread) {
-      delete pMT;
-      m_MonitorTargets.erase(it);
-      it = m_MonitorTargets.begin();
-      if (it == m_MonitorTargets.end())
-        return;
-    }
-  }
+  m_Monitors.cull(pThread);
 #endif
 }
 
@@ -667,16 +644,7 @@ void Buffer<T, allowShortOperation>::cullMonitorTargets(Semaphore* pSemaphore) {
 
 #if THREADS
   LockGuard<Mutex> guard(m_Lock);
-  for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end();) {
-    MonitorTarget* pMT = *it;
-
-    if (pMT->pSemaphore == pSemaphore) {
-      delete pMT;
-      it = m_MonitorTargets.erase(it);
-    } else {
-      ++it;
-    }
-  }
+  m_Monitors.cull(pSemaphore);
 #endif
 }
 
@@ -689,16 +657,7 @@ void Buffer<T, allowShortOperation>::cullMonitorTargets(Event* pEvent) {
 
 #if THREADS
   LockGuard<Mutex> guard(m_Lock);
-  for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end();) {
-    MonitorTarget* pMT = *it;
-
-    if (pMT->pEvent == pEvent) {
-      delete pMT;
-      it = m_MonitorTargets.erase(it);
-    } else {
-      ++it;
-    }
-  }
+  m_Monitors.cull(pEvent);
 #endif
 }
 
@@ -718,18 +677,7 @@ void Buffer<T, allowShortOperation>::notifyMonitors() {
 template <class T, bool allowShortOperation>
 void Buffer<T, allowShortOperation>::notifyMonitorsLocked() {
 #if THREADS
-  for (typename List<MonitorTarget*>::Iterator it = m_MonitorTargets.begin();
-       it != m_MonitorTargets.end(); it++) {
-    MonitorTarget* pMT = *it;
-
-    if (pMT->pThread) {
-      pMT->pThread->sendEvent(pMT->pEvent);
-    } else if (pMT->pSemaphore) {
-      pMT->pSemaphore->release();
-    }
-    delete pMT;
-  }
-  m_MonitorTargets.clear();
+  m_Monitors.notify();
 #endif
 }
 

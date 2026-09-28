@@ -26,6 +26,7 @@
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/BufferMonitors.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
 
@@ -248,26 +249,6 @@ class EXPORTED_PUBLIC Buffer {
     size_t size;
   };
 
-  /**
-   * Contains information about a particular target to send events to.
-   */
-  struct MonitorTarget {
-    MonitorTarget() : pThread(0), pEvent(0), pSemaphore(0), eventRegistration() {}
-
-    MonitorTarget(Thread* thread, Event* event, Event::SendLease registration)
-        : pThread(thread),
-          pEvent(event),
-          pSemaphore(0),
-          eventRegistration(pedigree_std::move(registration)) {}
-
-    MonitorTarget(Semaphore* sem) : pThread(0), pEvent(0), pSemaphore(sem), eventRegistration() {}
-
-    Thread* pThread;
-    Event* pEvent;
-    Semaphore* pSemaphore;
-    Event::SendLease eventRegistration;
-  };
-
   size_t m_BufferSize;
   size_t m_DataSize;
   Atomic<uint64_t> m_ReadableGeneration;
@@ -280,7 +261,7 @@ class EXPORTED_PUBLIC Buffer {
   ConditionVariable m_DrainCondition;
 
   List<Segment*> m_Segments;
-  List<MonitorTarget*> m_MonitorTargets;
+  BufferMonitors m_Monitors;
 
   bool m_bCanRead;
   bool m_bCanWrite;

@@ -115,6 +115,7 @@ endif ()
 set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/BloomFilter.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Buffer.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/BufferMonitors.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cache.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cache-discard.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/utilities/Cord.cc

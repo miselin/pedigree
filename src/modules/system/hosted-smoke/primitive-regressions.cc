@@ -20,6 +20,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Buffer.h"
+#include "pedigree/kernel/utilities/Mailbox.h"
 #include "pedigree/kernel/utilities/MemoryPool.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/RingBuffer.h"
@@ -801,6 +802,164 @@ bool ringBufferCloseAndDrain() {
   return passed;
 }
 
+bool runRingBufferTerminalCase(RingBufferCloseContext::Operation operation, bool fill) {
+  RingBuffer<char>* buffer = new RingBuffer<char>(1);
+  bool passed = true;
+  if (fill) {
+    passed &= buffer->write('a') == RingBuffer<char>::NoError;
+  }
+
+  RingBufferCloseContext context(buffer, operation);
+  Thread* waiter = new Thread(Scheduler::instance().getKernelProcess(),
+                              runBlockingRingBufferOperation, &context, nullptr, false, true);
+  waiter->setName("hosted RingBuffer terminal waiter");
+  const bool queued = waitUntilQueued(waiter, Thread::CondWait);
+
+  waiter->setUnwindState(Thread::TerminateThread);
+  const bool joined = waiter->join();
+  delete buffer;
+
+  return passed && context.entered == 1 && queued && joined && context.returned == 1 &&
+         context.succeeded == 0 && context.error == RingBuffer<char>::ThreadTerminating;
+}
+
+bool ringBufferTerminalDrain() {
+  bool passed = true;
+  passed &=
+      check(runRingBufferTerminalCase(RingBufferCloseContext::Read, false),
+            "ringbuffer-terminal-drain", "a terminated blocking read retained an active operation");
+  passed &= check(runRingBufferTerminalCase(RingBufferCloseContext::Write, true),
+                  "ringbuffer-terminal-drain",
+                  "a terminated blocking write retained an active operation");
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS ringbuffer-terminal-drain");
+  }
+  return passed;
+}
+
+struct MailboxWaitContext {
+  enum Operation { Read, Write, Final };
+
+  MailboxWaitContext(Mailbox<char, 2>* mailbox, Operation operation, char value)
+      : mailbox(mailbox), operation(operation), value(value), returned(0), succeeded(0) {}
+
+  Mailbox<char, 2>* mailbox;
+  Operation operation;
+  char value;
+  Atomic<size_t> returned;
+  Atomic<size_t> succeeded;
+};
+
+int runMailboxWaiter(void* parameter) {
+  MailboxWaitContext* context = reinterpret_cast<MailboxWaitContext*>(parameter);
+  Time::Timestamp timeout = Time::Infinity;
+  if (context->operation == MailboxWaitContext::Read) {
+    Mailbox<char, 2>::Error error = Mailbox<char, 2>::NoError;
+    context->succeeded = context->mailbox->read(context->value, timeout, error) ? 1 : 0;
+  } else if (context->operation == MailboxWaitContext::Write) {
+    context->succeeded =
+        context->mailbox->write(context->value, timeout) == Mailbox<char, 2>::NoError ? 1 : 0;
+  } else {
+    context->succeeded = context->mailbox->closeWritesWithFinal(context->value) ? 1 : 0;
+  }
+  context->returned += 1;
+  return 0;
+}
+
+bool runMailboxBatchWakeCase(bool writers) {
+  Mailbox<char, 2> mailbox(2);
+  char values[] = {'a', 'b'};
+  Time::Timestamp timeout = 500 * Time::Multiplier::Millisecond;
+  bool passed = !writers || mailbox.write(values, 2, timeout) == 2;
+  const MailboxWaitContext::Operation operation =
+      writers ? MailboxWaitContext::Write : MailboxWaitContext::Read;
+  MailboxWaitContext contexts[] = {{&mailbox, operation, 'c'}, {&mailbox, operation, 'd'}};
+  Thread* waiters[2];
+  bool queued = true;
+  for (size_t i = 0; i < 2; ++i) {
+    waiters[i] = new Thread(Scheduler::instance().getKernelProcess(), runMailboxWaiter,
+                            &contexts[i], nullptr, false, true);
+    waiters[i]->setName("hosted Mailbox batch waiter");
+    queued &= waitUntilQueued(waiters[i], Thread::CondWait);
+  }
+
+  timeout = 500 * Time::Multiplier::Millisecond;
+  const size_t transferred =
+      writers ? mailbox.read(values, 2, timeout) : mailbox.write(values, 2, timeout);
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while ((!contexts[0].returned || !contexts[1].returned) && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+  const bool completed = contexts[0].returned == 1 && contexts[1].returned == 1;
+
+  // Close only after measuring progress, so it cannot hide a missed batch wake.
+  mailbox.close();
+  for (Thread* waiter : waiters) {
+    passed &= waiter->join();
+  }
+  if (writers) {
+    for (char& value : values) {
+      passed &= mailbox.takeAfterClose(value);
+    }
+  } else {
+    values[0] = contexts[0].value;
+    values[1] = contexts[1].value;
+  }
+  const char first = writers ? 'c' : 'a';
+  const char second = writers ? 'd' : 'b';
+  return passed && queued && transferred == 2 && completed && contexts[0].succeeded == 1 &&
+         contexts[1].succeeded == 1 &&
+         ((values[0] == first && values[1] == second) ||
+          (values[0] == second && values[1] == first));
+}
+
+bool mailboxBatchWake() {
+  bool passed = true;
+  passed &= check(runMailboxBatchWakeCase(false), "mailbox-batch-wake",
+                  "one batch publication did not wake both queued readers");
+  passed &= check(runMailboxBatchWakeCase(true), "mailbox-batch-wake",
+                  "one batch removal did not wake both queued writers");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS mailbox-batch-wake");
+  }
+  return passed;
+}
+
+bool mailboxPendingFinal() {
+  Mailbox<char, 2> mailbox(2);
+  const char initial[] = {'a', 'b'};
+  Time::Timestamp timeout = 500 * Time::Multiplier::Millisecond;
+  bool passed = mailbox.write(initial, 2, timeout) == 2;
+  MailboxWaitContext context(&mailbox, MailboxWaitContext::Final, 'z');
+  Thread* closer = new Thread(Scheduler::instance().getKernelProcess(), runMailboxWaiter, &context,
+                              nullptr, false, true);
+  closer->setName("hosted Mailbox pending final");
+  const bool queued = waitUntilQueued(closer, Thread::CondWait);
+
+  char values[2] = {};
+  timeout = 500 * Time::Multiplier::Millisecond;
+  const size_t received = mailbox.read(values, 2, timeout);
+  char final = 0;
+  Mailbox<char, 2>::Error error = Mailbox<char, 2>::NoError;
+  timeout = 500 * Time::Multiplier::Millisecond;
+  const bool receivedFinal = mailbox.read(final, timeout, error);
+  char extra = 0;
+  Time::Timestamp zero = 0;
+  const bool reachedEnd = !mailbox.read(extra, zero, error) && error == Mailbox<char, 2>::Closed;
+  mailbox.close();
+  const bool joined = closer->join();
+
+  passed &= check(queued && received == 2 && values[0] == 'a' && values[1] == 'b' &&
+                      receivedFinal && final == 'z' && reachedEnd && joined &&
+                      context.returned == 1 && context.succeeded == 1,
+                  "mailbox-pending-final", "a full queue exposed EOF before its final item");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS mailbox-pending-final");
+  }
+  return passed;
+}
+
 struct BufferCloseContext {
   enum Operation {
     Read,
@@ -1191,5 +1350,6 @@ bool runHostedPrimitiveRegressions(Thread* thread) {
 }
 
 bool runHostedRingBufferRegressions() {
-  return ringBufferCloseAndDrain();
+  return ringBufferCloseAndDrain() && ringBufferTerminalDrain() && mailboxBatchWake() &&
+         mailboxPendingFinal();
 }

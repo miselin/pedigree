@@ -479,6 +479,7 @@ set(KERNEL_SRCS
     # /utilities/
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/BloomFilter.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Buffer.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/utilities/BufferMonitors.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Cache.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Cache-discard.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Cord.cc

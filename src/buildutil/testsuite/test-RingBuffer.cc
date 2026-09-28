@@ -19,14 +19,58 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include "pedigree/kernel/utilities/Mailbox.h"
 #include "pedigree/kernel/utilities/RingBuffer.h"
+#include "pedigree/kernel/utilities/RingQueue.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <thread>
 
 #include <gtest/gtest.h>
+
+TEST(PedigreeRingQueue, BatchWrapAndCapacity) {
+  RingQueue<int, 4> queue(3);
+  const int first[] = {1, 2, 3, 4};
+  EXPECT_EQ(queue.capacity(), 3U);
+  EXPECT_EQ(queue.push(first, 4), 3U);
+  EXPECT_EQ(queue.count(), 3U);
+  EXPECT_EQ(queue.push(first, 1), 0U);
+
+  int output[4] = {};
+  EXPECT_EQ(queue.pop(output, 2), 2U);
+  EXPECT_EQ(output[0], 1);
+  EXPECT_EQ(output[1], 2);
+
+  const int second[] = {4, 5, 6};
+  EXPECT_EQ(queue.push(second, 3), 2U);
+  EXPECT_EQ(queue.pop(output, 4), 3U);
+  EXPECT_EQ(output[0], 3);
+  EXPECT_EQ(output[1], 4);
+  EXPECT_EQ(output[2], 5);
+  EXPECT_EQ(queue.count(), 0U);
+  EXPECT_EQ(queue.pop(output, 1), 0U);
+}
+
+TEST(PedigreeMailbox, FinalCloseBulkReadReturnsPartialWithoutWaiting) {
+  using FixedMailbox = Mailbox<char, 4>;
+  FixedMailbox mailbox(4);
+  ASSERT_EQ(mailbox.tryWrite('a'), FixedMailbox::NoError);
+  ASSERT_TRUE(mailbox.closeWritesWithFinal('z'));
+
+  char output[4] = {};
+  Time::Timestamp timeout = 500 * Time::Multiplier::Millisecond;
+  EXPECT_EQ(mailbox.read(output, 4, timeout), 2U);
+  EXPECT_EQ(output[0], 'a');
+  EXPECT_EQ(output[1], 'z');
+  EXPECT_EQ(timeout, 500 * Time::Multiplier::Millisecond);
+
+  FixedMailbox::Error error = FixedMailbox::NoError;
+  EXPECT_FALSE(mailbox.read(output[0], timeout, error));
+  EXPECT_EQ(error, FixedMailbox::Closed);
+}
 
 TEST(PedigreeRingBuffer, ReadEmpty) {
   RingBuffer<char> buffer(32768);
@@ -147,6 +191,88 @@ TEST(PedigreeRingBuffer, TryWriteRacesCloseSafely) {
                 writeResult == RingBuffer<char>::Closed);
     EXPECT_EQ(buffer.tryWrite('b'), RingBuffer<char>::Closed);
   }
+}
+
+TEST(PedigreeRingBuffer, MultipleProducersAndConsumers) {
+  using FixedRing = RingBuffer<size_t, 2>;
+  constexpr size_t perProducer = 32;
+  constexpr size_t total = 2 * perProducer;
+  FixedRing buffer(2);
+  std::atomic<size_t> seen[total];
+  for (auto& count : seen) {
+    count.store(0);
+  }
+  std::atomic<bool> start(false);
+  std::atomic<bool> failed(false);
+  ASSERT_EQ(buffer.tryWrite(0), FixedRing::NoError);
+
+  std::thread producers[2];
+  std::thread consumers[2];
+  for (size_t worker = 0; worker < 2; ++worker) {
+    producers[worker] = std::thread([&, worker]() {
+      while (!start.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      Time::Timestamp timeout = 2 * Time::Multiplier::Second;
+      const size_t count = worker + 1;
+      for (size_t i = worker == 0 ? 1 : 0; i < perProducer && !failed.load(); i += count) {
+        const size_t values[] = {worker * perProducer + i, worker * perProducer + i + 1};
+        const size_t written =
+            worker == 0 ? (buffer.write(values[0], timeout) == FixedRing::NoError ? 1 : 0)
+                        : buffer.write(values, count, timeout);
+        if (written != count) {
+          failed.store(true);
+        }
+      }
+    });
+    consumers[worker] = std::thread([&, worker]() {
+      if (worker != 0) {
+        while (!start.load(std::memory_order_acquire)) {
+          std::this_thread::yield();
+        }
+      }
+      Time::Timestamp timeout = 2 * Time::Multiplier::Second;
+      const size_t count = 2 - worker;
+      for (size_t i = 0; i < perProducer && !failed.load(); i += count) {
+        size_t values[2] = {};
+        FixedRing::Error error = FixedRing::NoError;
+        const size_t received = worker == 0 ? buffer.read(values, count, timeout)
+                                            : (buffer.read(values[0], timeout, error) ? 1 : 0);
+        if (received != count) {
+          failed.store(true);
+          break;
+        }
+        for (size_t j = 0; j < received; ++j) {
+          if (values[j] >= total) {
+            failed.store(true);
+          } else {
+            seen[values[j]].fetch_add(1);
+          }
+        }
+      }
+    });
+  }
+
+  // The first bulk read consumes the preloaded item and must wait for its second.
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (buffer.dataReady() && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::yield();
+  }
+  const bool bulkReadStarted = !buffer.dataReady();
+  start.store(true, std::memory_order_release);
+  for (auto& producer : producers) {
+    producer.join();
+  }
+  for (auto& consumer : consumers) {
+    consumer.join();
+  }
+
+  EXPECT_TRUE(bulkReadStarted);
+  EXPECT_FALSE(failed.load());
+  for (const auto& count : seen) {
+    EXPECT_EQ(count.load(), 1U);
+  }
+  EXPECT_FALSE(buffer.dataReady());
 }
 
 TEST(PedigreeRingBuffer, Overflow) {
