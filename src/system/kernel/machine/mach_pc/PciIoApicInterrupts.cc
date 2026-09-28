@@ -68,7 +68,7 @@ bool PciIoApicInterrupts::containsGsi(uint32_t gsi) const {
 }
 
 bool PciIoApicInterrupts::reserveGsi(uint32_t gsi, bool activeLow) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (!m_Ready || m_ShuttingDown) {
     return false;
   }
@@ -106,7 +106,7 @@ bool PciIoApicInterrupts::shutdownThreaded() {
   }
   bool masked = true;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     m_ShuttingDown = true;
     for (Line& line : m_Lines) {
       if (line.used && line.controller && !line.controller->mask(line.gsi, true)) {
@@ -175,7 +175,7 @@ irq_id_t PciIoApicInterrupts::registerHandler(Device* device, IrqHandlerBase* ha
     return 0;
   }
 
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (m_ShuttingDown) {
     return 0;
   }
@@ -234,7 +234,7 @@ bool PciIoApicInterrupts::unregisterHandler(irq_id_t id, IrqHandlerBase* handler
   size_t cookie = 0;
   bool last = false;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     Line& line = m_Lines[slot];
     if (!line.handlers || line.removing || !line.controller ||
         !m_Handlers.containsHandler(id, handler) || !line.controller->mask(line.gsi, true)) {
@@ -251,7 +251,7 @@ bool PciIoApicInterrupts::unregisterHandler(irq_id_t id, IrqHandlerBase* handler
   }
   const auto result = m_Handlers.unregisterHandler(id, handler);
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     Line& line = m_Lines[slot];
     if (last) {
       line.inFlight = false;
@@ -282,7 +282,7 @@ void PciIoApicInterrupts::enable(irq_id_t id, bool enabled) {
   if (!contains(id)) {
     return;
   }
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   Line& line = m_Lines[id - FirstVector];
   if (!line.handlers || line.removing || line.quarantined || m_ShuttingDown) {
     return;
@@ -303,7 +303,7 @@ void PciIoApicInterrupts::interrupt(size_t vector, InterruptState& state) {
   bool published = false;
   IrqHandlerRegistry::AdmissionCutoff cutoff = {};
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     Line& line = m_Lines[slot];
     if (line.controller) {
       if (!line.controller->mask(line.gsi, true)) {
@@ -342,7 +342,7 @@ void PciIoApicInterrupts::interrupt(size_t vector, InterruptState& state) {
   const bool admitted =
       m_Handlers.dispatchHard(vector, state, disposition, nullptr, cookie, cutoff);
   Pc::instance().getLocalApic().ack();
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   Line& line = m_Lines[slot];
   if (line.cookie != cookie) {
     return;
@@ -365,7 +365,7 @@ void PciIoApicInterrupts::dispatchThreaded(void* context, uint8_t slot, size_t c
   const uint8_t vector = FirstVector + slot;
   IrqHandlerRegistry::ThreadedDispatchResult result = {};
   const bool admitted = self.m_Handlers.dispatchThreaded(vector, cookie, result);
-  LockGuard<Spinlock> guard(self.m_Lock);
+  LockGuard<NoIrqSpinlock> guard(self.m_Lock);
   Line& line = self.m_Lines[slot];
   if (line.cookie != cookie) {
     return;

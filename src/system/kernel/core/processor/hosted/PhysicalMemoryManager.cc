@@ -122,7 +122,7 @@ ssize_t tryAllocationFailure = -1;
 }
 void PhysicalMemoryManager::setTryAllocationFailureForTest(ssize_t after) {
   auto& memory = HostedPhysicalMemoryManager::instance();
-  RecursingLockGuard<Spinlock> guard(memory.m_Lock);
+  RecursingLockGuard<NoIrqSpinlock> guard(memory.m_Lock);
   tryAllocationFailure = after;
 }
 #endif
@@ -167,7 +167,7 @@ physical_uintptr_t HostedPhysicalMemoryManager::tryAllocatePage() {
 
 PhysicalMemoryManager::MemorySnapshot HostedPhysicalMemoryManager::memorySnapshot() const {
   auto& self = *const_cast<HostedPhysicalMemoryManager*>(this);
-  RecursingLockGuard<Spinlock> guard(self.m_Lock);
+  RecursingLockGuard<NoIrqSpinlock> guard(self.m_Lock);
   return {m_PageStack.totalPages(), m_PageStack.freePages(), true};
 }
 
@@ -182,7 +182,7 @@ bool HostedPhysicalMemoryManager::copyPhysicalPageFromBuffer(physical_uintptr_t 
 }
 
 void HostedPhysicalMemoryManager::freePage(physical_uintptr_t page) {
-  RecursingLockGuard<Spinlock> guard(m_Lock);
+  RecursingLockGuard<NoIrqSpinlock> guard(m_Lock);
 
   freePageUnlocked(page);
 }
@@ -224,7 +224,7 @@ void HostedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {
 }
 
 void HostedPhysicalMemoryManager::pin(physical_uintptr_t page) {
-  RecursingLockGuard<Spinlock> guard(m_Lock);
+  RecursingLockGuard<NoIrqSpinlock> guard(m_Lock);
 
   PageHashable index(page);
   MetadataTable::LookupResult result = m_PageMetadata.lookup(index);
@@ -247,7 +247,7 @@ size_t PhysicalMemoryManager::pageReferenceCountForTest(physical_uintptr_t page)
 }
 
 size_t HostedPhysicalMemoryManager::pageReferenceCountForTestImpl(physical_uintptr_t page) {
-  RecursingLockGuard<Spinlock> guard(m_Lock);
+  RecursingLockGuard<NoIrqSpinlock> guard(m_Lock);
 
   if (page >= HOSTED_PHYSICAL_MEMORY_SIZE) {
     return 0;
@@ -269,7 +269,7 @@ size_t HostedPhysicalMemoryManager::pageReferenceCountForTestImpl(physical_uintp
 bool HostedPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t cPages,
                                                  size_t pageConstraints, size_t Flags,
                                                  physical_uintptr_t start) {
-  LockGuard<Spinlock> guard(m_RegionLock);
+  LockGuard<NoIrqSpinlock> guard(m_RegionLock);
 
   // Allocate a specific physical memory region (always physically continuous)
   if (start != static_cast<physical_uintptr_t>(-1)) {
@@ -470,7 +470,7 @@ HostedPhysicalMemoryManager::~HostedPhysicalMemoryManager() {
 }
 
 void HostedPhysicalMemoryManager::unmapRegion(MemoryRegion* pRegion) {
-  LockGuard<Spinlock> guard(m_RegionLock);
+  LockGuard<NoIrqSpinlock> guard(m_RegionLock);
 
   for (Vector<MemoryRegion*>::Iterator it = PhysicalMemoryManager::m_MemoryRegions.begin();
        it != PhysicalMemoryManager::m_MemoryRegions.end(); it++) {

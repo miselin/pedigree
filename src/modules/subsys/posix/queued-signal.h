@@ -130,7 +130,8 @@ class PosixTimerSignalToken {
                                       const SharedPointer<PosixTimerSignalToken>&);
   friend void posix_signal_reset_timer(Process*, const SharedPointer<PosixTimerSignalToken>&);
   friend void posix_signal_cancel_timer(Process*, const SharedPointer<PosixTimerSignalToken>&);
-  Spinlock m_Lock;
+  // Some timer backends dispatch their callbacks directly from interrupt context.
+  NoIrqSpinlock m_Lock;
   bool m_Active, m_Pending;
   uint64_t m_Generation, m_Expirations;
   int32_t m_DeliveredOverrun;

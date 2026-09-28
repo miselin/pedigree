@@ -258,9 +258,9 @@ class SlamCache {
    * Protects slab-list transitions and the slow paths. Recovery quiesces the
    * lock-free fast path before inspecting or reclaiming slabs.
    */
-  Spinlock m_RecoveryLock;
+  NoIrqSpinlock m_RecoveryLock;
 #if BITS_32
-  Spinlock m_FreeLock;
+  NoIrqSpinlock m_FreeLock;
 #endif
 
   /** Pointer back to the associated SlamAllocator. */
@@ -390,7 +390,7 @@ class SlamAllocator {
 
   bool m_bVigilant;
 
-  mutable Spinlock m_SlabRegionLock;
+  mutable NoIrqSpinlock m_SlabRegionLock;
 
   size_t m_HeapPageCount;
 
@@ -405,7 +405,7 @@ class SlamAllocator {
   void* m_SlabTransitionHookContext = nullptr;
 #endif
 
-  Spinlock m_Lock;
+  NoIrqSpinlock m_Lock;
 };
 
 #endif

@@ -132,7 +132,7 @@ void VirtTimer::uninitialise() {
   }
   m_Handlers.reset();
   {
-    LockGuard<Spinlock> guard(m_AlarmLock);
+    LockGuard<NoIrqSpinlock> guard(m_AlarmLock);
     for (List<Alarm*>::Iterator it = m_Alarms.begin(); it != m_Alarms.end(); ++it) {
       delete *it;
     }
@@ -258,7 +258,7 @@ bool VirtTimer::unregisterHandler(TimerHandler* handler) {
 }
 
 void VirtTimer::addAlarm(Event* event, size_t seconds, size_t microseconds) {
-  LockGuard<Spinlock> guard(m_AlarmLock);
+  LockGuard<NoIrqSpinlock> guard(m_AlarmLock);
   uint64_t deadline = getTickCountNano();
   deadline = addDuration(deadline, seconds, Time::Multiplier::Second);
   deadline = addDuration(deadline, microseconds, Time::Multiplier::Microsecond);
@@ -270,7 +270,7 @@ void VirtTimer::removeAlarm(Event* event) {
 }
 
 size_t VirtTimer::removeAlarm(Event* event, bool returnZero) {
-  LockGuard<Spinlock> guard(m_AlarmLock);
+  LockGuard<NoIrqSpinlock> guard(m_AlarmLock);
   for (List<Alarm*>::Iterator it = m_Alarms.begin(); it != m_Alarms.end(); ++it) {
     Alarm* alarm = *it;
     if (alarm->event != event) {

@@ -17,6 +17,7 @@
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Preemption.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -61,7 +62,7 @@ void Thread::initialisePlacement(const ThreadPlacement* placement) {
 }
 
 void Thread::snapshotPlacement(ThreadPlacement& placement) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   snapshotPlacementLocked(placement);
 }
 
@@ -83,7 +84,7 @@ AffinityResult Thread::requestAffinity(const CpuAffinityMask& requested, uint64_
   bool threadPinned = false;
   {
     auto progress = m_AffinityWaiters.acquire();
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     if (m_bShutdown || getUnwindState() != Continue || m_Status == AwaitingJoin ||
         m_Status == Zombie)
       return AffinityResult::Terminal;
@@ -140,7 +141,7 @@ AffinityResult Thread::waitAffinity(uint64_t generation) {
   while (true) {
     auto progress = m_AffinityWaiters.acquire();
     {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
       if (generation > m_AffinityGeneration)
         return AffinityResult::Invalid;
       if (generation <= m_AffinityCompleted)
@@ -155,10 +156,13 @@ AffinityResult Thread::waitAffinity(uint64_t generation) {
 }
 
 AffinityResult Thread::completeAffinityAtSafePoint(bool* waited) {
+  if (Preemption::disabled()) {
+    FATAL_NOLOCK("Cannot migrate with preemption disabled.");
+  }
   Processor::setInterrupts(false);
   if (Processor::getCount() > 1 && !affinityWorkPending() && !m_nStateLevel &&
       m_pParent->getSubsystem() && m_pParent->getSubsystem()->canBalanceAtUserReturn()) {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     PerProcessorScheduler* owner = getScheduler();
     if (m_Placement.migratable && !m_AffinityWorkQueued && !m_bShutdown &&
         getUnwindState() == Continue && owner->m_pSchedulingAlgorithm->hasReady()) {
@@ -201,7 +205,7 @@ AffinityResult Thread::completeAffinityAtSafePoint(bool* waited) {
     {
       auto progress = m_AffinityWaiters.acquire();
       {
-        LockGuard<Spinlock> guard(m_Lock);
+        LockGuard<NoIrqSpinlock> guard(m_Lock);
         if (!m_AffinityGatePending) {
           owner = getScheduler();
           assert(owner);
@@ -275,7 +279,7 @@ AffinityResult Thread::completeAffinityAtSafePoint(bool* waited) {
 void Thread::publishReadyNotification() {
   PerProcessorScheduler* owner = nullptr;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     assert(m_ReadyPublicationPending);
     __atomic_store_n(&m_ReadyPublicationPending, false, __ATOMIC_RELEASE);
     if (m_Status == Ready) {
@@ -290,7 +294,7 @@ void Thread::publishReadyNotification() {
 }
 
 bool PerProcessorScheduler::enqueueAffinity(Thread* thread, bool accepted) {
-  LockGuard<Spinlock> guard(m_AffinityQueueLock);
+  LockGuard<NoIrqSpinlock> guard(m_AffinityQueueLock);
   if (!m_AffinityAdmissionOpen && !accepted)
     return false;
   assert(!thread->m_AffinityNext);
@@ -331,7 +335,7 @@ void PerProcessorScheduler::drainAffinityRequests() {
   for (size_t i = 0; i < batch; ++i) {
     Thread* thread = nullptr;
     {
-      LockGuard<Spinlock> guard(m_AffinityQueueLock);
+      LockGuard<NoIrqSpinlock> guard(m_AffinityQueueLock);
       thread = m_AffinityHead;
       if (!thread)
         break;
@@ -351,7 +355,7 @@ void PerProcessorScheduler::drainAffinityRequests() {
     {
       auto progress = thread->m_AffinityWaiters.acquire();
       {
-        LockGuard<Spinlock> guard(thread->m_Lock);
+        LockGuard<NoIrqSpinlock> guard(thread->m_Lock);
         assert(thread->m_AffinityWorkQueued && thread->getScheduler() == this);
         assert(thread != Processor::information().getCurrentThread());
         const bool terminal = m_StopTimeAccountingWorker.value() || thread->m_bShutdown ||

@@ -519,7 +519,7 @@ bool Ehci::initialiseController() {
 
   // Hold recovery until every initially queued root port has had a chance.
   {
-    LockGuard<Spinlock> startupGuard(m_StartupLock);
+    LockGuard<NoPreemptSpinlock> startupGuard(m_StartupLock);
     m_Startup.enableRecovery(m_Handoff.wasBiosOwned());
     m_InitialPortMask = (1U << m_nPorts) - 1;
     if (m_InitialPortMask && !m_Startup.begin())
@@ -603,7 +603,7 @@ void Ehci::shutdownController() {
     return;
   m_ControllerStopped = true;
   {
-    LockGuard<Spinlock> startupGuard(m_StartupLock);
+    LockGuard<NoPreemptSpinlock> startupGuard(m_StartupLock);
     m_Startup.close();
   }
   // Quiesce only the port producer first. Transfer completion IRQs and the
@@ -733,7 +733,7 @@ void Ehci::shutdownController() {
 
       if (m_QHBitmap.test(0)) {
         QH* dummy = &m_pQHList[0];
-        LockGuard<Spinlock> queueGuard(m_QueueListChangeLock);
+        LockGuard<NoIrqSpinlock> queueGuard(m_QueueListChangeLock);
         dummy->pNext = m_pQHListPhys >> 5;
         dummy->nNextType = 1;
         if (dummy->pMetaData) {
@@ -1641,7 +1641,7 @@ bool Ehci::doAsync(uintptr_t nTransaction, void (*pCallback)(uintptr_t, ssize_t)
   QH* pOldTail = m_pCurrentQueueTail;
 
   {
-    LockGuard<Spinlock> queueGuard(m_QueueListChangeLock);
+    LockGuard<NoIrqSpinlock> queueGuard(m_QueueListChangeLock);
 
     // Arming is the final software transition before the old tail makes the
     // QH visible to the controller. There are no fallible paths after it.
@@ -1699,7 +1699,7 @@ void Ehci::cancelAsyncAndDrain(uintptr_t nTransaction, void (*pCallback)(uintptr
               metadata->completion.claimCancellation(pCallback, pParam, -TransactionError, claim);
           if (disposition == UsbHcd::TransferCompletion::CancellationDisposition::Claimed) {
             if (!metadata->bIgnore) {
-              LockGuard<Spinlock> queueGuard(m_QueueListChangeLock);
+              LockGuard<NoIrqSpinlock> queueGuard(m_QueueListChangeLock);
               QH* pPrev = metadata->pPrev;
               QH* pNext = metadata->pNext;
               if (pPrev && pNext) {

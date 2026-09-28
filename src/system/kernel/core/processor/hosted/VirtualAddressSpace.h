@@ -243,9 +243,9 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace {
   /** Is this the kernel space? */
   bool m_bKernelSpace;
   /** Lock to guard against multiprocessor reentrancy. */
-  Spinlock m_Lock;
+  NoIrqSpinlock m_Lock;
   /** Lock to guard against multiprocessor reentrancy for stack reuse. */
-  Spinlock m_StacksLock;
+  NoIrqSpinlock m_StacksLock;
   /** Tracks the current mappings made in this address space. */
   mapping_t* m_pKnownMaps;
   HostedMappingIndex m_MappingIndex;

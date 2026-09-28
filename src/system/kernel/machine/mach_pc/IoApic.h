@@ -46,7 +46,7 @@ class IoApic {
 
   /** The I/O APIC memory-mapped I/O space */
   MemoryMappedIo m_IoSpace;
-  Spinlock m_Lock;
+  NoIrqSpinlock m_Lock;
   uint32_t m_GsiBase;
   uint32_t m_Count;
 };

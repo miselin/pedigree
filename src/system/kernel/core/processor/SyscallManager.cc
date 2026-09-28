@@ -142,7 +142,7 @@ bool SyscallManager::closeHandler(Registration& registration) {
     return false;
   }
 
-  LockGuard<Spinlock> guard(m_HandlerLock);
+  LockGuard<NoPreemptSpinlock> guard(m_HandlerLock);
   if (m_HandlerSlots[registration.m_Service] != registration.m_pSlot) {
     return false;
   }
@@ -179,8 +179,8 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
   if (!canYield) {
     // Take membership protection before publishing Closing: a reader may
     // already hold this lock, and must never spin while its remover needs it.
-    RecursingLockGuard<Spinlock> registry(scheduler.m_SchedulerLock);
-    LockGuard<Spinlock> guard(m_HandlerLock);
+    RecursingLockGuard<NoIrqSpinlock> registry(scheduler.m_SchedulerLock);
+    LockGuard<NoPreemptSpinlock> guard(m_HandlerLock);
     if (m_HandlerSlots[service] != slot) {
       return false;
     }
@@ -194,7 +194,7 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
     m_HandlerSlots[service] = nullptr;
   } else {
     {
-      LockGuard<Spinlock> guard(m_HandlerLock);
+      LockGuard<NoPreemptSpinlock> guard(m_HandlerLock);
       if (m_HandlerSlots[service] != slot) {
         return false;
       }
@@ -206,7 +206,7 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
     while (true) {
       bool active;
       {
-        RecursingLockGuard<Spinlock> registry(scheduler.m_SchedulerLock);
+        RecursingLockGuard<NoIrqSpinlock> registry(scheduler.m_SchedulerLock);
         active = scheduler.hasActiveSyscallLocked(service);
       }
       if (!active) {
@@ -214,7 +214,7 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
       }
       scheduler.yield();
     }
-    LockGuard<Spinlock> guard(m_HandlerLock);
+    LockGuard<NoPreemptSpinlock> guard(m_HandlerLock);
     m_HandlerSlots[service] = nullptr;
   }
   delete slot;

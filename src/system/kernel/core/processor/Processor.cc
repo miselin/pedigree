@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/process/Preemption.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -117,7 +118,8 @@ ExecutionContext ProcessorBase::executionContext() {
     return explicitContext;
   }
 
-  return getInterrupts() ? ExecutionContext::WaitableThread : ExecutionContext::AtomicThread;
+  return getInterrupts() && !Preemption::disabled() ? ExecutionContext::WaitableThread
+                                                    : ExecutionContext::AtomicThread;
 }
 
 bool ProcessorBase::rejectDeviceHardIrqOperation(DeviceHardIrqOperation operation) {

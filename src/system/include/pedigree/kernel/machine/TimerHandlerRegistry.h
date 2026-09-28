@@ -146,7 +146,7 @@ class EXPORTED_PUBLIC TimerHandlerRegistry {
   HandlerSlot m_Handlers[MaxHandlerSlots];
   ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];
   WaitQueue m_DispatchWaiters;
-  Spinlock m_HandlerLock;
+  NoIrqSpinlock m_HandlerLock;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   HandlerPinHook m_HandlerPinHook;

@@ -98,7 +98,7 @@ Dm9601::~Dm9601() {
 
   Packet* packets = nullptr;
   {
-    LockGuard<Spinlock> guard(m_RxPacketQueueLock);
+    LockGuard<NoPreemptSpinlock> guard(m_RxPacketQueueLock);
     packets = m_RxQueueHead;
     m_RxQueueHead = nullptr;
     m_RxQueueTail = nullptr;
@@ -213,7 +213,7 @@ void Dm9601::receiveThread() {
     TerminationDeferral packetLifetime;
     Packet* pPacket = nullptr;
     {
-      LockGuard<Spinlock> guard(m_RxPacketQueueLock);
+      LockGuard<NoPreemptSpinlock> guard(m_RxPacketQueueLock);
       pPacket = m_RxQueueHead;
       if (pPacket) {
         m_RxQueueHead = pPacket->next;
@@ -360,7 +360,7 @@ void Dm9601::doReceive() {
 
   bool queued = false;
   {
-    LockGuard<Spinlock> guard(m_RxPacketQueueLock);
+    LockGuard<NoPreemptSpinlock> guard(m_RxPacketQueueLock);
     if (m_Running) {
       if (m_RxQueueTail)
         m_RxQueueTail->next = pPacket;

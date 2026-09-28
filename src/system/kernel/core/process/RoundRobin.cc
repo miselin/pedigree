@@ -55,7 +55,7 @@ RoundRobin::~RoundRobin() {
 void RoundRobin::addThread(Thread* pThread) {}
 
 void RoundRobin::removeThread(Thread* pThread) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   unlink(pThread);
 }
 
@@ -114,7 +114,7 @@ void RoundRobin::unlink(Thread* pThread) {
 
 Thread* RoundRobin::getNext(Thread* pCurrentThread, bool currentRunnable) {
   ActivityDiagnostics::ReadyQueueSelectionScope selectionScope;
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
 
   for (size_t i = 0; i < MAX_PRIORITIES; ++i) {
     Thread* last = m_pReadyQueueTails[i];
@@ -180,7 +180,7 @@ Thread* RoundRobin::getNext(Thread* pCurrentThread, bool currentRunnable) {
 }
 
 bool RoundRobin::hasReady() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   for (size_t i = 0; i < MAX_PRIORITIES; ++i) {
     if (m_pReadyQueueHeads[i]) {
       return true;
@@ -190,7 +190,7 @@ bool RoundRobin::hasReady() {
 }
 
 void RoundRobin::threadStatusChanged(Thread* pThread) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
 
   if (pThread->m_bReadyQueued) {
     if (!RoundRobin::isReady(pThread) || pThread->m_ReadyQueuePriority != pThread->getPriority()) {

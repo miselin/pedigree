@@ -34,7 +34,7 @@ Cache::PreparedDiscard::~PreparedDiscard() {
   for (size_t i = 0; i < m_Count; ++i) {
     CachePage* page = m_Entries.get()[i].page;
     {
-      LockGuard<Spinlock> guard(m_Cache.m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Cache.m_Lock);
       assert(page->evictionState == CachePage::EvictionState::Draining);
       page->evictionState = CachePage::EvictionState::None;
     }
@@ -48,7 +48,7 @@ bool Cache::PreparedDiscard::writeback(retirement_writeback_t callback, void* co
   if (m_Committed || !callback)
     return false;
   {
-    LockGuard<Spinlock> guard(m_Cache.m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Cache.m_Lock);
     for (size_t i = 0; i < m_Count; ++i) {
       CachePage* page = m_Entries.get()[i].page;
       if (m_Entries.get()[i].references || page->refcnt != 1 || page->writebackPins ||
@@ -60,7 +60,7 @@ bool Cache::PreparedDiscard::writeback(retirement_writeback_t callback, void* co
   for (size_t i = 0; i < m_Count; ++i) {
     CachePage* page = m_Entries.get()[i].page;
     {
-      LockGuard<Spinlock> guard(m_Cache.m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Cache.m_Lock);
       page->callbackActive = true;
 #if THREADS
       page->callbackOwner = Processor::information().getCurrentThread();
@@ -73,7 +73,7 @@ bool Cache::PreparedDiscard::writeback(retirement_writeback_t callback, void* co
     if (!written)
       succeeded = false;
     {
-      LockGuard<Spinlock> guard(m_Cache.m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Cache.m_Lock);
       page->writebackFailed = page->writebackFailed || !written;
       page->callbackActive = false;
 #if THREADS
@@ -93,7 +93,7 @@ void Cache::PreparedDiscard::commit() {
   for (size_t i = 0; i < m_Count; ++i) {
     CachePage* page = m_Entries.get()[i].page;
     {
-      LockGuard<Spinlock> guard(m_Cache.m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Cache.m_Lock);
       assert(page->evictionState == CachePage::EvictionState::Draining);
       assert(page->refcnt == 1 && !page->writebackPins);
       page->evictionState = CachePage::EvictionState::Retiring;
@@ -134,7 +134,7 @@ Cache::DiscardStatus Cache::prepareDiscardFrom(uintptr_t cutoff, const DiscardRe
   constexpr size_t MaximumPages = 65536;
   size_t pages = 0;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     if (static_cast<size_t>(m_ShutdownState)) {
       return DiscardStatus::Closed;
     }
@@ -157,7 +157,7 @@ Cache::DiscardStatus Cache::prepareDiscardFrom(uintptr_t cutoff, const DiscardRe
 
   DiscardStatus status = DiscardStatus::Ready;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     uintptr_t cursor = cutoff;
     uintptr_t key = 0;
     CachePage* page = nullptr;
@@ -209,7 +209,7 @@ Cache::DiscardStatus Cache::prepareDiscardFrom(uintptr_t cutoff, const DiscardRe
     while (true) {
       auto waitGuard = m_EvictionWaiters.acquire();
       {
-        LockGuard<Spinlock> guard(m_Lock);
+        LockGuard<NoIrqSpinlock> guard(m_Lock);
         if (!entry.page->writebackPins) {
           assert(entry.page->refcnt == 1 + entry.references);
           break;
@@ -236,7 +236,7 @@ void Cache::releaseWriteback(uintptr_t key) {
   CachePage* page = nullptr;
   bool shouldEvict = false;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     page = m_Pages.lookup(key);
     assert(page && page->writebackPins && page->refcnt);
     --page->writebackPins;

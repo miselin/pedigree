@@ -64,7 +64,7 @@ MemoryPressureHandler::~MemoryPressureHandler() = default;
 
 bool MemoryPressureManager::compact() {
 #if THREADS
-  if (!Processor::information().getCurrentThread() || !Processor::getInterrupts()) {
+  if (Processor::executionContext() != ExecutionContext::WaitableThread) {
     // Recovery callbacks may block and may allocate through subsystems
     // whose outer spinlock triggered this pressure pass. Running them in
     // atomic context would turn allocation failure into a lock inversion.
@@ -106,7 +106,7 @@ bool MemoryPressureManager::compact() {
 
   size_t registrationLimit = 0;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     registrationLimit = m_NextRegistrationSequence;
   }
 
@@ -116,7 +116,7 @@ bool MemoryPressureManager::compact() {
   while (priority < MAX_MEMPRESSURE_PRIORITY) {
     MemoryPressureHandler* handler = nullptr;
     {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
       for (MemoryPressureHandler* candidate = m_Handlers[priority]; candidate;
            candidate = candidate->m_pNext) {
         if (candidate->m_RegistrationSequence > registrationCursor &&
@@ -213,7 +213,7 @@ void MemoryPressureManager::registerHandler(size_t prio, MemoryPressureHandler* 
     prio = MAX_MEMPRESSURE_PRIORITY - 1;
   }
 
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
 #if THREADS
   auto callbackGuard = pHandler->m_CallbackWaiters.acquire();
 #endif
@@ -248,7 +248,7 @@ void MemoryPressureManager::removeHandler(MemoryPressureHandler* pHandler) {
 
   bool needsDrain = false;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
 
 #if THREADS
     auto callbackGuard = pHandler->m_CallbackWaiters.acquire();
@@ -311,14 +311,14 @@ void MemoryPressureManager::removeHandler(MemoryPressureHandler* pHandler) {
   }
 
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     assert(pHandler->m_bRemoving);
     assert(!pHandler->m_bRegistered);
     pHandler->m_bRemoving = false;
   }
 #else
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     if (!pHandler->m_bRegistered) {
       pHandler->m_bRemoving = false;
     }

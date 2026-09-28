@@ -30,7 +30,7 @@
 
 class Device;
 
-static Spinlock g_Lock;
+static NoPreemptSpinlock g_Lock;
 
 static const char* g_pPartitionTypes[256] = {"Empty",
                                              "FAT12",
@@ -310,7 +310,7 @@ static void registerPartition(const MsdosPartitionInfo& entry, Disk* disk, uint6
   }
   int number;
   {
-    LockGuard<Spinlock> guard(g_Lock);
+    LockGuard<NoPreemptSpinlock> guard(g_Lock);
     number = gNextPartition++;
   }
   NormalStaticString label("(");

@@ -40,7 +40,7 @@
 #include <config.h>
 
 class SchedulingAlgorithm;
-class Spinlock;
+class NoIrqSpinlock;
 
 class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
  public:
@@ -90,14 +90,14 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
    * This refuses to switch away while stack-owned cleanup records, deferral
    * scopes, or active WaitQueue records remain.
    */
-  void commitCurrentThreadExit(Spinlock* pLock = 0) NORETURN;
+  void commitCurrentThreadExit(NoIrqSpinlock* pLock = 0) NORETURN;
 
   /**
    * Explicitly discards the current physical stack for exceptional recovery.
    * Every call is counted and stack-owned cleanup records are retired on a
    * best-effort basis before switching away.
    */
-  void abandonCurrentThreadStack(StackDiscardReason reason, Spinlock* pLock = 0) NORETURN;
+  void abandonCurrentThreadStack(StackDiscardReason reason, NoIrqSpinlock* pLock = 0) NORETURN;
 
   /** Monotonic count of explicit physical-stack discards. */
   static size_t stackDiscardCount();
@@ -214,7 +214,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   friend class WaitQueue;
 
   /** Link compatibility only; new source must choose an explicit exit API. */
-  void killCurrentThread(Spinlock* pLock = 0) NORETURN;
+  void killCurrentThread(NoIrqSpinlock* pLock = 0) NORETURN;
 
   /** Picks another runnable thread and switches to it. */
   void schedule(Thread::Status nextStatus = Thread::Ready, bool dispatchEvents = true);
@@ -227,7 +227,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   /** Publishes a completed wait directly to this scheduler's ready queue. */
   void publishReadyFromWait(Thread* pThread);
 
-  void finishCurrentThreadExit(Spinlock* pLock, bool transferToIdle) NORETURN;
+  void finishCurrentThreadExit(NoIrqSpinlock* pLock, bool transferToIdle) NORETURN;
 
   /** Runs a raw-frame exception through its subsystem in ordinary context. */
   void serviceDeferredSubsystemException(InterruptState& state, bool diagnosticSample = false);
@@ -272,6 +272,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   void programOneShotTimer();
   Thread* selectNext(Thread* current, bool currentRunnable = false);
   void serviceWorkerWakeups();
+  bool deferScheduling();
 
   /** The current SchedulingAlgorithm */
   SchedulingAlgorithm* m_pSchedulingAlgorithm;
@@ -297,9 +298,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   Atomic<size_t> m_ReschedulePending;
   Atomic<size_t> m_RemotePromptPending;
   Atomic<uint64_t> m_ClockDeadline;
-  Spinlock m_IrqWorkLock;
+  NoIrqSpinlock m_IrqWorkLock;
   SchedulerWorkerWake* m_pWorkerWakeHead = nullptr;
-  Spinlock m_AffinityQueueLock;
+  NoIrqSpinlock m_AffinityQueueLock;
   Thread* m_AffinityHead = nullptr;
   Thread* m_AffinityTail = nullptr;
   Atomic<size_t> m_AffinityRequests;

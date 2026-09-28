@@ -64,7 +64,7 @@ class ObjectPool {
     }
 
 #if THREADS
-    LockGuard<Spinlock> guard(m_Spinlock);
+    LockGuard<NoIrqSpinlock> guard(m_Spinlock);
 #endif
 
     m_Pool.reserve(poolSize, true);
@@ -81,7 +81,7 @@ class ObjectPool {
     if (!poolSize)
       return new T(args...);
 #if THREADS
-    LockGuard<Spinlock> guard(m_Spinlock);
+    LockGuard<NoIrqSpinlock> guard(m_Spinlock);
 #endif
     // Admit the return slot before lending an object, so rollback need not allocate.
     if (!m_Pool.tryReserve(poolSize, true))
@@ -103,7 +103,7 @@ class ObjectPool {
     }
 
 #if THREADS
-    LockGuard<Spinlock> guard(m_Spinlock);
+    LockGuard<NoIrqSpinlock> guard(m_Spinlock);
 #endif
 
     // We only add the object back to the pool if we aren't already at
@@ -118,7 +118,7 @@ class ObjectPool {
  private:
   Vector<T*> m_Pool;
 #if THREADS
-  Spinlock m_Spinlock;
+  NoIrqSpinlock m_Spinlock;
 #endif
 };
 

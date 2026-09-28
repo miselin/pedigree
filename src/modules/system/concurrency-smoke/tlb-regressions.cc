@@ -284,7 +284,7 @@ bool privateTlbMutator() {
     const auto deadline = Time::getTicks() + 5 * Time::Multiplier::Second;
     while (!sleeping && Time::getTicks() < deadline) {
       {
-        LockGuard<Spinlock> guard(reader->getLock());
+        LockGuard<NoIrqSpinlock> guard(reader->getLock());
         sleeping = reader->getStatus() == Thread::Sleeping;
       }
       if (!sleeping) {

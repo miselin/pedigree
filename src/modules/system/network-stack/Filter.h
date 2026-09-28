@@ -106,7 +106,8 @@ class EXPORTED_PUBLIC NetworkFilter {
   static NetworkFilter m_Instance;
 
   List<CallbackItem*> m_Callbacks[4];
-  Spinlock m_Lock;
+  // NIC/tcpip workers dispatch packets; callbacks and drains run outside this lock.
+  NoPreemptSpinlock m_Lock;
   size_t m_NextCallbackId;
   ActiveInvocation* m_pActiveInvocations;
 

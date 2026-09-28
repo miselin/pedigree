@@ -138,7 +138,7 @@ class EXPORTED_PUBLIC MemoryPressureManager {
  private:
   static MemoryPressureManager m_Instance;
 
-  Spinlock m_Lock;
+  NoIrqSpinlock m_Lock;
   MemoryPressureHandler* m_Handlers[MAX_MEMPRESSURE_PRIORITY];
   MemoryPressureHandler* m_HandlerTails[MAX_MEMPRESSURE_PRIORITY];
   size_t m_NextRegistrationSequence;

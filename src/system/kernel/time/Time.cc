@@ -31,7 +31,7 @@
 
 namespace Time {
 namespace {
-Spinlock realtimeLock(false, true);
+NoIrqSpinlock realtimeLock(false, true);
 bool realtimeSet = false;
 Timestamp realtimeBase = 0;
 Timestamp monotonicBase = 0;
@@ -48,7 +48,7 @@ Timestamp getTimeNanoseconds(bool sync) {
   }
   if (sync)
     pTimer->synchronise();
-  LockGuard<Spinlock> guard(realtimeLock);
+  LockGuard<NoIrqSpinlock> guard(realtimeLock);
   if (realtimeSet) {
     const Timestamp elapsed = pTimer->getTickCountNano() - monotonicBase;
     return elapsed >= Infinity - realtimeBase ? Infinity - 1 : realtimeBase + elapsed;
@@ -64,7 +64,7 @@ bool setTimeNanoseconds(Timestamp value) {
     return false;
   }
   {
-    LockGuard<Spinlock> guard(realtimeLock);
+    LockGuard<NoIrqSpinlock> guard(realtimeLock);
     const Timestamp now = timer->getTickCountNano();
     if (value < now) {
       return false;
@@ -84,7 +84,7 @@ bool anchorRealtime(Timestamp value) {
     return false;
   }
   {
-    LockGuard<Spinlock> guard(realtimeLock);
+    LockGuard<NoIrqSpinlock> guard(realtimeLock);
     realtimeBase = value;
     monotonicBase = timer->getTickCountNano();
     realtimeSet = true;

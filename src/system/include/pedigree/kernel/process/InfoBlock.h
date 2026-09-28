@@ -85,7 +85,7 @@ class InfoBlockManager : public TimerHandler {
   static InfoBlockManager m_Instance;
 
   bool m_bInitialised;
-  Spinlock m_UpdateLock;
+  NoIrqSpinlock m_UpdateLock;
   Timer* m_pTimer;
 
   struct InfoBlock* m_pInfoBlock;

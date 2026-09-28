@@ -527,7 +527,7 @@ ThreadedIrqDispatcher::ThreadedIrqDispatcher(const String& name, size_t lineCoun
       m_LineCount(lineCount),
       m_Callback(callback),
       m_CallbackContext(callbackContext),
-      m_ConfigurationLock(false),
+      m_ConfigurationLock(),
       m_RemoteWakeCallback(nullptr),
       m_RemoteWakeCallbackContext(nullptr),
       m_ConfigurationClosed(0),

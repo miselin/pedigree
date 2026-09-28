@@ -173,7 +173,7 @@ int posix_sched_rr_get_interval(int pid, void* interval) {
     return result.finish(-1);
   uint64_t quantum;
   {
-    LockGuard<Spinlock> guard(target->getLock());
+    LockGuard<NoIrqSpinlock> guard(target->getLock());
     quantum = target->getScheduler()->nominalQuantumNs();
   }
   target.reset();

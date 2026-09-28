@@ -157,7 +157,8 @@ class EXPORTED_PUBLIC UsbPnP {
   CallbackItem* m_FirstCallback;
   CallbackItem* m_LastCallback;
   size_t m_CallbackCount;
-  Spinlock m_CallbackLock;
+  // Probe workers release this registry lock before calling drivers or draining them.
+  NoPreemptSpinlock m_CallbackLock;
   Mutex m_BindingLock;
   size_t m_NextCallbackSequence;
   ActiveInvocation* m_ActiveInvocations;

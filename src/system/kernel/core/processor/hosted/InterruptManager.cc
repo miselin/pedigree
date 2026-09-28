@@ -161,7 +161,7 @@ InterruptManager& InterruptManager::instance() {
 bool HostedInterruptManager::registerInterruptHandler(size_t nInterruptNumber,
                                                       InterruptHandler* pHandler) {
   // Lock the class until the end of the function
-  LockGuard<Spinlock> lock(m_Lock);
+  LockGuard<NoIrqSpinlock> lock(m_Lock);
 
   // Sanity checks
   if (UNLIKELY(nInterruptNumber >= MAX_SIGNAL))
@@ -183,7 +183,7 @@ bool HostedInterruptManager::registerInterruptHandler(size_t nInterruptNumber,
 bool HostedInterruptManager::registerInterruptHandlerDebugger(size_t nInterruptNumber,
                                                               InterruptHandler* pHandler) {
   // Lock the class until the end of the function
-  LockGuard<Spinlock> lock(m_Lock);
+  LockGuard<NoIrqSpinlock> lock(m_Lock);
 
   // Sanity checks
   if (UNLIKELY(nInterruptNumber >= MAX_SIGNAL))
@@ -524,7 +524,7 @@ void HostedInterruptManager::quiesceProcessor() {
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 void HostedInterruptManager::withMutationLockForTest(MutationLockHook hook) {
-  LockGuard<Spinlock> lock(m_Instance.m_Lock);
+  LockGuard<NoIrqSpinlock> lock(m_Instance.m_Lock);
   if (hook) {
     hook();
   }

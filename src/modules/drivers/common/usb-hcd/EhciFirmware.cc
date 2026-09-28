@@ -77,18 +77,18 @@ void Ehci::returnToFirmware() {
 }
 
 bool Ehci::beginStartupActivity() {
-  LockGuard<Spinlock> guard(m_StartupLock);
+  LockGuard<NoPreemptSpinlock> guard(m_StartupLock);
   return m_Startup.begin();
 }
 
 void Ehci::endStartupActivity(UsbStartup::Outcome outcome) {
-  LockGuard<Spinlock> guard(m_StartupLock);
+  LockGuard<NoPreemptSpinlock> guard(m_StartupLock);
   if (m_Startup.finish(outcome))
     m_RecoveryWake.release();
 }
 
 void Ehci::completeInitialPort(size_t port) {
-  LockGuard<Spinlock> guard(m_StartupLock);
+  LockGuard<NoPreemptSpinlock> guard(m_StartupLock);
   const uint16_t bit = uint16_t{1} << port;
   if (!(m_InitialPortMask & bit))
     return;

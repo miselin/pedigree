@@ -210,7 +210,7 @@ class SyscallManager {
    *\note Not implemented (singleton) */
   SyscallManager& operator=(const SyscallManager&);
 
-  Spinlock m_HandlerLock;
+  NoPreemptSpinlock m_HandlerLock;
   HandlerSlot* m_HandlerSlots[serviceEnd];
   HandlerSlot* m_Published[serviceEnd];
   static HandlerSlot m_ClosingSlot;

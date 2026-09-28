@@ -7,7 +7,7 @@
 #include "TerminalControl.h"
 
 ProcessGroup::~ProcessGroup() {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+  RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
   assert(!firstMember && !memberCount);
   if (registered)
     ProcessGroupManager::instance().unregisterGroup(processGroupId, this);
@@ -32,7 +32,7 @@ void PosixProcess::initializeJobControl(Process* parent) {
 }
 
 void PosixProcess::setProcessGroup(ProcessGroup* group) {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+  RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
   ProcessGroup* old = m_pProcessGroup;
   if (old == group)
     return;
@@ -71,7 +71,7 @@ void PosixProcess::setProcessGroup(ProcessGroup* group) {
 void PosixProcess::inheritProcessGroup(PosixProcess* parent) {
   if (!parent)
     return;
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+  RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
   setProcessGroup(parent->m_pProcessGroup);
 }
 
@@ -80,7 +80,7 @@ ProcessGroup* PosixProcess::getProcessGroup() const {
 }
 
 bool PosixProcess::getProcessGroupId(size_t& id) const {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+  RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
   if (!m_pProcessGroup)
     return false;
   id = m_pProcessGroup->processGroupId;
@@ -92,37 +92,37 @@ void PosixProcess::leaveProcessGroup() {
 }
 
 void PosixProcess::setGroupMembership(Membership type) {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+  RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
   assert(type == m_GroupMembership);
 }
 
 PosixProcess::Membership PosixProcess::getGroupMembership() const {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+  RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
   return m_GroupMembership;
 }
 
 size_t PosixProcess::getSessionId() const {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+  RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
   return m_SessionId;
 }
 
 bool PosixProcess::sharesSession(const PosixProcess& other) const {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+  RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
   return m_SessionId && m_SessionId == other.m_SessionId;
 }
 
 bool PosixProcess::jobControlReady() const {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+  RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
   return m_SessionId && m_pProcessGroup;
 }
 
 void PosixProcess::markExecCommitted() {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+  RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
   m_ExecCommitted = true;
 }
 
 bool PosixProcess::hasExecCommitted() const {
-  RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+  RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
   return m_ExecCommitted;
 }
 
@@ -136,7 +136,7 @@ int PosixProcess::createSession() {
   }
   int error = 0;
   {
-    RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+    RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
     if (ProcessGroupManager::instance().findGroup(getUserspaceId())) {
       error = Error::NotEnoughPermissions;
     } else {
@@ -160,7 +160,7 @@ int PosixProcess::changeProcessGroup(PosixProcess& caller, int id) {
     prepared = UniquePointer<ProcessGroup>::allocate();
   int error = 0;
   {
-    RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+    RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
     ProcessGroup* existing = ProcessGroupManager::instance().findGroup(id);
     if (this != &caller && getParent() != &caller)
       error = Error::NoSuchProcess;

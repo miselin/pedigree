@@ -395,7 +395,7 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     for (auto* object : plan.staged)
       object->m_OwnsMappings = true;
     if (overlaps) {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
       m_MmObjectLists.insert(&space, plan.replacement);
     }
     plan.replacement = nullptr;
@@ -574,7 +574,7 @@ size_t MemoryMapManager::removeInternal(uintptr_t base, size_t length, bool rele
   for (auto* object : plan.staged)
     object->m_OwnsMappings = true;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     m_MmObjectLists.insert(&space, plan.replacement);
   }
   plan.replacement = nullptr;

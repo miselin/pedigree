@@ -539,7 +539,7 @@ class MemoryMappedFile : public MemoryMappedObject {
    * Lock for anything to do with the memory mapped file.
    *
    * Backing-file reads and synchronisation may block, so this must be a
-   * sleeping lock rather than a Spinlock.
+   * sleeping lock rather than a spinlock.
    */
   Mutex m_Lock;
 
@@ -819,7 +819,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
    * A terminal-safe, same-thread recursive gate for manager operations.
    *
    * The gate keeps object lists and object lifetimes stable while allowing
-   * the short cache Spinlock to be released before invoking an object.
+   * the short cache NoIrqSpinlock to be released before invoking an object.
    * Try-only acquisition excludes recursive entry for pressure recovery.
    */
   class OperationGuard {
@@ -888,8 +888,8 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   /** Cache of virtual address spaces -> MmObjectLists. */
   Tree<VirtualAddressSpace*, MmObjectList*> m_MmObjectLists;
 
-  /** Lock for the cache. */
-  Spinlock m_Lock;
+  /** Raw page-fault and memory-pressure paths also access this cache. */
+  NoIrqSpinlock m_Lock;
 
   /**
    * Keeps the object-list topology and object lifetimes stable while an
@@ -898,7 +898,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   Mutex m_LifecycleLock;
 
   /** Protects recursive lifecycle-gate ownership metadata. */
-  Spinlock m_LifecycleStateLock;
+  NoIrqSpinlock m_LifecycleStateLock;
 
   void* m_pLifecycleOwner;
   size_t m_LifecycleDepth;

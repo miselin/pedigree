@@ -26,7 +26,7 @@
 
 LocksCommand g_LocksCommand;
 #ifndef TESTSUITE
-extern Spinlock g_MallocLock;
+extern NoIrqSpinlock g_MallocLock;
 #endif
 
 // This is global because we need to rely on it before the constructor is
@@ -308,7 +308,7 @@ void LocksCommand::clearFatal() {
   m_bFatal = false;
 }
 
-bool LocksCommand::lockAttempted(const Spinlock* pLock, size_t nCpu, bool intState) {
+bool LocksCommand::lockAttempted(const NoIrqSpinlock* pLock, size_t nCpu, bool intState) {
   if (!g_bReady)
     return true;
   if (pLock->m_bAvoidTracking)
@@ -318,14 +318,14 @@ bool LocksCommand::lockAttempted(const Spinlock* pLock, size_t nCpu, bool intSta
 
   size_t pos = (m_NextPosition[nCpu] += 1) - 1;
   if (pos > MAX_DESCRIPTORS) {
-    ERROR_OR_FATAL("Spinlock " << Hex << pLock << " ran out of room for locks [" << Dec << pos
+    ERROR_OR_FATAL("NoIrqSpinlock " << Hex << pLock << " ran out of room for locks [" << Dec << pos
                                << "].");
     return false;
   }
 
   if (pos && intState) {
     // We're more than one lock deep, but interrupts are enabled!
-    ERROR_OR_FATAL("Spinlock " << Hex << pLock << " attempted at level " << Dec << pos << Hex
+    ERROR_OR_FATAL("NoIrqSpinlock " << Hex << pLock << " attempted at level " << Dec << pos << Hex
                                << " with interrupts enabled on CPU" << Dec << nCpu << ".");
     return false;
   }
@@ -346,7 +346,7 @@ bool LocksCommand::lockAttempted(const Spinlock* pLock, size_t nCpu, bool intSta
   return true;
 }
 
-bool LocksCommand::lockAcquired(const Spinlock* pLock, size_t nCpu, bool intState) {
+bool LocksCommand::lockAcquired(const NoIrqSpinlock* pLock, size_t nCpu, bool intState) {
   if (!g_bReady)
     return true;
   if (pLock->m_bAvoidTracking)
@@ -356,13 +356,13 @@ bool LocksCommand::lockAcquired(const Spinlock* pLock, size_t nCpu, bool intStat
 
   size_t back = m_NextPosition[nCpu] - 1;
   if (back > MAX_DESCRIPTORS) {
-    ERROR_OR_FATAL("Spinlock " << Hex << pLock << " acquired unexpectedly (no tracked locks).");
+    ERROR_OR_FATAL("NoIrqSpinlock " << Hex << pLock << " acquired unexpectedly (no tracked locks).");
     return false;
   }
 
   if (back && intState) {
     // We're more than one lock deep, but interrupts are enabled!
-    ERROR_OR_FATAL("Spinlock " << Hex << pLock << " acquired at level " << Dec << back << Hex
+    ERROR_OR_FATAL("NoIrqSpinlock " << Hex << pLock << " acquired at level " << Dec << back << Hex
                                << " with interrupts enabled on CPU" << Dec << nCpu << ".");
     return false;
   }
@@ -370,7 +370,7 @@ bool LocksCommand::lockAcquired(const Spinlock* pLock, size_t nCpu, bool intStat
   LockDescriptor* pD = &m_pDescriptors[nCpu][back];
 
   if (pD->state != Attempted || pD->pLock != pLock) {
-    ERROR_OR_FATAL("Spinlock " << Hex << pLock << " acquired unexpectedly.");
+    ERROR_OR_FATAL("NoIrqSpinlock " << Hex << pLock << " acquired unexpectedly.");
     return false;
   }
 
@@ -379,7 +379,7 @@ bool LocksCommand::lockAcquired(const Spinlock* pLock, size_t nCpu, bool intStat
   return true;
 }
 
-bool LocksCommand::lockReleased(const Spinlock* pLock, size_t nCpu) {
+bool LocksCommand::lockReleased(const NoIrqSpinlock* pLock, size_t nCpu) {
   if (!g_bReady)
     return true;
   if (pLock->m_bAvoidTracking)
@@ -412,7 +412,7 @@ bool LocksCommand::lockReleased(const Spinlock* pLock, size_t nCpu) {
     }
 
     if (!ok) {
-      ERROR_OR_FATAL("Spinlock " << Hex << pLock << " released out-of-order [expected lock "
+      ERROR_OR_FATAL("NoIrqSpinlock " << Hex << pLock << " released out-of-order [expected lock "
                                  << (pD ? pD->pLock : 0) << (pD ? "" : " (no lock)") << ", state "
                                  << (pD ? stateName(pD->state) : "(no state)") << "].");
       return false;
@@ -449,7 +449,7 @@ bool LocksCommand::checkSchedule(size_t nCpu) {
   return true;
 }
 
-bool LocksCommand::checkState(const Spinlock* pLock, size_t nCpu) {
+bool LocksCommand::checkState(const NoIrqSpinlock* pLock, size_t nCpu) {
   if (!g_bReady)
     return true;
   if (pLock->m_bAvoidTracking)

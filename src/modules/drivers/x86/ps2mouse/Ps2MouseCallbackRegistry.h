@@ -116,7 +116,7 @@ class Ps2MouseCallbackRegistry {
   void releaseCallback(CallbackSlot& slot, CallbackDispatch& dispatch);
 
   CallbackSlot m_Callbacks[MaxCallbacks];
-  Spinlock m_CallbackLock;
+  NoIrqSpinlock m_CallbackLock;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   CallbackPinHook m_CallbackPinHook;

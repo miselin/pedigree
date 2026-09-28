@@ -458,7 +458,7 @@ CpuTimeMode Thread::currentTimeAccountingMode() const {
 
 Thread::~Thread() {
   {
-    LockGuard<Spinlock> leaseGuard(m_ExternalLeaseLock);
+    LockGuard<NoIrqSpinlock> leaseGuard(m_ExternalLeaseLock);
     if (!m_bExternalLeaseAdmissionClosed || m_nExternalLeases ||
         m_bExternalLeaseReleaseInProgress) {
       FATAL(
@@ -553,7 +553,7 @@ void Thread::notifySubsystemExit() {
 void Thread::shutdown() {
   {
     auto senderGuard = m_EventSenderDrainWaiters.acquire();
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     if (m_bShutdown) {
       return;
     }
@@ -566,7 +566,7 @@ void Thread::shutdown() {
   while (true) {
     auto senderGuard = m_EventSenderDrainWaiters.acquire();
     {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
       if (!m_EventSendersInFlight) {
         break;
       }
@@ -589,7 +589,7 @@ void Thread::shutdown() {
   while (true) {
     Event* event = nullptr;
     {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
       if (!m_EventQueue.count()) {
         break;
       }
@@ -633,7 +633,7 @@ void Thread::unlinkWaitsForStackDiscard() {
 }
 
 void Thread::setClearChildTid(uintptr_t address) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (m_bShutdown) {
     // A delayed clone selected for termination before registration never
     // reaches userspace, so do not publish a pointer after its one-shot
@@ -644,7 +644,7 @@ void Thread::setClearChildTid(uintptr_t address) {
 }
 
 void Thread::setRobustList(uintptr_t address, size_t ownerId) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (!m_bShutdown) {
     m_RobustListOwnerId = ownerId;
     __atomic_store_n(&m_RobustList, address, __ATOMIC_RELEASE);
@@ -652,7 +652,7 @@ void Thread::setRobustList(uintptr_t address, size_t ownerId) {
 }
 
 uintptr_t Thread::takeRobustList(size_t& ownerId) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   ownerId = m_RobustListOwnerId;
   m_RobustListOwnerId = 0;
   return __atomic_exchange_n(&m_RobustList, uintptr_t(0), __ATOMIC_ACQ_REL);
@@ -675,7 +675,7 @@ void Thread::forceToStartupProcessor() {
   TerminationDeferral lifetime;
   bool migratable;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     migratable = m_Placement.migratable;
     m_Placement.migratable = true;
   }
@@ -694,12 +694,12 @@ void Thread::forceToStartupProcessor() {
   if (completeAffinityAtSafePoint() != AffinityResult::Success)
     FATAL("Startup processor migration was terminated at its safe point.");
   Processor::setInterrupts(interrupts);
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   m_Placement.migratable = migratable;
 }
 
 void Thread::setStatus(Thread::Status s) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   setStatusUnlocked(s);
 }
 
@@ -732,7 +732,7 @@ void Thread::setStatusUnlocked(Thread::Status s) {
 
 bool Thread::start() {
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     if (m_Status != Thread::Created || getUnwindState() == Thread::TerminateThread ||
         m_bStartRequested) {
       return false;
@@ -757,7 +757,7 @@ bool Thread::startDetached() {
   bool claimed = false;
   bool processExitOwned = false;
   {
-    RecursingLockGuard<Spinlock> processGuard(parent->m_Lock);
+    RecursingLockGuard<NoIrqSpinlock> processGuard(parent->m_Lock);
     auto guard = m_JoinWaiters.acquire();
     if (!m_bJoinClaimed && !m_bDetachedRetirementClaimed) {
       m_bDetached = true;
@@ -783,7 +783,7 @@ bool Thread::startDetached() {
 
   bool deleteNow = false;
   {
-    RecursingLockGuard<Spinlock> processGuard(parent->m_Lock);
+    RecursingLockGuard<NoIrqSpinlock> processGuard(parent->m_Lock);
     auto guard = m_JoinWaiters.acquire();
     deleteNow = m_bReapable && !m_bProcessExitOwned;
     if (!deleteNow) {
@@ -794,7 +794,7 @@ bool Thread::startDetached() {
   if (deleteNow) {
     closeExternalLeaseAdmissionAndDrain();
     {
-      RecursingLockGuard<Spinlock> processGuard(parent->m_Lock);
+      RecursingLockGuard<NoIrqSpinlock> processGuard(parent->m_Lock);
       {
         auto guard = m_JoinWaiters.acquire();
         deleteNow =
@@ -870,7 +870,7 @@ SchedulerState* Thread::pushState() {
   const bool interruptsWereEnabled = Processor::getInterrupts();
   Processor::setInterrupts(false);
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     if (m_nStateLevel != previousLevel) {
       FATAL("Thread state level changed during push publication.");
     }
@@ -911,7 +911,7 @@ void Thread::popState(bool clean) {
 
   const size_t nextLevel = origStateLevel - 1;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     if (m_nStateLevel != origStateLevel) {
       FATAL("Thread state level changed during pop publication.");
     }
@@ -968,7 +968,7 @@ void Thread::discardUserStackMetadataForExec() {
   VirtualAddressSpace::Stack* discarded[MAX_NESTED_EVENTS] = {};
   size_t discardedCount = 0;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level) {
       VirtualAddressSpace::Stack* stack = m_StateLevels[level].m_pUserStack;
       m_StateLevels[level].m_pUserStack = nullptr;
@@ -1002,7 +1002,7 @@ void Thread::adoptInitialUserStackForExec(VirtualAddressSpace::Stack* stack) {
     FATAL("Cannot adopt an empty exec user stack.");
   }
 
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (m_StateLevels[0].m_pUserStack) {
     FATAL("Exec attempted to replace an owned base user stack.");
   }
@@ -1104,7 +1104,7 @@ bool Thread::sendEvent(Event* pEvent) {
   {
     auto senderGuard = m_EventSenderDrainWaiters.acquire();
     {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
       if (m_bShutdown || m_Status == Zombie) {
         return false;
       }
@@ -1131,7 +1131,7 @@ bool Thread::sendEvent(Event* pEvent) {
     // Serialise queue inspection in waitForEvent() with event publication.
     auto eventWaitGuard = m_EventWaiters.acquire();
     {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
       if (!m_bShutdown && m_Status != Zombie) {
         if (pEvent->isSignalEvent() && !static_cast<SignalEvent*>(pEvent)->queuedIndividually()) {
           for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
@@ -1170,7 +1170,7 @@ bool Thread::sendEvent(Event* pEvent) {
     auto senderGuard = m_EventSenderDrainWaiters.acquire();
     bool drained = false;
     {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
       assert(m_EventSendersInFlight);
       drained = !--m_EventSendersInFlight;
     }
@@ -1471,7 +1471,7 @@ bool Thread::isReapableForHostedTest() {
 }
 
 bool Thread::wasStartPublishedForHostedTest() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   return m_bStartRequested || m_Status == Ready || m_Status == Running;
 }
 
@@ -1885,7 +1885,7 @@ bool Thread::runHostedEventShutdownRegression() {
         admissionTarget->setUnwindState(Thread::TerminateThread);
         while (true) {
           {
-            LockGuard<Spinlock> guard(admissionTarget->m_Lock);
+            LockGuard<NoIrqSpinlock> guard(admissionTarget->m_Lock);
             if (admissionTarget->m_bShutdown) {
               break;
             }
@@ -1903,7 +1903,7 @@ bool Thread::runHostedEventShutdownRegression() {
   constexpr size_t ShutdownAttempts = 10000;
   for (size_t attempt = 0; attempt < ShutdownAttempts; ++attempt) {
     {
-      LockGuard<Spinlock> guard(target->m_Lock);
+      LockGuard<NoIrqSpinlock> guard(target->m_Lock);
       shutdownObserved = target->m_bShutdown;
     }
     if (shutdownObserved) {
@@ -1931,7 +1931,7 @@ bool Thread::runHostedEventShutdownRegression() {
 #endif
 
 void Thread::inhibitEvent(size_t eventNumber, bool bInhibit) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (bInhibit)
     m_StateLevels[m_nStateLevel].m_InhibitMask->set(eventNumber);
   else
@@ -1939,23 +1939,23 @@ void Thread::inhibitEvent(size_t eventNumber, bool bInhibit) {
 }
 
 uint64_t Thread::getSignalMask() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   return m_StateLevels[m_nStateLevel].m_SignalMask;
 }
 
 void Thread::setSignalMask(uint64_t mask) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   m_StateLevels[m_nStateLevel].m_SignalMask = mask;
 }
 
 uint64_t Thread::getSignalMaskForReturnFrame() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   const StateLevel& state = m_StateLevels[m_nStateLevel];
   return state.m_DeferredSignalMaskRestore ? state.m_SavedSignalMask : state.m_SignalMask;
 }
 
 void Thread::commitSignalHandlerMask(uint64_t mask) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   StateLevel& state = m_StateLevels[m_nStateLevel];
   state.m_SignalMask = mask;
   if (state.m_DeferredSignalMaskRestore) {
@@ -1965,7 +1965,7 @@ void Thread::commitSignalHandlerMask(uint64_t mask) {
 }
 
 void Thread::restoreDeferredSignalMask(size_t stateLevel) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (stateLevel >= MAX_NESTED_EVENTS) {
     FATAL("Deferred signal mask restored from an invalid Thread state level.");
   }
@@ -1979,14 +1979,14 @@ void Thread::restoreDeferredSignalMask(size_t stateLevel) {
 }
 
 void Thread::setCurrentSignalDelivery(size_t signalNumber, size_t continuationEpoch) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   StateLevel& state = m_StateLevels[m_nStateLevel];
   state.m_DispatchedSignalNumber = signalNumber;
   state.m_DispatchedSignalContinuationEpoch = continuationEpoch;
 }
 
 bool Thread::getCurrentSignalDelivery(size_t& signalNumber, size_t& continuationEpoch) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   const StateLevel& state = m_StateLevels[m_nStateLevel];
   if (!state.m_DispatchedSignalNumber) {
     return false;
@@ -2001,7 +2001,7 @@ void Thread::prepareSignalStateForExec() {
   const size_t execStateLevel = getStateLevel();
   uint64_t effectiveSignalMask = 0;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     if (m_nStateLevel != execStateLevel) {
       FATAL("Thread state changed during exec signal preparation.");
     }
@@ -2018,7 +2018,7 @@ void Thread::prepareSignalStateForExec() {
     retireDeferredScopes(false, level - 1);
   }
 
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (m_nStateLevel != execStateLevel) {
     FATAL("Thread state changed during exec signal preparation.");
   }
@@ -2042,7 +2042,7 @@ size_t Thread::beginTemporarySignalMask(uint64_t signalMask) {
     FATAL("Temporary signal mask armed for a non-current Thread.");
   }
 
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   const size_t stateLevel = m_nStateLevel;
   if (stateLevel >= MAX_NESTED_EVENTS) {
     FATAL("Temporary signal mask armed on an invalid Thread state level.");
@@ -2062,7 +2062,7 @@ size_t Thread::beginTemporarySignalMask(uint64_t signalMask) {
 }
 
 bool Thread::finishTemporarySignalMask(size_t stateLevel, bool deferForUserReturn) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (stateLevel >= MAX_NESTED_EVENTS) {
     FATAL("Temporary signal mask restored from an invalid Thread state level.");
   }
@@ -2102,14 +2102,14 @@ bool Thread::finishTemporarySignalMask(size_t stateLevel, bool deferForUserRetur
 }
 
 bool Thread::hasTemporarySignalWaitInterruption() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   const StateLevel& state = m_StateLevels[m_nStateLevel];
   return state.m_TemporarySignalMaskActive && state.m_TemporarySignalWaitInterrupted &&
          state.m_InterruptionReason == InterruptedBySignal;
 }
 
 bool Thread::hasActiveTemporarySignalMask() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   return m_StateLevels[m_nStateLevel].m_TemporarySignalMaskActive;
 }
 
@@ -2132,7 +2132,7 @@ bool Thread::retainTemporarySignalWaitInterruptionOrClear() {
 void Thread::cullEvent(Event* pEvent) {
   size_t removed = 0;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
 
     for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end();) {
       if (*it == pEvent) {
@@ -2155,7 +2155,7 @@ void Thread::cullEvent(size_t eventNumber) {
   Vector<Event*> deregisterEvents;
 
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
 
     for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end();) {
       if ((*it)->getNumber() == eventNumber) {
@@ -2177,7 +2177,7 @@ void Thread::cullSignalEvent(size_t signalNumber) {
   Vector<Event*> deregisterEvents;
 
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
 
     for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end();) {
       if ((*it)->isSignalEvent() && (*it)->getNumber() == signalNumber) {
@@ -2203,7 +2203,7 @@ bool Thread::transferProcessSignalsTo(Thread& target) {
   while (true) {
     Event* pending = nullptr;
     {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
       for (auto it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
         if ((*it)->isSignalEvent() && static_cast<SignalEvent*>(*it)->isProcessDirected()) {
           pending = *it;
@@ -2219,7 +2219,7 @@ bool Thread::transferProcessSignalsTo(Thread& target) {
     // The old registration pins the event through destination admission and
     // coalescing, including when the destination already holds this signal.
     if (!target.sendEvent(pending)) {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
       m_EventQueue.pushFront(pending);
       return false;
     }
@@ -2240,7 +2240,7 @@ bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement, int pro
 
   {
     auto senderGuard = m_EventSenderDrainWaiters.acquire();
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     if (m_bShutdown || m_Status == Zombie) {
       return false;
     }
@@ -2251,7 +2251,7 @@ bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement, int pro
   Event* previous = nullptr;
   if (eventRegistered) {
     auto eventWaitGuard = m_EventWaiters.acquire();
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     if (!m_bShutdown && m_Status != Zombie) {
       for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
         if ((*it)->isSignalEvent() && (*it)->getNumber() == signalNumber &&
@@ -2290,7 +2290,7 @@ bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement, int pro
     auto senderGuard = m_EventSenderDrainWaiters.acquire();
     bool drained = false;
     {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
       assert(m_EventSendersInFlight);
       drained = !--m_EventSendersInFlight;
     }
@@ -2303,7 +2303,7 @@ bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement, int pro
 }
 
 bool Thread::hasSignalEvent(size_t signalNumber, int processDirected) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
 
   for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
     if ((*it)->isSignalEvent() && (*it)->getNumber() == signalNumber &&
@@ -2316,22 +2316,22 @@ bool Thread::hasSignalEvent(size_t signalNumber, int processDirected) {
 }
 
 bool Thread::acceptingEvents() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   return !m_bShutdown && m_Status != Zombie;
 }
 
 void Thread::setSynchronousSignalMask(uint64_t mask) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   m_SynchronousSignalMask = mask;
 }
 
 uint64_t Thread::getSynchronousSignalMask() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   return m_SynchronousSignalMask;
 }
 
 uint64_t Thread::pendingSignalMask(bool processOnly) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   uint64_t mask = 0;
   for (Event* event : m_EventQueue) {
     if (!event->isSignalEvent() || !event->getNumber() || event->getNumber() > 64) {
@@ -2346,7 +2346,7 @@ uint64_t Thread::pendingSignalMask(bool processOnly) {
 }
 
 uint64_t Thread::pendingSignalOrder(size_t number, bool processOnly) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   uint64_t sequence = ~uint64_t(0);
   for (Event* event : m_EventQueue) {
     if (!event->isSignalEvent() || event->getNumber() != number)
@@ -2361,7 +2361,7 @@ uint64_t Thread::pendingSignalOrder(size_t number, bool processOnly) {
 
 Event::Delivery Thread::reservePendingSignal(uint64_t mask, bool processOnly,
                                              uint64_t expectedSequence) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   auto selected = m_EventQueue.end();
   for (auto it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
     Event* event = *it;
@@ -2394,7 +2394,7 @@ bool Thread::restorePendingSignal(Event::Delivery& delivery) {
   }
   {
     auto waitGuard = m_EventWaiters.acquire();
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     if (m_bShutdown || m_Status == Zombie)
       return false;
     m_EventQueue.pushFront(delivery.m_pEvent);
@@ -2408,7 +2408,7 @@ bool Thread::restorePendingSignal(Event::Delivery& delivery) {
 void Thread::cullSignalSource(const void* source) {
   Vector<Event*> retiring;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     for (auto it = m_EventQueue.begin(); it != m_EventQueue.end();) {
       if ((*it)->isSignalEvent() && static_cast<SignalEvent*>(*it)->deliverySource() == source) {
         retiring.pushBack(*it);
@@ -2427,7 +2427,7 @@ Event::Delivery Thread::getNextEvent(EventSelection selection) {
   Event* pResult = nullptr;
 
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
 
     if (__atomic_load_n(&m_EventDeferralDepth, __ATOMIC_ACQUIRE)) {
       return Event::Delivery();
@@ -2462,7 +2462,7 @@ Event::Delivery Thread::getNextEvent(EventSelection selection) {
 }
 
 bool Thread::hasEvents() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
 
   return hasEventsUnlocked();
 }
@@ -2510,7 +2510,7 @@ bool Thread::eventIsDeliverableUnlocked(Event* event, EventSelection selection) 
 
 void Thread::markDeferredUserReturnSignalInterruption() {
   auto eventWaitGuard = m_EventWaiters.acquire();
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
 
   bool caughtSignalDeferred = false;
   for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
@@ -2563,7 +2563,7 @@ void Thread::wakeForDeliverableEvents() {
   PerProcessorScheduler* readyScheduler = nullptr;
   {
     auto eventWaitGuard = m_EventWaiters.acquire();
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     if (!m_bShutdown && m_Status != Zombie && hasDeliverableEventsUnlocked()) {
       wakeThread = interruptWaitUnlocked(WaitQueue::WakeReason::Event, readyScheduler);
     }
@@ -2576,7 +2576,7 @@ void Thread::wakeForDeliverableEvents() {
 }
 
 bool Thread::hasEvent(Event* pEvent) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
 
   for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
     if ((*it) == pEvent) {
@@ -2588,7 +2588,7 @@ bool Thread::hasEvent(Event* pEvent) {
 }
 
 bool Thread::hasEvent(size_t eventNumber) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
 
   for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
     if ((*it)->getNumber() == eventNumber) {
@@ -2781,7 +2781,7 @@ bool Thread::joinInternal(bool completion) {
     // join operation pins the parent while deletion runs after this lock.
     bool processOwnsTarget = false;
     {
-      RecursingLockGuard<Spinlock> processGuard(pParent->m_Lock);
+      RecursingLockGuard<NoIrqSpinlock> processGuard(pParent->m_Lock);
       {
         auto claimGuard = m_JoinWaiters.acquire();
         if (!m_bReapable) {
@@ -2810,7 +2810,7 @@ bool Thread::joinInternal(bool completion) {
 }
 
 bool Thread::beginExternalLease() {
-  LockGuard<Spinlock> guard(m_ExternalLeaseLock);
+  LockGuard<NoIrqSpinlock> guard(m_ExternalLeaseLock);
   if (m_bExternalLeaseAdmissionClosed) {
     return false;
   }
@@ -2824,7 +2824,7 @@ void Thread::endExternalLease() {
   bool finalRelease = false;
   bool finishDetachedRetirement = false;
   {
-    LockGuard<Spinlock> guard(m_ExternalLeaseLock);
+    LockGuard<NoIrqSpinlock> guard(m_ExternalLeaseLock);
     if (!m_nExternalLeases) {
       FATAL("Thread external lease underflow.");
     }
@@ -2873,7 +2873,7 @@ void Thread::endExternalLease() {
   Process* parent = m_pParent;
   bool deleteNow = false;
   {
-    RecursingLockGuard<Spinlock> processGuard(parent->m_Lock);
+    RecursingLockGuard<NoIrqSpinlock> processGuard(parent->m_Lock);
     {
       auto joinGuard = m_JoinWaiters.acquire();
       deleteNow =
@@ -2884,7 +2884,7 @@ void Thread::endExternalLease() {
     }
 
     {
-      LockGuard<Spinlock> leaseGuard(m_ExternalLeaseLock);
+      LockGuard<NoIrqSpinlock> leaseGuard(m_ExternalLeaseLock);
       m_bExternalLeaseReleaseInProgress = false;
     }
 
@@ -2904,7 +2904,7 @@ void Thread::endExternalLease() {
 }
 
 void Thread::closeExternalLeaseAdmission() {
-  LockGuard<Spinlock> guard(m_ExternalLeaseLock);
+  LockGuard<NoIrqSpinlock> guard(m_ExternalLeaseLock);
   m_bExternalLeaseAdmissionClosed = true;
 }
 
@@ -2913,7 +2913,7 @@ void Thread::closeExternalLeaseAdmissionAndDrain() {
   while (true) {
     auto guard = m_ExternalLeaseWaiters.acquire();
     {
-      LockGuard<Spinlock> stateGuard(m_ExternalLeaseLock);
+      LockGuard<NoIrqSpinlock> stateGuard(m_ExternalLeaseLock);
       m_bExternalLeaseAdmissionClosed = true;
       if (!m_nExternalLeases && !m_bExternalLeaseReleaseInProgress) {
         return;
@@ -2953,7 +2953,7 @@ bool Thread::detach() {
   bool deleteNow = false;
   bool joinInProgress = false;
   {
-    RecursingLockGuard<Spinlock> processGuard(pParent->m_Lock);
+    RecursingLockGuard<NoIrqSpinlock> processGuard(pParent->m_Lock);
     {
       auto guard = m_JoinWaiters.acquire();
       if (m_bJoinClaimed) {
@@ -2979,7 +2979,7 @@ bool Thread::detach() {
   if (deleteNow) {
     closeExternalLeaseAdmissionAndDrain();
     {
-      RecursingLockGuard<Spinlock> processGuard(pParent->m_Lock);
+      RecursingLockGuard<NoIrqSpinlock> processGuard(pParent->m_Lock);
       {
         auto guard = m_JoinWaiters.acquire();
         deleteNow = deleteNow && m_bDetached && m_bReapable && !m_bProcessExitOwned &&
@@ -3090,7 +3090,7 @@ void Thread::markTimeoutInterruptedWait() {
 
 void Thread::markSignalInterruptedWait() {
   auto eventWaitGuard = m_EventWaiters.acquire();
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (!m_nStateLevel) {
     return;
   }
@@ -3584,7 +3584,7 @@ void Thread::setUnwindState(UnwindType ut) {
   bool queuedBeforeStart = false;
   PerProcessorScheduler* readyScheduler = nullptr;
   {
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
     __atomic_store_n(&m_UnwindState, ut, __ATOMIC_RELEASE);
     queuedBeforeStart = m_Status == Created && ut == TerminateThread;
     if (ut != Continue) {
@@ -3729,7 +3729,7 @@ bool Thread::markReapable() {
 
   bool externalLeasesDrained = false;
   {
-    LockGuard<Spinlock> leaseGuard(m_ExternalLeaseLock);
+    LockGuard<NoIrqSpinlock> leaseGuard(m_ExternalLeaseLock);
     externalLeasesDrained =
         m_bExternalLeaseAdmissionClosed && !m_nExternalLeases && !m_bExternalLeaseReleaseInProgress;
   }

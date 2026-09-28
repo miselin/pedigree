@@ -98,7 +98,7 @@ class IoPortManager {
   IoPortManager& operator=(const IoPortManager&);
 
   /** Lock */
-  Spinlock m_Lock;
+  NoIrqSpinlock m_Lock;
 
   /** The list of free I/O ports */
   RangeList<uint32_t> m_FreeIoPorts;

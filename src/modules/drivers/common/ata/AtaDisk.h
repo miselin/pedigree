@@ -192,7 +192,7 @@ class AtaDisk : public ScsiDisk {
    * A per-command completion released by the interrupt handler.
    */
   Semaphore* m_IrqReceived;
-  Spinlock m_IrqLock;
+  NoIrqSpinlock m_IrqLock;
 
   /** What type of disk are we? */
   AtaDiskType m_AtaDiskType;

@@ -30,7 +30,7 @@ class SpinlockWord {
   }
 
  private:
-  friend class Spinlock;
+  friend class NoIrqSpinlock;
   NOT_COPYABLE_OR_ASSIGNABLE(SpinlockWord);
 
   // Context-switch assembly publishes 1 through this machine-word pointer.

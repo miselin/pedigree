@@ -40,7 +40,7 @@ class EXPORTED_PUBLIC TraceTaskToken {
   void publish(const Thread&);
   void promote(const Thread&);
   void close();
-  mutable Spinlock m_Lock;
+  mutable NoIrqSpinlock m_Lock;
   Snapshot m_Identity;
 };
 using TraceTaskRef = SharedPointer<TraceTaskToken>;

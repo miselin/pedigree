@@ -20,7 +20,7 @@
 
 namespace {
 MemoryMappedIo ecam("PCI ECAM");
-Spinlock configLock(false);
+NoIrqSpinlock configLock(false);
 VirtPciHost host = {};
 bool configAvailable = false;
 VirtPciWindow windows[8] = {};
@@ -372,7 +372,7 @@ bool PciBus::updateCommand(Device* device, uint16_t clearBits, uint16_t setBits)
   if (!device) {
     return false;
   }
-  LockGuard<Spinlock> guard(configLock);
+  LockGuard<NoIrqSpinlock> guard(configLock);
   uint16_t command = 0;
   if (!readConfig16(device, 4, command)) {
     return false;
@@ -532,7 +532,7 @@ bool PciBus::assignBar(Device* device, uint8_t index, uint32_t low, uint32_t hig
     return false;
   }
 
-  LockGuard<Spinlock> guard(configLock);
+  LockGuard<NoIrqSpinlock> guard(configLock);
   for (size_t i = 0; i < windowCount; ++i) {
     VirtPciWindow& window = windows[i];
     if ((window.space == 0x01000000) != io || original < window.pciBase ||

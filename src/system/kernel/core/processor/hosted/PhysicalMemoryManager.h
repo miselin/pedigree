@@ -118,7 +118,7 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager {
   RangeList<uint64_t> m_AcpiRanges;
 
   /** To guard against multiprocessor reentrancy. */
-  Spinlock m_Lock, m_RegionLock;
+  NoIrqSpinlock m_Lock, m_RegionLock;
 
   /** Utility to wrap a physical address and hash it. */
   class PageHashable {

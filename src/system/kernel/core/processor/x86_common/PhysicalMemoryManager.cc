@@ -146,7 +146,7 @@ physical_uintptr_t X86CommonPhysicalMemoryManager::tryAllocatePage() {
 
 PhysicalMemoryManager::MemorySnapshot X86CommonPhysicalMemoryManager::memorySnapshot() const {
   auto& self = *const_cast<X86CommonPhysicalMemoryManager*>(this);
-  RecursingLockGuard<Spinlock> guard(self.m_Lock);
+  RecursingLockGuard<NoIrqSpinlock> guard(self.m_Lock);
   return {m_PageStack.totalPages(), m_PageStack.freePages(), true};
 }
 
@@ -174,7 +174,7 @@ bool X86CommonPhysicalMemoryManager::copyPhysicalPageFromBuffer(physical_uintptr
 }
 
 void X86CommonPhysicalMemoryManager::freePage(physical_uintptr_t page) {
-  RecursingLockGuard<Spinlock> guard(m_Lock);
+  RecursingLockGuard<NoIrqSpinlock> guard(m_Lock);
 
   freePageUnlocked(page);
 }
@@ -216,7 +216,7 @@ void X86CommonPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {
   trackPages(0, -1, 0);
 }
 void X86CommonPhysicalMemoryManager::pin(physical_uintptr_t page) {
-  RecursingLockGuard<Spinlock> guard(m_Lock);
+  RecursingLockGuard<NoIrqSpinlock> guard(m_Lock);
 
   if (!m_PageMetadataReady) {
     if (m_BootstrapPinnedPageRefcount) {
@@ -247,7 +247,7 @@ void X86CommonPhysicalMemoryManager::pin(physical_uintptr_t page) {
 bool X86CommonPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t cPages,
                                                     size_t pageConstraints, size_t Flags,
                                                     physical_uintptr_t start) {
-  LockGuard<Spinlock> guard(m_RegionLock);
+  LockGuard<NoIrqSpinlock> guard(m_RegionLock);
 
   // Allocate a specific physical memory region (always physically continuous)
   if (start != static_cast<physical_uintptr_t>(-1)) {
@@ -491,7 +491,7 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t& Info) {
   m_PageMetadata.reserve(top >> 12);  // number of 4k pages in this zone
 
   {
-    RecursingLockGuard<Spinlock> guard(m_Lock);
+    RecursingLockGuard<NoIrqSpinlock> guard(m_Lock);
     if (m_BootstrapPinnedPageRefcount) {
       PageHashable index(m_BootstrapPinnedPage);
       struct page p;
@@ -820,7 +820,7 @@ X86CommonPhysicalMemoryManager::X86CommonPhysicalMemoryManager()
 X86CommonPhysicalMemoryManager::~X86CommonPhysicalMemoryManager() {}
 
 void X86CommonPhysicalMemoryManager::unmapRegion(MemoryRegion* pRegion) {
-  LockGuard<Spinlock> guard(m_RegionLock);
+  LockGuard<NoIrqSpinlock> guard(m_RegionLock);
 
   for (Vector<MemoryRegion*>::Iterator it = PhysicalMemoryManager::m_MemoryRegions.begin();
        it != PhysicalMemoryManager::m_MemoryRegions.end(); it++) {

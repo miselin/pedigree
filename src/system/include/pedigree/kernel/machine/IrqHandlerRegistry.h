@@ -496,7 +496,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry {
   size_t m_OccurrenceEpochs[GraceBucketCount];
   size_t m_OccurrenceReaders[GraceBucketCount][2];
   size_t m_OccurrenceBoundaryLocks[GraceBucketCount];
-  Spinlock m_HandlerLock;
+  NoIrqSpinlock m_HandlerLock;
   size_t m_AdmissionEpoch;
   size_t m_MutationGeneration;
   size_t m_MutationWriters;

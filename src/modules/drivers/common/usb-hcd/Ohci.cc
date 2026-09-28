@@ -352,7 +352,7 @@ Ohci::Ohci(Device* pDev)
   DEBUG_LOG("USB: OHCI: Reset complete, " << Dec << m_nPorts << Hex << " ports available");
 
   if (m_nPorts) {
-    LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
+    LockGuard<NoIrqSpinlock> rootHubGuard(m_RootHubLock);
 
     // Establish a clean aggregate before the initial state scan. Changes
     // after this flush remain pending until RHSC is enabled below.
@@ -412,7 +412,7 @@ Ohci::Ohci(Device* pDev)
 
 #if THREADS
   if (m_nPorts) {
-    LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
+    LockGuard<NoIrqSpinlock> rootHubGuard(m_RootHubLock);
     m_RootHubStatusChangeDesired = true;
     setRootHubStatusChangeSource(true);
   }
@@ -426,7 +426,7 @@ Ohci::~Ohci() {
   // must remain live while an active enumeration request drains.
   if (m_pBase) {
     LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
-    LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
+    LockGuard<NoIrqSpinlock> rootHubGuard(m_RootHubLock);
     m_TeardownPhase = 1;
     m_RootHubStatusChangeDesired = false;
     setRootHubStatusChangeSource(false);
@@ -471,7 +471,7 @@ Ohci::~Ohci() {
       while (true) {
         ED* pED = nullptr;
         {
-          LockGuard<Spinlock> dequeueGuard(m_DequeueListLock);
+          LockGuard<NoIrqSpinlock> dequeueGuard(m_DequeueListLock);
           if (m_DequeueList.count())
             pED = m_DequeueList.popFront();
         }
@@ -494,7 +494,7 @@ Ohci::~Ohci() {
       // and are drained by m_CallbackOperations below.
       ED* pPeriodicDummy = m_pPeriodicEDList;
       {
-        LockGuard<Spinlock> periodicGuard(m_PeriodicListChangeLock);
+        LockGuard<NoIrqSpinlock> periodicGuard(m_PeriodicListChangeLock);
         if (pPeriodicDummy) {
           pPeriodicDummy->pNext = 0;
           if (pPeriodicDummy->pMetaData) {
@@ -633,7 +633,7 @@ void Ohci::removeED(ED* pED) {
   stop(type);
 
   {
-    LockGuard<Spinlock> guard(m_DequeueListLock);
+    LockGuard<NoIrqSpinlock> guard(m_DequeueListLock);
     m_DequeueList.pushBack(pED);
   }
 
@@ -657,7 +657,7 @@ void Ohci::detachED(ED* pED) {
 
   ED** pQueueHead = 0;
   ED** pQueueTail = 0;
-  Spinlock* pListLock = nullptr;
+  NoIrqSpinlock* pListLock = nullptr;
 
   if (pED->pMetaData->edType == ControlList) {
     pQueueHead = &m_pControlQueueHead;
@@ -672,7 +672,7 @@ void Ohci::detachED(ED* pED) {
     return;
   }
 
-  LockGuard<Spinlock> listGuard(*pListLock);
+  LockGuard<NoIrqSpinlock> listGuard(*pListLock);
   bool bControl = pED->pMetaData->edType == ControlList;
 
   // Unlink from the hardware linked list.
@@ -711,7 +711,7 @@ void Ohci::detachED(ED* pED) {
 }
 
 void Ohci::removeFromFullSchedule(ED* pED) {
-  LockGuard<Spinlock> scheduleGuard(m_ScheduleChangeLock);
+  LockGuard<NoIrqSpinlock> scheduleGuard(m_ScheduleChangeLock);
   for (List<ED*>::Iterator it = m_FullSchedule.begin(); it != m_FullSchedule.end();) {
     if (*it == pED) {
       m_FullSchedule.erase(it);
@@ -722,7 +722,7 @@ void Ohci::removeFromFullSchedule(ED* pED) {
 }
 
 void Ohci::removeFromDequeueList(ED* pED) {
-  LockGuard<Spinlock> dequeueGuard(m_DequeueListLock);
+  LockGuard<NoIrqSpinlock> dequeueGuard(m_DequeueListLock);
   for (List<ED*>::Iterator it = m_DequeueList.begin(); it != m_DequeueList.end();) {
     if (*it == pED) {
       m_DequeueList.erase(it);
@@ -895,7 +895,7 @@ IrqDisposition Ohci::irq(irq_id_t number) {
       while (reclaimBudget) {
         ED* pED = nullptr;
         {
-          LockGuard<Spinlock> guard(m_DequeueListLock);
+          LockGuard<NoIrqSpinlock> guard(m_DequeueListLock);
           if (m_DequeueList.count())
             pED = m_DequeueList.popFront();
           else
@@ -922,7 +922,7 @@ IrqDisposition Ohci::irq(irq_id_t number) {
       }
 
       {
-        LockGuard<Spinlock> guard(m_DequeueListLock);
+        LockGuard<NoIrqSpinlock> guard(m_DequeueListLock);
         if (m_DequeueList.count()) {
           sofDrained = false;
           ERROR_NOLOCK("OHCI: exceeded the SOF reclaim scan budget");
@@ -934,7 +934,7 @@ IrqDisposition Ohci::irq(irq_id_t number) {
     // leaves RHSC masked because enumeration can block and allocate.
 #if THREADS
     if (nStatus & OhciInterruptRhStsChange) {
-      LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
+      LockGuard<NoIrqSpinlock> rootHubGuard(m_RootHubLock);
 
       // Clear and flush the aggregate before scanning. A change after its
       // port has been scanned will relatch RHSC and cannot be erased by a
@@ -1016,7 +1016,7 @@ IrqDisposition Ohci::irq(irq_id_t number) {
       while (scheduleBudget) {
         --scheduleBudget;
         {
-          LockGuard<Spinlock> guard(m_ScheduleChangeLock);
+          LockGuard<NoIrqSpinlock> guard(m_ScheduleChangeLock);
           if (m_FullSchedule.count())
             pED = m_FullSchedule.popFront();
           else
@@ -1129,7 +1129,7 @@ IrqDisposition Ohci::irq(irq_id_t number) {
       }
 
       {
-        LockGuard<Spinlock> guard(m_ScheduleChangeLock);
+        LockGuard<NoIrqSpinlock> guard(m_ScheduleChangeLock);
         if (m_FullSchedule.count()) {
           doneHeadDrained = false;
           ERROR_NOLOCK("OHCI: exceeded the done-head ED scan budget");
@@ -1140,7 +1140,7 @@ IrqDisposition Ohci::irq(irq_id_t number) {
     // Restore EDs into the schedule if they were removed and need to
     // persist.
     if (persistList.count()) {
-      LockGuard<Spinlock> guard(m_ScheduleChangeLock);
+      LockGuard<NoIrqSpinlock> guard(m_ScheduleChangeLock);
       for (List<ED*>::Iterator it = persistList.begin(); it != persistList.end();) {
         m_FullSchedule.pushBack(*it);
         it = persistList.erase(it);
@@ -1395,7 +1395,7 @@ bool Ohci::doAsync(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t)
   const uintptr_t edOffset = pTransaction & OhciDescriptorOffsetMask;
   constexpr size_t EdCount = OhciDescriptorRegionBytes / sizeof(ED);
 
-  Spinlock* pLock = nullptr;
+  NoIrqSpinlock* pLock = nullptr;
   ED* pED = nullptr;
   bool valid = edOffset < EdCount;
   if (valid && transactionType == 0) {
@@ -1516,7 +1516,7 @@ bool Ohci::doAsync(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t)
   pLock->release();
 
   {
-    LockGuard<Spinlock> scheduleGuard(m_ScheduleChangeLock);
+    LockGuard<NoIrqSpinlock> scheduleGuard(m_ScheduleChangeLock);
     m_FullSchedule.pushBack(pED);
   }
 
@@ -1676,7 +1676,7 @@ void Ohci::replaySuppressedConnectionChange(size_t port) {
 
   m_TeardownPhase = 1;
   {
-    LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
+    LockGuard<NoIrqSpinlock> rootHubGuard(m_RootHubLock);
     m_RootHubStatusChangeDesired = false;
     setRootHubStatusChangeSource(false);
   }
@@ -1700,7 +1700,7 @@ bool Ohci::portReset(uint8_t nPort, bool bErrorResponse) {
   const size_t portRegister = OhciRhPortStatus + (nPort * 4);
 
   {
-    LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
+    LockGuard<NoIrqSpinlock> rootHubGuard(m_RootHubLock);
 
     // PRSC is level-signalled through RHSC. Mask the source while reset is
     // in flight so the worker that must clear PRSC cannot be starved by a
@@ -1728,7 +1728,7 @@ bool Ohci::portReset(uint8_t nPort, bool bErrorResponse) {
   }
 
   {
-    LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
+    LockGuard<NoIrqSpinlock> rootHubGuard(m_RootHubLock);
 
     // The reset worker exclusively owns PRSC while RHSC is masked. A
     // completion that arrived at the timeout boundary is still retired.

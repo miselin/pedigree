@@ -814,7 +814,7 @@ void MemoryMapManager::enterOperation() {
   }
 #endif
   {
-    LockGuard<Spinlock> guard(m_LifecycleStateLock);
+    LockGuard<NoIrqSpinlock> guard(m_LifecycleStateLock);
     if (m_pLifecycleOwner == owner) {
 #if PEDIGREE_BENCHMARK_VM_DIAGNOSTICS
       if (diagnosticProcess) {
@@ -829,7 +829,7 @@ void MemoryMapManager::enterOperation() {
   const bool acquired = m_LifecycleLock.acquire();
   assert(acquired);
 
-  LockGuard<Spinlock> guard(m_LifecycleStateLock);
+  LockGuard<NoIrqSpinlock> guard(m_LifecycleStateLock);
   assert(!m_pLifecycleOwner);
   assert(!m_LifecycleDepth);
   m_pLifecycleOwner = owner;
@@ -839,7 +839,7 @@ void MemoryMapManager::enterOperation() {
 bool MemoryMapManager::tryEnterOperation() {
   void* owner = currentOperationOwner();
   {
-    LockGuard<Spinlock> guard(m_LifecycleStateLock);
+    LockGuard<NoIrqSpinlock> guard(m_LifecycleStateLock);
     if (m_pLifecycleOwner == owner) {
       // Pressure recovery must not revoke pages preflighted by an outer copy.
       return false;
@@ -850,7 +850,7 @@ bool MemoryMapManager::tryEnterOperation() {
     return false;
   }
 
-  LockGuard<Spinlock> guard(m_LifecycleStateLock);
+  LockGuard<NoIrqSpinlock> guard(m_LifecycleStateLock);
   assert(!m_pLifecycleOwner);
   assert(!m_LifecycleDepth);
   m_pLifecycleOwner = owner;
@@ -859,14 +859,14 @@ bool MemoryMapManager::tryEnterOperation() {
 }
 
 bool MemoryMapManager::operationOwnedByCurrentExecution() {
-  LockGuard<Spinlock> guard(m_LifecycleStateLock);
+  LockGuard<NoIrqSpinlock> guard(m_LifecycleStateLock);
   return m_LifecycleDepth && m_pLifecycleOwner == currentOperationOwner();
 }
 
 void MemoryMapManager::leaveOperation() {
   bool release = false;
   {
-    LockGuard<Spinlock> guard(m_LifecycleStateLock);
+    LockGuard<NoIrqSpinlock> guard(m_LifecycleStateLock);
     assert(m_pLifecycleOwner == currentOperationOwner());
     assert(m_LifecycleDepth);
     if (!--m_LifecycleDepth) {

@@ -405,7 +405,7 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
   typedef ElfSectionHeader_t KernelElfSectionHeader_t;
   typedef ElfSymbol_t KernelElfSymbol_t;
 
-  Spinlock m_ModuleAdjustmentLock;
+  NoIrqSpinlock m_ModuleAdjustmentLock;
   bool m_ModuleShutdown;
   ModuleShutdownState m_ModuleShutdownStatus;
   bool m_ModuleLoading;

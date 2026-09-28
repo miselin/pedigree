@@ -34,7 +34,7 @@ HidInputManager::HidInputManager() : m_pTimer(nullptr), m_NextArmed(0) {}
 HidInputManager::~HidInputManager() {
   Timer* timer = nullptr;
   {
-    LockGuard<Spinlock> guard(m_KeyLock);
+    LockGuard<NoIrqSpinlock> guard(m_KeyLock);
     timer = m_pTimer;
     m_pTimer = nullptr;
   }
@@ -54,7 +54,7 @@ void HidInputManager::keyDown(uint8_t keyCode) {
     return;
   }
 
-  LockGuard<Spinlock> guard(m_KeyLock);
+  LockGuard<NoIrqSpinlock> guard(m_KeyLock);
 
   // Is the key already considered "down"?
   if (!m_KeyStates.lookup(keyCode)) {
@@ -98,7 +98,7 @@ void HidInputManager::keyUp(uint8_t keyCode) {
     return;
   }
 
-  LockGuard<Spinlock> guard(m_KeyLock);
+  LockGuard<NoIrqSpinlock> guard(m_KeyLock);
 
   // Is the key actually pressed?
   KeyState* keyState = m_KeyStates.lookup(keyCode);
@@ -113,7 +113,7 @@ void HidInputManager::keyUp(uint8_t keyCode) {
 
 void HidInputManager::timer(uint64_t delta) {
   (void)delta;
-  LockGuard<Spinlock> guard(m_KeyLock);
+  LockGuard<NoIrqSpinlock> guard(m_KeyLock);
 
   const uint64_t now = Time::getTicks();
   for (Tree<uint8_t, KeyState*>::Iterator it = m_KeyStates.begin(); it != m_KeyStates.end(); ++it) {
@@ -159,7 +159,7 @@ void HidInputManager::armNextRepeatLocked() {
 }
 
 void HidInputManager::updateKeys() {
-  LockGuard<Spinlock> guard(m_KeyLock);
+  LockGuard<NoIrqSpinlock> guard(m_KeyLock);
 
   KeymapManager& keymapManager = KeymapManager::instance();
   for (Tree<uint8_t, KeyState*>::Iterator it = m_KeyStates.begin(); it != m_KeyStates.end(); ++it) {

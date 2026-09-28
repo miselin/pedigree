@@ -11,11 +11,14 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Preemption.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/time/Time.h"
+
+#include "system/kernel/machine/hosted/SchedulerTimer.h"
 
 namespace {
 struct MutexOwnershipContext {
@@ -291,6 +294,164 @@ int attemptTimedMutexAcquire(void* parameter) {
   context->timedAcquireFinished += 1;
   return 0;
 }
+
+bool spinlockPolicyState() {
+  constexpr const char* Test = "spinlock-policy-state";
+  const bool originalInterrupts = Processor::getInterrupts();
+  const bool states[] = {true, false};
+  bool passed = check(!Preemption::disabled(), "test entered with preemption disabled", Test);
+  if (!passed) {
+    return false;
+  }
+
+  for (bool interrupts : states) {
+    for (bool disabled : states) {
+      Processor::setInterrupts(interrupts);
+      if (disabled) {
+        Preemption::disable();
+      }
+      Spinlock lock;
+      const bool acquired = lock.acquire();
+      const bool held = lock.acquired() && Processor::getInterrupts() == interrupts &&
+                        Preemption::disabled() == disabled;
+      lock.release();
+      const bool restored = !lock.acquired() && Processor::getInterrupts() == interrupts &&
+                            Preemption::disabled() == disabled;
+      if (disabled) {
+        Preemption::enable();
+      }
+      Processor::setInterrupts(originalInterrupts);
+      passed &= check(acquired && held && restored,
+                      "plain Spinlock changed IRQ or preemption state", Test);
+    }
+
+    NoPreemptSpinlock outer;
+    NoPreemptSpinlock inner;
+    Processor::setInterrupts(interrupts);
+    outer.acquire();
+    inner.acquire(NoPreemptSpinlock::allow_recursion);
+    inner.acquire(NoPreemptSpinlock::allow_recursion);
+    const bool nested = outer.acquired() && inner.acquired() && Preemption::disabled() &&
+                        Processor::getInterrupts() == interrupts;
+    inner.release();
+    const bool recursiveHeld =
+        inner.acquired() && Preemption::disabled() && Processor::getInterrupts() == interrupts;
+    inner.release();
+    const bool outerHeld = outer.acquired() && !inner.acquired() && Preemption::disabled() &&
+                           Processor::getInterrupts() == interrupts;
+    outer.release();
+    const bool restored =
+        !outer.acquired() && !Preemption::disabled() && Processor::getInterrupts() == interrupts;
+    Processor::setInterrupts(originalInterrupts);
+    passed &=
+        check(nested && recursiveHeld && outerHeld && restored,
+              "NoPreemptSpinlock lost nested ownership, IRQ state, or preemption depth", Test);
+  }
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS spinlock-policy-state");
+  }
+  return passed;
+}
+
+struct SpinlockSchedulingContext {
+  Semaphore gate{0};
+  Thread* driver = Processor::information().getCurrentThread();
+  Atomic<size_t> ticks{0};
+  Atomic<size_t> tickFailures{0};
+  Atomic<size_t> phase{0};
+  Atomic<size_t> peerPhase{0};
+  Atomic<size_t> peerPreemptible{0};
+  Atomic<size_t> driverSignalDepth{0};
+};
+
+SpinlockSchedulingContext* g_SpinlockSchedulingContext = nullptr;
+
+void observeSpinlockSchedulerTick(uint64_t, InterruptState&) {
+  SpinlockSchedulingContext* context =
+      __atomic_load_n(&g_SpinlockSchedulingContext, __ATOMIC_ACQUIRE);
+  if (context && Processor::information().getCurrentThread() == context->driver &&
+      context->phase == static_cast<size_t>(1)) {
+    context->ticks += 1;
+    if (!Preemption::disabled() || Processor::getInterrupts()) {
+      context->tickFailures += 1;
+    }
+  }
+}
+
+int spinlockSchedulingPeer(void* parameter) {
+  SpinlockSchedulingContext* context = reinterpret_cast<SpinlockSchedulingContext*>(parameter);
+  if (context->gate.acquireForCompletion()) {
+    context->peerPhase = context->phase;
+    context->peerPreemptible = !Preemption::disabled() && Processor::getInterrupts() ? 1 : 0;
+    // An IRQ after release must not masquerade as synchronous pending-work service.
+    context->driverSignalDepth = context->driver->getHostedSignalDepth();
+  }
+  return 0;
+}
+
+bool spinlockDefersScheduling() {
+  constexpr const char* Test = "spinlock-deferred-scheduling";
+  const bool originalInterrupts = Processor::getInterrupts();
+  SpinlockSchedulingContext context;
+  Thread* peer = new Thread(Scheduler::instance().getKernelProcess(), spinlockSchedulingPeer,
+                            &context, nullptr, false, true, true);
+  peer->setName("hosted spinlock scheduling peer");
+  peer->setPriority(0);
+  const bool started = peer->start();
+  if (!started) {
+    delete peer;
+    return check(false, "could not start the scheduling peer", Test);
+  }
+  const bool queued = waitForMutexGuardBlock(peer);
+  NoPreemptSpinlock outer;
+  NoPreemptSpinlock inner;
+
+  Processor::setInterrupts(false);
+  outer.acquire();
+  inner.acquire();
+  __atomic_store_n(&g_SpinlockSchedulingContext, &context, __ATOMIC_RELEASE);
+  HostedSchedulerTimer::setHardContextHookForTest(observeSpinlockSchedulerTick);
+  context.phase = 1;
+  context.gate.release();
+  bool tickDelivered = true;
+  // Deliver separate callbacks so a configured tick divisor still expires.
+  const uint64_t deadline = Time::getTicks() + Time::Multiplier::Second;
+  for (size_t i = 0; i < PEDIGREE_SCHEDULER_TICK_DIVISOR && tickDelivered; ++i) {
+    Processor::setInterrupts(false);
+    const size_t before = context.ticks;
+    tickDelivered = HostedSchedulerTimer::queueTickForTest();
+    Processor::setInterrupts(true);
+    while (tickDelivered && context.ticks == before && Time::getTicks() < deadline) {
+      Processor::pause();
+    }
+    tickDelivered &= context.ticks != before;
+  }
+  const bool held = Preemption::disabled() && context.peerPhase == static_cast<size_t>(0);
+  inner.release();
+  const bool innerDeferred = Preemption::disabled() && context.peerPhase == static_cast<size_t>(0);
+  context.phase = 2;
+  outer.release();
+  context.phase = 3;
+  const bool ranOnRelease = context.peerPhase == static_cast<size_t>(2);
+  Processor::setInterrupts(false);
+  HostedSchedulerTimer::setHardContextHookForTest(nullptr);
+  __atomic_store_n(&g_SpinlockSchedulingContext, static_cast<SpinlockSchedulingContext*>(nullptr),
+                   __ATOMIC_RELEASE);
+  Processor::setInterrupts(true);
+  const bool joined = peer->joinForCompletion();
+  Processor::setInterrupts(originalInterrupts);
+
+  const bool passed =
+      check(queued && tickDelivered && context.ticks != static_cast<size_t>(0) &&
+                context.tickFailures == static_cast<size_t>(0) && held && innerDeferred &&
+                ranOnRelease && joined && context.peerPreemptible == static_cast<size_t>(1) &&
+                context.driverSignalDepth == static_cast<size_t>(0),
+            "timer scheduling escaped a nested lock or was not serviced by outer release", Test);
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS spinlock-deferred-scheduling");
+  }
+  return passed;
+}
 }  // namespace
 
 bool runHostedSpinlockRegressions() {
@@ -299,7 +460,7 @@ bool runHostedSpinlockRegressions() {
   const bool interruptStates[] = {true, false};
   bool passed = true;
 
-  Spinlock lock;
+  NoIrqSpinlock lock;
   for (bool interrupts : interruptStates) {
     Processor::setInterrupts(interrupts);
     const bool initiallyUnlocked = !lock.acquired();
@@ -338,8 +499,8 @@ bool runHostedSpinlockRegressions() {
     }
   }
 
-  Spinlock outer;
-  Spinlock inner;
+  NoIrqSpinlock outer;
+  NoIrqSpinlock inner;
   for (bool interrupts : interruptStates) {
     Processor::setInterrupts(interrupts);
     outer.acquire();
@@ -355,12 +516,12 @@ bool runHostedSpinlockRegressions() {
                     "nested locks restored interrupts before the outer release", Test);
   }
 
-  Spinlock recursive;
+  NoIrqSpinlock recursive;
   for (bool interrupts : interruptStates) {
     Processor::setInterrupts(interrupts);
-    recursive.acquire(Spinlock::allow_recursion);
-    recursive.acquire(Spinlock::allow_recursion);
-    recursive.acquire(Spinlock::allow_recursion);
+    recursive.acquire(NoIrqSpinlock::allow_recursion);
+    recursive.acquire(NoIrqSpinlock::allow_recursion);
+    recursive.acquire(NoIrqSpinlock::allow_recursion);
     const bool nested =
         recursive.acquired() && !Processor::getInterrupts() && recursive.interrupts() == interrupts;
     recursive.release();
@@ -391,7 +552,7 @@ bool runHostedSpinlockRegressions() {
             "exit restored interrupts or retained stale state for the next acquisition", Test);
 
   // A constructed-locked lock has no acquisition for the tracker to retire.
-  Spinlock initiallyLocked(true, true);
+  NoIrqSpinlock initiallyLocked(true, true);
   Processor::setInterrupts(false);
   const bool constructedLocked = initiallyLocked.acquired() && !initiallyLocked.interrupts();
   initiallyLocked.release();
@@ -407,7 +568,7 @@ bool runHostedSpinlockRegressions() {
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS spinlock-interrupt-state");
   }
-  return passed;
+  return passed && spinlockPolicyState() && spinlockDefersScheduling();
 }
 
 bool runHostedMutexRegressions() {

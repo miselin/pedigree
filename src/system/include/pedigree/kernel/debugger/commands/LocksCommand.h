@@ -29,7 +29,7 @@
 
 #include <config.h>
 
-class Spinlock;
+class NoIrqSpinlock;
 
 /** @addtogroup kerneldebuggercommands
  * @{ */
@@ -51,7 +51,7 @@ class Spinlock;
  * Traces lock allocations.
  */
 class LocksCommand : public DebuggerCommand, public Scrollable {
-  friend class Spinlock;
+  friend class NoIrqSpinlock;
 
  public:
   /**
@@ -90,9 +90,9 @@ class LocksCommand : public DebuggerCommand, public Scrollable {
    */
   void setFatal();
 
-  bool lockAttempted(const Spinlock* pLock, size_t nCpu = ~0U, bool intState = false);
-  bool lockAcquired(const Spinlock* pLock, size_t nCpu = ~0U, bool intState = false);
-  bool lockReleased(const Spinlock* pLock, size_t nCpu = ~0U);
+  bool lockAttempted(const NoIrqSpinlock* pLock, size_t nCpu = ~0U, bool intState = false);
+  bool lockAcquired(const NoIrqSpinlock* pLock, size_t nCpu = ~0U, bool intState = false);
+  bool lockReleased(const NoIrqSpinlock* pLock, size_t nCpu = ~0U);
 
   /**
    * Notifies the command that a core is about to reschedule.
@@ -107,7 +107,7 @@ class LocksCommand : public DebuggerCommand, public Scrollable {
    * dependency inversion. This should be called after an acquire() fails,
    * as it may have undesirable overhead for the "perfect" case.
    */
-  bool checkState(const Spinlock* pLock, size_t nCpu = ~0U);
+  bool checkState(const NoIrqSpinlock* pLock, size_t nCpu = ~0U);
 
   // Scrollable interface.
   virtual const char* getLine1(size_t index, DebuggerIO::Colour& colour,
@@ -149,7 +149,7 @@ class LocksCommand : public DebuggerCommand, public Scrollable {
   struct LockDescriptor {
     LockDescriptor() : pLock(0), state(Inactive) {}
 
-    const Spinlock* pLock;
+    const NoIrqSpinlock* pLock;
     State state;
   };
 

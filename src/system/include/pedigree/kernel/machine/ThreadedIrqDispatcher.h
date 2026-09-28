@@ -218,7 +218,7 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher {
   DispatchCallback m_Callback;
   void* m_CallbackContext;
   /** Serialises normal-context callback configuration with initialise(). */
-  Spinlock m_ConfigurationLock;
+  NoPreemptSpinlock m_ConfigurationLock;
   /** Immutable after initialise(): null intentionally means local-only. */
   RemoteWakeCallback m_RemoteWakeCallback;
   void* m_RemoteWakeCallbackContext;

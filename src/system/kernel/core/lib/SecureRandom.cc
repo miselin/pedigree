@@ -5,7 +5,7 @@
 #include "pedigree/kernel/utilities/lib.h"
 
 namespace {
-Spinlock randomLock{false, true};
+NoIrqSpinlock randomLock{false, true};
 uint8_t randomKey[32] = {};
 bool randomReady = false;
 
@@ -26,7 +26,7 @@ bool initialiseLocked() {
 extern "C" int secure_random_seed(const void* buffer, size_t length) {
   if (!buffer || length != sizeof(randomKey))
     return 0;
-  LockGuard<Spinlock> guard(randomLock);
+  LockGuard<NoIrqSpinlock> guard(randomLock);
   const auto* seed = static_cast<const uint8_t*>(buffer);
   uint8_t next[32];
   if (initialiseLocked()) {
@@ -50,7 +50,7 @@ extern "C" size_t secure_random_bytes(void* buffer, size_t length) {
   size_t produced = 0;
   while (produced < length) {
     // One block per critical section bounds IRQ latency for large device reads.
-    LockGuard<Spinlock> guard(randomLock);
+    LockGuard<NoIrqSpinlock> guard(randomLock);
     if (!initialiseLocked())
       return 0;
     const uint8_t nonce[12] = {};

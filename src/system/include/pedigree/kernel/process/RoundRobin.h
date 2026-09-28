@@ -64,7 +64,7 @@ class RoundRobin : public SchedulingAlgorithm {
   size_t m_ReadyQueueCounts[MAX_PRIORITIES];
 #endif
 
-  Spinlock m_Lock;
+  NoIrqSpinlock m_Lock;
 };
 
 #endif

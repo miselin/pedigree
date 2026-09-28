@@ -97,13 +97,13 @@ class QueuedSignalState : public SignalEventState {
       : m_Reservation(reservation), m_Generation(0), m_Done(false) {}
   explicit QueuedSignalState(const SharedPointer<PosixTimerSignalToken>& token)
       : m_Token(token), m_Generation(0), m_Done(false) {
-    LockGuard<Spinlock> guard(token->m_Lock);
+    LockGuard<NoIrqSpinlock> guard(token->m_Lock);
     m_Generation = token->m_Generation;
   }
   bool active() const override {
     if (!m_Token)
       return true;
-    LockGuard<Spinlock> guard(m_Token->m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Token->m_Lock);
     return m_Token->m_Active && m_Token->m_Generation == m_Generation;
   }
   bool timer() const override {
@@ -115,14 +115,14 @@ class QueuedSignalState : public SignalEventState {
   void timerInfo(int32_t& id, int32_t& overrun) const override {
     if (!m_Token)
       return;
-    LockGuard<Spinlock> guard(m_Token->m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Token->m_Lock);
     id = m_Token->timerId;
     const uint64_t count = m_Token->m_Expirations;
     overrun = count > 0x80000000ULL ? 0x7fffffff : (count ? count - 1 : 0);
   }
   void complete(bool delivered, int32_t overrun) override {
     {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
       if (m_Done)
         return;
       m_Done = true;
@@ -131,7 +131,7 @@ class QueuedSignalState : public SignalEventState {
       m_Reservation.reset();
       return;
     }
-    LockGuard<Spinlock> guard(m_Token->m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Token->m_Lock);
     if (!m_Token->m_Active || m_Token->m_Generation != m_Generation)
       return;
     if (delivered) {
@@ -150,7 +150,7 @@ class QueuedSignalState : public SignalEventState {
   SharedPointer<SignalQueueReservation> m_Reservation;
   SharedPointer<PosixTimerSignalToken> m_Token;
   uint64_t m_Generation;
-  Spinlock m_Lock;
+  NoIrqSpinlock m_Lock;
   bool m_Done;
 };
 
@@ -169,7 +169,7 @@ PosixTimerSignalToken::PosixTimerSignalToken()
       m_DeliveredOverrun(0) {}
 PosixTimerSignalToken::~PosixTimerSignalToken() = default;
 bool PosixTimerSignalToken::addExpirations(uint64_t count) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (!m_Active)
     return false;
   m_Expirations = count > ~uint64_t(0) - m_Expirations ? ~uint64_t(0) : m_Expirations + count;
@@ -179,11 +179,11 @@ bool PosixTimerSignalToken::addExpirations(uint64_t count) {
   return true;
 }
 void PosixTimerSignalToken::queueFailed() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   m_Pending = false;
 }
 int PosixTimerSignalToken::getDeliveredOverrun() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   return m_DeliveredOverrun;
 }
 bool posix_signal_reserve_timer(Process* process, SharedPointer<PosixTimerSignalToken>& token) {
@@ -220,7 +220,7 @@ void posix_signal_reset_timer(Process* process, const SharedPointer<PosixTimerSi
   PendingSignalNotification notification(owner->pendingSignalContext());
   LockGuard<Mutex> pendingGuard(owner->pendingSignalLock());
   {
-    LockGuard<Spinlock> guard(token->m_Lock);
+    LockGuard<NoIrqSpinlock> guard(token->m_Lock);
     ++token->m_Generation;
     token->m_Expirations = 0;
     token->m_DeliveredOverrun = 0;
@@ -237,7 +237,7 @@ void posix_signal_cancel_timer(Process* process,
   PendingSignalNotification notification(owner->pendingSignalContext());
   LockGuard<Mutex> pendingGuard(owner->pendingSignalLock());
   {
-    LockGuard<Spinlock> guard(token->m_Lock);
+    LockGuard<NoIrqSpinlock> guard(token->m_Lock);
     token->m_Active = false;
     ++token->m_Generation;
     token->m_Expirations = 0;

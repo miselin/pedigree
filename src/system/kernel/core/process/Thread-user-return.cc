@@ -47,7 +47,7 @@ UserReturnFrame* Thread::currentUserReturnFrame() const {
 }
 
 bool Thread::tryRequireSignalFrames() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (m_bShutdown || getUnwindState() != Continue || m_SignalFramesRequired)
     return false;
   __atomic_store_n(&m_SignalFramesRequired, true, __ATOMIC_RELEASE);
@@ -56,7 +56,7 @@ bool Thread::tryRequireSignalFrames() {
 }
 
 void Thread::clearSignalFrameRequirement() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   __atomic_store_n(&m_SignalFramesRequired, false, __ATOMIC_RELEASE);
   clearUserReturnWorkFlag(UserReturnSignalFrames);
 }
@@ -67,7 +67,7 @@ bool Thread::eventNeedsUserReturnFrameUnlocked(Event* event) const {
 }
 
 void Thread::setUserReturnSignalParked(bool parked) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (Processor::information().getCurrentThread() != this)
     FATAL("User-return signal park has a foreign owner");
   m_UserReturnSignalParked = parked;
@@ -83,7 +83,7 @@ bool Thread::canSkipUserReturnWork() {
 }
 
 bool Thread::clearUserReturnWorkIfIdle() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   const StateLevel& state = m_StateLevels[m_nStateLevel];
   if (!m_pParent || m_pParent->getState() != Process::Active || m_EventQueue.count() ||
       getUnwindState() != Continue || m_EventDeferralDepth || m_TerminationDeferralDepth ||

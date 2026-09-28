@@ -8,6 +8,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Preemption.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -205,6 +206,9 @@ WaitQueue::~WaitQueue() {
 WaitQueue::WakeReason WaitQueue::wait(Guard& guard, Mutex* mutex, const Channel& channel,
                                       size_t debugState, uintptr_t debugAddress, bool deferTerminal,
                                       bool dispatchEvents) {
+  if (Preemption::disabled()) {
+    FATAL_NOLOCK("WaitQueue cannot block while preemption is disabled.");
+  }
   if (mutex && !mutex->isOwnedByCurrentThread()) {
     FATAL(
         "WaitQueue::waitAndUnlock requires current-thread mutex "

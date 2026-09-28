@@ -77,11 +77,11 @@ class EXPORTED_PUBLIC HidInputManager : public TimerHandler {
   /// Current key states (for periodic callbacks while a key is down)
   Tree<uint8_t, KeyState*> m_KeyStates;
 
-  /// Spinlock for work on keys.
-  /// \note Using a Spinlock here because a lot of our work will happen
+  /// NoIrqSpinlock for work on keys.
+  /// \note Using a NoIrqSpinlock here because a lot of our work will happen
   ///       in the middle of an IRQ where it's potentially dangerous to
   ///       reschedule (which may happen with a Mutex or Semaphore).
-  Spinlock m_KeyLock;
+  NoIrqSpinlock m_KeyLock;
 
   /** Non-null only while key-repeat callbacks are admitted. */
   Timer* m_pTimer;

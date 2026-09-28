@@ -338,8 +338,8 @@ class EXPORTED_PUBLIC Event {
   /** One entry per queued or actively dispatched delivery. */
   List<Thread*> m_Threads;
 
-  /** Spinlock for controlling access to the thread list. */
-  Spinlock m_Lock;
+  /** NoIrqSpinlock for controlling access to the thread list. */
+  NoIrqSpinlock m_Lock;
 
  private:
   friend class Thread;

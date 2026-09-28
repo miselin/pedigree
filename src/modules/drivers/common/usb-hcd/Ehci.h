@@ -59,7 +59,7 @@ class Ehci : public UsbHub,
 #if X86_COMMON
   using IrqProcessingLock = Mutex;
 #else
-  using IrqProcessingLock = Spinlock;
+  using IrqProcessingLock = NoIrqSpinlock;
 #endif
 
  public:
@@ -309,7 +309,8 @@ class Ehci : public UsbHub,
   uint16_t m_FirmwarePciCommand = 0;
   bool m_ControllerStopped = false;
   bool m_HardwareTouched = false;
-  Spinlock m_StartupLock;
+  // Startup/recovery workers share counters; hardware IRQ handling does not use them.
+  NoPreemptSpinlock m_StartupLock;
   UsbStartup::State m_Startup;
   uint16_t m_InitialPortMask = 0;
   Semaphore m_RecoveryWake{0};
@@ -330,7 +331,8 @@ class Ehci : public UsbHub,
   IrqProcessingLock m_IrqProcessingLock;
   /** Per-generation callback publication and cancellation drain boundary. */
   UsbHcd::CallbackDeliveryQueue m_CompletionDeliveries;
-  Spinlock m_QueueListChangeLock;
+  // Non-x86 controllers can process these lists directly in interrupt context.
+  NoIrqSpinlock m_QueueListChangeLock;
 
   QH* m_pQHList;
   uintptr_t m_pQHListPhys;

@@ -269,7 +269,8 @@ class Uhci : public UsbHub, public IrqHandler, public RequestQueue, public Timer
   uint8_t m_nPorts;
   UsbHcd::PortChangeRequest m_PortChanges[UsbHcd::UhciRootPortCount];
   Atomic<bool> m_PortChangesClosing;
-  Spinlock m_PortChangeLock;
+  // Timer backends may dispatch port polling directly from interrupt context.
+  NoIrqSpinlock m_PortChangeLock;
 
   Mutex m_Mutex;
 

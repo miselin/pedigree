@@ -183,7 +183,7 @@ physical_uintptr_t Armv7PhysicalMemoryManager::allocateContinuousPagesUnlocked(s
 }
 
 physical_uintptr_t Armv7PhysicalMemoryManager::allocatePage(size_t constraints) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   physical_uintptr_t page = allocatePageUnlocked(constraints);
   if (!page) {
     panic("ARMv7: out of physical pages");
@@ -192,7 +192,7 @@ physical_uintptr_t Armv7PhysicalMemoryManager::allocatePage(size_t constraints) 
 }
 
 physical_uintptr_t Armv7PhysicalMemoryManager::tryAllocatePage() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   return allocatePageUnlocked(0);
 }
 
@@ -200,7 +200,7 @@ physical_uintptr_t Armv7PhysicalMemoryManager::allocateAlignedPages(size_t pages
   if (!pages || pages > m_MaxPage) {
     return 0;
   }
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   const size_t startingPage = ((m_NextPage + pages - 1) / pages) * pages;
   for (size_t pass = 0; pass < 2; ++pass) {
     const size_t begin = pass ? pages : startingPage;
@@ -245,12 +245,12 @@ void Armv7PhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {
 }
 
 void Armv7PhysicalMemoryManager::freePage(physical_uintptr_t page) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   freePageUnlocked(page);
 }
 
 void Armv7PhysicalMemoryManager::pin(physical_uintptr_t page) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   const size_t index = page / PAGE_SIZE;
   if (index >= m_MaxPage || !m_References[index] || m_References[index] == 0xffff) {
     panic("ARMv7: invalid physical page pin");
@@ -276,12 +276,12 @@ bool Armv7PhysicalMemoryManager::copyPhysicalPageFromBuffer(physical_uintptr_t p
 }
 
 PhysicalMemoryManager::MemorySnapshot Armv7PhysicalMemoryManager::memorySnapshot() const {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   return {m_TotalPages, m_FreePages, m_MaxPage != 0};
 }
 
 size_t Armv7PhysicalMemoryManager::freePageCount() const {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   return m_FreePages;
 }
 
@@ -291,7 +291,7 @@ bool Armv7PhysicalMemoryManager::allocateRegion(MemoryRegion& region, size_t pag
   if (!pages || pages > (~size_t(0) / PAGE_SIZE)) {
     return false;
   }
-  LockGuard<Spinlock> guard(m_RegionLock);
+  LockGuard<NoIrqSpinlock> guard(m_RegionLock);
   const size_t bytes = pages * PAGE_SIZE;
   const uintptr_t address = (m_NextRegion + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
   if (address + bytes < address || address + bytes > KERNEL_VIRTUAL_MEMORYREGION_END) {
@@ -306,7 +306,7 @@ bool Armv7PhysicalMemoryManager::allocateRegion(MemoryRegion& region, size_t pag
   }
   physical_uintptr_t continuousBase = 0;
   if (!explicitPhysical && !virtualOnlyRegion && (constraints & continuous)) {
-    LockGuard<Spinlock> pagesGuard(m_Lock);
+    LockGuard<NoIrqSpinlock> pagesGuard(m_Lock);
     continuousBase = allocateContinuousPagesUnlocked(pages, constraints);
     if (!continuousBase) {
       return false;
@@ -320,7 +320,7 @@ bool Armv7PhysicalMemoryManager::allocateRegion(MemoryRegion& region, size_t pag
     } else if (continuousBase) {
       physical = continuousBase + i * PAGE_SIZE;
     } else {
-      LockGuard<Spinlock> pagesGuard(m_Lock);
+      LockGuard<NoIrqSpinlock> pagesGuard(m_Lock);
       physical = allocatePageUnlocked(constraints);
     }
     if (!physical ||
@@ -365,7 +365,7 @@ void Armv7PhysicalMemoryManager::unmapRegion(MemoryRegion* region) {
   if (!region || !region->m_Size) {
     return;
   }
-  LockGuard<Spinlock> guard(m_RegionLock);
+  LockGuard<NoIrqSpinlock> guard(m_RegionLock);
   VirtualAddressSpace& space = VirtualAddressSpace::getKernelAddressSpace();
   for (size_t i = 0; i < region->m_Size; i += PAGE_SIZE) {
     void* address =

@@ -175,7 +175,7 @@ Event::~Event() {
       FATAL("Deleting an Event while delivery waiters are live.");
     }
 
-    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<NoIrqSpinlock> guard(m_Lock);
 
     if (m_SendersInFlight) {
       FATAL("Deleting an Event with admitted senders.");
@@ -249,7 +249,7 @@ size_t Event::getEventType(uint8_t* pBuffer) {
 Event::Event(const Event& other)
     : Event(other.m_HandlerAddress, other.m_bIsDeletable, other.m_NestingLevel,
             other.m_HandlerPrivilege) {
-  ConstexprLockGuard<Spinlock, THREADS> guard(m_Lock);
+  ConstexprLockGuard<NoIrqSpinlock, THREADS> guard(m_Lock);
   m_Threads.clear();
 }
 
@@ -258,7 +258,7 @@ Event& Event::operator=(const Event& other) {
     return *this;
   }
 
-  ConstexprLockGuard<Spinlock, THREADS> guard(m_Lock);
+  ConstexprLockGuard<NoIrqSpinlock, THREADS> guard(m_Lock);
   if (m_Threads.count()) {
     FATAL("Cannot replace an Event while deliveries are live.");
   }
@@ -279,7 +279,7 @@ Event& Event::operator=(const Event& other) {
 
 Event::SendLease Event::beginSend() {
   auto deliveryGuard = m_DeliveryWaiters.acquire();
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (m_DeliveriesClosed) {
     return SendLease();
   }
@@ -293,7 +293,7 @@ void Event::endSend() {
   {
     auto deliveryGuard = m_DeliveryWaiters.acquire();
     {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
       assert(m_SendersInFlight);
       --m_SendersInFlight;
       drained = !m_SendersInFlight && !m_Threads.count();
@@ -310,7 +310,7 @@ void Event::endSend() {
 }
 
 bool Event::registerThread(Thread* thread) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (m_DeliveriesClosed) {
     return false;
   }
@@ -324,7 +324,7 @@ void Event::deregisterThread(Thread* thread) {
   {
     auto deliveryGuard = m_DeliveryWaiters.acquire();
     {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
 
       for (List<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); ++it) {
         if (*it == thread) {
@@ -351,7 +351,7 @@ void Event::completeDelivery(Thread* thread) {
     auto deliveryGuard = m_DeliveryWaiters.acquire();
     bool finalDelivery = false;
     {
-      LockGuard<Spinlock> guard(m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Lock);
 
       bool found = false;
       for (List<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); ++it) {
@@ -384,7 +384,7 @@ void Event::completeDelivery(Thread* thread) {
 }
 
 size_t Event::pendingCount() {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
 
   return m_Threads.count();
 }
@@ -395,7 +395,7 @@ bool Event::tryAcquireRegistration(SendLease& registration) {
 }
 
 void Event::beginDispatch(Delivery* delivery) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (delivery->m_bActive || delivery->m_pEvent != this) {
     FATAL("Invalid Event delivery activation.");
   }
@@ -410,7 +410,7 @@ void Event::beginDispatch(Delivery* delivery) {
 }
 
 void Event::endDispatch(Delivery* delivery) {
-  LockGuard<Spinlock> guard(m_Lock);
+  LockGuard<NoIrqSpinlock> guard(m_Lock);
   if (!delivery->m_bActive || delivery->m_pEvent != this) {
     FATAL("Invalid Event delivery deactivation.");
   }
@@ -444,7 +444,7 @@ void Event::waitForDeliveries() {
   while (true) {
     auto guard = m_DeliveryWaiters.acquire();
     {
-      LockGuard<Spinlock> deliveryGuard(m_Lock);
+      LockGuard<NoIrqSpinlock> deliveryGuard(m_Lock);
       if (!claimed) {
         if (m_DrainClaimed) {
           FATAL(
@@ -484,7 +484,7 @@ void Event::retire() {
 void Event::beginRetirement(Retirement& retirement) {
   {
     auto guard = m_DeliveryWaiters.acquire();
-    LockGuard<Spinlock> deliveryGuard(m_Lock);
+    LockGuard<NoIrqSpinlock> deliveryGuard(m_Lock);
     if (m_bIsDeletable) {
       FATAL("Explicitly retiring an already self-deleting Event.");
     }
@@ -501,7 +501,7 @@ void Event::beginRetirement(Retirement& retirement) {
 
 void Event::finishRetirement() {
   {
-    LockGuard<Spinlock> deliveryGuard(m_Lock);
+    LockGuard<NoIrqSpinlock> deliveryGuard(m_Lock);
     if (!m_DrainClaimed || !m_DeliveriesClosed || !m_SendersInFlight) {
       FATAL("Completing an Event retirement without ownership.");
     }

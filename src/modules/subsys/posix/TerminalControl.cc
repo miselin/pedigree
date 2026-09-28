@@ -64,7 +64,7 @@ void TerminalControl::controlCharacter(Character character) {
       continue;
     auto* process = static_cast<PosixProcess*>(recipient.get());
     {
-      RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+      RecursingLockGuard<NoIrqSpinlock> guard(ProcessGroupManager::instance().lock());
       size_t group = 0;
       if (process->getSessionId() != m_Session || !process->getProcessGroupId(group) ||
           group != foreground)
@@ -175,7 +175,7 @@ int TerminalControl::setForeground(ConsoleFile& console, int group,
     return -1;
   }
   {
-    RecursingLockGuard<Spinlock> groupGuard(ProcessGroupManager::instance().lock());
+    RecursingLockGuard<NoIrqSpinlock> groupGuard(ProcessGroupManager::instance().lock());
     ProcessGroup* target = ProcessGroupManager::instance().findGroup(group);
     if (!target || target->sessionId != control->m_Session) {
       SYSCALL_ERROR(NotEnoughPermissions);

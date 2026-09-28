@@ -28,6 +28,8 @@
 #endif
 
 class Spinlock;
+class NoPreemptSpinlock;
+class NoIrqSpinlock;
 class Mutex;
 class Semaphore;
 
@@ -155,7 +157,10 @@ class EXPORTED_PUBLIC RecursingLockGuard {
 };
 
 extern template class LockGuard<Spinlock>;
-extern template class RecursingLockGuard<Spinlock>;
+extern template class RecursingLockGuard<NoIrqSpinlock>;
+extern template class LockGuard<NoIrqSpinlock>;
+extern template class LockGuard<NoPreemptSpinlock>;
+extern template class RecursingLockGuard<NoPreemptSpinlock>;
 
 /** @} */
 

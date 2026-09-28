@@ -184,7 +184,8 @@ class Dm9601 : public UsbDevice, public Network {
   };
   Packet* m_RxQueueHead;
   Packet* m_RxQueueTail;
-  Spinlock m_RxPacketQueueLock;
+  // The producer enqueues after syncIn returns, separately from USB completion.
+  NoPreemptSpinlock m_RxPacketQueueLock;
 
   /** Internal state: which TX packet are we on at the moment */
   size_t m_TxPacket;

@@ -89,7 +89,7 @@ class VirtIrqManager : public IrqManager {
   SchedulerIrqHandler* m_Scheduler[MaxIrqs];
   IrqHandlerRegistry m_PciHandlers;
   ThreadedIrqDispatcher m_PciDispatcher;
-  Spinlock m_PciLock;
+  NoIrqSpinlock m_PciLock;
   PciLine m_PciLines[MaxPciLines];
   GicIts m_Its;
   uint32_t m_Version;

@@ -755,10 +755,10 @@ class EXPORTED_PUBLIC Cache {
   static MemoryAllocator m_Allocator;
 
   /** Lock for using the allocator. */
-  static Spinlock m_AllocatorLock;
+  static NoIrqSpinlock m_AllocatorLock;
 
   /** Lock for this cache. */
-  Spinlock m_Lock;
+  NoIrqSpinlock m_Lock;
 
 #if THREADS
   /** Coordinates forced drains with callbacks and outstanding page pins. */

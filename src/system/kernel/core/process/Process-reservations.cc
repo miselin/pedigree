@@ -25,7 +25,7 @@ bool Process::snapshotUserReservations(UserReservationSnapshot& result) {
   for (;;) {
     size_t needed = 0;
     {
-      LockGuard<Spinlock> guard(m_UserReservationLock);
+      LockGuard<NoPreemptSpinlock> guard(m_UserReservationLock);
       normalCount = m_SpaceAllocator.size();
       dynamicCount = m_DynamicSpaceAllocator.size();
       if (normalCount > (~size_t{0} / sizeof(ReservationRange)) ||
@@ -87,7 +87,7 @@ bool Process::commitUserReservations(uint64_t expectedGeneration,
                                      UserReservationSnapshot& replacement) {
   if (m_pVforkOwner)
     return m_pVforkOwner->commitUserReservations(expectedGeneration, replacement);
-  LockGuard<Spinlock> guard(m_UserReservationLock);
+  LockGuard<NoPreemptSpinlock> guard(m_UserReservationLock);
   if (m_UserReservationGeneration != expectedGeneration) {
     return false;
   }
@@ -106,7 +106,7 @@ bool Process::allocateUserRange(UserRegion region, size_t length, uintptr_t& add
   }
   for (;;) {
     {
-      LockGuard<Spinlock> guard(m_UserReservationLock);
+      LockGuard<NoPreemptSpinlock> guard(m_UserReservationLock);
       auto& allocator = region == UserRegion::Dynamic ? m_DynamicSpaceAllocator : m_SpaceAllocator;
       if (allocator.allocateWithoutAllocation(length, address)) {
         ++m_UserReservationGeneration;
@@ -137,7 +137,7 @@ bool Process::allocateSpecificUserRange(UserRegion region, uintptr_t address, si
   }
   for (;;) {
     {
-      LockGuard<Spinlock> guard(m_UserReservationLock);
+      LockGuard<NoPreemptSpinlock> guard(m_UserReservationLock);
       auto& allocator = region == UserRegion::Dynamic ? m_DynamicSpaceAllocator : m_SpaceAllocator;
       if (allocator.allocateSpecificWithoutAllocation(address, length)) {
         ++m_UserReservationGeneration;
@@ -171,7 +171,7 @@ void Process::freeUserRange(UserRegion region, uintptr_t address, size_t length)
   }
   for (;;) {
     {
-      LockGuard<Spinlock> guard(m_UserReservationLock);
+      LockGuard<NoPreemptSpinlock> guard(m_UserReservationLock);
       auto& allocator = region == UserRegion::Dynamic ? m_DynamicSpaceAllocator : m_SpaceAllocator;
       if (allocator.freeWithoutAllocation(address, length)) {
         ++m_UserReservationGeneration;
@@ -199,7 +199,7 @@ void Process::resetUserReservations() {
   for (;;) {
     UserReservationSnapshot snapshot;
     {
-      LockGuard<Spinlock> guard(m_UserReservationLock);
+      LockGuard<NoPreemptSpinlock> guard(m_UserReservationLock);
       snapshot.generation = m_UserReservationGeneration;
     }
     snapshot.normal.free(

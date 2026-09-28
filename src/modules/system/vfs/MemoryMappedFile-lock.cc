@@ -135,7 +135,7 @@ class MemoryMapManager::LockPlan final : public PreparedMemoryLock {
       object->m_OwnsMappings = true;
     auto* previous = m_Manager.m_MmObjectLists.lookup(&m_Space);
     {
-      LockGuard<Spinlock> guard(m_Manager.m_Lock);
+      LockGuard<NoIrqSpinlock> guard(m_Manager.m_Lock);
       m_Manager.m_MmObjectLists.insert(&m_Space, m_Replacement);
     }
     m_Replacement = nullptr;

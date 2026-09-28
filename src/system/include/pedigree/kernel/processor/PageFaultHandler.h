@@ -179,7 +179,7 @@ class PageFaultHandler : private InterruptHandler {
   HandlerSlot m_Handlers[MaxMemoryTrapHandlers];
   ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];
   WaitQueue m_DispatchWaiters;
-  Spinlock m_HandlerLock;
+  NoIrqSpinlock m_HandlerLock;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   static HandlerPinHook m_HandlerPinHook;

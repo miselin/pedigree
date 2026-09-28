@@ -261,7 +261,7 @@ class EXPORTED_PUBLIC Scheduler {
   PerProcessorScheduler* m_pBspScheduler;
 
   /** Main scheduler lock for modifying internal structures. */
-  Spinlock m_SchedulerLock;
+  NoIrqSpinlock m_SchedulerLock;
 
   /** Wakes lifecycle waiters after a Process leaves enumeration. */
 #if THREADS

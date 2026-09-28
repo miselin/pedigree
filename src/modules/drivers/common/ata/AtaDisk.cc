@@ -180,7 +180,7 @@ AtaDisk::IrqCompletion::IrqCompletion(AtaDisk& disk)
       m_Completion(0),
       m_Published(false),
       m_StackDiscardScope(&IrqCompletion::discard, this) {
-  LockGuard<Spinlock> guard(m_Disk.m_IrqLock);
+  LockGuard<NoIrqSpinlock> guard(m_Disk.m_IrqLock);
   if (m_Disk.m_IrqReceived) {
     FATAL("ATA command attempted to replace a live IRQ completion");
   }
@@ -197,7 +197,7 @@ void AtaDisk::IrqCompletion::discard(void* context) {
 }
 
 void AtaDisk::IrqCompletion::withdraw() {
-  LockGuard<Spinlock> guard(m_Disk.m_IrqLock);
+  LockGuard<NoIrqSpinlock> guard(m_Disk.m_IrqLock);
   if (!m_Published) {
     return;
   }
@@ -1359,7 +1359,7 @@ uint64_t AtaDisk::writePageBuffer(uint64_t location, uintptr_t buffer) {
 }
 
 void AtaDisk::irqReceived() {
-  LockGuard<Spinlock> guard(m_IrqLock);
+  LockGuard<NoIrqSpinlock> guard(m_IrqLock);
   if (m_IrqReceived) {
     m_IrqReceived->release();
   }

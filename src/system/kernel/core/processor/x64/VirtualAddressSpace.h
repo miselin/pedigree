@@ -337,9 +337,9 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
   /** Is this the kernel space? */
   bool m_bKernelSpace;
   /** Lock to guard against multiprocessor reentrancy. */
-  Spinlock m_Lock;
+  NoIrqSpinlock m_Lock;
   /** Lock to guard against multiprocessor reentrancy for stack reuse. */
-  Spinlock m_StacksLock;
+  NoIrqSpinlock m_StacksLock;
 
   /** The kernel virtual address space */
   static X64VirtualAddressSpace m_KernelSpace;

@@ -107,7 +107,7 @@ class IntervalTimer : public TimerHandler {
   Time::Timestamp m_Value;
   Time::Timestamp m_Interval;
   Time::Timestamp m_LastTotal;
-  Spinlock m_Lock;
+  NoIrqSpinlock m_Lock;
   bool m_Armed;
   Timer* m_pTimer;
 };

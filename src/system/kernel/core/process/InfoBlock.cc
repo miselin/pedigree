@@ -127,7 +127,7 @@ void InfoBlockManager::refreshTime() {
   }
   // A timer callback must not overwrite a completed clock update with an
   // older sample taken before the setting syscall published its new epoch.
-  LockGuard<Spinlock> guard(m_UpdateLock);
+  LockGuard<NoIrqSpinlock> guard(m_UpdateLock);
   const Time::Timestamp now = Time::getTimeNanoseconds();
   m_pInfoBlock->now = now;
   m_pInfoBlock->now_s = now / Time::Multiplier::Second;

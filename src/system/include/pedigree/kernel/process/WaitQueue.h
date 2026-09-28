@@ -240,7 +240,7 @@ class EXPORTED_PUBLIC WaitQueue {
   void clearWaitIntentIfEmpty();
   void cancel(Waiter* waiter, WakeReason reason);
 
-  Spinlock m_Lock;
+  NoIrqSpinlock m_Lock;
   Waiter* m_pFirstWaiter;
   Waiter* m_pLastWaiter;
   size_t m_WaiterCount;

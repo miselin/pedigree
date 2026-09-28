@@ -158,7 +158,7 @@ class ProcessGroupManager {
   ProcessGroup* findGroup(size_t gid) const;
 
   /** Serialises process-group pointers, membership lists, and destruction. */
-  Spinlock& lock() {
+  NoIrqSpinlock& lock() {
     return m_GroupLock;
   }
 
@@ -170,7 +170,7 @@ class ProcessGroupManager {
   ExtensibleBitmap m_GroupIds;
   ProcessGroup* m_Groups;
 
-  mutable Spinlock m_GroupLock;
+  mutable NoIrqSpinlock m_GroupLock;
 };
 
 /** Defines the compatibility layer for the POSIX Subsystem */
@@ -866,9 +866,9 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   Thread* m_pAcquiredThread;
 
   /**
-   * Safety spinlock for mutual exclusion in acquire().
+   * Thread-only acquisition bookkeeping; sleeping locks are acquired after release.
    */
-  Spinlock m_Lock;
+  NoPreemptSpinlock m_Lock;
 };
 
 #endif

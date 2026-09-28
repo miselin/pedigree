@@ -75,7 +75,7 @@ class PciMessageInterrupts : private InterruptHandler {
   static void dispatchThreaded(void* context, uint8_t slot, size_t cookie);
 
   Mutex m_RegistrationLock;
-  Spinlock m_Lock;
+  NoIrqSpinlock m_Lock;
   IrqHandlerRegistry m_Handlers;
   ThreadedIrqDispatcher m_Dispatcher;
   Line m_Lines[VectorCount];

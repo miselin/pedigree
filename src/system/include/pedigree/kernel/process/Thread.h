@@ -593,7 +593,7 @@ class EXPORTED_PUBLIC Thread {
   bool getWaitDebugInfo(WaitDebugInfo& info);
 
   /** Returns the thread's scheduler lock. */
-  Spinlock& getLock() {
+  NoIrqSpinlock& getLock() {
     return m_Lock;
   }
 
@@ -1237,13 +1237,13 @@ class EXPORTED_PUBLIC Thread {
       m_ProcId = 0;
 
   /** Lock for schedulers. */
-  Spinlock m_Lock;
+  NoIrqSpinlock m_Lock;
 
   /** Completion queue used by join(). */
   WaitQueue m_JoinWaiters;
 
   /** Short predicate lock, never held while waking lease drainers. */
-  Spinlock m_ExternalLeaseLock;
+  NoIrqSpinlock m_ExternalLeaseLock;
 
   /** Lifetime barrier for Process::ThreadLease users. */
   WaitQueue m_ExternalLeaseWaiters;
@@ -1369,7 +1369,7 @@ class EXPORTED_PUBLIC Thread {
   size_t m_NextStateCleanupSequence = 0;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-  Spinlock m_DeferredScopeRegressionLock;
+  NoIrqSpinlock m_DeferredScopeRegressionLock;
 #endif
 };
 

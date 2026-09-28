@@ -319,18 +319,18 @@ void uacpi_kernel_restore_interrupts(uacpi_interrupt_state state) {
   Processor::setInterrupts(state != 0);
 }
 uacpi_handle uacpi_kernel_create_spinlock() {
-  return new Spinlock;
+  return new NoIrqSpinlock;
 }
 void uacpi_kernel_free_spinlock(uacpi_handle handle) {
-  delete static_cast<Spinlock*>(handle);
+  delete static_cast<NoIrqSpinlock*>(handle);
 }
 uacpi_cpu_flags uacpi_kernel_lock_spinlock(uacpi_handle handle) {
-  auto* lock = static_cast<Spinlock*>(handle);
+  auto* lock = static_cast<NoIrqSpinlock*>(handle);
   lock->acquire();
   return lock->interrupts();
 }
 void uacpi_kernel_unlock_spinlock(uacpi_handle handle, uacpi_cpu_flags) {
-  static_cast<Spinlock*>(handle)->release();
+  static_cast<NoIrqSpinlock*>(handle)->release();
 }
 uacpi_status uacpi_kernel_handle_firmware_request(uacpi_firmware_request* request) {
   WARNING("ACPI: firmware request " << Dec << request->type);

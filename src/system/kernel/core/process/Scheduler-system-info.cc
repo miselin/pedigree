@@ -33,7 +33,7 @@ void Scheduler::releaseActivityEntry(Process* process, Thread* thread) {
 Scheduler::SystemActivity Scheduler::systemActivity() {
   SystemActivity result;
   {
-    LockGuard<Spinlock> registry(m_SchedulerLock);
+    LockGuard<NoIrqSpinlock> registry(m_SchedulerLock);
     for (auto it = m_TPMap.begin(); it != m_TPMap.end(); ++it) {
       if (it.key() != __atomic_load_n(&it.value()->m_pIdleThread, __ATOMIC_ACQUIRE))
         ++result.tasks;
@@ -88,14 +88,14 @@ void Scheduler::sampleLoadAverage() {
   for (unsigned attempt = 0; attempt < 4; ++attempt) {
     size_t required;
     {
-      LockGuard<Spinlock> registry(m_SchedulerLock);
+      LockGuard<NoIrqSpinlock> registry(m_SchedulerLock);
       required = m_TPMap.count();
     }
     sample.entries = UniqueArray<ActivitySample::Entry>::allocate(required);
     if (required && !sample.entries)
       return;
     {
-      LockGuard<Spinlock> registry(m_SchedulerLock);
+      LockGuard<NoIrqSpinlock> registry(m_SchedulerLock);
       if (m_TPMap.count() > required)
         continue;
       for (auto it = m_TPMap.begin(); it != m_TPMap.end(); ++it) {
@@ -122,7 +122,7 @@ void Scheduler::sampleLoadAverage() {
     Thread* thread = sample.entries.get()[i].thread;
     if (!thread || thread == observer)
       continue;
-    LockGuard<Spinlock> state(thread->m_Lock);
+    LockGuard<NoIrqSpinlock> state(thread->m_Lock);
     const auto status = thread->getStatus();
     // The ready queue contains only threads which can run. Exclude this
     // observer, whose own execution protects the sampling work.
