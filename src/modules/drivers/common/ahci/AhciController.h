@@ -44,6 +44,10 @@ class AhciController : public ScsiController, public IrqHandler {
     return m_Pci;
   }
   IrqDisposition irq(irq_id_t number) override;
+  bool acceptsSpuriousInterrupts() const override {
+    // Completion polling can drain the port before its queued MSI callback runs.
+    return true;
+  }
   bool sendCommand(size_t, uintptr_t, uint8_t, uintptr_t, uint16_t, bool) override {
     return false;
   }
