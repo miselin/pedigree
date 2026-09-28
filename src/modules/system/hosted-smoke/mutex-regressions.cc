@@ -313,6 +313,31 @@ bool runHostedSpinlockRegressions() {
                     "ordinary acquire/release lost ownership or interrupt state", Test);
   }
 
+  const ExecutionContext atomicContexts[] = {
+      ExecutionContext::AtomicThread, ExecutionContext::HardDeviceIrq,
+      ExecutionContext::SchedulerIrq, ExecutionContext::HostedSyntheticIrq,
+      ExecutionContext::DebuggerTrap};
+  for (ExecutionContext context : atomicContexts) {
+    for (bool interrupts : interruptStates) {
+      Processor::setInterrupts(interrupts);
+      bool acquired = false;
+      bool restored = false;
+      {
+        ExecutionContextGuard guard(context);
+        lock.acquire();
+        acquired = lock.acquired() && !Processor::getInterrupts() &&
+                   lock.interrupts() == interrupts && Processor::executionContext() == context;
+        lock.release();
+        restored = !lock.acquired() && Processor::getInterrupts() == interrupts &&
+                   Processor::executionContext() == context;
+      }
+      Processor::setInterrupts(originalInterrupts);
+      passed &=
+          check(acquired && restored,
+                "atomic-context acquisition changed interrupt state or execution context", Test);
+    }
+  }
+
   Spinlock outer;
   Spinlock inner;
   for (bool interrupts : interruptStates) {

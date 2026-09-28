@@ -55,7 +55,7 @@ class EXPORTED_PUBLIC Spinlock {
 
  private:
   /** Returns true for recursive reentry, false for a newly acquired lock. */
-  bool acquireContended(bool recurse, bool safe, uintptr_t ra) NEVER_INLINE;
+  bool acquireContended(bool recurse, bool safe, bool interrupts, uintptr_t ra) NEVER_INLINE;
 
   /** Unlocks without restoring IRQ state, leaving nested acquisitions held. */
   void unlock(uintptr_t ra) ALWAYS_INLINE;

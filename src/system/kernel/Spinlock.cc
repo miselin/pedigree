@@ -20,6 +20,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 
@@ -49,13 +50,21 @@ bool Spinlock::acquire(bool recurse, bool safe) {
 #if TRACK_LOCKS
   if (!m_bAvoidTracking) {
     g_LocksCommand.clearFatal();
-    if (!g_LocksCommand.lockAttempted(this, Processor::index(), interrupts))
+    if (interrupts) {
+      // An unowned first lock must not leave CPU-local tracking behind if
+      // contention allows this thread to be preempted or migrated.
+      if (!g_LocksCommand.checkSchedule(Processor::index())) {
+        panic("Spinlock entered with interrupts enabled while retaining a lock");
+      }
+    } else if (!g_LocksCommand.lockAttempted(this, Processor::index(), false)) {
       panic("Lock checker disallowed spinlock acquisition");
+    }
     g_LocksCommand.setFatal();
   }
 #endif
 
-  const bool reentered = UNLIKELY(!m_Lock.tryAcquire()) && acquireContended(recurse, safe, ra);
+  const bool reentered =
+      UNLIKELY(!m_Lock.tryAcquire()) && acquireContended(recurse, safe, interrupts, ra);
   if (!reentered) {
     m_bInterrupts = interrupts;
     __atomic_store_n(&m_OwnedProcessor, Processor::index(), __ATOMIC_RELAXED);
@@ -71,6 +80,9 @@ bool Spinlock::acquire(bool recurse, bool safe) {
 #if TRACK_LOCKS
   if (!m_bAvoidTracking) {
     g_LocksCommand.clearFatal();
+    if (interrupts && !g_LocksCommand.lockAttempted(this, Processor::index(), true)) {
+      panic("Lock checker disallowed spinlock acquisition");
+    }
     if (!g_LocksCommand.lockAcquired(this, Processor::index(), interrupts))
       panic("Lock checker disallowed acquired spinlock");
     g_LocksCommand.setFatal();
@@ -79,9 +91,16 @@ bool Spinlock::acquire(bool recurse, bool safe) {
   return true;
 }
 
-bool Spinlock::acquireContended(bool recurse, bool safe, uintptr_t ra) {
-  const size_t processorId = Processor::index();
+bool Spinlock::acquireContended(bool recurse, bool safe, bool interrupts, uintptr_t ra) {
+#if MULTIPROCESSOR
+  Thread* current = interrupts && safe ? Processor::information().getCurrentThread() : nullptr;
+  const bool canEnableInterrupts = interrupts && safe && current &&
+                                   current->executionContext() == ExecutionContext::WaitableThread;
+#else
+  (void)interrupts;
+#endif
   do {
+    const size_t processorId = Processor::index();
     const size_t owner = __atomic_load_n(&m_OwnedProcessor, __ATOMIC_RELAXED);
     // Test CPU identity first: other CPUs must not inspect recursion state
     // which only its owner can access. Early boot threads may all be null.
@@ -103,7 +122,17 @@ bool Spinlock::acquireContended(bool recurse, bool safe, uintptr_t ra) {
 #if MULTIPROCESSOR
     if (Processor::getCount() > 1 && (!safe || owner != processorId)) {
       // Read while occupied instead of repeatedly issuing locked RMWs.
-      Processor::pause();
+      if (canEnableInterrupts) {
+        Processor::setInterrupts(true);
+        while (m_Lock.acquired()) {
+          Processor::pause();
+        }
+        // Both the successful CAS and owner publication must remain IRQ-off.
+        // The next iteration must also reread CPU identity after preemption.
+        Processor::setInterrupts(false);
+      } else {
+        Processor::pause();
+      }
       continue;
     }
 #endif
