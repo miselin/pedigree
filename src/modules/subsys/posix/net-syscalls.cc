@@ -2059,6 +2059,16 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
     msghdr->msg_namelen = 0;
   }
 
+  size_t vectorIndex = 0;
+  size_t vectorOffset = 0;
+  while (vectorIndex < static_cast<size_t>(msghdr->msg_iovlen) &&
+         !msghdr->msg_iov[vectorIndex].iov_len) {
+    ++vectorIndex;
+  }
+  if (tcp && vectorIndex == static_cast<size_t>(msghdr->msg_iovlen)) {
+    return 0;
+  }
+
   // No data to read right now.
   if (!blocking) {
     bool noData = false;
@@ -2082,149 +2092,179 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
     }
   }
 
-  err_t err;
-  if (!m_Metadata.pb) {
-    struct pbuf* pb = nullptr;
-    struct netbuf* buf = nullptr;
+  size_t totalLen = 0;
+  size_t packetLength = 0;
+  do {
+    if (!m_Metadata.pb) {
+      struct pbuf* pb = nullptr;
+      struct netbuf* buf = nullptr;
 
-    {
-      ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
-      // RCV- is delivered synchronously from netconn_recv. Preserve the
-      // already-readable level until the dequeued packet is installed as the
-      // partial buffer, so epoll cannot observe an internal handoff as a drain.
-      m_Metadata.receivingQueuedData = m_Metadata.recv != 0;
-    }
+      {
+        ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+        // The receive lock excludes other consumers. Once bytes have been
+        // copied, only dequeue packets already announced by lwIP: a stream
+        // read must not wait for the caller's entire buffer to fill.
+        if (totalLen && !m_Metadata.recv) {
+          break;
+        }
+        // RCV- is delivered synchronously from netconn_recv. Preserve the
+        // already-readable level until the dequeued packet is installed as the
+        // partial buffer, so epoll cannot observe an internal handoff as a drain.
+        m_Metadata.receivingQueuedData = m_Metadata.recv != 0;
+      }
 
-    // No partial data present from a previous read. Read new data from
-    // the socket.
-    if (tcp) {
-      err = netconn_recv_tcp_pbuf(m_Socket, &pb);
-    } else {
-      err = netconn_recv(m_Socket, &buf);
-    }
+      // No partial data present from a previous read. Read new data from
+      // the socket.
+      err_t err;
+      if (tcp) {
+        err = netconn_recv_tcp_pbuf(m_Socket, &pb);
+      } else {
+        err = netconn_recv(m_Socket, &buf);
+      }
 
-    if (err != ERR_OK) {
-      if (err == ERR_CLSD) {
-        ReadyMask changed = ReadyRead | ReadyReadHangup;
+      if (err != ERR_OK) {
+        if (err == ERR_CLSD) {
+          ReadyMask changed = ReadyRead | ReadyReadHangup;
+          {
+            ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+            const ReadyMask previous = readinessLevelLocked();
+            m_Metadata.receivingQueuedData = false;
+            m_Metadata.closed = true;
+            m_Metadata.peerClosed = true;
+            if (m_Metadata.writeClosed) {
+              changed |= ReadyHangup;
+            }
+            recordReadinessRisesLocked(previous);
+          }
+          notifyReadiness(changed);
+          break;
+        }
+
         {
           ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
-          const ReadyMask previous = readinessLevelLocked();
           m_Metadata.receivingQueuedData = false;
-          m_Metadata.closed = true;
-          m_Metadata.peerClosed = true;
-          if (m_Metadata.writeClosed) {
-            changed |= ReadyHangup;
-          }
-          recordReadinessRisesLocked(previous);
         }
-        notifyReadiness(changed);
-        return 0;
+        notifyReadiness(ReadyRead);
+        N_NOTICE(" -> lwIP error");
+        if (!totalLen) {
+          lwipToSyscallError(err);
+          return -1;
+        }
+        break;
+      }
+
+      if (pb == nullptr && buf != nullptr) {
+        pb = buf->p;
+      }
+      if (!pb) {
+        {
+          ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+          m_Metadata.receivingQueuedData = false;
+        }
+        notifyReadiness(ReadyRead);
+        if (!totalLen) {
+          SYSCALL_ERROR(IoError);
+          return -1;
+        }
+        break;
       }
 
       {
         ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+        m_Metadata.offset = 0;
+        m_Metadata.pb = pb;
+        m_Metadata.buf = buf;
+        m_Metadata.partialRead = true;
         m_Metadata.receivingQueuedData = false;
       }
-      notifyReadiness(ReadyRead);
-      N_NOTICE(" -> lwIP error");
-      lwipToSyscallError(err);
-      return -1;
     }
 
-    if (pb == nullptr && buf != nullptr) {
-      pb = buf->p;
-    }
-    if (!pb) {
-      {
-        ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
-        m_Metadata.receivingQueuedData = false;
+    packetLength = m_Metadata.pb->tot_len;
+    if (!tcp && msghdr->msg_name) {
+      const ip_addr_t* sourceAddress = netbuf_fromaddr(m_Metadata.buf);
+      const uint16_t sourcePort = netbuf_fromport(m_Metadata.buf);
+      struct sockaddr_in source = {};
+      source.sin_family = AF_INET;
+      source.sin_port = HOST_TO_BIG16(sourcePort);
+      source.sin_addr.s_addr = ip_addr_get_ip4_u32(sourceAddress);
+
+      const size_t addressCapacity = msghdr->msg_namelen;
+      const size_t addressLength =
+          addressCapacity < sizeof(source) ? addressCapacity : sizeof(source);
+      if (addressLength) {
+        MemoryCopy(msghdr->msg_name, &source, addressLength);
       }
-      notifyReadiness(ReadyRead);
-      SYSCALL_ERROR(IoError);
-      return -1;
+      msghdr->msg_namelen = sizeof(source);
     }
 
-    {
+    size_t readOffset = m_Metadata.offset;
+    while (vectorIndex < static_cast<size_t>(msghdr->msg_iovlen) && readOffset < packetLength) {
+      const struct iovec& vector = msghdr->msg_iov[vectorIndex];
+      size_t bufferlen = vector.iov_len - vectorOffset;
+      const size_t available = packetLength - readOffset;
+      if (bufferlen > available) {
+        bufferlen = available;
+      }
+      if (bufferlen) {
+        pbuf_copy_partial(m_Metadata.pb, reinterpret_cast<uint8_t*>(vector.iov_base) + vectorOffset,
+                          bufferlen, readOffset);
+        totalLen += bufferlen;
+        readOffset += bufferlen;
+        vectorOffset += bufferlen;
+      }
+      if (vectorOffset == vector.iov_len) {
+        ++vectorIndex;
+        vectorOffset = 0;
+      }
+    }
+
+    while (vectorIndex < static_cast<size_t>(msghdr->msg_iovlen) &&
+           !msghdr->msg_iov[vectorIndex].iov_len) {
+      ++vectorIndex;
+    }
+
+    // TCP retains unread bytes as a stream cursor. Datagram reads consume one
+    // whole packet and report that the caller's scatter buffer was too short.
+    if (tcp && readOffset < packetLength) {
       ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
-      m_Metadata.offset = 0;
-      m_Metadata.pb = pb;
-      m_Metadata.buf = buf;
-      m_Metadata.partialRead = true;
-      m_Metadata.receivingQueuedData = false;
+      m_Metadata.offset = readOffset;
+    } else {
+      struct pbuf* completedPacket = nullptr;
+      struct netbuf* completedBuffer = nullptr;
+      {
+        ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+        completedPacket = m_Metadata.pb;
+        completedBuffer = m_Metadata.buf;
+        m_Metadata.pb = nullptr;
+        m_Metadata.buf = nullptr;
+        m_Metadata.offset = 0;
+        m_Metadata.partialRead = false;
+      }
+
+      if (!tcp && readOffset < packetLength) {
+        msghdr->msg_flags |= MSG_TRUNC;
+      }
+
+      if (completedBuffer) {
+        netbuf_delete(completedBuffer);
+      } else if (completedPacket) {
+        pbuf_free(completedPacket);
+      }
     }
-  }
 
-  const size_t packetLength = m_Metadata.pb->tot_len;
-  if (!tcp && msghdr->msg_name) {
-    const ip_addr_t* sourceAddress = netbuf_fromaddr(m_Metadata.buf);
-    const uint16_t sourcePort = netbuf_fromport(m_Metadata.buf);
-    struct sockaddr_in source = {};
-    source.sin_family = AF_INET;
-    source.sin_port = HOST_TO_BIG16(sourcePort);
-    source.sin_addr.s_addr = ip_addr_get_ip4_u32(sourceAddress);
-
-    const size_t addressCapacity = msghdr->msg_namelen;
-    const size_t addressLength =
-        addressCapacity < sizeof(source) ? addressCapacity : sizeof(source);
-    if (addressLength) {
-      MemoryCopy(msghdr->msg_name, &source, addressLength);
-    }
-    msghdr->msg_namelen = sizeof(source);
-  }
-
-  size_t totalLen = 0;
-  size_t readOffset = m_Metadata.offset;
-  for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
-    void* buffer = msghdr->msg_iov[i].iov_base;
-    size_t bufferlen = msghdr->msg_iov[i].iov_len;
-
-    const size_t available = packetLength - readOffset;
-    if (bufferlen > available) {
-      bufferlen = available;
-    }
-    if (!bufferlen) {
+    if (!tcp) {
       break;
     }
-
-    pbuf_copy_partial(m_Metadata.pb, buffer, bufferlen, readOffset);
-    totalLen += bufferlen;
-    readOffset += bufferlen;
-  }
-
-  // TCP retains unread bytes as a stream cursor. Datagram reads consume one
-  // whole packet and report that the caller's scatter buffer was too short.
-  if (tcp && readOffset < packetLength) {
-    ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
-    m_Metadata.offset = readOffset;
-  } else {
-    struct pbuf* completedPacket = nullptr;
-    struct netbuf* completedBuffer = nullptr;
-    {
-      ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
-      completedPacket = m_Metadata.pb;
-      completedBuffer = m_Metadata.buf;
-      m_Metadata.pb = nullptr;
-      m_Metadata.buf = nullptr;
-      m_Metadata.offset = 0;
-      m_Metadata.partialRead = false;
-    }
-
-    if (!tcp && readOffset < packetLength) {
-      msghdr->msg_flags |= MSG_TRUNC;
-    }
-
-    if (completedBuffer) {
-      netbuf_delete(completedBuffer);
-    } else if (completedPacket) {
-      pbuf_free(completedPacket);
-    }
-  }
+  } while (vectorIndex < static_cast<size_t>(msghdr->msg_iovlen));
 
   // Publish both sides of the readable predicate. Edge-triggered epoll must
   // observe a fully drained packet before a later arrival can raise another
   // edge; partial packets remain readable when the observer rechecks.
   notifyReadiness(ReadyRead);
 
+  if (totalLen) {
+    syscallError(0);
+  }
   N_NOTICE(" -> " << totalLen);
   if (!tcp && (inputFlags & MSG_TRUNC) && totalLen < packetLength) {
     return packetLength;

@@ -11,6 +11,8 @@
 #include <unistd.h>
 #include <utime.h>
 
+#include <netinet/in.h>
+#include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -102,6 +104,86 @@ static void socket_buffers(void* inaccessible, size_t page) {
   close(sockets[0]);
   close(sockets[1]);
   puts("USERCOPY-CONTRACT: PASS socket-buffers");
+}
+
+void test_tcp_receive_buffers(void) {
+  // Bound failures where a receive incorrectly waits after making progress.
+  alarm(15);
+  int listener = socket(AF_INET, SOCK_STREAM, 0);
+  require(listener >= 0, "TCP receive listener");
+  struct sockaddr_in address = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
+  require(
+      bind(listener, (struct sockaddr*)&address, sizeof(address)) == 0 && listen(listener, 1) == 0,
+      "TCP receive listen");
+  socklen_t address_length = sizeof(address);
+  require(getsockname(listener, (struct sockaddr*)&address, &address_length) == 0,
+          "TCP receive listener address");
+  int sender = socket(AF_INET, SOCK_STREAM, 0);
+  require(sender >= 0 && connect(sender, (struct sockaddr*)&address, address_length) == 0,
+          "TCP receive connect");
+  int receiver = accept(listener, (struct sockaddr*)&address, &address_length);
+  require(receiver >= 0, "TCP receive accept");
+  int alias = dup(receiver);
+  require(alias >= 0, "TCP receive duplicate");
+
+  int epoll = epoll_create1(0);
+  struct epoll_event interest = {.events = EPOLLIN | EPOLLRDHUP | EPOLLET, .data.fd = receiver};
+  require(epoll >= 0 && epoll_ctl(epoll, EPOLL_CTL_ADD, receiver, &interest) == 0,
+          "TCP receive edge watch");
+  char output[16384];
+  require(recv(receiver, output, 0, 0) == 0, "empty TCP receive capacity");
+  errno = 0;
+  require(recv(receiver, output, sizeof(output), MSG_DONTWAIT) == -1 && errno == EAGAIN &&
+              !(fcntl(receiver, F_GETFL) & O_NONBLOCK),
+          "empty TCP per-call nonblocking receive");
+  require(send(sender, "x", 1, 0) == 1, "TCP short receive payload");
+  struct epoll_event event = {};
+  require(epoll_wait(epoll, &event, 1, 5000) == 1 && (event.events & EPOLLIN),
+          "TCP receive first edge");
+  require(recv(receiver, output, sizeof(output), 0) == 1 && output[0] == 'x',
+          "TCP short receive does not wait for more data");
+  require(epoll_wait(epoll, &event, 1, 0) == 0, "TCP drain clears receive edge");
+
+  char payload[16384];
+  for (size_t i = 0; i < sizeof(payload); ++i) {
+    payload[i] = (char)(i * 37);
+  }
+  size_t sent = 0;
+  while (sent < sizeof(payload)) {
+    ssize_t result = send(sender, payload + sent, sizeof(payload) - sent, 0);
+    require(result > 0, "TCP queue receive payload");
+    sent += (size_t)result;
+  }
+  require(shutdown(sender, SHUT_WR) == 0, "TCP finish receive payload");
+  // FIN follows all payload, so RDHUP confirms that the receive buffers are
+  // queued before checking that a single recvmsg drains across packet edges.
+  int refilled = 0;
+  do {
+    require(epoll_wait(epoll, &event, 1, 5000) == 1, "TCP receive refill edge");
+    refilled |= !!(event.events & EPOLLIN);
+  } while (!(event.events & EPOLLRDHUP));
+  require(refilled, "TCP refill remains readable before EOF");
+
+  require(recv(receiver, output, 257, 0) == 257 && !memcmp(output, payload, 257),
+          "TCP retain partial receive packet");
+  struct iovec vectors[] = {
+      {NULL, 0}, {output + 257, 3}, {NULL, 0}, {output + 260, sizeof(output) - 260 - 31}};
+  struct msghdr message = {.msg_iov = vectors, .msg_iovlen = 4};
+  require(recvmsg(alias, &message, MSG_DONTWAIT) == (ssize_t)(sizeof(output) - 257 - 31) &&
+              !memcmp(output, payload, sizeof(output) - 31),
+          "TCP scatter receive drains queued packets through duplicate");
+  char tail[64];
+  require(recv(receiver, tail, sizeof(tail), 0) == 31 &&
+              !memcmp(tail, payload + sizeof(payload) - 31, 31),
+          "TCP partial progress is returned before EOF");
+  require(recv(alias, output, sizeof(output), 0) == 0 &&
+              recv(receiver, output, sizeof(output), MSG_DONTWAIT) == 0,
+          "TCP EOF follows queued payload");
+  require(close(alias) == 0 && close(receiver) == 0 && close(sender) == 0 && close(listener) == 0 &&
+              close(epoll) == 0,
+          "TCP receive fixture close");
+  alarm(0);
+  puts("USERCOPY-CONTRACT: PASS tcp-receive-buffers");
 }
 
 static void socket_addresses(void* inaccessible) {
@@ -459,6 +541,7 @@ void test_usercopy_contracts(void) {
   void* inaccessible = mmap(NULL, page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   require(inaccessible != MAP_FAILED, "protected user range");
   socket_buffers(inaccessible, page);
+  test_tcp_receive_buffers();
   socket_addresses(inaccessible);
   test_socket_path_contracts();
   console_buffers(inaccessible);

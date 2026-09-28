@@ -29,6 +29,7 @@ extern void test_resource_accounting(void);
 extern void test_syscall_contracts(void);
 extern void test_vm_contracts(void);
 extern void test_usercopy_contracts(void);
+extern void test_tcp_receive_buffers(void);
 extern void test_regular_read_contracts(const char* base);
 extern void test_futex_contracts(const char* program);
 extern void test_fs_mutation_contracts(void);
@@ -77,6 +78,10 @@ int main(int argc, char* argv[]) {
   }
   if (argc == 2 && !strcmp(argv[1], "--vm-contracts")) {
     test_vm_contracts();
+    return 0;
+  }
+  if (argc == 2 && !strcmp(argv[1], "--tcp-receive-buffers")) {
+    test_tcp_receive_buffers();
     return 0;
   }
   if (argc == 2 && !strcmp(argv[1], "--usercopy-contracts")) {
