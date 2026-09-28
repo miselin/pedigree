@@ -23,6 +23,7 @@
 
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/ProcessorThreadAllocator.h"
@@ -233,6 +234,7 @@ void Scheduler::removeProcess(Process* pProcess) {
 }
 
 void Scheduler::yield() {
+  Metrics::increment(Metrics::Counter::Yield);
   Processor::information().getScheduler().schedule();
 }
 

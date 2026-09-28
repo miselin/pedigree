@@ -11,6 +11,7 @@
 
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -388,6 +389,10 @@ void PerProcessorScheduler::drainAffinityRequests() {
               assert(destination);
               m_pSchedulingAlgorithm->removeThread(thread);
               Scheduler::instance().rebindThread(thread, *destination);
+              if (!thread->m_AffinityPending && destination != this &&
+                  destination == thread->m_BalanceDestination) {
+                Metrics::increment(Metrics::Counter::BalanceMigration);
+              }
               destination->m_pSchedulingAlgorithm->threadStatusChanged(thread);
             }
           }

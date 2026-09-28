@@ -21,6 +21,7 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
@@ -575,6 +576,7 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
     FATAL_NOLOCK("Cannot switch threads while preemption is disabled.");
   }
   ActivityDiagnostics::recordScheduleCall();
+  Metrics::increment(Metrics::Counter::Schedule);
 
   Thread* pCurrentThread = Processor::information().getCurrentThread();
   if (!pCurrentThread) {
@@ -655,6 +657,7 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
   // strand the add-thread worker, so return directly when current stays on CPU.
   if (pNextThread == pCurrentThread) {
     ActivityDiagnostics::recordSameThreadSelection();
+    Metrics::increment(Metrics::Counter::SameThread);
     updateOneShotTimer();
     const bool waitOwnsEventDispatch = pCurrentThread->hasActiveWaitUnlocked();
     pCurrentThread->getLock().release();
@@ -672,8 +675,11 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
 
   // Now neither thread can be moved, we're safe to switch.
   ActivityDiagnostics::recordContextSwitch();
-  if (pNextThread == m_pIdleThread)
+  Metrics::increment(Metrics::Counter::ContextSwitch);
+  if (pNextThread == m_pIdleThread) {
     ActivityDiagnostics::recordIdleSelection();
+    Metrics::increment(Metrics::Counter::IdleSelection);
+  }
   if (pCurrentThread != m_pIdleThread)
     pCurrentThread->setStatusUnlocked(nextStatus);
   pNextThread->setStatusUnlocked(Thread::Running);
@@ -1073,6 +1079,10 @@ void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc p
   assert(pThread->m_Placement.allowed.contains(m_LogicalCpu));
   pThread->m_HasSchedulerContext = true;
   // Now neither thread can be moved, we're safe to switch.
+  Metrics::increment(Metrics::Counter::ContextSwitch);
+  if (pThread == m_pIdleThread) {
+    Metrics::increment(Metrics::Counter::IdleSelection);
+  }
   if (pCurrentThread != m_pIdleThread) {
     pCurrentThread->setStatusUnlocked(Thread::Ready);
   }
@@ -1187,6 +1197,10 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
   assert(pThread->m_Placement.allowed.contains(m_LogicalCpu));
   pThread->m_HasSchedulerContext = true;
   // Now neither thread can be moved, we're safe to switch.
+  Metrics::increment(Metrics::Counter::ContextSwitch);
+  if (pThread == m_pIdleThread) {
+    Metrics::increment(Metrics::Counter::IdleSelection);
+  }
 
   if (pCurrentThread != m_pIdleThread) {
     pCurrentThread->setStatusUnlocked(Thread::Ready);
@@ -1389,6 +1403,10 @@ void PerProcessorScheduler::finishCurrentThreadExit(NoIrqSpinlock* pLock, bool t
       pNextThread->getLock().acquire();
   }
 
+  Metrics::increment(Metrics::Counter::ContextSwitch);
+  if (pNextThread == owner.m_pIdleThread) {
+    Metrics::increment(Metrics::Counter::IdleSelection);
+  }
   pNextThread->setStatusUnlocked(Thread::Running);
   Processor::information().setCurrentThread(pNextThread);
   owner.updateOneShotTimer();
@@ -1528,6 +1546,7 @@ void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
     }
   }
   ActivityDiagnostics::recordSchedulerTimer();
+  Metrics::increment(Metrics::Counter::Timer);
   if (m_OneShotTimer) {
     if (!delta) {
       programOneShotTimer();
@@ -1661,6 +1680,7 @@ void PerProcessorScheduler::serviceWorkerWakeups() {
     }
 
     if (worker->m_pWaiters->wakeOne()) {
+      Metrics::increment(Metrics::Counter::WorkerWake);
       worker->m_Pending.compareAndSwap(1, 0);
     } else {
       // A producer may publish between the worker's empty check and its
@@ -1689,12 +1709,14 @@ bool PerProcessorScheduler::deferScheduling() {
   // An expired one-shot quantum was consumed by timer(). Keep a future IRQ
   // armed if the outer preemption scope eventually ends with IRQs still off.
   if (m_ReschedulePending.value() || m_IrqWorkDoorbell.value()) {
+    Metrics::increment(Metrics::Counter::RescheduleDeferred);
     armLocalQuantumIfNeeded();
   }
   return true;
 }
 
 void PerProcessorScheduler::serviceIrqWorkDoorbell() {
+  Metrics::increment(Metrics::Counter::RescheduleService);
   if (!m_pSchedulingAlgorithm || !Processor::information().getCurrentThread()) {
     return;
   }
@@ -1712,6 +1734,7 @@ void PerProcessorScheduler::serviceIrqWorkDoorbell() {
 }
 
 void PerProcessorScheduler::servicePendingScheduling() {
+  Metrics::increment(Metrics::Counter::RescheduleService);
   if (!m_pSchedulingAlgorithm || !Processor::information().getCurrentThread()) {
     return;
   }

@@ -1,11 +1,13 @@
 /* Copyright (c) 2026, Pedigree Developers. */
 #include "pedigree/kernel/LatencyAccounting.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
@@ -13,6 +15,7 @@
 #include "PosixProcess.h"
 #include "PosixSubsystem.h"
 #include "ProcFs.h"
+#include "modules/system/vfs/VFS.h"
 
 namespace {
 constexpr uint64_t ClockTicksPerSecond = 100;
@@ -51,6 +54,164 @@ class GeneratedFile : public File {
     return true;
   }
   virtual bool generate(String& contents) const = 0;
+};
+
+class MetricsSnapshotFile final : public File {
+ public:
+  MetricsSnapshotFile(uintptr_t inode, ProcFs& filesystem, File* parent, String&& contents)
+      : File(String("metrics"), 0, 0, 0, inode, &filesystem, contents.length(), parent),
+        m_Contents(pedigree_std::move(contents)) {
+    setPermissionsOnly(FILE_UR | FILE_GR | FILE_OR);
+    setUidOnly(0);
+    setGidOnly(0);
+  }
+
+  uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool) override {
+    if (location >= m_Contents.length()) {
+      return 0;
+    }
+    size = min(size, uint64_t(m_Contents.length() - location));
+    MemoryCopy(reinterpret_cast<void*>(buffer), m_Contents.cstr() + location, size);
+    return size;
+  }
+
+  uint64_t writeBytewise(uint64_t, uint64_t, uintptr_t, bool) override {
+    SYSCALL_ERROR(PermissionDenied);
+    return 0;
+  }
+
+ protected:
+  bool isBytewise() const override {
+    return true;
+  }
+
+ private:
+  const String m_Contents;
+};
+
+class MetricsFile final : public File {
+ public:
+  MetricsFile(uintptr_t inode, ProcFs& filesystem, File* parent)
+      : File(String("metrics"), 0, 0, 0, inode, &filesystem, 0, parent) {
+    setPermissionsOnly(FILE_UR | FILE_GR | FILE_OR);
+    setUidOnly(0);
+    setGidOnly(0);
+  }
+
+  File* openForDescriptor(RetainedFile& owner) override {
+    const size_t cpus = Processor::getCount();
+#if PEDIGREE_METRICS
+    auto snapshots = UniqueArray<Metrics::Snapshot>::allocate(cpus);
+    if (!snapshots) {
+      SYSCALL_ERROR(OutOfMemory);
+      return nullptr;
+    }
+    // Capture every counter before formatting, without stopping other CPUs.
+    for (size_t cpu = 0; cpu < cpus; ++cpu) {
+      Metrics::snapshot(cpu, snapshots.get()[cpu]);
+    }
+#endif
+    const uint64_t uptime = Time::getTicks();
+    StaticString<32> uptimeText;
+    uptimeText.append(uptime / Time::Multiplier::Second);
+    uptimeText.append(".");
+    uptimeText.append(uptime % Time::Multiplier::Second, 10, 9);
+    String contents;
+    contents.Format(
+        "# TYPE pedigree_metrics_enabled gauge\npedigree_metrics_enabled %u\n"
+        "# TYPE pedigree_cpus gauge\npedigree_cpus %lu\n"
+        "# TYPE pedigree_uptime_seconds gauge\npedigree_uptime_seconds %s\n",
+        unsigned(PEDIGREE_METRICS), cpus, static_cast<const char*>(uptimeText));
+#if PEDIGREE_METRICS
+    struct Counter {
+      const char* name;
+      Metrics::Counter counter;
+      const char* help;
+    };
+    static const Counter counters[] = {
+        {"pedigree_scheduler_schedules_total", Metrics::Schedule, "Scheduler selection calls."},
+        {"pedigree_scheduler_yields_total", Metrics::Yield, "Explicit scheduler yield calls."},
+        {"pedigree_scheduler_context_switches_total", Metrics::ContextSwitch,
+         "Context switches to another thread."},
+        {"pedigree_scheduler_same_thread_selections_total", Metrics::SameThread,
+         "Scheduler selections that kept the current thread."},
+        {"pedigree_scheduler_idle_selections_total", Metrics::IdleSelection,
+         "Context switches selecting an idle thread."},
+        {"pedigree_scheduler_timer_callbacks_total", Metrics::Timer, "Scheduler timer callbacks."},
+        {"pedigree_scheduler_reschedule_services_total", Metrics::RescheduleService,
+         "Pending scheduling and IRQ work service calls, including calls without pending work."},
+        {"pedigree_scheduler_reschedule_deferrals_total", Metrics::RescheduleDeferred,
+         "Service attempts deferred with scheduling or IRQ work pending."},
+        {"pedigree_scheduler_worker_wakeups_total", Metrics::WorkerWake,
+         "Successful IRQ worker wakeups."},
+        {"pedigree_scheduler_balance_migrations_total", Metrics::BalanceMigration,
+         "Completed scheduler-directed thread migrations."},
+#if X64
+        {"pedigree_interrupt_entries_total", Metrics::Interrupt,
+         "x86-64 interrupt handler entries for vectors 32 and above."},
+        {"pedigree_exception_entries_total", Metrics::Exception,
+         "x86-64 exception handler entries for vectors below 32."},
+        {"pedigree_syscalls_total", Metrics::Syscall, "x86-64 C++ syscall dispatch entries."},
+#endif
+        {"pedigree_preemption_disables_total", Metrics::PreemptionDisable,
+         "Preemption disable calls, including nesting."},
+        {"pedigree_preemption_enables_total", Metrics::PreemptionEnable,
+         "Preemption enable calls, including nesting."},
+        {"pedigree_preemption_checks_total", Metrics::PreemptionCheck,
+         "Preemption disabled-state queries."},
+    };
+    String line;
+    for (const Counter& counter : counters) {
+      line.Format("# HELP %s %s\n# TYPE %s counter\n", counter.name, counter.help, counter.name);
+      contents += line;
+      for (size_t cpu = 0; cpu < cpus; ++cpu) {
+        StaticString<32> value;
+        value.append(snapshots.get()[cpu].values[counter.counter]);
+        line.Format("%s{cpu=\"%lu\"} %s\n", counter.name, cpu, static_cast<const char*>(value));
+        contents += line;
+      }
+    }
+    struct SpinlockPolicy {
+      const char* name;
+      Metrics::Counter acquire;
+      Metrics::Counter contended;
+    };
+    static const SpinlockPolicy policies[] = {
+        {"plain", Metrics::SpinlockPlain, Metrics::SpinlockPlainContended},
+        {"no_preempt", Metrics::SpinlockNoPreempt, Metrics::SpinlockNoPreemptContended},
+        {"no_irq", Metrics::SpinlockNoIrq, Metrics::SpinlockNoIrqContended},
+    };
+    for (unsigned contended = 0; contended < 2; ++contended) {
+      const char* name = contended ? "pedigree_spinlock_contended_acquires_total"
+                                   : "pedigree_spinlock_acquires_total";
+      const char* help = contended
+                             ? "Successful acquisitions that paused at least once while waiting."
+                             : "Successful acquisition calls, including recursive acquisitions.";
+      line.Format("# HELP %s %s\n# TYPE %s counter\n", name, help, name);
+      contents += line;
+      for (size_t cpu = 0; cpu < cpus; ++cpu) {
+        for (const SpinlockPolicy& policy : policies) {
+          const auto counter = contended ? policy.contended : policy.acquire;
+          StaticString<32> value;
+          value.append(snapshots.get()[cpu].values[counter]);
+          line.Format("%s{cpu=\"%lu\",policy=\"%s\"} %s\n", name, cpu, policy.name,
+                      static_cast<const char*>(value));
+          contents += line;
+        }
+      }
+    }
+#endif
+    contents += String("# EOF\n");
+    auto* snapshot = new MetricsSnapshotFile(getInode(), *static_cast<ProcFs*>(getFilesystem()),
+                                             getParent(), pedigree_std::move(contents));
+    if (!snapshot || !VFS::instance().tryTrackFile(snapshot)) {
+      delete snapshot;
+      SYSCALL_ERROR(OutOfMemory);
+      return nullptr;
+    }
+    owner.adopt(snapshot);
+    return snapshot;
+  }
 };
 
 struct TaskCounts {
@@ -478,17 +639,20 @@ bool procfsAddSystemStatusFiles(ProcFs& filesystem, ProcFsDirectory& root) {
   auto* stat = new SystemStatFile(filesystem.getNextInode(), filesystem, &root);
   auto* cpuInfo = new CpuInfoFile(filesystem.getNextInode(), filesystem, &root);
   auto* partitions = new PartitionsFile(filesystem.getNextInode(), filesystem, &root);
+  auto* metrics = new MetricsFile(filesystem.getNextInode(), filesystem, &root);
   auto* kernel = new ProcFsDirectory(String("kernel"), 0, 0, 0, filesystem.getNextInode(),
                                      &filesystem, 0, &root);
   auto* threads =
       kernel ? new KernelThreadsFile(filesystem.getNextInode(), filesystem, kernel) : nullptr;
   auto* latency =
       kernel ? new LatencyFile(filesystem.getNextInode(), filesystem, kernel) : nullptr;
-  if (!loadAverage || !stat || !cpuInfo || !partitions || !kernel || !threads || !latency) {
+  if (!loadAverage || !stat || !cpuInfo || !partitions || !metrics || !kernel || !threads ||
+      !latency) {
     delete loadAverage;
     delete stat;
     delete cpuInfo;
     delete partitions;
+    delete metrics;
     delete threads;
     delete latency;
     delete kernel;
@@ -498,6 +662,7 @@ bool procfsAddSystemStatusFiles(ProcFs& filesystem, ProcFsDirectory& root) {
   root.addEntry(stat->getName(), stat);
   root.addEntry(cpuInfo->getName(), cpuInfo);
   root.addEntry(partitions->getName(), partitions);
+  root.addEntry(metrics->getName(), metrics);
   kernel->setPermissions(FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
   kernel->addEntry(threads->getName(), threads);
   kernel->addEntry(latency->getName(), latency);

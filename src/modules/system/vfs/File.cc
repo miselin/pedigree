@@ -1255,6 +1255,10 @@ File* File::open() {
   return this;
 }
 
+File* File::openForDescriptor(RetainedFile&) {
+  return open();
+}
+
 bool File::isBytewise() const {
   return false;
 }

@@ -20,6 +20,7 @@
 #include "SyscallManager.h"
 #include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
@@ -140,6 +141,7 @@ bool X64SyscallManager::registerSyscallHandler(Service_t Service, SyscallHandler
 }
 
 void X64SyscallManager::syscall(SyscallState& syscallState) {
+  Metrics::increment(Metrics::Syscall);
   captureUserEntry(syscallState);
   // Restart handling consumes only the entry registers, not deferred FS/GS bases.
   const SyscallState originalState = syscallState;

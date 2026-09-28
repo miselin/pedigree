@@ -443,6 +443,10 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
    */
   virtual File* open();
 
+  /** A per-open endpoint may place its initial VFS reference in owner. The
+   * caller retains this owner until the open file description takes over. */
+  virtual File* openForDescriptor(RetainedFile& owner);
+
  protected:
   virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
   virtual bool changeOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid);

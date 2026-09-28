@@ -1,4 +1,5 @@
 /* Copyright (c) 2026, Pedigree Developers. SPDX-License-Identifier: ISC */
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Preemption.h"
@@ -7,6 +8,7 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 
 void Preemption::disable() {
+  Metrics::increment(Metrics::Counter::PreemptionDisable);
   const bool interrupts = Processor::getInterrupts();
   if (interrupts) {
     Processor::setInterrupts(false);
@@ -21,6 +23,7 @@ void Preemption::disable() {
 }
 
 void Preemption::enable() {
+  Metrics::increment(Metrics::Counter::PreemptionEnable);
   const bool interrupts = Processor::getInterrupts();
   if (interrupts) {
     Processor::setInterrupts(false);
@@ -51,6 +54,7 @@ void Preemption::enable() {
 }
 
 bool Preemption::disabled() {
+  Metrics::increment(Metrics::Counter::PreemptionCheck);
   const bool interrupts = Processor::getInterrupts();
   if (interrupts) {
     Processor::setInterrupts(false);

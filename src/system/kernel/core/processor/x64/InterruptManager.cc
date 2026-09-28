@@ -21,6 +21,7 @@
 #include "pedigree/kernel/ActivityDiagnostics.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -173,6 +174,7 @@ void X64InterruptManager::interrupt(InterruptState& interruptState) {
 #endif
   InterruptTimeAccounting accounting(!interruptState.kernelMode());
   size_t nIntNumber = interruptState.getInterruptNumber();
+  Metrics::increment(nIntNumber < 32 ? Metrics::Counter::Exception : Metrics::Counter::Interrupt);
   ActivityDiagnostics::InterruptScope activityScope(nIntNumber);
 
 #if DEBUGGER

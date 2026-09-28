@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <sched.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,6 +58,116 @@ static ssize_t read_status_file(const char* path, char* contents, size_t capacit
   if (bytes >= 0)
     contents[bytes] = 0;
   return bytes;
+}
+
+static unsigned long long metrics_yields(const char* contents, size_t* rows) {
+  unsigned long long total = 0;
+  *rows = 0;
+  for (const char* line = contents; line && *line; line = strchr(line, '\n')) {
+    if (*line == '\n') {
+      ++line;
+    }
+    unsigned cpu;
+    unsigned long long value;
+    if (sscanf(line, "pedigree_scheduler_yields_total{cpu=\"%u\"} %llu", &cpu, &value) == 2) {
+      total += value;
+      ++*rows;
+    }
+  }
+  return total;
+}
+
+static int metrics_status(void) {
+  int fd = open("/proc/metrics", O_RDONLY);
+  CHECK(fd >= 0);
+  struct stat status;
+  CHECK(!fstat(fd, &status) && status.st_size > 0 && status.st_size < 1024 * 1024);
+  CHECK((status.st_mode & 0444) == 0444 && !(status.st_mode & 0222));
+  const size_t length = (size_t)status.st_size;
+  char* expected = malloc(length + 1);
+  char* contents = malloc(length + 1);
+  CHECK(expected && contents);
+  CHECK(pread(fd, expected, length, 0) == (ssize_t)length);
+  expected[length] = 0;
+  CHECK(length >= 6 && !strcmp(expected + length - 6, "# EOF\n"));
+  CHECK(strstr(expected, "# TYPE pedigree_metrics_enabled gauge\n"));
+  CHECK(strstr(expected, "# TYPE pedigree_cpus gauge\n"));
+  CHECK(strstr(expected, "# TYPE pedigree_uptime_seconds gauge\n"));
+  const char* enabled_line = strstr(expected, "\npedigree_metrics_enabled ");
+  unsigned enabled;
+  CHECK(enabled_line && sscanf(enabled_line, "\npedigree_metrics_enabled %u", &enabled) == 1 &&
+        enabled <= 1);
+
+  int alias = dup(fd);
+  CHECK(alias >= 0);
+  size_t offset = 0;
+  while (offset < length) {
+    size_t chunk = (offset % 11) + 1;
+    if (chunk > length - offset) {
+      chunk = length - offset;
+    }
+    // Aliases share their position and frozen bytes, even when splitting a number.
+    CHECK(read(offset & 1 ? alias : fd, contents + offset, chunk) == (ssize_t)chunk);
+    offset += chunk;
+  }
+  contents[length] = 0;
+  CHECK(!memcmp(contents, expected, length) && read(alias, contents, 1) == 0);
+  CHECK(pread(fd, contents, 1, LLONG_MAX - 1) == 0);
+
+  size_t before_rows;
+  const unsigned long long before = metrics_yields(expected, &before_rows);
+  if (enabled) {
+    unsigned long cpus;
+    const char* cpu_line = strstr(expected, "\npedigree_cpus ");
+    CHECK(cpu_line && sscanf(cpu_line, "\npedigree_cpus %lu", &cpus) == 1 && cpus > 0 &&
+          before_rows == cpus);
+    CHECK(strstr(expected, "# TYPE pedigree_scheduler_yields_total counter\n"));
+    CHECK(strstr(expected, "# TYPE pedigree_spinlock_acquires_total counter\n"));
+    CHECK(strstr(expected, "policy=\"plain\"") && strstr(expected, "policy=\"no_preempt\"") &&
+          strstr(expected, "policy=\"no_irq\""));
+  } else {
+    CHECK(!before_rows && !strstr(expected, "_total"));
+  }
+
+  for (unsigned i = 0; i < 16; ++i) {
+    CHECK(sched_yield() == 0);
+  }
+  int next = open("/proc/metrics", O_RDONLY);
+  CHECK(next >= 0 && !fstat(next, &status) && status.st_size > 0 && status.st_size < 1024 * 1024);
+  char* later = malloc((size_t)status.st_size + 1);
+  CHECK(later && read(next, later, status.st_size) == status.st_size);
+  later[status.st_size] = 0;
+  if (enabled) {
+    size_t after_rows;
+    CHECK(metrics_yields(later, &after_rows) > before && after_rows == before_rows);
+  } else {
+    CHECK(strstr(later, "\npedigree_metrics_enabled 0\n") && !strstr(later, "_total"));
+  }
+  CHECK(close(next) == 0);
+  free(later);
+
+  CHECK(lseek(alias, 0, SEEK_SET) == 0);
+  CHECK(read(fd, contents, length) == (ssize_t)length && !memcmp(contents, expected, length));
+  CHECK(close(fd) == 0 && lseek(alias, 0, SEEK_SET) == 0);
+  CHECK(read(alias, contents, length) == (ssize_t)length && !memcmp(contents, expected, length));
+  CHECK(close(alias) == 0);
+  free(contents);
+  free(expected);
+
+  // UID 0 bypasses mode bits; exercise permission rejection after snapshot creation.
+  const uid_t saved_uid = geteuid();
+  if (!saved_uid) {
+    CHECK(seteuid(65534) == 0);
+  }
+  errno = 0;
+  int writable = open("/proc/metrics", O_WRONLY);
+  const int open_error = errno;
+  if (!saved_uid) {
+    CHECK(seteuid(saved_uid) == 0);
+  }
+  CHECK(writable == -1 && open_error == EACCES);
+  puts("SYSTEM-STATUS-CONTRACT: METRICS PASS");
+  return 0;
 }
 
 static int process_status(void) {
@@ -293,8 +404,8 @@ static int kernel_log(void) {
 }
 
 int main(void) {
-  if (memory_status() || process_status() || sysfs_status() || device_status() ||
-      network_status() || kernel_log())
+  if (memory_status() || process_status() || metrics_status() || sysfs_status() ||
+      device_status() || network_status() || kernel_log())
     return 1;
   puts("SYSTEM-STATUS-CONTRACT: PASS");
   return 0;

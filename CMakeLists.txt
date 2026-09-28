@@ -136,6 +136,7 @@ set(PEDIGREE_TRACK_PAGE_ALLOCS FALSE CACHE BOOL "Track physical page allocations
 set(PEDIGREE_VERBOSE_MEMORY_MANAGER FALSE CACHE BOOL "Be more verbose in PhysicalMemoryManager.")
 set(PEDIGREE_SYSCALL_COUNTER FALSE CACHE BOOL "Count POSIX syscalls per process for benchmark diagnostics.")
 set(PEDIGREE_ACTIVITY_DIAGNOSTICS FALSE CACHE BOOL "Collect opt-in IRQ, scheduler, idle and framebuffer benchmark diagnostics.")
+option(PEDIGREE_METRICS "Expose per-CPU kernel activity counters through procfs." ON)
 option(PEDIGREE_LATENCY_ACCOUNTING "Measure x64 IRQ masking and event-deferral durations." OFF)
 if (PEDIGREE_LATENCY_ACCOUNTING AND NOT PEDIGREE_ARCH_TARGET STREQUAL "X64")
     message(FATAL_ERROR "PEDIGREE_LATENCY_ACCOUNTING requires the x64 target")

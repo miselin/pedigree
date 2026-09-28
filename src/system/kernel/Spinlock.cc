@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Preemption.h"
@@ -33,12 +34,23 @@ Spinlock::Spinlock() = default;
 Spinlock::Spinlock(bool locked) : m_Lock(locked) {}
 
 bool Spinlock::acquire() {
+  const bool spun = acquireUncounted();
+  Metrics::increment(Metrics::SpinlockPlain);
+  if (spun) {
+    Metrics::increment(Metrics::SpinlockPlainContended);
+  }
+  return true;
+}
+
+bool Spinlock::acquireUncounted() {
+  bool spun = false;
   do {
     while (m_Lock.acquired()) {
+      spun = true;
       Processor::pause();
     }
   } while (!m_Lock.tryAcquire());
-  return true;
+  return spun;
 }
 
 void Spinlock::release() {
@@ -66,12 +78,16 @@ bool NoPreemptSpinlock::acquire(bool recurse) {
         panic("NoPreemptSpinlock reentered on its owning CPU");
       }
       ++m_Level;
+      Metrics::increment(Metrics::SpinlockNoPreempt);
       return true;
     }
-    m_Lock.acquire();
+    if (m_Lock.acquireUncounted()) {
+      Metrics::increment(Metrics::SpinlockNoPreemptContended);
+    }
   }
   __atomic_store_n(&m_OwnedProcessor, cpu, __ATOMIC_RELAXED);
   m_Level = recurse ? 1 : 0;
+  Metrics::increment(Metrics::SpinlockNoPreempt);
   return true;
 }
 
@@ -152,10 +168,12 @@ bool NoIrqSpinlock::acquire(bool recurse, bool safe) {
     g_LocksCommand.setFatal();
   }
 #endif
+  Metrics::increment(Metrics::SpinlockNoIrq);
   return true;
 }
 
 bool NoIrqSpinlock::acquireContended(bool recurse, bool safe, bool interrupts, uintptr_t ra) {
+  bool spun = false;
 #if MULTIPROCESSOR
   Thread* current = interrupts && safe ? Processor::information().getCurrentThread() : nullptr;
   const bool canEnableInterrupts = interrupts && safe && current &&
@@ -189,12 +207,14 @@ bool NoIrqSpinlock::acquireContended(bool recurse, bool safe, bool interrupts, u
       if (canEnableInterrupts) {
         Processor::setInterrupts(true);
         while (m_Lock.acquired()) {
+          spun = true;
           Processor::pause();
         }
         // Both the successful CAS and owner publication must remain IRQ-off.
         // The next iteration must also reread CPU identity after preemption.
         Processor::setInterrupts(false);
       } else {
+        spun = true;
         Processor::pause();
       }
       continue;
@@ -202,6 +222,9 @@ bool NoIrqSpinlock::acquireContended(bool recurse, bool safe, bool interrupts, u
 #endif
     deadlock(ra, false);
   } while (m_Lock.acquired() || !m_Lock.tryAcquire());
+  if (spun) {
+    Metrics::increment(Metrics::SpinlockNoIrqContended);
+  }
   return false;
 }
 

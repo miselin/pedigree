@@ -35,6 +35,7 @@ class EXPORTED_PUBLIC Spinlock {
 
  private:
   friend class NoPreemptSpinlock;
+  bool acquireUncounted();
   NOT_COPYABLE_OR_ASSIGNABLE(Spinlock);
   SpinlockWord m_Lock;
 };

@@ -4307,7 +4307,8 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
     return -1;
   }
 
-  File* newFile = file->open();
+  RetainedFile openedFile;
+  File* newFile = file->openForDescriptor(openedFile);
   if (!newFile) {
     pSubsystem->freeFd(fd);
     return -1;

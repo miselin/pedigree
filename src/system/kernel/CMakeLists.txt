@@ -327,6 +327,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/BootstrapInfo.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/KernelCoreSyscallManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/ActivityDiagnostics.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/Metrics.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/LatencyAccounting.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/main.cc
     # /core/process/
