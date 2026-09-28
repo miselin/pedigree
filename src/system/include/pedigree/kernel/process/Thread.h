@@ -1356,6 +1356,11 @@ class EXPORTED_PUBLIC Thread {
   /** Nesting depth for deferred event delivery. */
   size_t m_EventDeferralDepth = 0;
 
+#if PEDIGREE_LATENCY_ACCOUNTING
+  /** Global clock time: an outer scope can sleep or migrate before retiring. */
+  Time::Timestamp m_EventDeferralStarted = 0;
+#endif
+
   /** Nesting depth for scopes which must run cleanup before teardown. */
   size_t m_TerminationDeferralDepth = 0;
 

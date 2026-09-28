@@ -17,6 +17,7 @@
 
 extern pedigree_restore_user_entry
 extern pedigree_materialize_user_entry
+%include "system/kernel/core/processor/x64/asm/IrqTime.inc"
 
 ; uintptr_t ProcessorBase::getBasePointer()
 global _ZN13ProcessorBase14getBasePointerEv:function hidden
@@ -58,8 +59,18 @@ _ZN13ProcessorBase13contextSwitchEP17X64InterruptState:
   ; Change the stack pointer to point to the top of the passed InterruptState object.
   mov rsp, rdi
 
+%ifdef PEDIGREE_LATENCY_ACCOUNTING
+  xor edi, edi
+  call pedigree_irq_time_state wrt ..plt
+%endif
   mov rdi, rsp
   call pedigree_restore_user_entry
+%ifdef PEDIGREE_LATENCY_ACCOUNTING
+  mov rdi, [rsp+184]
+  shr edi, 9
+  and edi, 1
+  call pedigree_irq_time_state wrt ..plt
+%endif
   test byte [rsp+176], 3
   jz .kernel_return
   swapgs
@@ -89,6 +100,7 @@ _ZN13ProcessorBase13contextSwitchEP17X64InterruptState:
 
 _ZN13ProcessorBase16switchToUserModeEmm:
   cli
+  IRQ_TIME_STATE 0
   call pedigree_materialize_user_entry
   mov ax, 0x23       ; Load the new data segment descriptor with an RPL of 3.
   mov ds, ax         ; Propagate the change to all segment registers.
@@ -110,6 +122,7 @@ _ZN13ProcessorBase16switchToUserModeEmm:
   push 0x1B          ; Push the new code segment with an RPL of 3.
   push rdx           ; Push the RIP to IRET to.
 
+  IRQ_TIME_STATE 1
   ; Install the user selector without overwriting the kernel GS anchor.
   ; RAX/RCX/RDX are scratch registers after the IRET frame has been built.
   mov ecx, 0xc0000102

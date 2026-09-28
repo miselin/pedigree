@@ -16,6 +16,7 @@
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 extern pedigree_restore_user_entry
+%include "system/kernel/core/processor/x64/asm/IrqTime.inc"
 
 ; bool ProcessorBase::saveState(SchedulerState &)
 global _ZN13ProcessorBase9saveStateER17X64SchedulerState:function hidden
@@ -144,8 +145,18 @@ _ZN13ProcessorBase12restoreStateER15X64SyscallStatePVm:
     mov     qword [rsi], 1
 .no_lock:
 
+%ifdef PEDIGREE_LATENCY_ACCOUNTING
+    xor edi, edi
+    call pedigree_irq_time_state wrt ..plt
+%endif
     mov     rdi, rsp
     call    pedigree_restore_user_entry
+%ifdef PEDIGREE_LATENCY_ACCOUNTING
+    mov rdi, [rsp+136]
+    shr edi, 9
+    and edi, 1
+    call pedigree_irq_time_state wrt ..plt
+%endif
     add     rsp, 32
 
 ;; Restore the registers
@@ -217,6 +228,7 @@ _ZN13ProcessorBase10jumpKernelEPVmmmmmmm:
     push    r10
 
     ;; Enable interrupts and jump.
+    IRQ_TIME_STATE 1
     sti
     jmp     rax
 
@@ -234,6 +246,7 @@ _ZN13ProcessorBase8jumpUserEPVmmmmmmm:
     ;; won't be mapped in another process's address space (which then #DF's
     ;; the scheduler when it attempts to load a new thread).
     cli
+    IRQ_TIME_STATE 0
 
     ;; This path changes the current thread or nested state without passing
     ;; through restoreState(SchedulerState).
@@ -256,6 +269,7 @@ _ZN13ProcessorBase8jumpUserEPVmmmmmmm:
     mov     qword [r12-8], 0
 
     ;; Change stacks.
+    IRQ_TIME_STATE 1
     mov     rsp, r12
 
     ;; Stack changed, now we can unlock the old thread.

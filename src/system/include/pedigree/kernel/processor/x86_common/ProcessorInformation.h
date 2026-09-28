@@ -52,13 +52,21 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
     X86CommonProcessorInformation* information;
     size_t processorIndex;
     void* pendingUserEntry;
+#if PEDIGREE_LATENCY_ACCOUNTING
+    size_t latencyNmiDepth = 0;
+#endif
   };
   static_assert(__builtin_offsetof(KernelGsAnchor, kernelStack) == 0);
   static_assert(__builtin_offsetof(KernelGsAnchor, userStack) == 8);
   static_assert(__builtin_offsetof(KernelGsAnchor, information) == 16);
   static_assert(__builtin_offsetof(KernelGsAnchor, processorIndex) == 24);
   static_assert(__builtin_offsetof(KernelGsAnchor, pendingUserEntry) == 32);
+#if PEDIGREE_LATENCY_ACCOUNTING
+  static_assert(__builtin_offsetof(KernelGsAnchor, latencyNmiDepth) == 40);
+  static_assert(sizeof(KernelGsAnchor) == 48);
+#else
   static_assert(sizeof(KernelGsAnchor) == 40);
+#endif
 
   KernelGsAnchor* kernelGsAnchor() {
     return &m_KernelGsAnchor;

@@ -1,4 +1,5 @@
 ; Copyright (c) 2026, Pedigree Developers.
+%include "system/kernel/core/processor/x64/asm/IrqTime.inc"
 [bits 64]
 [section .text]
 global pedigree_capture_user_entry:function protected
@@ -127,6 +128,7 @@ pedigree_materialize_user_entry:
   je .return
   pushfq
   cli
+  IRQ_TIME_STATE 0
   mov r8, [gs:32]
   test r8, r8
   jz .done
@@ -142,6 +144,7 @@ pedigree_materialize_user_entry:
   mov [r8+16], rax
   mov qword [gs:32], 0
 .done:
+  IRQ_TIME_STATE rflags
   popfq
 .return:
   ret

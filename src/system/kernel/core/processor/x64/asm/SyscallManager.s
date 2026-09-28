@@ -16,6 +16,9 @@
 ; OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 extern pedigree_restore_syscall_entry
+%ifdef PEDIGREE_LATENCY_ACCOUNTING
+extern pedigree_irq_time_state
+%endif
 
 ; X64SyscallManager::syscall(SyscallState &syscallState)
 extern _ZN17X64SyscallManager7syscallER15X64SyscallState
@@ -69,14 +72,28 @@ pedigree_syscall_kernel_stack:
   sub rsp, 32
   mov rax, [rsp+128]
   mov [rsp+24], rax
+%ifdef PEDIGREE_LATENCY_ACCOUNTING
+  xor edi, edi
+  call pedigree_irq_time_state wrt ..plt
+%endif
   ; Call the C++ handler function
   mov rdi, rsp
   call _ZN17X64SyscallManager7syscallER15X64SyscallState
 
   cli
+%ifdef PEDIGREE_LATENCY_ACCOUNTING
+  xor edi, edi
+  call pedigree_irq_time_state wrt ..plt
+%endif
 
   mov rdi, rsp
   call pedigree_restore_syscall_entry
+%ifdef PEDIGREE_LATENCY_ACCOUNTING
+  mov rdi, [rsp+136]
+  shr edi, 9
+  and edi, 1
+  call pedigree_irq_time_state wrt ..plt
+%endif
 
   add rsp, 32
         

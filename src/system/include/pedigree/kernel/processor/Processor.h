@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_PROCESSOR_H
 #define KERNEL_PROCESSOR_PROCESSOR_H
+#include "pedigree/kernel/LatencyAccounting.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/ExecutionContext.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"  // exported
@@ -521,10 +522,18 @@ class EXPORTED_PUBLIC ProcessorBase {
     !STANDALONE_MUTEXES
 ALWAYS_INLINE inline void ProcessorBase::setInterrupts(bool bEnable) {
   if (bEnable) {
+#if PEDIGREE_LATENCY_ACCOUNTING
+    if (!getInterrupts()) {
+      pedigree_irq_time_state(true);
+    }
+#endif
     // Consume the STI shadow before the caller's next instruction.
     asm volatile("sti\n\tnop" : : : "memory", "cc");
   } else {
     asm volatile("cli" : : : "memory", "cc");
+#if PEDIGREE_LATENCY_ACCOUNTING
+    pedigree_irq_time_state(false);
+#endif
   }
 }
 

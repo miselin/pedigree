@@ -44,9 +44,13 @@ static uint64_t timeval_us(struct timeval t) {
 #define SYSCALL_TIMING_RAW_SLOT_COUNT 512
 #define SYSCALL_TIMING_SLOT_COUNT (SYSCALL_TIMING_RAW_SLOT_COUNT + 1)
 #define VM_DIAGNOSTIC_COUNTER_COUNT 57
+#define LATENCY_SNAPSHOT_CAPACITY (64 * 1024)
 
 static int benchmark_syscall_timing;
 static int benchmark_vm_diagnostics;
+static int benchmark_latency_stats;
+static char latency_before[LATENCY_SNAPSHOT_CAPACITY];
+static char latency_after[LATENCY_SNAPSHOT_CAPACITY];
 
 static const char* vm_diagnostic_names[VM_DIAGNOSTIC_COUNTER_COUNT] = {
     "mmap_calls",
@@ -269,12 +273,48 @@ static int vm_diagnostic_delta(const struct vm_diagnostic_snapshot* before,
   return 1;
 }
 
+static void latency_snapshot(char* buffer) {
+  int fd = open("/proc/kernel/latency", O_RDONLY);
+  if (fd < 0) {
+    fail("latency-open");
+  }
+  // One read keeps each edge in one generated view of the live counters.
+  ssize_t n = read(fd, buffer, LATENCY_SNAPSHOT_CAPACITY - 1);
+  if (n < 0) {
+    fail("latency-read");
+  }
+  if (close(fd)) {
+    fail("latency-close");
+  }
+  if (n == LATENCY_SNAPSHOT_CAPACITY - 1) {
+    errno = EOVERFLOW;
+    fail("latency-truncated");
+  }
+  if (!n || buffer[n - 1] != '\n') {
+    errno = EIO;
+    fail("latency-incomplete");
+  }
+  buffer[n] = 0;
+  if (strncmp(buffer, "enabled 1\n", sizeof("enabled 1\n") - 1)) {
+    errno = ENOTSUP;
+    fail("latency-disabled");
+  }
+}
+
+static void dump_latency_snapshot(const char* phase, const char* edge, const char* snapshot) {
+  printf("LATENCY BEGIN phase=%s edge=%s\n%sLATENCY END phase=%s edge=%s\n", phase, edge,
+         snapshot, phase, edge);
+}
+
 static void gate(const char* phase) {
   printf("COMPILEBENCH READY phase=%s\n", phase);
   for (;;) {
     char c;
     ssize_t n = read(serial_fd, &c, 1);
     if (n == 1 && c == 'g') {
+      if (benchmark_latency_stats) {
+        latency_snapshot(latency_before);
+      }
       printf("COMPILEBENCH ACK phase=%s\n", phase);
       return;
     }
@@ -300,6 +340,9 @@ static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
                    int have_syscall_timing, const struct syscall_timing_snapshot* syscall_timing,
                    int have_vm_diagnostics, const struct vm_diagnostic_snapshot* vm_diagnostics,
                    int have_activity, const struct activity_snapshot* activity) {
+  if (benchmark_latency_stats) {
+    latency_snapshot(latency_after);
+  }
   printf(
       "COMPILEBENCH metric phase=%s total_us=%llu rc=%d user_us=%llu system_us=%llu "
       "minor_faults=%ld major_faults=%ld in_blocks=%ld out_blocks=%ld "
@@ -435,6 +478,10 @@ static void metric(const char* phase, uint64_t start, uint64_t end, int rc,
   }
   printf("\n");
   printf("COMPILEBENCH DONE phase=%s\n", phase);
+  if (benchmark_latency_stats) {
+    dump_latency_snapshot(phase, "before", latency_before);
+    dump_latency_snapshot(phase, "after", latency_after);
+  }
 }
 
 static void own_metric(const char* phase, uint64_t start, uint64_t end, const struct rusage* before,
@@ -707,6 +754,7 @@ int main(void) {
     fail("setup");
   benchmark_syscall_timing = !access("time-syscalls", F_OK);
   benchmark_vm_diagnostics = !access("trace-vm", F_OK);
+  benchmark_latency_stats = !access("latency-stats", F_OK);
   printf("COMPILEBENCH BEGIN\n");
   printf(
       "COMPILEBENCH configuration benchmark_syscall_timing=%d benchmark_vm_diagnostics=%d\n",

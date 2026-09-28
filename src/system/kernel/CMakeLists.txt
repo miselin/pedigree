@@ -327,6 +327,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/BootstrapInfo.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/KernelCoreSyscallManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/ActivityDiagnostics.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/LatencyAccounting.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/main.cc
     # /core/process/
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Completion.cc
@@ -570,6 +571,14 @@ target_include_directories(machine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_library(processor STATIC ${PROCESSOR_SRCS} ${PROCESSOR_UNSHARED_SRCS})
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    foreach(_source InterruptManager SyscallManager Scheduler Processor UserReturnMetadata)
+        set_property(SOURCE
+            ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/${_source}.s
+            APPEND PROPERTY OBJECT_DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x64/asm/IrqTime.inc)
+    endforeach ()
+endif ()
 add_library(log STATIC ${LOG_SRCS})
 add_library(slam STATIC ${SLAM_SRCS})
 # TODO: remove dependencies on this if possible

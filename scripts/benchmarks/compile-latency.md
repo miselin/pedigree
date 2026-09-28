@@ -46,6 +46,7 @@ In an offline disposable ext2 root, install the driver as `/usr/bin/init`, mode
 | `no-sync` | Empty marker for a performance-only run with disk writes disabled |
 | `persist-check` | Optional empty marker to create a persistence sentinel during sync |
 | `trace-vm` | Enable process-scoped VM cardinality counters when supported by the kernel |
+| `latency-stats` | Capture system-wide `/proc/kernel/latency` counters around each phase |
 
 Do not seed `persisted-output`: the driver creates it from the compiled binary.
 On its next boot, an existing sentinel with `persist-check` selects verification
@@ -129,6 +130,66 @@ the remainder includes user page faults, interrupts, process setup and teardown,
 and return work outside the architecture syscall tracker. Disable the existing
 `PEDIGREE_SYSCALL_COUNTER` latency histogram in this arm because that diagnostic
 adds two separate clock reads to every syscall.
+
+For IRQ-off and event-deferral accounting, configure
+`-DPEDIGREE_LATENCY_ACCOUNTING=TRUE` with precise CPU accounting enabled and add
+the `latency-stats` marker. Both the kernel option and benchmark capture are off
+by default. The driver reads `/proc/kernel/latency` once after receiving the
+phase admission byte and before `ACK`, then once at `metric()` entry after the
+guest workload timer has stopped. It retains both raw snapshots in fixed
+64 KiB buffers and emits `LATENCY BEGIN phase=... edge=before/after` through
+`LATENCY END phase=... edge=before/after` blocks only after the phase's `DONE`.
+The raw blocks remain in `serial.log`; the runner does not summarize them.
+Requested capture fails on read errors, incomplete or oversized output, or
+disabled kernel accounting.
+
+Guest `total_us` excludes the reads and dumps. Host `host_wall_s` starts when
+the admission byte is sent, so it includes both reads; the first read also
+contributes to `gate_ack_wall_s`. The potentially large serial dumps occur
+after `DONE` and are excluded from that phase's host time. Use a separate run
+with kernel accounting and capture disabled as the timing control.
+
+For each CPU, use rows with `valid=1` at both edges, an unchanged
+`online_since_ns`, increasing `sample_ns`, and nondecreasing cumulative counters.
+Its IRQ-off seconds per second is
+`delta(irq_off_ns) / delta(sample_ns)`; sum the per-CPU rates for the system total.
+The numerator contains only completed IRQ-off intervals. A nonzero
+`irq_off_open_since_ns` and its `irq_off_open_site` identify an unfinished
+interval at an edge: time carried in from before the window or left open at its
+end creates boundary error in the rate. Each CPU row is sampled separately;
+the file is not an atomic snapshot of every CPU. `irq_off_max_ns` is a lifetime
+maximum rather than a duration that can be subtracted between snapshots. A
+larger maximum at the second edge identifies a new record during that window.
+`online_since_ns`, `irq_off_max_end_ns` and `irq_off_open_since_ns` use the
+writer CPU's local clock, whose origin can differ from the reader's global
+`sample_ns`. Do not subtract those timestamps from `sample_ns` to calculate
+ages or use them to assign a maximum to a phase. IRQ-off time and
+`event_deferred_cpu_ns` can overlap and must not be added together.
+
+`irq_off_count` counts outermost masked stretches, and the `ge_1ms` / `ge_10ms`
+counters expose their latency tails. The root-readable file includes kernel
+origin addresses for symbolization against the matching kernel/module images.
+The hooks cover normal x64 C++ masking, hardware and syscall entry, assembly
+returns, context transfers, and the idle `STI/HLT` boundary. Small assembly
+entry/exit tails fall outside the timed brackets. Collection starts after each
+CPU's clock is anchored; early boot and terminal reset/halt paths are excluded.
+NMI execution from an IRQ-enabled state is excluded; an NMI that interrupts an
+already-masked stretch remains part of that stretch's elapsed time. Allocation
+and function tracing's separate raw-assembly masking is outside this gauge.
+Event-deferred CPU time inherits the existing precise thread-accounting
+boundaries. Those boundaries are not fully NMI-reentrant, so do not use runs
+with injected or recurring NMIs as exact CPU-time controls.
+
+`event_deferred_thread_ns`, `event_deferred_count`, and `event_deferred_max_ns`
+describe completed outermost event-deferral scopes. Thread duration includes
+sleep and descheduling, and is credited to the CPU on which the scope closes.
+Summed thread seconds per second can exceed the CPU count and do not measure
+CPU consumption. Open scopes also create window-boundary error. In QEMU these
+clocks measure guest elapsed time, including host descheduling of a vCPU.
+For a system with N CPUs, 1.0 summed IRQ-off seconds per second represents one
+CPU's worth of masked time, or 100/N percent of total CPU capacity, subject to
+the interval-boundary error above. Collection itself adds work at every mask
+transition; these rates describe the instrumented kernel.
 
 For exact VM lifecycle cardinalities, configure
 `-DPEDIGREE_BENCHMARK_VM_DIAGNOSTICS=TRUE` and add the `trace-vm` marker. As with

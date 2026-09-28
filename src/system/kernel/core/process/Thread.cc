@@ -22,6 +22,9 @@
 #if THREADS
 
 #include "pedigree/kernel/ActivityDiagnostics.h"
+#if PEDIGREE_LATENCY_ACCOUNTING
+#include "pedigree/kernel/LatencyAccounting.h"
+#endif
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Subsystem.h"
@@ -428,6 +431,11 @@ void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
     if (slot != NoSyscallTimingSlot) {
       m_pParent->recordSyscallTimingKernel(slot, elapsed);
     }
+  }
+#endif
+#if PEDIGREE_LATENCY_ACCOUNTING
+  if (eventsDeferred()) {
+    LatencyAccounting::recordDeferredCpu(elapsed);
   }
 #endif
   m_pParent->reportTimeAccounting(elapsed);
@@ -3142,6 +3150,13 @@ bool Thread::getWaitDebugInfo(WaitDebugInfo& info) {
 }
 
 void Thread::deferEvents() {
+#if PEDIGREE_LATENCY_ACCOUNTING
+  if (!eventsDeferred()) {
+    const CpuTimeMode mode = currentTimeAccountingMode();
+    transitionTime(mode, mode, true);
+    m_EventDeferralStarted = LatencyAccounting::active() ? Time::getTicks() : 0;
+  }
+#endif
   __atomic_add_fetch(&m_EventDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
   markUserReturnWorkFlag(UserReturnEventsDeferred);
 }
@@ -3151,8 +3166,25 @@ void Thread::resumeEvents() {
   if (!depth) {
     FATAL("Unbalanced event-delivery deferral.");
   }
+#if PEDIGREE_LATENCY_ACCOUNTING
+  Time::Timestamp deferredWall = 0;
+  if (depth == 1) {
+    const CpuTimeMode mode = currentTimeAccountingMode();
+    transitionTime(mode, mode, true);
+    if (m_EventDeferralStarted) {
+      const Time::Timestamp now = Time::getTicks();
+      deferredWall = now >= m_EventDeferralStarted ? now - m_EventDeferralStarted : 0;
+    }
+  }
+#endif
   if (__atomic_sub_fetch(&m_EventDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL) == 0) {
     clearUserReturnWorkFlag(UserReturnEventsDeferred);
+#if PEDIGREE_LATENCY_ACCOUNTING
+    if (m_EventDeferralStarted) {
+      LatencyAccounting::recordDeferredWall(deferredWall);
+    }
+    m_EventDeferralStarted = 0;
+#endif
   }
 }
 

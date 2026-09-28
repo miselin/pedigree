@@ -427,6 +427,10 @@ void ProcessorBase::haltUntilInterrupt() {
   ActivityDiagnostics::recordIdleHalt();
 #endif
   bool bWasInterrupts = getInterrupts();
+#if PEDIGREE_LATENCY_ACCOUNTING
+  asm volatile("cli" : : : "memory", "cc");
+  pedigree_irq_time_state(true);
+#endif
   __asm__ __volatile__("sti; hlt");
   if (!bWasInterrupts)
     setInterrupts(false);

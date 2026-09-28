@@ -570,6 +570,12 @@ bool Rtc::initialise2() {
   m_Tsc0 = tsc1;
   m_MonotonicTicks.reset();
   Processor::information().initialiseTscClockAnchor(tsc1, 0);
+#if PEDIGREE_LATENCY_ACCOUNTING
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  LatencyAccounting::armCpu();
+  Processor::setInterrupts(interruptsWereEnabled);
+#endif
 
   return true;
 }
@@ -585,6 +591,7 @@ void Rtc::initialiseProcessorClock() {
     nanoseconds = coarseFloor;
   }
   processor.initialiseTscClockAnchor(tsc, nanoseconds);
+  LatencyAccounting::armCpu();
   Processor::setInterrupts(interruptsWereEnabled);
 }
 

@@ -1,4 +1,5 @@
 /* Copyright (c) 2026, Pedigree Developers. */
+#include "pedigree/kernel/LatencyAccounting.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -136,6 +137,38 @@ class KernelThreadsFile final : public GeneratedFile {
         contents += String(length ? name : "unnamed");
         contents += String("\n");
       }
+    }
+    return true;
+  }
+};
+
+class LatencyFile final : public GeneratedFile {
+ public:
+  LatencyFile(uintptr_t inode, ProcFs& filesystem, File* parent)
+      : GeneratedFile(String("latency"), inode, filesystem, parent) {
+    // Origin addresses are useful for symbolizing a long IRQ-off interval.
+    setPermissionsOnly(FILE_UR);
+  }
+
+ private:
+  bool generate(String& contents) const override {
+    contents.Format("enabled %u\n", unsigned(PEDIGREE_LATENCY_ACCOUNTING));
+    contents += String(
+        "cpu sample_ns valid online_since_ns irq_off_ns irq_off_count irq_off_max_ns "
+        "irq_off_max_end_ns irq_off_max_site irq_off_ge_1ms irq_off_ge_10ms "
+        "irq_off_open_since_ns irq_off_open_site event_deferred_cpu_ns "
+        "event_deferred_thread_ns event_deferred_count event_deferred_max_ns\n");
+    for (size_t cpu = 0; cpu < Processor::getCount(); ++cpu) {
+      LatencyAccounting::Snapshot snapshot;
+      const bool valid = LatencyAccounting::snapshot(cpu, snapshot);
+      String line;
+      line.Format("%20lu %20lu %u", cpu, Time::getTicks(), unsigned(valid));
+      contents += line;
+      for (size_t field = 0; field < LatencyAccounting::Count; ++field) {
+        line.Format(" %20lu", snapshot.values[field]);
+        contents += line;
+      }
+      contents += String("\n");
     }
     return true;
   }
@@ -449,12 +482,15 @@ bool procfsAddSystemStatusFiles(ProcFs& filesystem, ProcFsDirectory& root) {
                                      &filesystem, 0, &root);
   auto* threads =
       kernel ? new KernelThreadsFile(filesystem.getNextInode(), filesystem, kernel) : nullptr;
-  if (!loadAverage || !stat || !cpuInfo || !partitions || !kernel || !threads) {
+  auto* latency =
+      kernel ? new LatencyFile(filesystem.getNextInode(), filesystem, kernel) : nullptr;
+  if (!loadAverage || !stat || !cpuInfo || !partitions || !kernel || !threads || !latency) {
     delete loadAverage;
     delete stat;
     delete cpuInfo;
     delete partitions;
     delete threads;
+    delete latency;
     delete kernel;
     return false;
   }
@@ -464,6 +500,7 @@ bool procfsAddSystemStatusFiles(ProcFs& filesystem, ProcFsDirectory& root) {
   root.addEntry(partitions->getName(), partitions);
   kernel->setPermissions(FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
   kernel->addEntry(threads->getName(), threads);
+  kernel->addEntry(latency->getName(), latency);
   root.addEntry(kernel->getName(), kernel);
   return true;
 }

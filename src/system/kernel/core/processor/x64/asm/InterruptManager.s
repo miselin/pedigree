@@ -17,6 +17,9 @@
 
 extern pedigree_capture_user_entry
 extern pedigree_restore_user_entry
+%ifdef PEDIGREE_LATENCY_ACCOUNTING
+extern pedigree_irq_time_state
+%endif
 
 ; X64InterruptManager::interrupt(InterruptState &interruptState)
 extern _ZN19X64InterruptManager9interruptER17X64InterruptState
@@ -79,6 +82,15 @@ interrupt_handler:
 .kernel_gs:
   lfence
 
+%ifdef PEDIGREE_LATENCY_ACCOUNTING
+  cmp qword [rsp+152], 2
+  jne .latency_entry
+  inc qword [gs:40]
+.latency_entry:
+  xor edi, edi
+  call pedigree_irq_time_state wrt ..plt
+%endif
+
   mov rdi, rsp
   call pedigree_capture_user_entry
 
@@ -121,8 +133,22 @@ interrupt_handler:
   call _ZN19X64InterruptManager19returnFromInterruptER17X64InterruptState
 
   cli
+%ifdef PEDIGREE_LATENCY_ACCOUNTING
+  xor edi, edi
+  call pedigree_irq_time_state wrt ..plt
+%endif
   mov rdi, rsp
   call pedigree_restore_user_entry
+%ifdef PEDIGREE_LATENCY_ACCOUNTING
+  mov rdi, [rsp+184]
+  shr edi, 9
+  and edi, 1
+  call pedigree_irq_time_state wrt ..plt
+  cmp qword [rsp+152], 2
+  jne .latency_exit
+  dec qword [gs:40]
+.latency_exit:
+%endif
   test ebx, ebx
   jz .restore_registers
   swapgs
