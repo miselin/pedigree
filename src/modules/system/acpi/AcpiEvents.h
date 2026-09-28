@@ -4,5 +4,6 @@
 #define PEDIGREE_MODULES_SYSTEM_ACPI_EVENTS_H
 
 bool initialiseAcpiEvents();
+bool shutdownAcpiEvents();
 
 #endif

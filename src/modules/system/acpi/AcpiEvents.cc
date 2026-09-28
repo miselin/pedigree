@@ -228,3 +228,31 @@ extern "C" uacpi_status uacpi_kernel_wait_for_work_completion() {
 
   return g_Events.work.drain() ? UACPI_STATUS_OK : UACPI_STATUS_INTERNAL_ERROR;
 }
+
+bool shutdownAcpiEvents() {
+  if (!g_Events.ready.value()) {
+    return true;
+  }
+
+  // Close interrupt producers before draining AML, which may enqueue further
+  // notifications of its own. No firmware callbacks may outlive the scheduler.
+  while (true) {
+    AcpiIrqHandler* handler;
+    {
+      LockGuard<Mutex> guard(g_Events.mutex);
+      handler = g_Events.handlers;
+    }
+    if (!handler) {
+      break;
+    }
+    if (uacpi_kernel_uninstall_interrupt_handler(handler->callback, handler) != UACPI_STATUS_OK) {
+      return false;
+    }
+  }
+  if (!g_Events.work.drain()) {
+    return false;
+  }
+  g_Events.ready = 0;
+  g_Events.work.destroy();
+  return true;
+}

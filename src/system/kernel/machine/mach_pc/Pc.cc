@@ -117,6 +117,14 @@ bool Pc::supportsPowerOff() const {
 #endif
 }
 
+bool Pc::prepareShutdown(ShutdownType type) {
+#if ACPI
+  return Acpi::instance().prepareShutdown(type == ShutdownType::PowerOff);
+#else
+  return true;
+#endif
+}
+
 void Pc::finalShutdown(ShutdownType type) {
   if (type == ShutdownType::PowerOff) {
     NOTICE_NOLOCK("Powering off...");

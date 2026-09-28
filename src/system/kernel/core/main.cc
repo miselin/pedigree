@@ -522,6 +522,11 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
     panic("Shutdown aborted: module quiesce failed");
   }
 
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Firmware);
+  if (!Machine::instance().prepareShutdown(g_ShutdownType)) {
+    panic("Shutdown aborted: firmware workers did not stop");
+  }
+
   EMIT_IF(STATIC_DRIVERS) {
     extern uintptr_t start_module_dtors;
     extern uintptr_t end_module_dtors;
@@ -593,8 +598,15 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
 
   Processor::setInterrupts(false);
 
-  // Shut down the pieces created by Processor before hosted global destruction
-  // or the bare-metal terminal handoff.
+#if !HOSTED
+  // Firmware register access can still allocate mappings. Keep physical-memory
+  // bookkeeping alive until the final attempt to power off or reset returns.
+  Machine::setShutdownPhase(Machine::ShutdownPhase::FinalAction);
+  Machine::instance().finalShutdown(g_ShutdownType);
+#endif
+
+  // Release processor bookkeeping before hosted global destruction or after a
+  // bare-metal firmware action returned without switching the machine off.
   Machine::setShutdownPhase(Machine::ShutdownPhase::ProcessorCleanup);
   Processor::deinitialise();
 
@@ -615,9 +627,6 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
   TRACE("kernel main() terminating");
 
 #if !HOSTED
-  Machine::setShutdownPhase(Machine::ShutdownPhase::FinalAction);
-  Machine::instance().finalShutdown(g_ShutdownType);
-
   // The boot entry lives in the discarded init mapping, so bare-metal cannot
   // return after terminal shutdown.
   while (true)

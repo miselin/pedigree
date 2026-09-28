@@ -55,6 +55,7 @@ class Pc : public Machine {
   virtual void initialise3();
   virtual void deinitialise();
   bool supportsPowerOff() const override;
+  bool prepareShutdown(ShutdownType type) override;
   void finalShutdown(ShutdownType type) override;
 
 #if MULTIPROCESSOR

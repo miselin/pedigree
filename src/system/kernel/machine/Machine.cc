@@ -50,6 +50,8 @@ const char* Machine::shutdownPhaseName() {
       return "detaching filesystems";
     case ShutdownPhase::Modules:
       return "unloading modules";
+    case ShutdownPhase::Firmware:
+      return "preparing firmware shutdown";
     case ShutdownPhase::Destructors:
       return "draining deferred destruction";
     case ShutdownPhase::Input:

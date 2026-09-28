@@ -51,6 +51,14 @@ class Acpi {
   void initialise() INITIALISATION_ONLY;
 
   bool supportsPowerOff() const;
+  struct PowerManagement {
+    bool (*prepare)(bool powerOff);
+    void (*powerOff)();
+    void (*reset)();
+  };
+  /** The provider and its callbacks must remain mapped through shutdown. */
+  EXPORTED_PUBLIC void setPowerManagement(const PowerManagement* provider);
+  bool prepareShutdown(bool powerOff);
   void powerOff();
   void reset();
 
@@ -227,6 +235,7 @@ class Acpi {
   bool m_DmarPresent = false;
   bool m_DmarSeen = false;
   bool m_PowerOffValid = false;
+  const PowerManagement* m_PowerManagement = nullptr;
   uint8_t m_SleepTypeA = 0;
   uint8_t m_SleepTypeB = 0;
   uint16_t m_ResetPort = 0;

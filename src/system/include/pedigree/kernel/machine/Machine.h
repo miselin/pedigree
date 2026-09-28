@@ -50,6 +50,7 @@ class EXPORTED_PUBLIC Machine {
     Syscalls,
     Filesystems,
     Modules,
+    Firmware,
     Destructors,
     Input,
     Caches,
@@ -67,6 +68,10 @@ class EXPORTED_PUBLIC Machine {
 
   virtual bool supportsPowerOff() const {
     return false;
+  }
+  /** Prepares firmware and drains its workers while scheduling is available. */
+  virtual bool prepareShutdown(ShutdownType type) {
+    return true;
   }
   /** Runs after all workers, devices and other processors have stopped. */
   virtual void finalShutdown(ShutdownType type);

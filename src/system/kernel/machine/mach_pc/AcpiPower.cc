@@ -80,7 +80,7 @@ void Acpi::initialisePowerManagement() {
     return;
   const uint8_t* bytes = reinterpret_cast<const uint8_t*>(table);
   if (AcpiS5::mayHaveSleepHooks(bytes + sizeof(*table), length - sizeof(*table))) {
-    WARNING("ACPI: firmware sleep methods require an interpreter; poweroff unavailable");
+    WARNING("ACPI: firmware sleep methods require an interpreter; static poweroff unavailable");
     return;
   }
 
@@ -104,7 +104,8 @@ void Acpi::initialisePowerManagement() {
     const auto* aml = reinterpret_cast<const uint8_t*>(secondary) + sizeof(*secondary);
     if (AcpiS5::mayHaveSleepHooks(aml, secondary->length - sizeof(*secondary))) {
       WARNING(
-          "ACPI: secondary firmware sleep methods require an interpreter; poweroff unavailable");
+          "ACPI: secondary firmware sleep methods require an interpreter; static poweroff "
+          "unavailable");
       return;
     }
   }
@@ -117,7 +118,20 @@ void Acpi::initialisePowerManagement() {
   }
 }
 
+void Acpi::setPowerManagement(const PowerManagement* provider) {
+  __atomic_store_n(&m_PowerManagement, provider, __ATOMIC_RELEASE);
+}
+
+bool Acpi::prepareShutdown(bool powerOff) {
+  const auto* provider = __atomic_load_n(&m_PowerManagement, __ATOMIC_ACQUIRE);
+  return !provider || provider->prepare(powerOff);
+}
+
 void Acpi::reset() {
+  const auto* provider = __atomic_load_n(&m_PowerManagement, __ATOMIC_ACQUIRE);
+  if (provider && provider->reset) {
+    provider->reset();
+  }
   if (!m_ResetPort)
     return;
   writeCommand(m_ResetPort, m_ResetValue);
@@ -126,12 +140,21 @@ void Acpi::reset() {
 }
 
 bool Acpi::supportsPowerOff() const {
+  const auto* provider = __atomic_load_n(&m_PowerManagement, __ATOMIC_ACQUIRE);
+  if (provider && provider->powerOff) {
+    return true;
+  }
   return m_PowerOffValid && ((readControl(m_pFacp->pm1aControlBlock) & 1) ||
                              (m_pFacp->smiCommandPort && m_pFacp->smiCommandPort <= 0xffff &&
                               m_pFacp->acpiEnableCommand));
 }
 
 void Acpi::powerOff() {
+  const auto* provider = __atomic_load_n(&m_PowerManagement, __ATOMIC_ACQUIRE);
+  if (provider && provider->powerOff) {
+    provider->powerOff();
+    return;
+  }
   if (!m_PowerOffValid)
     return;
   const uint16_t portA = m_pFacp->pm1aControlBlock;
