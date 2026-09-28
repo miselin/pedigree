@@ -44,8 +44,8 @@
 
 #define LWIP_PROVIDE_ERRNO 1
 
-// We can safely do this rather than use an mbox as packets are pushed into
-// a RequestQueue, not directly pushed from an IRQ context.
+// Keep protocol processing on the tcpip worker: some NIC workers must
+// finish receiving before they can service transmit completion.
 #define LWIP_TCPIP_CORE_LOCKING_INPUT 0
 
 #define LWIP_RANDOMIZE_INITIAL_LOCAL_PORTS 1

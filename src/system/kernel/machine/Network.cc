@@ -52,11 +52,11 @@ StationInfo::StationInfo(const StationInfo& info)
 
 StationInfo::~StationInfo() {}
 
-Network::Network() : m_StationInfo(), m_NetworkStackGeneration(0) {
+Network::Network() : m_StationInfo() {
   m_SpecificType.assign("Generic Network Device", 23);
 }
 
-Network::Network(Network* pDev) : Device(pDev), m_StationInfo(), m_NetworkStackGeneration(0) {}
+Network::Network(Network* pDev) : Device(pDev), m_StationInfo() {}
 
 Network::~Network() {}
 

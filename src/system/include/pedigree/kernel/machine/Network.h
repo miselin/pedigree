@@ -63,8 +63,6 @@ class EXPORTED_PUBLIC StationInfo {
  * A network device (sends/receives packets on a network)
  */
 class EXPORTED_PUBLIC Network : public Device {
-  friend class NetworkStack;
-
  public:
   Network();
   Network(Network* pDev);
@@ -120,13 +118,6 @@ class EXPORTED_PUBLIC Network : public Device {
 
  protected:
   StationInfo m_StationInfo;
-
- private:
-  /**
-   * Non-zero only while registered. Queued receive work carries this value
-   * so reusing a Network object's address cannot target a later device.
-   */
-  size_t m_NetworkStackGeneration;
 };
 
 #endif

@@ -421,7 +421,7 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-NETWORK-TEST: PASS device-lease-deregister-drain"
     assert_marker_once \
         "$empty_log" \
-        "HOSTED-NETWORK-TEST: PASS receive-generation-aba"
+        "HOSTED-NETWORK-TEST: PASS receive-interface-retirement"
     for checkpoint in \
         "HOSTED-SYSCALL-TEST: PASS usercopy" \
         "HOSTED-SYSCALL-TEST: PASS mmap-placement" \

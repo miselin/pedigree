@@ -19,13 +19,12 @@
 
 #ifndef MACHINE_NETWORK_STACK_H
 #define MACHINE_NETWORK_STACK_H
-#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/MemoryPool.h"
-#include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -40,7 +39,7 @@ struct netif;
  * This function is the base for receiving packets, and provides functionality
  * for keeping track of network devices in the system.
  */
-class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
+class EXPORTED_PUBLIC NetworkStack {
  public:
   /**
    * Pins one registered device and its lwIP interface until the lease leaves
@@ -94,7 +93,7 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
     return __atomic_load_n(&stack, __ATOMIC_ACQUIRE);
   }
 
-  /** Called when a packet arrives */
+  /** Delivers a packet from a driver worker; must not run in a hard IRQ. */
   void receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t offset);
 
   /** Registers a given network device with the stack */
@@ -114,40 +113,10 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
     return m_MemPool;
   }
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-  enum class HostedReceiveEvent {
-    Queued,
-    BeforeDispatch,
-    Delivered,
-    DiscardedStale,
-    Cancelled,
-  };
-
-  using HostedReceiveHook = void (*)(HostedReceiveEvent event, uintptr_t buffer, Network* card,
-                                     size_t generation);
-
-  static void setHostedReceiveHook(HostedReceiveHook hook);
-  static size_t getHostedRegistrationGeneration(Network* card);
-  static size_t getHostedReceiveRequestCapacity();
-#endif
-
  private:
   struct DeviceRegistration;
 
   static NetworkStack* stack;
-
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-  static HostedReceiveHook m_HostedReceiveHook;
-#endif
-
-  virtual uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-                                  uint64_t p6, uint64_t p7, uint64_t p8);
-  virtual void cancelRequest(const Request& request);
-
-  /** Releases a receive payload which the queue did not execute. */
-  static void cancelReceive(uintptr_t buffer, Network* card, size_t generation);
-
-  static constexpr size_t ReceiveRequestCapacity = 256;
 
   /** Network devices registered with the stack. */
   Vector<Network*> m_Children;
@@ -159,19 +128,8 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
   Mutex m_Lock;
 #endif
 
-  /** lwIP interfaces for each of our cards. */
-  Tree<Network*, struct netif*> m_Interfaces;
-
   /** Next interface number to assign. */
   size_t m_NextInterfaceNumber;
-
-  /** Next non-zero registration generation. */
-  size_t m_NextDeviceGeneration;
-
-  PreallocatedRequest m_ReceiveRequests[ReceiveRequestCapacity];
-
-  /** Starting token for the next bounded preallocated-publication scan. */
-  Atomic<size_t> m_NextReceiveRequest;
 
   /** Read-side lifetime state for registered devices and interfaces. */
   Tree<Network*, DeviceRegistration*> m_Registrations;

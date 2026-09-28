@@ -27,7 +27,7 @@
 #include <pedigree/kernel/process/Semaphore.h>
 #include <pedigree/kernel/process/Thread.h>
 #include <pedigree/kernel/processor/Processor.h>
-#include <pedigree/kernel/utilities/RingBuffer.h>
+#include <pedigree/kernel/utilities/Mailbox.h>
 #include <pedigree/kernel/utilities/SecureRandom.h>
 #include <pedigree/kernel/utilities/pocketknife.h>
 
@@ -46,7 +46,7 @@ int errno;
 struct pedigree_mbox {
   pedigree_mbox() : buffer(64) {}
 
-  using Buffer = RingBuffer<void*, 64>;
+  using Buffer = Mailbox<void*, 64>;
   Buffer buffer;
 };
 
@@ -277,17 +277,9 @@ err_t sys_mbox_post_and_close(sys_mbox_t* mbox, void* msg) {
 }
 
 u32_t sys_arch_mbox_tryfetch(sys_mbox_t* mbox, void** msg) {
-  if (!(*mbox)->buffer.dataReady()) {
-    return SYS_MBOX_EMPTY;
-  }
-
   void* value = nullptr;
   pedigree_mbox::Buffer::Error error = pedigree_mbox::Buffer::NoError;
   if (!(*mbox)->buffer.read(value, error)) {
-    // TODO: what error?
-    ERROR(
-        "sys_arch_mbox_tryfetch: read() failed after dataReady() returned "
-        "true");
     return SYS_MBOX_EMPTY;
   }
 
@@ -319,8 +311,16 @@ u32_t sys_arch_mbox_fetch(sys_mbox_t* mbox, void** msg, u32_t timeout) {
 }
 
 err_t sys_mbox_trypost(sys_mbox_t* mbox, void* msg) {
-  const pedigree_mbox::Buffer::Error error = (*mbox)->buffer.tryWrite(msg);
-  if (error == pedigree_mbox::Buffer::WouldBlock) {
+#if THREADS
+  if (Processor::inDeviceHardIrq()) {
+    return ERR_WOULDBLOCK;
+  }
+#endif
+  // Wait for the mailbox mutex, but never for queue space. Treating brief
+  // lock contention as a full mailbox drops otherwise deliverable packets.
+  Time::Timestamp timeout = 0;
+  const pedigree_mbox::Buffer::Error error = (*mbox)->buffer.write(msg, timeout);
+  if (error == pedigree_mbox::Buffer::TimedOut) {
     return ERR_WOULDBLOCK;
   }
 
