@@ -121,6 +121,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   size_t logicalCpu() const {
     return m_LogicalCpu;
   }
+  bool isIdleThread(const Thread* thread) const {
+    return thread == __atomic_load_n(&m_pIdleThread, __ATOMIC_ACQUIRE);
+  }
   uint64_t nominalQuantumNs() const {
     return m_NominalQuantumNs;
   }
@@ -267,7 +270,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   void armLocalQuantumIfNeeded();
   void updateOneShotTimer();
   void programOneShotTimer();
-  Thread* selectNext(Thread* current);
+  Thread* selectNext(Thread* current, bool currentRunnable = false);
   void serviceWorkerWakeups();
 
   /** The current SchedulingAlgorithm */
@@ -320,6 +323,8 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
 
   Thread* m_pIdleThread;
   bool m_IdleWakeRequested = false;
+  // Busy, idle, or reserved for an off-stack affinity handoff.
+  Atomic<size_t> m_BalanceAvailability{0};
   size_t m_SchedulerTickCounter = 0;
   size_t m_UserReturnDiagnosticSequence = 0;
 };

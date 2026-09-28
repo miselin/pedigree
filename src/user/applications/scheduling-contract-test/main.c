@@ -18,6 +18,7 @@ int main(int argc, char** argv) {
   } families[] = {{"api-policy", sc_api},
                   {"placement", sc_placement},
                   {"wakeups", sc_wakeups},
+                  {"affinity-races", sc_affinity_races},
                   {"lifecycle", sc_lifecycle},
                   {"permissions", sc_permissions}};
   int selected = 0;

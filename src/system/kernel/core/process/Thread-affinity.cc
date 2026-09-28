@@ -155,13 +155,33 @@ AffinityResult Thread::waitAffinity(uint64_t generation) {
 }
 
 AffinityResult Thread::completeAffinityAtSafePoint(bool* waited) {
-  if (!affinityWorkPending()) {
-    Processor::setInterrupts(false);
+  Processor::setInterrupts(false);
+  if (Processor::getCount() > 1 && !affinityWorkPending() && !m_nStateLevel &&
+      m_pParent->getSubsystem() && m_pParent->getSubsystem()->canBalanceAtUserReturn()) {
+    LockGuard<Spinlock> guard(m_Lock);
+    PerProcessorScheduler* owner = getScheduler();
+    if (m_Placement.migratable && !m_AffinityWorkQueued && !m_bShutdown &&
+        getUnwindState() == Continue && owner->m_pSchedulingAlgorithm->hasReady()) {
+      // A saved syscall may still refer to its original CPU. Donate only
+      // this clean return continuation, using the affinity worker's normal
+      // off-stack handoff rather than detaching a foreign ready-queue entry.
+      const size_t count = Processor::getCount();
+      for (size_t offset = 1; offset < count; ++offset) {
+        const size_t cpu = (owner->logicalCpu() + offset) % count;
+        PerProcessorScheduler* destination = Scheduler::schedulerForCpu(cpu);
+        if (m_Placement.allowed.contains(cpu) &&
+            destination->m_BalanceAvailability.compareAndSwap(1, 2)) {
+          m_BalanceDestination = destination;
+          break;
+        }
+      }
+    }
+  }
+  if (!affinityWorkPending() && !m_BalanceDestination) {
     if (waited)
       *waited = false;
     return AffinityResult::Success;
   }
-  Processor::setInterrupts(false);
   if (waited)
     *waited = false;
   if (Processor::information().getCurrentThread() != this)
@@ -188,7 +208,7 @@ AffinityResult Thread::completeAffinityAtSafePoint(bool* waited) {
           if (m_bShutdown || getUnwindState() != Continue) {
             result = AffinityResult::Terminal;
             finished = true;
-          } else if (m_Placement.allowed.contains(owner->logicalCpu())) {
+          } else if (!m_BalanceDestination && m_Placement.allowed.contains(owner->logicalCpu())) {
             finished = true;
           }
           if (!finished && !m_AffinityWorkQueued) {
@@ -227,10 +247,20 @@ AffinityResult Thread::completeAffinityAtSafePoint(bool* waited) {
       }
     }
     if (finished) {
+      if (m_BalanceDestination) {
+        m_BalanceDestination->m_BalanceAvailability = 0;
+        m_BalanceDestination->prompt();
+        m_BalanceDestination = nullptr;
+      }
       Processor::setInterrupts(false);
       return result;
     }
     if (rejected) {
+      if (m_BalanceDestination) {
+        m_BalanceDestination->m_BalanceAvailability = 0;
+        m_BalanceDestination->prompt();
+        m_BalanceDestination = nullptr;
+      }
       if (threadPinned)
         endExternalLease();
       if (parentPinned)
@@ -317,6 +347,7 @@ void PerProcessorScheduler::drainAffinityRequests() {
 #endif
     bool retry = false;
     PerProcessorScheduler* destination = this;
+    PerProcessorScheduler* reserved = nullptr;
     {
       auto progress = thread->m_AffinityWaiters.acquire();
       {
@@ -337,7 +368,12 @@ void PerProcessorScheduler::drainAffinityRequests() {
               thread->m_AffinityCompleted = thread->m_AffinityGeneration;
             }
             if (thread->m_AffinityGatePending) {
-              if (!thread->m_Placement.allowed.contains(m_LogicalCpu)) {
+              if (!thread->m_AffinityPending && thread->m_BalanceDestination &&
+                  thread->m_Placement.allowed.contains(
+                      thread->m_BalanceDestination->logicalCpu()) &&
+                  !thread->m_BalanceDestination->m_StopTimeAccountingWorker.value()) {
+                destination = thread->m_BalanceDestination;
+              } else if (!thread->m_Placement.allowed.contains(m_LogicalCpu)) {
                 for (size_t cpu = 0; cpu < CpuAffinityMask::MaximumCpus; ++cpu) {
                   if (thread->m_Placement.allowed.contains(cpu)) {
                     destination = Scheduler::schedulerForCpu(cpu);
@@ -352,9 +388,15 @@ void PerProcessorScheduler::drainAffinityRequests() {
             }
           }
           thread->m_AffinityPending = false;
+          reserved = thread->m_BalanceDestination;
+          thread->m_BalanceDestination = nullptr;
           thread->m_AffinityGatePending = false;
           thread->m_AffinityWorkQueued = false;
-          __atomic_store_n(&thread->m_AffinityReturnPending, static_cast<size_t>(0),
+          // A policy acknowledgement can precede the clean return gate.
+          // Keep that gate armed until the continuation is on an allowed CPU.
+          const bool needsMove =
+              !terminal && !thread->m_Placement.allowed.contains(destination->logicalCpu());
+          __atomic_store_n(&thread->m_AffinityReturnPending, static_cast<size_t>(needsMove),
                            __ATOMIC_RELEASE);
         }
       }
@@ -366,6 +408,10 @@ void PerProcessorScheduler::drainAffinityRequests() {
       const bool queued = enqueueAffinity(thread, true);
       assert(queued);
     } else {
+      if (reserved) {
+        reserved->m_BalanceAvailability = 0;
+        reserved->prompt();
+      }
       destination->prompt();
       // The node owns a lease independently of the syscall's caller. The
       // final release may destroy a terminal detached target.

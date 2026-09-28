@@ -43,6 +43,7 @@ extern void test_exec_shebang(const char* program);
 extern int process_exec_signal_child(void);
 extern void test_linux_signal_frame(void);
 extern void test_process(const char* program);
+extern void test_proc_kernel_threads(void);
 extern void test_process_stop_contracts(void);
 extern void test_posix_spawn(const char* program);
 extern void test_scm_rights(void);
@@ -147,6 +148,10 @@ int main(int argc, char* argv[]) {
   }
   if (argc == 2 && !strcmp(argv[1], "--process-stop-contracts")) {
     test_process_stop_contracts();
+    return 0;
+  }
+  if (argc == 2 && !strcmp(argv[1], "--proc-kernel-threads")) {
+    test_proc_kernel_threads();
     return 0;
   }
 

@@ -228,5 +228,8 @@ out:
   return failed;
 }
 int sc_lifecycle(void) {
-  return inheritance() || exec_inheritance() || competing_requests() || exit_requests();
+  return inheritance() || exec_inheritance();
+}
+int sc_affinity_races(void) {
+  return competing_requests() || exit_requests();
 }

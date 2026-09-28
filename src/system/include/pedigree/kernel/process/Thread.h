@@ -1210,6 +1210,7 @@ class EXPORTED_PUBLIC Thread {
   bool m_UserReturnSignalParked = false;
   size_t m_UserReturnWorkPending = 0;
   Thread* m_AffinityNext = nullptr;
+  PerProcessorScheduler* m_BalanceDestination = nullptr;
   bool m_HasSchedulerContext = false;
   bool m_ReadyPublicationPending = false;
 

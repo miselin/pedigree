@@ -50,6 +50,7 @@ int sc_api(void);
 int sc_placement(void);
 int sc_wakeups(void);
 int sc_lifecycle(void);
+int sc_affinity_races(void);
 int sc_permissions(void);
 int sc_exec(int argc, char** argv);
 #endif

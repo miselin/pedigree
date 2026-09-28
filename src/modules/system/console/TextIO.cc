@@ -205,10 +205,14 @@ bool TextIO::initialise(bool bClear) {
   if (m_bInitialised) {
     while (m_FlipWake.tryAcquire()) {
     }
-    Thread* flipThread =
-        new Thread(Scheduler::instance().getKernelProcess(), startFlipThread, this);
+    Thread* flipThread = new Thread(Scheduler::instance().getKernelProcess(), startFlipThread, this,
+                                    nullptr, false, false, true);
+    flipThread->setPriority(MAINTENANCE_PRIORITY);
     m_FlipThread.adopt(flipThread);
     m_FlipThread->setName("TextIO flip thread");
+    if (!m_FlipThread->start()) {
+      FATAL("TextIO could not start its flip thread");
+    }
   }
 
   return m_bInitialised;

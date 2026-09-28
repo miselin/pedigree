@@ -53,6 +53,10 @@ class EXPORTED_PUBLIC Subsystem {
   virtual UserReturnEventResult userReturnEvent(Thread&, Event&, UserReturnFrame&) {
     return UserReturnEventResult::Deliver;
   }
+  /** Whether root user returns are free of CPU-bound callback continuations. */
+  virtual bool canBalanceAtUserReturn() const {
+    return false;
+  }
 
   /** Defines the different types of subsystems */
   enum SubsystemType { Posix = 0, Native = 1, None = 255 };

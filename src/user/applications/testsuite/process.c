@@ -405,6 +405,63 @@ static void test_proc_self_fd(void) {
   status("OK");
 }
 
+void test_proc_kernel_threads(void) {
+  status("Testing userspace kernel-thread inspection...");
+
+  FILE* file = fopen("/proc/kernel/threads", "r");
+  char line[512];
+  if (!file || !fgets(line, sizeof(line), file) ||
+      strcmp(line, "process_id task_id cpu state priority user_ns system_ns idle name\n")) {
+    fail();
+  }
+  struct stat info;
+  if (fstat(fileno(file), &info) || !(info.st_mode & S_IROTH)) {
+    fail();
+  }
+
+  size_t workers = 0, idleThreads = 0;
+  while (fgets(line, sizeof(line), file)) {
+    unsigned long processId, taskId, cpu, priority, user, system;
+    unsigned idle;
+    char state, name[128];
+    if (sscanf(line, "%lu %lu %lu %c %lu %lu %lu %u %127[^\n]", &processId, &taskId, &cpu, &state,
+               &priority, &user, &system, &idle, name) != 9 ||
+        !strchr("RSZ", state) || idle > 1 || !name[0]) {
+      fail();
+    }
+    if (idle) {
+      ++idleThreads;
+    } else {
+      ++workers;
+    }
+  }
+  if (ferror(file) || fclose(file) || !workers || !idleThreads) {
+    fail();
+  }
+
+  file = fopen("/proc/loadavg", "r");
+  unsigned long running, total;
+  if (!file || !fgets(line, sizeof(line), file) ||
+      sscanf(line, "%*s %*s %*s %lu/%lu", &running, &total) != 2 || !running || running > total ||
+      total <= workers || fclose(file)) {
+    fail();
+  }
+  file = fopen("/proc/stat", "r");
+  int foundRunning = 0;
+  if (!file) {
+    fail();
+  }
+  while (fgets(line, sizeof(line), file)) {
+    if (sscanf(line, "procs_running %lu", &running) == 1) {
+      foundRunning = running > 0;
+    }
+  }
+  if (ferror(file) || fclose(file) || !foundRunning) {
+    fail();
+  }
+  status("OK");
+}
+
 static void test_vfork(void) {
   status("Testing vfork syscall compatibility...");
 
@@ -1397,6 +1454,7 @@ void test_process_stop_contracts(void) {
 void test_process(const char* program) {
   printf("Testing process compatibility...\n");
   test_proc_self_fd();
+  test_proc_kernel_threads();
   test_vfork();
   test_posix_spawn(program);
   test_resource_compatibility();

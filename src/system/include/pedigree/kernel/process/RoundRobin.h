@@ -38,7 +38,7 @@ class RoundRobin : public SchedulingAlgorithm {
 
   virtual void removeThread(Thread* pThread);
 
-  virtual Thread* getNext(Thread* pCurrentThread);
+  virtual Thread* getNext(Thread* pCurrentThread, bool currentRunnable = false);
 
   virtual bool hasReady();
 
@@ -55,8 +55,11 @@ class RoundRobin : public SchedulingAlgorithm {
   void enqueue(Thread* pThread);
   void unlink(Thread* pThread);
 
+  static constexpr size_t AgingSelections = 8;
+
   Thread* m_pReadyQueueHeads[MAX_PRIORITIES];
   Thread* m_pReadyQueueTails[MAX_PRIORITIES];
+  size_t m_ReadyQueueAges[MAX_PRIORITIES];
 #if PEDIGREE_READY_QUEUE_COUNTS
   size_t m_ReadyQueueCounts[MAX_PRIORITIES];
 #endif

@@ -1,5 +1,6 @@
 /* Copyright (c) 2026, Pedigree Developers. */
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -63,23 +64,82 @@ TaskCounts taskCounts() {
   const size_t processCount = scheduler.getNumProcesses();
   for (size_t index = 0; index < processCount; ++index) {
     Scheduler::ProcessLease process;
-    if (!scheduler.acquireProcess(process, index) || process->getType() != Process::Posix)
+    if (!scheduler.acquireProcess(process, index)) {
       continue;
-    if (process->getUserspaceId() > result.lastPid)
+    }
+    if (process->getType() == Process::Posix && process->getUserspaceId() > result.lastPid) {
       result.lastPid = process->getUserspaceId();
+    }
     const size_t threadCount = process->getNumThreads();
     for (size_t threadIndex = 0; threadIndex < threadCount; ++threadIndex) {
       Process::ThreadLease thread;
-      if (!process->acquireThread(thread, threadIndex))
+      if (!process->acquireThread(thread, threadIndex)) {
         continue;
+      }
+      const auto* owner = thread->getScheduler();
+      if (owner && owner->isIdleThread(thread.get())) {
+        continue;
+      }
       ++result.total;
       const Thread::Status status = thread->getStatus();
-      if (status == Thread::Ready || status == Thread::Running)
+      if (status == Thread::Ready || status == Thread::Running) {
         ++result.runnable;
+      }
     }
   }
   return result;
 }
+
+class KernelThreadsFile final : public GeneratedFile {
+ public:
+  KernelThreadsFile(uintptr_t inode, ProcFs& filesystem, File* parent)
+      : GeneratedFile(String("threads"), inode, filesystem, parent) {}
+
+ private:
+  bool generate(String& contents) const override {
+    // These are internal process/task identities, not the separate POSIX PID namespace.
+    contents = String("process_id task_id cpu state priority user_ns system_ns idle name\n");
+    Scheduler& scheduler = Scheduler::instance();
+    const size_t processCount = scheduler.getNumProcesses();
+    for (size_t index = 0; index < processCount; ++index) {
+      Scheduler::ProcessLease process;
+      if (!scheduler.acquireProcess(process, index) || process->getType() == Process::Posix) {
+        continue;
+      }
+      const size_t threadCount = process->getNumThreads();
+      for (size_t threadIndex = 0; threadIndex < threadCount; ++threadIndex) {
+        Process::ThreadLease thread;
+        if (!process->acquireThread(thread, threadIndex)) {
+          continue;
+        }
+        const auto* owner = thread->getScheduler();
+        const auto status = thread->getStatus();
+        const char state = status == Thread::Zombie                               ? 'Z'
+                           : status == Thread::Ready || status == Thread::Running ? 'R'
+                                                                                  : 'S';
+        // Keep one line per thread even when a diagnostic name contains whitespace.
+        char name[128];
+        const String& description = thread->getName();
+        const size_t length = min(description.length(), sizeof(name) - 1);
+        for (size_t i = 0; i < length; ++i) {
+          const char value = description[i];
+          name[i] = value < ' ' || value == 127 ? ' ' : value;
+        }
+        name[length] = 0;
+        String line;
+        // Advancing counters must not shift later offsets in a partial read.
+        line.Format("%20lu %20lu %20lu %c %20lu %20lu %20lu %u ", process->getId(),
+                    thread->getTaskId(), owner ? owner->logicalCpu() : 0, state,
+                    thread->getPriority(), thread->getUserTime(), thread->getKernelTime(),
+                    owner && owner->isIdleThread(thread.get()) ? 1U : 0U);
+        contents += line;
+        contents += String(length ? name : "unnamed");
+        contents += String("\n");
+      }
+    }
+    return true;
+  }
+};
 
 class LoadAverageFile final : public GeneratedFile {
  public:
@@ -385,17 +445,26 @@ bool procfsAddSystemStatusFiles(ProcFs& filesystem, ProcFsDirectory& root) {
   auto* stat = new SystemStatFile(filesystem.getNextInode(), filesystem, &root);
   auto* cpuInfo = new CpuInfoFile(filesystem.getNextInode(), filesystem, &root);
   auto* partitions = new PartitionsFile(filesystem.getNextInode(), filesystem, &root);
-  if (!loadAverage || !stat || !cpuInfo || !partitions) {
+  auto* kernel = new ProcFsDirectory(String("kernel"), 0, 0, 0, filesystem.getNextInode(),
+                                     &filesystem, 0, &root);
+  auto* threads =
+      kernel ? new KernelThreadsFile(filesystem.getNextInode(), filesystem, kernel) : nullptr;
+  if (!loadAverage || !stat || !cpuInfo || !partitions || !kernel || !threads) {
     delete loadAverage;
     delete stat;
     delete cpuInfo;
     delete partitions;
+    delete threads;
+    delete kernel;
     return false;
   }
   root.addEntry(loadAverage->getName(), loadAverage);
   root.addEntry(stat->getName(), stat);
   root.addEntry(cpuInfo->getName(), cpuInfo);
   root.addEntry(partitions->getName(), partitions);
+  kernel->setPermissions(FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX);
+  kernel->addEntry(threads->getName(), threads);
+  root.addEntry(kernel->getName(), kernel);
   return true;
 }
 

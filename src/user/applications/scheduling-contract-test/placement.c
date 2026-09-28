@@ -97,6 +97,92 @@ out:
   }
   return failed;
 }
+static int idle_balancing(void) {
+  if (sc_count < 2) {
+    return 0;
+  }
+
+  int failed = 0, created = 0, balanced = 0;
+  struct running_peer peers[3] = {{.identity = 937}, {.identity = 1031}, {.identity = 1129}};
+  pthread_t threads[3];
+  const int source = sc_cpus[0];
+  unsigned sampled_cpus[3] = {(unsigned)source, (unsigned)source, (unsigned)source};
+  CHECK(sc_pin(0, source) == 0);
+  for (int i = 0; i < 3; ++i) {
+    CHECK(pthread_create(&threads[i], NULL, running_entry, &peers[i]) == 0);
+    ++created;
+    CHECK(sc_wait(&peers[i].ready, 1) == 0);
+    CHECK(sc_pin(peers[i].tid, source) == 0 && sc_mask(peers[i].tid, source) == 0);
+    atomic_store_explicit(&peers[i].command, 1, memory_order_release);
+    CHECK(sc_wait(&peers[i].ack, 1) == 0);
+    CHECK(!peers[i].failed && peers[i].cpu == (unsigned)source && !peers[i].node);
+  }
+
+  // Widening retains the current CPU. Only automatic balancing can move
+  // these busy peers; the third peer must remain on its singleton mask.
+  for (int i = 0; i < 2; ++i) {
+    cpu_set_t got;
+    CHECK(pthread_setaffinity_np(threads[i], sizeof(sc_allowed), &sc_allowed) == 0);
+    CHECK(pthread_getaffinity_np(threads[i], sizeof(got), &got) == 0 &&
+          CPU_EQUAL(&got, &sc_allowed));
+  }
+  int64_t now = sc_now();
+  CHECK(now >= 0);
+  const int64_t deadline = now + INT64_C(8000000000);
+  unsigned generation = 2;
+  for (int i = 0; i < 3; ++i) {
+    atomic_store_explicit(&peers[i].command, generation, memory_order_release);
+  }
+  while (now >= 0 && now < deadline) {
+    int sampled = 1;
+    for (int i = 0; i < 3; ++i) {
+      sampled &= atomic_load_explicit(&peers[i].ack, memory_order_acquire) == generation;
+    }
+    if (sampled) {
+      int distinct = 0;
+      for (int i = 0; i < 3; ++i) {
+        CHECK(!peers[i].failed && !peers[i].node && peers[i].cpu < CPU_SETSIZE &&
+              CPU_ISSET(peers[i].cpu, &sc_allowed));
+        sampled_cpus[i] = peers[i].cpu;
+        int previous = 0;
+        while (previous < i && peers[previous].cpu != peers[i].cpu) {
+          ++previous;
+        }
+        distinct += previous == i;
+      }
+      CHECK(peers[2].cpu == (unsigned)source);
+      if (distinct == (sc_count < 3 ? sc_count : 3)) {
+        balanced = 1;
+        break;
+      }
+      ++generation;
+      for (int i = 0; i < 3; ++i) {
+        atomic_store_explicit(&peers[i].command, generation, memory_order_release);
+      }
+    }
+    sched_yield();
+    now = sc_now();
+  }
+  if (!balanced) {
+    fprintf(stderr, "idle balancing timeout: peer CPUs=%u,%u,%u source=%d\n", sampled_cpus[0],
+            sampled_cpus[1], sampled_cpus[2], source);
+  }
+  CHECK(balanced && sc_mask(peers[2].tid, source) == 0);
+out:
+  for (int i = 0; i < created; ++i) {
+    atomic_store_explicit(&peers[i].stop, 1, memory_order_release);
+  }
+  for (int i = 0; i < created; ++i) {
+    void* result;
+    if (pthread_join(threads[i], &result) || result) {
+      failed = 1;
+    }
+  }
+  if (sched_setaffinity(0, sizeof(sc_allowed), &sc_allowed)) {
+    failed = 1;
+  }
+  return failed;
+}
 int sc_placement(void) {
-  return self_placement() || peer_placement();
+  return self_placement() || peer_placement() || idle_balancing();
 }

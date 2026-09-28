@@ -214,8 +214,12 @@ void CacheManager::initialise() {
     m_bActive = true;
     m_bTrimRequested = true;
   }
-  m_pTrimThread = new Thread(pParent, trimTrampoline, 0);
+  m_pTrimThread = new Thread(pParent, trimTrampoline, nullptr, nullptr, false, false, true);
+  m_pTrimThread->setPriority(MAINTENANCE_PRIORITY);
   m_pTrimThread->setName("CacheManager trim thread");
+  if (!m_pTrimThread->start()) {
+    FATAL("CacheManager could not start its trim thread");
+  }
 #endif
 }
 

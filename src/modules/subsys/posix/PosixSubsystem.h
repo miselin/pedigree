@@ -263,6 +263,9 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   bool tracePolicyAllowed() const {
     return affinityPolicyAllowed() && m_Abi == LinuxAbi;
   }
+  bool canBalanceAtUserReturn() const override {
+    return m_Abi == LinuxAbi && affinityPolicyAllowed();
+  }
   UserReturnResult userReturnCheckpoint(Thread&, UserReturnFrame&) override;
   UserReturnEventResult userReturnEvent(Thread&, Event&, UserReturnFrame&) override;
   bool traceException(Thread&, int& signal, InterruptState&, ExceptionType, uintptr_t, uintptr_t);
