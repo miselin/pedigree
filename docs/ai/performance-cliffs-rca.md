@@ -345,6 +345,82 @@ frozen kernels/images, packet captures and summaries are retained in
 `network/summary.json` contain the derived results. These temporary artifacts
 preserve the evidence, while the two Git revisions identify the source comparison.
 
+## Kernel metrics baseline, 2026-09-28
+
+The spinlock split is retained. `/proc/metrics` now exposes per-CPU cumulative
+scheduler, preemption and lock-policy counters, plus x64 interrupt, exception and
+syscall entries. Each open freezes one readable snapshot. The existing
+[compile benchmark guide](../../scripts/benchmarks/compile-latency.md#cheap-kernel-counters)
+describes capture, definitions and rates. These counters measure frequency;
+IRQ-off duty and lock-wait duration still require separate timing instrumentation.
+
+Counter overhead was checked with the same source and RAM-root workload, changing
+only `PEDIGREE_METRICS`. QEMU/TCG used q35, SandyBridge, 4 GiB, no NIC, fresh
+writable overlays, precise accounting, and latency probes disabled. Each topology
+ran two boots per arm in opposing orders (OFF/ON/ON/OFF for one CPU,
+ON/OFF/OFF/ON for four). Snapshot collection was disabled in both timing arms.
+
+| CPUs | GCC phase | Counters OFF, median | Counters ON, median | Change |
+| --- | --- | ---: | ---: | ---: |
+| 1 | Cold | 17.465 s | 17.501 s | +0.2% |
+| 1 | Warm | 16.313 s | 16.302 s | -0.1% |
+| 4 | Cold | 18.970 s | 19.060 s | +0.5% |
+| 4 | Warm | 17.621 s | 17.363 s | -1.5% |
+
+Host elapsed measurements agree with the direction and approximate magnitude.
+All timed phases had zero disk read/write bytes. The four-CPU warm ranges overlap:
+16.835–18.407 s OFF and 16.803–17.923 s ON. These runs show no clear GCC regression
+from the counters; they do not establish zero overhead, a speedup, network cost,
+or physical-hardware behavior.
+
+Separate enabled boots captured both edges of every phase. The warm compile
+windows were 16.824 s on one CPU and 18.346 s on four CPUs. Counts below sum CPU
+labels and include snapshot collection and background activity; they are not
+process-owned counts.
+
+| Counter delta | 1 CPU | 4 CPUs |
+| --- | ---: | ---: |
+| Syscall entries | 124,057 | 124,057 |
+| Exception entries | 114,473 | 114,472 |
+| Scheduler yields | 633 | 21,711 |
+| Actual context switches | 3,012 | 2,255 |
+| Same-thread selections | 209 | 21,831 |
+| Scheduling-service attempts | 220,456 | 270,749 |
+| Preemption-state queries | 1,032,032 | 1,413,040 |
+| No-preempt lock acquisitions | 95,494 | 95,491 |
+| IRQ-masking lock acquisitions | 3,675,733 | 4,288,136 |
+| IRQ-masking acquisitions that spun | 0 | 2,651 |
+| Interrupt entries / scheduler timer callbacks | 935 / 935 | 30,094 / 1,137 |
+| Automatic balancing migrations | 0 | 85 |
+
+Plain-lock acquisitions and no-preempt acquisitions that spun were zero in both
+warm windows. The one-CPU run therefore provides a concrete target outside lock
+contention: about 218,482 IRQ-masking acquisitions, 61,343 preemption-state queries,
+and 13,104 scheduling-service attempts per second, compared with 179 actual
+context switches per second. Source review already identifies IRQ pulses in the
+preemption helpers, but these counts do not attribute elapsed time to them.
+The four-CPU IRQ-lock contention frequency was 0.062%; rare waits could still be
+long, so frequency alone cannot exclude a contention cost.
+
+The four-CPU idle control also recorded about 1,037 yields and 1,113 interrupt
+entries per second across CPUs, versus 104 actual context switches per second.
+Future ablations should retain the idle control and distinguish scheduling
+attempts and same-thread selections from actual handoffs. None of these counters
+by itself demonstrates a continuously running background thread or a root cause
+for the earlier network regression.
+
+Validation: enabled one- and four-CPU guests passed the full system-status
+contract (including fragmented reads, seek/dup stability and advancing fresh
+snapshots), procfs kernel-thread inspection and scheduler API checks. The disabled
+one-CPU guest passed the same checks. All eight timing boots and both capture
+boots passed GCC, executable and anonymous-memory checks; all 13 focused runner
+tests passed. The normal build ends with counters ON and latency probes OFF.
+The timing payloads precede a formatting-only correction for 64-bit values on
+32-bit targets; their hot counter code is identical. Final snapshot text was
+rechecked in fresh one- and four-CPU guests. Frozen payload hashes, commands, raw
+snapshots, reports and `analysis.json` are in `/private/tmp/pedigree-metrics`;
+these local artifacts are temporary.
+
 ## Demonstrated causes of earlier cliffs
 
 ### GCC and SMP
