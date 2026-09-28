@@ -421,6 +421,79 @@ rechecked in fresh one- and four-CPU guests. Frozen payload hashes, commands, ra
 snapshots, reports and `analysis.json` are in `/private/tmp/pedigree-metrics`;
 these local artifacts are temporary.
 
+## CPU-local preemption experiment, 2026-09-28
+
+Two x64 prototypes moved preemption depth into the existing GS anchor. Reads
+and increments became single GS-relative operations without IRQ masking; the
+outermost enable retained masking through its pending scheduling claim. The
+first prototype also avoided masking on nested enables. The smaller version
+kept every enable masked, avoiding an extra depth read and branch on ordinary
+releases. Both preserved the assembly anchor offsets and checked for an active
+preemption scope before retiring the BSP bootstrap anchor.
+
+Each prototype received its own matched comparison against `41f262470e`, with
+two fresh boots per arm and topology. Orders were baseline/prototype/prototype/
+baseline on one CPU and the reverse on four CPUs. QEMU 11.1.1 TCG used q35,
+SandyBridge, 4 GiB, RAM-root, no NIC, precise accounting, metrics ON and latency
+probes OFF. Metrics snapshots were collected outside each guest timed phase in
+both arms. Host elapsed measurements agree with the reported directions; every
+timed phase had zero disk read/write bytes.
+
+| Prototype | CPUs | GCC phase | Baseline median | Prototype median | Change |
+| --- | --- | --- | ---: | ---: | ---: |
+| Including nested-enable shortcut | 1 | Cold | 17.546 s | 18.169 s | +3.5% |
+| Including nested-enable shortcut | 1 | Warm | 16.546 s | 16.996 s | +2.7% |
+| Including nested-enable shortcut | 4 | Cold | 19.400 s | 19.527 s | +0.7% |
+| Including nested-enable shortcut | 4 | Warm | 17.661 s | 18.212 s | +3.1% |
+| Every enable masked | 1 | Cold | 18.527 s | 17.853 s | -3.6% |
+| Every enable masked | 1 | Warm | 17.079 s | 16.587 s | -2.9% |
+| Every enable masked | 4 | Cold | 18.818 s | 18.975 s | +0.8% |
+| Every enable masked | 4 | Warm | 17.529 s | 17.974 s | +2.5% |
+
+The full prototype's one-CPU warm ranges were disjoint: 16.539–16.553 s baseline
+versus 16.971–17.022 s changed. The smaller prototype's one-CPU ranges overlap:
+16.913–17.245 s baseline versus 16.215–16.959 s changed. Its four-CPU baseline
+was 17.496–17.562 s, versus 17.612–18.335 s changed. These small samples show
+mixed results, not a reliable general improvement. The first comparison's
+one-CPU CPU-only control median was effectively unchanged; in the second it
+was 7.3% slower with the prototype. The separately collected batches cannot
+establish that removing the nested-enable branch caused the apparent improvement.
+
+Every one-CPU warm window had exactly 124,057 syscall entries, 114,473 exception
+entries and 95,494 no-preempt acquisitions, with zero contended acquisitions
+under any lock policy. Preemption queries stayed near 1.032 million and
+scheduling-service attempts near 220,400. This excludes an increase in those
+workload counts as the explanation; it does not locate the time spent executing
+them. Queries are not CLI/STI counts: many already run with IRQs masked. Assembly
+confirmed removal of the intended transitions, but IRQ-off duty was not measured
+in this pass.
+
+Frequency alone is therefore insufficient reason to add an avoidance check.
+The nested-enable shortcut adds a GS load and branch even when the release must
+still mask IRQs. Conversely, the old depth query already used a GS pointer lookup
+and a separate load, so this comparison does not demonstrate that GS access is
+intrinsically more expensive than CLI/STI. Both the avoided operation and the
+checks needed to avoid it belong in the measured cost.
+
+Both prototypes passed the relevant one- and four-CPU guest checks: system
+status/metrics, kernel-thread procfs, scheduler policy, placement, wakeups and
+affinity races. The broader suite still failed its existing lifecycle assertion
+that `gettid() == getpid()`; the unchanged one-CPU baseline reproduced it, and
+the permissions family was consequently not reached. All 16 GCC boots passed
+compilation, executable and anonymous-memory checks. Latency-enabled anchor and
+preemption compilation also passed; this was compile-only coverage. Final helper
+cleanup in the smaller prototype left all allocated kernel sections and the
+initrd identical to its one-CPU timing payload.
+
+Neither prototype was retained in production source. The pre-experiment build
+and source were restored, with kernel, initrd and CMake cache byte-identical to
+the baseline, retaining the spinlock split and metrics. This result
+does not prove the previous masking policy optimal or CPU-local operations
+intrinsically slower. The timing cost remains unattributed; networking and
+physical hardware were not tested. Patches, frozen payloads, commands, raw
+counter snapshots, `full-analysis.json`, `release-analysis.json` and validation
+records are retained temporarily in `/private/tmp/pedigree-cpulocal`.
+
 ## Demonstrated causes of earlier cliffs
 
 ### GCC and SMP
