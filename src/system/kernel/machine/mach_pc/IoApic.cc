@@ -27,6 +27,12 @@
 
 #include "IoApic.h"
 
+namespace {
+// Delivery Status and Remote IRR are read-only and can change during a
+// redirection-table write, especially when unmasking a pending interrupt.
+constexpr uint32_t RedirectionStatus = (1U << 12) | (1U << 14);
+}  // namespace
+
 IoApic::IoApic() : m_IoSpace("I/O APIC"), m_Lock(false), m_GsiBase(0), m_Count(0) {}
 
 IoApic::~IoApic() {}
@@ -75,7 +81,7 @@ bool IoApic::route(uint32_t gsi, uint8_t vector, uint8_t destination, bool activ
   const bool highWritten = m_IoSpace.read32(0x10) == high;
   m_IoSpace.write32(registerNumber, 0);
   m_IoSpace.write32(low, 0x10);
-  return highWritten && m_IoSpace.read32(0x10) == low;
+  return highWritten && (m_IoSpace.read32(0x10) & ~RedirectionStatus) == low;
 }
 
 bool IoApic::mask(uint32_t gsi, bool masked) {
@@ -88,7 +94,7 @@ bool IoApic::mask(uint32_t gsi, bool masked) {
   uint32_t low = m_IoSpace.read32(0x10);
   low = masked ? low | (1U << 16) : low & ~(1U << 16);
   m_IoSpace.write32(low, 0x10);
-  return m_IoSpace.read32(0x10) == low;
+  return (m_IoSpace.read32(0x10) & ~RedirectionStatus) == (low & ~RedirectionStatus);
 }
 
 #endif
