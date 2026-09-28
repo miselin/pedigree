@@ -200,6 +200,10 @@ int runThreadSignalCalls(void* parameter) {
   passed &= expectResult(current, posix_kill(caller->getId(), FirstUnsupportedSignal), -1,
                          Error::InvalidArgument);
 
+  // The permitted target is a sibling, not a child of the caller.
+  current->setErrno(0);
+  passed &= expectResult(current, posix_kill(-1, 0), 0, 0);
+
   current->setErrno(0);
   passed &= expectResult(
       current, posix_tgkill(context->deniedProcess->getId(), context->deniedTarget->getId(), 0), -1,

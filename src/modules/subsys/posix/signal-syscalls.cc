@@ -662,9 +662,9 @@ int posix_kill(int pid, int sig) {
                                              << "]");
         }
       } else if (pid == -1) {
-        // Kill all processes we have permission to kill (limit to only
-        // direct children for now)
-        selected = pProcess->getParent() == pThisProcess;
+        // Linux broadcasts exclude init and the caller, including when
+        // init uses this to stop userspace during shutdown.
+        selected = pProcess->getUserspaceId() > 1 && pProcess != pThisProcess;
       } else {
         // Absolute group ID reference
         selected = hasGroup && groupId == static_cast<size_t>(-static_cast<int64_t>(pid));
