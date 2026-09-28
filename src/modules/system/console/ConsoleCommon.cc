@@ -325,11 +325,12 @@ size_t ConsoleFile::processInput(char* buf, size_t len) {
   return realLen;
 }
 
-void ConsoleFile::inputLineDiscipline(ConsoleIoState& state, char* buf, size_t len, bool canBlock,
-                                      size_t flags, const char* controlChars) {
+size_t ConsoleFile::inputLineDiscipline(ConsoleIoState& state, char* buf, size_t len, bool canBlock,
+                                        size_t flags, const char* controlChars) {
   LockGuard<Mutex> inputGuard(state.inputLock);
-  if (state.revoked())
-    return;
+  if (state.revoked()) {
+    return 0;
+  }
   // Make sure we always have the latest flags from the slave.
   if (flags == ~0U) {
     flags = m_pOther->m_Flags;
@@ -350,7 +351,7 @@ void ConsoleFile::inputLineDiscipline(ConsoleIoState& state, char* buf, size_t l
     // Used for raw mode - just a buffer for erase echo etc.
     char* destBuff = new char[len];
     if (!destBuff) {
-      return;
+      return 0;
     }
     size_t destBuffOffset = 0;
 
@@ -369,7 +370,7 @@ void ConsoleFile::inputLineDiscipline(ConsoleIoState& state, char* buf, size_t l
           state.input.write(&buf[i], 1, canBlock);
           delete[] destBuff;
           changed();
-          return;
+          return i + 1;
         }
 
         if ((buf[i] == '\r') || (isCanonical && (buf[i] == slaveControlChars[VEOL]))) {
@@ -505,20 +506,37 @@ void ConsoleFile::inputLineDiscipline(ConsoleIoState& state, char* buf, size_t l
 
     delete[] destBuff;
   } else {
-    for (size_t i = 0; i < len && !state.revoked(); ++i) {
-      if (isControlCharacter(slaveFlags, buf[i], controlChars)) {
-        notifyControlCharacter(buf[i], controlChars);
+    size_t consumed = 0;
+    while (consumed < len && !state.revoked()) {
+      if (isControlCharacter(slaveFlags, buf[consumed], controlChars)) {
+        notifyControlCharacter(buf[consumed++], controlChars);
         continue;
       }
 
-      // No event. Simply write the character out.
-      state.input.write(&buf[i], 1, canBlock);
+      size_t end = consumed + 1;
+      while (end < len && !isControlCharacter(slaveFlags, buf[end], controlChars)) {
+        ++end;
+      }
+
+      // Return a short write once space runs out. Waiting after publishing
+      // input would withhold the readiness notification a poll reader needs
+      // to drain it; ignoring a short write would silently lose paste data.
+      if (!state.input.canWrite(canBlock && !consumed)) {
+        break;
+      }
+      size_t amount = state.input.writeAvailable(buf + consumed, end - consumed);
+      consumed += amount;
+      if (consumed < end) {
+        break;
+      }
     }
+    len = consumed;
   }
 
   // Wake up anything waiting on data to read from us.
   (void)localWritten;
   changed();
+  return len;
 }
 
 bool ConsoleFile::isControlCharacter(size_t flags, char check, const char* controlChars) {

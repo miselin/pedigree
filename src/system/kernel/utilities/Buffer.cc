@@ -299,15 +299,9 @@ size_t Buffer<T, allowShortOperation>::read(T* buffer, size_t count, bool block)
     return 0;
   }
 
-  if (!block) {
-    if (!m_Lock.tryAcquire()) {
-      // can't unlock buffer for writing
-      return 0;
-    }
-  } else {
-    // can block!
-    m_Lock.acquire();
-  }
+  // Nonblocking reads must still wait for lock ownership, as beginOperation
+  // already does. Contention is not an empty buffer (or EOF to the caller).
+  m_Lock.acquire();
 
   size_t countSoFar = 0;
   while (true) {

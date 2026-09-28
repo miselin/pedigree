@@ -165,8 +165,8 @@ class EXPORTED_PUBLIC ConsoleFile : public File {
   size_t processInput(char* buf, size_t len);
 
   /// Input line discipline
-  void inputLineDiscipline(ConsoleIoState& state, char* buf, size_t len, bool canBlock,
-                           size_t flags = ~0U, const char* controlChars = nullptr);
+  size_t inputLineDiscipline(ConsoleIoState& state, char* buf, size_t len, bool canBlock,
+                             size_t flags = ~0U, const char* controlChars = nullptr);
 
   mutable Mutex m_IoLock;
   ConditionVariable m_IoChanged;

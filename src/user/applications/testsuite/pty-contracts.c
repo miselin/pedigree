@@ -9,7 +9,9 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <pty.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -92,6 +94,97 @@ static void test_openpty_contract(void) {
   close(master);
 }
 
+static void test_bulk_transfer(int from_master, int blocking, int signals) {
+  int master = -1;
+  int slave = -1;
+  require(openpty(&master, &slave, NULL, NULL, NULL) == 0, "bulk openpty");
+  make_raw(slave);
+  if (signals) {
+    struct termios attributes;
+    require(tcgetattr(slave, &attributes) == 0, "bulk tcgetattr");
+    attributes.c_lflag |= ISIG;
+    require(tcsetattr(slave, TCSANOW, &attributes) == 0, "bulk ISIG");
+  }
+  int writer = from_master ? master : slave;
+  int reader = from_master ? slave : master;
+  require(fcntl(reader, F_SETFL, O_NONBLOCK) == 0, "bulk nonblocking reader");
+
+  // Cross the PTY capacity and preserve both bracketed-paste delimiters.
+  const size_t length = 128 * 1024 + 13;
+  char* payload = malloc(length);
+  require(payload != NULL, "bulk allocation");
+  for (size_t i = 0; i < length; ++i) {
+    payload[i] = ' ' + (i % 95);
+  }
+  memcpy(payload, "\033[200~", 6);
+  memcpy(payload + length - 6, "\033[201~", 6);
+
+  pid_t child = -1;
+  if (blocking) {
+    child = fork();
+    require(child >= 0, "bulk fork");
+    if (child == 0) {
+      close(reader);
+      size_t sent = 0;
+      while (sent < length) {
+        ssize_t amount = write(writer, payload + sent, length - sent);
+        if (amount <= 0) {
+          _exit(111);
+        }
+        sent += (size_t)amount;
+      }
+      _exit(0);
+    }
+    close(writer);
+  } else {
+    require(fcntl(writer, F_SETFL, O_NONBLOCK) == 0, "bulk nonblocking writer");
+  }
+
+  size_t sent = 0;
+  size_t received = 0;
+  while (received < length) {
+    if (!blocking) {
+      ssize_t amount = write(writer, payload + sent, length - sent);
+      require(amount > 0, "bulk write progress");
+      sent += (size_t)amount;
+    }
+    size_t target = blocking ? length : sent;
+    while (received < target) {
+      struct pollfd descriptor = {.fd = reader, .events = POLLIN};
+      if (poll(&descriptor, 1, 2000) != 1 || !(descriptor.revents & POLLIN)) {
+        if (child > 0) {
+          kill(child, SIGKILL);
+          waitpid(child, NULL, 0);
+        }
+        printf("\nPTY bulk: master=%d blocking=%d signals=%d sent=%zu received=%zu\n", from_master,
+               blocking, signals, sent, received);
+        require(0, "bulk read readiness / acknowledged bytes missing");
+      }
+      char output[997];
+      size_t wanted = target - received;
+      if (wanted > sizeof(output)) {
+        wanted = sizeof(output);
+      }
+      ssize_t amount = read(reader, output, wanted);
+      if (amount < 0 && (errno == EAGAIN || errno == EINTR)) {
+        continue;
+      }
+      require(amount > 0, "bulk read progress");
+      require(!memcmp(output, payload + received, (size_t)amount), "bulk byte preservation");
+      received += (size_t)amount;
+    }
+  }
+  if (blocking) {
+    int status = 0;
+    require(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0,
+            "bulk child status");
+  } else {
+    close(writer);
+  }
+  close(reader);
+  free(payload);
+}
+
 static void test_fork_openpty_contract(void) {
   int master = -1;
   int slave = -1;
@@ -145,6 +238,11 @@ void test_pty_contracts(void) {
   fflush(stdout);
   test_posix_openpt_contract();
   test_openpty_contract();
+  test_bulk_transfer(1, 0, 0);
+  test_bulk_transfer(1, 0, 1);
+  test_bulk_transfer(0, 0, 0);
+  test_bulk_transfer(1, 1, 0);
+  test_bulk_transfer(0, 1, 0);
   test_fork_openpty_contract();
   test_forkpty_contract();
   printf("OK\n");

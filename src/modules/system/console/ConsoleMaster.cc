@@ -94,9 +94,9 @@ uint64_t ConsoleMasterFile::writeIo(ConsoleIoState& state, uint64_t size, uintpt
   }
 
   // Pass on to the input discipline, which will write to the slave.
-  inputLineDiscipline(state, reinterpret_cast<char*>(buffer), size, bCanBlock);
+  size_t amount = inputLineDiscipline(state, reinterpret_cast<char*>(buffer), size, bCanBlock);
 
-  return state.revoked() ? 0 : size;
+  return state.revoked() ? 0 : amount;
 }
 
 uint64_t ConsoleMasterFile::readBytewise(uint64_t, uint64_t size, uintptr_t buffer, bool canBlock) {

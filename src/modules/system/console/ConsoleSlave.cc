@@ -54,7 +54,11 @@ uint64_t ConsoleSlaveFile::readIo(ConsoleIoState& state, uint64_t size, uintptr_
 
 uint64_t ConsoleSlaveFile::writeIo(ConsoleIoState& state, uint64_t size, uintptr_t buffer,
                                    bool bCanBlock) {
-  size_t amount = state.output.write(reinterpret_cast<char*>(buffer), size, bCanBlock);
+  if (!size || !state.output.canWrite(bCanBlock)) {
+    return 0;
+  }
+  // Publish readiness before waiting for a reader to make more room.
+  size_t amount = state.output.writeAvailable(reinterpret_cast<char*>(buffer), size);
   changed();
   return amount;
 }
