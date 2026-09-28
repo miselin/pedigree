@@ -40,7 +40,7 @@ set(PEDIGREE_POSIX_SYSCALL_VERBOSE FALSE CACHE BOOL "Enable logging of every inc
 set(PEDIGREE_POSIX_POLL_VERBOSE FALSE CACHE BOOL "Enable logging for POSIX poll/select syscalls.")
 set(PEDIGREE_POSIX_NOEFAULT FALSE CACHE BOOL "Disable checks for EFAULT conditions (unsafe - allows userspace to page fault the kernel).")
 
-set(PEDIGREE_PCAP TRUE CACHE BOOL "Build the pcap kernel module which writes a pcap log to a serial port.")
+set(PEDIGREE_PCAP FALSE CACHE BOOL "Build the pcap kernel module which writes a pcap log to a serial port.")
 
 
 add_definitions(-DIN_PEDIGREE_KERNEL)
