@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/panic.h"
@@ -55,6 +56,11 @@ bool PageFaultHandler::initialise() {
 }
 
 void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) {
+  const bool collectMetrics = Processor::m_Initialised == 2;
+  if (collectMetrics) {
+    Metrics::increment(Metrics::PageFault);
+  }
+
   siginfo_t* info = reinterpret_cast<siginfo_t*>(state.getRegister(1));
 
   uintptr_t page = reinterpret_cast<uintptr_t>(page_align(info->si_addr));
@@ -88,11 +94,17 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) 
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
   if (wasPresent && isWrite &&
       va.handleCopyOnWriteFault(reinterpret_cast<void*>(page), !state.kernelMode())) {
+    if (collectMetrics) {
+      Metrics::increment(Metrics::PageFaultCopyOnWrite);
+    }
     return;
   }
 
   if (page < reinterpret_cast<uintptr_t>(KERNEL_SPACE_START)) {
     if (dispatchHandlers(state, page, isWrite, wasPresent)) {
+      if (collectMetrics) {
+        Metrics::increment(Metrics::PageFaultHandled);
+      }
       return;
     }
   }
@@ -103,6 +115,9 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) 
     if (process && process->getSubsystem()) {
       pThread->deferSubsystemException(static_cast<size_t>(Subsystem::PageFault), unaligned_page,
                                        errorCode);
+      if (collectMetrics) {
+        Metrics::increment(Metrics::PageFaultDeferred);
+      }
       return;
     }
   }

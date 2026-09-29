@@ -83,20 +83,23 @@ symbol files for later profiling.
 ### Cheap kernel counters
 
 `/proc/metrics` exposes [Prometheus text](https://prometheus.io/docs/instrumenting/exposition_formats/)
-counters for scheduler activity, preemption,
-spinlocks, and x64 interrupt, exception and syscall entries. `PEDIGREE_METRICS`
-defaults to `ON`. Its hooks increment counters without clock reads, allocation,
-locking or interrupt masking. Counts show how often an operation happens; they
-do not measure lock wait duration, runnable delay or IRQ-off time.
+counters for scheduling, process and thread lifecycle, wait queues, memory,
+page faults, cache writeback, network traffic and drops, file I/O, VFS operations,
+spinlocks, and x64 interrupt, exception and syscall entries. It also reports
+physical memory and task gauges. `PEDIGREE_METRICS` defaults to `ON`. Its hooks
+update per-CPU counters without clock reads, allocation, locking or interrupt
+masking. Counts show how often an operation happens; they do not measure lock
+wait duration, runnable delay or IRQ-off time.
 
 Each open captures immutable text: partial reads and seeks on that descriptor
 retain the same snapshot. Reopen for fresh data. Counters are collected separately
 for each CPU, without freezing the system. The `cpu` label is the logical CPU
 observed by the counter hook; execution can migrate between observing it and
 incrementing its bank. Aggregate CPU labels when exact per-CPU attribution is
-unnecessary. `pedigree_uptime_seconds`, `pedigree_cpus` and
-`pedigree_metrics_enabled` are gauges; cumulative operation counts have type
-`counter` and names ending in `_total`.
+unnecessary. `pedigree_uptime_seconds`, `pedigree_cpus`, `pedigree_metrics_enabled`,
+memory and task measurements are gauges; cumulative operation counts have type
+`counter` and names ending in `_total`. Gauges remain available when metrics
+hooks are disabled.
 
 Scheduler selections include attempts that retain the current thread. Context
 switches count changes of thread, including initial dispatch and exit, but exclude

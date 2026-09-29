@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
@@ -214,6 +215,8 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
 
   if (tryAcquire(n))
     return SemaphoreResult::withValue(true);
+
+  Metrics::increment(Metrics::SemaphoreContended);
 
   EMIT_IF(!THREADS) {
     // failed to tryAcquire - no point doing anything else here.

@@ -24,6 +24,7 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
@@ -476,6 +477,7 @@ Process::Process(DeferredPublication, ProcessType type)
   m_Metadata.startTime = Time::getTimeNanoseconds();
 
   resetUserReservations();
+  Metrics::increment(Metrics::ProcessCreated);
 }
 
 Process::Process(Process* pParent, bool bCopyOnWrite)
@@ -595,6 +597,7 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
   } else {
     str += "<F>";  // F for forked.
   }
+  Metrics::increment(Metrics::ProcessCreated);
 }
 
 void Process::VforkCompletion::wait() {
@@ -1068,6 +1071,7 @@ Process::~Process() {
   str.append("<Z>");
 
   Processor::setInterrupts(bInterrupts);
+  Metrics::increment(Metrics::ProcessDestroyed);
 }
 
 bool Process::beginThreadJoin() {
@@ -1221,6 +1225,7 @@ size_t Process::addThread(Thread* pThread) {
   __atomic_store_n(&pThread->m_TaskId,
                    localId == 1 ? m_Id : Scheduler::instance().reserveProcessId(),
                    __ATOMIC_RELEASE);
+  Metrics::increment(Metrics::ThreadCreated);
   return localId;
 }
 
@@ -2202,6 +2207,7 @@ void Process::publishTerminationStatus(bool notifyParent) {
           if (!transitionState(Terminating, Terminated)) {
             FATAL("Process state was not Terminating while publishing pid " << Dec << m_Id << ".");
           }
+          Metrics::increment(Metrics::ProcessExited);
         }
         guard.wakeAll();
         published = true;
@@ -2216,6 +2222,7 @@ void Process::publishTerminationStatus(bool notifyParent) {
       if (!transitionState(Terminating, Terminated)) {
         FATAL("Process state was not Terminating while publishing pid " << Dec << m_Id << ".");
       }
+      Metrics::increment(Metrics::ProcessExited);
       published = true;
     }
   }

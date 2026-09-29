@@ -20,6 +20,7 @@
 #include "File.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -228,10 +229,13 @@ File::~File() {
 }
 
 uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
+  Metrics::increment(Metrics::FileReadCalls);
   if (isBytewise()) {
     // Have to perform bytewise reads
     /// \todo consider caching this still
-    return readBytewise(location, size, buffer, bCanBlock);
+    const uint64_t read = readBytewise(location, size, buffer, bCanBlock);
+    Metrics::add(Metrics::FileReadBytes, read);
+    return read;
   }
 
   LockGuard<Mutex> guard(dataMutationLock());
@@ -263,8 +267,10 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
         continue;
       }
     }
-    if (location >= fileSize)
+    if (location >= fileSize) {
+      Metrics::add(Metrics::FileReadBytes, n);
       return n;
+    }
 
     uintptr_t block = location / blockSize;
     uintptr_t offs = location % blockSize;
@@ -280,6 +286,7 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
     uintptr_t buff = readIntoCache(block, false, readAheadBytes);
     if (buff == FILE_BAD_BLOCK) {
       ERROR("File::read - failed to get page from cache, returning early");
+      Metrics::add(Metrics::FileReadBytes, n);
       return n;
     }
 
@@ -293,11 +300,13 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
     size -= sz;
     n += sz;
   }
+  Metrics::add(Metrics::FileReadBytes, n);
   return n;
 }
 
 size_t File::readCached(uint64_t location, size_t size, uintptr_t buffer,
                         bool (*prepare)(uintptr_t, size_t)) {
+  Metrics::increment(Metrics::FileCachedReadCalls);
   if (isBytewise() || !useFillCache() || m_bDirect) {
     return 0;
   }
@@ -309,7 +318,9 @@ size_t File::readCached(uint64_t location, size_t size, uintptr_t buffer,
   if (size > fileSize - location) {
     size = fileSize - location;
   }
-  return cacheState().fill.read(location, size, buffer, prepare);
+  const size_t read = cacheState().fill.read(location, size, buffer, prepare);
+  Metrics::add(Metrics::FileReadBytes, read);
+  return read;
 }
 
 uint64_t File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
@@ -413,8 +424,10 @@ void File::publishWriteMetadata() {
 
 uint64_t File::WriteGuard::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock,
                                  bool publishMetadata) {
+  Metrics::increment(Metrics::FileWriteCalls);
   LockGuard<Mutex> guard(m_File.dataMutationLock());
   const uint64_t written = m_File.writeUnlocked(location, size, buffer, bCanBlock);
+  Metrics::add(Metrics::FileWriteBytes, written);
   if (written) {
     if (publishMetadata) {
       m_File.publishWriteMetadata();
@@ -427,9 +440,11 @@ uint64_t File::WriteGuard::write(uint64_t location, uint64_t size, uintptr_t buf
 
 uint64_t File::WriteGuard::append(uint64_t size, uintptr_t buffer, uint64_t& location,
                                   bool bCanBlock, bool publishMetadata) {
+  Metrics::increment(Metrics::FileWriteCalls);
   LockGuard<Mutex> guard(m_File.dataMutationLock());
   location = m_File.getSize();
   const uint64_t written = m_File.writeUnlocked(location, size, buffer, bCanBlock);
+  Metrics::add(Metrics::FileWriteBytes, written);
   if (written) {
     if (publishMetadata) {
       m_File.publishWriteMetadata();

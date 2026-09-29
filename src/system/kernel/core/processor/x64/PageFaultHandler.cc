@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/panic.h"
@@ -53,6 +54,11 @@ bool PageFaultHandler::initialise() {
 }
 
 void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) {
+  const bool collectMetrics = Processor::m_Initialised == 2;
+  if (collectMetrics) {
+    Metrics::increment(Metrics::PageFault);
+  }
+
   uintptr_t cr2, code;
   asm volatile("mov %%cr2, %%rax" : "=a"(cr2));
   code = state.m_Errorcode;
@@ -66,6 +72,9 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) 
       !(code & (PFE_RESERVED_BIT | PFE_INSTRUCTION_FETCH | PFE_PROTECTION_KEY | PFE_SHADOW_STACK));
   if (copyOnWriteFault &&
       va.handleCopyOnWriteFault(reinterpret_cast<void*>(page), (code & PFE_USER_MODE) != 0)) {
+    if (collectMetrics) {
+      Metrics::increment(Metrics::PageFaultCopyOnWrite);
+    }
     return;
   }
 
@@ -73,6 +82,9 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) 
   /// address space?
   if (!va.memIsInKernelHeap(reinterpret_cast<void*>(page))) {
     if (dispatchHandlers(state, cr2, code & PFE_ATTEMPTED_WRITE, code & PFE_PAGE_PRESENT)) {
+      if (collectMetrics) {
+        Metrics::increment(Metrics::PageFaultHandled);
+      }
       return;
     }
   }
@@ -83,6 +95,9 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) 
     Process* process = pThread->getParent();
     if (process && process->getSubsystem()) {
       pThread->deferSubsystemException(static_cast<size_t>(Subsystem::PageFault), cr2, code);
+      if (collectMetrics) {
+        Metrics::increment(Metrics::PageFaultDeferred);
+      }
       return;
     }
   }

@@ -20,6 +20,7 @@
 #include "PhysicalMemoryManager.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/machine/Trace.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
@@ -92,9 +93,11 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage(size_t pageConstrai
 
   ptr = m_PageStack.allocate(0);
   if (!ptr) {
+    if (Processor::m_Initialised == 2) {
+      Metrics::increment(Metrics::PhysicalPageAllocFailure);
+    }
     panic("Out of memory.");
   }
-
   physical_uintptr_t ptr_bitmap = ptr / getPageSize();
   size_t idx = ptr_bitmap / 32;
   size_t bit = ptr_bitmap % 32;
@@ -103,6 +106,9 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage(size_t pageConstrai
     FATAL_NOLOCK("PhysicalMemoryManager allocate()d a page twice");
   }
   g_PageBitmap[idx] |= (1 << bit);
+  if (Processor::m_Initialised == 2) {
+    Metrics::increment(Metrics::PhysicalPageAlloc);
+  }
 
   m_Lock.release();
 
@@ -131,6 +137,9 @@ physical_uintptr_t HostedPhysicalMemoryManager::tryAllocatePage() {
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   if (!tryAllocationFailure) {
     m_Lock.release();
+    if (Processor::m_Initialised == 2) {
+      Metrics::increment(Metrics::PhysicalPageAllocFailure);
+    }
     return 0;
   }
   if (tryAllocationFailure > 0)
@@ -140,9 +149,11 @@ physical_uintptr_t HostedPhysicalMemoryManager::tryAllocatePage() {
   ptr = m_PageStack.allocate(0, false);
   if (!ptr) {
     m_Lock.release();
+    if (Processor::m_Initialised == 2) {
+      Metrics::increment(Metrics::PhysicalPageAllocFailure);
+    }
     return 0;
   }
-
   physical_uintptr_t ptr_bitmap = ptr / getPageSize();
   size_t idx = ptr_bitmap / 32;
   size_t bit = ptr_bitmap % 32;
@@ -151,6 +162,9 @@ physical_uintptr_t HostedPhysicalMemoryManager::tryAllocatePage() {
     FATAL_NOLOCK("PhysicalMemoryManager allocate()d a page twice");
   }
   g_PageBitmap[idx] |= (1 << bit);
+  if (Processor::m_Initialised == 2) {
+    Metrics::increment(Metrics::PhysicalPageAlloc);
+  }
 
   m_Lock.release();
 
@@ -221,6 +235,9 @@ void HostedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {
   g_PageBitmap[idx] &= ~(1 << bit);
 
   m_PageStack.free(page, getPageSize());
+  if (Processor::m_Initialised == 2) {
+    Metrics::increment(Metrics::PhysicalPageFree);
+  }
 }
 
 void HostedPhysicalMemoryManager::pin(physical_uintptr_t page) {

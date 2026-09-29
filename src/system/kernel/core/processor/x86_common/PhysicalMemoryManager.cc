@@ -21,6 +21,7 @@
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/debugger/commands/AllocationCommand.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
@@ -95,7 +96,13 @@ physical_uintptr_t X86CommonPhysicalMemoryManager::allocatePage(size_t pageConst
 
   ptr = m_PageStack.allocate(pageConstraints);
   if (!ptr) {
+    if (Processor::m_Initialised == 2) {
+      Metrics::increment(Metrics::PhysicalPageAllocFailure);
+    }
     panic("Out of memory.");
+  }
+  if (Processor::m_Initialised == 2) {
+    Metrics::increment(Metrics::PhysicalPageAlloc);
   }
 
   EMIT_IF(MEMORY_TRACING) {
@@ -122,7 +129,13 @@ physical_uintptr_t X86CommonPhysicalMemoryManager::tryAllocatePage() {
   ptr = m_PageStack.allocate(0, false);
   if (!ptr) {
     m_Lock.release();
+    if (Processor::m_Initialised == 2) {
+      Metrics::increment(Metrics::PhysicalPageAllocFailure);
+    }
     return 0;
+  }
+  if (Processor::m_Initialised == 2) {
+    Metrics::increment(Metrics::PhysicalPageAlloc);
   }
 
   EMIT_IF(MEMORY_TRACING) {
@@ -212,6 +225,10 @@ void X86CommonPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {
   }
 
   m_PageStack.free(page, getPageSize());
+
+  if (Processor::m_Initialised == 2) {
+    Metrics::increment(Metrics::PhysicalPageFree);
+  }
 
   trackPages(0, -1, 0);
 }

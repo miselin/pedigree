@@ -20,6 +20,7 @@
 #include "NetworkStack.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 #include "Filter.h"
@@ -88,6 +89,7 @@ static err_t linkOutput(struct netif* netif, struct pbuf* p) {
 
   // Check for filtering
   if (!NetworkFilter::instance().filter(1, reinterpret_cast<uintptr_t>(output), totalLength)) {
+    Metrics::increment(Metrics::NetworkTxFiltered);
     pDevice->droppedPacket();
     delete[] output;
     return ERR_IF;  // Drop the packet.
@@ -96,7 +98,11 @@ static err_t linkOutput(struct netif* netif, struct pbuf* p) {
   // transmit!
   err_t e = ERR_OK;
   if (!pDevice->send(totalLength, reinterpret_cast<uintptr_t>(output))) {
+    Metrics::increment(Metrics::NetworkTxSendFailed);
     e = ERR_IF;
+  } else {
+    Metrics::increment(Metrics::NetworkTxAccepted);
+    Metrics::add(Metrics::NetworkTxBytes, totalLength);
   }
 
   delete[] output;
@@ -224,12 +230,16 @@ void NetworkStack::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint
 
   DeviceLease device;
   if (!acquireDevice(pCard, device)) {
+    Metrics::increment(Metrics::NetworkRxNoDevice);
     return;
   }
 
   packet += offset;
 
+  const size_t packetLength = nBytes;
+
   if (!NetworkFilter::instance().filter(1, packet, nBytes)) {
+    Metrics::increment(Metrics::NetworkRxFiltered);
     pCard->droppedPacket();
     return;  // Drop the packet.
   }
@@ -246,6 +256,7 @@ void NetworkStack::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint
       buf = buf->next;
     }
   } else {
+    Metrics::increment(Metrics::NetworkRxNoBuffer);
     ERROR(
         "Network Stack: Out of memory pool space, dropping incoming "
         "packet");
@@ -255,8 +266,12 @@ void NetworkStack::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint
 
   struct netif* iface = device.interface();
   if (iface->input(p, iface) != ERR_OK) {
+    Metrics::increment(Metrics::NetworkRxInputFailed);
     pbuf_free(p);
     pCard->droppedPacket();
+  } else {
+    Metrics::increment(Metrics::NetworkRxAccepted);
+    Metrics::add(Metrics::NetworkRxBytes, packetLength);
   }
 }
 

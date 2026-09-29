@@ -93,6 +93,21 @@ static int metrics_status(void) {
   CHECK(strstr(expected, "# TYPE pedigree_metrics_enabled gauge\n"));
   CHECK(strstr(expected, "# TYPE pedigree_cpus gauge\n"));
   CHECK(strstr(expected, "# TYPE pedigree_uptime_seconds gauge\n"));
+  CHECK(strstr(expected, "# TYPE pedigree_memory_managed_bytes gauge\n"));
+  CHECK(strstr(expected, "# TYPE pedigree_memory_free_bytes gauge\n"));
+  CHECK(strstr(expected, "# TYPE pedigree_threads gauge\n"));
+  CHECK(strstr(expected, "# TYPE pedigree_runnable_threads gauge\n"));
+  unsigned long long managed = 0, free_bytes = 0, threads = 0, runnable = 0;
+  const char* managed_line = strstr(expected, "\npedigree_memory_managed_bytes ");
+  const char* free_line = strstr(expected, "\npedigree_memory_free_bytes ");
+  const char* threads_line = strstr(expected, "\npedigree_threads ");
+  const char* runnable_line = strstr(expected, "\npedigree_runnable_threads ");
+  CHECK(managed_line &&
+        sscanf(managed_line, "\npedigree_memory_managed_bytes %llu", &managed) == 1);
+  CHECK(free_line && sscanf(free_line, "\npedigree_memory_free_bytes %llu", &free_bytes) == 1);
+  CHECK(threads_line && sscanf(threads_line, "\npedigree_threads %llu", &threads) == 1);
+  CHECK(runnable_line && sscanf(runnable_line, "\npedigree_runnable_threads %llu", &runnable) == 1);
+  CHECK(managed > 0 && free_bytes <= managed && threads > 0 && runnable <= threads);
   const char* enabled_line = strstr(expected, "\npedigree_metrics_enabled ");
   unsigned enabled;
   CHECK(enabled_line && sscanf(enabled_line, "\npedigree_metrics_enabled %u", &enabled) == 1 &&
@@ -123,6 +138,10 @@ static int metrics_status(void) {
           before_rows == cpus);
     CHECK(strstr(expected, "# TYPE pedigree_scheduler_yields_total counter\n"));
     CHECK(strstr(expected, "# TYPE pedigree_spinlock_acquires_total counter\n"));
+    CHECK(strstr(expected, "# TYPE pedigree_physical_page_allocations_total counter\n"));
+    CHECK(strstr(expected, "# TYPE pedigree_wait_queue_waits_total counter\n"));
+    CHECK(strstr(expected, "# TYPE pedigree_network_rx_packets_total counter\n"));
+    CHECK(strstr(expected, "# TYPE pedigree_file_read_bytes_total counter\n"));
     CHECK(strstr(expected, "policy=\"no_irq\""));
   } else {
     CHECK(!before_rows && !strstr(expected, "_total"));

@@ -6,6 +6,7 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -246,6 +247,7 @@ WaitQueue::WakeReason WaitQueue::wait(Guard& guard, Mutex* mutex, const Channel&
   }
   m_pLastWaiter = &waiter;
   ++m_WaiterCount;
+  Metrics::increment(Metrics::WaitQueueWait);
   waiter.setQueued(true);
 
   // Publish only after every field and the queue membership are complete.
@@ -421,6 +423,7 @@ size_t WaitQueue::wakeAndRequeueLocked(Guard& guard, const Channel& source, size
       thread->m_Lock.release();
       if (moved) {
         ++requeued;
+        Metrics::increment(Metrics::WaitQueueRequeue);
       }
     }
   }
@@ -438,10 +441,13 @@ bool WaitQueue::completeWaiter(Guard& guard, Waiter* waiter, WakeReason reason) 
       waiter->loadReason() == WakeReason::Waiting) {
     waiter->storeReason(reason);
     completed = true;
+    Metrics::increment(Metrics::WaitQueueWake);
     if (thread->m_Status == Thread::Sleeping) {
       thread->m_Status = Thread::Ready;
       __atomic_store_n(&thread->m_ReadyPublicationPending, true, __ATOMIC_RELEASE);
       becameReady = true;
+    } else {
+      Metrics::increment(Metrics::WaitQueueEarlyWake);
     }
   }
   thread->m_Lock.release();
@@ -492,6 +498,7 @@ void WaitQueue::removeWaiterLocked(Waiter* waiter) {
 
   assert(m_WaiterCount);
   --m_WaiterCount;
+  Metrics::increment(Metrics::WaitQueueUnqueue);
   clearWaitIntentIfEmpty();
   waiter->previous = nullptr;
   waiter->next = nullptr;
@@ -513,6 +520,7 @@ void WaitQueue::cancel(Waiter* waiter, WakeReason reason) {
     }
 
     removeWaiterLocked(waiter);
+    Metrics::increment(Metrics::WaitQueueCancel);
     waiter->storeReason(reason);
     makeReady = thread->m_Status == Thread::Sleeping;
 

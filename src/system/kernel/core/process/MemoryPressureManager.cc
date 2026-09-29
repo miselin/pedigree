@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #if THREADS
@@ -104,6 +105,10 @@ bool MemoryPressureManager::compact() {
   __atomic_store_n(&m_pCompactOwner, owner, __ATOMIC_RELEASE);
 #endif
 
+  if (Processor::m_Initialised == 2) {
+    Metrics::increment(Metrics::MemoryPressurePass);
+  }
+
   size_t registrationLimit = 0;
   {
     LockGuard<Spinlock> guard(m_Lock);
@@ -180,6 +185,9 @@ bool MemoryPressureManager::compact() {
   const bool cleared = m_bCompacting.compareAndSwap(true, false);
   assert(cleared);
 #endif
+  if (releasedPages && Processor::m_Initialised == 2) {
+    Metrics::increment(Metrics::MemoryPressurePassSuccess);
+  }
   return releasedPages;
 }
 

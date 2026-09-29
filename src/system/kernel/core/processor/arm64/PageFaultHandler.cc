@@ -1,4 +1,5 @@
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Process.h"
@@ -16,6 +17,11 @@ bool PageFaultHandler::initialise() {
 }
 
 void PageFaultHandler::interrupt(size_t, InterruptState& state) {
+  const bool collectMetrics = Processor::m_Initialised == 2;
+  if (collectMetrics) {
+    Metrics::increment(Metrics::PageFault);
+  }
+
   const uintptr_t address = state.far;
   const uintptr_t page = address & ~(PAGE_SIZE - 1);
   const size_t faultStatus = state.esr & 0x3f;
@@ -26,9 +32,15 @@ void PageFaultHandler::interrupt(size_t, InterruptState& state) {
   VirtualAddressSpace& space = Processor::information().getVirtualAddressSpace();
   if (present && write &&
       space.handleCopyOnWriteFault(reinterpret_cast<void*>(page), !state.kernelMode())) {
+    if (collectMetrics) {
+      Metrics::increment(Metrics::PageFaultCopyOnWrite);
+    }
     return;
   }
   if (dispatchHandlers(state, address, write, present)) {
+    if (collectMetrics) {
+      Metrics::increment(Metrics::PageFaultHandled);
+    }
     return;
   }
 
@@ -39,6 +51,9 @@ void PageFaultHandler::interrupt(size_t, InterruptState& state) {
       const uintptr_t errorCode = (present ? 1 : 0) | (write ? 2 : 0) | 4 | (fetch ? 16 : 0);
       thread->deferSubsystemException(static_cast<size_t>(Subsystem::PageFault), address,
                                       errorCode);
+      if (collectMetrics) {
+        Metrics::increment(Metrics::PageFaultDeferred);
+      }
       return;
     }
   }

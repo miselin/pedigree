@@ -21,6 +21,15 @@ namespace {
 constexpr uint64_t ClockTicksPerSecond = 100;
 constexpr uint64_t NanosecondsPerClockTick = Time::Multiplier::Second / ClockTicksPerSecond;
 
+struct TaskCounts {
+  size_t processes = 0;
+  size_t total = 0;
+  size_t runnable = 0;
+  size_t lastPid = 0;
+};
+
+TaskCounts taskCounts();
+
 class GeneratedFile : public File {
  public:
   GeneratedFile(const String& name, uintptr_t inode, ProcFs& filesystem, File* parent)
@@ -122,6 +131,35 @@ class MetricsFile final : public File {
         "# TYPE pedigree_cpus gauge\npedigree_cpus %lu\n"
         "# TYPE pedigree_uptime_seconds gauge\npedigree_uptime_seconds %s\n",
         unsigned(PEDIGREE_METRICS), cpus, static_cast<const char*>(uptimeText));
+    const auto memory = PhysicalMemoryManager::instance().memorySnapshot();
+    const TaskCounts tasks = taskCounts();
+    String line;
+    // String::Format has a 256-byte buffer, so format each gauge separately.
+    line.Format(
+        "# HELP pedigree_memory_managed_bytes Physical memory managed by the page allocator.\n"
+        "# TYPE pedigree_memory_managed_bytes gauge\npedigree_memory_managed_bytes %lu\n",
+        memory.totalPages * PhysicalMemoryManager::getPageSize());
+    contents += line;
+    line.Format(
+        "# HELP pedigree_memory_free_bytes Physical memory currently free in the page allocator.\n"
+        "# TYPE pedigree_memory_free_bytes gauge\npedigree_memory_free_bytes %lu\n",
+        memory.freePages * PhysicalMemoryManager::getPageSize());
+    contents += line;
+    line.Format(
+        "# HELP pedigree_processes Processes registered with the scheduler.\n"
+        "# TYPE pedigree_processes gauge\npedigree_processes %lu\n",
+        tasks.processes);
+    contents += line;
+    line.Format(
+        "# HELP pedigree_threads Non-idle threads registered with a process.\n"
+        "# TYPE pedigree_threads gauge\npedigree_threads %lu\n",
+        tasks.total);
+    contents += line;
+    line.Format(
+        "# HELP pedigree_runnable_threads Non-idle threads ready or running.\n"
+        "# TYPE pedigree_runnable_threads gauge\npedigree_runnable_threads %lu\n",
+        tasks.runnable);
+    contents += line;
 #if PEDIGREE_METRICS
     struct Counter {
       const char* name;
@@ -149,8 +187,106 @@ class MetricsFile final : public File {
          "x86-64 exception handler entries for vectors below 32."},
         {"pedigree_syscalls_total", Metrics::Syscall, "x86-64 C++ syscall dispatch entries."},
 #endif
+        {"pedigree_process_created_total", Metrics::ProcessCreated,
+         "Completed process constructions."},
+        {"pedigree_process_exited_total", Metrics::ProcessExited,
+         "Processes published as terminated."},
+        {"pedigree_process_destroyed_total", Metrics::ProcessDestroyed,
+         "Completed process destructions."},
+        {"pedigree_thread_created_total", Metrics::ThreadCreated,
+         "Threads registered with a process, including idle threads."},
+        {"pedigree_thread_exit_started_total", Metrics::ThreadExitStarted,
+         "Threads beginning shutdown for the first time."},
+        {"pedigree_thread_reapable_total", Metrics::ThreadReapable,
+         "Threads retired from their execution stack."},
+        {"pedigree_thread_destroyed_total", Metrics::ThreadDestroyed,
+         "Completed thread destructions."},
+        {"pedigree_wait_queue_waits_total", Metrics::WaitQueueWait,
+         "Waiter enrollments in wait queues."},
+        {"pedigree_wait_queue_unqueues_total", Metrics::WaitQueueUnqueue,
+         "Waiter removals from wait queues."},
+        {"pedigree_wait_queue_wakes_total", Metrics::WaitQueueWake,
+         "First successful completion of an enrolled waiter."},
+        {"pedigree_wait_queue_early_wakes_total", Metrics::WaitQueueEarlyWake,
+         "Waiter completions before the thread entered sleeping state."},
+        {"pedigree_wait_queue_cancels_total", Metrics::WaitQueueCancel,
+         "Enrolled waiters removed by cancellation."},
+        {"pedigree_wait_queue_requeues_total", Metrics::WaitQueueRequeue,
+         "Waiter moves to another channel."},
+        {"pedigree_semaphore_contended_acquires_total", Metrics::SemaphoreContended,
+         "Semaphore acquires that missed the initial fast attempts."},
+        {"pedigree_physical_page_allocations_total", Metrics::PhysicalPageAlloc,
+         "Successful single-page allocation calls after CPU initialization."},
+        {"pedigree_physical_page_allocation_failures_total", Metrics::PhysicalPageAllocFailure,
+         "Failed single-page allocation calls after CPU initialization."},
+        {"pedigree_physical_page_frees_total", Metrics::PhysicalPageFree,
+         "Pages returned to the allocator after their last reference."},
+        {"pedigree_memory_pressure_passes_total", Metrics::MemoryPressurePass,
+         "Admitted memory pressure compact passes."},
+        {"pedigree_memory_pressure_successes_total", Metrics::MemoryPressurePassSuccess,
+         "Memory pressure passes with a handler reporting success."},
+        {"pedigree_memory_pressure_kill_requests_total", Metrics::MemoryPressureKill,
+         "Victim kill calls made under memory pressure."},
+        {"pedigree_page_fault_entries_total", Metrics::PageFault,
+         "Architecture page-fault handler entries."},
+        {"pedigree_page_fault_copy_on_write_total", Metrics::PageFaultCopyOnWrite,
+         "Page faults resolved by copy-on-write."},
+        {"pedigree_page_fault_handled_total", Metrics::PageFaultHandled,
+         "Page faults resolved by a registered trap handler."},
+        {"pedigree_page_fault_deferred_total", Metrics::PageFaultDeferred,
+         "Page faults deferred to a userspace subsystem."},
+        {"pedigree_cache_lookup_hits_total", Metrics::CacheLookupHit,
+         "Successful Cache::lookup calls."},
+        {"pedigree_cache_lookup_misses_total", Metrics::CacheLookupMiss,
+         "Cache::lookup calls without an available page."},
+        {"pedigree_cache_read_bytes_total", Metrics::CacheReadBytes,
+         "Bytes returned by Cache::read."},
+        {"pedigree_cache_evicted_pages_total", Metrics::CacheEvictedPages,
+         "Cache pages successfully retired."},
+        {"pedigree_cache_writeback_pages_total", Metrics::CacheWritebackPages,
+         "Cache pages submitted to backing-store writeback callbacks."},
+        {"pedigree_cache_writeback_failures_total", Metrics::CacheWritebackFailures,
+         "Cache pages whose backing-store writeback callback failed."},
+        {"pedigree_network_rx_packets_total", Metrics::NetworkRxAccepted,
+         "Received packets accepted by the network stack."},
+        {"pedigree_network_rx_bytes_total", Metrics::NetworkRxBytes,
+         "Received bytes accepted by the network stack."},
+        {"pedigree_network_rx_no_device_total", Metrics::NetworkRxNoDevice,
+         "Received packets dropped without a registered device."},
+        {"pedigree_network_rx_filtered_total", Metrics::NetworkRxFiltered,
+         "Received packets rejected by the network filter."},
+        {"pedigree_network_rx_no_buffer_total", Metrics::NetworkRxNoBuffer,
+         "Received packets dropped for lack of a network buffer."},
+        {"pedigree_network_rx_input_failures_total", Metrics::NetworkRxInputFailed,
+         "Received packets rejected by the network stack input."},
+        {"pedigree_network_tx_packets_total", Metrics::NetworkTxAccepted,
+         "Transmitted packets accepted by a device send call."},
+        {"pedigree_network_tx_bytes_total", Metrics::NetworkTxBytes,
+         "Transmitted bytes accepted by a device send call."},
+        {"pedigree_network_tx_filtered_total", Metrics::NetworkTxFiltered,
+         "Transmitted packets rejected by the network filter."},
+        {"pedigree_network_tx_send_failures_total", Metrics::NetworkTxSendFailed,
+         "Transmitted packets rejected by a device send call."},
+        {"pedigree_file_read_calls_total", Metrics::FileReadCalls,
+         "File::read calls, including cached reads through that path."},
+        {"pedigree_file_cached_read_calls_total", Metrics::FileCachedReadCalls,
+         "Direct File::readCached calls."},
+        {"pedigree_file_read_bytes_total", Metrics::FileReadBytes,
+         "Bytes returned by file read calls, counted once per path."},
+        {"pedigree_file_write_calls_total", Metrics::FileWriteCalls,
+         "File write and append calls."},
+        {"pedigree_file_write_bytes_total", Metrics::FileWriteBytes,
+         "Bytes returned by file write and append calls."},
+        {"pedigree_vfs_find_calls_total", Metrics::VfsFindCalls, "VFS::find calls."},
+        {"pedigree_vfs_find_misses_total", Metrics::VfsFindMisses,
+         "VFS::find calls returning no file."},
+        {"pedigree_vfs_sync_calls_total", Metrics::VfsSyncCalls,
+         "Filesystem backend sync invocations."},
+        {"pedigree_vfs_sync_unsupported_total", Metrics::VfsSyncUnsupported,
+         "Filesystem backend sync invocations reporting unsupported."},
+        {"pedigree_vfs_sync_failures_total", Metrics::VfsSyncFailed,
+         "Filesystem backend sync invocations that failed for another reason."},
     };
-    String line;
     for (const Counter& counter : counters) {
       line.Format("# HELP %s %s\n# TYPE %s counter\n", counter.name, counter.help, counter.name);
       contents += line;
@@ -192,16 +328,11 @@ class MetricsFile final : public File {
   }
 };
 
-struct TaskCounts {
-  size_t total = 0;
-  size_t runnable = 0;
-  size_t lastPid = 0;
-};
-
 TaskCounts taskCounts() {
   TaskCounts result;
   Scheduler& scheduler = Scheduler::instance();
   const size_t processCount = scheduler.getNumProcesses();
+  result.processes = processCount;
   for (size_t index = 0; index < processCount; ++index) {
     Scheduler::ProcessLease process;
     if (!scheduler.acquireProcess(process, index)) {
@@ -622,8 +753,7 @@ bool procfsAddSystemStatusFiles(ProcFs& filesystem, ProcFsDirectory& root) {
                                      &filesystem, 0, &root);
   auto* threads =
       kernel ? new KernelThreadsFile(filesystem.getNextInode(), filesystem, kernel) : nullptr;
-  auto* latency =
-      kernel ? new LatencyFile(filesystem.getNextInode(), filesystem, kernel) : nullptr;
+  auto* latency = kernel ? new LatencyFile(filesystem.getNextInode(), filesystem, kernel) : nullptr;
   if (!loadAverage || !stat || !cpuInfo || !partitions || !metrics || !kernel || !threads ||
       !latency) {
     delete loadAverage;

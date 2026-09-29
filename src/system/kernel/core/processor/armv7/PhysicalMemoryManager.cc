@@ -1,7 +1,9 @@
 #include "PhysicalMemoryManager.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
 #include <string.h>
@@ -186,14 +188,24 @@ physical_uintptr_t Armv7PhysicalMemoryManager::allocatePage(size_t constraints) 
   LockGuard<Spinlock> guard(m_Lock);
   physical_uintptr_t page = allocatePageUnlocked(constraints);
   if (!page) {
+    if (Processor::m_Initialised == 2) {
+      Metrics::increment(Metrics::PhysicalPageAllocFailure);
+    }
     panic("ARMv7: out of physical pages");
+  }
+  if (Processor::m_Initialised == 2) {
+    Metrics::increment(Metrics::PhysicalPageAlloc);
   }
   return page;
 }
 
 physical_uintptr_t Armv7PhysicalMemoryManager::tryAllocatePage() {
   LockGuard<Spinlock> guard(m_Lock);
-  return allocatePageUnlocked(0);
+  physical_uintptr_t page = allocatePageUnlocked(0);
+  if (Processor::m_Initialised == 2) {
+    Metrics::increment(page ? Metrics::PhysicalPageAlloc : Metrics::PhysicalPageAllocFailure);
+  }
+  return page;
 }
 
 physical_uintptr_t Armv7PhysicalMemoryManager::allocateAlignedPages(size_t pages) {
@@ -239,6 +251,9 @@ void Armv7PhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {
   ++m_FreePages;
   ++g_FreePages;
   --g_AllocedPages;
+  if (Processor::m_Initialised == 2) {
+    Metrics::increment(Metrics::PhysicalPageFree);
+  }
   if (index < m_NextPage) {
     m_NextPage = index;
   }

@@ -27,6 +27,7 @@
 #endif
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
@@ -525,6 +526,7 @@ Thread::~Thread() {
 
   if (m_pParent)
     m_pParent->removeThread(this);
+  Metrics::increment(Metrics::ThreadDestroyed);
 }
 
 void Thread::notifySubsystemExit() {
@@ -558,6 +560,7 @@ void Thread::shutdown() {
       return;
     }
     m_bShutdown = true;
+    Metrics::increment(Metrics::ThreadExitStarted);
   }
 
   // Admission and this predicate share one WaitQueue guard. A sender which
@@ -3723,6 +3726,7 @@ void Thread::clearTerminalWaitCancelledBeforeBlockUnlocked(size_t level) {
 bool Thread::markReapable() {
   auto guard = m_JoinWaiters.acquire();
   m_bReapable = true;
+  Metrics::increment(Metrics::ThreadReapable);
   if (!m_bDetached) {
     guard.wakeAll();
   }

@@ -18,11 +18,13 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/process/MemoryPressureKiller.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -65,6 +67,9 @@ bool MemoryPressureProcessKiller::compact() {
   Process::ThreadLease target;
   if (!candidate->acquireThread(target, static_cast<size_t>(0))) {
     return false;
+  }
+  if (Processor::m_Initialised == 2) {
+    Metrics::increment(Metrics::MemoryPressureKill);
   }
   pSubsystem->kill(Subsystem::Unknown, target.get());
 

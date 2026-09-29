@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
@@ -723,21 +724,25 @@ uintptr_t Cache::lookup(uintptr_t key) {
 
   // Check against the bloom filter first, before we hit the tree.
   if (!m_PageFilter.contains(key)) {
+    Metrics::increment(Metrics::CacheLookupMiss);
     return 0;
   }
 
   CachePage* pPage = m_Pages.lookup(key);
   if (!pPage) {
+    Metrics::increment(Metrics::CacheLookupMiss);
     return 0;
   }
   if (pPage->evictionState == CachePage::EvictionState::Draining ||
       pPage->evictionState == CachePage::EvictionState::Retiring) {
+    Metrics::increment(Metrics::CacheLookupMiss);
     return 0;
   }
 
   uintptr_t ptr = pPage->location;
   pPage->refcnt++;
   promotePage(pPage);
+  Metrics::increment(Metrics::CacheLookupHit);
 
   return ptr;
 }
@@ -813,6 +818,7 @@ size_t Cache::read(uintptr_t offset, size_t length, uintptr_t buffer,
                                                first + i * CachePageSize);
     }
   }
+  Metrics::add(Metrics::CacheReadBytes, copied);
   return copied;
 }
 
@@ -1168,7 +1174,11 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
   // Backing-store I/O can block and may re-enter this Cache.
   if (submittedChecksumTracking)
     checksum(reinterpret_cast<const void*>(location), CachePageSize, submittedChecksum);
+  if (dirty) {
+    Metrics::increment(Metrics::CacheWritebackPages);
+  }
   if (dirty && !callback(CacheConstants::WriteBack, key, location, callbackMeta)) {
+    Metrics::increment(Metrics::CacheWritebackFailures);
     {
       LockGuard<Spinlock> guard(m_Lock);
       page->writebackFailed = true;
@@ -1289,6 +1299,7 @@ bool Cache::finishRetirement(CachePage* page, writeback_t callback, void* callba
     m_Allocator.free(location, CachePageSize);
   }
   delete page;
+  Metrics::increment(Metrics::CacheEvictedPages);
   return true;
 }
 
@@ -1379,7 +1390,11 @@ bool Cache::retireWriteback(uintptr_t key, retirement_writeback_t callback, void
     page->callbackOwner = Processor::information().getCurrentThread();
 #endif
   }
+  Metrics::increment(Metrics::CacheWritebackPages);
   const bool writebackSucceeded = callback(key, page->location, meta);
+  if (!writebackSucceeded) {
+    Metrics::increment(Metrics::CacheWritebackFailures);
+  }
   bool retire = false;
   bool wake = false;
   {
@@ -1932,7 +1947,11 @@ bool Cache::syncBatchInternal(const uintptr_t* keys, size_t count, writeback_bat
       checksum(reinterpret_cast<const void*>(writes[i].location), CachePageSize,
                submissions[i].checksum);
   }
+  Metrics::add(Metrics::CacheWritebackPages, writeCount);
   const bool succeeded = callback(writes, writeCount, metadata);
+  if (!succeeded) {
+    Metrics::add(Metrics::CacheWritebackFailures, writeCount);
+  }
   {
     LockGuard<Spinlock> guard(m_Lock);
     for (size_t i = 0; i < writeCount; ++i) {
@@ -2025,7 +2044,11 @@ bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait) {
   uint64_t submittedChecksum[2] = {};
   if (submittedChecksumTracking)
     checksum(reinterpret_cast<const void*>(location), CachePageSize, submittedChecksum);
+  Metrics::increment(Metrics::CacheWritebackPages);
   const bool succeeded = callback(CacheConstants::WriteBack, key, location, callbackMeta);
+  if (!succeeded) {
+    Metrics::increment(Metrics::CacheWritebackFailures);
+  }
   {
     LockGuard<Spinlock> guard(m_Lock);
     page->writebackFailed = !succeeded;

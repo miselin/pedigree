@@ -21,6 +21,7 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Iterator.h"
@@ -818,6 +819,7 @@ void VFS::getMounts(Vector<MountSnapshot>& mounts) const {
 
 namespace {
 Filesystem::SyncStatus syncPinnedFilesystem(Filesystem* filesystem) {
+  Metrics::increment(Metrics::VfsSyncCalls);
 #if !defined(VFS_STANDALONE) && THREADS
   Thread* thread = Processor::information().getCurrentThread();
   const int previousError = thread ? thread->getErrno() : 0;
@@ -825,6 +827,11 @@ Filesystem::SyncStatus syncPinnedFilesystem(Filesystem* filesystem) {
     thread->setErrno(0);
 #endif
   const auto result = filesystem->sync();
+  if (result == Filesystem::SyncStatus::Unsupported) {
+    Metrics::increment(Metrics::VfsSyncUnsupported);
+  } else if (result != Filesystem::SyncStatus::Success) {
+    Metrics::increment(Metrics::VfsSyncFailed);
+  }
 #if !defined(VFS_STANDALONE) && THREADS
   if (thread)
     thread->setErrno(previousError);
@@ -916,6 +923,7 @@ Filesystem::SyncStatus VFS::syncAll() {
 }
 
 File* VFS::find(const String& path, File* pStartNode) {
+  Metrics::increment(Metrics::VfsFindCalls);
   // NOTICE("find: " << path);
 
   File* pResult = 0;
@@ -923,6 +931,10 @@ File* VFS::find(const String& path, File* pStartNode) {
   pStartNode = resolveStartNode(path, pStartNode);
   if (pStartNode) {
     pResult = pStartNode->getFilesystem()->find(path.view(), pStartNode);
+  }
+
+  if (!pResult) {
+    Metrics::increment(Metrics::VfsFindMisses);
   }
 
   // NOTICE("find: " << path << " -> " << pResult);
