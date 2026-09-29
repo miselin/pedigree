@@ -1,6 +1,4 @@
 cmake_minimum_required(VERSION 3.21)
-# The bundled GoogleTest release still declares compatibility with CMake 2.6.
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 # Add our internal CMake modules path before project() to enable our custom platform
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/build-etc/cmake")
@@ -978,13 +976,6 @@ else ()
         ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/config.h.in
         ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
-    # This bundled GoogleTest revision still probes with FindPythonInterp,
-    # which CMake 3.27 removed. Its optional Python tests can use the
-    # interpreter already selected above without invoking the legacy module.
-    set(CMAKE_DISABLE_FIND_PACKAGE_PythonInterp TRUE)
-    set(PYTHONINTERP_FOUND "${Python3_Interpreter_FOUND}")
     add_subdirectory(external/googletest)
-    unset(CMAKE_DISABLE_FIND_PACKAGE_PythonInterp)
-    unset(PYTHONINTERP_FOUND)
     add_subdirectory(src/buildutil)
 endif ()
