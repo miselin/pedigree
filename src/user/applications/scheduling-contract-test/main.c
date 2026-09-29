@@ -15,12 +15,9 @@ int main(int argc, char** argv) {
   const struct {
     const char* name;
     int (*run)(void);
-  } families[] = {{"api-policy", sc_api},
-                  {"placement", sc_placement},
-                  {"wakeups", sc_wakeups},
-                  {"affinity-races", sc_affinity_races},
-                  {"lifecycle", sc_lifecycle},
-                  {"permissions", sc_permissions}};
+  } families[] = {{"api-policy", sc_api},      {"placement", sc_placement},
+                  {"wakeups", sc_wakeups},     {"affinity-races", sc_affinity_races},
+                  {"lifecycle", sc_lifecycle}, {"permissions", sc_permissions}};
   int selected = 0;
   for (size_t i = 0; i < sizeof(families) / sizeof(families[0]); ++i) {
     if (argc >= 2 && strcmp(argv[1], "all") && strcmp(argv[1], families[i].name))

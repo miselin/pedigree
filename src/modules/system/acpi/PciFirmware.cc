@@ -3,8 +3,8 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/PciFirmware.h"
 #include "pedigree/kernel/process/Mutex.h"
-#include "PciRouting.h"
 
+#include "PciRouting.h"
 #include <uacpi/acpi.h>
 #include <uacpi/resources.h>
 #include <uacpi/uacpi.h>

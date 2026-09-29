@@ -111,9 +111,9 @@ bool NvmeController::command(NvmeQueue& queue, Command request, void* buffer, si
     interrupts = m_Interrupts;
   }
   const size_t timeout = (&queue != &m_Admin && (request.opcode & 255U) == 0) ? 120 : 30;
-  const auto status = queue.execute(request, buffer, bytes, writing, interrupts, timeout, result,
-                                    interruptProbe, cacheFill, directWritePhysical,
-                                    &directReadMapping);
+  const auto status =
+      queue.execute(request, buffer, bytes, writing, interrupts, timeout, result, interruptProbe,
+                    cacheFill, directWritePhysical, &directReadMapping);
   if (status == NvmeQueue::Result::TransportError)
     failController();
   return status == NvmeQueue::Result::Success;

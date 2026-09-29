@@ -69,6 +69,7 @@ RUN apt-get update \
         ca-certificates \
         curl \
         gnupg \
+        python3-venv \
     && curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
         | gpg --dearmor -o /usr/share/keyrings/apt.llvm.org.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-${LLVM_VERSION} main" \
@@ -80,7 +81,6 @@ RUN apt-get update \
         build-essential \
         clang-${LLVM_VERSION} \
         clang-tools-${LLVM_VERSION} \
-        clang-format-${LLVM_VERSION} \
         clang-tidy-${LLVM_VERSION} \
         cmake \
         dosfstools \
@@ -99,11 +99,17 @@ RUN apt-get update \
         xorriso \
     && rm -rf /var/lib/apt/lists/*
 
+COPY .clang-format-version /tmp/clang-format-version
+
+RUN python3 -m venv /opt/clang-format \
+    && /opt/clang-format/bin/python -m pip install --no-cache-dir \
+        "clang-format==$(cat /tmp/clang-format-version)"
+
 COPY --from=toolchain-builder /opt/pedigree /opt/pedigree
 COPY --from=alpine-sdk /out/rootfs.img /opt/pedigree/alpine/rootfs.img
 COPY --from=alpine-sdk /out/rootfs /opt/pedigree/alpine/rootfs
 
-ENV PATH="/usr/lib/llvm-${LLVM_VERSION}/bin:/opt/pedigree/bin:${PATH}" \
+ENV PATH="/opt/clang-format/bin:/usr/lib/llvm-${LLVM_VERSION}/bin:/opt/pedigree/bin:${PATH}" \
     PEDIGREE_TOOLCHAIN_ROOT=/opt/pedigree \
     PEDIGREE_TARGET_SYSROOT=/opt/pedigree/musl-sdk
 

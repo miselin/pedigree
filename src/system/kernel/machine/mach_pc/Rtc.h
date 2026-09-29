@@ -59,7 +59,9 @@ class Rtc : public Timer, private IrqHandler {
   virtual bool registerHandler(TimerHandler* handler);
   virtual bool unregisterHandler(TimerHandler* handler);
   bool armHandler(TimerHandler* handler, uint64_t absoluteDeadlineNs) override;
-  bool supportsDeadlines() const override { return m_DeadlineMode.value() != 0; }
+  bool supportsDeadlines() const override {
+    return m_DeadlineMode.value() != 0;
+  }
   void deadlineInterrupt() override;
   virtual void addAlarm(class Event* pEvent, size_t alarmSecs, size_t alarmUsecs = 0);
   virtual void removeAlarm(class Event* pEvent);

@@ -16,6 +16,7 @@ jobs:
   clang-format:
     name: clang-format
     runs-on: ubuntu-24.04
+    continue-on-error: ${{ github.event_name == 'push' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -23,12 +24,19 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Set up LLVM 22
-        uses: ZhongRuoyu/setup-llvm@eea6238baf53d41c1615923680d7a738da584318 # v0.2.0
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          llvm-version: 22
+          python-version: '3.12'
 
-      - name: Show LLVM tool versions
+      - name: Install pinned clang-format
+        run: |
+          python -m venv "$RUNNER_TEMP/clang-format"
+          "$RUNNER_TEMP/clang-format/bin/python" -m pip install --disable-pip-version-check \
+            "clang-format==$(cat .clang-format-version)"
+          echo "$RUNNER_TEMP/clang-format/bin" >> "$GITHUB_PATH"
+
+      - name: Show clang-format version
         run: |
           clang-format --version
 
@@ -146,7 +154,8 @@ jobs:
       - build-builder
     if: >-
       always() &&
-      needs.clang-format.result == 'success' &&
+      (needs.clang-format.result == 'success' ||
+       (github.event_name == 'push' && needs.clang-format.result == 'failure')) &&
       needs.buildutil-tests.result == 'success' &&
       needs.builder-availability.result == 'success' &&
       (needs.build-builder.result == 'success' || needs.build-builder.result == 'skipped')

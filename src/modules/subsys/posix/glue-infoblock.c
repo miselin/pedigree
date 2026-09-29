@@ -81,10 +81,7 @@ int __vdso_clock_gettime(clockid_t clock_id, struct timespec* tp) {
 int __vdso_gettimeofday(struct timeval* tv, void* tz) {
 #if X64 && !HOSTED
   long result = SYS_gettimeofday;
-  __asm__ volatile("syscall"
-                   : "+a"(result)
-                   : "D"(tv), "S"(tz)
-                   : "rcx", "r11", "memory", "cc");
+  __asm__ volatile("syscall" : "+a"(result) : "D"(tv), "S"(tz) : "rcx", "r11", "memory", "cc");
   return (int)result;
 #else
   if (tv) {
@@ -133,10 +130,7 @@ int __vdso_getcpu(unsigned* cpu, unsigned* node, struct getcpu_cache* cache) {
 time_t __vdso_time(time_t* tloc) {
 #if X64 && !HOSTED
   long result = SYS_time;
-  __asm__ volatile("syscall"
-                   : "+a"(result)
-                   : "D"(tloc)
-                   : "rcx", "r11", "memory", "cc");
+  __asm__ volatile("syscall" : "+a"(result) : "D"(tloc) : "rcx", "r11", "memory", "cc");
   return (time_t)result;
 #else
   const time_t now = infoBlock->now_s;

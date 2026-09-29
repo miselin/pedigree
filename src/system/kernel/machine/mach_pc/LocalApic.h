@@ -169,7 +169,9 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
   // SchedulerTimer interface
   //
   uint64_t nominalQuantumNs() const override;
-  bool supportsOneShot() const override { return true; }
+  bool supportsOneShot() const override {
+    return true;
+  }
   bool armDeadline(uint64_t absoluteMonotonicNs) override;
   void disarm() override;
   virtual bool registerHandler(SchedulerTimerHandler* handler) {

@@ -459,8 +459,7 @@ void PerProcessorScheduler::programOneShotTimer() {
     return;
   }
   uint64_t deadline = m_QuantumDeadline;
-  if (m_NextLoadSampleDeadline &&
-      (!deadline || m_NextLoadSampleDeadline < deadline)) {
+  if (m_NextLoadSampleDeadline && (!deadline || m_NextLoadSampleDeadline < deadline)) {
     deadline = m_NextLoadSampleDeadline;
   }
   const uint64_t clockDeadline = m_ClockDeadline.value();
@@ -485,8 +484,7 @@ void PerProcessorScheduler::setClockDeadline(uint64_t deadline) {
   while (!m_ClockDeadline.compareAndSwap(previous, deadline)) {
     previous = m_ClockDeadline.value();
   }
-  if ((!previous && !deadline) ||
-      (previous && (!deadline || deadline >= previous))) {
+  if ((!previous && !deadline) || (previous && (!deadline || deadline >= previous))) {
     // An already programmed earlier interrupt will re-evaluate the deadline.
     return;
   }
@@ -517,9 +515,8 @@ void PerProcessorScheduler::updateOneShotTimer() {
   Thread* current = Processor::information().getCurrentThread();
   if (current && current != m_pIdleThread && m_pSchedulingAlgorithm->hasReady()) {
     const uint64_t now = Time::getTicksFast();
-    m_QuantumDeadline = now > ~uint64_t(0) - m_NominalQuantumNs
-                            ? ~uint64_t(0)
-                            : now + m_NominalQuantumNs;
+    m_QuantumDeadline =
+        now > ~uint64_t(0) - m_NominalQuantumNs ? ~uint64_t(0) : now + m_NominalQuantumNs;
   } else {
     m_QuantumDeadline = 0;
   }
@@ -528,8 +525,7 @@ void PerProcessorScheduler::updateOneShotTimer() {
 }
 
 void PerProcessorScheduler::armLocalQuantumIfNeeded() {
-  if (!m_OneShotTimer || m_QuantumDeadline ||
-      this != &Processor::information().getScheduler()) {
+  if (!m_OneShotTimer || m_QuantumDeadline || this != &Processor::information().getScheduler()) {
     return;
   }
   const bool interrupts = Processor::getInterrupts();
@@ -537,9 +533,8 @@ void PerProcessorScheduler::armLocalQuantumIfNeeded() {
   Thread* current = Processor::information().getCurrentThread();
   if (current && current != m_pIdleThread && !m_QuantumDeadline) {
     const uint64_t now = Time::getTicksFast();
-    m_QuantumDeadline = now > ~uint64_t(0) - m_NominalQuantumNs
-                            ? ~uint64_t(0)
-                            : now + m_NominalQuantumNs;
+    m_QuantumDeadline =
+        now > ~uint64_t(0) - m_NominalQuantumNs ? ~uint64_t(0) : now + m_NominalQuantumNs;
     programOneShotTimer();
   }
   Processor::setInterrupts(interrupts);
@@ -1527,8 +1522,7 @@ void PerProcessorScheduler::timer(uint64_t delta, InterruptState& state) {
       m_ReschedulePending = 1;
     }
     const uint64_t clockDeadline = m_ClockDeadline.value();
-    if (clockDeadline && now >= clockDeadline &&
-        m_ClockDeadline.compareAndSwap(clockDeadline, 0)) {
+    if (clockDeadline && now >= clockDeadline && m_ClockDeadline.compareAndSwap(clockDeadline, 0)) {
       Machine::instance().getTimer()->deadlineInterrupt();
     }
     programOneShotTimer();

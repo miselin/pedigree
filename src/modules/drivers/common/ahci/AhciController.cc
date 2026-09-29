@@ -146,8 +146,7 @@ bool AhciController::initialiseController() {
     m_Registers->write32(0, CccCtl);
   // Attach remapping with bus mastering disabled after the HBA reset.
   if (!pci.disableMessageInterrupts(m_Pci, inherited) ||
-      !pci.resourcesUnchanged(m_Pci, inherited) ||
-      !pci.updateCommand(m_Pci, 4U, 2U | 0x400U)) {
+      !pci.resourcesUnchanged(m_Pci, inherited) || !pci.updateCommand(m_Pci, 4U, 2U | 0x400U)) {
     return false;
   }
   (void)pci.attachDmaRemapping(m_Pci);

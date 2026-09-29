@@ -278,13 +278,11 @@ bool LocalApic::armDeadline(uint64_t absoluteMonotonicNs) {
   // An immediate count can expire during the register writes under TCG, and
   // repeated scheduling boundaries must not restart the same near deadline.
   constexpr uint64_t MinimumDelayNs = 100000;
-  const uint64_t remaining = absoluteMonotonicNs > now &&
-                                     absoluteMonotonicNs - now > MinimumDelayNs
+  const uint64_t remaining = absoluteMonotonicNs > now && absoluteMonotonicNs - now > MinimumDelayNs
                                  ? absoluteMonotonicNs - now
                                  : MinimumDelayNs;
   const unsigned __int128 count =
-      (static_cast<unsigned __int128>(remaining) * m_BusFrequency +
-       Time::Multiplier::Second - 1) /
+      (static_cast<unsigned __int128>(remaining) * m_BusFrequency + Time::Multiplier::Second - 1) /
       Time::Multiplier::Second;
   uint32_t initialCount = 1;
   if (count > 0xFFFFFFFFU) {

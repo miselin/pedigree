@@ -91,8 +91,8 @@ class TimerFdService final : public TimerHandler {
         deadline = PosixTimerState::add(clock.monotonic, Time::Multiplier::Millisecond);
       } else {
         if (timer->m_AdmissionOpen)
-          deadline = PosixTimerState::monotonicDeadline(timer->m_State, clock.realtime,
-                                                        clock.monotonic);
+          deadline =
+              PosixTimerState::monotonicDeadline(timer->m_State, clock.realtime, clock.monotonic);
         timer->m_Lock.release();
       }
       if (deadline && (!next || deadline < next))

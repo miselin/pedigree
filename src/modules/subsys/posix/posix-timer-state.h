@@ -52,7 +52,7 @@ inline Time::Timestamp add(Time::Timestamp start, Time::Timestamp duration) {
 }
 
 inline Time::Timestamp monotonicDeadline(const State& state, Time::Timestamp realtime,
-                                        Time::Timestamp monotonic) {
+                                         Time::Timestamp monotonic) {
   if (!state.armed)
     return 0;
   if (!state.realtime)

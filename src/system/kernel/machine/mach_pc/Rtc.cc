@@ -33,8 +33,8 @@
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/panic.h"
-#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -650,8 +650,8 @@ bool Rtc::initialise3() {
       return false;
     }
     m_DeadlineScheduler->registerWorkerWake(m_DeadlineWake, m_DeadlineWaiters);
-    Thread* worker = new Thread(Scheduler::instance().getKernelProcess(), deadlineWorkerEntry,
-                                this, nullptr, false, true, true);
+    Thread* worker = new Thread(Scheduler::instance().getKernelProcess(), deadlineWorkerEntry, this,
+                                nullptr, false, true, true);
     worker->setName("clock deadline worker");
     m_DeadlineWorker.adopt(worker);
     m_DeadlineMode = true;

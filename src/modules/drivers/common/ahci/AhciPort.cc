@@ -14,7 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include "AhciPort.h"
-#include "modules/drivers/common/DmaBuffer.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/TargetInfo.h"
@@ -32,6 +31,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "Registers.h"
+#include "modules/drivers/common/DmaBuffer.h"
 
 using namespace Ahci;
 

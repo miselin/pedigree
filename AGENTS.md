@@ -26,6 +26,7 @@ Reuse existing build directories and cross-compilers where practical. Prefer foc
 ## Code style
 
 - Follow `.clang-format` for C and C++.
+- Use the exact version in `.clang-format-version`. `scripts/clang-format.sh` checks the installed version before running the repository check; use `scripts/reformat.sh` to format tracked C/C++ sources.
 - Format only changed lines; do not reformat unrelated code.
 - Use `ruff` for Python.
 - Add braces around single-line if, else-if, and else statements; these are ambiguous so `clang-format` will not fix this for you.
