@@ -2,6 +2,10 @@
 
 Initial investigation: 2026-09-27; background-work, scheduler and IRQ-latency follow-ups: 2026-09-28. Target: amd64 Pedigree under QEMU/TCG on the same macOS ARM64 host as the Linux controls.
 
+The experimental spinlock and scheduling policies described below have since
+been rolled back. Metrics, kernel-thread visibility and independent correctness
+fixes remain; see [the rollback](#experimental-policy-rollback-2026-09-28).
+
 ## Finding
 
 A previously unexplained storage cliff is now traced to **false quarantine of AHCI's MSI completion interrupt**. The controller initially works, but legitimate empty threaded callbacks reach the PCI interrupt layer's unhandled threshold. MSI is then disabled. Disk reads continue through AHCI's 10 ms fallback wait, so the system remains functional while disk-dependent work becomes dramatically slower and the CPU spends much of the interval idle.
@@ -493,6 +497,62 @@ intrinsically slower. The timing cost remains unattributed; networking and
 physical hardware were not tested. Patches, frozen payloads, commands, raw
 counter snapshots, `full-analysis.json`, `release-analysis.json` and validation
 records are retained temporarily in `/private/tmp/pedigree-cpulocal`.
+
+## Experimental policy rollback, 2026-09-28
+
+The rollback restores the IRQ-masking `Spinlock`, including masked contention,
+and removes the separate plain/no-preempt policies and per-CPU preemption
+bookkeeping. It also restores the earlier ready-queue selection, removing the
+experimental priority aging, maintenance priorities and automatic balancing.
+Explicit affinity remains supported.
+
+The scheduler commit contained independent fixes that remain: queue-before-thread
+lock ordering and serialized publication of delayed new threads, plus the
+return gate that prevents an acknowledged affinity mask from preceding actual
+placement. Kernel-thread procfs visibility and its tests are retained. The
+earlier AHCI, network admission and other demonstrated fixes are unaffected.
+
+`/proc/metrics` keeps its immutable per-open snapshots and active scheduler,
+interrupt, exception, syscall and lock counters. Spinlock acquisitions and
+contended acquisitions retain `policy="no_irq"`. Series for removed preemption,
+balancing and lock policies are removed rather than emitted as permanent zeros.
+The existing benchmark parser accepts both old and current snapshots. Optional
+IRQ/event-duration instrumentation remains available and disabled by default.
+
+Validation passed the kernel/initrd build, Darwin hosted lifecycle (including
+spinlock interrupt-state checks), fresh one- and four-CPU system-status/metrics,
+kernel-thread procfs, scheduling API, placement, wakeup and affinity-race checks,
+and all 13 compile-runner tests. The removed automatic-balancing assertion is no
+longer part of placement coverage. Previously documented lifecycle/PID namespace
+failures were excluded from these focused runs.
+
+The rollback was compared with `5ed46cd927` in fresh QEMU/TCG boots, two per arm
+and topology, with opposing baseline/rollback/rollback/baseline orders. Both
+used q35, SandyBridge, 4 GiB, no NIC, RAM-root, precise accounting, metrics ON
+and latency probes OFF. All eight boots passed compilation, execution and
+anonymous-memory checks, and every timed phase had zero disk read/write bytes.
+
+| CPUs | GCC phase | Before, median | Rollback, median | Change |
+| --- | --- | ---: | ---: | ---: |
+| 1 | Cold | 18.317 s | 17.570 s | -4.1% |
+| 1 | Warm | 16.948 s | 16.271 s | -4.0% |
+| 4 | Cold | 18.964 s | 18.062 s | -4.8% |
+| 4 | Warm | 17.461 s | 16.637 s | -4.7% |
+
+Host timings agree with these directions. One-CPU warm ranges were
+16.895–17.000 s before and 15.984–16.557 s after; four-CPU ranges were
+17.117–17.806 s before and 16.210–17.064 s after. These are small samples,
+and the short CPU-only control also varied: its median fell 3.0% on one CPU
+and rose 4.9% on four. The results do not isolate the contributions of each
+rollback or establish physical-hardware or network performance.
+
+The warm workload retained 124,057 syscall entries in every run. One-CPU
+pending-scheduler service calls fell from about 220,469 to 124,553 per compile;
+four-CPU calls fell from about 270,066 to 174,607. The removal of preemption
+release bookkeeping therefore removes counted work, although those counts do
+not by themselves attribute the elapsed-time improvement. Raw snapshots, reports,
+payload hashes and validation records are retained temporarily in
+`/private/tmp/pedigree-rollback`. The normal CMake configuration is unchanged.
 
 ## Demonstrated causes of earlier cliffs
 
