@@ -58,7 +58,7 @@ bool RoundRobinCoreAllocator::initialise(List<PerProcessorScheduler*>& procList)
 PerProcessorScheduler* RoundRobinCoreAllocator::allocateThread(Thread* pThread) {
   ThreadPlacement placement;
   pThread->snapshotPlacementLocked(placement);
-  LockGuard<NoPreemptSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   PerProcessorScheduler* first = m_pNext;
   do {
     m_pNext = m_ProcMap.lookup(m_pNext);

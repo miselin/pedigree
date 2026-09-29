@@ -84,7 +84,7 @@ class VirtTimer : public Timer, private SplitIrqHandler {
   bool m_Initialised;
   TimerHandlerRegistry m_Handlers;
   List<Alarm*> m_Alarms;
-  NoIrqSpinlock m_AlarmLock;
+  Spinlock m_AlarmLock;
 
   static VirtTimer m_Instance;
 };

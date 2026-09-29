@@ -25,9 +25,6 @@ void Armv7ProcessorInformation::setVirtualAddressSpace(VirtualAddressSpace& spac
 }
 
 void Armv7ProcessorInformation::setCurrentThread(Thread* thread) {
-  if (__atomic_load_n(&m_PreemptionDepth, __ATOMIC_RELAXED)) {
-    panic("Context switch with preemption disabled.");
-  }
   if (m_RcuState.active()) {
     panic("Context switch inside an RCU read section.");
   }

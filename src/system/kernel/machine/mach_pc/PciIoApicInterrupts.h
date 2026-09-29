@@ -63,7 +63,7 @@ class PciIoApicInterrupts : private InterruptHandler {
   void interrupt(size_t interruptNumber, InterruptState& state) override;
   static void dispatchThreaded(void* context, uint8_t slot, size_t cookie);
 
-  NoIrqSpinlock m_Lock;
+  Spinlock m_Lock;
   IrqHandlerRegistry m_Handlers;
   ThreadedIrqDispatcher m_Dispatcher;
   IoApic m_Controllers[4];

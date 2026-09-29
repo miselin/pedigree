@@ -140,12 +140,8 @@ class MetricsFile final : public File {
         {"pedigree_scheduler_timer_callbacks_total", Metrics::Timer, "Scheduler timer callbacks."},
         {"pedigree_scheduler_reschedule_services_total", Metrics::RescheduleService,
          "Pending scheduling and IRQ work service calls, including calls without pending work."},
-        {"pedigree_scheduler_reschedule_deferrals_total", Metrics::RescheduleDeferred,
-         "Service attempts deferred with scheduling or IRQ work pending."},
         {"pedigree_scheduler_worker_wakeups_total", Metrics::WorkerWake,
          "Successful IRQ worker wakeups."},
-        {"pedigree_scheduler_balance_migrations_total", Metrics::BalanceMigration,
-         "Completed scheduler-directed thread migrations."},
 #if X64
         {"pedigree_interrupt_entries_total", Metrics::Interrupt,
          "x86-64 interrupt handler entries for vectors 32 and above."},
@@ -153,12 +149,6 @@ class MetricsFile final : public File {
          "x86-64 exception handler entries for vectors below 32."},
         {"pedigree_syscalls_total", Metrics::Syscall, "x86-64 C++ syscall dispatch entries."},
 #endif
-        {"pedigree_preemption_disables_total", Metrics::PreemptionDisable,
-         "Preemption disable calls, including nesting."},
-        {"pedigree_preemption_enables_total", Metrics::PreemptionEnable,
-         "Preemption enable calls, including nesting."},
-        {"pedigree_preemption_checks_total", Metrics::PreemptionCheck,
-         "Preemption disabled-state queries."},
     };
     String line;
     for (const Counter& counter : counters) {
@@ -171,16 +161,6 @@ class MetricsFile final : public File {
         contents += line;
       }
     }
-    struct SpinlockPolicy {
-      const char* name;
-      Metrics::Counter acquire;
-      Metrics::Counter contended;
-    };
-    static const SpinlockPolicy policies[] = {
-        {"plain", Metrics::SpinlockPlain, Metrics::SpinlockPlainContended},
-        {"no_preempt", Metrics::SpinlockNoPreempt, Metrics::SpinlockNoPreemptContended},
-        {"no_irq", Metrics::SpinlockNoIrq, Metrics::SpinlockNoIrqContended},
-    };
     for (unsigned contended = 0; contended < 2; ++contended) {
       const char* name = contended ? "pedigree_spinlock_contended_acquires_total"
                                    : "pedigree_spinlock_acquires_total";
@@ -190,14 +170,12 @@ class MetricsFile final : public File {
       line.Format("# HELP %s %s\n# TYPE %s counter\n", name, help, name);
       contents += line;
       for (size_t cpu = 0; cpu < cpus; ++cpu) {
-        for (const SpinlockPolicy& policy : policies) {
-          const auto counter = contended ? policy.contended : policy.acquire;
-          StaticString<32> value;
-          value.append(snapshots.get()[cpu].values[counter]);
-          line.Format("%s{cpu=\"%lu\",policy=\"%s\"} %s\n", name, cpu, policy.name,
-                      static_cast<const char*>(value));
-          contents += line;
-        }
+        const auto counter = contended ? Metrics::SpinlockContended : Metrics::SpinlockAcquire;
+        StaticString<32> value;
+        value.append(snapshots.get()[cpu].values[counter]);
+        line.Format("%s{cpu=\"%lu\",policy=\"no_irq\"} %s\n", name, cpu,
+                    static_cast<const char*>(value));
+        contents += line;
       }
     }
 #endif

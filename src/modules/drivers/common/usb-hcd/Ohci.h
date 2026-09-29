@@ -61,13 +61,13 @@ class Ohci : public UsbHub,
 #else
   // Non-threaded kernels still need IRQ-safe exclusion, but Mutex has no
   // implementation in that configuration.
-  using ControllerLock = NoIrqSpinlock;
+  using ControllerLock = Spinlock;
 #endif
 
 #if X86_COMMON
   using IrqProcessingLock = Mutex;
 #else
-  using IrqProcessingLock = NoIrqSpinlock;
+  using IrqProcessingLock = Spinlock;
 #endif
 
   /// Enumeration of lists that can be stopped or started.
@@ -382,22 +382,21 @@ class Ohci : public UsbHub,
   UsbHcd::CallbackDeliveryQueue m_CompletionDeliveries;
 
   /// Serializes root-hub register access between reset and IRQ paths.
-  NoIrqSpinlock m_RootHubLock;
+  Spinlock m_RootHubLock;
   bool m_RootHubStatusChangeDesired;
   bool m_PortResetActive;
   Atomic<size_t> m_TeardownPhase;
 
-  // Non-x86 controllers can process these lists directly in interrupt context.
-  NoIrqSpinlock m_ScheduleChangeLock;
+  Spinlock m_ScheduleChangeLock;
 
   /// Lock for changing the periodic list.
-  NoIrqSpinlock m_PeriodicListChangeLock;
+  Spinlock m_PeriodicListChangeLock;
 
   /// Lock for changing the control list.
-  NoIrqSpinlock m_ControlListChangeLock;
+  Spinlock m_ControlListChangeLock;
 
   /// Lock for changing the bulk list.
-  NoIrqSpinlock m_BulkListChangeLock;
+  Spinlock m_BulkListChangeLock;
 
   ED* m_pPeriodicEDList;
   uintptr_t m_pPeriodicEDListPhys;
@@ -427,7 +426,7 @@ class Ohci : public UsbHub,
   ED* m_pPeriodicQueueTail;
 
   /// Dequeue list lock.
-  NoIrqSpinlock m_DequeueListLock;
+  Spinlock m_DequeueListLock;
 
   /// List of ED pointers in both the control and bulk queues. Used for
   /// IRQ handling.

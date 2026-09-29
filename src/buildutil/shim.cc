@@ -239,56 +239,28 @@ void unmapAll() {
 }
 }  // namespace SlamSupport
 
-/** Native utilities have no guest IRQ or preemption state. */
-Spinlock::Spinlock() = default;
-Spinlock::Spinlock(bool locked) : m_Lock(locked) {}
+/** Spinlock implementation. */
 
-bool Spinlock::acquire() {
-  while (!m_Lock.tryAcquire()) {
-  }
+Spinlock::Spinlock() = default;
+
+Spinlock::Spinlock(bool bLocked, bool bAvoidTracking)
+    : m_Lock(bLocked), m_bAvoidTracking(bAvoidTracking) {}
+
+bool Spinlock::acquire(bool recurse, bool safe) {
+  while (!m_Lock.tryAcquire())
+    ;
   return true;
 }
 
 void Spinlock::release() {
-  m_Lock.release();
-}
-bool Spinlock::acquired() const {
-  return m_Lock.acquired();
+  exit();
 }
 
-NoPreemptSpinlock::NoPreemptSpinlock() = default;
-bool NoPreemptSpinlock::acquire(bool) {
-  return m_Lock.acquire();
-}
-void NoPreemptSpinlock::release() {
+void Spinlock::exit(uintptr_t) {
   m_Lock.release();
-}
-bool NoPreemptSpinlock::acquired() const {
-  return m_Lock.acquired();
 }
 
-NoIrqSpinlock::NoIrqSpinlock() = default;
-NoIrqSpinlock::NoIrqSpinlock(bool locked, bool avoidTracking)
-    : m_Lock(locked), m_bAvoidTracking(avoidTracking) {}
-
-bool NoIrqSpinlock::acquire(bool, bool) {
-  while (!m_Lock.tryAcquire()) {
-  }
-  return true;
-}
-void NoIrqSpinlock::release() {
-  m_Lock.release();
-}
-void NoIrqSpinlock::exit(uintptr_t) {
-  m_Lock.release();
-}
-bool NoIrqSpinlock::acquired() {
-  return m_Lock.acquired();
-}
-bool NoIrqSpinlock::interrupts() const {
-  return false;
-}
-uintptr_t NoIrqSpinlock::acquisitionAddress() const {
+uintptr_t Spinlock::acquisitionAddress() const {
   return 0;
 }
 

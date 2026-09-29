@@ -33,7 +33,7 @@ class SerialLogger : public Log::LogCallback {
  private:
   Serial* m_pSerial;
   bool m_bInitialised;
-  NoIrqSpinlock m_Lock;
+  Spinlock m_Lock;
 };
 
 static SerialLogger g_SerialCallback;

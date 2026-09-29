@@ -100,7 +100,7 @@ bool waitForSleeping(Thread& peer, WaitState& state) {
     bool sleeping;
     {
       // A successful acquisition also waits for the outgoing-stack release.
-      LockGuard<NoIrqSpinlock> guard(peer.getLock());
+      LockGuard<Spinlock> guard(peer.getLock());
       sleeping = peer.getStatus() == Thread::Sleeping;
     }
     if (sleeping && state.queue.waiterCount() == 1)
@@ -157,7 +157,7 @@ void beforeReadyPublication(Thread* peer) {
   peer->snapshotPlacement(placement);
   bool correctOwner;
   {
-    LockGuard<NoIrqSpinlock> guard(peer->getLock());
+    LockGuard<Spinlock> guard(peer->getLock());
     correctOwner = peer->getScheduler() == context->source;
   }
   context->passed &= check(correctOwner && sameMask(placement.allowed, context->destination),
@@ -186,7 +186,7 @@ bool heldWake(size_t sourceCpu, size_t destinationCpu) {
   context.destination.set(destinationCpu);
   context.moving = sourceCpu != destinationCpu;
   {
-    LockGuard<NoIrqSpinlock> guard(peer->getLock());
+    LockGuard<Spinlock> guard(peer->getLock());
     context.source = peer->getScheduler();
   }
   if (passed) {

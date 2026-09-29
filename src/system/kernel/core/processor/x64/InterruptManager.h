@@ -109,7 +109,7 @@ class X64InterruptManager : public ::InterruptManager {
   } PACKED;
 
   /** Serialises handler pointer mutations. Dispatch never takes this lock. */
-  NoIrqSpinlock m_Lock;
+  Spinlock m_Lock;
 
   /** The interrupt descriptor table (IDT) */
   GateDescriptor m_IDT[256];

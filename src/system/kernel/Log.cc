@@ -154,7 +154,7 @@ bool Log::installCallback(LogCallback* pCallback, bool bSkipBacklog) {
     // Registration and its backlog boundary are one transaction with
     // entry publication. An entry is therefore delivered either through
     // the captured backlog or through normal dispatch, never neither.
-    LockGuard<NoIrqSpinlock> logGuard(m_Lock);
+    LockGuard<Spinlock> logGuard(m_Lock);
     auto callbackGuard = m_CallbackWaiters.acquire();
     for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i) {
       if (m_OutputCallbacks[i].callback == pCallback) {
@@ -192,7 +192,7 @@ bool Log::installCallback(LogCallback* pCallback, bool bSkipBacklog) {
     NormalStaticString timestamp;
     bool timestamps = false;
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       backlogEntry = m_StaticLog[entry];
       timestamps = m_Timestamps;
       if (timestamps) {
@@ -445,7 +445,7 @@ size_t Log::copyText(char* buffer, size_t capacity) {
   if (!capacity)
     return 0;
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   size_t length = 0;
   for (size_t i = 0; i < m_StaticEntries; ++i)
     length += getStaticEntry(i).str.length() + 4;
@@ -727,12 +727,12 @@ void Log::addEntry(const LogEntry& source, bool lock) {
 }
 
 void Log::enableTimestamps() {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   m_Timestamps = true;
 }
 
 void Log::disableTimestamps() {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   m_Timestamps = false;
 }
 

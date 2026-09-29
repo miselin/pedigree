@@ -163,7 +163,7 @@ UsbPnP::UsbPnP()
 
 UsbPnP::~UsbPnP() {
   {
-    LockGuard<NoPreemptSpinlock> guard(m_CallbackLock);
+    LockGuard<Spinlock> guard(m_CallbackLock);
     if (isCallbackContext(currentInvocationOwner())) {
       FATAL("UsbPnP cannot be destroyed from callback context.");
     }
@@ -172,7 +172,7 @@ UsbPnP::~UsbPnP() {
   while (true) {
     CallbackItem* item = nullptr;
     {
-      LockGuard<NoPreemptSpinlock> guard(m_CallbackLock);
+      LockGuard<Spinlock> guard(m_CallbackLock);
       if (!m_FirstCallback) {
         break;
       }
@@ -311,7 +311,7 @@ bool UsbPnP::acquireCallback(UsbDevice* device, size_t afterSequence, CallbackIt
   UsbDevice::DeviceDescriptor* descriptor = device->getDescriptor();
   UsbDevice::Interface* interface = device->getInterface();
 
-  LockGuard<NoPreemptSpinlock> guard(m_CallbackLock);
+  LockGuard<Spinlock> guard(m_CallbackLock);
   for (CallbackItem* item = m_FirstCallback; item; item = item->next) {
     if (item->sequence <= afterSequence) {
       continue;
@@ -349,7 +349,7 @@ bool UsbPnP::acquireCallback(UsbDevice* device, size_t afterSequence, CallbackIt
 }
 
 void UsbPnP::finishCallback(CallbackItem* item, ActiveInvocation& invocation) {
-  LockGuard<NoPreemptSpinlock> guard(m_CallbackLock);
+  LockGuard<Spinlock> guard(m_CallbackLock);
   ActiveInvocation** invocationLink = &m_ActiveInvocations;
   while (*invocationLink && *invocationLink != &invocation) {
     invocationLink = &((*invocationLink)->next);
@@ -380,7 +380,7 @@ bool UsbPnP::isCallbackContext(void* owner) const {
 }
 
 bool UsbPnP::inCurrentCallbackContext() {
-  LockGuard<NoPreemptSpinlock> guard(m_CallbackLock);
+  LockGuard<Spinlock> guard(m_CallbackLock);
   return isCallbackContext(currentInvocationOwner());
 }
 
@@ -421,7 +421,7 @@ bool UsbPnP::registerCallbackItem(CallbackItem* item, Registration& registration
   }
 
   {
-    LockGuard<NoPreemptSpinlock> guard(m_CallbackLock);
+    LockGuard<Spinlock> guard(m_CallbackLock);
     item->sequence = m_NextCallbackSequence++;
     if (m_LastCallback) {
       m_LastCallback->next = item;
@@ -561,7 +561,7 @@ bool UsbPnP::unregisterCallback(CallbackItem* item) {
   bool found = false;
   bool callbackContext = false;
   {
-    LockGuard<NoPreemptSpinlock> guard(m_CallbackLock);
+    LockGuard<Spinlock> guard(m_CallbackLock);
     CallbackItem* previous = nullptr;
     for (CallbackItem* current = m_FirstCallback; current; current = current->next) {
       if (current != item) {
@@ -863,7 +863,7 @@ bool UsbPnP::invokeCallbackForTest(size_t callbackIndex) {
   callback_t callback = nullptr;
   ActiveInvocation invocation = {nullptr, nullptr};
   {
-    LockGuard<NoPreemptSpinlock> guard(m_CallbackLock);
+    LockGuard<Spinlock> guard(m_CallbackLock);
     item = m_FirstCallback;
     while (item && callbackIndex) {
       item = item->next;
@@ -884,12 +884,12 @@ bool UsbPnP::invokeCallbackForTest(size_t callbackIndex) {
 }
 
 size_t UsbPnP::callbackCountForTest() {
-  LockGuard<NoPreemptSpinlock> guard(m_CallbackLock);
+  LockGuard<Spinlock> guard(m_CallbackLock);
   return m_CallbackCount;
 }
 
 bool UsbPnP::callbackStorageEmptyForTest() {
-  LockGuard<NoPreemptSpinlock> guard(m_CallbackLock);
+  LockGuard<Spinlock> guard(m_CallbackLock);
   return !m_FirstCallback && !m_LastCallback && !m_CallbackCount;
 }
 

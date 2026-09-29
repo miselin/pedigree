@@ -94,8 +94,7 @@ class EXPORTED_PUBLIC PosixTraceContext {
   void cancelEnrollment();
   bool hasIncoming() const;
   mutable Mutex m_AdmissionLock;
-  // Synchronous exception tracing also reads this publication.
-  mutable NoIrqSpinlock m_RelationLock;
+  mutable Spinlock m_RelationLock;
   bool m_Attached = false, m_Closed = false;
   size_t m_ProcessId = 0, m_ThreadCreations = 0;
   bool m_EnrollmentPending = false;

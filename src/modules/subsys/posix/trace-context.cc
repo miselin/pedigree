@@ -15,7 +15,7 @@ size_t localId(const Thread& thread) {
 }  // namespace
 
 TraceTaskToken::Snapshot TraceTaskToken::snapshot() const {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   return m_Identity;
 }
 
@@ -24,7 +24,7 @@ bool TraceTaskToken::live() const {
 }
 
 void TraceTaskToken::publish(const Thread& thread) {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   assert(m_Identity.state == State::Staged);
   m_Identity.processId = thread.getParent()->getId();
   m_Identity.localThreadId = localId(thread);
@@ -33,7 +33,7 @@ void TraceTaskToken::publish(const Thread& thread) {
 }
 
 void TraceTaskToken::promote(const Thread& thread) {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (m_Identity.state != State::Live)
     return;
   assert(m_Identity.processId == thread.getParent()->getId());
@@ -42,7 +42,7 @@ void TraceTaskToken::promote(const Thread& thread) {
 }
 
 void TraceTaskToken::close() {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   m_Identity.state = State::Closed;
 }
 
@@ -155,7 +155,7 @@ void PosixTraceContext::promoteExec(const Thread& thread) {
 
 bool PosixTraceContext::acquireIncoming(TraceRelationRef& result) const {
   assert(!result);
-  LockGuard<NoIrqSpinlock> guard(m_RelationLock);
+  LockGuard<Spinlock> guard(m_RelationLock);
   if (!valid())
     return false;
   result = m_Incoming;
@@ -164,7 +164,7 @@ bool PosixTraceContext::acquireIncoming(TraceRelationRef& result) const {
 
 bool PosixTraceContext::selectStop(size_t parentPid, bool stopped, bool continued, bool consume,
                                    PosixWait::Report& report) {
-  LockGuard<NoIrqSpinlock> guard(m_RelationLock);
+  LockGuard<Spinlock> guard(m_RelationLock);
   if (!valid() || !m_Incoming)
     return false;
   const auto owner = m_Incoming->tracer()->snapshot();
@@ -173,14 +173,14 @@ bool PosixTraceContext::selectStop(size_t parentPid, bool stopped, bool continue
 }
 
 bool PosixTraceContext::hasIncoming() const {
-  LockGuard<NoIrqSpinlock> guard(m_RelationLock);
+  LockGuard<Spinlock> guard(m_RelationLock);
   return bool(m_Incoming);
 }
 
 void PosixTraceContext::clearIncoming(const PosixTraceRelation* relation) {
   TraceRelationRef retired;
   {
-    LockGuard<NoIrqSpinlock> guard(m_RelationLock);
+    LockGuard<Spinlock> guard(m_RelationLock);
     if (m_Incoming.get() == relation)
       retired = pedigree_std::move(m_Incoming);
   }
@@ -203,7 +203,7 @@ void PosixTraceContext::retireTask(const Thread& thread) {
     retired = *position;
     *position = retired->m_Next;
     retired->m_Token->close();
-    LockGuard<NoIrqSpinlock> publication(m_RelationLock);
+    LockGuard<Spinlock> publication(m_RelationLock);
     if (m_Incoming && m_Incoming->tracee() == retired->m_Token)
       incoming = pedigree_std::move(m_Incoming);
   }
@@ -250,7 +250,7 @@ void PosixTraceContext::close() {
     for (auto* task = tasks; task; task = task->m_Next)
       task->m_Token->close();
     creator = pedigree_std::move(m_Creator);
-    LockGuard<NoIrqSpinlock> publication(m_RelationLock);
+    LockGuard<Spinlock> publication(m_RelationLock);
     incoming = pedigree_std::move(m_Incoming);
   }
   if (incoming)

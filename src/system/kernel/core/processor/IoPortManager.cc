@@ -30,7 +30,7 @@ bool IoPortManager::allocate(IoPort* Port, io_port_t ioPort, size_t size) {
     Processor::halt();
 
   // Acquire the lock untill the end of the function
-  LockGuard<NoIrqSpinlock> lock(m_Lock);
+  LockGuard<Spinlock> lock(m_Lock);
 
   // Remove the I/O ports from the list of free I/O ports
   if (m_FreeIoPorts.allocateSpecific(ioPort, size) == false)
@@ -46,7 +46,7 @@ void IoPortManager::free(IoPort* Port) {
     Processor::halt();
 
   // Acquire the lock untill the end of the function
-  LockGuard<NoIrqSpinlock> lock(m_Lock);
+  LockGuard<Spinlock> lock(m_Lock);
 
   // Remove from the used I/O ports list
   Vector<IoPort*>::Iterator i = m_UsedIoPorts.begin();
@@ -63,7 +63,7 @@ void IoPortManager::free(IoPort* Port) {
 
 void IoPortManager::allocateIoPortList(Vector<IoPortInfo*>& IoPorts) {
   // Acquire the lock untill the end of the function
-  LockGuard<NoIrqSpinlock> lock(m_Lock);
+  LockGuard<Spinlock> lock(m_Lock);
 
   for (size_t i = 0; i < m_UsedIoPorts.count(); i++) {
     IoPortInfo* pIoPortInfo = new IoPortInfo(m_UsedIoPorts[i]->base(), m_UsedIoPorts[i]->size(),

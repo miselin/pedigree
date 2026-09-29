@@ -7,12 +7,12 @@
 #include "modules/system/vfs/MemoryMappedFile.h"
 
 PosixProcess::CredentialSnapshot PosixProcess::snapshotCredentials() const {
-  LockGuard<NoPreemptSpinlock> guard(m_CredentialLock);
+  LockGuard<Spinlock> guard(m_CredentialLock);
   return m_Credentials;
 }
 
 FilesystemCredentials PosixProcess::realFilesystemCredentials() const {
-  LockGuard<NoPreemptSpinlock> guard(m_CredentialLock);
+  LockGuard<Spinlock> guard(m_CredentialLock);
   FilesystemCredentials out;
   out.uid = m_Credentials.ruid;
   out.gid = m_Credentials.rgid;
@@ -25,7 +25,7 @@ FilesystemCredentials PosixProcess::realFilesystemCredentials() const {
 
 bool PosixProcess::snapshotFilesystemCredentials(const Thread* task,
                                                  FilesystemCredentials& out) const {
-  LockGuard<NoPreemptSpinlock> guard(m_CredentialLock);
+  LockGuard<Spinlock> guard(m_CredentialLock);
   out = FilesystemCredentials();
   if (task && task->getParent() != this)
     return false;
@@ -45,7 +45,7 @@ PosixProcess::CredentialStatus PosixProcess::changeCredentials(Thread& task,
                                                                uint32_t first, uint32_t second,
                                                                uint32_t third) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  LockGuard<NoPreemptSpinlock> guard(m_CredentialLock);
+  LockGuard<Spinlock> guard(m_CredentialLock);
   if (task.getParent() != this)
     return CredentialStatus::Invalid;
   uint32_t fsuid = m_Credentials.euid, fsgid = m_Credentials.egid;
@@ -80,7 +80,7 @@ PosixProcess::CredentialStatus PosixProcess::replaceGroups(Thread& task, const u
     ordered[position] = groups[i];
   }
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  LockGuard<NoPreemptSpinlock> guard(m_CredentialLock);
+  LockGuard<Spinlock> guard(m_CredentialLock);
   if (task.getParent() != this)
     return CredentialStatus::Invalid;
   if (m_Credentials.euid)
@@ -98,7 +98,7 @@ PosixProcess::CredentialStatus PosixProcess::replaceGroups(Thread& task, const u
 
 uint32_t PosixProcess::changeFilesystemId(Thread& task, bool group, uint32_t requested) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  LockGuard<NoPreemptSpinlock> guard(m_CredentialLock);
+  LockGuard<Spinlock> guard(m_CredentialLock);
   uint32_t uid = m_Credentials.euid, gid = m_Credentials.egid;
   if (task.getParent() != this)
     return group ? gid : uid;
@@ -118,7 +118,7 @@ uint32_t PosixProcess::changeFilesystemId(Thread& task, bool group, uint32_t req
 
 void PosixProcess::setDumpable(bool dumpable) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  LockGuard<NoPreemptSpinlock> guard(m_CredentialLock);
+  LockGuard<Spinlock> guard(m_CredentialLock);
   if (m_Credentials.dumpable != dumpable) {
     m_Credentials.dumpable = dumpable;
     ++m_Credentials.generation;
@@ -127,7 +127,7 @@ void PosixProcess::setDumpable(bool dumpable) {
 
 void PosixProcess::commitExecCredentials(Thread& task, bool readable) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  LockGuard<NoPreemptSpinlock> guard(m_CredentialLock);
+  LockGuard<Spinlock> guard(m_CredentialLock);
   m_Credentials.suid = m_Credentials.euid;
   m_Credentials.sgid = m_Credentials.egid;
   publishFilesystemIds(task, m_Credentials.euid, m_Credentials.egid);
@@ -145,7 +145,7 @@ bool PosixProcess::installUserIdentity(User* user, Group* group, const uint32_t*
     if (groups[i] == UINT32_MAX)
       return false;
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  LockGuard<NoPreemptSpinlock> guard(m_CredentialLock);
+  LockGuard<Spinlock> guard(m_CredentialLock);
   CredentialSnapshot next;
   next.ruid = next.euid = next.suid = user->getId();
   next.rgid = next.egid = next.sgid = group->getId();
@@ -190,7 +190,7 @@ void PosixProcess::setTrustedIdentity(uint32_t CredentialSnapshot::* field, int6
   if (id < 0 || static_cast<uint64_t>(id) >= UINT32_MAX)
     return;
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  LockGuard<NoPreemptSpinlock> guard(m_CredentialLock);
+  LockGuard<Spinlock> guard(m_CredentialLock);
   m_Credentials.*field = static_cast<uint32_t>(id);
   publishCredentialReadCache();
   m_Credentials.dumpable = false;
@@ -225,7 +225,7 @@ void PosixProcess::setSupplementalGroupIds(const Vector<int64_t>& groups) {
     if (id < 0 || static_cast<uint64_t>(id) >= UINT32_MAX)
       return;
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  LockGuard<NoPreemptSpinlock> guard(m_CredentialLock);
+  LockGuard<Spinlock> guard(m_CredentialLock);
   m_Credentials.groupCount = groups.count();
   for (size_t i = 0; i < groups.count(); ++i)
     m_Credentials.groups[i] = groups[i];

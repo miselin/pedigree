@@ -26,7 +26,6 @@
 #undef _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/process/Preemption.h"
 #include "pedigree/kernel/process/RcuReadState.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -42,9 +41,6 @@ class SuspendDeviceHardIrqContext;
 /** Common hosted processor information structure */
 class HostedProcessorInformation {
   friend class ProcessorBase;
-  friend void Preemption::disable();
-  friend void Preemption::enable();
-  friend bool Preemption::disabled();
   friend class Multiprocessor;
 
  public:
@@ -104,7 +100,6 @@ class HostedProcessorInformation {
   uintptr_t m_HostedExecutionThreadId;
   /** Device hard-IRQ callbacks currently active on this processor. */
   size_t m_DeviceHardIrqDepth;
-  size_t m_PreemptionDepth = 0;
   /** POSIX signal frames live across hosted context switches. */
   size_t m_HostedSignalFrameDepth;
   RcuReadState m_RcuState;

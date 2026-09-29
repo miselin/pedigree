@@ -213,7 +213,7 @@ size_t Arm64VirtualAddressSpace::descriptorFlags(uint64_t entry) {
 bool Arm64VirtualAddressSpace::isMapped(void* address) {
   const uintptr_t value = reinterpret_cast<uintptr_t>(address);
   Arm64VirtualAddressSpace& owner = value >= ARM64_DIRECT_MAP_BASE ? m_KernelSpace : *this;
-  LockGuard<NoIrqSpinlock> guard(owner.m_Lock);
+  LockGuard<Spinlock> guard(owner.m_Lock);
   uint64_t* entry = owner.findExistingEntry(value);
   return entry && *entry;
 }
@@ -224,7 +224,7 @@ bool Arm64VirtualAddressSpace::map(physical_uintptr_t physical, void* address, s
     return false;
   }
   Arm64VirtualAddressSpace& owner = value >= ARM64_DIRECT_MAP_BASE ? m_KernelSpace : *this;
-  LockGuard<NoIrqSpinlock> guard(owner.m_Lock);
+  LockGuard<Spinlock> guard(owner.m_Lock);
   uint64_t* old = owner.findExistingEntry(value);
   if (old && *old && (*old & Valid) && value >= ARM64_DIRECT_MAP_BASE) {
     return false;
@@ -253,7 +253,7 @@ bool Arm64VirtualAddressSpace::getMapping(void* address, physical_uintptr_t& phy
                                           size_t& flags) {
   const uintptr_t value = reinterpret_cast<uintptr_t>(address);
   Arm64VirtualAddressSpace& owner = value >= ARM64_DIRECT_MAP_BASE ? m_KernelSpace : *this;
-  LockGuard<NoIrqSpinlock> guard(owner.m_Lock);
+  LockGuard<Spinlock> guard(owner.m_Lock);
   size_t level = 0;
   uint64_t* entry = owner.findExistingEntry(value, &level);
   if (!entry || !*entry || (level != 3 && !(*entry & Valid))) {
@@ -268,7 +268,7 @@ bool Arm64VirtualAddressSpace::getMapping(void* address, physical_uintptr_t& phy
 bool Arm64VirtualAddressSpace::trySetFlags(void* address, size_t flags) {
   const uintptr_t value = reinterpret_cast<uintptr_t>(address);
   Arm64VirtualAddressSpace& owner = value >= ARM64_DIRECT_MAP_BASE ? m_KernelSpace : *this;
-  LockGuard<NoIrqSpinlock> guard(owner.m_Lock);
+  LockGuard<Spinlock> guard(owner.m_Lock);
   uint64_t* entry = owner.findEntry(value, false);
   if (!entry || !*entry) {
     return false;
@@ -288,7 +288,7 @@ bool Arm64VirtualAddressSpace::detachMapping(void* address, physical_uintptr_t& 
                                              size_t& flags, size_t requiredFlags) {
   const uintptr_t value = reinterpret_cast<uintptr_t>(address);
   Arm64VirtualAddressSpace& owner = value >= ARM64_DIRECT_MAP_BASE ? m_KernelSpace : *this;
-  LockGuard<NoIrqSpinlock> guard(owner.m_Lock);
+  LockGuard<Spinlock> guard(owner.m_Lock);
   uint64_t* entry = owner.findEntry(value, false);
   if (!entry || !*entry) {
     return false;
@@ -355,7 +355,7 @@ VirtualAddressSpace::Stack* Arm64VirtualAddressSpace::allocateStack(size_t bytes
   bytes = (bytes + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
   uintptr_t top;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     if (m_StackTop < bytes + PAGE_SIZE) {
       return nullptr;
     }
@@ -461,7 +461,7 @@ VirtualAddressSpace* Arm64VirtualAddressSpace::clone(bool copyOnWrite) {
   if (!clone) {
     return nullptr;
   }
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (!cloneTable(tableAt(clone->m_Root), tableAt(m_Root), 0, copyOnWrite)) {
     delete clone;
     return nullptr;
@@ -476,7 +476,7 @@ void Arm64VirtualAddressSpace::revertToKernelAddressSpace() {
   if (this == &m_KernelSpace) {
     return;
   }
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   uint64_t* root = tableAt(m_Root);
   freeTable(root, 0, true);
   m_Heap = reinterpret_cast<void*>(USERSPACE_VIRTUAL_HEAP);

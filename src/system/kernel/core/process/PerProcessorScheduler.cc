@@ -32,7 +32,6 @@
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
-#include "pedigree/kernel/process/Preemption.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/RoundRobin.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -132,7 +131,7 @@ void PerProcessorScheduler::startTimeAccountingWorker(Process* pParent) {
     Scheduler::instance().yield();
   }
   {
-    LockGuard<NoIrqSpinlock> guard(m_AffinityQueueLock);
+    LockGuard<Spinlock> guard(m_AffinityQueueLock);
     m_AffinityAdmissionOpen = true;
   }
 }
@@ -142,7 +141,7 @@ void PerProcessorScheduler::stopTimeAccountingWorker() {
     return;
   }
   {
-    LockGuard<NoIrqSpinlock> guard(m_AffinityQueueLock);
+    LockGuard<Spinlock> guard(m_AffinityQueueLock);
     m_AffinityAdmissionOpen = false;
   }
 
@@ -510,15 +509,12 @@ void PerProcessorScheduler::setClockDeadline(uint64_t deadline) {
 }
 
 void PerProcessorScheduler::updateOneShotTimer() {
-  Thread* current = Processor::information().getCurrentThread();
-  if (current && current != m_pIdleThread) {
-    m_BalanceAvailability.compareAndSwap(1, 0);
-  }
   if (!m_OneShotTimer) {
     return;
   }
   const bool interrupts = Processor::getInterrupts();
   Processor::setInterrupts(false);
+  Thread* current = Processor::information().getCurrentThread();
   if (current && current != m_pIdleThread && m_pSchedulingAlgorithm->hasReady()) {
     const uint64_t now = Time::getTicksFast();
     m_QuantumDeadline = now > ~uint64_t(0) - m_NominalQuantumNs
@@ -553,9 +549,6 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEve
   if (!Processor::guardDeviceHardIrqOperation(DeviceHardIrqOperation::Schedule)) {
     return;
   }
-  if (Preemption::disabled()) {
-    FATAL_NOLOCK("Cannot block or yield while preemption is disabled.");
-  }
 
   bool bWasInterrupts = Processor::getInterrupts();
   Processor::setInterrupts(false);
@@ -572,9 +565,6 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
   hostedFunctionProfileInvalidate(HostedProfileInvalidation::Schedule);
 #endif
   assert(!Processor::getInterrupts());
-  if (Preemption::disabled()) {
-    FATAL_NOLOCK("Cannot switch threads while preemption is disabled.");
-  }
   ActivityDiagnostics::recordScheduleCall();
   Metrics::increment(Metrics::Counter::Schedule);
 
@@ -626,9 +616,7 @@ void PerProcessorScheduler::scheduleWithInterruptState(Thread::Status nextStatus
 
   // Now attempt to get another thread to run.
   // This will also get the lock for the returned thread.
-  Thread* pNextThread =
-      selectNext(pCurrentThread, nextStatus == Thread::Ready && pCurrentThread != m_pIdleThread &&
-                                     !pCurrentThread->m_ReadyPublicationPending);
+  Thread* pNextThread = selectNext(pCurrentThread);
   if (pNextThread == 0) {
     ActivityDiagnostics::recordSchedulerIdleFallback(
         pCurrentThread->m_Status == Thread::Ready,
@@ -765,9 +753,6 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack, Thread::EventSe
 void PerProcessorScheduler::checkEventState(uintptr_t userStack, Thread::EventSelection selection,
                                             InterruptState* interruptState,
                                             SyscallState* syscallState) {
-  if (Preemption::disabled()) {
-    return;
-  }
   bool bWasInterrupts = Processor::getInterrupts();
   Processor::setInterrupts(false);
 
@@ -1018,9 +1003,6 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack, Thread::EventSe
 }
 
 void PerProcessorScheduler::eventHandlerReturned() {
-  if (Preemption::disabled()) {
-    FATAL_NOLOCK("Cannot return from an event with preemption disabled.");
-  }
   Processor::setInterrupts(false);
 
   Thread* pThread = Processor::information().getCurrentThread();
@@ -1032,9 +1014,6 @@ void PerProcessorScheduler::eventHandlerReturned() {
 
 void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc pStartFunction,
                                       void* pParam, bool bUsermode, void* pStack) {
-  if (Preemption::disabled()) {
-    FATAL_NOLOCK("Cannot add a thread while preemption is disabled.");
-  }
   // Handle wrong CPU, and handle thread not yet ready to schedule.
   if (this != &Processor::information().getScheduler() || pThread->getStatus() == Thread::Created) {
     newThreadData* pData = new newThreadData;
@@ -1153,9 +1132,6 @@ void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc p
 }
 
 void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
-  if (Preemption::disabled()) {
-    FATAL_NOLOCK("Cannot add a thread while preemption is disabled.");
-  }
   // Handle wrong CPU, and handle thread not yet ready to schedule.
   if (this != &Processor::information().getScheduler() || pThread->getStatus() == Thread::Created) {
     newThreadData* pData = new newThreadData;
@@ -1267,10 +1243,7 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
   }
 }
 
-void PerProcessorScheduler::commitCurrentThreadExit(NoIrqSpinlock* pLock) {
-  if (Preemption::disabled()) {
-    FATAL_NOLOCK("Cannot exit a thread while preemption is disabled.");
-  }
+void PerProcessorScheduler::commitCurrentThreadExit(Spinlock* pLock) {
   Thread* pThread = Processor::information().getCurrentThread();
   if (!pThread) {
     FATAL("Clean thread exit has no current Thread.");
@@ -1295,15 +1268,11 @@ void PerProcessorScheduler::commitCurrentThreadExit(NoIrqSpinlock* pLock) {
   finishCurrentThreadExit(pLock, transferToIdle);
 }
 
-void PerProcessorScheduler::killCurrentThread(NoIrqSpinlock* pLock) {
+void PerProcessorScheduler::killCurrentThread(Spinlock* pLock) {
   abandonCurrentThreadStack(StackDiscardReason::LegacyAbiCall, pLock);
 }
 
-void PerProcessorScheduler::abandonCurrentThreadStack(StackDiscardReason reason,
-                                                      NoIrqSpinlock* pLock) {
-  if (Preemption::disabled()) {
-    FATAL_NOLOCK("Cannot abandon a stack while preemption is disabled.");
-  }
+void PerProcessorScheduler::abandonCurrentThreadStack(StackDiscardReason reason, Spinlock* pLock) {
   Thread* pThread = Processor::information().getCurrentThread();
   if (!pThread) {
     FATAL("Stack discard has no current Thread.");
@@ -1359,10 +1328,7 @@ void PerProcessorScheduler::requestCurrentThreadExitToIdle() {
   pThread->m_ExitToIdle = true;
 }
 
-void PerProcessorScheduler::finishCurrentThreadExit(NoIrqSpinlock* pLock, bool transferToIdle) {
-  if (Preemption::disabled()) {
-    FATAL_NOLOCK("Cannot switch from an exiting thread while preemption is disabled.");
-  }
+void PerProcessorScheduler::finishCurrentThreadExit(Spinlock* pLock, bool transferToIdle) {
   Thread* pThread = Processor::information().getCurrentThread();
 
   // Start shutting down the current thread while we can still schedule it.
@@ -1460,7 +1426,7 @@ void PerProcessorScheduler::deleteThread(Thread* pThread) {
   bool completesProcessExit = false;
   bool wakeExitOwner = false;
   {
-    RecursingLockGuard<NoIrqSpinlock> processGuard(pProcess->m_Lock);
+    RecursingLockGuard<Spinlock> processGuard(pProcess->m_Lock);
     deleteTarget = pThread->markReapable();
     completesProcessExit = pProcess->terminatingThreadReapable(pThread, wakeExitOwner);
 
@@ -1512,7 +1478,7 @@ void PerProcessorScheduler::publishReadyFromWait(Thread* pThread) {
   pThread->publishReadyNotification();
 }
 
-Thread* PerProcessorScheduler::selectNext(Thread* current, bool currentRunnable) {
+Thread* PerProcessorScheduler::selectNext(Thread* current) {
   // Keep selecting the idle owner until it retires that role itself. A tick
   // can preempt its first resumed turn before it observes the shutdown flag.
   if (__atomic_load_n(&m_IdleWakeRequested, __ATOMIC_ACQUIRE)) {
@@ -1524,10 +1490,7 @@ Thread* PerProcessorScheduler::selectNext(Thread* current, bool currentRunnable)
       return idle;
     }
   }
-  while (Thread* candidate = m_pSchedulingAlgorithm->getNext(current, currentRunnable)) {
-    if (candidate == current) {
-      return candidate;
-    }
+  while (Thread* candidate = m_pSchedulingAlgorithm->getNext(current)) {
     candidate->m_Lock.acquire();
     if (candidate->getScheduler() == this && candidate->m_Status == Thread::Ready &&
         !candidate->m_ReadyPublicationPending)
@@ -1637,7 +1600,7 @@ void PerProcessorScheduler::ringIrqWorkDoorbell() {
 }
 
 void PerProcessorScheduler::registerWorkerWake(SchedulerWorkerWake& worker, WaitQueue& waiters) {
-  LockGuard<NoIrqSpinlock> guard(m_IrqWorkLock);
+  LockGuard<Spinlock> guard(m_IrqWorkLock);
   if (worker.m_pWaiters || worker.m_pNext) {
     FATAL("Scheduler worker wake was registered twice.");
   }
@@ -1648,7 +1611,7 @@ void PerProcessorScheduler::registerWorkerWake(SchedulerWorkerWake& worker, Wait
 }
 
 void PerProcessorScheduler::unregisterWorkerWake(SchedulerWorkerWake& worker) {
-  LockGuard<NoIrqSpinlock> guard(m_IrqWorkLock);
+  LockGuard<Spinlock> guard(m_IrqWorkLock);
   SchedulerWorkerWake** link = &m_pWorkerWakeHead;
   while (*link && *link != &worker) {
     link = &(*link)->m_pNext;
@@ -1672,7 +1635,7 @@ void PerProcessorScheduler::ringIrqWorkDoorbell(SchedulerWorkerWake& worker, boo
 }
 
 void PerProcessorScheduler::serviceWorkerWakeups() {
-  LockGuard<NoIrqSpinlock> guard(m_IrqWorkLock);
+  LockGuard<Spinlock> guard(m_IrqWorkLock);
   bool retry = false;
   for (SchedulerWorkerWake* worker = m_pWorkerWakeHead; worker; worker = worker->m_pNext) {
     if (!worker->m_Pending.value() || !worker->m_pWaiters) {
@@ -1699,28 +1662,9 @@ void PerProcessorScheduler::publishDeferredTimeAccounting() {
   ringIrqWorkDoorbell(m_TimeAccountingWorkerWake);
 }
 
-bool PerProcessorScheduler::deferScheduling() {
-  Thread* current = Processor::information().getCurrentThread();
-  if (!Preemption::disabled() && !Processor::inDeviceHardIrq() && current &&
-      current->executionContext() == ExecutionContext::WaitableThread) {
-    return false;
-  }
-
-  // An expired one-shot quantum was consumed by timer(). Keep a future IRQ
-  // armed if the outer preemption scope eventually ends with IRQs still off.
-  if (m_ReschedulePending.value() || m_IrqWorkDoorbell.value()) {
-    Metrics::increment(Metrics::Counter::RescheduleDeferred);
-    armLocalQuantumIfNeeded();
-  }
-  return true;
-}
-
 void PerProcessorScheduler::serviceIrqWorkDoorbell() {
   Metrics::increment(Metrics::Counter::RescheduleService);
   if (!m_pSchedulingAlgorithm || !Processor::information().getCurrentThread()) {
-    return;
-  }
-  if (deferScheduling()) {
     return;
   }
 
@@ -1736,9 +1680,6 @@ void PerProcessorScheduler::serviceIrqWorkDoorbell() {
 void PerProcessorScheduler::servicePendingScheduling() {
   Metrics::increment(Metrics::Counter::RescheduleService);
   if (!m_pSchedulingAlgorithm || !Processor::information().getCurrentThread()) {
-    return;
-  }
-  if (deferScheduling()) {
     return;
   }
 
@@ -1784,7 +1725,7 @@ bool PerProcessorScheduler::serviceProcessStopAtUserReturn(ProcessStopGateMode m
       // predicate check and waiter publication one atomic handshake.
       auto guard = current->m_EventWaiters.acquire();
       {
-        LockGuard<NoIrqSpinlock> threadGuard(current->m_Lock);
+        LockGuard<Spinlock> threadGuard(current->m_Lock);
         if (current->getUnwindState() != Thread::Continue) {
           return true;
         }
@@ -1836,9 +1777,6 @@ bool PerProcessorScheduler::serviceProcessStopAtUserReturn(ProcessStopGateMode m
 bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state,
                                                   UserReturnFrame::Origin origin,
                                                   bool diagnosticSample) {
-  if (Preemption::disabled()) {
-    FATAL_NOLOCK("Cannot return to userspace with preemption disabled.");
-  }
   const uint64_t workStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
   auto finishWork = [diagnosticSample, workStart](bool terminal) {
     if (diagnosticSample) {
@@ -1942,9 +1880,6 @@ bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state,
 bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state,
                                                   UserReturnFrame::Origin origin,
                                                   bool diagnosticSample) {
-  if (Preemption::disabled()) {
-    FATAL_NOLOCK("Cannot return to userspace with preemption disabled.");
-  }
   const uint64_t workStart = diagnosticSample ? ActivityDiagnostics::timestamp() : 0;
   auto finishWork = [diagnosticSample, workStart](bool terminal) {
     if (diagnosticSample) {
@@ -2314,7 +2249,6 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
 #endif
 
 void PerProcessorScheduler::requestIdleThreadWakeup() {
-  m_BalanceAvailability.compareAndSwap(1, 0);
   __atomic_store_n(&m_IdleWakeRequested, true, __ATOMIC_RELEASE);
   prompt();
 }
@@ -2326,15 +2260,10 @@ void PerProcessorScheduler::setIdle(Thread* pThread) {
 }
 
 void PerProcessorScheduler::idleUntilInterrupt() {
-  if (Preemption::disabled()) {
-    FATAL_NOLOCK("Cannot idle while preemption is disabled.");
-  }
   Processor::setInterrupts(false);
-  m_BalanceAvailability.compareAndSwap(0, 1);
   servicePendingScheduling();
   updateOneShotTimer();
   if (__atomic_load_n(&m_IdleWakeRequested, __ATOMIC_ACQUIRE)) {
-    m_BalanceAvailability.compareAndSwap(1, 0);
     Processor::setInterrupts(true);
     return;
   }

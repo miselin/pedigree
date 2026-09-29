@@ -50,7 +50,7 @@ void ConsoleManager::newConsole(char c, size_t i, bool lock) {
   pSlave->setOther(pMaster);
 
   {
-    LockGuard<NoPreemptSpinlock> guard(m_Lock, lock);
+    LockGuard<Spinlock> guard(m_Lock, lock);
     m_Consoles.pushBack(pMaster);
     m_Consoles.pushBack(pSlave);
   }
@@ -79,7 +79,7 @@ ConsoleManager& ConsoleManager::instance() {
 }
 
 File* ConsoleManager::getConsole(String consoleName) {
-  LockGuard<NoPreemptSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   for (size_t i = 0; i < m_Consoles.count(); i++) {
     ConsoleFile* pC = m_Consoles[i];
     if (pC->m_ConsoleName == consoleName) {
@@ -95,7 +95,7 @@ ConsoleFile* ConsoleManager::getConsoleFile(RequestQueue* pBackend) {
 }
 
 bool ConsoleManager::lockConsole(File* file) {
-  LockGuard<NoPreemptSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (!isConsole(file))
     return false;
 
@@ -114,7 +114,7 @@ bool ConsoleManager::lockConsole(File* file) {
 }
 
 void ConsoleManager::unlockConsole(File* file) {
-  LockGuard<NoPreemptSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (!isConsole(file))
     return;
 
@@ -131,7 +131,7 @@ void ConsoleManager::unlockConsole(File* file) {
 }
 
 bool ConsoleManager::setPtyLock(File* file, bool locked) {
-  LockGuard<NoPreemptSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (!isConsole(file) || !isMasterConsole(file) || !static_cast<ConsoleFile*>(file)->isPtyMaster())
     return false;
 
@@ -141,7 +141,7 @@ bool ConsoleManager::setPtyLock(File* file, bool locked) {
 }
 
 bool ConsoleManager::isPtySlaveLocked(File* file) {
-  LockGuard<NoPreemptSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (!isConsole(file) || !static_cast<ConsoleFile*>(file)->isPtySlave())
     return false;
 

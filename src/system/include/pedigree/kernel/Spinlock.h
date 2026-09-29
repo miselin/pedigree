@@ -24,46 +24,13 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
-/** Atomic exclusion only. The caller must prevent local reentry and unsafe scheduling. */
 class EXPORTED_PUBLIC Spinlock {
- public:
-  Spinlock();
-  explicit Spinlock(bool locked);
-  bool acquire();
-  void release();
-  bool acquired() const;
-
- private:
-  friend class NoPreemptSpinlock;
-  bool acquireUncounted();
-  NOT_COPYABLE_OR_ASSIGNABLE(Spinlock);
-  SpinlockWord m_Lock;
-};
-
-/** Pins the current CPU while holding the lock; IRQ handlers must not use it. */
-class EXPORTED_PUBLIC NoPreemptSpinlock {
- public:
-  NoPreemptSpinlock();
-  bool acquire(bool recurse = false);
-  void release();
-  bool acquired() const;
-  static const bool allow_recursion = true;
-
- private:
-  NOT_COPYABLE_OR_ASSIGNABLE(NoPreemptSpinlock);
-  Spinlock m_Lock;
-  size_t m_OwnedProcessor = ~size_t(0);
-  size_t m_Level = 0;
-};
-
-/** Excludes local IRQ handlers as well as other CPUs. */
-class EXPORTED_PUBLIC NoIrqSpinlock {
   friend class PerProcessorScheduler;
   friend class LocksCommand;
 
  public:
-  NoIrqSpinlock();
-  NoIrqSpinlock(bool bLocked, bool bAvoidTracking = false);
+  Spinlock();
+  Spinlock(bool bLocked, bool bAvoidTracking = false);
 
   /**
    * Enter the critical section.
@@ -88,7 +55,7 @@ class EXPORTED_PUBLIC NoIrqSpinlock {
 
  private:
   /** Returns true for recursive reentry, false for a newly acquired lock. */
-  bool acquireContended(bool recurse, bool safe, bool interrupts, uintptr_t ra) NEVER_INLINE;
+  bool acquireContended(bool recurse, bool safe, uintptr_t ra) NEVER_INLINE;
 
   /** Unlocks without restoring IRQ state, leaving nested acquisitions held. */
   void unlock(uintptr_t ra) ALWAYS_INLINE;
@@ -108,7 +75,7 @@ class EXPORTED_PUBLIC NoIrqSpinlock {
   void badReleaseInterrupts() const NEVER_INLINE;
   void deadlock(uintptr_t ra, bool releasing, uintptr_t acquiredAt = 0) NEVER_INLINE NORETURN;
 
-  NOT_COPYABLE_OR_ASSIGNABLE(NoIrqSpinlock);
+  NOT_COPYABLE_OR_ASSIGNABLE(Spinlock);
 
   SpinlockWord m_Lock;
   bool m_bInterrupts = false;

@@ -45,7 +45,7 @@ Scheduler::GenericThreadStatusHook g_GenericThreadStatusHook = nullptr;
 #endif
 
 // Scheduler can be used at times where it is not yet safe to do the useful
-// "safer" NoIrqSpinlock deadlock detection.
+// "safer" Spinlock deadlock detection.
 #define SCHEDULER_HAS_SAFE_SPINLOCKS true
 
 // Do we allow recursing in the Scheduler lock? Note that the lock surrounds
@@ -258,7 +258,7 @@ PerProcessorScheduler* Scheduler::schedulerForCpu(size_t cpu) {
 }
 
 void Scheduler::rebindThread(Thread* thread, PerProcessorScheduler& scheduler) {
-  LockGuard<NoIrqSpinlock> guard(m_SchedulerLock);
+  LockGuard<Spinlock> guard(m_SchedulerLock);
   assert(m_TPMap.lookup(thread));
   m_TPMap.insert(thread, &scheduler);
   thread->setScheduler(&scheduler);

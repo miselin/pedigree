@@ -208,7 +208,7 @@ Ne2k::~Ne2k() {
     m_NetworkRegistered = false;
   }
 
-  LockGuard<NoPreemptSpinlock> guard(m_PacketQueueLock);
+  LockGuard<Spinlock> guard(m_PacketQueueLock);
   while (m_PacketQueue.count()) {
     packet* pending = m_PacketQueue.popFront();
     if (pending) {
@@ -528,7 +528,7 @@ bool Ne2k::recv() {
 #else
 
     {
-      LockGuard<NoPreemptSpinlock> guard(m_PacketQueueLock);
+      LockGuard<Spinlock> guard(m_PacketQueueLock);
       m_PacketQueue.pushBack(p);
       m_PacketQueueSize.release();
     }
@@ -559,7 +559,7 @@ void Ne2k::receiveThread() {
     // grab from the front
     packet* p = 0;
     {
-      LockGuard<NoPreemptSpinlock> guard(m_PacketQueueLock);
+      LockGuard<Spinlock> guard(m_PacketQueueLock);
       p = m_PacketQueue.popFront();
     }
 

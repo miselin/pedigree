@@ -34,8 +34,8 @@ class Arm64PhysicalMemoryManager final : public PhysicalMemoryManager {
   physical_uintptr_t allocatePageUnlocked(size_t constraints);
   physical_uintptr_t allocateContinuousPagesUnlocked(size_t pages, size_t constraints);
 
-  mutable NoIrqSpinlock m_Lock;
-  NoIrqSpinlock m_RegionLock;
+  mutable Spinlock m_Lock;
+  Spinlock m_RegionLock;
   uint16_t* m_References;
   uint8_t* m_FreeBitmap;
   size_t m_MaxPage;

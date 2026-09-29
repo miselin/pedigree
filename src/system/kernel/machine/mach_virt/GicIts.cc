@@ -156,7 +156,7 @@ bool GicIts::setupBaser(uint32_t type, MemoryRegion& region, size_t requiredEntr
 
 bool GicIts::send(uint64_t word0, uint64_t word1, uint64_t word2) {
 #if ARM64
-  LockGuard<NoIrqSpinlock> guard(m_CommandLock);
+  LockGuard<Spinlock> guard(m_CommandLock);
   if (!m_CommandVirtual || !m_CommandSize) {
     return false;
   }
@@ -337,7 +337,7 @@ bool GicIts::mapDevice(size_t slot, uint32_t deviceId, uint32_t lpi) {
 
 bool GicIts::mapDeviceGroup(const size_t* slots, size_t count, uint32_t deviceId) {
 #if ARM64
-  LockGuard<NoIrqSpinlock> guard(m_MappingLock);
+  LockGuard<Spinlock> guard(m_MappingLock);
   if (!m_Ready || !slots || !count || count > MaxMappings || deviceId >= m_DeviceLimit) {
     return false;
   }
@@ -392,13 +392,13 @@ bool GicIts::mapDeviceGroup(const size_t* slots, size_t count, uint32_t deviceId
 }
 
 bool GicIts::mappingActive(size_t slot) const {
-  LockGuard<NoIrqSpinlock> guard(m_MappingLock);
+  LockGuard<Spinlock> guard(m_MappingLock);
   return slot < MaxMappings && m_Mappings[slot].valid;
 }
 
 bool GicIts::unmapDevice(size_t slot) {
 #if ARM64
-  LockGuard<NoIrqSpinlock> guard(m_MappingLock);
+  LockGuard<Spinlock> guard(m_MappingLock);
   if (!m_Ready || slot >= MaxMappings || !m_Mappings[slot].valid) {
     return false;
   }
@@ -428,7 +428,7 @@ bool GicIts::unmapDevice(size_t slot) {
 
 bool GicIts::setEnabled(uint32_t lpi, bool enabled) {
 #if ARM64
-  LockGuard<NoIrqSpinlock> guard(m_MappingLock);
+  LockGuard<Spinlock> guard(m_MappingLock);
   if (!m_Ready || lpi < FirstLpi || lpi >= FirstLpi + MaxMappings ||
       !m_Mappings[lpi - FirstLpi].valid) {
     return false;

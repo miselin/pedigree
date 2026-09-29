@@ -217,7 +217,7 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager {
   static X86CommonPhysicalMemoryManager m_Instance;
 
   /** To guard against multiprocessor reentrancy. */
-  NoIrqSpinlock m_Lock, m_RegionLock;
+  Spinlock m_Lock, m_RegionLock;
 
   /** Utility to wrap a physical address and hash it. */
   class PageHashable {

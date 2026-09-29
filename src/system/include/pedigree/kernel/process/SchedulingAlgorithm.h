@@ -24,7 +24,6 @@ class Thread;
 
 #define MAX_PRIORITIES 8
 #define DEFAULT_PRIORITY 1
-#define MAINTENANCE_PRIORITY 2
 
 /**
  * Class providing an abstraction of a long term scheduling algorithm.
@@ -40,9 +39,12 @@ class SchedulingAlgorithm {
   /** Removes a thread - this thread should no longer be scheduled. */
   virtual void removeThread(Thread* pThread) = 0;
 
-  /** Select a queued peer or the current thread when it remains runnable.
-   * The caller already holds the current thread's lock. */
-  virtual Thread* getNext(Thread* pCurrentThread, bool currentRunnable = false) = 0;
+  /** Return the next thread that should be scheduled for the given Processor.
+   * \param pProcessor The Processor for which the scheduling should take
+   * place - this is provided for heuristic purposes (core affinity etc).
+   * \note It is assumed that this function will set the Thread's TTL and
+   * other such values itself. */
+  virtual Thread* getNext(Thread* pCurrentThread) = 0;
 
   /** Whether the ready queue contains a runnable peer. */
   virtual bool hasReady() = 0;

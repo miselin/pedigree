@@ -183,7 +183,7 @@ ProcessGroupManager::ProcessGroupManager() : m_GroupIds(), m_Groups(nullptr), m_
 ProcessGroupManager::~ProcessGroupManager() {}
 
 size_t ProcessGroupManager::allocateGroupId() {
-  RecursingLockGuard<NoIrqSpinlock> guard(m_GroupLock);
+  RecursingLockGuard<Spinlock> guard(m_GroupLock);
   size_t bit = m_GroupIds.getFirstClear();
   while (findGroup(bit) || m_GroupIds.test(bit))
     ++bit;
@@ -192,7 +192,7 @@ size_t ProcessGroupManager::allocateGroupId() {
 }
 
 void ProcessGroupManager::setGroupId(size_t gid) {
-  RecursingLockGuard<NoIrqSpinlock> guard(m_GroupLock);
+  RecursingLockGuard<Spinlock> guard(m_GroupLock);
   if (m_GroupIds.test(gid)) {
     PS_NOTICE(
         "ProcessGroupManager: setGroupId called on a group ID that "
@@ -202,17 +202,17 @@ void ProcessGroupManager::setGroupId(size_t gid) {
 }
 
 bool ProcessGroupManager::isGroupIdValid(size_t gid) const {
-  RecursingLockGuard<NoIrqSpinlock> guard(m_GroupLock);
+  RecursingLockGuard<Spinlock> guard(m_GroupLock);
   return findGroup(gid) || m_GroupIds.test(gid);
 }
 
 void ProcessGroupManager::returnGroupId(size_t gid) {
-  RecursingLockGuard<NoIrqSpinlock> guard(m_GroupLock);
+  RecursingLockGuard<Spinlock> guard(m_GroupLock);
   m_GroupIds.clear(gid);
 }
 
 void ProcessGroupManager::registerGroup(size_t gid, ProcessGroup* group) {
-  RecursingLockGuard<NoIrqSpinlock> guard(m_GroupLock);
+  RecursingLockGuard<Spinlock> guard(m_GroupLock);
   assert(!findGroup(gid));
   group->registryNext = m_Groups;
   m_Groups = group;
@@ -220,7 +220,7 @@ void ProcessGroupManager::registerGroup(size_t gid, ProcessGroup* group) {
 }
 
 void ProcessGroupManager::unregisterGroup(size_t gid, ProcessGroup* group) {
-  RecursingLockGuard<NoIrqSpinlock> guard(m_GroupLock);
+  RecursingLockGuard<Spinlock> guard(m_GroupLock);
   ProcessGroup** link = &m_Groups;
   while (*link && *link != group)
     link = &(*link)->registryNext;
@@ -485,8 +485,8 @@ PosixSubsystem::~PosixSubsystem() {
   MemoryMapManager::instance().acquireLock();
   invalidateUserImage();
 
-  // Keep IRQs masked while temporarily switching address spaces.
-  NoIrqSpinlock spinlock;
+  // Spinlock as a quick way of disabling interrupts.
+  Spinlock spinlock;
   spinlock.acquire();
 
   // Switch to the address space of the process we're destroying.

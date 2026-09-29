@@ -90,7 +90,7 @@ bool SplitIrqHandler::initialiseSplitIrq() {
     return false;
   }
   {
-    LockGuard<NoIrqSpinlock> guard(m_StateLock);
+    LockGuard<Spinlock> guard(m_StateLock);
     m_Quiescing = false;
   }
   m_Stopping = 0;
@@ -193,7 +193,7 @@ bool SplitIrqHandler::shutdownSplitIrq() {
   // quiescence then masks it. A bottom half which loses observes the state
   // transition and cannot rearm after the hardware has been masked.
   {
-    LockGuard<NoIrqSpinlock> guard(m_StateLock);
+    LockGuard<Spinlock> guard(m_StateLock);
     m_Quiescing = true;
   }
   if (!quiesceIrqSources()) {
@@ -265,7 +265,7 @@ void SplitIrqHandler::dispatchThreaded() {
   if (work) {
     threadedIrq(work);
     {
-      LockGuard<NoIrqSpinlock> guard(m_StateLock);
+      LockGuard<Spinlock> guard(m_StateLock);
       if (!m_Quiescing) {
         rearmIrqSources(work);
       }

@@ -272,7 +272,7 @@ void InputManager::installCallback(CallbackType filter, callback_t callback, voi
   item->deferredRemoval = false;
 #endif
 
-  LockGuard<NoIrqSpinlock> guard(m_QueueLock);
+  LockGuard<Spinlock> guard(m_QueueLock);
   m_Callbacks.pushBack(item);
 }
 
@@ -280,7 +280,7 @@ void InputManager::removeCallback(callback_t callback, void* meta) {
 #if THREADS
   removeCallbacks(callback, meta);
 #else
-  LockGuard<NoIrqSpinlock> guard(m_QueueLock);
+  LockGuard<Spinlock> guard(m_QueueLock);
   for (List<CallbackItem*>::Iterator it = m_Callbacks.begin(); it != m_Callbacks.end();) {
     if (*it) {
       if ((callback == (*it)->func) && (meta == (*it)->meta)) {

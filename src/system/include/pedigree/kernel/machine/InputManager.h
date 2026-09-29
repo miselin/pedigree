@@ -204,11 +204,11 @@ class EXPORTED_PUBLIC InputManager {
   /// Input queue (for distribution to applications)
   List<InputNotification*> m_InputQueue;
 
-  /// NoIrqSpinlock for work on queues.
-  /// \note Using a NoIrqSpinlock here because a lot of our work will happen
+  /// Spinlock for work on queues.
+  /// \note Using a Spinlock here because a lot of our work will happen
   ///       in the middle of an IRQ where it's potentially dangerous to
   ///       reschedule (which may happen with a Mutex or Semaphore).
-  NoIrqSpinlock m_QueueLock;
+  Spinlock m_QueueLock;
 
   /// Callback list
   List<CallbackItem*> m_Callbacks;

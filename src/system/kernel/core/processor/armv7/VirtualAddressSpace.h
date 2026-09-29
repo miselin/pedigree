@@ -102,7 +102,7 @@ class Armv7VirtualAddressSpace final : public VirtualAddressSpace {
   static Armv7VirtualAddressSpace m_KernelSpace;
   physical_uintptr_t m_Root;
   uintptr_t m_StackTop;
-  NoIrqSpinlock m_Lock;
+  Spinlock m_Lock;
 };
 
 #endif

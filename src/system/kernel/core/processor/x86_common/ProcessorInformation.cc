@@ -98,9 +98,6 @@ void X86CommonProcessorInformation::activateKernelGsAnchor(size_t processorIndex
 #endif
 
 void X86CommonProcessorInformation::setCurrentThread(Thread* pThread) {
-  if (__atomic_load_n(&m_PreemptionDepth, __ATOMIC_RELAXED)) {
-    panic("Context switch with preemption disabled.");
-  }
   if (m_RcuState.active()) {
     panic("Context switch inside an RCU read section.");
   }

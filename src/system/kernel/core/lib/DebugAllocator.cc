@@ -176,7 +176,7 @@ SlamAllocator::~SlamAllocator() {
 }
 
 void SlamAllocator::initialise() {
-  RecursingLockGuard<NoIrqSpinlock> guard(m_Lock);
+  RecursingLockGuard<Spinlock> guard(m_Lock);
 
   if (m_bInitialised) {
     return;
@@ -241,7 +241,7 @@ uintptr_t SlamAllocator::allocate(size_t nBytes) {
   nTotalBytes = numPages * getPageSize();
 
   {
-    RecursingLockGuard<NoIrqSpinlock> guard(m_Lock);
+    RecursingLockGuard<Spinlock> guard(m_Lock);
 
     m_Base += getPageSize();  // gap between allocations
     mapStart = m_Base;

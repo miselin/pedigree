@@ -5,7 +5,6 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #undef _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
 
-#include "pedigree/kernel/process/Preemption.h"
 #include "pedigree/kernel/process/RcuReadState.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -17,9 +16,6 @@ class SuspendDeviceHardIrqContext;
 
 class Arm64ProcessorInformation {
   friend class ProcessorBase;
-  friend void Preemption::disable();
-  friend void Preemption::enable();
-  friend bool Preemption::disabled();
   friend class DeviceHardIrqContext;
   friend class SuspendDeviceHardIrqContext;
 
@@ -55,7 +51,6 @@ class Arm64ProcessorInformation {
   PerProcessorScheduler* m_Scheduler;
   uintptr_t m_KernelStack;
   size_t m_DeviceHardIrqDepth;
-  size_t m_PreemptionDepth = 0;
   RcuReadState m_RcuState;
 };
 

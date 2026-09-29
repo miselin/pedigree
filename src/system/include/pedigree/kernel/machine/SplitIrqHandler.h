@@ -124,7 +124,7 @@ class EXPORTED_PUBLIC SplitIrqHandler : private HardIrqHandler {
   Atomic<size_t> m_LifecycleBusy;
   Atomic<size_t> m_AcceptingRegistrations;
   ThreadedIrqDispatcher m_Dispatcher;
-  NoIrqSpinlock m_StateLock;
+  Spinlock m_StateLock;
   bool m_Quiescing;
   Atomic<size_t> m_Stopping;
   Atomic<size_t> m_PublicationFailures;

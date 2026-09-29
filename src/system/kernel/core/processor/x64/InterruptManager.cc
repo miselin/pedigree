@@ -102,7 +102,7 @@ InterruptManager& InterruptManager::instance() {
 bool X64InterruptManager::registerInterruptHandler(size_t nInterruptNumber,
                                                    InterruptHandler* pHandler) {
   // Lock the class until the end of the function
-  LockGuard<NoIrqSpinlock> lock(m_Lock);
+  LockGuard<Spinlock> lock(m_Lock);
 
   // Sanity checks
   if (UNLIKELY(nInterruptNumber >= 256))
@@ -124,7 +124,7 @@ bool X64InterruptManager::registerInterruptHandler(size_t nInterruptNumber,
 bool X64InterruptManager::registerInterruptHandlerDebugger(size_t nInterruptNumber,
                                                            InterruptHandler* pHandler) {
   // Lock the class until the end of the function
-  LockGuard<NoIrqSpinlock> lock(m_Lock);
+  LockGuard<Spinlock> lock(m_Lock);
 
   // Sanity checks
   if (UNLIKELY(nInterruptNumber >= 256))

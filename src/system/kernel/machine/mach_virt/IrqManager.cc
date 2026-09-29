@@ -113,7 +113,7 @@ bool VirtIrqManager::initialiseThreaded() {
 
 bool VirtIrqManager::shutdownThreaded() {
   {
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     for (const PciLine& line : m_PciLines) {
       if (line.handlers || line.reserved) {
         return false;
@@ -334,7 +334,7 @@ irq_id_t VirtIrqManager::registerPciHandler(IrqHandlerBase* handler, Device* dev
     return 0;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_PciLock);
+  LockGuard<Spinlock> guard(m_PciLock);
   if (m_Hard[irq] || m_Scheduler[irq]) {
     return 0;
   }
@@ -402,7 +402,7 @@ irq_id_t VirtIrqManager::registerPciMessageHandler(IrqHandlerBase* handler, Devi
   size_t slot = MaxPciLines;
   uint32_t irq = 0;
   {
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     for (const PciLine& line : m_PciLines) {
       if (line.message && line.deviceId == deviceId) {
         allowFallback = false;
@@ -450,7 +450,7 @@ irq_id_t VirtIrqManager::registerPciMessageHandler(IrqHandlerBase* handler, Devi
   }
 
   if (lpi && !m_Its.mapDevice(slot, deviceId, irq)) {
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     PciLine& line = m_PciLines[slot];
     line.reserved = false;
     if (m_Its.mappingActive(slot)) {
@@ -467,7 +467,7 @@ irq_id_t VirtIrqManager::registerPciMessageHandler(IrqHandlerBase* handler, Devi
 
   bool registered = false;
   {
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     const uint8_t key = pciRegistryLine(slot);
     registered = hard ? m_PciHandlers.registerHardHandler(
                             key, static_cast<HardIrqHandler*>(handler), IrqPolicy::edgeHard())
@@ -483,7 +483,7 @@ irq_id_t VirtIrqManager::registerPciMessageHandler(IrqHandlerBase* handler, Devi
   const bool msix = registered && original.msix && pci.enableMsix(device, m_MsiAddress, data);
   const bool msi = registered && !msix && original.msi && pci.enableMsi(device, m_MsiAddress, data);
   if (msix || msi) {
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     PciLine& line = m_PciLines[slot];
     line.msix = msix;
     line.reserved = false;
@@ -505,7 +505,7 @@ irq_id_t VirtIrqManager::registerPciMessageHandler(IrqHandlerBase* handler, Devi
                  : IrqHandlerRegistry::UnregisterResult::Completed;
   const bool unmapped = !lpi || (disabled && m_Its.unmapDevice(slot));
   {
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     PciLine& line = m_PciLines[slot];
     line.reserved = false;
     if (disabled && unmapped && removed == IrqHandlerRegistry::UnregisterResult::Completed) {
@@ -562,7 +562,7 @@ bool VirtIrqManager::registerPciMsixIrqHandlers(Device* device, IrqHandler* cons
   uint32_t data[MaxPciLines] = {};
   size_t reserved = 0;
   {
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     for (const PciLine& line : m_PciLines) {
       if (line.message && line.deviceId == deviceId) {
         fallbackSafe = false;
@@ -628,7 +628,7 @@ bool VirtIrqManager::registerPciMsixIrqHandlers(Device* device, IrqHandler* cons
     for (size_t i = 0; i < count; ++i) {
       active = m_Its.mappingActive(slots[i]) || active;
     }
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     for (size_t i = 0; i < count; ++i) {
       PciLine& line = m_PciLines[slots[i]];
       if (active) {
@@ -645,7 +645,7 @@ bool VirtIrqManager::registerPciMsixIrqHandlers(Device* device, IrqHandler* cons
 
   size_t registered = 0;
   {
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     for (; registered < count; ++registered) {
       const uint8_t key = pciRegistryLine(slots[registered]);
       if (!m_PciHandlers.registerThreadedHandler(key, handlers[registered],
@@ -660,7 +660,7 @@ bool VirtIrqManager::registerPciMsixIrqHandlers(Device* device, IrqHandler* cons
 
   bool enabled = registered == count;
   if (enabled) {
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     for (size_t i = 0; i < count; ++i) {
       m_PciLines[slots[i]].reserved = false;
       if (!setEnabled(irqs[i], true)) {
@@ -695,7 +695,7 @@ bool VirtIrqManager::registerPciMsixIrqHandlers(Device* device, IrqHandler* cons
 
   size_t cookies[MaxPciLines] = {};
   {
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     for (size_t i = 0; i < count; ++i) {
       PciLine& line = m_PciLines[slots[i]];
       line.removing = true;
@@ -723,7 +723,7 @@ bool VirtIrqManager::registerPciMsixIrqHandlers(Device* device, IrqHandler* cons
     }
   }
   {
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     for (size_t i = 0; i < count; ++i) {
       PciLine& line = m_PciLines[slots[i]];
       if (safe) {
@@ -817,7 +817,7 @@ bool VirtIrqManager::unregisterHandler(irq_id_t id, IrqHandlerBase* handler) {
   uint8_t msixIndex = 0;
   uint8_t registryKey = 0;
   {
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     slot = pciLine(id);
     if (slot != MaxPciLines) {
       if (Processor::executionContext() != ExecutionContext::WaitableThread ||
@@ -876,7 +876,7 @@ bool VirtIrqManager::unregisterHandler(irq_id_t id, IrqHandlerBase* handler) {
     }
     if (!sourceDisabled) {
       ERROR("PCI: could not disable message source for IRQ " << Dec << id);
-      LockGuard<NoIrqSpinlock> guard(m_PciLock);
+      LockGuard<Spinlock> guard(m_PciLock);
       PciLine& line = m_PciLines[slot];
       line.removing = false;
       line.quarantined = true;
@@ -884,7 +884,7 @@ bool VirtIrqManager::unregisterHandler(irq_id_t id, IrqHandlerBase* handler) {
     }
     if (messageLpi && !m_Its.unmapDevice(slot)) {
       ERROR("PCI: could not unmap ITS LPI " << Dec << id);
-      LockGuard<NoIrqSpinlock> guard(m_PciLock);
+      LockGuard<Spinlock> guard(m_PciLock);
       PciLine& line = m_PciLines[slot];
       line.removing = false;
       line.quarantined = true;
@@ -893,7 +893,7 @@ bool VirtIrqManager::unregisterHandler(irq_id_t id, IrqHandlerBase* handler) {
     const auto removed = m_PciHandlers.unregisterHandler(registryKey, handler);
     size_t retiredCookie = 0;
     {
-      LockGuard<NoIrqSpinlock> guard(m_PciLock);
+      LockGuard<Spinlock> guard(m_PciLock);
       PciLine& line = m_PciLines[slot];
       if (removed != IrqHandlerRegistry::UnregisterResult::Completed) {
         ERROR("PCI: could not retire IRQ handler " << Dec << id);
@@ -928,7 +928,7 @@ bool VirtIrqManager::unregisterHandler(irq_id_t id, IrqHandlerBase* handler) {
       m_PciHandlers.invalidateThreadedLine(registryKey, retiredCookie);
     }
     {
-      LockGuard<NoIrqSpinlock> guard(m_PciLock);
+      LockGuard<Spinlock> guard(m_PciLock);
       PciLine& line = m_PciLines[slot];
       line.removing = false;
       if (line.handlers && !line.inFlight && !line.quarantined) {
@@ -957,7 +957,7 @@ void VirtIrqManager::dispatchPciLine(void* context, uint8_t slot, size_t cookie)
   uint32_t irq = 0;
   uint8_t registryKey = 0;
   {
-    LockGuard<NoIrqSpinlock> guard(manager.m_PciLock);
+    LockGuard<Spinlock> guard(manager.m_PciLock);
     if (slot >= MaxPciLines || !manager.m_PciLines[slot].irq ||
         manager.m_PciLines[slot].cookie != cookie || manager.m_PciLines[slot].hard) {
       return;
@@ -970,7 +970,7 @@ void VirtIrqManager::dispatchPciLine(void* context, uint8_t slot, size_t cookie)
   const bool admitted =
       manager.m_PciHandlers.dispatchThreaded(registryKey, cookie, result, nullptr, irq);
   {
-    LockGuard<NoIrqSpinlock> guard(manager.m_PciLock);
+    LockGuard<Spinlock> guard(manager.m_PciLock);
     PciLine& line = manager.m_PciLines[slot];
     if (line.irq != irq || line.cookie != cookie) {
       return;
@@ -1048,7 +1048,7 @@ void VirtIrqManager::handle(InterruptState& state) {
   bool pciMessage = false;
   uint8_t registryKey = 0;
   {
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     pciSlot = pciLine(irq);
     if (pciSlot != MaxPciLines) {
       PciLine& line = m_PciLines[pciSlot];
@@ -1094,7 +1094,7 @@ void VirtIrqManager::handle(InterruptState& state) {
     HardIrqDisposition disposition = HardIrqDisposition::NotHandled;
     const bool admitted =
         m_PciHandlers.dispatchHard(registryKey, state, disposition, nullptr, 0, irq);
-    LockGuard<NoIrqSpinlock> guard(m_PciLock);
+    LockGuard<Spinlock> guard(m_PciLock);
     PciLine& line = m_PciLines[pciSlot];
     if (!pciMessage) {
       complete(acknowledgeValue);

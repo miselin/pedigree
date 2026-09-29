@@ -133,11 +133,11 @@ class EXPORTED_PUBLIC KeymapManager {
   /// Current key states (for periodic callbacks while a key is down)
   Tree<uint8_t, KeyState*> m_KeyStates;
 
-  /// NoIrqSpinlock for work on keys.
-  /// \note Using a NoIrqSpinlock here because a lot of our work will happen
+  /// Spinlock for work on keys.
+  /// \note Using a Spinlock here because a lot of our work will happen
   ///       in the middle of an IRQ where it's potentially dangerous to
   ///       reschedule (which may happen with a Mutex or Semaphore).
-  NoIrqSpinlock m_KeyLock;
+  Spinlock m_KeyLock;
 
   /// Whether or not we've loaded a new keymap.
   /// Used to figure out if we can safely free the old keymap data.

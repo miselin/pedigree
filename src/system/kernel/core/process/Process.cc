@@ -87,7 +87,7 @@ Process::ExecScope::ExecScope(Process& process, bool active)
     return;
   }
   Thread* current = Processor::information().getCurrentThread();
-  LockGuard<NoIrqSpinlock> guard(process.m_Lock);
+  LockGuard<Spinlock> guard(process.m_Lock);
   if (current && current->getParent() == &process && !process.m_pExecOwner &&
       process.getState() == Active && !process.m_bTerminalOwnerReserved &&
       current->getUnwindState() == Thread::Continue) {
@@ -102,7 +102,7 @@ Process::ExecScope::~ExecScope() {
     return;
   }
   {
-    LockGuard<NoIrqSpinlock> guard(m_pProcess->m_Lock);
+    LockGuard<Spinlock> guard(m_pProcess->m_Lock);
     if (m_pProcess->m_bExecCommitted) {
       auto joinGuard = m_pProcess->m_ThreadJoinWaiters.acquire();
       m_pProcess->m_bThreadJoinAdmissionClosed = false;
@@ -116,7 +116,7 @@ Process::ExecScope::~ExecScope() {
 
 Process::ThreadCreationScope::ThreadCreationScope(Process& process)
     : m_pProcess(nullptr), m_TerminationDeferral(true) {
-  LockGuard<NoIrqSpinlock> guard(process.m_Lock);
+  LockGuard<Spinlock> guard(process.m_Lock);
   if (!process.m_pExecOwner && process.getState() == Active && !process.m_bTerminalOwnerReserved) {
     ++process.m_nThreadCreations;
     m_pProcess = &process;
@@ -128,7 +128,7 @@ Process::ThreadCreationScope::~ThreadCreationScope() {
     return;
   }
   {
-    LockGuard<NoIrqSpinlock> guard(m_pProcess->m_Lock);
+    LockGuard<Spinlock> guard(m_pProcess->m_Lock);
     --m_pProcess->m_nThreadCreations;
   }
   m_pProcess->m_ExecWaiters.wakeAll();
@@ -145,7 +145,7 @@ bool Process::ExecScope::commit() {
     auto progress = process.m_ExecWaiters.acquire();
     bool creatorsFinished = false;
     {
-      LockGuard<NoIrqSpinlock> guard(process.m_Lock);
+      LockGuard<Spinlock> guard(process.m_Lock);
       if (process.getState() != Active || process.m_bTerminalOwnerReserved ||
           current->getUnwindState() != Thread::Continue) {
         return false;
@@ -193,7 +193,7 @@ bool Process::ExecScope::commit() {
     auto progress = process.m_ExecWaiters.acquire();
     bool peersOffStack = false;
     {
-      LockGuard<NoIrqSpinlock> guard(process.m_Lock);
+      LockGuard<Spinlock> guard(process.m_Lock);
       peersOffStack = process.m_nTerminationParticipants == 1;
     }
     if (peersOffStack) {
@@ -222,7 +222,7 @@ bool Process::ExecScope::commit() {
   while (true) {
     auto progress = process.m_ExecWaiters.acquire();
     {
-      LockGuard<NoIrqSpinlock> guard(process.m_Lock);
+      LockGuard<Spinlock> guard(process.m_Lock);
       if (process.m_Threads.count() == 1) {
         current->m_bProcessExitOwned = false;
         current->m_bProcessExitParticipant = false;
@@ -240,7 +240,7 @@ bool Process::ExecScope::commit() {
 
 void Process::ExecScope::adoptLeaderIdentity() {
   if (m_pProcess) {
-    LockGuard<NoIrqSpinlock> guard(m_pProcess->m_Lock);
+    LockGuard<Spinlock> guard(m_pProcess->m_Lock);
     __atomic_store_n(&m_pProcess->m_pExecOwner->m_TaskId, m_pProcess->m_Id, __ATOMIC_RELEASE);
   }
 }
@@ -429,7 +429,7 @@ Process::Process(DeferredPublication, ProcessType type)
       m_Ctty(),
       m_SpaceAllocator(false),
       m_DynamicSpaceAllocator(false),
-      m_UserReservationLock(),
+      m_UserReservationLock(false),
       m_UserReservationGeneration(0),
       m_pUser(0),
       m_pGroup(0),
@@ -501,7 +501,7 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
       m_Ctty(),
       m_SpaceAllocator(false),
       m_DynamicSpaceAllocator(false),
-      m_UserReservationLock(),
+      m_UserReservationLock(false),
       m_UserReservationGeneration(0),
       m_pUser(pParent->m_pUser),
       m_pGroup(pParent->m_pGroup),
@@ -797,7 +797,7 @@ void Process::queueTimeAccountingReport(Time::Timestamp elapsed) {
 }
 
 Time::Timestamp Process::totalTime(CpuTimeMode mode) const {
-  LockGuard<NoIrqSpinlock> guard(m_TimeAccountingLock);
+  LockGuard<Spinlock> guard(m_TimeAccountingLock);
   const Time::Timestamp* retired =
       mode == CpuTimeMode::User ? &m_Metadata.userTime : &m_Metadata.kernelTime;
   Time::Timestamp total = __atomic_load_n(retired, __ATOMIC_ACQUIRE);
@@ -1010,8 +1010,8 @@ Process::~Process() {
   // entered earlier finishes before this transition; later add/remove calls
   // observe m_bDestroying and cannot mutate m_Threads.
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
-    LockGuard<NoIrqSpinlock> accounting(m_TimeAccountingLock);
+    LockGuard<Spinlock> guard(m_Lock);
+    LockGuard<Spinlock> accounting(m_TimeAccountingLock);
     // No accounting writer survives the off-stack barrier. Preserve all
     // totals before destruction starts leaving stale pointers in the vector.
     for (Thread* thread : m_Threads) {
@@ -1093,7 +1093,7 @@ void Process::endThreadJoin() {
 }
 
 bool Process::beginExternalLease() {
-  LockGuard<NoIrqSpinlock> guard(m_ExternalLeaseLock);
+  LockGuard<Spinlock> guard(m_ExternalLeaseLock);
   if (m_bExternalLeaseAdmissionClosed) {
     return false;
   }
@@ -1107,7 +1107,7 @@ void Process::endExternalLease() {
   bool finalRelease = false;
   bool finishClosedRelease = false;
   {
-    LockGuard<NoIrqSpinlock> guard(m_ExternalLeaseLock);
+    LockGuard<Spinlock> guard(m_ExternalLeaseLock);
     if (!m_nExternalLeases) {
       FATAL("Process external lease underflow for pid " << Dec << m_Id << ".");
     }
@@ -1150,7 +1150,7 @@ void Process::endExternalLease() {
 
   auto waiterGuard = m_ExternalLeaseWaiters.acquire();
   {
-    LockGuard<NoIrqSpinlock> guard(m_ExternalLeaseLock);
+    LockGuard<Spinlock> guard(m_ExternalLeaseLock);
     m_bExternalLeaseReleaseInProgress = false;
   }
 
@@ -1166,7 +1166,7 @@ void Process::endExternalLease() {
 }
 
 void Process::closeExternalLeaseAdmission() {
-  LockGuard<NoIrqSpinlock> guard(m_ExternalLeaseLock);
+  LockGuard<Spinlock> guard(m_ExternalLeaseLock);
   m_bExternalLeaseAdmissionClosed = true;
 }
 
@@ -1175,7 +1175,7 @@ void Process::drainExternalLeases() {
   while (true) {
     auto guard = m_ExternalLeaseWaiters.acquire();
     {
-      LockGuard<NoIrqSpinlock> stateGuard(m_ExternalLeaseLock);
+      LockGuard<Spinlock> stateGuard(m_ExternalLeaseLock);
       m_bExternalLeaseAdmissionClosed = true;
       if (!m_nExternalLeases && !m_bExternalLeaseReleaseInProgress) {
         return;
@@ -1196,7 +1196,7 @@ void Process::releaseThreadLease(Thread* thread) {
 }
 
 size_t Process::addThread(Thread* pThread) {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (!pThread)
     return ~0;
   const ProcessState state = getState();
@@ -1214,7 +1214,7 @@ size_t Process::addThread(Thread* pThread) {
     ++m_nTerminationParticipants;
   }
   {
-    LockGuard<NoIrqSpinlock> accounting(m_TimeAccountingLock);
+    LockGuard<Spinlock> accounting(m_TimeAccountingLock);
     m_Threads.pushBack(pThread);
   }
   const size_t localId = m_NextTid += 1;
@@ -1241,7 +1241,7 @@ void Process::transferExecProcessSignals(Thread* pThread) {
 
 void Process::removeThread(Thread* pThread) {
   {
-    RecursingLockGuard<NoIrqSpinlock> guard(m_Lock);
+    RecursingLockGuard<Spinlock> guard(m_Lock);
 
     // The destructor owns its vector iteration and deliberately leaves removal
     // until the whole Process object disappears. Logical process termination,
@@ -1249,7 +1249,7 @@ void Process::removeThread(Thread* pThread) {
     if (m_bDestroying)
       return;
     {
-      LockGuard<NoIrqSpinlock> accounting(m_TimeAccountingLock);
+      LockGuard<Spinlock> accounting(m_TimeAccountingLock);
       for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); it++) {
         if (*it == pThread) {
           // Readers hold the same lock, so removal cannot make a total vanish
@@ -1269,14 +1269,14 @@ void Process::removeThread(Thread* pThread) {
 }
 
 size_t Process::getNumThreads() {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   return m_Threads.count();
 }
 
 bool Process::acquireThread(ThreadLease& lease, size_t n) {
   Thread* thread = nullptr;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     if (n < m_Threads.count() && beginExternalLease()) {
       thread = m_Threads[n];
       if (!thread || !thread->beginExternalLease()) {
@@ -1298,14 +1298,14 @@ bool Process::acquireThread(ThreadLease& lease, size_t n) {
 bool Process::acquireProcessSignalThread(ThreadLease& lease) {
   Thread* target = nullptr;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     const ProcessState state = getState();
     if ((state == Active || state == Suspended) && beginExternalLease()) {
       auto acquire = [&](Thread* thread) {
         if (!thread) {
           return false;
         }
-        LockGuard<NoIrqSpinlock> threadGuard(thread->m_Lock);
+        LockGuard<Spinlock> threadGuard(thread->m_Lock);
         if (thread->m_bShutdown || thread->m_Status == Thread::Zombie ||
             thread->getUnwindState() == Thread::TerminateThread || !thread->beginExternalLease()) {
           return false;
@@ -1337,7 +1337,7 @@ bool Process::acquireProcessSignalThread(ThreadLease& lease) {
 bool Process::acquireThreadById(ThreadLease& lease, size_t id) {
   Thread* thread = nullptr;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); ++it) {
       if (*it && (*it)->getId() == id) {
         thread = *it;
@@ -1364,7 +1364,7 @@ bool Process::acquireThreadById(ThreadLease& lease, size_t id) {
 bool Process::acquireThreadByTaskId(ThreadLease& lease, size_t id) {
   Thread* thread = nullptr;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); ++it) {
       if (*it && (*it)->getTaskId() == id) {
         thread = *it;
@@ -1396,7 +1396,7 @@ bool Process::acquireThread(ThreadLease& lease, Thread* expected) {
 
   Thread* thread = nullptr;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); ++it) {
       if (*it == expected) {
         thread = *it;
@@ -1453,7 +1453,7 @@ Process::TerminalOwnerReservation Process::reserveTerminalOwner() {
 }
 
 void Process::installTerminalOwner(Thread* owner) {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (!m_bTerminalOwnerReserved || m_pReservedTerminalOwner) {
     FATAL("Process terminal owner installed without a reservation for pid " << Dec << m_Id << ".");
   }
@@ -1470,7 +1470,7 @@ void Process::installTerminalOwner(Thread* owner) {
   }
 
   {
-    LockGuard<NoIrqSpinlock> ownerGuard(owner->m_Lock);
+    LockGuard<Spinlock> ownerGuard(owner->m_Lock);
     if (owner->m_Status != Thread::Created || owner->m_bStartRequested ||
         owner->getUnwindState() != Thread::Continue) {
       FATAL("Process terminal owner was not installed before startup for pid " << Dec << m_Id
@@ -1520,7 +1520,7 @@ bool Process::prepareThreadExit() {
     FATAL("Thread exit intent must come from the current process.");
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   current->m_bThreadExitRequested = true;
   if (m_bTerminalOwnerReserved || m_bTerminationRendezvousStarted || getState() == Terminating) {
     return false;
@@ -1716,7 +1716,7 @@ bool Process::beginTermination(int code, Subsystem::ExitCause cause) {
 bool Process::quiesceTermination() {
   Thread* pCurrentThread = Processor::information().getCurrentThread();
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     if (!m_bTerminationRendezvousStarted || m_pTerminatingThread != pCurrentThread) {
       return false;
     }
@@ -1730,7 +1730,7 @@ bool Process::quiesceTermination() {
   while (true) {
     auto progress = m_ExecWaiters.acquire();
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       // Admitted creators may still publish a Created peer into this
       // rendezvous. Terminating rejects new admissions; seal only after
       // the existing creation scopes have finished publication.
@@ -1770,7 +1770,7 @@ void Process::finishTermination(bool notifyParent) {
 void Process::finishTermination(bool abandonStack, bool notifyParent) {
   Thread* pCurrentThread = Processor::information().getCurrentThread();
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     if (!m_bTerminationCleanupStarted || m_pTerminatingThread != pCurrentThread ||
         m_nTerminationParticipants != 1 || !pCurrentThread->m_bProcessExitParticipant) {
       FATAL(
@@ -2223,7 +2223,7 @@ void Process::publishTerminationStatus(bool notifyParent) {
 
 void Process::publishTerminationReapable() {
   {
-    RecursingLockGuard<NoIrqSpinlock> processGuard(m_Lock);
+    RecursingLockGuard<Spinlock> processGuard(m_Lock);
     if (m_nTerminationParticipants) {
       FATAL("Process termination published with "
             << Dec << m_nTerminationParticipants << " live rendezvous participants for pid " << m_Id

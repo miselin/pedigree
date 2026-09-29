@@ -169,7 +169,7 @@ class Log {
   /** The lock
    *\note this should only be acquired by the NOTICE, WARNING, ERROR and FATAL
    *macros */
-  NoIrqSpinlock m_Lock;
+  Spinlock m_Lock;
 
   /** Retrieves the static Log instance.
    *\return instance of the log class */

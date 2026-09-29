@@ -431,8 +431,7 @@ class EXPORTED_PUBLIC VFS {
   List<MountCallbackItem*> m_MountCallbacks;
 
 #if THREADS
-  // Filesystem callbacks and their drain waits run outside registry bookkeeping.
-  NoPreemptSpinlock m_CallbackLock;
+  Spinlock m_CallbackLock;
   size_t m_NextCallbackSequence;
   ActiveInvocation* m_pActiveCallbacks;
   bool m_CallbacksClosing;

@@ -174,7 +174,7 @@ class HostedTimer : public Timer, private SplitIrqHandler {
   List<Alarm*> m_Alarms;
 
   /** Alarm modification lock. */
-  NoIrqSpinlock m_AlarmLock;
+  Spinlock m_AlarmLock;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   static AlarmSendAdmissionHook m_AlarmSendAdmissionHook;

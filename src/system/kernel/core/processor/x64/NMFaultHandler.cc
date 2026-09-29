@@ -60,7 +60,7 @@ NMFaultHandler NMFaultHandler::m_Instance;
 static bool FXSR_Support, FPU_Support;
 static X64SchedulerState x87FPU_MMX_XMM_MXCSR_StateBlank;
 static bool g_InitialFxStateValid = false;
-static NoIrqSpinlock g_InitialFxStateLock(false, true);
+static Spinlock g_InitialFxStateLock(false, true);
 
 static_assert(__builtin_offsetof(X64SchedulerState, x87FPU_MMX_XMM_MXCSR_State) == 112,
               "x64 Scheduler.s FXSAVE offset is stale");

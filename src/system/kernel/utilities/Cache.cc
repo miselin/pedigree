@@ -50,7 +50,7 @@ static constexpr size_t CachePageSize = TargetInfo::getPageSize();
 // evicted pages. Without reuse, we end up needing to clean up old page tables
 // eventually.
 MemoryAllocator Cache::m_Allocator(true);
-NoIrqSpinlock Cache::m_AllocatorLock;
+Spinlock Cache::m_AllocatorLock;
 static bool g_AllocatorInited = false;
 
 CacheManager* CacheManager::m_Instance = nullptr;
@@ -168,7 +168,7 @@ bool CacheManager::shutdown() {
         if (!scan) {
           succeeded = cache->syncAll() && succeeded;
         } else {
-          LockGuard<NoIrqSpinlock> guard(cache->m_Lock);
+          LockGuard<Spinlock> guard(cache->m_Lock);
           if (cache->m_Callback) {
             for (auto page = cache->m_Pages.begin(); page != cache->m_Pages.end(); ++page)
               dirty |= page.value()->status == Cache::CachePage::Editing ||
@@ -214,12 +214,8 @@ void CacheManager::initialise() {
     m_bActive = true;
     m_bTrimRequested = true;
   }
-  m_pTrimThread = new Thread(pParent, trimTrampoline, nullptr, nullptr, false, false, true);
-  m_pTrimThread->setPriority(MAINTENANCE_PRIORITY);
+  m_pTrimThread = new Thread(pParent, trimTrampoline, 0);
   m_pTrimThread->setName("CacheManager trim thread");
-  if (!m_pTrimThread->start()) {
-    FATAL("CacheManager could not start its trim thread");
-  }
 #endif
 }
 
@@ -636,7 +632,7 @@ Cache::Cache(size_t pageConstraints)
 #endif
 {
   {
-    LockGuard<NoIrqSpinlock> allocatorGuard(m_AllocatorLock);
+    LockGuard<Spinlock> allocatorGuard(m_AllocatorLock);
     if (!g_AllocatorInited) {
 #if STANDALONE_CACHE
       uintptr_t start = 0;
@@ -700,7 +696,7 @@ void Cache::waitForPageEviction(uintptr_t key) {
     CachePage* page = nullptr;
     auto waitGuard = m_EvictionWaiters.acquire();
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       if (m_PageFilter.contains(key)) {
         page = m_Pages.lookup(key);
       }
@@ -723,7 +719,7 @@ uintptr_t Cache::lookup(uintptr_t key) {
     return 0;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   // Check against the bloom filter first, before we hit the tree.
   if (!m_PageFilter.contains(key)) {
@@ -766,7 +762,7 @@ size_t Cache::read(uintptr_t offset, size_t length, uintptr_t buffer,
   const size_t wanted = (within + length - 1) / CachePageSize + 1;
   size_t count = 0;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     for (; count < wanted; ++count) {
       // Hits need the tree anyway; hashing a Bloom filter adds no useful work.
       CachePage* page = m_Pages.lookup(first + count * CachePageSize);
@@ -800,7 +796,7 @@ size_t Cache::read(uintptr_t offset, size_t length, uintptr_t buffer,
     }
   }
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     for (size_t i = 0; i < count; ++i) {
       assert(pages[i]->refcnt);
       --pages[i]->refcnt;
@@ -840,7 +836,7 @@ bool Cache::lookupStable(uintptr_t key, uintptr_t& location, bool wait) {
 #endif
     CachePage* page = nullptr;
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       page = m_PageFilter.contains(key) ? m_Pages.lookup(key) : nullptr;
       if (!page)
         return true;
@@ -877,7 +873,7 @@ uintptr_t Cache::insert(uintptr_t key, bool* alreadyExisted) {
 
   while (true) {
     waitForPageEviction(key);
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     // We check the bloom filter to avoid hitting the tree, which is useful
     // as this is quite a hot path at times.
@@ -968,7 +964,7 @@ uintptr_t Cache::insert(uintptr_t key, size_t size, bool* alreadyExisted) {
       waitForPageEviction(key + (page * CachePageSize));
     }
 
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     bool evictionPending = false;
     for (size_t page = 0; page < nPages; ++page) {
       CachePage* pageEntry = m_Pages.lookup(key + (page * CachePageSize));
@@ -1079,7 +1075,7 @@ bool Cache::exists(uintptr_t key, size_t length) {
     return false;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   bool result = true;
   for (size_t i = 0; i < length; i += CachePageSize) {
@@ -1123,7 +1119,7 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
   bool submittedChecksumTracking = false;
 
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     if (m_PageFilter.contains(key)) {
       page = m_Pages.lookup(key);
     }
@@ -1174,7 +1170,7 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
     checksum(reinterpret_cast<const void*>(location), CachePageSize, submittedChecksum);
   if (dirty && !callback(CacheConstants::WriteBack, key, location, callbackMeta)) {
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       page->writebackFailed = true;
       page->callbackActive = false;
 #if THREADS
@@ -1192,7 +1188,7 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
   if (mode != EvictionMode::DiscardEditing) {
     bool pinnedAgain = false;
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       CachePage* current = nullptr;
       if (m_PageFilter.contains(key)) {
         current = m_Pages.lookup(key);
@@ -1251,7 +1247,7 @@ bool Cache::finishRetirement(CachePage* page, writeback_t callback, void* callba
   if (callback) {
 #if THREADS
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       page->callbackOwner = Processor::information().getCurrentThread();
     }
 #endif
@@ -1259,7 +1255,7 @@ bool Cache::finishRetirement(CachePage* page, writeback_t callback, void* callba
   }
 
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     CachePage* current = nullptr;
     if (m_PageFilter.contains(key)) {
       current = m_Pages.lookup(key);
@@ -1289,7 +1285,7 @@ bool Cache::finishRetirement(CachePage* page, writeback_t callback, void* callba
 #endif
 
   {
-    LockGuard<NoIrqSpinlock> allocatorGuard(m_AllocatorLock);
+    LockGuard<Spinlock> allocatorGuard(m_AllocatorLock);
     m_Allocator.free(location, CachePageSize);
   }
   delete page;
@@ -1309,7 +1305,7 @@ bool Cache::retireWriteback(uintptr_t key, retirement_writeback_t callback, void
   writeback_t evictionCallback = nullptr;
   void* evictionCallbackMeta = nullptr;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     if (m_PageFilter.contains(key)) {
       page = m_Pages.lookup(key);
     }
@@ -1335,7 +1331,7 @@ bool Cache::retireWriteback(uintptr_t key, retirement_writeback_t callback, void
     auto waitGuard = m_EvictionWaiters.acquire();
     waitGuard.prepareToWait();
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       CachePage* current = nullptr;
       if (m_PageFilter.contains(key)) {
         current = m_Pages.lookup(key);
@@ -1368,7 +1364,7 @@ bool Cache::retireWriteback(uintptr_t key, retirement_writeback_t callback, void
   }
 #else
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     if (page->refcnt != 1) {
       page->evictionState = CachePage::EvictionState::None;
       return false;
@@ -1377,7 +1373,7 @@ bool Cache::retireWriteback(uintptr_t key, retirement_writeback_t callback, void
 #endif
 
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     page->callbackActive = true;
 #if THREADS
     page->callbackOwner = Processor::information().getCurrentThread();
@@ -1387,7 +1383,7 @@ bool Cache::retireWriteback(uintptr_t key, retirement_writeback_t callback, void
   bool retire = false;
   bool wake = false;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     page->callbackActive = false;
 #if THREADS
     page->callbackOwner = nullptr;
@@ -1432,7 +1428,7 @@ bool Cache::empty() {
       auto waitGuard = m_EvictionWaiters.acquire();
       waitGuard.prepareToWait();
       {
-        LockGuard<NoIrqSpinlock> guard(m_Lock);
+        LockGuard<Spinlock> guard(m_Lock);
         Tree<uintptr_t, CachePage*>::Iterator it = m_Pages.begin();
         if (it == m_Pages.end()) {
           return true;
@@ -1454,7 +1450,7 @@ bool Cache::empty() {
     }
 #else
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       Tree<uintptr_t, CachePage*>::Iterator it = m_Pages.begin();
       if (it == m_Pages.end()) {
         return true;
@@ -1466,7 +1462,7 @@ bool Cache::empty() {
     // Another caller can win the eviction race after the predicate check.
     // Restarting discovers either its in-progress state or the next page.
     if (!evict(key, EvictionMode::DiscardBaseReference)) {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       CachePage* page = m_Pages.lookup(key);
       if (page && page->writebackFailed) {
         return false;
@@ -1480,7 +1476,7 @@ bool Cache::pin(uintptr_t key) {
     return false;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   if (!m_PageFilter.contains(key)) {
     return false;
@@ -1509,7 +1505,7 @@ void Cache::release(uintptr_t key) {
   bool shouldEvict = false;
   CachePage* releasedPage = nullptr;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     if (!m_PageFilter.contains(key)) {
       return;
@@ -1573,7 +1569,7 @@ bool Cache::sync(uintptr_t key, bool async) {
   void* admissionHookMeta = nullptr;
 #endif
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     if (!m_PageFilter.contains(key)) {
       return true;
@@ -1644,7 +1640,7 @@ bool Cache::syncAll(writeback_batch_t callback, void* metadata) {
   for (size_t attempt = 0; attempt < 4 && !snapshotted; ++attempt) {
     size_t count = 0;
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       if (static_cast<size_t>(m_ShutdownState)) {
         return false;
       }
@@ -1657,7 +1653,7 @@ bool Cache::syncAll(writeback_batch_t callback, void* metadata) {
       return false;
     }
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       if (candidates.count() > entries.size() || (callback && candidates.count() > keys.size())) {
         continue;
       }
@@ -1707,7 +1703,7 @@ bool Cache::syncAll(writeback_batch_t callback, void* metadata) {
       CachePage* page = nullptr;
       bool busy = false;
       {
-        LockGuard<NoIrqSpinlock> guard(m_Lock);
+        LockGuard<Spinlock> guard(m_Lock);
         page = m_Pages.lookup(entry.key);
         if (!page) {
           break;
@@ -1773,7 +1769,7 @@ bool Cache::DirectWritebackLease::acquire(Cache& cache, uintptr_t key, uintptr_t
     return false;
   }
   {
-    LockGuard<NoIrqSpinlock> guard(cache.m_Lock);
+    LockGuard<Spinlock> guard(cache.m_Lock);
     CachePage* page = cache.m_Pages.lookup(key);
     if (!page || page->location != location || !page->callbackActive ||
         page->status == CachePage::Editing || page->mutableLoans || page->externallyWritable ||
@@ -1810,7 +1806,7 @@ void Cache::DirectWritebackLease::release() {
   Cache* cache = m_Cache;
   CachePage* page = m_Page;
   {
-    LockGuard<NoIrqSpinlock> guard(cache->m_Lock);
+    LockGuard<Spinlock> guard(cache->m_Lock);
     assert(page->directWriteback);
     page->directWriteback = false;
   }
@@ -1874,7 +1870,7 @@ bool Cache::syncBatchInternal(const uintptr_t* keys, size_t count, writeback_bat
 #endif
     CachePage* busy = nullptr;
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       if (static_cast<size_t>(m_ShutdownState) || !m_Callback)
         return false;
       // Claim all pages together: two overlapping batches must never each own
@@ -1938,7 +1934,7 @@ bool Cache::syncBatchInternal(const uintptr_t* keys, size_t count, writeback_bat
   }
   const bool succeeded = callback(writes, writeCount, metadata);
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     for (size_t i = 0; i < writeCount; ++i) {
       CachePage* page = submissions[i].page;
       page->writebackFailed = !succeeded;
@@ -1985,7 +1981,7 @@ bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait) {
     auto waitGuard = m_EvictionWaiters.acquire();
 #endif
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       page = m_Pages.lookup(key);
       if (!page || page->location != location || !m_Callback) {
         return false;
@@ -2031,7 +2027,7 @@ bool Cache::writebackPage(uintptr_t key, uintptr_t location, bool wait) {
     checksum(reinterpret_cast<const void*>(location), CachePageSize, submittedChecksum);
   const bool succeeded = callback(CacheConstants::WriteBack, key, location, callbackMeta);
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     page->writebackFailed = !succeeded;
     if (succeeded) {
       page->writtenGeneration = submittedGeneration;
@@ -2060,7 +2056,7 @@ void Cache::markDirty(uintptr_t key) {
   if (!ensureUsable("markDirty")) {
     return;
   }
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   CachePage* page = m_Pages.lookup(key);
   if (page) {
     recordMutation(page);
@@ -2070,7 +2066,7 @@ void Cache::markDirty(uintptr_t key) {
 void Cache::markExternallyWritable(uintptr_t key) {
   if (!ensureUsable("markExternallyWritable"))
     return;
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   CachePage* page = m_Pages.lookup(key);
   if (!page || page->externallyWritable)
     return;
@@ -2091,7 +2087,7 @@ bool Cache::beginMutableLoan(uintptr_t key) {
 #endif
     CachePage* page = nullptr;
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       page = m_Pages.lookup(key);
       if (!page || page->evictionState == CachePage::EvictionState::Retiring ||
           page->mutableLoans == ~size_t{0}) {
@@ -2130,7 +2126,7 @@ bool Cache::beginMutableLoan(uintptr_t key) {
 void Cache::endMutableLoan(uintptr_t key) {
   if (!ensureUsable("endMutableLoan"))
     return;
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   CachePage* page = m_Pages.lookup(key);
   assert(page && page->mutableLoans);
   if (!page || !page->mutableLoans)
@@ -2153,7 +2149,7 @@ void Cache::triggerChecksum(uintptr_t key) {
     return;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   if (!m_PageFilter.contains(key)) {
     return;
@@ -2176,7 +2172,7 @@ void Cache::timer(uint64_t delta) {
   TerminationDeferral terminationDeferral;
 #endif
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     const uint64_t maximum = ~static_cast<uint64_t>(0);
     m_Nanoseconds = delta > (maximum - m_Nanoseconds) ? maximum : m_Nanoseconds + delta;
     if (LIKELY(m_Nanoseconds < (CACHE_WRITEBACK_PERIOD * 1000000ULL))) {
@@ -2216,7 +2212,7 @@ void Cache::timer(uint64_t delta) {
     void* admissionHookMeta = nullptr;
 #endif
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       if (!m_Callback || m_bInCritical == 1) {
         break;
       }
@@ -2315,7 +2311,7 @@ void Cache::setCallback(Cache::writeback_t newCallback, void* meta) {
     return;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (!newCallback) {
     FATAL("Cache callbacks cannot be cleared after publication");
     return;
@@ -2334,7 +2330,7 @@ void Cache::setCallback(Cache::writeback_t newCallback, void* meta) {
 }
 
 void Cache::setBackgroundWriteback(writeback_batch_t callback) {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (static_cast<size_t>(m_ShutdownState) || !m_Callback || m_Pages.count() ||
       m_BackgroundWriteback || !callback) {
     FATAL("Background writeback must be installed before publishing cache pages");
@@ -2352,7 +2348,7 @@ void Cache::releaseBackgroundWriteback(BackgroundWriteback* batch) {
 void Cache::setDirtyTracking(DirtyTracking tracking) {
   if (!ensureUsable("setDirtyTracking"))
     return;
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (m_Pages.count()) {
     FATAL("Cache dirty tracking must be selected before inserting pages");
     return;
@@ -2362,7 +2358,7 @@ void Cache::setDirtyTracking(DirtyTracking tracking) {
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 void Cache::setWritebackAdmissionHookForTest(writeback_admission_hook_t hook, void* meta) {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   m_WritebackAdmissionHook = hook;
   m_WritebackAdmissionHookMeta = meta;
 }
@@ -2387,7 +2383,7 @@ uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p
   // sync() transfers a pin to its request before dropping the cache lock.
   // Timer-driven requests acquire their pin here.
   if (!p5) {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     CachePage* page = m_Pages.lookup(p3);
     if (!page || page->evictionState == CachePage::EvictionState::Draining ||
         page->evictionState == CachePage::EvictionState::Retiring) {
@@ -2419,7 +2415,7 @@ size_t Cache::lruEvict(bool force) {
 
   uintptr_t key = 0;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     if (!(m_pLruHead && m_pLruTail)) {
       return 0;
     }
@@ -2431,7 +2427,7 @@ size_t Cache::lruEvict(bool force) {
   }
 
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     CachePage* page = nullptr;
     if (m_PageFilter.contains(key)) {
       page = m_Pages.lookup(key);
@@ -2546,7 +2542,7 @@ void Cache::markEditing(uintptr_t key, size_t length) {
     length = CachePageSize;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   size_t nPages = length / CachePageSize;
 
@@ -2579,7 +2575,7 @@ void Cache::markNoLongerEditing(uintptr_t key, size_t length) {
     length = CachePageSize;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   size_t nPages = length / CachePageSize;
 

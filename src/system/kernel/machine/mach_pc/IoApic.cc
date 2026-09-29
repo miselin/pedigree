@@ -72,7 +72,7 @@ bool IoApic::route(uint32_t gsi, uint8_t vector, uint8_t destination, bool activ
   const uint32_t registerNumber = 0x10 + 2 * (gsi - m_GsiBase);
   const uint32_t low = vector | (1U << 15) | (1U << 16) | (activeLow ? 1U << 13 : 0);
   const uint32_t high = uint32_t(destination) << 24;
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   m_IoSpace.write32(registerNumber, 0);
   const uint32_t current = m_IoSpace.read32(0x10);
   m_IoSpace.write32(current | (1U << 16), 0x10);
@@ -89,7 +89,7 @@ bool IoApic::mask(uint32_t gsi, bool masked) {
     return false;
   }
   const uint32_t registerNumber = 0x10 + 2 * (gsi - m_GsiBase);
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   m_IoSpace.write32(registerNumber, 0);
   uint32_t low = m_IoSpace.read32(0x10);
   low = masked ? low | (1U << 16) : low & ~(1U << 16);

@@ -37,7 +37,7 @@
 #include <time.h>
 #include <unistd.h>
 
-static NoIrqSpinlock g_Protection(false);
+static Spinlock g_Protection(false);
 #else
 // errno for lwIP usage, this is not ideal as it'll be exposed to ALL modules.
 int errno;

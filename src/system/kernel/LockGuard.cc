@@ -25,10 +25,7 @@
 #endif
 
 template class LockGuard<Spinlock>;
-template class RecursingLockGuard<NoIrqSpinlock>;
-template class LockGuard<NoIrqSpinlock>;
-template class LockGuard<NoPreemptSpinlock>;
-template class RecursingLockGuard<NoPreemptSpinlock>;
+template class RecursingLockGuard<Spinlock>;
 
 #if THREADS && !defined(STANDALONE_MUTEXES)
 LockGuard<Mutex>::LockGuard(Mutex& Lock, bool Condition)

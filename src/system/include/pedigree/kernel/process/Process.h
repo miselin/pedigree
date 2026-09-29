@@ -875,7 +875,7 @@ class EXPORTED_PUBLIC Process {
   static void setInit(Process* pProcess);
 
  protected:
-  mutable NoPreemptSpinlock m_CredentialLock;
+  mutable Spinlock m_CredentialLock;
   static bool loadFilesystemIds(const Thread&, uint32_t& uid, uint32_t& gid);
   static void publishFilesystemIds(Thread&, uint32_t uid, uint32_t gid);
   void publishAccountIdentity(User*, Group*);
@@ -1000,7 +1000,7 @@ class EXPORTED_PUBLIC Process {
    * Memory allocator for dynamic address space, if any.
    */
   MemoryAllocator m_DynamicSpaceAllocator;
-  NoPreemptSpinlock m_UserReservationLock;
+  Spinlock m_UserReservationLock;
   uint64_t m_UserReservationGeneration;
 
 #if PEDIGREE_BENCHMARK_SYSCALL_TIMING
@@ -1059,7 +1059,7 @@ class EXPORTED_PUBLIC Process {
    * Short predicate lock. Scheduler enumeration may nest this under the
    * global scheduler lock; it is never held while waking lease drainers.
    */
-  NoIrqSpinlock m_ExternalLeaseLock;
+  Spinlock m_ExternalLeaseLock;
 
   /** Lifetime barrier for scheduler enumeration leases. */
   WaitQueue m_ExternalLeaseWaiters;
@@ -1145,14 +1145,14 @@ class EXPORTED_PUBLIC Process {
   size_t m_ReaperState;
 
   /** Concurrency lock for complex Process data structures. */
-  NoIrqSpinlock m_Lock;
+  Spinlock m_Lock;
 
   /**
    * Totals may be queried under timer, signal, or child-state locks. Writers
    * take this inside m_Lock only around vector mutation and retired transfer;
    * readers take only this lock and never invoke callbacks while holding it.
    */
-  mutable NoIrqSpinlock m_TimeAccountingLock;
+  mutable Spinlock m_TimeAccountingLock;
 
   /**
    * Accounts for one process-exit participant after it is off-stack.

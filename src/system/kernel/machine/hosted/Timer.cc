@@ -67,7 +67,7 @@ HostedTimer::~HostedTimer() {
 }
 
 void HostedTimer::addAlarm(Event* pEvent, size_t alarmSecs, size_t alarmUsecs) {
-  LockGuard<NoIrqSpinlock> guard(m_AlarmLock);
+  LockGuard<Spinlock> guard(m_AlarmLock);
   uint64_t deadline = getTickCountNano();
   deadline = addAlarmDuration(deadline, alarmSecs, Time::Multiplier::Second);
   deadline = addAlarmDuration(deadline, alarmUsecs, Time::Multiplier::Microsecond);
@@ -76,7 +76,7 @@ void HostedTimer::addAlarm(Event* pEvent, size_t alarmSecs, size_t alarmUsecs) {
 }
 
 void HostedTimer::removeAlarm(Event* pEvent) {
-  LockGuard<NoIrqSpinlock> guard(m_AlarmLock);
+  LockGuard<Spinlock> guard(m_AlarmLock);
   for (List<Alarm*>::Iterator it = m_Alarms.begin(); it != m_Alarms.end(); ++it) {
     if ((*it)->m_pEvent == pEvent) {
       Alarm* alarm = *it;
@@ -88,7 +88,7 @@ void HostedTimer::removeAlarm(Event* pEvent) {
 }
 
 size_t HostedTimer::removeAlarm(class Event* pEvent, bool bRetZero) {
-  LockGuard<NoIrqSpinlock> guard(m_AlarmLock);
+  LockGuard<Spinlock> guard(m_AlarmLock);
   const uint64_t currTime = getTickCountNano();
 
   for (List<Alarm*>::Iterator it = m_Alarms.begin(); it != m_Alarms.end(); ++it) {
@@ -304,7 +304,7 @@ void HostedTimer::uninitialise() {
   synchronise();
 
   {
-    LockGuard<NoIrqSpinlock> guard(m_AlarmLock);
+    LockGuard<Spinlock> guard(m_AlarmLock);
     for (List<Alarm*>::Iterator it = m_Alarms.begin(); it != m_Alarms.end(); ++it) {
       delete *it;
     }

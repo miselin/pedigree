@@ -100,14 +100,13 @@ unnecessary. `pedigree_uptime_seconds`, `pedigree_cpus` and
 
 Scheduler selections include attempts that retain the current thread. Context
 switches count changes of thread, including initial dispatch and exit, but exclude
-same-thread event-stack changes. Reschedule service calls include empty attempts;
-deferrals require pending work. Preemption counts include nested calls and state
-queries. Spinlock counts include successful recursive acquisitions, with
-`policy="plain"`, `"no_preempt"` or `"no_irq"`. A contended acquisition paused at
-least once before succeeding; the counter does not count pauses or failed
-nonblocking attempts. Balancing counts completed automatic thread donations on
-the source CPU, excluding explicit affinity changes. The endpoint's `HELP` lines
-describe individual series.
+same-thread event-stack changes. Reschedule service calls include empty attempts.
+Spinlock counts include successful recursive acquisitions, with `policy="no_irq"`.
+A contended acquisition paused at least once before succeeding; the counter does
+not count pauses or failed nonblocking attempts. The endpoint's `HELP` lines
+describe individual series. Preemption, automatic-balancing and other lock-policy
+series were removed with those experimental mechanisms; historical captures can
+still contain them.
 
 Add `metrics-stats` to capture each benchmark phase. The driver opens the file
 before `ACK` and after the guest workload timer stops, then emits paired

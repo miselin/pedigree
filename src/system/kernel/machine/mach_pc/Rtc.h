@@ -242,7 +242,7 @@ class Rtc : public Timer, private IrqHandler {
   /** Intrusive alarm ownership; queue operations never allocate in IRQs. */
   RtcAlarmQueue m_AlarmQueue;
   /** Protects the alarm queue and the dispatch-ownership transition. */
-  NoIrqSpinlock m_Lock;
+  Spinlock m_Lock;
 
   /** Serialises the CMOS index/data register pair across processors. */
   Mutex m_CmosLock;

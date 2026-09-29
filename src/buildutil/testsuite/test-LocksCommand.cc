@@ -24,10 +24,10 @@
 
 #include <gtest/gtest.h>
 
-static NoIrqSpinlock* LOCK_A = 0;
-static NoIrqSpinlock* LOCK_B = 0;
-static NoIrqSpinlock* LOCK_C = 0;
-static NoIrqSpinlock* LOCK_D = 0;
+static Spinlock* LOCK_A = 0;
+static Spinlock* LOCK_B = 0;
+static Spinlock* LOCK_C = 0;
+static Spinlock* LOCK_D = 0;
 
 #define CPU_1 1
 #define CPU_2 2
@@ -37,10 +37,10 @@ static NoIrqSpinlock* LOCK_D = 0;
 class PedigreeLocksCommand : public ::testing::Test {
  public:
   PedigreeLocksCommand() : TestLocksCommand() {
-    LOCK_A = new NoIrqSpinlock();
-    LOCK_B = new NoIrqSpinlock();
-    LOCK_C = new NoIrqSpinlock();
-    LOCK_D = new NoIrqSpinlock();
+    LOCK_A = new Spinlock();
+    LOCK_B = new Spinlock();
+    LOCK_C = new Spinlock();
+    LOCK_D = new Spinlock();
 
     TestLocksCommand.setReady();
     TestLocksCommand.setFatal();
@@ -97,14 +97,14 @@ TEST_F(PedigreeLocksCommand, BadInterrupts) {
 
   // acquire(B) but with interrupts enabled.
   EXPECT_DEATH(TestLocksCommand.lockAttempted(LOCK_B, CPU_1, true),
-               "PANIC: NoIrqSpinlock 0x[0-9a-fA-F]+ attempted at level 1 with interrupts "
+               "PANIC: Spinlock 0x[0-9a-fA-F]+ attempted at level 1 with interrupts "
                "enabled on CPU1.");
 
   // Interrupts enabled between attempt and acquire (could happen if we see
   // an exception?)
   EXPECT_TRUE(TestLocksCommand.lockAttempted(LOCK_B, CPU_1));
   EXPECT_DEATH(TestLocksCommand.lockAcquired(LOCK_B, CPU_1, true),
-               "PANIC: NoIrqSpinlock 0x[0-9a-fA-F]+ acquired at level 1 with interrupts "
+               "PANIC: Spinlock 0x[0-9a-fA-F]+ acquired at level 1 with interrupts "
                "enabled on CPU1.");
 }
 
@@ -128,7 +128,7 @@ TEST_F(PedigreeLocksCommand, BadOrdering) {
 
   // release(A) - out-of-order!
   ASSERT_DEATH(TestLocksCommand.lockReleased(LOCK_A, CPU_1),
-               "PANIC: NoIrqSpinlock 0x[0-9a-fA-F]+ released out-of-order \\[expected lock "
+               "PANIC: Spinlock 0x[0-9a-fA-F]+ released out-of-order \\[expected lock "
                "0x[0-9a-fA-F]+, state acquired\\].");
 }
 

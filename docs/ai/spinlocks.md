@@ -1,16 +1,7 @@
 # Spinlock contracts
 
-Choose the lock from the contexts that access its protected state:
-
-| Type | Policy | Typical use |
-| --- | --- | --- |
-| `Spinlock` | Atomic exclusion and spinning only | Boot barriers with scheduling and local reentry already excluded |
-| `NoPreemptSpinlock` | Suppress preemption and migration; preserve the caller's IRQ state | Short, nonblocking thread-only bookkeeping |
-| `NoIrqSpinlock` | Mask local IRQs while owned; restore entry state on release | IRQ/fault-reachable state and scheduler handoffs |
-
-Use `LockGuard<T>` with the selected type. An ordinary `Spinlock` does not prevent
-an IRQ or another local thread from interrupting its owner and spinning forever.
-A section that must block needs a waitable primitive such as `Mutex`.
+Use `Spinlock` for kernel critical sections that must exclude local interrupts.
+`SpinlockWord` provides only the atomic exclusion needed by that implementation.
 
 ## Atomic primitive
 
@@ -28,36 +19,19 @@ The primitive neither waits nor manages interrupts, recursion, ownership, or
 lock tracking. A caller must supply those policies. In particular, it cannot
 replace a scheduler thread lock without preserving the scheduler handoff.
 
-## Preemption and recursive ownership
-
-`NoPreemptSpinlock` pins execution to the current CPU before attempting the atomic
-acquisition. Its per-CPU preemption depth nests across locks and explicit
-`Preemption::disable()` / `enable()` pairs. Depth updates and queries briefly mask
-IRQs; contention and the critical section retain the caller's IRQ state.
-IRQ and debugger handlers must not acquire this lock, including recursively.
-
-Recursive acquisition is opt-in through `NoPreemptSpinlock::allow_recursion` or
-`RecursingLockGuard<NoPreemptSpinlock>`. Each release retires one depth, and the
-outermost release publishes unlock before allowing a context switch. Pending
-timer and worker scheduling requests remain pending while preemption is disabled.
-The outer IRQ-enabled release services them at an ordinary thread boundary;
-if IRQs remain masked, a deferred one-shot quantum remains armed.
-
-Blocking, yielding, migration, stack abandonment, and returning to userspace with
-a live depth are rejected. Hosted signal frames retain their existing scheduling
-boundaries; `enable()` does not schedule from a live hosted signal frame.
-
 ## Interrupt and recursive ownership
 
-`NoIrqSpinlock::acquire()` saves the current interrupt state locally, disables local
+`Spinlock::acquire()` saves the current interrupt state locally, disables local
 interrupts, and acquires the word. Only a successful new owner writes the saved
 state into the lock. This prevents a contender from replacing another owner's
-restoration state. An ordinary thread that entered with IRQs enabled may enable
-them while waiting on another CPU, then masks them again before acquisition.
-Callers that entered with IRQs disabled keep them disabled throughout contention.
+restoration state.
 
-Recursive acquisition is opt-in through `NoIrqSpinlock::allow_recursion` or
-`RecursingLockGuard<NoIrqSpinlock>`. Reentry requires both the owning CPU and thread
+Interrupts remain disabled while waiting for another CPU to release the lock.
+The separate preemption policies and interrupt-enabled contention experiment were
+rolled back; see the [performance RCA](performance-cliffs-rca.md) for measurements.
+
+Recursive acquisition is opt-in through `Spinlock::allow_recursion` or
+`RecursingLockGuard<Spinlock>`. Reentry requires both the owning CPU and thread
 to match; CPU identity still matters when early boot threads are null. Nested
 acquisitions retain the outermost saved interrupt state.
 
@@ -66,12 +40,9 @@ level's saved interrupt state. It captures the state before publishing unlock,
 because the next owner may immediately overwrite it. `exit()` follows the same
 recursive release rules but leaves interrupts disabled. Both require interrupts
 to remain disabled while the lock is owned. Ordinary scopes can use
-`LockGuard<NoIrqSpinlock>` to pair acquisition and release.
+`LockGuard<Spinlock>` to pair acquisition and release.
 
 ## Diagnostics
-
-The following diagnostics and lock-order tracker cover `NoIrqSpinlock`.
-`NoPreemptSpinlock` always checks local ownership and balanced preemption depth.
 
 `PEDIGREE_SPINLOCK_DIAGNOSTICS` defaults to `OFF`. Enabling it retains acquisition
 call sites and corruption sentinels, checks interrupt state on release, and uses
@@ -85,7 +56,7 @@ alone does not enable Spinlock diagnostics.
 
 ## Scheduler handoff
 
-`NoIrqSpinlock` supplies the scheduler's private `deferredReleaseWord()` clears ownership, recursion, and
+The scheduler's private `deferredReleaseWord()` clears ownership, recursion, and
 diagnostic metadata while the word remains locked, then returns its address for
 context-switch assembly to publish unlock after changing stacks.
 `unlockForScheduler()` clears the same metadata and publishes unlock immediately.
@@ -98,34 +69,18 @@ the saved interrupt state until the matching context restores it.
 
 ## Verification scope
 
-The policy split passed the 4 KiB native suite (1,316 tests), including the
-atomic-word contention/publication and IRQ lock-tracker tests. Native shims model
-atomic exclusion; they do not establish IRQ or scheduler behavior. The synthetic
-1 KiB lane already had 25 filesystem/storage failures before this change.
+The refactor passed four native `PedigreeSpinlockWord` tests and ten
+`PedigreeLocksCommand` tests. The primitive tests cover single-winner contention,
+mutual exclusion, publication of protected data, and checked release. Native
+Spinlock shims do not establish kernel interrupt behavior.
 
-The Darwin hosted suite passed with lock tracking off and on. Its spinlock tests
-cover IRQ-state restoration, nested and recursive ownership, plain-lock state
-preservation, and a real timer callback during nested no-preempt scopes. A ready
-peer must remain deferred through the inner release and run during the outer
-release, outside any hosted signal frame.
-
-Fresh one- and four-CPU QEMU/TCG boots passed kernel-thread procfs, scheduling
-policy, placement, wakeup, and affinity-race checks. Existing lifecycle and
-permissions contract failures involving process/task ID assumptions remain
-separate. These runs do not establish physical-hardware timing.
-
-The subsequent matched before/after measurements found a one-CPU performance
-regression: warm GCC took 6.1% longer, while network download/upload throughput
-fell 52.3%/38.2%. Four-CPU warm GCC was essentially unchanged and networking
-improved modestly. Instrumented GCC IRQ-off duty did not decrease. An ordinary
-IRQ-enabled no-preempt lock pair currently creates three brief masked intervals
-for depth updates and the release check; preemption queries elsewhere add more.
-See the [policy-split comparison](performance-cliffs-rca.md#spinlock-policy-split-comparison-2026-09-28)
-for conditions, repeated measurements and attribution limits.
+The hosted `spinlock-interrupt-state` regression passed with diagnostics enabled
+and with lock tracking enabled. It covers both initial interrupt states, nested
+and recursive locking, `exit()`, reuse, and initially locked release. It runs in
+both the full and Darwin core hosted suites. Target guest runtime verification is
+limited to one CPU; host-thread contention is not evidence of SMP kernel behavior.
 
 ## One-CPU measurement, 2026-09-19
-
-These historical results used the IRQ-masking implementation then named `Spinlock`.
 
 The RAM-only `which.o` link was compared against `61267bd70`, using the same
 `-Os` kernel/module policy, GCC/musl binaries, input files, QEMU configuration,

@@ -100,7 +100,7 @@ class HostedInterruptManager : public ::InterruptManager {
   virtual ~HostedInterruptManager();
 
   /** Serialises handler pointer mutations. Dispatch never takes this lock. */
-  NoIrqSpinlock m_Lock;
+  Spinlock m_Lock;
 
   /** The normal interrupt handlers */
   InterruptHandler* m_pHandler[MAX_SIGNAL];

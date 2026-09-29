@@ -201,7 +201,7 @@ IntervalTimer::~IntervalTimer() {
 void IntervalTimer::setInterval(Time::Timestamp interval, Time::Timestamp* prevInterval) {
   bool needsSignal = false;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     needsSignal = advanceTimeLocked(absoluteTotal());
 
     if (prevInterval) {
@@ -218,7 +218,7 @@ void IntervalTimer::setInterval(Time::Timestamp interval, Time::Timestamp* prevI
 void IntervalTimer::setTimerValue(Time::Timestamp value, Time::Timestamp* prevValue) {
   bool needsSignal = false;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     needsSignal = advanceTimeLocked(absoluteTotal());
 
     if (prevValue) {
@@ -237,7 +237,7 @@ void IntervalTimer::setIntervalAndValue(Time::Timestamp interval, Time::Timestam
                                         Time::Timestamp* prevInterval, Time::Timestamp* prevValue) {
   bool needsSignal = false;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     needsSignal = advanceTimeLocked(absoluteTotal());
 
     if (prevInterval) {
@@ -259,7 +259,7 @@ void IntervalTimer::setIntervalAndValue(Time::Timestamp interval, Time::Timestam
 }
 
 void IntervalTimer::disarm() {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   const Time::Timestamp current = absoluteTotal();
   if (current > m_LastTotal) {
     m_LastTotal = current;
@@ -273,7 +273,7 @@ void IntervalTimer::disarm() {
 void IntervalTimer::getIntervalAndValue(Time::Timestamp& interval, Time::Timestamp& value) {
   bool needsSignal = false;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     needsSignal = advanceTimeLocked(absoluteTotal());
 
     interval = m_Interval;
@@ -292,7 +292,7 @@ void IntervalTimer::consumeCpuTime(Time::Timestamp absoluteTotal) {
 
   bool needsSignal = false;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     needsSignal = advanceTimeLocked(absoluteTotal);
   }
 
@@ -362,7 +362,7 @@ void IntervalTimer::timer(uint64_t delta) {
 
   bool needsSignal = false;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     if (!m_Armed) {
       // Disarmed - ignore the timer event.

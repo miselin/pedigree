@@ -123,8 +123,7 @@ static int metrics_status(void) {
           before_rows == cpus);
     CHECK(strstr(expected, "# TYPE pedigree_scheduler_yields_total counter\n"));
     CHECK(strstr(expected, "# TYPE pedigree_spinlock_acquires_total counter\n"));
-    CHECK(strstr(expected, "policy=\"plain\"") && strstr(expected, "policy=\"no_preempt\"") &&
-          strstr(expected, "policy=\"no_irq\""));
+    CHECK(strstr(expected, "policy=\"no_irq\""));
   } else {
     CHECK(!before_rows && !strstr(expected, "_total"));
   }

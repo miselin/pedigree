@@ -247,7 +247,7 @@ bool TimerHandlerRegistry::registerHandler(TimerHandler* handler) {
     return false;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_HandlerLock);
+  LockGuard<Spinlock> guard(m_HandlerLock);
   for (size_t i = 0; i < MaxHandlerSlots; ++i) {
     HandlerSlot& slot = m_Handlers[i];
     while (true) {
@@ -305,7 +305,7 @@ bool TimerHandlerRegistry::armHandler(TimerHandler* handler, uint64_t deadline, 
     return false;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_HandlerLock);
+  LockGuard<Spinlock> guard(m_HandlerLock);
   for (size_t i = 0; i < MaxHandlerSlots; ++i) {
     HandlerSlot& slot = m_Handlers[i];
     const size_t publication = __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
@@ -629,7 +629,7 @@ bool TimerHandlerRegistry::dispatchSelected(uint64_t delta, TimerHandler* onlyHa
 }
 
 void TimerHandlerRegistry::reset() {
-  LockGuard<NoIrqSpinlock> guard(m_HandlerLock);
+  LockGuard<Spinlock> guard(m_HandlerLock);
   for (size_t i = 0; i < MaxHandlerSlots; ++i) {
     HandlerSlot& slot = m_Handlers[i];
     assert(!hasActiveDispatch(slot));

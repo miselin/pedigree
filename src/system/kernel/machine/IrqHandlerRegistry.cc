@@ -838,7 +838,7 @@ bool IrqHandlerRegistry::registerHandler(uint8_t irq, IrqHandlerBase* handler, D
     return false;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_HandlerLock);
+  LockGuard<Spinlock> guard(m_HandlerLock);
   for (size_t i = 0; i < MaxHandlerSlots; ++i) {
     HandlerSlot& slot = m_Handlers[i];
     const size_t publication = __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
@@ -1048,7 +1048,7 @@ IrqHandlerRegistry::UnregisterResult IrqHandlerRegistry::unregisterHandler(
   }
 
   // Closing may need to wait for a callback's short finalization gate.
-  // NoIrqSpinlock ownership disables interrupts, so retain the exact publication
+  // Spinlock ownership disables interrupts, so retain the exact publication
   // as our mutation token and perform that wait after releasing the writer
   // lock. Concurrent removers or slot reuse are rejected by the closure CAS.
   m_HandlerLock.release();

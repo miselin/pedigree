@@ -73,7 +73,7 @@ TraceStatus PosixTraceContext::commitEnrollment(TraceEnrollmentAdmission& admiss
   if (!valid() || !ownsTokenUnlocked(admission.m_Tracee) || !admission.m_Tracer->live())
     return TraceStatus::Missing;
   assert(!m_ThreadCreations);
-  LockGuard<NoIrqSpinlock> publication(m_RelationLock);
+  LockGuard<Spinlock> publication(m_RelationLock);
   if (m_Incoming)
     return TraceStatus::Denied;
   // taskClosed serializes with activate in the relation's short state guard.

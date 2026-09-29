@@ -389,8 +389,7 @@ class EXPORTED_PUBLIC ConsoleManager : public Filesystem {
  private:
   Vector<ConsoleFile*> m_Consoles;
   static ConsoleManager m_Instance;
-  // PTY lookup and allocation run in filesystem/syscall threads, not input IRQs.
-  NoPreemptSpinlock m_Lock;
+  Spinlock m_Lock;
 
   void newConsole(char c, size_t i, bool lock);
 };

@@ -363,7 +363,7 @@ MemoryMapManager::VmStatus MemoryMapManager::remap(const RemapRequest& request, 
     for (auto* object : metadata.staged)
       object->setMappingOwnership(true);
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       assert(m_MmObjectLists.contains(&space));
       m_MmObjectLists.insert(&space, replacement);
     }

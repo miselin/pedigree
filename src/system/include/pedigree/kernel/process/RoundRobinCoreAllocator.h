@@ -41,7 +41,7 @@ class RoundRobinCoreAllocator : public ThreadToCoreAllocationAlgorithm {
   Tree<PerProcessorScheduler*, PerProcessorScheduler*> m_ProcMap;
 
   PerProcessorScheduler* m_pNext;
-  NoPreemptSpinlock m_Lock;
+  Spinlock m_Lock;
 };
 
 #endif

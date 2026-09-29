@@ -203,7 +203,7 @@ void Rtc::addAlarm(Event* pEvent, size_t alarmSecs, size_t alarmUsecs) {
   }
 
   const uint64_t now = getTickCountNano();
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   // Figure out when to trigger the alarm.
   uint64_t target = addAlarmDuration(now, alarmSecs, Time::Multiplier::Second);
@@ -306,7 +306,7 @@ bool Rtc::registerHandler(TimerHandler* handler) {
 bool Rtc::unregisterHandler(TimerHandler* handler) {
   const bool removed = m_HandlerRegistry.unregisterHandler(handler);
   if (removed && m_DeadlineMode) {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     publishNextDeadlineLocked();
   }
   return removed;
@@ -316,7 +316,7 @@ bool Rtc::armHandler(TimerHandler* handler, uint64_t absoluteDeadlineNs) {
   if (!m_DeadlineMode) {
     return false;
   }
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (!m_HandlerRegistry.armHandler(handler, absoluteDeadlineNs, getTickCountNano())) {
     return false;
   }
@@ -354,7 +354,7 @@ int Rtc::runDeadlineWorker() {
       processElapsedTime(now);
       m_HandlerRegistry.dispatchDue(now);
       {
-        LockGuard<NoIrqSpinlock> guard(m_Lock);
+        LockGuard<Spinlock> guard(m_Lock);
         publishNextDeadlineLocked();
       }
       Scheduler::instance().yield();
@@ -659,7 +659,7 @@ bool Rtc::initialise3() {
       FATAL("RTC deadline worker could not be started.");
     }
     {
-      LockGuard<NoIrqSpinlock> guard(m_Lock);
+      LockGuard<Spinlock> guard(m_Lock);
       publishNextDeadlineLocked();
     }
     NOTICE("RTC: runtime IRQ8 disabled; CPU 0 LAPIC handles timer deadlines");
@@ -714,7 +714,7 @@ void Rtc::uninitialise() {
   Alarm* reclaim = nullptr;
   Alarm* freeAlarms = nullptr;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     reclaim = m_AlarmQueue.detachActive();
     freeAlarms = m_AlarmQueue.detachFree();
   }

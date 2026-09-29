@@ -84,8 +84,7 @@ class Ne2k : public Network, public IrqHandler {
   Semaphore m_PacketQueueSize;
   List<packet*> m_PacketQueue;
 
-  // The producer is the threaded PCI IRQ handler; the consumer is the RX worker.
-  NoPreemptSpinlock m_PacketQueueLock;
+  Spinlock m_PacketQueueLock;
   Mutex m_DmaLock;
 
   irq_id_t m_IrqId;

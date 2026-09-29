@@ -121,7 +121,7 @@ uint32_t Armv7VirtualAddressSpace::pageDescriptor(physical_uintptr_t physical, s
 bool Armv7VirtualAddressSpace::isMapped(void* address) {
   const uintptr_t value = reinterpret_cast<uintptr_t>(address);
   Armv7VirtualAddressSpace& owner = value >= ARMV7_DIRECT_MAP_BASE ? m_KernelSpace : *this;
-  LockGuard<NoIrqSpinlock> guard(owner.m_Lock);
+  LockGuard<Spinlock> guard(owner.m_Lock);
   bool section = false;
   uint32_t* entry = owner.findExistingEntry(value, &section);
   if (!entry || !*entry) {
@@ -141,7 +141,7 @@ bool Armv7VirtualAddressSpace::map(physical_uintptr_t physical, void* address, s
     return false;
   }
   Armv7VirtualAddressSpace& owner = value >= ARMV7_DIRECT_MAP_BASE ? m_KernelSpace : *this;
-  LockGuard<NoIrqSpinlock> guard(owner.m_Lock);
+  LockGuard<Spinlock> guard(owner.m_Lock);
   uint32_t* entry = owner.findEntry(value, true);
   if (!entry || *entry) {
     return false;
@@ -162,7 +162,7 @@ bool Armv7VirtualAddressSpace::tryMapUserPage(physical_uintptr_t physical, void*
       (physical & (PAGE_SIZE - 1))) {
     return false;
   }
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   size_t newTables = 0;
   uint32_t* entry = findEntry(value, true, &newTables);
   if (!entry || *entry) {
@@ -182,7 +182,7 @@ bool Armv7VirtualAddressSpace::getMapping(void* address, physical_uintptr_t& phy
                                           size_t& flags) {
   const uintptr_t value = reinterpret_cast<uintptr_t>(address);
   Armv7VirtualAddressSpace& owner = value >= ARMV7_DIRECT_MAP_BASE ? m_KernelSpace : *this;
-  LockGuard<NoIrqSpinlock> guard(owner.m_Lock);
+  LockGuard<Spinlock> guard(owner.m_Lock);
   bool section = false;
   uint32_t* entry = owner.findExistingEntry(value, &section);
   if (!entry || !*entry) {
@@ -202,7 +202,7 @@ bool Armv7VirtualAddressSpace::getMapping(void* address, physical_uintptr_t& phy
 bool Armv7VirtualAddressSpace::trySetFlags(void* address, size_t flags) {
   const uintptr_t value = reinterpret_cast<uintptr_t>(address);
   Armv7VirtualAddressSpace& owner = value >= ARMV7_DIRECT_MAP_BASE ? m_KernelSpace : *this;
-  LockGuard<NoIrqSpinlock> guard(owner.m_Lock);
+  LockGuard<Spinlock> guard(owner.m_Lock);
   uint32_t* entry = owner.findEntry(value, false);
   if (!entry || !*entry) {
     return false;
@@ -224,7 +224,7 @@ bool Armv7VirtualAddressSpace::detachMapping(void* address, physical_uintptr_t& 
                                              size_t& flags, size_t requiredFlags) {
   const uintptr_t value = reinterpret_cast<uintptr_t>(address);
   Armv7VirtualAddressSpace& owner = value >= ARMV7_DIRECT_MAP_BASE ? m_KernelSpace : *this;
-  LockGuard<NoIrqSpinlock> guard(owner.m_Lock);
+  LockGuard<Spinlock> guard(owner.m_Lock);
   uint32_t* entry = owner.findEntry(value, false);
   if (!entry || !*entry) {
     return false;
@@ -297,7 +297,7 @@ VirtualAddressSpace::Stack* Armv7VirtualAddressSpace::allocateStack(size_t bytes
   bytes = (bytes + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
   uintptr_t top;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     if (m_StackTop < bytes + PAGE_SIZE) {
       return nullptr;
     }
@@ -412,7 +412,7 @@ VirtualAddressSpace* Armv7VirtualAddressSpace::clone(bool copyOnWrite) {
     delete clone;
     return nullptr;
   }
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   // The bootstrap's low identity mappings are sections, not userspace pages.
   if (this != &m_KernelSpace && !cloneUserTables(*clone, copyOnWrite)) {
     delete clone;
@@ -428,7 +428,7 @@ void Armv7VirtualAddressSpace::revertToKernelAddressSpace() {
   if (this == &m_KernelSpace) {
     return;
   }
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   freeUserTables();
   m_Heap = reinterpret_cast<void*>(USERSPACE_VIRTUAL_HEAP);
   m_HeapEnd = m_Heap;

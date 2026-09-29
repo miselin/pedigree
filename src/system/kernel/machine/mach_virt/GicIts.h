@@ -43,8 +43,8 @@ class GicIts {
   MemoryRegion m_CommandQueue;
   MemoryRegion m_Properties;
   MemoryRegion m_Pending;
-  mutable NoIrqSpinlock m_MappingLock;
-  NoIrqSpinlock m_CommandLock;
+  mutable Spinlock m_MappingLock;
+  Spinlock m_CommandLock;
   Mapping m_Mappings[MaxMappings];
   uintptr_t m_Base;
   uintptr_t m_Redistributor;

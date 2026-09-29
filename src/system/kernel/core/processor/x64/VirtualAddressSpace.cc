@@ -99,7 +99,7 @@ bool X64VirtualAddressSpace::isAddressValid(void* virtualAddress) {
   return false;
 }
 bool X64VirtualAddressSpace::isMapped(void* virtualAddress) {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   size_t pml4Index = PML4_INDEX(virtualAddress);
   uint64_t* pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
@@ -331,7 +331,7 @@ bool X64VirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, bool u
   virtualAddress = page_align(virtualAddress);
 
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     uint64_t* pageTableEntry = nullptr;
     if (!getPageTableEntry(virtualAddress, pageTableEntry)) {
       return false;
@@ -440,7 +440,7 @@ VirtualAddressSpace::ResidentCopyStatus X64VirtualAddressSpace::copyResidentUser
       bytes > getKernelStart() - address || (address & (pageSize - 1)) > pageSize - bytes)
     return ResidentCopyStatus::Inaccessible;
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   uint64_t table = m_PhysicalPML4;
   const size_t indices[] = {(address >> 39) & 0x1ff, (address >> 30) & 0x1ff,
                             (address >> 21) & 0x1ff};
@@ -485,7 +485,7 @@ bool X64VirtualAddressSpace::tryAccessUserWord(uintptr_t address, size_t width, 
     return false;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   uint64_t* pageTableEntry = nullptr;
   if (!getPageTableEntry(reinterpret_cast<void*>(address), pageTableEntry)) {
     return false;
@@ -528,7 +528,7 @@ bool X64VirtualAddressSpace::tryWriteUser32(uintptr_t address, uint32_t value) {
     return false;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   uint64_t* pageTableEntry = nullptr;
   if (!getPageTableEntry(reinterpret_cast<void*>(address), pageTableEntry)) {
     return false;
@@ -780,7 +780,7 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
   // Now we pick up the stacks lock, so we can copy safely. However, we don't
   // have the VirtualAddressSpace lock, so we can still safely use the heap
   // without worrying about re-entering.
-  LockGuard<NoIrqSpinlock> cloneStacksGuard(pClone->m_StacksLock);
+  LockGuard<Spinlock> cloneStacksGuard(pClone->m_StacksLock);
   m_StacksLock.acquire();
 
   if (m_pStackTop < KERNEL_SPACE_START) {
@@ -904,7 +904,7 @@ bool X64VirtualAddressSpace::mapPageStructures(physical_uintptr_t physAddress, v
   if (Processor::m_Initialised == 2) {
     panic("PageStack paging structures cannot expand after processor startup");
   }
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   size_t Flags = toFlags(flags, virtualAddress);
   size_t pml4Index = PML4_INDEX(virtualAddress);
@@ -947,7 +947,7 @@ bool X64VirtualAddressSpace::mapPageStructuresAbove4GB(physical_uintptr_t physAd
   if (Processor::m_Initialised == 2) {
     panic("PageStack paging structures cannot expand after processor startup");
   }
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   size_t Flags = toFlags(flags, virtualAddress);
   size_t pml4Index = PML4_INDEX(virtualAddress);
@@ -988,7 +988,7 @@ bool X64VirtualAddressSpace::mapPageStructuresAbove4GB(physical_uintptr_t physAd
 size_t X64VirtualAddressSpace::runtimeMappingPages(uintptr_t base, size_t length) {
   if (length > ~uintptr_t(0) - base)
     return 0;
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   const uintptr_t end = base + length;
   size_t count = 0;
   for (uintptr_t address = base; address < end;) {
@@ -1115,7 +1115,7 @@ VirtualAddressSpace::Stack* X64VirtualAddressSpace::allocateTrackedUserStack(siz
   // their separate address space and retain the scheduler-safe path above.
   Stack* reusable = nullptr;
   {
-    LockGuard<NoIrqSpinlock> guard(m_StacksLock);
+    LockGuard<Spinlock> guard(m_StacksLock);
     if (m_freeStacks.count() && m_freeStacks[m_freeStacks.count() - 1]->getSize() == size)
       reusable = m_freeStacks.popBack();
   }
@@ -1129,7 +1129,7 @@ VirtualAddressSpace::Stack* X64VirtualAddressSpace::allocateTrackedUserStack(siz
   const uintptr_t topValue = reinterpret_cast<uintptr_t>(top);
   if (topValue < size + page || topValue - size < getUserStart()) {
     if (reusable) {
-      LockGuard<NoIrqSpinlock> guard(m_StacksLock);
+      LockGuard<Spinlock> guard(m_StacksLock);
       m_freeStacks.pushBack(reusable);
     }
     return nullptr;
@@ -1137,7 +1137,7 @@ VirtualAddressSpace::Stack* X64VirtualAddressSpace::allocateTrackedUserStack(siz
   Stack* stack = new Stack(top, size, id);
   if (!stack) {
     if (reusable) {
-      LockGuard<NoIrqSpinlock> guard(m_StacksLock);
+      LockGuard<Spinlock> guard(m_StacksLock);
       m_freeStacks.pushBack(reusable);
     }
     return nullptr;
@@ -1172,7 +1172,7 @@ VirtualAddressSpace::Stack* X64VirtualAddressSpace::allocateTrackedUserStack(siz
     }
     delete stack;
     if (reusable) {
-      LockGuard<NoIrqSpinlock> guard(m_StacksLock);
+      LockGuard<Spinlock> guard(m_StacksLock);
       m_freeStacks.pushBack(reusable);
     }
     return nullptr;
@@ -1196,7 +1196,7 @@ void X64VirtualAddressSpace::freeStack(Stack* pStack) {
       charge.rawPages -= removed;
       account->publish(charge, account->futureMode());
     }
-    LockGuard<NoIrqSpinlock> guard(m_StacksLock);
+    LockGuard<Spinlock> guard(m_StacksLock);
     m_freeStacks.pushBack(pStack);
     return;
   }

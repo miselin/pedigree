@@ -41,11 +41,11 @@
 
 namespace {
 IoPort configSpace("PCI config space");
-NoIrqSpinlock configLock(false);
-NoIrqSpinlock ecamLock(false);
+Spinlock configLock(false);
+Spinlock ecamLock(false);
 bool configAvailable = false;
 MemoryMappedIo* ecamBuses[256] = {};
-PciConfigAccess<IoPort, NoIrqSpinlock> config(configSpace, configLock);
+PciConfigAccess<IoPort, Spinlock> config(configSpace, configLock);
 
 MemoryMappedIo* ecamBus(uint8_t bus) {
 #if ACPI
@@ -53,7 +53,7 @@ MemoryMappedIo* ecamBus(uint8_t bus) {
   if (mapped) {
     return mapped;
   }
-  LockGuard<NoIrqSpinlock> guard(ecamLock);
+  LockGuard<Spinlock> guard(ecamLock);
   mapped = __atomic_load_n(&ecamBuses[bus], __ATOMIC_ACQUIRE);
   if (mapped) {
     return mapped;
@@ -178,7 +178,7 @@ PciBus::~PciBus() {}
 
 void PciBus::initialise() {
   if (configSpace.allocate(0xCF8, 8)) {
-    LockGuard<NoIrqSpinlock> guard(configLock);
+    LockGuard<Spinlock> guard(configLock);
     configSpace.write32(0x80000000, 0);
     configAvailable = configSpace.read32(0) == 0x80000000;
   }

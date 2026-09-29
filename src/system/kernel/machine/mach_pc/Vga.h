@@ -97,7 +97,7 @@ class X86Vga : public Vga {
   X86Vga& operator=(const X86Vga&);
 
   MemoryMappedIo m_Framebuffer;
-  NoIrqSpinlock m_ConsoleLock{false, true};
+  Spinlock m_ConsoleLock{false, true};
   FramebufferConsole m_Console;
   Framebuffer* m_pConsoleFramebuffer = nullptr;
 };

@@ -95,7 +95,7 @@ bool HostedVirtualAddressSpace::isAddressValid(void* virtualAddress) {
 }
 
 bool HostedVirtualAddressSpace::isMapped(void* virtualAddress) {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   virtualAddress = page_align(virtualAddress);
 
@@ -136,7 +136,7 @@ bool HostedVirtualAddressSpace::map(physical_uintptr_t physAddress, void* virtua
     return false;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   // An inactive address space can retain a record without a host mapping.
   // Reject that duplicate before MAP_FIXED could replace another space's page.
@@ -211,7 +211,7 @@ bool HostedVirtualAddressSpace::map(physical_uintptr_t physAddress, void* virtua
 
 bool HostedVirtualAddressSpace::getMapping(void* virtualAddress, physical_uintptr_t& physAddress,
                                            size_t& flags) {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   virtualAddress = page_align(virtualAddress);
 
@@ -243,7 +243,7 @@ bool HostedVirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, boo
   }
 
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     mapping_t* mapping = findMapping(virtualAddress);
 
     if (!mapping) {
@@ -276,7 +276,7 @@ bool HostedVirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, boo
   bool publicationFailed = false;
   physical_uintptr_t oldPhysical = 0;
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
     mapping_t* mapping = findMapping(virtualAddress);
 
     if (mapping && ((userMode && (mapping->flags & KernelMode)) ||
@@ -376,7 +376,7 @@ bool HostedVirtualAddressSpace::tryAccessUserWord(uintptr_t address, size_t widt
     return false;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   const uintptr_t pageAddress = address - pageOffset;
   if (const mapping_t* record = findMapping(reinterpret_cast<void*>(pageAddress))) {
     const mapping_t& mapping = *record;
@@ -421,7 +421,7 @@ bool HostedVirtualAddressSpace::tryWriteUser32(uintptr_t address, uint32_t value
     return false;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (const mapping_t* record = findMapping(reinterpret_cast<void*>(pageAddress))) {
     const mapping_t& mapping = *record;
 
@@ -445,7 +445,7 @@ bool HostedVirtualAddressSpace::tryWriteUser32(uintptr_t address, uint32_t value
 }
 
 void HostedVirtualAddressSpace::setFlags(void* virtualAddress, size_t newFlags) {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   virtualAddress = page_align(virtualAddress);
 
@@ -480,7 +480,7 @@ bool HostedVirtualAddressSpace::tryMapUserPage(physical_uintptr_t physical, void
       value >= getKernelStart() ||
       (flags & (KernelMode | Swapped | Borrowed | Shared | CopyOnWrite)))
     return false;
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (findMapping(address) || !m_MappingIndex.reserveForInsert())
     return false;
   size_t index = m_KnownMapsSize;
@@ -520,7 +520,7 @@ bool HostedVirtualAddressSpace::tryDetachUserPage(void* address, physical_uintpt
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   if ((value & (pageSize - 1)) || value < getUserStart() || value >= getKernelStart())
     return false;
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   const size_t i = m_MappingIndex.lookup(value);
   if (i != HostedMappingIndex::Missing) {
     auto& mapping = m_pKnownMaps[i];
@@ -544,7 +544,7 @@ bool HostedVirtualAddressSpace::trySetFlags(void* virtualAddress, size_t newFlag
     return getKernelAddressSpace().trySetFlags(virtualAddress, newFlags);
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   if (mapping_t* mapping = findMapping(virtualAddress)) {
     if (mprotect(virtualAddress, PhysicalMemoryManager::getPageSize(), toFlags(newFlags, true)) !=
         0) {
@@ -557,7 +557,7 @@ bool HostedVirtualAddressSpace::trySetFlags(void* virtualAddress, size_t newFlag
 }
 
 void HostedVirtualAddressSpace::unmap(void* virtualAddress) {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   virtualAddress = page_align(virtualAddress);
 
@@ -583,7 +583,7 @@ void HostedVirtualAddressSpace::unmap(void* virtualAddress) {
 
 bool HostedVirtualAddressSpace::detachMapping(void* virtualAddress, physical_uintptr_t& physical,
                                               size_t& flags, size_t requiredFlags) {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
   virtualAddress = page_align(virtualAddress);
   physical = 0;
   flags = 0;
@@ -624,7 +624,7 @@ VirtualAddressSpace* HostedVirtualAddressSpace::clone(bool copyOnWrite) {
   pNew->m_HeapRegionId = m_HeapRegionId;
 
   {
-    LockGuard<NoIrqSpinlock> guard(m_Lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     // Copy over the known maps so the new address space can find them.
     if (m_KnownMapsSize) {
@@ -718,7 +718,7 @@ VirtualAddressSpace* HostedVirtualAddressSpace::clone(bool copyOnWrite) {
   {
     // Stack metadata can allocate from the kernel heap, which may need to
     // re-enter the address-space mapping lock.
-    LockGuard<NoIrqSpinlock> stacksGuard(m_StacksLock);
+    LockGuard<Spinlock> stacksGuard(m_StacksLock);
     if (m_pStackTop < KERNEL_SPACE_START) {
       pNew->m_pStackTop = m_pStackTop;
       for (Vector<Stack*>::Iterator it = m_freeStacks.begin(); it != m_freeStacks.end(); ++it) {
@@ -738,7 +738,7 @@ VirtualAddressSpace* HostedVirtualAddressSpace::clone(bool copyOnWrite) {
 }
 
 void HostedVirtualAddressSpace::revertToKernelAddressSpace() {
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 
   for (size_t i = 0; i < m_KnownMapsSize; ++i) {
     if (m_pKnownMaps[i].active) {

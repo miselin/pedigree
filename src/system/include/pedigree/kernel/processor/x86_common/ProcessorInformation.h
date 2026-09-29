@@ -24,7 +24,6 @@
 #define _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/process/Preemption.h"
 #include "pedigree/kernel/process/RcuReadState.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/types.h"
@@ -41,9 +40,6 @@ class SuspendDeviceHardIrqContext;
 /** Common x86 processor information structure */
 class EXPORTED_PUBLIC X86CommonProcessorInformation {
   friend class ProcessorBase;
-  friend void Preemption::disable();
-  friend void Preemption::enable();
-  friend bool Preemption::disabled();
   friend class Multiprocessor;
 
  public:
@@ -177,7 +173,6 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation {
   uint16_t m_TlsSelector;
   /** Device hard-IRQ callbacks currently active on this processor. */
   size_t m_DeviceHardIrqDepth;
-  size_t m_PreemptionDepth = 0;
   /** This processor's local TSC at its monotonic-clock anchor. */
   uint64_t m_TscClockAnchor;
   /** Global monotonic time represented by m_TscClockAnchor. */

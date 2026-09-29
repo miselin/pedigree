@@ -336,7 +336,7 @@ void SlamCache::endFastPath() {
 
 SlamCache::Node* SlamCache::popFreeObject(Slab* slab) {
 #if BITS_32
-  LockGuard<NoIrqSpinlock> guard(m_FreeLock);
+  LockGuard<Spinlock> guard(m_FreeLock);
   Node* head = slab->freeHead;
   if (head) {
     slab->freeHead = head->next;
@@ -368,7 +368,7 @@ SlamCache::Node* SlamCache::popFreeObject(Slab* slab) {
 
 void SlamCache::pushFreeObject(Slab* slab, Node* node) {
 #if BITS_32
-  LockGuard<NoIrqSpinlock> guard(m_FreeLock);
+  LockGuard<Spinlock> guard(m_FreeLock);
   node->next = slab->freeHead;
   slab->freeHead = node;
   __atomic_fetch_add(&slab->freeObjects, static_cast<size_t>(1), __ATOMIC_RELEASE);
@@ -406,7 +406,7 @@ uintptr_t SlamCache::allocate() {
 
   if (m_ObjectSize >= getPageSize()) {
     {
-      LockGuard<NoIrqSpinlock> guard(m_RecoveryLock);
+      LockGuard<Spinlock> guard(m_RecoveryLock);
       if (m_LargeFreeList) {
         Node* node = m_LargeFreeList;
         m_LargeFreeList = node->next;
@@ -436,7 +436,7 @@ uintptr_t SlamCache::allocate() {
   }
 
   if (N && fastSlab && !__atomic_load_n(&fastSlab->freeObjects, __ATOMIC_ACQUIRE)) {
-    LockGuard<NoIrqSpinlock> guard(m_RecoveryLock);
+    LockGuard<Spinlock> guard(m_RecoveryLock);
     if (!__atomic_load_n(&fastSlab->freeObjects, __ATOMIC_ACQUIRE) && fastSlab->onList)
       removeSlab(fastSlab);
   }
@@ -451,7 +451,7 @@ uintptr_t SlamCache::allocate() {
   }
 
   if (!N) {
-    LockGuard<NoIrqSpinlock> guard(m_RecoveryLock);
+    LockGuard<Spinlock> guard(m_RecoveryLock);
     for (size_t offset = 0; offset < NUM_LISTS; ++offset) {
       const size_t list = (thisList + offset) % NUM_LISTS;
       if (__atomic_load_n(&m_FastSlabs[list], __ATOMIC_ACQUIRE))
@@ -542,7 +542,7 @@ void SlamCache::free(uintptr_t object) {
   }
 
   if (m_ObjectSize >= getPageSize()) {
-    LockGuard<NoIrqSpinlock> guard(m_RecoveryLock);
+    LockGuard<Spinlock> guard(m_RecoveryLock);
     N->next = m_LargeFreeList;
     m_LargeFreeList = N;
     return;
@@ -560,7 +560,7 @@ void SlamCache::free(uintptr_t object) {
   }
 
   if (!fastPath) {
-    LockGuard<NoIrqSpinlock> guard(m_RecoveryLock);
+    LockGuard<Spinlock> guard(m_RecoveryLock);
     pushFreeObject(slab, N);
     if (!slab->onList)
       addSlab(slab, slab->list);
@@ -570,7 +570,7 @@ void SlamCache::free(uintptr_t object) {
   }
 
   if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE)) {
-    LockGuard<NoIrqSpinlock> guard(m_RecoveryLock);
+    LockGuard<Spinlock> guard(m_RecoveryLock);
     if (!__atomic_load_n(&slab->freeObjects, __ATOMIC_ACQUIRE)) {
       pushFreeObject(slab, N);
       if (!slab->onList)
@@ -655,7 +655,7 @@ size_t SlamCache::recovery(size_t maxSlabs) {
   while (__atomic_load_n(&m_FastPathState, __ATOMIC_ACQUIRE) != writer)
     spin_pause();
 
-  LockGuard<NoIrqSpinlock> guard(m_RecoveryLock);
+  LockGuard<Spinlock> guard(m_RecoveryLock);
 
   size_t freedSlabs = 0;
   if (m_ObjectSize < getPageSize()) {
@@ -695,7 +695,7 @@ SlamCache::Node* SlamCache::initialiseSlab(uintptr_t slab) {
   }
 
   if (m_ObjectSize >= getPageSize()) {
-    LockGuard<NoIrqSpinlock> guard(m_RecoveryLock);
+    LockGuard<Spinlock> guard(m_RecoveryLock);
     EMIT_IF(USING_MAGIC) {
       reinterpret_cast<Node*>(slab)->magic = TEMP_MAGIC;
     }
@@ -729,7 +729,7 @@ SlamCache::Node* SlamCache::initialiseSlab(uintptr_t slab) {
   }
 
   {
-    LockGuard<NoIrqSpinlock> guard(m_RecoveryLock);
+    LockGuard<Spinlock> guard(m_RecoveryLock);
     reinterpret_cast<SlamAllocator::AllocHeader*>(N)->cache = this;
     // Even an initially full slab can be cached and later recovered.
     slabState->list = currentList();
@@ -742,7 +742,7 @@ SlamCache::Node* SlamCache::initialiseSlab(uintptr_t slab) {
   return N;
 }
 
-static NoIrqSpinlock rarp;
+static Spinlock rarp;
 
 void SlamCache::check() {
   if (m_ObjectSize >= getPageSize()) {
@@ -862,7 +862,7 @@ SlamAllocator::~SlamAllocator() {
 }
 
 void SlamAllocator::initialise() {
-  LockGuard<NoIrqSpinlock> guard(m_SlabRegionLock);
+  LockGuard<Spinlock> guard(m_SlabRegionLock);
 
   if (m_bInitialised) {
     return;
@@ -933,7 +933,7 @@ void SlamAllocator::wipe() {
     return;
   }
 
-  LockGuard<NoIrqSpinlock> guard(m_SlabRegionLock);
+  LockGuard<Spinlock> guard(m_SlabRegionLock);
 
   m_bInitialised = false;
 
@@ -1087,7 +1087,7 @@ void SlamAllocator::markSlabReady(uintptr_t address, size_t length) {
 
   const size_t firstPage = (address - m_Base) / getPageSize();
   const size_t nPages = length / getPageSize();
-  LockGuard<NoIrqSpinlock> guard(m_SlabRegionLock);
+  LockGuard<Spinlock> guard(m_SlabRegionLock);
   for (size_t i = 0; i < nPages; ++i) {
     const size_t currentPage = firstPage + i;
     const uint64_t bit = 1ULL << (currentPage % 64);
@@ -1099,7 +1099,7 @@ void SlamAllocator::markSlabReady(uintptr_t address, size_t length) {
 }
 
 void SlamAllocator::freeSlab(uintptr_t address, size_t length) {
-  LockGuard<NoIrqSpinlock> guard(m_SlabRegionLock);
+  LockGuard<Spinlock> guard(m_SlabRegionLock);
 
   freeSlabUnlocked(address, length);
 }
@@ -1182,7 +1182,7 @@ uintptr_t SlamAllocator::allocate(size_t nBytes) {
     NOTICE_NOLOCK("SlabAllocator::allocate(" << Dec << nBytes << Hex << ")");
   }
 
-  ConstexprLockGuard<NoIrqSpinlock, SLAM_LOCKED> guard(m_Lock);
+  ConstexprLockGuard<Spinlock, SLAM_LOCKED> guard(m_Lock);
 
   if (UNLIKELY(!m_bInitialised))
     initialise();
@@ -1338,7 +1338,7 @@ bool SlamAllocator::isAllocatedPage(uintptr_t address) const {
 
 #if defined(PEDIGREE_BUILDUTILS)
 void SlamAllocator::setSlabTransitionHookForTest(SlabTransitionHookForTest hook, void* context) {
-  LockGuard<NoIrqSpinlock> guard(m_SlabRegionLock);
+  LockGuard<Spinlock> guard(m_SlabRegionLock);
   m_SlabTransitionHook = hook;
   m_SlabTransitionHookContext = context;
 }
@@ -1366,7 +1366,7 @@ void SlamAllocator::free(uintptr_t mem) {
 #endif
 
 #if SLAM_LOCKED
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 #endif
 
   // If we're not initialised, fix that
@@ -1439,12 +1439,12 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
 #endif
 
 #if SLAM_LOCKED
-  LockGuard<NoIrqSpinlock> guard(m_Lock);
+  LockGuard<Spinlock> guard(m_Lock);
 #endif
 
   // Pin the slab mapping until all header, cache, and footer reads complete.
   // freeSlab takes the same lock across unmapping and bitmap retirement.
-  LockGuard<NoIrqSpinlock> slabGuard(m_SlabRegionLock);
+  LockGuard<Spinlock> slabGuard(m_SlabRegionLock);
 
   // If we're not initialised, fix that
   if (UNLIKELY(!m_bInitialised)) {

@@ -30,7 +30,7 @@ global _ZN13ProcessorBase10jumpKernelEPVmmmmmmm:function hidden
 ; void ProcessorBase::jumpUser(volatile uintptr_t *, uintptr_t, uintptr_t,
 ;                          uintptr_t, uintptr_t, uintptr_t, uintptr_t)
 global _ZN13ProcessorBase8jumpUserEPVmmmmmmm:function
-; void PerProcessorScheduler::deleteThreadThenRestoreState(Thread*, SchedulerState&, NoIrqSpinlock*)
+; void PerProcessorScheduler::deleteThreadThenRestoreState(Thread*, SchedulerState&, Spinlock*)
 global _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR17X64SchedulerStatePVm:function hidden
 
 ; void Thread::threadExited()

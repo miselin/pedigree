@@ -110,14 +110,14 @@ class X64MappingMutationScope {
     finish(true);
   }
 
-  void lock(NoIrqSpinlock& lock) {
+  void lock(Spinlock& lock) {
     lock.acquire();
     m_Locks[m_LockCount].lock = &lock;
     m_Locks[m_LockCount].owned = true;
     ++m_LockCount;
   }
 
-  void unlock(NoIrqSpinlock& lock) {
+  void unlock(Spinlock& lock) {
     for (size_t i = m_LockCount; i > 0; --i) {
       LockState& state = m_Locks[i - 1];
       if (state.lock == &lock && state.owned) {
@@ -129,7 +129,7 @@ class X64MappingMutationScope {
     panicWithoutRestoringInterrupts("Mapping mutation released an unowned VAS lock");
   }
 
-  void relock(NoIrqSpinlock& lock) {
+  void relock(Spinlock& lock) {
     for (size_t i = 0; i < m_LockCount; ++i) {
       LockState& state = m_Locks[i];
       if (state.lock == &lock && !state.owned) {
@@ -175,7 +175,7 @@ class X64MappingMutationScope {
 
  private:
   struct LockState {
-    NoIrqSpinlock* lock;
+    Spinlock* lock;
     bool owned;
   };
 

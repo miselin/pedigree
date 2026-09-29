@@ -39,8 +39,9 @@
 #include <machine/mach_pc/Rtc.h>
 
 Atomic<bool> Multiprocessor::m_ProcessorStarted(false);
-// The BSP and APs cross this boot barrier before scheduling, with IRQs disabled.
-Spinlock Multiprocessor::m_ProcessorLock2(true);
+// Don't track this lock - it is for startup synchronisation, not for protecting
+// a specific resource.
+Spinlock Multiprocessor::m_ProcessorLock2(true, true);
 
 namespace {
 constexpr uint64_t InitToStartupDelayMicroseconds = 10000;
