@@ -20,6 +20,7 @@
 #include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
@@ -441,6 +442,10 @@ bool UsbHub::deviceConnectedAdmitted(uint8_t nPort, UsbSpeed speed) {
         return false;
       }
       pRootHub->releaseAddressesLocked(pinnedSubtreeAddresses);
+      if (!portSpeed(nPort, speed)) {
+        WARNING("USB: couldn't determine reset port speed (port " << nPort << ")");
+        return false;
+      }
 
       size_t nRetry = 0;
       uint8_t nAddress = 0;
@@ -608,6 +613,18 @@ void UsbHub::retirePortContainersLocked(uint8_t nPort, bool* retiredAddresses,
 
   while (retiredContainers.count()) {
     UsbDeviceContainer* container = retiredContainers.popFront();
+    ServiceManager& services = ServiceManager::instance();
+    const ServiceFeatures::Type operation =
+        m_RetainDisconnectedAddresses ? ServiceFeatures::write : ServiceFeatures::withdraw;
+    // mountroot is runtime-pinned; absence is valid before filesystem startup.
+    if (services.getService(String("mountroot")) &&
+        !services.serve(String("mountroot"), operation, static_cast<Device*>(container),
+                        sizeof(Device*))) {
+      panic("USB: couldn't withdraw filesystems before device retirement");
+    }
+    if (!m_RetainDisconnectedAddresses) {
+      prepareSubtreeForDisconnection(container);
+    }
     delete container;
   }
 }
@@ -653,6 +670,10 @@ void UsbHub::drainSubtreeProbeAdmissions(UsbDeviceContainer* container) {
   // descendant while teardown is waiting on its admission barrier.
   container->closeProbeAdmission();
   container->waitForProbes();
+  UsbDevice* device = container->getUsbDevice();
+  if (device) {
+    device->quiesceForRetirement();
+  }
 
   List<UsbDeviceContainer*> children;
   {
@@ -661,6 +682,21 @@ void UsbHub::drainSubtreeProbeAdmissions(UsbDeviceContainer* container) {
   }
   for (List<UsbDeviceContainer*>::Iterator it = children.begin(); it != children.end(); ++it)
     drainSubtreeProbeAdmissions(*it);
+}
+
+void UsbHub::prepareSubtreeForDisconnection(UsbDeviceContainer* container) {
+  UsbDevice* device = container->getUsbDevice();
+  if (device) {
+    device->prepareForDisconnection();
+  }
+  List<UsbDeviceContainer*> children;
+  {
+    Device::TreeLockGuard treeGuard;
+    collectImmediateUsbContainers(container, children);
+  }
+  for (List<UsbDeviceContainer*>::Iterator it = children.begin(); it != children.end(); ++it) {
+    prepareSubtreeForDisconnection(*it);
+  }
 }
 
 void UsbHub::retainAddressLocked(size_t address) {

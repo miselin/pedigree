@@ -26,6 +26,7 @@
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 class Timer;
 
@@ -46,10 +47,10 @@ class EXPORTED_PUBLIC HidInputManager : public TimerHandler {
   }
 
   /// Called when a key transitions to the "down" state
-  void keyDown(uint8_t keyCode);
+  void keyDown(uint8_t keyCode, const void* source = nullptr);
 
   /// Called when a key transitions to the "up" state
-  void keyUp(uint8_t keyCode);
+  void keyUp(uint8_t keyCode, const void* source = nullptr);
 
   /// Apply modifier or keymap changes to all keys in down state
   void updateKeys();
@@ -70,9 +71,13 @@ class EXPORTED_PUBLIC HidInputManager : public TimerHandler {
 
     /// Monotonic time of the next key repeat.
     uint64_t nextRepeat;
+
+    /// Devices still holding this key, including modifiers.
+    Vector<const void*> sources;
   };
 
   void armNextRepeatLocked();
+  void updateKeysLocked();
 
   /// Current key states (for periodic callbacks while a key is down)
   Tree<uint8_t, KeyState*> m_KeyStates;

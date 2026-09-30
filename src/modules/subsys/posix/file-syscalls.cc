@@ -631,6 +631,7 @@ int posix_read(int fd, char* ptr, int len) {
         return -1;
       }
 
+      pThread->setErrno(0);
       uint64_t amount = 0;
       if (position) {
         amount = pFd->getFile()->read(position->offset(), requested,
@@ -641,6 +642,7 @@ int posix_read(int fd, char* ptr, int len) {
       }
       const bool signalInterrupted =
           pThread->getInterruptionReason() == Thread::InterruptedBySignal;
+      const size_t backendError = pThread->getErrno();
 
       if (!amount && pFd->terminalHungUp())
         break;
@@ -650,6 +652,13 @@ int posix_read(int fd, char* ptr, int len) {
           SYSCALL_ERROR(Interrupted);
           F_NOTICE(" -> interrupted");
           return -1;
+        }
+        if (backendError) {
+          pThread->clearInterruption();
+          if (!totalRead) {
+            return -1;
+          }
+          pThread->setErrno(0);
         }
         break;
       }
@@ -1022,14 +1031,23 @@ ssize_t posix_pread64(int fd, char* ptr, size_t len, off_t offset) {
       return -1;
     }
 
+    thread->setErrno(0);
     const uint64_t amount = descriptor->getFile()->read(
         startingOffset + totalRead, requested, reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
     const bool signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
+    const size_t backendError = thread->getErrno();
     if (!amount) {
       if (!totalRead && signalInterrupted) {
         thread->clearInterruption();
         SYSCALL_ERROR(Interrupted);
         return -1;
+      }
+      if (backendError) {
+        thread->clearInterruption();
+        if (!totalRead) {
+          return -1;
+        }
+        thread->setErrno(0);
       }
       break;
     }
@@ -1328,6 +1346,7 @@ static int readFileVectorElement(Thread* thread, const DescriptorLease& descript
   File* file = descriptor->getFile();
   const bool canBlock = !(statusFlags & O_NONBLOCK);
 
+  thread->setErrno(0);
   uint64_t amount = 0;
   if (file->isSeekable()) {
     assert(position);
@@ -1337,10 +1356,17 @@ static int readFileVectorElement(Thread* thread, const DescriptorLease& descript
   }
 
   signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
+  const size_t backendError = thread->getErrno();
   thread->clearInterruption();
   if (!amount && signalInterrupted && !descriptor->terminalHungUp()) {
     if (reportError) {
       SYSCALL_ERROR(Interrupted);
+    }
+    return -1;
+  }
+  if (!amount && backendError) {
+    if (!reportError) {
+      thread->setErrno(0);
     }
     return -1;
   }
@@ -2028,15 +2054,23 @@ ssize_t positionalReadVector(int fd, const struct iovec* iov, int iovcnt, off_t 
         return -1;
       }
 
+      thread->setErrno(0);
       const uint64_t amount =
           descriptor->getFile()->read(startingOffset + totalRead, requested,
                                       reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
       const bool signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
+      const size_t backendError = thread->getErrno();
       if (!amount) {
         thread->clearInterruption();
         if (!totalRead && signalInterrupted) {
           SYSCALL_ERROR(Interrupted);
           return -1;
+        }
+        if (backendError) {
+          if (!totalRead) {
+            return -1;
+          }
+          thread->setErrno(0);
         }
         return static_cast<ssize_t>(totalRead);
       }

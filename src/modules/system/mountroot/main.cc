@@ -18,11 +18,16 @@
  */
 
 #include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Service.h"
+#include "pedigree/kernel/ServiceFeatures.h"
+#include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/core/BootIO.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Pointers.h"
@@ -52,6 +57,8 @@ static RootSelectorKind g_RootSelectorKind = RootSelectorKind::None;
 static String g_RootSelectorValue;
 
 static List<Filesystem*> g_MountedFilesystems;
+static Mutex g_MountLock;
+static ServiceFeatures g_MountFeatures;
 static FileDisk* g_pLiveDisk = nullptr;
 
 static void error(const char* s) {
@@ -116,6 +123,11 @@ static Device* probeDisk(Device* diskDevice) {
   }
 
   Disk* pDisk = static_cast<Disk*>(diskDevice);
+  for (auto* filesystem : g_MountedFilesystems) {
+    if (filesystem->getDisk() == pDisk) {
+      return diskDevice;
+    }
+  }
   String stableName;
   Filesystem* pFs = nullptr;
   if (VFS::instance().mount(pDisk, stableName, &pFs)) {
@@ -137,6 +149,48 @@ static Device* probeDisk(Device* diskDevice) {
 
   return diskDevice;
 }
+
+class MountService final : public Service {
+ public:
+  bool serve(ServiceFeatures::Type type, void* data, size_t length) override {
+    if (!data || length != sizeof(Device*)) {
+      return false;
+    }
+    Device* device = static_cast<Device*>(data);
+    LockGuard<Mutex> guard(g_MountLock);
+    if (type == ServiceFeatures::touch) {
+      Device::foreach (probeDisk, device);
+      return true;
+    }
+    if (type != ServiceFeatures::withdraw && type != ServiceFeatures::write) {
+      return false;
+    }
+    for (auto it = g_MountedFilesystems.begin(); it != g_MountedFilesystems.end();) {
+      Filesystem* filesystem = *it;
+      Device* ancestor = filesystem->getDisk();
+      while (ancestor && ancestor != device) {
+        ancestor = ancestor->getParent();
+      }
+      if (!ancestor) {
+        ++it;
+        continue;
+      }
+      const bool root = filesystem == VFS::instance().getRootFilesystem();
+      const String label = filesystem->getVolumeLabel();
+      if (!VFS::instance().removeDiskFilesystem(filesystem, type == ServiceFeatures::write)) {
+        return false;
+      }
+      NOTICE("Removed filesystem " << label);
+      if (root) {
+        ++it;
+      } else {
+        it = g_MountedFilesystems.erase(it);
+      }
+    }
+    return true;
+  }
+};
+static MountService g_MountService;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 static bool installHostedProfileRoot() {
@@ -176,6 +230,7 @@ static bool installHostedProfileRoot() {
 #endif
 
 static bool init() {
+  LockGuard<Mutex> guard(g_MountLock);
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   const bool hostedProfile = hostedSyscallProfileRequested();
 #else
@@ -216,6 +271,10 @@ static bool init() {
 
   // Root selection must not hide later partitions, such as the UEFI ESP.
   // The first matching root wins; other filesystems remain available in /media.
+  g_MountFeatures.add(ServiceFeatures::touch);
+  g_MountFeatures.add(ServiceFeatures::withdraw);
+  g_MountFeatures.add(ServiceFeatures::write);
+  ServiceManager::instance().addService(String("mountroot"), &g_MountService, &g_MountFeatures);
   Device::foreach (probeDisk);
 
   if (VFS::instance().getFilesystemAt(String("/media/raw")) == 0) {
@@ -277,6 +336,7 @@ static bool isLiveDiskFilesystem(Filesystem* filesystem) {
 }
 
 static void destroy() {
+  ServiceManager::instance().removeService(String("mountroot"));
   NOTICE("Unmounting all filesystems...");
 
   Vector<Filesystem*> ownedBackings;

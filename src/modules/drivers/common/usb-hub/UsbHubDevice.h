@@ -24,12 +24,13 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 
+#include "modules/drivers/common/usb-hcd/PortChangeRequest.h"
 #include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbConstants.h"
 #include "modules/system/usb/UsbDevice.h"
 #include "modules/system/usb/UsbHub.h"
 
-class UsbHubDevice : public UsbDevice, public UsbHub {
+class UsbHubDevice : public UsbDevice, public UsbHub, private RequestQueue {
  public:
   UsbHubDevice(UsbDevice* dev);
   virtual ~UsbHubDevice();
@@ -49,6 +50,8 @@ class UsbHubDevice : public UsbDevice, public UsbHub {
   }
 
   void prepareForDriverRetirement() override;
+  void quiesceForRetirement() override;
+  void prepareForDisconnection() override;
 
   virtual void addTransferToTransaction(uintptr_t pTransaction, bool bToggle, UsbPid pid,
                                         uintptr_t pBuffer, size_t nBytes);
@@ -71,6 +74,10 @@ class UsbHubDevice : public UsbDevice, public UsbHub {
                                                  void (*callback)(uintptr_t, ssize_t),
                                                  uintptr_t parameter,
                                                  bool producerAlreadyStopped) override;
+  uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+                          uint64_t p6, uint64_t p7, uint64_t p8) override;
+  void cancelRequest(const Request& request) override;
+  bool portSpeed(uint8_t port, UsbSpeed& speed) override;
 
  private:
   enum HubFeatureSelectors {
@@ -96,6 +103,7 @@ class UsbHubDevice : public UsbDevice, public UsbHub {
   };
 
   enum HubRequests {
+    HubRequest = static_cast<uint8_t>(UsbRequestType::Class),
     HubPortRequest = static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Class) |
                                           static_cast<uint8_t>(UsbRequestRecipient::Other))
   };
@@ -105,12 +113,19 @@ class UsbHubDevice : public UsbDevice, public UsbHub {
 
   /// Top 16 bits of status hold the port-change flags.
   bool getPortStatus(size_t port, uint32_t& status);
+  bool clearPortChanges(size_t port, uint32_t status);
+  bool debouncePort(size_t port, uint32_t& status);
+  bool connectPort(size_t port);
+  void portChanged(size_t port);
+  void stopHotplug();
+  static void statusChanged(uintptr_t parameter, ssize_t result);
 
   struct HubDescriptor {
     inline HubDescriptor(void* pBuffer)
         : pDescriptor(static_cast<Descriptor*>(pBuffer)),
           nPorts(pDescriptor->nPorts),
-          hubCharacteristics(pDescriptor->hubCharacteristics) {}
+          hubCharacteristics(pDescriptor->hubCharacteristics),
+          powerGoodDelay(pDescriptor->powerGoodDelay) {}
 
     ~HubDescriptor() {
       delete[] reinterpret_cast<uint8_t*>(pDescriptor);
@@ -121,13 +136,21 @@ class UsbHubDevice : public UsbDevice, public UsbHub {
       uint8_t nType;
       uint8_t nPorts;
       uint16_t hubCharacteristics;
+      uint8_t powerGoodDelay;
+      uint8_t controllerCurrent;
     } PACKED* pDescriptor;
 
     uint8_t nPorts;
     uint16_t hubCharacteristics;
+    uint8_t powerGoodDelay;
   };
 
   size_t m_nPorts;
+  size_t m_PowerGoodDelay;
+  uint8_t* m_StatusBuffer;
+  size_t m_StatusBytes;
+  UsbInterruptInHandle m_StatusInterrupt;
+  UsbHcd::PortChangeRequest m_StatusChange;
 };
 
 #endif

@@ -166,12 +166,20 @@ bool FatFile::checkedBatchCallback(const Cache::WritebackPage* pages, size_t cou
 }
 
 bool FatFile::sync() {
+  OperationBarrier::Lease operation;
+  if (!m_pFilesystem->tryAcquireOperation(operation)) {
+    return false;
+  }
   LockGuard<Mutex> data(m_State->dataLock);
   const bool succeeded = cacheState().fill.syncAll(checkedBatchCallback, m_State);
   return m_State->filesystem->syncFileMetadata(this) && succeeded;
 }
 
 bool FatFile::sync(size_t offset, bool async) {
+  OperationBarrier::Lease operation;
+  if (!m_pFilesystem->tryAcquireOperation(operation)) {
+    return false;
+  }
   offset -= offset % getBlockSize();
   if (async)
     return cacheState().fill.sync(offset, true);
@@ -181,6 +189,10 @@ bool FatFile::sync(size_t offset, bool async) {
 }
 
 bool FatFile::syncPages(const uint64_t* offsets, size_t count) {
+  OperationBarrier::Lease operation;
+  if (!m_pFilesystem->tryAcquireOperation(operation)) {
+    return false;
+  }
   if (count > Cache::MaxWritebackPages || (count && !offsets))
     return false;
   uintptr_t keys[Cache::MaxWritebackPages];

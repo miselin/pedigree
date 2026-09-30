@@ -53,6 +53,10 @@ Ext2Directory::Ext2Directory(const String& name, uintptr_t inode_num, Inode* ino
 Ext2Directory::~Ext2Directory() {}
 
 bool Ext2Directory::sync() {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return false;
+  }
   LockGuard<Mutex> directoryGuard(m_DirectoryLock);
   LockGuard<Mutex> writebackGuard(m_State->writebackLock);
   if (!m_pExt2Fs->m_BlockSize) {
@@ -569,6 +573,10 @@ Directory::LookupStatus Ext2Directory::resolveChildLocked(const StringView& name
 }
 
 Directory::LookupStatus Ext2Directory::resolveChild(const StringView& name, File*& child) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return LookupStatus::IoError;
+  }
   child = nullptr;
   if (name.compare(".", 1) || name.compare("..", 2)) {
     return LookupStatus::NotFound;
@@ -583,6 +591,10 @@ Directory::LookupStatus Ext2Directory::resolveChild(const StringView& name, File
 
 Directory::LookupStatus Ext2Directory::resolveChildAt(uint64_t cookie, const StringView& name,
                                                       File*& child) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return LookupStatus::IoError;
+  }
   child = nullptr;
   if (name.compare(".", 1) || name.compare("..", 2)) {
     return LookupStatus::NotFound;
@@ -607,6 +619,10 @@ Directory::LookupStatus Ext2Directory::resolveChildAt(uint64_t cookie, const Str
 
 Directory::ReadStatus Ext2Directory::readDirectory(uint64_t& cookie, DirectoryEntryEmitter emitter,
                                                    void* context) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return ReadStatus::IoError;
+  }
   LockGuard<Mutex> guard(m_DirectoryLock);
   if (m_Removed) {
     return ReadStatus::Complete;

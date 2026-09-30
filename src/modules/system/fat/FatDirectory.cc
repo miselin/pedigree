@@ -492,6 +492,10 @@ File* FatDirectory::materialize(const ScannedEntry& scanned) {
 }
 
 Directory::LookupStatus FatDirectory::resolveChild(const StringView& name, File*& child) {
+  OperationBarrier::Lease operation;
+  if (!m_pFilesystem->tryAcquireOperation(operation)) {
+    return LookupStatus::IoError;
+  }
   child = nullptr;
   struct Context {
     StringView name;
@@ -528,6 +532,10 @@ Directory::LookupStatus FatDirectory::resolveChild(const StringView& name, File*
 
 Directory::LookupStatus FatDirectory::resolveChildAt(uint64_t cookie, const StringView& name,
                                                      File*& child) {
+  OperationBarrier::Lease operation;
+  if (!m_pFilesystem->tryAcquireOperation(operation)) {
+    return LookupStatus::IoError;
+  }
   child = nullptr;
   struct Context {
     StringView name;
@@ -563,6 +571,10 @@ Directory::LookupStatus FatDirectory::resolveChildAt(uint64_t cookie, const Stri
 
 Directory::ReadStatus FatDirectory::readDirectory(uint64_t& cookie, DirectoryEntryEmitter emitter,
                                                   void* context) {
+  OperationBarrier::Lease operation;
+  if (!m_pFilesystem->tryAcquireOperation(operation)) {
+    return ReadStatus::IoError;
+  }
   if (!emitter)
     return ReadStatus::IoError;
 

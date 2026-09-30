@@ -252,6 +252,12 @@ class EXPORTED_PUBLIC UsbDevice {
   /** Quiesces driver-specific ownership before replacing this binding. */
   virtual void prepareForDriverRetirement() {}
 
+  /** Stops producers which can add or replace devices in this subtree. */
+  virtual void quiesceForRetirement() {}
+
+  /** Prepares a driver after its physical device has disappeared. */
+  virtual void prepareForDisconnection() {}
+
  protected:
   // Sync transfer methods
   ssize_t doSync(Endpoint* pEndpoint, UsbPid pid, uintptr_t pBuffer, size_t nBytes, size_t timeout);

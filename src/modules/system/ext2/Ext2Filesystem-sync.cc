@@ -31,6 +31,10 @@ bool Ext2Filesystem::beginWritableMount() {
 }
 
 Filesystem::SyncStatus Ext2Filesystem::shutdown() {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return SyncStatus::IoError;
+  }
   TerminationDeferral lifetime;
   if (m_ShutdownComplete)
     return SyncStatus::Success;
@@ -112,6 +116,10 @@ void Ext2Filesystem::releaseSyncState(uint32_t inode, Ext2InodeState* state) {
 }
 
 Filesystem::SyncStatus Ext2Filesystem::sync() {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return SyncStatus::IoError;
+  }
   TerminationDeferral lifetime;
   if (m_bReadOnly)
     return SyncStatus::Success;

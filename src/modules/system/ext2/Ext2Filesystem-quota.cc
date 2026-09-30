@@ -179,6 +179,10 @@ QuotaStatus Ext2Filesystem::flushQuotas() {
 
 QuotaStatus Ext2Filesystem::quotaControl(const QuotaRequest& request, QuotaResponse& response,
                                          File* quotaFile) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return QuotaStatus::IoError;
+  }
   if (request.type != QuotaType::User && request.type != QuotaType::Group)
     return QuotaStatus::Invalid;
   if (!m_pDisk || !m_pSuperblock || !m_BlockSize)
@@ -296,7 +300,7 @@ bool Ext2Filesystem::closeQuotaFiles(bool discardOnFailure) {
     const size_t index = static_cast<size_t>(type);
     if (!m_QuotaFiles[index])
       continue;
-    if (flushQuotaLocked(type) != QuotaStatus::Success) {
+    if (!isDeviceRemoved() && flushQuotaLocked(type) != QuotaStatus::Success) {
       succeeded = false;
       ERROR("Ext2: quota writeback failed at filesystem teardown");
       if (!discardOnFailure)

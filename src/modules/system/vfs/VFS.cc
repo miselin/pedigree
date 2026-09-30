@@ -467,6 +467,14 @@ bool VFS::mount(Disk* pDisk, String& stableName, Filesystem** pMountedFs) {
         finishCallback(&item->state, invocation);
         return false;
       }
+      if (mountView()) {
+        String path;
+        if (!getMountPath(pFs, path) || !attachFilesystem(getRootFilesystem(), pFs, path)) {
+          unregisterFilesystem(pFs);
+          finishCallback(&item->state, invocation);
+          return false;
+        }
+      }
       dispatchMountCallbacks(owner);
 
       if (pMountedFs) {
@@ -496,6 +504,13 @@ bool VFS::mount(Disk* pDisk, String& stableName, Filesystem** pMountedFs) {
       if (!stableName.length()) {
         delete pFs;
         return false;
+      }
+      if (mountView()) {
+        String path;
+        if (!getMountPath(pFs, path) || !attachFilesystem(getRootFilesystem(), pFs, path)) {
+          unregisterFilesystem(pFs);
+          return false;
+        }
       }
 
       for (List<MountCallbackItem*>::Iterator it2 = m_MountCallbacks.begin();
@@ -642,6 +657,62 @@ bool VFS::retireOwnedFilesystem(Filesystem* filesystem) {
   return true;
 }
 
+bool VFS::removeDiskFilesystem(Filesystem* filesystem, bool deviceAvailable) {
+#if THREADS && !defined(VFS_STANDALONE)
+  TerminationDeferral lifetime;
+#endif
+  FilesystemPin pin;
+  if (!filesystem || !pinFilesystem(filesystem, pin)) {
+    return false;
+  }
+  if (filesystem == getRootFilesystem()) {
+    WARNING("VFS: root filesystem device removed");
+    return filesystem->deviceRemoved(deviceAvailable);
+  }
+  MountInfo* removed;
+  {
+    LockGuard<Mutex> mutation(m_MountMutationLock);
+    LockGuard<Mutex> table(m_MountTableLock);
+    removed = m_Mounts.lookup(filesystem);
+    if (!removed) {
+      return false;
+    }
+    m_Mounts.take(filesystem, removed);
+    removed->state->storagePins.close();
+    removed->state->operations.close();
+  }
+  auto state = removed->state;
+  VfsMountState* retained = state.get();
+  if (!retained) {
+    FATAL("Removed filesystem lost its mount state");
+    return false;
+  }
+  // Stop handle/sync users before detaching, including an attachment that
+  // acquired its mount admission just before the disk was withdrawn.
+  retained->operations.wait();
+  if (auto* view = mountView()) {
+    if (!view->detachBackingForRemoval(filesystem)) {
+      return false;
+    }
+  } else {
+    Directory::ChildLease pointLease;
+    File* point = findRetained(removed->path, pointLease);
+    if (point && point->isDirectory()) {
+      Directory::fromFile(point)->setReparsePoint(nullptr);
+    }
+  }
+  delete removed;
+  if (!filesystem->deviceRemoved(deviceAvailable)) {
+    return false;
+  }
+  retained->retirement.beginRetirement();
+  retained->retirement.finishRetirement();
+  retained->ownedRetirement = true;
+  pin.reset();
+  retained->finishOwnedRetirement();
+  return true;
+}
+
 bool VFS::setRootFilesystem(Filesystem* pFs) {
   if (mountView()) {
     SYSCALL_ERROR(DeviceBusy);
@@ -781,6 +852,11 @@ Filesystem* VFS::getFilesystemAt(const String& path) const {
 }
 
 void VFS::getMounts(Vector<MountSnapshot>& mounts) const {
+  LockGuard<Mutex> mutationGuard(m_MountMutationLock);
+  getMountsLocked(mounts);
+}
+
+void VFS::getMountsLocked(Vector<MountSnapshot>& mounts) const {
   struct MountSnapshotSource {
     MountSnapshotSource() : filesystem(nullptr) {}
     MountSnapshotSource(Filesystem* filesystem, const String& stableName, const String& path)
@@ -793,7 +869,6 @@ void VFS::getMounts(Vector<MountSnapshot>& mounts) const {
 
   mounts.clear();
   Vector<MountSnapshotSource> sources;
-  LockGuard<Mutex> mutationGuard(m_MountMutationLock);
   {
     LockGuard<Mutex> tableGuard(m_MountTableLock);
     for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
@@ -1693,6 +1768,39 @@ bool VFS::attachFilesystem(Filesystem* pRootFs, Filesystem* pFs, const String& p
   }
 
   Directory::ChildLease mediaLease;
+  if (auto* view = mountView()) {
+    FilesystemContextOwner bootstrap;
+    if (!view->createBootContext(bootstrap)) {
+      return false;
+    }
+    auto context = bootstrap.reference();
+    VfsMountView::ResolveOptions options;
+    options.requireDirectory = true;
+    FilesystemPathRef attached;
+    // Startup may import this registration before mount() resumes attaching it.
+    if (view->resolve(context, FilesystemPathRef(), path, options, attached) &&
+        attached->node() == filesystemRoot) {
+      return true;
+    }
+    attached.reset();
+    options.crossFinalMount = false;
+    FilesystemPathRef media, point;
+    if (!view->resolve(context, FilesystemPathRef(), String("/media"), options, media)) {
+      FilesystemPathRef root;
+      if (!view->bootRootPath(root) || !view->createDirectory(root, String("media"), 0755) ||
+          !view->resolve(context, FilesystemPathRef(), String("/media"), options, media)) {
+        return false;
+      }
+    }
+    if (!view->resolve(context, FilesystemPathRef(), path, options, point)) {
+      String name = path.view().substring(7, path.length()).toString();
+      if (!view->createDirectory(media, name, 0755) ||
+          !view->resolve(context, FilesystemPathRef(), path, options, point)) {
+        return false;
+      }
+    }
+    return view->attach(context, point, pFs);
+  }
   if (!findRetained(String("/media"), mediaLease)) {
     createDirectory(String("/media"), 0755);
   }

@@ -23,6 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/Readiness.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
@@ -448,6 +449,7 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   virtual File* openForDescriptor(RetainedFile& owner);
 
  protected:
+  bool tryAcquireFilesystemOperation(OperationBarrier::Lease& operation) const;
   virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
   virtual bool changeOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid);
   virtual bool allowPhysicalPage() const {

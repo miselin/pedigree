@@ -5,6 +5,11 @@
 
 bool VfsMountView::State::attach(const FilesystemPathRef& covered, VFS::FilesystemPin&& pin,
                                  const VFS::NamespaceMutation& writer, BackingOwnership ownership) {
+  VFS::MountOperation operation;
+  if (!pin.identity().acquire(operation)) {
+    SYSCALL_ERROR(DeviceDoesNotExist);
+    return false;
+  }
   auto* point = path(covered);
   if (!writer.protects(view.m_Vfs) || !point || !point->node()->isDirectory() || !pin) {
     SYSCALL_ERROR(InvalidArgument);
@@ -361,6 +366,30 @@ bool VfsMountView::detachBackingForShutdown(Filesystem* backing) {
     delete retired;
     retired = next;
   }
+  return true;
+}
+
+bool VfsMountView::detachBackingForRemoval(Filesystem* backing) {
+  Vector<VfsAttachmentRef> parents;
+  Vector<SharedPointer<VfsNodeReference>> covered;
+  {
+    VFS::NamespaceMutation writer(m_Vfs);
+    LockGuard<Mutex> guard(m_State->graph);
+    for (auto* row = m_State->attachments; row; row = row->next) {
+      if (row->attachment->backing.filesystem() != backing) {
+        continue;
+      }
+      if (row->attachment->id == m_State->rootId) {
+        SYSCALL_ERROR(DeviceBusy);
+        return false;
+      }
+      parents.pushBack(pedigree_std::move(row->parent));
+      covered.pushBack(pedigree_std::move(row->covered));
+      row->attachment->owningRegistry = nullptr;
+    }
+    ++m_State->topology;
+  }
+  m_State->reapDetached();
   return true;
 }
 

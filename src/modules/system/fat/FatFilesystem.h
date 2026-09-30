@@ -55,6 +55,7 @@ class FatFilesystem : public Filesystem {
   bool getUuid(String&) const override;
   SyncStatus sync() override;
   SyncStatus shutdown() override;
+  bool deviceRemoved(bool deviceAvailable = false) override;
   uint64_t read(File* pFile, uint64_t location, uint64_t size, uintptr_t buffer,
                 bool bCanBlock = true);
   uint64_t write(File* pFile, uint64_t location, uint64_t size, uintptr_t buffer,

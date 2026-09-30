@@ -281,6 +281,7 @@ class EXPORTED_PUBLIC UsbHub : public Device {
   static void collectUsbAddresses(Device* device, bool* addresses);
   static void collectImmediateUsbContainers(Device* device, List<UsbDeviceContainer*>& containers);
   static void drainSubtreeProbeAdmissions(UsbDeviceContainer* container);
+  static void prepareSubtreeForDisconnection(UsbDeviceContainer* container);
   void releaseConnectionChangeSuppression(size_t port);
 
   /// Bitmap of used addresses under this hub
@@ -320,6 +321,11 @@ class EXPORTED_PUBLIC UsbHub : public Device {
   bool m_RetainDisconnectedAddresses = false;
 
  protected:
+  /** Queries negotiated speed after reset while address zero is serialized. */
+  virtual bool portSpeed(uint8_t, UsbSpeed&) {
+    return true;
+  }
+
   virtual bool beginStartupActivity() {
     return true;
   }

@@ -20,8 +20,10 @@
 #ifndef FILESYSTEM_H
 #define FILESYSTEM_H
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/DiskPaging.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 
@@ -31,6 +33,7 @@
 class Disk;
 class File;
 class StringView;
+class Thread;
 
 /** This class provides the abstract skeleton that all filesystems must
  * implement.
@@ -105,6 +108,10 @@ class EXPORTED_PUBLIC Filesystem {
   virtual SyncStatus sync();
   /** After all users drain, finish teardown writes before backend destruction. */
   virtual SyncStatus shutdown();
+  /** Rejects backend operations and releases a removed device's ownership. */
+  virtual bool deviceRemoved(bool deviceAvailable = false);
+  bool tryAcquireOperation(OperationBarrier::Lease& operation) const;
+  bool isDeviceRemoved() const;
   virtual QuotaStatus quotaControl(const QuotaRequest&, QuotaResponse&, File* quotaFile = nullptr);
 
   /** Creates a file on the filesystem - fails if the file's parent directory
@@ -179,8 +186,14 @@ class EXPORTED_PUBLIC Filesystem {
   /** Disk device(if any). */
   Disk* m_pDisk;
   DiskUse m_DiskUse;
+  mutable OperationBarrier m_Operations;
+  bool beginDeviceRemoval(bool deviceAvailable);
 
  private:
+  Atomic<Thread*> m_RemovalOwner = nullptr;
+#if !THREADS
+  bool m_RemovalWrites = false;
+#endif
   /** Serializes changes to directory ancestry against removal. */
   static Mutex m_StructureLock;
   /** Resolve and remove one child at a namespace-locked linearization point. */

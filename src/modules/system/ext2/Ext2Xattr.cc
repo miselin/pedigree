@@ -265,6 +265,10 @@ XattrStatus rebuild(const void* oldBlock, size_t size, const StringView& name, c
 
 XattrStatus Ext2Node::getXattr(const StringView& name, void* output, size_t capacity,
                                size_t& required) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return XattrStatus::IoError;
+  }
   required = 0;
   LockGuard<Mutex> inodeGuard(m_State->writebackLock);
   LockGuard<Mutex> allocationGuard(m_pExt2Fs->m_WriteLock);
@@ -281,6 +285,10 @@ XattrStatus Ext2Node::getXattr(const StringView& name, void* output, size_t capa
              : status;
 }
 XattrStatus Ext2Node::listXattrs(void* output, size_t capacity, size_t& required) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return XattrStatus::IoError;
+  }
   required = 0;
   LockGuard<Mutex> inodeGuard(m_State->writebackLock);
   LockGuard<Mutex> allocationGuard(m_pExt2Fs->m_WriteLock);

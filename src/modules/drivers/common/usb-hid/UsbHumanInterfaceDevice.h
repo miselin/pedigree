@@ -77,6 +77,8 @@ class UsbHumanInterfaceDevice : public UsbDevice {
   uint8_t* m_pInReportBuffer;
   /// Old input report buffer
   uint8_t* m_pOldInReportBuffer;
+
+  bool m_ReceivedInput;
 };
 
 #endif

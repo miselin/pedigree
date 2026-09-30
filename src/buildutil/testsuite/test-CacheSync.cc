@@ -38,6 +38,7 @@ struct Observer {
   Cache* lower = nullptr;
   uintptr_t failedKey = ~uintptr_t{0};
   size_t writes = 0;
+  size_t evictions = 0;
   bool addPage = false;
   bool recurse = false;
   bool nestedResult = true;
@@ -48,6 +49,7 @@ struct Observer {
                        void* context) {
     auto& observer = *static_cast<Observer*>(context);
     if (cause != CacheConstants::WriteBack) {
+      ++observer.evictions;
       return true;
     }
     ++observer.writes;
@@ -336,6 +338,60 @@ TEST(CacheSync, DrainsEveryPageAndRetainsFailureForRetry) {
   EXPECT_TRUE(cache.syncAll());
   EXPECT_EQ(observer.writes, 5U);
   EXPECT_TRUE(cache.evict(Page));
+}
+
+TEST(CacheSync, RemovedBackendDiscardsDirtyAndUnpublishedPagesWithoutWriting) {
+  Observer observer;
+  observer.failedKey = 0;
+  Cache cache;
+  cache.setCallback(Observer::callback, &observer);
+  ASSERT_NE(publish(cache, 0), 0U);
+  ASSERT_NE(cache.insert(Page), 0U);
+  EXPECT_TRUE(cache.shutdown(Cache::ShutdownMode::Discard));
+  EXPECT_EQ(observer.writes, 0U);
+  EXPECT_EQ(observer.evictions, 2U);
+  EXPECT_TRUE(cache.shutdown());
+  EXPECT_EQ(observer.evictions, 2U);
+}
+
+TEST(CacheSync, RemovedBackendDefersLoanedPagesAndClosesAdmissionWithoutWriting) {
+  Observer observer;
+  Cache cache;
+  cache.setCallback(Observer::callback, &observer);
+  const uintptr_t page = publish(cache, 0);
+  ASSERT_NE(page, 0U);
+  ASSERT_EQ(cache.lookup(0), page);
+  ASSERT_TRUE(cache.beginMutableLoan(0));
+  ASSERT_NE(publish(cache, Page), 0U);
+  ASSERT_NE(cache.insert(2 * Page), 0U);
+
+  EXPECT_TRUE(cache.shutdown(Cache::ShutdownMode::DiscardDeferred));
+  EXPECT_TRUE(cache.shutdown(Cache::ShutdownMode::DiscardDeferred));
+  EXPECT_EQ(observer.writes, 0U);
+  EXPECT_EQ(observer.evictions, 2U);
+  EXPECT_EQ(*reinterpret_cast<unsigned char*>(page), 0x57);
+  *reinterpret_cast<unsigned char*>(page) = 0x91;
+  EXPECT_EQ(cache.lookup(0), 0U);
+  uintptr_t location = page;
+  EXPECT_FALSE(cache.lookupStable(0, location));
+  EXPECT_EQ(location, 0U);
+  EXPECT_FALSE(cache.pin(0));
+  EXPECT_FALSE(cache.beginMutableLoan(0));
+  EXPECT_EQ(cache.insert(3 * Page), 0U);
+  EXPECT_FALSE(cache.sync(0, false));
+  EXPECT_FALSE(cache.syncAll());
+  EXPECT_FALSE(cache.empty());
+#if !THREADS
+  EXPECT_FALSE(CacheManagerTestPeer::selects(cache, false));
+#endif
+
+  cache.endMutableLoan(0);
+  cache.release(0);
+  EXPECT_EQ(observer.evictions, 2U);
+  EXPECT_TRUE(cache.shutdown());
+  EXPECT_EQ(observer.evictions, 3U);
+  EXPECT_EQ(observer.writes, 0U);
+  EXPECT_TRUE(cache.shutdown());
 }
 
 TEST(CacheSync, PinsSnapshotAndExcludesLaterPublication) {

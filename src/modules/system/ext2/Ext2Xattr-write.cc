@@ -30,6 +30,10 @@ XattrStatus quotaAttributeStatus(QuotaStatus status) {
 
 XattrStatus Ext2Node::changeXattr(const StringView& name, const void* value, size_t length,
                                   unsigned flags, bool remove) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return XattrStatus::IoError;
+  }
   auto replacement = UniqueArray<uint8_t>::allocate(m_pExt2Fs->m_BlockSize);
   if (!replacement)
     return XattrStatus::NoMemory;

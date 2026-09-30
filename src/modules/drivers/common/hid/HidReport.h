@@ -113,7 +113,7 @@ class EXPORTED_PUBLIC HidReport {
   struct InputBlock {
     /// Feeds input to this block
     void feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, size_t nBufferSize, size_t& nBitOffset,
-                   HidDeviceType deviceType, uint8_t reportId);
+                   HidDeviceType deviceType, uint8_t reportId, HidUtils::InputState& inputState);
 
     /// The type of the input block
     enum { Constant, Absolute, Relative, Array } type;
@@ -141,7 +141,7 @@ class EXPORTED_PUBLIC HidReport {
     /// Feeds input to this collection (will get forwarded to the lowest
     /// collection)
     void feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, size_t nBufferSize, size_t& nBitOffset,
-                   uint8_t reportId);
+                   uint8_t reportId, HidUtils::InputState& inputState);
 
     /// Guesses from which type of device the input associated with this
     /// collection comes from
@@ -161,6 +161,7 @@ class EXPORTED_PUBLIC HidReport {
   Collection* m_pRootCollection;
   size_t m_ReportBits[256];
   uint8_t* m_OldReports[256];
+  HidUtils::InputState* m_InputStates[256];
   bool m_HasReportIds;
   bool m_Valid;
 };

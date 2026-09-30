@@ -227,6 +227,10 @@ void FatFilesystem::clearPendingAttributes() {
 }
 
 void FatFilesystem::fileAttributeChanged(File* file) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return;
+  }
   LockGuard<Mutex> guard(m_FileMutationLock);
   if (!file->isDirectory() && !file->isSymlink()) {
     auto* regular = static_cast<FatFile*>(file);
@@ -267,6 +271,10 @@ void FatSymlink::fileAttributeChanged() {
 }
 
 bool FatFilesystem::syncNode(File* file) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   LockGuard<Mutex> guard(m_FileMutationLock);
   if (m_bReadOnly)
     return !m_IoFailed;

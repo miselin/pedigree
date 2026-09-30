@@ -35,14 +35,17 @@ UsbHumanInterfaceDevice::UsbHumanInterfaceDevice(UsbDevice* pDev)
       m_pReport(nullptr),
       m_InterruptIn(),
       m_pInReportBuffer(nullptr),
-      m_pOldInReportBuffer(nullptr) {}
+      m_pOldInReportBuffer(nullptr),
+      m_ReceivedInput(false) {}
 
 UsbHumanInterfaceDevice::~UsbHumanInterfaceDevice() {
-  if (!m_InterruptIn.reset())
+  if (!m_InterruptIn.reset()) {
     panic("USB HID destroyed from its running interrupt callback");
+  }
+  // Release held input only after the controller has drained report callbacks.
+  delete m_pReport;
   delete[] m_pInReportBuffer;
   delete[] m_pOldInReportBuffer;
-  delete m_pReport;
 }
 
 void UsbHumanInterfaceDevice::initialiseDriver() {
@@ -114,6 +117,10 @@ void UsbHumanInterfaceDevice::initialiseDriver() {
   }
 
   m_UsbState = HasDriver;
+  NOTICE("USB: HID: ready, device " << m_pDescriptor->nVendorId << ":" << m_pDescriptor->nProductId
+                                    << ", address " << Dec << m_nAddress << ", interface "
+                                    << m_pInterface->nInterface << ", protocol "
+                                    << m_pInterface->nProtocol << Hex);
 }
 
 void UsbHumanInterfaceDevice::callback(uintptr_t pParam, ssize_t ret) {
@@ -126,6 +133,14 @@ void UsbHumanInterfaceDevice::inputHandler(size_t bytes) {
   // Do we have a report instance?
   if (!m_pReport)
     return;
+
+  if (!m_ReceivedInput) {
+    m_ReceivedInput = true;
+    NOTICE("USB: HID: first input report, device "
+           << m_pDescriptor->nVendorId << ":" << m_pDescriptor->nProductId << ", address " << Dec
+           << m_nAddress << ", interface " << m_pInterface->nInterface << ", bytes " << bytes
+           << Hex);
+  }
 
   // Feed the report instance with the input we just got
   m_pReport->feedInput(m_pInReportBuffer, m_pOldInReportBuffer, bytes);

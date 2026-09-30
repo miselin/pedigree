@@ -98,8 +98,9 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   static void setHostedReadRequestHookForTest(HostedReadRequestHook hook, void* context);
 #endif
 
-  /** Drains cache callbacks while the disk/controller state is still live. */
-  void shutdownCache();
+  /** Drains cache callbacks while the disk/controller state is still live.
+   * An unavailable device requires discarding dirty data instead of writeback. */
+  void shutdownCache(bool deviceAvailable = true);
   virtual void shutdownDeviceCache();
   bool hasNoCacheLoans();
 

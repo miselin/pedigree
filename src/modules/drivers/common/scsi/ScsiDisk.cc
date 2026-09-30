@@ -265,9 +265,11 @@ ScsiDisk::~ScsiDisk() {
   shutdownCache();
 }
 
-void ScsiDisk::shutdownCache() {
-  if (!m_Cache.shutdown())
+void ScsiDisk::shutdownCache(bool deviceAvailable) {
+  if (!m_Cache.shutdown(deviceAvailable ? Cache::ShutdownMode::WriteBack
+                                        : Cache::ShutdownMode::Discard)) {
     panic("SCSI: cache shutdown failed; unwritten data remains");
+  }
 }
 
 void ScsiDisk::shutdownDeviceCache() {

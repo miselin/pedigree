@@ -91,6 +91,10 @@ Ext2Filesystem::~Ext2Filesystem() {
   }
   m_InodeStates.clear();
 
+  releaseMetadata();
+}
+
+void Ext2Filesystem::releaseMetadata() {
   if (m_pDisk && m_pSuperblock) {
     if (m_pGroupDescriptors) {
       for (size_t group = 0; group < m_nGroupDescriptors; ++group) {
@@ -137,6 +141,46 @@ Ext2Filesystem::~Ext2Filesystem() {
   delete[] m_pInodeBitmaps;
   delete[] m_pInodeTables;
   delete[] m_pGroupDescriptors;
+  m_pBlockBitmaps = nullptr;
+  m_pInodeBitmaps = nullptr;
+  m_pInodeTables = nullptr;
+  m_pGroupDescriptors = nullptr;
+  m_pSuperblock = nullptr;
+}
+
+bool Ext2Filesystem::deviceRemoved(bool deviceAvailable) {
+  if (!m_pDisk) {
+    return true;
+  }
+  if (!beginDeviceRemoval(deviceAvailable)) {
+    return false;
+  }
+  m_bReadOnly = true;
+  {
+    LockGuard<Mutex> registry(m_InodeStateLock);
+    for (auto it = m_InodeStates.begin(); it != m_InodeStates.end(); ++it) {
+      auto* state = it.value();
+      LockGuard<Mutex> data(state->dataLock);
+      {
+        LockGuard<Mutex> writeback(state->writebackLock);
+        state->removedMetadata = *state->metadata;
+        state->metadata = &state->removedMetadata;
+        state->orphan = false;
+      }
+      if (state->cache && !state->cache->fill.shutdown(Cache::ShutdownMode::DiscardDeferred)) {
+        return false;
+      }
+    }
+  }
+  closeQuotaFiles();
+  for (size_t n = 0; n < m_AttributeWriteCount; ++n) {
+    if (m_AttributeWrites[n].ownsPin) {
+      m_pDisk->unpin(m_AttributeWrites[n].location);
+    }
+  }
+  m_AttributeWriteCount = 0;
+  releaseMetadata();
+  return Filesystem::deviceRemoved();
 }
 
 bool Ext2Filesystem::initialise(Disk* pDisk) {
@@ -314,6 +358,11 @@ const String& Ext2Filesystem::getVolumeLabel() const {
 }
 
 bool Ext2Filesystem::getUuid(String& uuid) const {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation) || !m_pSuperblock) {
+    uuid.clear();
+    return false;
+  }
   const uint8_t* value = reinterpret_cast<const uint8_t*>(m_pSuperblock->s_uuid);
   static const char digits[] = "0123456789abcdef";
   char text[37];
@@ -625,6 +674,10 @@ bool Ext2Filesystem::removeNode(File* parent, const String& filename, File* file
 }
 
 uintptr_t Ext2Filesystem::readBlock(uint32_t block) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return 0;
+  }
   if (block == 0)
     return reinterpret_cast<uintptr_t>(g_pSparseBlock);
 
@@ -640,6 +693,10 @@ uintptr_t Ext2Filesystem::readBlock(uint32_t block) {
 }
 
 DiskReadView Ext2Filesystem::readBlockView(uint32_t block) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return DiskReadView();
+  }
   DiskReadView view = block ? m_pDisk->readView(static_cast<uint64_t>(m_BlockSize) * block)
                             : DiskReadView::borrowed(g_pSparseBlock, sizeof(g_pSparseBlock));
   if (!view || !view.truncate(m_BlockSize))
@@ -648,6 +705,10 @@ DiskReadView Ext2Filesystem::readBlockView(uint32_t block) {
 }
 
 void Ext2Filesystem::writeBlock(uint32_t block) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return;
+  }
   if (block == 0)
     return;
 
@@ -688,6 +749,10 @@ bool Ext2Filesystem::syncBlock(uint32_t block, bool async) {
 }
 
 bool Ext2Filesystem::syncInode(uint32_t inode, Ext2Node& node, bool includeNamespaceMetadata) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   if (!inode || !m_pSuperblock) {
     return false;
   }
@@ -1180,7 +1245,7 @@ void Ext2Filesystem::releaseInodeState(uint32_t inode, Ext2InodeState* state, Ex
     return;
   }
   m_InodeStates.remove(inode);
-  if (state->orphan) {
+  if (state->orphan && !isDeviceRemoved()) {
 #if THREADS || defined(STANDALONE_MUTEXES)
     LockGuard<Mutex> guard(m_WriteLock);
 #endif
@@ -1302,6 +1367,10 @@ void Ext2Filesystem::retireInodeLocked(uint32_t inodeNumber, Ext2Node* retiringN
 }
 
 Inode* Ext2Filesystem::getInode(uint32_t inode) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return nullptr;
+  }
   const uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
   if (!inode || !inodesPerGroup || !m_BlockSize) {
     SYSCALL_ERROR(IoError);

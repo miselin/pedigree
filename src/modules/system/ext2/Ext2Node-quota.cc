@@ -9,6 +9,10 @@
 #include "ext2.h"
 
 bool Ext2Node::changeInodeOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return false;
+  }
   LockGuard<Mutex> inode(m_State->writebackLock);
   LockGuard<Mutex> allocation(m_pExt2Fs->m_WriteLock);
   if (m_pExt2Fs->isReadOnly()) {

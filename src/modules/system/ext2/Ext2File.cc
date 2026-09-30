@@ -104,6 +104,10 @@ void Ext2File::updateAttributes(const Attributes& attributes, uint32_t mask) {
 }
 
 bool Ext2File::prepareSharedMapping(size_t offset, size_t length) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return false;
+  }
   LockGuard<Mutex> dataGuard(m_State->dataLock);
   LockGuard<Mutex> guard(m_State->writebackLock);
   if (m_State->quotaFile) {
@@ -203,6 +207,10 @@ bool Ext2File::tryBeginMappingRelease() {
 }
 
 void Ext2File::preallocate(size_t expectedSize, bool zero) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return;
+  }
   LockGuard<Mutex> writeGuard(m_State->writeLock);
   LockGuard<Mutex> dataGuard(m_State->dataLock);
   LockGuard<Mutex> guard(m_State->writebackLock);
@@ -215,6 +223,10 @@ void Ext2File::preallocate(size_t expectedSize, bool zero) {
 }
 
 void Ext2File::extend(size_t newSize) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return;
+  }
   LockGuard<Mutex> guard(m_State->writebackLock);
   if (m_State->quotaFile) {
     SYSCALL_ERROR(NotEnoughPermissions);
@@ -225,6 +237,10 @@ void Ext2File::extend(size_t newSize) {
 }
 
 void Ext2File::extend(size_t newSize, uint64_t location, uint64_t size) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return;
+  }
   LockGuard<Mutex> guard(m_State->writebackLock);
   if (m_State->quotaFile) {
     SYSCALL_ERROR(NotEnoughPermissions);
@@ -235,6 +251,10 @@ void Ext2File::extend(size_t newSize, uint64_t location, uint64_t size) {
 }
 
 void Ext2File::truncate() {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return;
+  }
   resize(0);
 }
 
@@ -419,6 +439,10 @@ bool Ext2File::sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t
   if (cause != CacheConstants::WriteBack) {
     return false;
   }
+  OperationBarrier::Lease operation;
+  if (!state->filesystem->tryAcquireOperation(operation)) {
+    return false;
+  }
   LockGuard<Mutex> guard(state->writebackLock);
   if (state->orphan && !state->files.count() &&
       !__atomic_load_n(&state->syncReferences, __ATOMIC_ACQUIRE)) {
@@ -436,6 +460,10 @@ bool Ext2File::sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t
 bool Ext2File::sharedFillBatchCallback(const Cache::WritebackPage* pages, size_t count,
                                        void* context) {
   auto* state = static_cast<Ext2InodeState*>(context);
+  OperationBarrier::Lease operation;
+  if (!state->filesystem->tryAcquireOperation(operation)) {
+    return false;
+  }
   LockGuard<Mutex> guard(state->writebackLock);
   if (!count || (state->orphan && !state->files.count() &&
                  !__atomic_load_n(&state->syncReferences, __ATOMIC_ACQUIRE)))
@@ -535,6 +563,10 @@ void Ext2File::unpinBlock(uint64_t location) {
 }
 
 bool Ext2File::sync() {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return false;
+  }
   bool succeeded;
   if (useFillCache()) {
     LockGuard<Mutex> dataGuard(dataMutationLock());
@@ -547,10 +579,14 @@ bool Ext2File::sync() {
 }
 
 bool Ext2File::sync(size_t offset, bool async) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return false;
+  }
   bool present = false;
   if (useFillCache()) {
     const bool succeeded = syncFillCache(offset, async, present);
-    if (present) {
+    if (present || m_pExt2Fs->isDeviceRemoved()) {
       return succeeded;
     }
   }
@@ -559,6 +595,10 @@ bool Ext2File::sync(size_t offset, bool async) {
 }
 
 bool Ext2File::syncPages(const uint64_t* offsets, size_t count) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return false;
+  }
   if (count > Disk::MaxSyncPages || (count && !offsets))
     return false;
   if (!count)

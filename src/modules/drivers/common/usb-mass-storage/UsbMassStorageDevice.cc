@@ -33,12 +33,27 @@ UsbMassStorageDevice::UsbMassStorageDevice(UsbDevice* dev)
       m_pInEndpoint(0),
       m_pOutEndpoint(0),
       m_NextTag(1),
-      m_ResetRecoveryRequired(false) {
+      m_ResetRecoveryRequired(false),
+      m_DeviceAvailable(true) {
   setSpecificType(String("usb-msd-controller"));
 }
 
 UsbMassStorageDevice::~UsbMassStorageDevice() {
-  shutdownDiskCaches();
+  if (m_DeviceAvailable) {
+    shutdownDiskCaches();
+  }
+  RequestQueue::destroy();
+}
+
+void UsbMassStorageDevice::prepareForDisconnection() {
+  {
+    LockGuard<Mutex> commandLock(m_CommandLock);
+    if (!m_DeviceAvailable) {
+      return;
+    }
+    m_DeviceAvailable = false;
+  }
+  shutdownDiskCaches(false);
   RequestQueue::destroy();
 }
 
@@ -136,6 +151,9 @@ bool UsbMassStorageDevice::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t
       (nRespBytes && !pRespBuffer) || !m_pInterface || !m_pInEndpoint || !m_pOutEndpoint)
     return false;
   LockGuard<Mutex> commandLock(m_CommandLock);
+  if (!m_DeviceAvailable) {
+    return false;
+  }
   if (m_ResetRecoveryRequired && !performResetRecovery())
     return false;
 

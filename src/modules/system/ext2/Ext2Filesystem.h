@@ -76,6 +76,7 @@ class Ext2Filesystem : public Filesystem {
   virtual FileHandleStatus fileHandleFsid(FileSystemId&);
   virtual SyncStatus sync();
   virtual SyncStatus shutdown();
+  virtual bool deviceRemoved(bool deviceAvailable = false);
   virtual QuotaStatus quotaControl(const QuotaRequest&, QuotaResponse&, File* quotaFile = nullptr);
 
  protected:
@@ -88,6 +89,7 @@ class Ext2Filesystem : public Filesystem {
                           Directory* newParent, const String& newName, File* replaced);
 
  private:
+  void releaseMetadata();
   static bool quotaSucceeded(QuotaStatus status);
   static QuotaStatus quotaIoStatus();
   static int currentIoError();

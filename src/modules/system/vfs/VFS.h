@@ -233,6 +233,8 @@ class EXPORTED_PUBLIC VFS {
   /** Surrenders an attachment-owned registration. Existing admissions drain
       asynchronously; the last release deletes the backend outside VFS locks. */
   bool retireOwnedFilesystem(Filesystem* filesystem);
+  /** Withdraw a removed disk's mounts while retained paths keep inert nodes alive. */
+  bool removeDiskFilesystem(Filesystem* filesystem, bool deviceAvailable = false);
 
   /** Select the filesystem that supplies the root namespace. */
   bool setRootFilesystem(Filesystem* pFs);
@@ -411,6 +413,7 @@ class EXPORTED_PUBLIC VFS {
   String getUniqueStableNameLocked(const String& preferredName) const;
   bool attachFilesystem(Filesystem* pRootFs, Filesystem* pFs, const String& path);
   void attachRegisteredFilesystemsLocked();
+  void getMountsLocked(Vector<MountSnapshot>& mounts) const;
 
   /** The static instance object. */
   static VFS m_Instance;

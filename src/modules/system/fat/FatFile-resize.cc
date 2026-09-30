@@ -15,6 +15,10 @@ void FatFile::truncate() {
 }
 
 void FatFile::extend(size_t newSize) {
+  OperationBarrier::Lease operation;
+  if (!m_pFilesystem->tryAcquireOperation(operation)) {
+    return;
+  }
   FatFilesystem* filesystem = static_cast<FatFilesystem*>(m_pFilesystem);
   const size_t oldSize = getSize();
   filesystem->extend(this, newSize);
@@ -35,6 +39,10 @@ void FatFile::extend(size_t newSize) {
 }
 
 void FatFile::extend(size_t newSize, uint64_t, uint64_t) {
+  OperationBarrier::Lease operation;
+  if (!m_pFilesystem->tryAcquireOperation(operation)) {
+    return;
+  }
   extend(newSize);
 }
 

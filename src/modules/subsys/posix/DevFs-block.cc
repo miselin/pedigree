@@ -59,23 +59,30 @@ class BlockFile final : public File {
       return 0;
     if (!canBlock) {
       SYSCALL_ERROR(NoMoreProcesses);
-      return ~uint64_t(0);
+      return 0;
     }
     TerminationDeferral lifetime;
-    VFS::FilesystemPin mounted;
+    VFS::MountOperation mounted;
+    OperationBarrier::Lease filesystemOperation;
     DiskUse use;
     Disk* disk = nullptr;
     if (m_Mount) {
-      if (m_Mount.pin(mounted))
+      if (m_Mount.acquire(mounted) &&
+          mounted.filesystem()->tryAcquireOperation(filesystemOperation)) {
         disk = mounted.filesystem()->getDisk();
+      }
     } else if (DiskEndpoints::acquire(m_Id, use)) {
       disk = use.get();
     }
     if (!disk) {
       uint64_t bytes = 0;
-      syscallError(!m_Mount && DiskEndpoints::describe(m_Id, bytes) ? Error::DeviceBusy
-                                                                    : Error::NoSuchDevice);
-      return ~uint64_t(0);
+      if (m_Mount) {
+        SYSCALL_ERROR(DeviceDoesNotExist);
+      } else {
+        syscallError(DiskEndpoints::describe(m_Id, bytes) ? Error::DeviceBusy
+                                                          : Error::NoSuchDevice);
+      }
+      return 0;
     }
     const uint64_t bytes = disk->getSize();
     if (offset >= bytes)
@@ -92,7 +99,7 @@ class BlockFile final : public File {
         if (view)
           disk->unpin(aligned);
         SYSCALL_ERROR(IoError);
-        return done ? done : ~uint64_t(0);
+        return done;
       }
       const size_t amount = min(static_cast<uint64_t>(view.size() - displacement), length - done);
       auto* page = reinterpret_cast<uint8_t*>(view.address()) + displacement;
@@ -104,7 +111,7 @@ class BlockFile final : public File {
       disk->unpin(aligned);
       if (!completed) {
         SYSCALL_ERROR(IoError);
-        return done ? done : ~uint64_t(0);
+        return done;
       }
       done += amount;
     }
@@ -141,9 +148,13 @@ class BlockDirectory final : public DevFsDirectory {
       if (!DiskEndpoints::describe(id, bytes))
         return LookupStatus::NotFound;
     } else {
-      VFS::FilesystemPin pin;
-      if (!VFS::instance().diskMount(id, mount) || !mount.pin(pin) || !pin.filesystem()->getDisk())
+      VFS::MountOperation pin;
+      OperationBarrier::Lease filesystemOperation;
+      if (!VFS::instance().diskMount(id, mount) || !mount.acquire(pin) ||
+          !pin.filesystem()->tryAcquireOperation(filesystemOperation) ||
+          !pin.filesystem()->getDisk()) {
         return LookupStatus::NotFound;
+      }
       bytes = pin.filesystem()->getDisk()->getSize();
     }
     child =
@@ -294,9 +305,11 @@ class AliasDirectory final : public DevFsDirectory {
     if (!VFS::instance().snapshotDiskMounts(mounts))
       return false;
     for (const auto& mount : mounts) {
-      VFS::FilesystemPin pin;
-      if (!mount.pin(pin))
+      VFS::MountOperation pin;
+      OperationBarrier::Lease filesystemOperation;
+      if (!mount.acquire(pin) || !pin.filesystem()->tryAcquireOperation(filesystemOperation)) {
         continue;
+      }
       Filesystem* filesystem = pin.filesystem();
       Disk* disk = filesystem ? filesystem->getDisk() : nullptr;
       if (!disk)

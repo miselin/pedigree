@@ -30,6 +30,7 @@ bool VFS::shutdownMountView(Vector<Filesystem*>& ownedBackings) {
   return true;
 }
 bool VFS::initialiseMountView() {
+  LockGuard<Mutex> mutation(m_MountMutationLock);
   if (mountView())
     return true;
   auto view = UniquePointer<VfsMountView>::adopt(new VfsMountView(*this));
@@ -41,7 +42,7 @@ bool VFS::initialiseMountView() {
   auto context = bootstrap.reference();
   Vector<MountSnapshot> mounts;
   Vector<FilesystemPathRef> importedPoints;
-  getMounts(mounts);
+  getMountsLocked(mounts);
   if (!importedPoints.tryReserve(mounts.count())) {
     SYSCALL_ERROR(OutOfMemory);
     return false;

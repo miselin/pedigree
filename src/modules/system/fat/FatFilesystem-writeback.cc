@@ -6,6 +6,10 @@
 
 bool FatFilesystem::writeCachedPages(FatFile::State& state, const Cache::WritebackPage* pages,
                                      size_t count) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   LockGuard<Mutex> guard(m_FileMutationLock);
   if (state.retiring)
     return true;

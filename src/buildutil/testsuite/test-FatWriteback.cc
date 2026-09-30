@@ -180,6 +180,11 @@ class FatHarness final : public FatFilesystem {
     return writeSectorBlock(sector, length, source);
   }
 
+  void releaseBorrowedFatCache() {
+    // This harness borrows vector storage; production FAT sectors are owned.
+    m_FatCache.remove(0);
+  }
+
   FatDirectory* createRoot() {
     FatFileInfo info = {};
     m_pRoot = new FatDirectory(String("root"), 0, this, nullptr, info);
@@ -293,6 +298,30 @@ TEST(FatShutdown, LiveAliasPreventsTerminalCompletion) {
     EXPECT_EQ(filesystem.shutdown(), Filesystem::SyncStatus::IoError);
   }
   EXPECT_EQ(filesystem.shutdown(), Filesystem::SyncStatus::Success);
+}
+
+TEST(FatShutdown, DeviceRemovalLeavesOpenFileInertWithoutWriting) {
+  FatFixture fixture(SectorSize);
+  const uint8_t value = 0x63;
+  ASSERT_EQ(fixture.file.write(0, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  fixture.filesystem.releaseBorrowedFatCache();
+  const size_t reads = fixture.disk.reads;
+  const size_t writes = fixture.disk.writes.size();
+  const size_t syncs = fixture.disk.syncs.size();
+  const size_t allCalls = fixture.disk.allCalls;
+  ASSERT_TRUE(fixture.filesystem.deviceRemoved());
+  EXPECT_TRUE(fixture.filesystem.deviceRemoved());
+  EXPECT_EQ(fixture.filesystem.getDisk(), nullptr);
+  uint8_t byte = 0;
+  EXPECT_EQ(fixture.file.read(0, 1, reinterpret_cast<uintptr_t>(&byte)), 0U);
+  EXPECT_EQ(fixture.file.write(0, 1, reinterpret_cast<uintptr_t>(&value)), 0U);
+  EXPECT_FALSE(fixture.file.sync());
+  EXPECT_FALSE(fixture.file.resize(0));
+  EXPECT_EQ(fixture.disk.reads, reads);
+  EXPECT_EQ(fixture.disk.writes.size(), writes);
+  EXPECT_EQ(fixture.disk.syncs.size(), syncs);
+  EXPECT_EQ(fixture.disk.allCalls, allCalls);
+  EXPECT_EQ(fixture.disk.references, 0);
 }
 
 TEST(FatWriteback, FailedCacheWritebackRetainsPageAndRetries) {

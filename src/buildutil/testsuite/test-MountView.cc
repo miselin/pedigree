@@ -264,6 +264,41 @@ TEST_F(MountViewTest, AdmissionDrainDelaysStorageWithoutKeepingRegistration) {
   }
 }
 
+TEST_F(MountViewTest, RemovedDiskWithdrawsAliasesWhileOpenPathsRemainInert) {
+  auto* filesystem = fresh();
+  ASSERT_NE(filesystem, nullptr);
+  ASSERT_TRUE(view->attach(context.reference(), covered, filesystem));
+  FilesystemPathRef opened;
+  VfsMountView::ResolveOptions options;
+  ASSERT_TRUE(
+      view->resolve(context.reference(), FilesystemPathRef(), String("/mounted"), options, opened));
+  ASSERT_TRUE(view->createFile(opened, String("file"), 0666));
+  FilesystemPathRef file;
+  ASSERT_TRUE(view->resolve(context.reference(), opened, String("file"), options, file));
+  char contents = 'a';
+  ASSERT_EQ(file->node()->write(0, 1, reinterpret_cast<uintptr_t>(&contents)), 1U);
+  const auto oldIdentity = identity(filesystem);
+  ASSERT_TRUE(vfs.removeDiskFilesystem(filesystem));
+  EXPECT_EQ(registrations(), 1U);
+  EXPECT_EQ(destroyed.load(), 0U);
+  OperationBarrier::Lease rejected;
+  EXPECT_FALSE(filesystem->tryAcquireOperation(rejected));
+  EXPECT_EQ(file->node()->read(0, 1, reinterpret_cast<uintptr_t>(&contents)), 0U);
+  EXPECT_EQ(file->node()->write(0, 1, reinterpret_cast<uintptr_t>(&contents)), 0U);
+  VFS::MountOperation removed;
+  EXPECT_FALSE(oldIdentity.acquire(removed));
+  auto* replacement = fresh();
+  ASSERT_NE(replacement, nullptr);
+  ASSERT_TRUE(view->attach(context.reference(), covered, replacement,
+                           VfsMountView::BackingOwnership::Attachment));
+  EXPECT_NE(identity(replacement).id(), oldIdentity.id());
+  file.reset();
+  opened.reset();
+  EXPECT_EQ(destroyed.load(), 1U);
+  ASSERT_TRUE(view->detach(context.reference(), String("/mounted"), false));
+  EXPECT_EQ(destroyed.load(), 2U);
+}
+
 TEST_F(MountViewTest, SharedBackendKeepsExternalRegistration) {
   auto* filesystem = fresh();
   ASSERT_NE(filesystem, nullptr);

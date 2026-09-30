@@ -223,6 +223,10 @@ bool Directory::emitBackingEntry(void* opaque, const DirectoryEntryView& entry) 
 
 Directory::ReadStatus Directory::enumerate(uint64_t& cookie, DirectoryEntryEmitter emitter,
                                            void* context) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return ReadStatus::IoError;
+  }
   if (!emitter) {
     return ReadStatus::IoError;
   }
@@ -354,6 +358,10 @@ Directory::LookupStatus Directory::lookupChild(const HashedStringView& s, ChildL
 
 Directory::LookupStatus Directory::lookupChildAt(uint64_t cookie, const HashedStringView& name,
                                                  ChildLease& child) const {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return LookupStatus::IoError;
+  }
   if (cookie >= (ResidentCookie << 1)) {
     return LookupStatus::IoError;
   }
@@ -415,6 +423,10 @@ Directory::LookupStatus Directory::lookupChildAt(uint64_t cookie, const HashedSt
 
 Directory::LookupStatus Directory::lookupChildInternal(const HashedStringView& s, uint64_t cookie,
                                                        bool hasCookie, ChildLease& child) const {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return LookupStatus::IoError;
+  }
   Directory* self = const_cast<Directory*>(this);
   const String name = s.toString();
 
@@ -910,6 +922,10 @@ void Directory::setReparsePoint(Directory* pTarget) {
 }
 
 Directory::AddStatus Directory::addEphemeralFile(File* pFile) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return AddStatus::IoError;
+  }
   assert(pFile != nullptr);
   NameReservation reservation;
   if (!reserveDirectoryEntry(HashedStringView(pFile->getName()), reservation)) {
@@ -968,6 +984,10 @@ bool Directory::removeEphemeralFileLocked(const HashedStringView& name, File* ex
 }
 
 bool Directory::empty() {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return false;
+  }
   while (true) {
     struct FirstEntry {
       String name;
@@ -1058,6 +1078,10 @@ void Directory::emptyCache() {
 
 File* Directory::evaluateEntry(const DirectoryEntryMetadata& meta) {
   if (!meta.pDirectory) {
+    return nullptr;
+  }
+  OperationBarrier::Lease operation;
+  if (!meta.pDirectory->tryAcquireFilesystemOperation(operation)) {
     return nullptr;
   }
   File* newFile = meta.pDirectory->convertToFile(meta);

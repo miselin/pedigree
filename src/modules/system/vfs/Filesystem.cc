@@ -21,6 +21,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -39,7 +40,63 @@ Filesystem::Filesystem() : m_bReadOnly(false), m_pDisk(0) {}
 
 Mutex Filesystem::m_StructureLock;
 
-Filesystem::~Filesystem() = default;
+Filesystem::~Filesystem() {
+  m_Operations.closeAndWait();
+}
+
+bool Filesystem::tryAcquireOperation(OperationBarrier::Lease& operation) const {
+  if (m_Operations.tryAcquire(operation)) {
+    return true;
+  }
+#if THREADS
+  Thread* owner = m_RemovalOwner;
+  return owner && owner == Processor::information().getCurrentThread();
+#else
+  return m_RemovalWrites;
+#endif
+}
+
+bool Filesystem::isDeviceRemoved() const {
+  if (m_Operations.isOpen()) {
+    return false;
+  }
+#if THREADS
+  Thread* owner = m_RemovalOwner;
+  return !owner || owner != Processor::information().getCurrentThread();
+#else
+  return !m_RemovalWrites;
+#endif
+}
+
+bool Filesystem::beginDeviceRemoval(bool deviceAvailable) {
+  TerminationDeferral lifetime;
+  m_Operations.closeAndWait();
+  if (!deviceAvailable) {
+    return true;
+  }
+  // Existing shutdown paths recurse through files and callbacks. Only the
+  // retiring thread may use those paths after public admission has closed.
+#if THREADS
+  m_RemovalOwner = Processor::information().getCurrentThread();
+#else
+  m_RemovalWrites = true;
+#endif
+  const SyncStatus status = shutdown();
+  m_RemovalOwner = nullptr;
+#if !THREADS
+  m_RemovalWrites = false;
+#endif
+  return status == SyncStatus::Success;
+}
+
+bool Filesystem::deviceRemoved(bool deviceAvailable) {
+  if (!beginDeviceRemoval(deviceAvailable)) {
+    return false;
+  }
+  m_pDisk = nullptr;
+  m_DiskUse.reset();
+  return true;
+}
 
 Filesystem::SyncStatus Filesystem::sync() {
   return m_bReadOnly ? SyncStatus::Success : SyncStatus::Unsupported;
@@ -164,6 +221,10 @@ File* Filesystem::findRetained(const StringView& path, Directory::ChildLease& re
 }
 
 bool Filesystem::createFile(const StringView& path, uint32_t mask, File* pStartNode) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   TrueRootLease startLease(this);
   if (!pStartNode) {
     pStartNode = startLease.get();
@@ -199,6 +260,10 @@ bool Filesystem::createFile(const StringView& path, uint32_t mask, File* pStartN
 }
 
 bool Filesystem::createDirectory(const StringView& path, uint32_t mask, File* pStartNode) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   TrueRootLease startLease(this);
   if (!pStartNode) {
     pStartNode = startLease.get();
@@ -234,6 +299,10 @@ bool Filesystem::createDirectory(const StringView& path, uint32_t mask, File* pS
 }
 
 bool Filesystem::createSymlink(const StringView& path, const String& value, File* pStartNode) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   TrueRootLease startLease(this);
   if (!pStartNode) {
     pStartNode = startLease.get();
@@ -269,6 +338,10 @@ bool Filesystem::createSymlink(const StringView& path, const String& value, File
 }
 
 bool Filesystem::createLink(const StringView& path, File* target, File* pStartNode) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   TrueRootLease startLease(this);
   if (!pStartNode) {
     pStartNode = startLease.get();
@@ -310,10 +383,18 @@ bool Filesystem::createLink(const StringView& path, File* target, File* pStartNo
 }
 
 bool Filesystem::remove(const StringView& path, File* pStartNode) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   return remove(path, pStartNode, nullptr);
 }
 
 bool Filesystem::remove(const StringView& path, File* pStartNode, File* expected) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   TrueRootLease startLease(this);
   if (!pStartNode) {
     pStartNode = startLease.get();
@@ -352,6 +433,10 @@ bool Filesystem::remove(const StringView& path, File* pStartNode, File* expected
 }
 
 bool Filesystem::remove(File* parent, File* file) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   if (!file) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
@@ -361,6 +446,10 @@ bool Filesystem::remove(File* parent, File* file) {
 
 bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringView& newPath,
                         File* newStart, bool noReplace) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   if (!oldPath.length() || !newPath.length()) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
@@ -885,6 +974,10 @@ File* Filesystem::findParent(StringView path, File* pStartNode, String& filename
 }
 
 bool Filesystem::createLink(File* parent, const String& filename, File* target) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   // Default stubbed implementation, works for filesystems that can't handle
   // hard links.
   return false;

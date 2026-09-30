@@ -159,6 +159,9 @@ bool Ext2Filesystem::flushAttributeWritesLocked() {
 
 void Ext2Filesystem::drainAttributeWrites() {
   LockGuard<Mutex> guard(m_WriteLock);
+  if (!m_AttributeWriteCount) {
+    return;
+  }
   if (flushAttributeWritesLocked())
     return;
   ERROR("Ext2: attribute metadata writeback failed at filesystem teardown");

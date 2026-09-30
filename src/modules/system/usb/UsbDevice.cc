@@ -19,6 +19,8 @@
 
 #include "modules/system/usb/UsbDevice.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/assert.h"
@@ -748,6 +750,14 @@ bool UsbDeviceContainer::replaceUsbDevice(UsbDevice* pDev) {
     return false;
 
   UsbDevice* oldDevice = m_pUsbDevice;
+  ServiceManager& services = ServiceManager::instance();
+  if (oldDevice && oldDevice->hasSubtree()) {
+    Device* subtree = oldDevice->getDevice();
+    if (subtree && services.getService(String("mountroot")) &&
+        !services.serve(String("mountroot"), ServiceFeatures::write, subtree, sizeof(Device*))) {
+      panic("USB: couldn't withdraw filesystems before driver retirement");
+    }
+  }
   {
     Device::TreeLockGuard treeGuard;
     if (oldDevice && oldDevice->hasSubtree()) {
@@ -765,6 +775,9 @@ bool UsbDeviceContainer::replaceUsbDevice(UsbDevice* pDev) {
     attachSubtree(pDev);
   }
   delete oldDevice;
+  if (pDev->hasSubtree() && pDev->getDevice()) {
+    services.serve(String("mountroot"), ServiceFeatures::touch, pDev->getDevice(), sizeof(Device*));
+  }
   return true;
 }
 

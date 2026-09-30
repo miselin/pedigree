@@ -341,6 +341,10 @@ const String& FatFilesystem::getVolumeLabel() const {
 
 uint64_t FatFilesystem::read(File* pFile, uint64_t location, uint64_t size, uintptr_t buffer,
                              bool bCanBlock) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return 0;
+  }
   LockGuard<Mutex> guard(m_FileMutationLock);
   if (!size || !m_BlockSize)
     return 0;
@@ -478,6 +482,10 @@ uint32_t FatFilesystem::findFreeCluster(bool* persisted) {
 
 uint64_t FatFilesystem::write(File* file, uint64_t location, uint64_t size, uintptr_t buffer,
                               bool bCanBlock) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return 0;
+  }
   LockGuard<Mutex> guard(m_FileMutationLock);
   if (m_bReadOnly) {
     SYSCALL_ERROR(ReadOnlyFilesystem);
@@ -541,6 +549,10 @@ uint64_t FatFilesystem::write(File* file, uint64_t location, uint64_t size, uint
 }
 
 uint64_t FatFilesystem::allocatedBlocks(File* file) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return 0;
+  }
   if (!file->getInode() && file->isDirectory() && m_Type != FAT32)
     return (uint64_t(m_RootDirCount) * m_Superblock.BPB_BytsPerSec + 511) / 512;
   uint32_t count = 0, last = 0;
@@ -791,6 +803,10 @@ bool FatFilesystem::readCluster(uint32_t block, uintptr_t buffer) const {
 }
 
 bool FatFilesystem::readSectorBlock(uint32_t sec, size_t size, uintptr_t buffer) const {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   if (!buffer) {
     return false;
   }
@@ -822,6 +838,10 @@ bool FatFilesystem::writeCluster(uint32_t block, uintptr_t buffer) {
 }
 
 bool FatFilesystem::writeSectorBlock(uint32_t sec, size_t size, uintptr_t buffer) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
   if (!buffer || !m_pDisk)
     return false;
   const bool written = m_pDisk->writeFrom(uint64_t(sec) * m_Superblock.BPB_BytsPerSec,
@@ -909,6 +929,10 @@ bool FatFilesystem::setClusterEntry(uint32_t cluster, uint32_t value, bool bLock
 }
 
 bool FatFilesystem::syncFat(bool bLock) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return false;
+  }
 #if THREADS || defined(STANDALONE_MUTEXES)
   LockGuard<Mutex> guard(m_AllocationLock, bLock);
 #endif

@@ -24,6 +24,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Vector.h"
 
+#include "ext2.h"
 #include "modules/system/vfs/File.h"
 
 struct Inode;
@@ -56,6 +57,7 @@ struct Ext2InodeState {
   Vector<Ext2File*> files;
   File::CacheState* cache = nullptr;
   Inode* metadata;
+  Inode removedMetadata = {};
   Ext2Filesystem* filesystem;
 };
 
@@ -173,7 +175,7 @@ class Ext2Node {
   uint32_t permissionsToMode(uint32_t permissions) const;
 
   Ext2InodeState* m_State;
-  Inode* m_pInode;
+  Inode*& m_pInode;
   uint32_t m_InodeNumber;
   class Ext2Filesystem* m_pExt2Fs;
 

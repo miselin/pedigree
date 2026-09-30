@@ -58,8 +58,9 @@ class EXPORTED_PUBLIC ScsiController : public Controller, public RequestQueue {
  protected:
   virtual void cancelRequest(const Request& request);
 
-  /** Drains disk work and retires child Cache callbacks while I/O is live. */
-  void shutdownDiskCaches();
+  /** Drains disk work and retires child Cache callbacks. Removed devices
+   * discard software cache data and cannot provide a final hardware flush. */
+  void shutdownDiskCaches(bool deviceAvailable = true);
 
   virtual size_t getNumUnits() = 0;
 

@@ -44,6 +44,7 @@ HidReport::HidReport()
     : m_pRootCollection(nullptr),
       m_ReportBits{},
       m_OldReports{},
+      m_InputStates{},
       m_HasReportIds(false),
       m_Valid(false) {}
 
@@ -51,6 +52,9 @@ HidReport::~HidReport() {
   delete m_pRootCollection;
   for (auto* report : m_OldReports)
     delete[] report;
+  for (auto* input : m_InputStates) {
+    delete input;
+  }
 }
 HidReport::Collection::~Collection() {
   for (auto* child : childs) {
@@ -296,6 +300,7 @@ void HidReport::parseDescriptor(uint8_t* pDescriptor, size_t nDescriptorLength) 
   for (size_t id = 0; id < 256; ++id) {
     if (m_ReportBits[id]) {
       m_OldReports[id] = new uint8_t[(m_ReportBits[id] + 7) / 8]();
+      m_InputStates[id] = new HidUtils::InputState;
       m_Valid = true;
     }
   }
@@ -311,24 +316,29 @@ void HidReport::feedInput(uint8_t* pBuffer, uint8_t*, size_t nBufferSize) {
   if (!reportBytes || nBufferSize < reportBytes)
     return;
   size_t bitOffset = 0;
-  m_pRootCollection->feedInput(pBuffer, m_OldReports[reportId], reportBytes, bitOffset, reportId);
+  m_pRootCollection->feedInput(pBuffer, m_OldReports[reportId], reportBytes, bitOffset, reportId,
+                               *m_InputStates[reportId]);
   MemoryCopy(m_OldReports[reportId], pBuffer, reportBytes);
 }
 
 void HidReport::Collection::feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, size_t nBufferSize,
-                                      size_t& nBitOffset, uint8_t reportId) {
+                                      size_t& nBitOffset, uint8_t reportId,
+                                      HidUtils::InputState& inputState) {
   // Send input to each child
   for (size_t i = 0; i < childs.count(); i++) {
     Child* pChild = childs[i];
 
     // If it's a collection, just forward the arguments
-    if (pChild->type == CollectionChild)
-      pChild->pCollection->feedInput(pBuffer, pOldBuffer, nBufferSize, nBitOffset, reportId);
+    if (pChild->type == CollectionChild) {
+      pChild->pCollection->feedInput(pBuffer, pOldBuffer, nBufferSize, nBitOffset, reportId,
+                                     inputState);
+    }
 
     // If it's an input block, we need to send also a guessed device type
-    if (pChild->type == InputBlockChild)
+    if (pChild->type == InputBlockChild) {
       pChild->pInputBlock->feedInput(pBuffer, pOldBuffer, nBufferSize, nBitOffset,
-                                     guessInputDevice(), reportId);
+                                     guessInputDevice(), reportId, inputState);
+    }
   }
 }
 
@@ -358,7 +368,7 @@ HidDeviceType HidReport::Collection::guessInputDevice() {
 
 void HidReport::InputBlock::feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, size_t nBufferSize,
                                       size_t& nBitOffset, HidDeviceType deviceType,
-                                      uint8_t reportId) {
+                                      uint8_t reportId, HidUtils::InputState& inputState) {
   const uint8_t id = state.nReportID == -1 ? 0 : state.nReportID;
   if (id != reportId)
     return;
@@ -386,9 +396,10 @@ void HidReport::InputBlock::feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, siz
             nValue - HidUtils::getBufferField(pOldBuffer, nBitOffset + i * state.nReportSize,
                                               state.nReportSize);
 
-        if (nRelativeValue)
+        if (nRelativeValue) {
           HidUtils::sendInputToManager(deviceType, state.nUsagePage, state.getUsageByIndex(i),
-                                       nRelativeValue);
+                                       nRelativeValue, inputState);
+        }
         break;
       case Relative:
         // The actual value is relative
@@ -397,9 +408,10 @@ void HidReport::InputBlock::feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, siz
             (nValue & (uint64_t{1} << (state.nReportSize - 1))))
           nRelativeValue = static_cast<int64_t>(nValue | (~uint64_t{0} << state.nReportSize));
 
-        if (nRelativeValue)
+        if (nRelativeValue) {
           HidUtils::sendInputToManager(deviceType, state.nUsagePage, state.getUsageByIndex(i),
-                                       nRelativeValue);
+                                       nRelativeValue, inputState);
+        }
         break;
       case Array:
         // A non-zero value in an array means a holded key/button
@@ -415,8 +427,9 @@ void HidReport::InputBlock::feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, siz
           }
 
           // If it's new, we have a keyDown/buttonDown
-          if (bNew)
-            HidUtils::sendInputToManager(deviceType, state.nUsagePage, nValue, 1);
+          if (bNew) {
+            HidUtils::sendInputToManager(deviceType, state.nUsagePage, nValue, 1, inputState);
+          }
         }
         break;
       // This is to please GCC
@@ -443,8 +456,9 @@ void HidReport::InputBlock::feedInput(uint8_t* pBuffer, uint8_t* pOldBuffer, siz
         }
 
         // If it disapeared, we have a keyUp/buttonUp
-        if (bDisapeared)
-          HidUtils::sendInputToManager(deviceType, state.nUsagePage, nOldValue, -1);
+        if (bDisapeared) {
+          HidUtils::sendInputToManager(deviceType, state.nUsagePage, nOldValue, -1, inputState);
+        }
       }
     }
   }

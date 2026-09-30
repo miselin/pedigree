@@ -119,6 +119,10 @@ bool File::writeCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uin
 
   switch (cause) {
     case CacheConstants::WriteBack: {
+      OperationBarrier::Lease operation;
+      if (!pFile->tryAcquireFilesystemOperation(operation)) {
+        return false;
+      }
       pFile->writeBlocks(loc, page, PhysicalMemoryManager::getPageSize());
     } break;
     case CacheConstants::Eviction:
@@ -139,6 +143,10 @@ bool File::fillCacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc,
                              void* meta) {
   File* pFile = reinterpret_cast<File*>(meta);
   if (cause == CacheConstants::WriteBack) {
+    OperationBarrier::Lease operation;
+    if (!pFile->tryAcquireFilesystemOperation(operation)) {
+      return false;
+    }
     pFile->writeBlocks(loc, page, PhysicalMemoryManager::getPageSize());
   } else if (cause == CacheConstants::Eviction) {
     pFile->setCachedPage(loc / PhysicalMemoryManager::getPageSize(), FILE_BAD_BLOCK);
@@ -229,6 +237,10 @@ File::~File() {
 }
 
 uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return 0;
+  }
   Metrics::increment(Metrics::FileReadCalls);
   if (isBytewise()) {
     // Have to perform bytewise reads
@@ -306,6 +318,10 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
 
 size_t File::readCached(uint64_t location, size_t size, uintptr_t buffer,
                         bool (*prepare)(uintptr_t, size_t)) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return 0;
+  }
   Metrics::increment(Metrics::FileCachedReadCalls);
   if (isBytewise() || !useFillCache() || m_bDirect) {
     return 0;
@@ -414,6 +430,10 @@ File::WriteGuard::~WriteGuard() {
 }
 
 void File::publishWriteMetadata() {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return;
+  }
   if (!isBytewise() && !isDirectory() && !isSymlink() && isSeekable()) {
     Attributes attributes;
     attributes.modified = attributes.changed = Time::getTime();
@@ -424,6 +444,10 @@ void File::publishWriteMetadata() {
 
 uint64_t File::WriteGuard::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock,
                                  bool publishMetadata) {
+  OperationBarrier::Lease operation;
+  if (!m_File.tryAcquireFilesystemOperation(operation)) {
+    return 0;
+  }
   Metrics::increment(Metrics::FileWriteCalls);
   LockGuard<Mutex> guard(m_File.dataMutationLock());
   const uint64_t written = m_File.writeUnlocked(location, size, buffer, bCanBlock);
@@ -440,6 +464,10 @@ uint64_t File::WriteGuard::write(uint64_t location, uint64_t size, uintptr_t buf
 
 uint64_t File::WriteGuard::append(uint64_t size, uintptr_t buffer, uint64_t& location,
                                   bool bCanBlock, bool publishMetadata) {
+  OperationBarrier::Lease operation;
+  if (!m_File.tryAcquireFilesystemOperation(operation)) {
+    return 0;
+  }
   Metrics::increment(Metrics::FileWriteCalls);
   LockGuard<Mutex> guard(m_File.dataMutationLock());
   location = m_File.getSize();
@@ -456,6 +484,10 @@ uint64_t File::WriteGuard::append(uint64_t size, uintptr_t buffer, uint64_t& loc
 }
 
 physical_uintptr_t File::getPhysicalPage(size_t offset) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return ~0UL;
+  }
   LockGuard<Mutex> guard(dataMutationLock());
   if (!allowPhysicalPage())
     return ~0UL;
@@ -565,6 +597,10 @@ bool File::sync() {
 }
 
 bool File::syncRange(size_t offset, size_t length) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return false;
+  }
   if (length && length - 1 > ~size_t(0) - offset) {
     SYSCALL_ERROR(InvalidArgument);
     return false;
@@ -650,6 +686,10 @@ bool File::syncRange(size_t offset, size_t length) {
 }
 
 bool File::syncPages(const uint64_t* offsets, size_t count) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return false;
+  }
   if (count > Disk::MaxSyncPages || (count && !offsets))
     return false;
   for (size_t i = 0; i < count; ++i) {
@@ -663,6 +703,18 @@ bool File::syncPages(const uint64_t* offsets, size_t count) {
 }
 
 bool File::sync(size_t offset, bool async) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return false;
+  }
+  return true;
+}
+
+bool File::tryAcquireFilesystemOperation(OperationBarrier::Lease& operation) const {
+  if (m_pFilesystem && !m_pFilesystem->tryAcquireOperation(operation)) {
+    SYSCALL_ERROR(DeviceDoesNotExist);
+    return false;
+  }
   return true;
 }
 
@@ -671,6 +723,10 @@ Time::Timestamp File::getCreationTime() {
 }
 
 void File::setCreationTime(Time::Timestamp t) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return;
+  }
   Attributes attributes;
   attributes.changed = t;
   updateAttributes(attributes, ChangeTime);
@@ -682,6 +738,10 @@ Time::Timestamp File::getAccessedTime() {
 }
 
 void File::setAccessedTime(Time::Timestamp t) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return;
+  }
   Attributes attributes;
   attributes.accessed = t;
   updateAttributes(attributes, AccessTime);
@@ -690,6 +750,10 @@ void File::setAccessedTime(Time::Timestamp t) {
 
 void File::setTimes(Time::Timestamp accessed, Time::Timestamp modified, bool changeAccessed,
                     bool changeModified) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return;
+  }
   // A caller may request a ctime-only update without changing atime or mtime.
   Attributes attributes;
   attributes.accessed = accessed;
@@ -705,6 +769,10 @@ Time::Timestamp File::getModifiedTime() {
 }
 
 void File::setModifiedTime(Time::Timestamp t) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return;
+  }
   Attributes attributes;
   attributes.modified = t;
   updateAttributes(attributes, ModifyTime);
@@ -852,6 +920,10 @@ bool File::isStableVfsRoot() const {
 }
 
 void File::setPermissions(uint32_t perms) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return;
+  }
   Attributes attributes;
   attributes.permissions = perms;
   updateAttributes(attributes, Permissions);
@@ -863,6 +935,10 @@ uint32_t File::getPermissions() const {
 }
 
 bool File::setOwnership(size_t uid, size_t gid, bool changeUid, bool changeGid) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return false;
+  }
   if (!changeUid && !changeGid)
     return true;
   if (!changeOwnership(uid, gid, changeUid, changeGid))
@@ -880,6 +956,10 @@ bool File::changeOwnership(size_t uid, size_t gid, bool changeUid, bool changeGi
 }
 
 void File::setUid(size_t uid) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return;
+  }
   Attributes attributes;
   attributes.uid = uid;
   updateAttributes(attributes, Owner);
@@ -891,6 +971,10 @@ size_t File::getUid() const {
 }
 
 void File::setGid(size_t gid) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return;
+  }
   Attributes attributes;
   attributes.gid = gid;
   updateAttributes(attributes, Group);
@@ -1127,6 +1211,10 @@ bool File::allowResize(size_t, size_t) {
 }
 
 bool File::resize(size_t size) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return false;
+  }
   if (!supportsRegularFileOperations()) {
     syscallError(isDirectory() ? Error::IsADirectory : Error::InvalidArgument);
     return false;
@@ -1528,6 +1616,10 @@ void File::markPageExternallyWritable(size_t offset) {
 }
 
 size_t File::populateRange(size_t offset, size_t length) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return 0;
+  }
   if (!length || isBytewise())
     return 0;
   if (!useFillCache() || m_bDirect) {
@@ -1677,6 +1769,11 @@ void File::shutdownFillCacheWriteback() {
 }
 
 bool File::syncFillCache(size_t offset, bool async, bool& present) {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    present = false;
+    return false;
+  }
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const size_t pageOffset = offset - (offset % pageSize);
   LockGuard<Mutex> guard(cacheState().fillLock);

@@ -25,6 +25,37 @@ FatFile::State::~State() {
     ERROR("FAT: unable to drain file cache during unmount");
 }
 
+bool FatFilesystem::deviceRemoved(bool deviceAvailable) {
+  if (!m_pDisk) {
+    return true;
+  }
+  if (!beginDeviceRemoval(deviceAvailable)) {
+    return false;
+  }
+  m_bReadOnly = true;
+  for (auto* state = m_StateList; state; state = state->next) {
+    LockGuard<Mutex> data(state->dataLock);
+    if (!state->cache.fill.shutdown(Cache::ShutdownMode::DiscardDeferred)) {
+      return false;
+    }
+    state->retiring = true;
+    state->metadataDirty = false;
+    state->trimPending = false;
+    state->retiredClusters.clear();
+  }
+  {
+    LockGuard<Mutex> guard(m_FileMutationLock);
+    clearPendingAttributes();
+    LockGuard<UnlikelyLock> fat(m_FatLock);
+    for (auto it = m_FatCache.begin(); it != m_FatCache.end(); ++it) {
+      delete[] reinterpret_cast<uint8_t*>(it.value());
+    }
+    m_FatCache.clear();
+    m_DirtyFatSectors.clear();
+  }
+  return Filesystem::deviceRemoved();
+}
+
 uintptr_t FatFilesystem::fileIdentifier(uint32_t cluster, uint32_t offset) {
   LockGuard<Mutex> registry(m_StateLock);
   return fileIdentifierLocked(slotKey(cluster, offset));
@@ -72,9 +103,13 @@ void FatFilesystem::releaseFileState(FatFile* file) {
   auto* state = file->m_State;
   LockGuard<Mutex> data(state->dataLock);
   // Keep failed writeback retryable even when the last descriptor closes.
-  const bool written = state->cache.fill.syncAll(FatFile::checkedBatchCallback, state);
-  if (m_pDisk && !syncFileMetadata(file))
+  OperationBarrier::Lease operation;
+  const bool available = tryAcquireOperation(operation);
+  const bool written =
+      !available || state->cache.fill.syncAll(FatFile::checkedBatchCallback, state);
+  if (available && m_pDisk && !syncFileMetadata(file)) {
     WARNING("FAT: retaining pending metadata after close");
+  }
   if (!written)
     WARNING("FAT: retaining dirty file pages after close");
   bool retire = false;
@@ -90,7 +125,7 @@ void FatFilesystem::releaseFileState(FatFile* file) {
     if (retire)
       state->retiring = true;
   }
-  if (retire) {
+  if (retire && available) {
     // Callback storage survives the terminal drain; the old allocation cannot
     // be reused while a callback can still write its pages.
     state->cache.fill.shutdown();
@@ -189,6 +224,10 @@ void FatFilesystem::retireNode(File* file) {
 }
 
 Filesystem::SyncStatus FatFilesystem::sync() {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return SyncStatus::IoError;
+  }
   TerminationDeferral lifetime;
   if (!m_pDisk)
     return SyncStatus::IoError;
@@ -220,6 +259,10 @@ Filesystem::SyncStatus FatFilesystem::sync() {
 }
 
 Filesystem::SyncStatus FatFilesystem::shutdown() {
+  OperationBarrier::Lease operation;
+  if (!tryAcquireOperation(operation)) {
+    return SyncStatus::IoError;
+  }
   TerminationDeferral lifetime;
   if (m_ShutdownComplete)
     return SyncStatus::Success;

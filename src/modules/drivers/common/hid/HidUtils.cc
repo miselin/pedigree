@@ -18,10 +18,49 @@
  */
 
 #include "modules/drivers/common/hid/HidUtils.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/machine/InputManager.h"
 
 #include "modules/drivers/common/hid/HidUsages.h"
+
+Spinlock HidUtils::InputState::m_Lock;
+HidUtils::InputState* HidUtils::InputState::m_pInputs = nullptr;
+
+HidUtils::InputState::InputState()
+    : m_pNext(nullptr), m_Keys{}, m_MouseButtons(0), m_JoystickButtons(0) {
+  LockGuard<Spinlock> guard(m_Lock);
+  m_pNext = m_pInputs;
+  m_pInputs = this;
+}
+
+HidUtils::InputState::~InputState() {
+  LockGuard<Spinlock> guard(m_Lock);
+  for (size_t key = 0; key < 256; ++key) {
+    if (m_Keys[key / 64] & (uint64_t{1} << (key % 64))) {
+      HidInputManager::instance().keyUp(key, this);
+    }
+  }
+  InputState** input = &m_pInputs;
+  while (*input != this) {
+    input = &(*input)->m_pNext;
+  }
+  *input = m_pNext;
+  if (m_MouseButtons) {
+    InputManager::instance().mouseUpdate(0, 0, 0, buttons(Mouse));
+  }
+  if (m_JoystickButtons) {
+    InputManager::instance().joystickUpdate(0, 0, 0, buttons(Joystick));
+  }
+}
+
+uint32_t HidUtils::InputState::buttons(HidDeviceType deviceType) {
+  uint32_t bitmap = 0;
+  for (InputState* input = m_pInputs; input; input = input->m_pNext) {
+    bitmap |= deviceType == Mouse ? input->m_MouseButtons : input->m_JoystickButtons;
+  }
+  return bitmap;
+}
 
 uint64_t HidUtils::getBufferField(uint8_t* pBuffer, size_t nStart, size_t nLength) {
   if (nLength > 64)
@@ -67,20 +106,26 @@ void HidUtils::fixNegativeValue(int64_t nMin, int64_t nMax, int64_t& nValue) {
 }
 
 void HidUtils::sendInputToManager(HidDeviceType deviceType, uint16_t nUsagePage, uint16_t nUsage,
-                                  int64_t nRelativeValue) {
-  // Button bitmaps
-  /// \todo Matt, fix the damn input manager!!!
-  static uint32_t mouseButtons = 0;
-  static uint32_t joystickButtons = 0;
+                                  int64_t nRelativeValue, InputState& state) {
+  LockGuard<Spinlock> guard(InputState::m_Lock);
 
   // Is this a key on a keyboard/keypad?
   if ((deviceType == Keyboard) && (nUsagePage == HidUsagePages::Keyboard)) {
-    if (nRelativeValue > 0)
-      HidInputManager::instance().keyDown(nUsage);
-    else
-      HidInputManager::instance().keyUp(nUsage);
+    if (!nUsage || nUsage > 255) {
+      return;
+    }
+    const uint64_t bit = uint64_t{1} << (nUsage % 64);
+    if (nRelativeValue > 0) {
+      state.m_Keys[nUsage / 64] |= bit;
+      HidInputManager::instance().keyDown(nUsage, &state);
+    } else {
+      state.m_Keys[nUsage / 64] &= ~bit;
+      HidInputManager::instance().keyUp(nUsage, &state);
+    }
   }
 
+  const uint32_t mouseButtons = InputState::buttons(Mouse);
+  const uint32_t joystickButtons = InputState::buttons(Joystick);
   // Is this an axis on a mouse?
   if ((deviceType == Mouse) && (nUsagePage == HidUsagePages::GenericDesktop)) {
     if (nUsage == HidUsages::X)
@@ -103,25 +148,33 @@ void HidUtils::sendInputToManager(HidDeviceType deviceType, uint16_t nUsagePage,
 
   // Is this a button on a mouse?
   if ((deviceType == Mouse) && (nUsagePage == HidUsagePages::Button)) {
+    if (!nUsage || nUsage > 32) {
+      return;
+    }
     // Set/unset the bit in the bitmap
-    if (nRelativeValue > 0)
-      mouseButtons |= 1 << (nUsage - 1);
-    else
-      mouseButtons &= ~(1 << (nUsage - 1));
+    if (nRelativeValue > 0) {
+      state.m_MouseButtons |= uint32_t{1} << (nUsage - 1);
+    } else {
+      state.m_MouseButtons &= ~(uint32_t{1} << (nUsage - 1));
+    }
 
     // Send the new bitmap to the input manager
-    InputManager::instance().mouseUpdate(0, 0, 0, mouseButtons);
+    InputManager::instance().mouseUpdate(0, 0, 0, InputState::buttons(Mouse));
   }
 
   // Is this a button on a joystick?
   if ((deviceType == Joystick) && (nUsagePage == HidUsagePages::Button)) {
+    if (!nUsage || nUsage > 32) {
+      return;
+    }
     // Set/unset the bit in the bitmap
-    if (nRelativeValue > 0)
-      joystickButtons |= 1 << (nUsage - 1);
-    else
-      joystickButtons &= ~(1 << (nUsage - 1));
+    if (nRelativeValue > 0) {
+      state.m_JoystickButtons |= uint32_t{1} << (nUsage - 1);
+    } else {
+      state.m_JoystickButtons &= ~(uint32_t{1} << (nUsage - 1));
+    }
 
     // Send the new bitmap to the input manager
-    InputManager::instance().joystickUpdate(0, 0, 0, joystickButtons);
+    InputManager::instance().joystickUpdate(0, 0, 0, InputState::buttons(Joystick));
   }
 }

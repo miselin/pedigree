@@ -660,12 +660,16 @@ Cache::~Cache() {
   shutdown();
 }
 
-bool Cache::shutdown() {
+bool Cache::shutdown(ShutdownMode mode) {
   const size_t state = m_ShutdownState;
-  if (state >= 2) {
+  if (state == 2 || state == 3) {
     return state == 2;
   }
-  if (!m_ShutdownState.compareAndSwap(0, 1)) {
+  const bool deferred = state == 4;
+  if (deferred && mode == ShutdownMode::DiscardDeferred) {
+    return true;
+  }
+  if (!m_ShutdownState.compareAndSwap(deferred ? 4 : 0, deferred ? 5 : 1)) {
     FATAL("Concurrent Cache shutdown is not permitted");
     return false;
   }
@@ -673,18 +677,33 @@ bool Cache::shutdown() {
   // Removing registration closes queue-time admission. Every request already
   // published owns a manager-operation lease, so this waits for queued and
   // active callbacks before storage is touched.
-  CacheManager::instance().unregisterCache(this);
-  const bool succeeded = empty();
+  if (!deferred) {
+    CacheManager::instance().unregisterCache(this);
+  }
+  size_t discardedDirtyPages = 0;
+  const bool waitForPins = mode != ShutdownMode::DiscardDeferred;
+  const bool discard = deferred || mode != ShutdownMode::WriteBack;
+  const bool succeeded =
+      empty(discard ? EvictionMode::DiscardDirty : EvictionMode::DiscardBaseReference,
+            &discardedDirtyPages, waitForPins);
+  if (discardedDirtyPages) {
+    WARNING("Cache: discarded " << Dec << discardedDirtyPages
+                                << " dirty pages after backing device removal");
+  }
   if (!succeeded) {
     ERROR("Cache: backend teardown left unwritten pages resident");
   }
-  m_ShutdownState = succeeded ? 2 : 3;
+  m_ShutdownState = succeeded ? (waitForPins ? 2 : 4) : 3;
   return succeeded;
 }
 
 bool Cache::ensureUsable(const char* operation) const {
-  if (static_cast<size_t>(m_ShutdownState) < 2) {
+  const size_t state = m_ShutdownState;
+  if (state < 2) {
     return true;
+  }
+  if (state == 4 || state == 5) {
+    return false;
   }
 
   FATAL("Cache::" << operation << " called after terminal shutdown");
@@ -1114,12 +1133,13 @@ bool Cache::discardEditing(uintptr_t key) {
   return evict(key, EvictionMode::DiscardEditing);
 }
 
-bool Cache::evict(uintptr_t key, EvictionMode mode) {
+bool Cache::evict(uintptr_t key, EvictionMode mode, size_t* discardedDirtyPages) {
   CachePage* page = nullptr;
   writeback_t callback = nullptr;
   void* callbackMeta = nullptr;
   uintptr_t location = 0;
   bool dirty = false;
+  bool discardedDirty = false;
   uint64_t submittedGeneration = 0;
   uint64_t submittedChecksum[2] = {};
   bool submittedChecksumTracking = false;
@@ -1148,6 +1168,12 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
       if (page->status != CachePage::Editing || page->refcnt != 1) {
         return false;
       }
+      page->evictionState = CachePage::EvictionState::Retiring;
+    } else if (mode == EvictionMode::DiscardDirty) {
+      if (page->refcnt > 1) {
+        return false;
+      }
+      discardedDirty = callback && page->status != CachePage::Editing && needsWriteback(page);
       page->evictionState = CachePage::EvictionState::Retiring;
     } else {
       // Callback-backed pages retain a base reference. Other caches must
@@ -1195,7 +1221,7 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
     return false;
   }
 
-  if (mode != EvictionMode::DiscardEditing) {
+  if (mode != EvictionMode::DiscardEditing && mode != EvictionMode::DiscardDirty) {
     bool pinnedAgain = false;
     {
       LockGuard<Spinlock> guard(m_Lock);
@@ -1246,7 +1272,11 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
     }
   }
 
-  return finishRetirement(page, callback, callbackMeta);
+  const bool retired = finishRetirement(page, callback, callbackMeta);
+  if (retired && discardedDirty && discardedDirtyPages) {
+    ++*discardedDirtyPages;
+  }
+  return retired;
 }
 
 bool Cache::finishRetirement(CachePage* page, writeback_t callback, void* callbackMeta) {
@@ -1435,51 +1465,76 @@ bool Cache::retireWriteback(uintptr_t key, retirement_writeback_t callback, void
 }
 
 bool Cache::empty() {
+  if (!ensureUsable("empty")) {
+    return false;
+  }
+  return empty(EvictionMode::DiscardBaseReference, nullptr);
+}
+
+bool Cache::empty(EvictionMode mode, size_t* discardedDirtyPages, bool waitForPins) {
   while (true) {
     uintptr_t key = 0;
+    if (!waitForPins) {
+      bool found = false;
+      {
+        LockGuard<Spinlock> guard(m_Lock);
+        for (auto it = m_Pages.begin(); it != m_Pages.end(); ++it) {
+          CachePage* page = it.value();
+          if (page->evictionState == CachePage::EvictionState::None && page->refcnt <= 1) {
+            key = it.key();
+            found = true;
+            break;
+          }
+        }
+      }
+      if (!found) {
+        return true;
+      }
+    } else {
 #if THREADS
-    CachePage* waitPage = nullptr;
-    {
-      auto waitGuard = m_EvictionWaiters.acquire();
-      waitGuard.prepareToWait();
+      CachePage* waitPage = nullptr;
+      {
+        auto waitGuard = m_EvictionWaiters.acquire();
+        waitGuard.prepareToWait();
+        {
+          LockGuard<Spinlock> guard(m_Lock);
+          Tree<uintptr_t, CachePage*>::Iterator it = m_Pages.begin();
+          if (it == m_Pages.end()) {
+            return true;
+          }
+
+          key = it.key();
+          CachePage* page = it.value();
+          if (page->evictionState != CachePage::EvictionState::None || page->refcnt > 1) {
+            waitPage = page;
+          }
+        }
+
+        if (waitPage) {
+          const WaitQueue::WakeReason reason =
+              waitGuard.waitForCompletion(WaitQueue::Channel(waitPage), Thread::CallbackDrain, key);
+          (void)reason;
+          continue;
+        }
+      }
+#else
       {
         LockGuard<Spinlock> guard(m_Lock);
         Tree<uintptr_t, CachePage*>::Iterator it = m_Pages.begin();
         if (it == m_Pages.end()) {
           return true;
         }
-
         key = it.key();
-        CachePage* page = it.value();
-        if (page->evictionState != CachePage::EvictionState::None || page->refcnt > 1) {
-          waitPage = page;
-        }
       }
-
-      if (waitPage) {
-        const WaitQueue::WakeReason reason =
-            waitGuard.waitForCompletion(WaitQueue::Channel(waitPage), Thread::CallbackDrain, key);
-        (void)reason;
-        continue;
-      }
-    }
-#else
-    {
-      LockGuard<Spinlock> guard(m_Lock);
-      Tree<uintptr_t, CachePage*>::Iterator it = m_Pages.begin();
-      if (it == m_Pages.end()) {
-        return true;
-      }
-      key = it.key();
-    }
 #endif
+    }
 
     // Another caller can win the eviction race after the predicate check.
     // Restarting discovers either its in-progress state or the next page.
-    if (!evict(key, EvictionMode::DiscardBaseReference)) {
+    if (!evict(key, mode, discardedDirtyPages)) {
       LockGuard<Spinlock> guard(m_Lock);
       CachePage* page = m_Pages.lookup(key);
-      if (page && page->writebackFailed) {
+      if (mode != EvictionMode::DiscardDirty && page && page->writebackFailed) {
         return false;
       }
     }
@@ -1513,7 +1568,9 @@ bool Cache::pin(uintptr_t key) {
 }
 
 void Cache::release(uintptr_t key) {
-  if (!ensureUsable("release")) {
+  const size_t state = m_ShutdownState;
+  const bool deferred = state == 4 || state == 5;
+  if (!deferred && !ensureUsable("release")) {
     return;
   }
 
@@ -1543,7 +1600,7 @@ void Cache::release(uintptr_t key) {
 
   // Thread creation can reschedule, so it must happen after dropping the
   // cache lock. Eviction rechecks the refcount if the page is pinned again.
-  if (shouldEvict) {
+  if (shouldEvict && !static_cast<size_t>(m_ShutdownState)) {
     CacheManager::instance().addCacheRequest(this, true, CacheConstants::PleaseEvict, key);
   }
 }
@@ -2147,8 +2204,10 @@ bool Cache::beginMutableLoan(uintptr_t key) {
 }
 
 void Cache::endMutableLoan(uintptr_t key) {
-  if (!ensureUsable("endMutableLoan"))
+  const size_t state = m_ShutdownState;
+  if (state != 4 && state != 5 && !ensureUsable("endMutableLoan")) {
     return;
+  }
   LockGuard<Spinlock> guard(m_Lock);
   CachePage* page = m_Pages.lookup(key);
   assert(page && page->mutableLoans);

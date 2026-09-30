@@ -299,16 +299,22 @@ class EXPORTED_PUBLIC Cache {
   Cache(size_t pageConstraints = 0);
   virtual ~Cache();
 
+  enum class ShutdownMode { WriteBack, Discard, DiscardDeferred };
+
   /**
-   * Drains manager-owned work and writes back/evicts every page.
+   * Drains manager-owned work and retires every page. Discard is reserved for
+   * removal of an unavailable backing device and reports lost dirty pages.
    *
    * Owners whose callback metadata points at an enclosing object must call
    * this at the start of that object's teardown, while callback dependencies
    * are still alive. Calling it again after completion is harmless. A failed
    * terminal drain reports false and retains unwritten storage; it cannot
    * continue retries after its backend is destroyed.
+   * DiscardDeferred closes admission and drains callbacks immediately, but
+   * leaves pinned pages resident until a later shutdown or destruction. The
+   * cache and callback metadata must survive until all loans are returned.
    */
-  bool shutdown();
+  bool shutdown(ShutdownMode mode = ShutdownMode::WriteBack);
 
   /**
    * Installs the write-back callback before the Cache is used.
@@ -626,13 +632,15 @@ class EXPORTED_PUBLIC Cache {
     Ordinary,
     DiscardBaseReference,
     DiscardEditing,
+    DiscardDirty,
   };
 
   /** mapping doer */
   bool map(uintptr_t virt) const;
 
   /** Retires one page according to the caller's refcount contract. */
-  bool evict(uintptr_t key, EvictionMode mode);
+  bool evict(uintptr_t key, EvictionMode mode, size_t* discardedDirtyPages = nullptr);
+  bool empty(EvictionMode mode, size_t* discardedDirtyPages, bool waitForPins = true);
 
   /** Completes retirement after the caller publishes Retiring under m_Lock. */
   bool finishRetirement(CachePage* page, writeback_t callback, void* callbackMeta);
@@ -788,7 +796,8 @@ class EXPORTED_PUBLIC Cache {
   /** Are we currently in a critical section? */
   Atomic<size_t> m_bInCritical;
 
-  /** 0 active, 1 shutting down, 2 drained, 3 terminal writeback failure. */
+  /** 0 active, 1 shutting down, 2 drained, 3 terminal writeback failure,
+   * 4 deferred discard, 5 completing deferred discard. */
   Atomic<size_t> m_ShutdownState;
 
   /** Constraints we need to apply to each page we allocate. */

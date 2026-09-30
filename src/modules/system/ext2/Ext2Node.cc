@@ -135,7 +135,7 @@ void Ext2InodeState::loadMappings(Ext2Filesystem* filesystem, uint32_t block, un
 
 Ext2Node::Ext2Node(uintptr_t inode_num, Inode* pInode, Ext2Filesystem* pFs)
     : m_State(pFs->acquireInodeState(inode_num, pInode)),
-      m_pInode(pInode),
+      m_pInode(m_State->metadata),
       m_InodeNumber(inode_num),
       m_pExt2Fs(pFs),
       m_Blocks(m_State->blocks),
@@ -145,7 +145,7 @@ Ext2Node::Ext2Node(uintptr_t inode_num, Inode* pInode, Ext2Filesystem* pFs)
 Ext2Node::Ext2Node(uintptr_t inode, Inode* metadata, Ext2Filesystem* filesystem,
                    Ext2InodeState& admitted)
     : m_State(&admitted),
-      m_pInode(metadata),
+      m_pInode(admitted.metadata),
       m_InodeNumber(inode),
       m_pExt2Fs(filesystem),
       m_Blocks(admitted.blocks),
@@ -215,6 +215,10 @@ void Ext2Node::trackBlock(uint32_t block, bool writeInode) {
 }
 
 bool Ext2Node::wipe(bool allocationLockHeld) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return false;
+  }
   if (!m_State->allocationValid) {
     SYSCALL_ERROR(IoError);
     return false;
@@ -561,6 +565,10 @@ bool Ext2Node::ensureWritableRange(size_t location, size_t length) {
 }
 
 void Ext2Node::fileAttributeChanged(size_t size, size_t atime, size_t mtime, size_t ctime) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return;
+  }
   m_pInode->i_size = HOST_TO_LITTLE32(size);  /// \todo 4GB files.
   m_pInode->i_atime = HOST_TO_LITTLE32(atime);
   m_pInode->i_mtime = HOST_TO_LITTLE32(mtime);
@@ -589,6 +597,10 @@ File::Attributes Ext2Node::inodeAttributes() const {
 }
 
 void Ext2Node::updateInodeAttributes(const File::Attributes& attributes, uint32_t mask) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return;
+  }
   if (mask & (File::Owner | File::Group)) {
     if (!changeInodeOwnership(attributes.uid, attributes.gid, mask & File::Owner,
                               mask & File::Group))
@@ -615,6 +627,10 @@ void Ext2Node::updateInodeAttributes(const File::Attributes& attributes, uint32_
 }
 
 bool Ext2Node::sync(size_t offset, bool async) {
+  OperationBarrier::Lease operation;
+  if (!m_pExt2Fs->tryAcquireOperation(operation)) {
+    return false;
+  }
   const size_t nBlock = offset / m_pExt2Fs->m_BlockSize;
   if (offset >= m_nSize) {
     return true;

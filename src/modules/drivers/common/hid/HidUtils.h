@@ -20,6 +20,7 @@
 #ifndef HIDUTILS_H
 #define HIDUTILS_H
 
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/processor/types.h"
 
 /// Enum used to distinguish between various input devices
@@ -27,6 +28,26 @@ enum HidDeviceType { Keyboard, Mouse, Joystick, UnknownDevice = ~0 };
 
 /// Various utility functions used in HID
 namespace HidUtils {
+/// Held input belongs to a report instance and is retired with that instance.
+class InputState {
+ public:
+  InputState();
+  ~InputState();
+  InputState(const InputState&) = delete;
+  InputState& operator=(const InputState&) = delete;
+
+ private:
+  friend void sendInputToManager(HidDeviceType deviceType, uint16_t nUsagePage, uint16_t nUsage,
+                                 int64_t nRelativeValue, InputState& state);
+  static uint32_t buttons(HidDeviceType deviceType);
+  static Spinlock m_Lock;
+  static InputState* m_pInputs;
+  InputState* m_pNext;
+  uint64_t m_Keys[4];
+  uint32_t m_MouseButtons;
+  uint32_t m_JoystickButtons;
+};
+
 /// Retrieves a field in a buffer
 uint64_t getBufferField(uint8_t* pBuffer, size_t nStart, size_t nLength);
 
@@ -38,7 +59,7 @@ void fixNegativeValue(int64_t nMin, int64_t nMax, int64_t& nValue);
 
 /// Sends the input to the right handler in HidInputManager or InputManager
 void sendInputToManager(HidDeviceType deviceType, uint16_t nUsagePage, uint16_t nUsage,
-                        int64_t nRelativeValue);
+                        int64_t nRelativeValue, InputState& state);
 };  // namespace HidUtils
 
 #endif

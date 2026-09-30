@@ -1312,6 +1312,31 @@ TEST(Ext2Writeback, ForcedNativeFillCombinesSeveralUpperPagesInOneDiskBatch) {
   EXPECT_EQ(fixture.disk.reads, fixture.disk.unpins);
 }
 
+TEST(Ext2Writeback, DeviceRemovalPreservesOpenInodeMetadataAndRejectsFurtherIo) {
+  FillBatchFixture fixture(FillBatchDisk::Page, FillBatchDisk::Page);
+  ASSERT_TRUE(fixture.prime());
+  ASSERT_TRUE(fixture.file->changeAll(0x63));
+  const auto attributes = fixture.file->getAttributes();
+  ASSERT_TRUE(fixture.filesystem.deviceRemoved());
+  EXPECT_TRUE(fixture.filesystem.deviceRemoved());
+  EXPECT_EQ(fixture.filesystem.getDisk(), nullptr);
+  fixture.inode = {};
+  EXPECT_EQ(fixture.file->getAttributes().size, attributes.size);
+  EXPECT_EQ(fixture.file->getAttributes().permissions, attributes.permissions);
+  uint8_t byte = 0;
+  EXPECT_EQ(fixture.file->read(0, 1, reinterpret_cast<uintptr_t>(&byte)), 0U);
+  EXPECT_EQ(fixture.file->write(0, 1, reinterpret_cast<uintptr_t>(&byte)), 0U);
+  EXPECT_FALSE(fixture.file->sync());
+  EXPECT_FALSE(fixture.file->resize(0));
+  fixture.file.reset();
+  EXPECT_TRUE(fixture.disk.dataReads.empty());
+  EXPECT_TRUE(fixture.disk.dataWrites.empty());
+  EXPECT_TRUE(fixture.disk.batchSizes.empty());
+  EXPECT_EQ(fixture.disk.singleSyncs, 0U);
+  EXPECT_EQ(fixture.disk.legacyBatches, 0U);
+  EXPECT_TRUE(fixture.disk.balanced());
+}
+
 TEST(Ext2Writeback, ForcedSubpageFillBatchSkipsSparseBlocksAndPreservesPartialTail) {
   FillBatchFixture fixture(1024, 2 * FillBatchDisk::Page + 333, 1);
   ASSERT_TRUE(fixture.prime());

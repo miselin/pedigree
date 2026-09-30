@@ -42,6 +42,7 @@ class UsbMassStorageDevice : public ScsiController, public UsbDevice {
   virtual ~UsbMassStorageDevice();
 
   virtual void initialiseDriver();
+  void prepareForDisconnection() override;
 
   virtual bool sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
                            uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite);
@@ -108,6 +109,7 @@ class UsbMassStorageDevice : public ScsiController, public UsbDevice {
   Endpoint* m_pOutEndpoint;
   uint32_t m_NextTag;
   bool m_ResetRecoveryRequired;
+  bool m_DeviceAvailable;
 
  protected:
   virtual size_t getNumUnits() {

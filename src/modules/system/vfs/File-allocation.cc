@@ -9,6 +9,10 @@
 
 bool File::allocateRange(size_t offset, size_t length, bool keepSize) {
   TerminationDeferral lifetime;
+  OperationBarrier::Lease operation;
+  if (!tryAcquireFilesystemOperation(operation)) {
+    return false;
+  }
   if (!supportsRegularFileOperations()) {
     syscallError(isDirectory() ? Error::IsADirectory : Error::OperationNotSupported);
     return false;

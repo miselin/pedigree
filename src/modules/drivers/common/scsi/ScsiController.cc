@@ -47,7 +47,7 @@ bool ScsiController::acquireDiskOperation(OperationBarrier::Lease& operation) {
   return m_DiskOperations.tryAcquire(operation);
 }
 
-void ScsiController::shutdownDiskCaches() {
+void ScsiController::shutdownDiskCaches(bool deviceAvailable) {
   // Retained paging channels must finish while their request worker and I/O
   // mappings remain available. Retiring endpoints rejects fresh selectors.
   for (size_t i = 0; i < getNumChildren(); ++i)
@@ -62,15 +62,18 @@ void ScsiController::shutdownDiskCaches() {
   }
 
   for (size_t i = 0; i < getNumChildren(); ++i) {
-    static_cast<ScsiDisk*>(getChild(i))->shutdownCache();
+    static_cast<ScsiDisk*>(getChild(i))->shutdownCache(deviceAvailable);
   }
 
   if (!RequestQueue::drain()) {
     panic("SCSI controller cache shutdown left queued work behind");
   }
 
-  for (size_t i = 0; i < getNumChildren(); ++i)
-    static_cast<ScsiDisk*>(getChild(i))->shutdownDeviceCache();
+  if (deviceAvailable) {
+    for (size_t i = 0; i < getNumChildren(); ++i) {
+      static_cast<ScsiDisk*>(getChild(i))->shutdownDeviceCache();
+    }
+  }
 }
 
 void ScsiController::searchDisks() {
