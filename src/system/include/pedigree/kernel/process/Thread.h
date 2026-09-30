@@ -973,6 +973,9 @@ class EXPORTED_PUBLIC Thread {
   void disarmAtomicStateCleanup(AtomicStateCleanupRecord& record);
 
  private:
+  void publishDeferredScope(DeferredScopeRecord& record, bool termination, bool events,
+                            DeferredScopeRecord::Cleanup cleanup, void* context);
+  void unpublishDeferredScope(DeferredScopeRecord& record, bool deferrals);
   void registerFreshTerminationDeferral(DeferredScopeRecord& record,
                                         DeferredScopeRecord::Cleanup cleanup = nullptr,
                                         void* context = nullptr);

@@ -389,6 +389,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry {
           owner(dispatchOwner),
           publication(admittedPublication),
           callback(isCallback),
+          activeDispatch(nullptr),
           previousDeviceHardIrqDepth(0),
           restoreDeviceHardIrqDepth(false),
           previousInterruptState(false),
@@ -400,6 +401,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry {
     void* owner;
     size_t publication;
     bool callback;
+    ActiveDispatch* activeDispatch;
     size_t previousDeviceHardIrqDepth;
     bool restoreDeviceHardIrqDepth;
     bool previousInterruptState;
@@ -460,10 +462,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry {
   bool closeSlotAdmission(HandlerSlot& slot, size_t expectedPublication, size_t& closedPublication);
   void tryReclaimTombstones(uint8_t irq);
   bool occurrencePrecedesRetirement(const HandlerSlot& slot, AdmissionCutoff admissionCutoff) const;
-  ActiveDispatch* publishDispatch(HandlerSlot& slot, void* owner, void* token,
-                                  size_t admittedPublication, size_t controllerGeneration,
-                                  bool callback = true);
-  bool unpublishDispatch(void* token, HandlerSlot& slot, size_t admittedPublication, bool required);
+  bool publishDispatch(DispatchCleanup& cleanup, size_t controllerGeneration);
+  bool unpublishDispatch(DispatchCleanup& cleanup, bool required);
   static void abandonDispatch(void* context);
   static void restoreDispatchInterruptState(DispatchCleanup& dispatch);
   static bool canWaitForActionFinalization();
@@ -471,8 +471,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry {
   static void releaseFinalizationGate(HandlerSlot& slot);
   bool pinActionMutation(HandlerSlot& slot, size_t publication, DispatchCleanup& cleanup,
                          Thread* thread);
-  void unpinActionMutation(HandlerSlot& slot, size_t publication, DispatchCleanup& cleanup,
-                           Thread* thread);
+  void unpinActionMutation(DispatchCleanup& cleanup, Thread* thread);
   bool hasActiveDispatch(HandlerSlot& slot, size_t admittedPublication) const;
   bool findCurrentDispatch(void* owner, HandlerSlot* target, size_t targetPublication,
                            bool& callbackContext) const;

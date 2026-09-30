@@ -156,9 +156,11 @@ class PageFaultHandler : private InterruptHandler {
   };
 
   struct DispatchCleanup {
-    explicit DispatchCleanup(PageFaultHandler* registry) : registry(registry), cleanup() {}
+    explicit DispatchCleanup(PageFaultHandler* registry)
+        : registry(registry), activeDispatch(nullptr), cleanup() {}
 
     PageFaultHandler* registry;
+    ActiveDispatch* activeDispatch;
     AtomicStateCleanupRecord cleanup;
   };
 
@@ -168,8 +170,8 @@ class PageFaultHandler : private InterruptHandler {
 
   bool retireSlot(HandlerSlot& slot, size_t expectedPublication,
                   MemoryTrapHandler* expectedHandler);
-  bool publishDispatch(HandlerSlot& slot, void* owner, void* token);
-  void unpublishDispatch(void* token);
+  bool publishDispatch(HandlerSlot& slot, void* owner, DispatchCleanup& cleanup);
+  void unpublishDispatch(DispatchCleanup& cleanup);
   static void abandonedHandlerCleanup(void* context);
   bool hasActiveDispatch(HandlerSlot& slot) const;
   bool findCurrentDispatch(void* owner, HandlerSlot* target, bool& callbackContext) const;

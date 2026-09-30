@@ -4,6 +4,9 @@
 
 #include "MountView-internal.h"
 #include "Symlink.h"
+#ifndef VFS_STANDALONE
+#include "pedigree/kernel/process/Process.h"
+#endif
 #if THREADS && !defined(STANDALONE_MUTEXES)
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -130,6 +133,12 @@ bool VfsMountView::State::walk(const FilesystemContextSnapshot& context,
     SYSCALL_ERROR(NotADirectory);
     return false;
   }
+  FilesystemCredentials credentials;
+#ifndef VFS_STANDALONE
+  if (!Process::currentFilesystemCredentials(credentials)) {
+    credentials.valid = false;
+  }
+#endif
   bool trailingSlash = !selectedOnly && pathname[pathname.length() - 1] == '/';
   bool followCurrent = selectedOnly;
   bool crossCurrent = false;
@@ -233,8 +242,9 @@ bool VfsMountView::State::walk(const FilesystemContextSnapshot& context,
       SYSCALL_ERROR(NotADirectory);
       return false;
     }
-    if (!VFS::checkAccess(current->node(), false, false, true))
+    if (!VFS::checkAccess(current->node(), false, false, true, credentials)) {
       return false;
+    }
     followCurrent = false;
     if (component == ".") {
       offset = next;
@@ -260,8 +270,9 @@ bool VfsMountView::State::walk(const FilesystemContextSnapshot& context,
       return false;
     }
     FilesystemPathRef candidate;
-    if (!makePath(path(current)->attachment, child.get(), candidate))
+    if (!makePath(path(current)->attachment, VfsNodeReference(child), candidate)) {
       return false;
+    }
     current = pedigree_std::move(candidate);
     offset = next;
     followCurrent = !final || options.followFinal || trailingSlash;

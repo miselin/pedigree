@@ -141,8 +141,13 @@ bool runSyscallLifetimeRegression() {
   if (!removal.closed.acquireForCompletion()) {
     return false;
   }
+  Thread* thread = Processor::information().getCurrentThread();
+  void* dispatchContext = thread->getSyscallDispatchContext();
+  const bool terminationDeferred = thread->isTerminationDeferred();
   uintptr_t result = 0;
-  if (manager.dispatchHandlerForTest(TUI, result)) {
+  if (manager.dispatchHandlerForTest(TUI, result) ||
+      thread->getSyscallDispatchContext() != dispatchContext ||
+      thread->isTerminationDeferred() != terminationDeferred) {
     return false;
   }
   for (size_t i = 0; i < 32; ++i) {

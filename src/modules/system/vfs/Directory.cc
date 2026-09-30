@@ -56,6 +56,12 @@ void Directory::ChildLease::reset() {
   }
 }
 
+File* Directory::ChildLease::releaseOwnership() {
+  File* file = m_pFile;
+  m_pFile = nullptr;
+  return file;
+}
+
 void Directory::ChildLease::swap(ChildLease& other) {
   File* file = m_pFile;
   m_pFile = other.m_pFile;

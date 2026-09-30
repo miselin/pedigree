@@ -96,6 +96,9 @@ class EXPORTED_PUBLIC NetworkStack {
   /** Delivers a packet from a driver worker; must not run in a hard IRQ. */
   void receive(size_t nBytes, uintptr_t packet, Network* pCard, uint32_t offset);
 
+  /** Delivers a packet using a nonempty lease held for a driver receive batch. */
+  void receive(size_t nBytes, uintptr_t packet, const DeviceLease& device, uint32_t offset);
+
   /** Registers a given network device with the stack */
   void registerDevice(Network* pDevice);
 

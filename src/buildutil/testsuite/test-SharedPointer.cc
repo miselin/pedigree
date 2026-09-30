@@ -30,6 +30,19 @@ TEST(PedigreeSharedPointer, Construction) {
   EXPECT_FALSE(p);
 }
 
+TEST(PedigreeSharedPointer, NullConstructionAndResetStayEmpty) {
+  SharedPointer<int> pointer(nullptr);
+  EXPECT_FALSE(pointer);
+  EXPECT_EQ(pointer.refcount(), 0U);
+  auto copy = pointer;
+  EXPECT_EQ(copy.refcount(), 0U);
+
+  pointer.reset(new int(5));
+  pointer.reset(nullptr);
+  EXPECT_FALSE(pointer);
+  EXPECT_EQ(pointer.refcount(), 0U);
+}
+
 TEST(PedigreeSharedPointer, CheckedAllocationPreservesSharedLifetime) {
   struct Value {
     explicit Value(int* count) : destroyed(count) {}

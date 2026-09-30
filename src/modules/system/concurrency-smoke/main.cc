@@ -579,4 +579,4 @@ bool entry() {
 void exit() {}
 }  // namespace
 
-MODULE_INFO("concurrency-smoke", &entry, &exit, "console", "vfs", "rawfs");
+MODULE_INFO("concurrency-smoke", &entry, &exit, "console", "vfs", "rawfs", "network-stack");

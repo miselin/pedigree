@@ -183,11 +183,9 @@ class EXPORTED_PUBLIC Process {
     TerminationDeferral m_TerminationDeferral;
   };
 
-  /**
-   * Pins a tracked controlling-terminal File for a lexical operation. Filesystem
-   * roots which are deliberately untracked remain borrowed and externally
-   * stable. Leases are thread-affine and must remain lexical.
-   */
+  class ControllingTerminal;
+
+  /** Retains the acquired terminal context for a thread-affine lexical operation. */
   class EXPORTED_PUBLIC FileContextLease {
    public:
     FileContextLease();
@@ -215,12 +213,9 @@ class EXPORTED_PUBLIC Process {
     FileContextLease(FileContextLease&&) = delete;
     FileContextLease& operator=(FileContextLease&&) = delete;
 
-    void adopt(File* file, bool vfsReference);
-    void swap(FileContextLease& other);
-
     File* m_pFile;
-    bool m_bVfsReference;
     TerminationDeferral m_TerminationDeferral;
+    SharedPointer<ControllingTerminal> m_Context;
   };
 
   /**

@@ -1605,6 +1605,21 @@ bool Thread::runHostedStateCleanupRegression() {
                                           getSignalMask() == originalSignalMask &&
                                           !hasTemporarySignalWaitInterruption();
 
+  const ExecutionContext originalContext = Processor::executionContext();
+  const size_t contextCheckpoint = stateCleanupCheckpoint();
+  bool contextCleanupPassed = true;
+  {
+    ExecutionContextGuard outer(ExecutionContext::HostedSyntheticIrq);
+    {
+      ExecutionContextGuard inner(ExecutionContext::DebuggerTrap);
+      contextCleanupPassed &= Processor::executionContext() == ExecutionContext::DebuggerTrap;
+    }
+    contextCleanupPassed &= Processor::executionContext() == ExecutionContext::HostedSyntheticIrq;
+    retireDeferredScopesAfter(contextCheckpoint);
+    contextCleanupPassed &= Processor::executionContext() == originalContext;
+  }
+  contextCleanupPassed &= Processor::executionContext() == originalContext;
+
   armStateCleanup(baseRecord, hostedStateCleanupCallback, &baseItem);
   const bool pushed = pushState() != nullptr;
   if (pushed) {
@@ -1692,9 +1707,16 @@ bool Thread::runHostedStateCleanupRegression() {
   unregisterDeferredScope(eventOnlyRecord);
   nestedWorkPassed &= !userReturnWorkPending() && canSkipUserReturnWork();
 
+  registerDeferredScope(eventOnlyRecord, true, true);
+  nestedWorkPassed &= terminationWorkPending() && eventsDeferred();
+  unregisterDeferredScope(eventOnlyRecord);
+  nestedWorkPassed &= !isTerminationDeferred() && !eventsDeferred() && !userReturnWorkPending() &&
+                      canSkipUserReturnWork();
+
   return cleanupDoesNotDeferTermination && checkpointPassed && normalPassed &&
-         temporaryMaskCleanupPassed && levelPassed && explicitTerminationDefers &&
-         explicitTerminationRetired && pureScopesPassed && nestedWorkPassed && order.count == 3;
+         temporaryMaskCleanupPassed && contextCleanupPassed && levelPassed &&
+         explicitTerminationDefers && explicitTerminationRetired && pureScopesPassed &&
+         nestedWorkPassed && order.count == 3;
 }
 
 bool Thread::runHostedExecStackOwnershipRegression() {
@@ -3203,43 +3225,10 @@ void Thread::resumeTermination() {
   __atomic_sub_fetch(&m_TerminationDeferralDepth, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
 }
 
-void Thread::registerFreshTerminationDeferral(DeferredScopeRecord& record,
-                                              DeferredScopeRecord::Cleanup cleanup, void* context) {
-  // Fresh storage can combine termination deferral and abandonment cleanup
-  // without a second stack record or a preliminary zero fill.
-  const bool interruptsWereEnabled = Processor::getInterrupts();
-  Processor::setInterrupts(false);
-
-  const size_t level = __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
-  const size_t sequence =
-      __atomic_add_fetch(&m_NextStateCleanupSequence, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
-  if (!sequence) {
-    FATAL("Thread state cleanup sequence exhausted.");
-  }
-
-  record.stateLevel = level;
-  record.sequence = sequence;
-  record.defersTermination = true;
-  record.defersEvents = false;
-  record.cleanup = cleanup;
-  record.context = context;
-  record.armed = true;
-  deferTermination();
-
-  // Only this Thread mutates its chain, with IRQs masked. Synchronous exception
-  // scopes retire before resuming us; remote terminal requests do not unlink it.
-  record.next = __atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE);
-  __atomic_store_n(&m_pDeferredScopes[level], &record, __ATOMIC_RELEASE);
-
-  Processor::setInterrupts(interruptsWereEnabled);
-}
-
-void Thread::registerDeferredScope(DeferredScopeRecord& record, bool termination, bool events) {
-  if (record.armed || record.next || record.defersTermination || record.defersEvents ||
-      record.sequence || record.cleanup || record.context) {
-    FATAL("Deferred scope registered more than once.");
-  }
-
+inline ALWAYS_INLINE void Thread::publishDeferredScope(DeferredScopeRecord& record,
+                                                       bool termination, bool events,
+                                                       DeferredScopeRecord::Cleanup cleanup,
+                                                       void* context) {
   const bool interruptsWereEnabled = Processor::getInterrupts();
   Processor::setInterrupts(false);
 
@@ -3254,10 +3243,9 @@ void Thread::registerDeferredScope(DeferredScopeRecord& record, bool termination
   record.sequence = sequence;
   record.defersTermination = termination;
   record.defersEvents = events;
-  record.cleanup = nullptr;
-  record.context = nullptr;
+  record.cleanup = cleanup;
+  record.context = context;
   record.armed = true;
-
   if (termination) {
     deferTermination();
   }
@@ -3265,10 +3253,28 @@ void Thread::registerDeferredScope(DeferredScopeRecord& record, bool termination
     deferEvents();
   }
 
+  // Only this Thread mutates its chain, with IRQs masked. Synchronous exception
+  // scopes retire before resuming us; remote terminal requests do not unlink it.
   record.next = __atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE);
   __atomic_store_n(&m_pDeferredScopes[level], &record, __ATOMIC_RELEASE);
 
   Processor::setInterrupts(interruptsWereEnabled);
+}
+
+void Thread::registerFreshTerminationDeferral(DeferredScopeRecord& record,
+                                              DeferredScopeRecord::Cleanup cleanup, void* context) {
+  // Fresh storage can combine termination deferral and abandonment cleanup
+  // without a second stack record or a preliminary zero fill.
+  publishDeferredScope(record, true, false, cleanup, context);
+}
+
+void Thread::registerDeferredScope(DeferredScopeRecord& record, bool termination, bool events) {
+  if (record.armed || record.next || record.defersTermination || record.defersEvents ||
+      record.sequence || record.cleanup || record.context) {
+    FATAL("Deferred scope registered more than once.");
+  }
+
+  publishDeferredScope(record, termination, events, nullptr, nullptr);
 }
 
 void Thread::armStateCleanup(DeferredScopeRecord& record, DeferredScopeRecord::Cleanup cleanup,
@@ -3282,29 +3288,11 @@ void Thread::armStateCleanup(DeferredScopeRecord& record, DeferredScopeRecord::C
     FATAL("State cleanup record armed more than once.");
   }
 
-  const bool interruptsWereEnabled = Processor::getInterrupts();
-  Processor::setInterrupts(false);
-
-  const size_t level = __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
-  const size_t sequence =
-      __atomic_add_fetch(&m_NextStateCleanupSequence, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
-  if (!sequence) {
-    FATAL("Thread state cleanup sequence exhausted.");
-  }
-
-  record.stateLevel = level;
-  record.sequence = sequence;
-  record.cleanup = cleanup;
-  record.context = context;
-  record.armed = true;
-
-  record.next = __atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE);
-  __atomic_store_n(&m_pDeferredScopes[level], &record, __ATOMIC_RELEASE);
-
-  Processor::setInterrupts(interruptsWereEnabled);
+  publishDeferredScope(record, false, false, cleanup, context);
 }
 
-void Thread::unregisterDeferredScope(DeferredScopeRecord& record) {
+inline ALWAYS_INLINE void Thread::unpublishDeferredScope(DeferredScopeRecord& record,
+                                                         bool deferrals) {
   if (!record.armed || record.stateLevel >= MAX_NESTED_EVENTS) {
     FATAL("Deferred scope was not registered on this Thread.");
   }
@@ -3317,33 +3305,25 @@ void Thread::unregisterDeferredScope(DeferredScopeRecord& record) {
   }
   __atomic_store_n(&m_pDeferredScopes[record.stateLevel], record.next, __ATOMIC_RELEASE);
 
-  if (record.defersTermination) {
-    resumeTermination();
-  }
-  if (record.defersEvents) {
-    resumeEvents();
+  if (deferrals) {
+    if (record.defersTermination) {
+      resumeTermination();
+    }
+    if (record.defersEvents) {
+      resumeEvents();
+    }
   }
   record = DeferredScopeRecord();
 
   Processor::setInterrupts(interruptsWereEnabled);
 }
 
+void Thread::unregisterDeferredScope(DeferredScopeRecord& record) {
+  unpublishDeferredScope(record, true);
+}
+
 void Thread::disarmStateCleanup(DeferredScopeRecord& record) {
-  if (!record.armed || record.stateLevel >= MAX_NESTED_EVENTS) {
-    FATAL("State cleanup record was not armed on this Thread.");
-  }
-
-  const bool interruptsWereEnabled = Processor::getInterrupts();
-  Processor::setInterrupts(false);
-
-  if (__atomic_load_n(&m_pDeferredScopes[record.stateLevel], __ATOMIC_ACQUIRE) != &record) {
-    FATAL("State cleanup records were not disarmed in LIFO order.");
-  }
-  __atomic_store_n(&m_pDeferredScopes[record.stateLevel], record.next, __ATOMIC_RELEASE);
-
-  record = DeferredScopeRecord();
-
-  Processor::setInterrupts(interruptsWereEnabled);
+  unpublishDeferredScope(record, false);
 }
 
 void Thread::unregisterTerminationDeferral(DeferredScopeRecord& record) {

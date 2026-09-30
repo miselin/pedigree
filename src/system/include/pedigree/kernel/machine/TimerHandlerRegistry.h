@@ -118,12 +118,14 @@ class EXPORTED_PUBLIC TimerHandlerRegistry {
           slot(handlerSlot),
           owner(dispatchOwner),
           publication(admittedPublication),
+          activeDispatch(nullptr),
           cleanup() {}
 
     TimerHandlerRegistry* registry;
     HandlerSlot* slot;
     void* owner;
     size_t publication;
+    ActiveDispatch* activeDispatch;
     AtomicStateCleanupRecord cleanup;
   };
 
@@ -135,8 +137,8 @@ class EXPORTED_PUBLIC TimerHandlerRegistry {
   static bool synchronousDrainOf(size_t publication);
 
   bool retireSlot(HandlerSlot& slot, size_t expectedPublication, TimerHandler* expectedHandler);
-  ActiveDispatch* publishDispatch(HandlerSlot& slot, void* owner, void* token);
-  bool unpublishDispatch(void* token, HandlerSlot& slot, size_t admittedPublication, bool required);
+  bool publishDispatch(DispatchCleanup& cleanup);
+  bool unpublishDispatch(DispatchCleanup& cleanup, bool required);
   static void abandonDispatch(void* context);
   bool hasActiveDispatch(HandlerSlot& slot) const;
   bool findCurrentDispatch(void* owner, HandlerSlot* target, bool& callbackContext) const;

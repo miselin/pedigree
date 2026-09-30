@@ -469,67 +469,67 @@ int posix_read(int fd, char* ptr, int len) {
     return -1;
   }
 
-  auto timerFd = pFd->getTimerFdImpl();
-  auto signalFd = pFd->getSignalFdImpl();
-  if (timerFd || signalFd) {
-    const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
-    pFd.reset();
-    return timerFd ? timerFd->readToUser(ptr, len, canBlock)
-                   : signalFd->readToUser(ptr, len, canBlock);
-  }
-
-  SharedPointer<EventFd> eventFd = pFd->getEventFdImpl();
-  if (eventFd) {
-    if (len < static_cast<int>(sizeof(uint64_t))) {
-      SYSCALL_ERROR(InvalidArgument);
-      return -1;
-    }
-    if (!PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(ptr), sizeof(uint64_t), 1,
-                                         PosixSubsystem::SafeWrite)) {
-      SYSCALL_ERROR(BadAddress);
-      return -1;
+  if (!pFd->getFile()) {
+    auto timerFd = pFd->getTimerFdImpl();
+    auto signalFd = pFd->getSignalFdImpl();
+    if (timerFd || signalFd) {
+      const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
+      pFd.reset();
+      return timerFd ? timerFd->readToUser(ptr, len, canBlock)
+                     : signalFd->readToUser(ptr, len, canBlock);
     }
 
-    const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
-    pFd.reset();
-    uint64_t value = 0;
-    const int result = eventFd->readValue(value, canBlock);
-    if (result < 0) {
+    SharedPointer<EventFd> eventFd = pFd->getEventFdImpl();
+    if (eventFd) {
+      if (len < static_cast<int>(sizeof(uint64_t))) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      if (!PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(ptr), sizeof(uint64_t), 1,
+                                           PosixSubsystem::SafeWrite)) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+
+      const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
+      pFd.reset();
+      uint64_t value = 0;
+      const int result = eventFd->readValue(value, canBlock);
+      if (result < 0) {
+        return result;
+      }
+      if (!PosixSubsystem::copyToUser(ptr, &value, sizeof(value))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
       return result;
     }
-    if (!PosixSubsystem::copyToUser(ptr, &value, sizeof(value))) {
-      SYSCALL_ERROR(BadAddress);
-      return -1;
+
+    SharedPointer<InotifyInstance> inotify = pFd->getInotifyImpl();
+    if (inotify) {
+      const size_t length = static_cast<size_t>(len);
+      const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
+      pFd.reset();
+      return inotify->readEventsToUser(reinterpret_cast<uint8_t*>(ptr), length, canBlock);
     }
-    return result;
-  }
-
-  SharedPointer<InotifyInstance> inotify = pFd->getInotifyImpl();
-  if (inotify) {
-    const size_t length = static_cast<size_t>(len);
-    const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
-    pFd.reset();
-    return inotify->readEventsToUser(reinterpret_cast<uint8_t*>(ptr), length, canBlock);
-  }
-  auto fanotify = pFd->getFanotifyImpl();
-  if (fanotify) {
-    const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
-    pFd.reset();
-    return fanotify->readToUser(ptr, static_cast<size_t>(len), canBlock);
-  }
-
-  if (pFd->networkImpl) {
-    // Need to redirect to socket implementation.
-    if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ptr), static_cast<size_t>(len),
-                                      PosixSubsystem::SafeWrite)) {
-      F_NOTICE("  -> invalid address");
-      SYSCALL_ERROR(BadAddress);
-      return -1;
+    auto fanotify = pFd->getFanotifyImpl();
+    if (fanotify) {
+      const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
+      pFd.reset();
+      return fanotify->readToUser(ptr, static_cast<size_t>(len), canBlock);
     }
-    return posix_recv_descriptor(pFd, ptr, len, 0);
-  }
 
-  if (!pFd->getFile()) {
+    if (pFd->networkImpl) {
+      // Need to redirect to socket implementation.
+      if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ptr), static_cast<size_t>(len),
+                                        PosixSubsystem::SafeWrite)) {
+        F_NOTICE("  -> invalid address");
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      return posix_recv_descriptor(pFd, ptr, len, 0);
+    }
+
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -719,49 +719,49 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
     return -1;
   }
 
-  if (pFd->getTimerFdImpl() || pFd->getSignalFdImpl() || pFd->getFanotifyImpl()) {
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
-  SharedPointer<EventFd> eventFd = pFd->getEventFdImpl();
-  if (eventFd) {
-    if (len != static_cast<int>(sizeof(uint64_t))) {
+  if (!pFd->getFile()) {
+    if (pFd->getTimerFdImpl() || pFd->getSignalFdImpl() || pFd->getFanotifyImpl()) {
       SYSCALL_ERROR(InvalidArgument);
       return -1;
     }
 
-    uint64_t value = 0;
-    if (nocheck) {
-      ForwardMemoryCopy(&value, ptr, sizeof(value));
-    } else if (!PosixSubsystem::copyFromUser(&value, ptr, sizeof(value))) {
-      SYSCALL_ERROR(BadAddress);
+    SharedPointer<EventFd> eventFd = pFd->getEventFdImpl();
+    if (eventFd) {
+      if (len != static_cast<int>(sizeof(uint64_t))) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+
+      uint64_t value = 0;
+      if (nocheck) {
+        ForwardMemoryCopy(&value, ptr, sizeof(value));
+      } else if (!PosixSubsystem::copyFromUser(&value, ptr, sizeof(value))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+
+      const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
+      pFd.reset();
+      return eventFd->writeValue(value, canBlock);
+    }
+
+    if (pFd->getInotifyImpl()) {
+      SYSCALL_ERROR(BadFileDescriptor);
       return -1;
     }
 
-    const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
-    pFd.reset();
-    return eventFd->writeValue(value, canBlock);
-  }
-
-  if (pFd->getInotifyImpl()) {
-    SYSCALL_ERROR(BadFileDescriptor);
-    return -1;
-  }
-
-  if (pFd->networkImpl) {
-    // Need to redirect to socket implementation.
-    if (!nocheck &&
-        !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ptr), static_cast<size_t>(len),
-                                      PosixSubsystem::SafeRead)) {
-      F_NOTICE("  -> invalid address");
-      SYSCALL_ERROR(BadAddress);
-      return -1;
+    if (pFd->networkImpl) {
+      // Need to redirect to socket implementation.
+      if (!nocheck &&
+          !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ptr), static_cast<size_t>(len),
+                                        PosixSubsystem::SafeRead)) {
+        F_NOTICE("  -> invalid address");
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      return posix_send_descriptor(pFd, ptr, len, 0, nocheck);
     }
-    return posix_send_descriptor(pFd, ptr, len, 0, nocheck);
-  }
 
-  if (!pFd->getFile()) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }

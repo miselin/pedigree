@@ -2,6 +2,7 @@
 #include "VirtioNet.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/panic.h"
@@ -256,6 +257,9 @@ IrqDisposition VirtioNet::irq(irq_id_t number) {
     }
   }
 
+  NetworkStack& stack = NetworkStack::instance();
+  NetworkStack::DeviceLease device;
+  const bool admitted = receiveCount && stack.acquireDevice(this, device);
   for (size_t i = 0; i < receiveCount; ++i) {
     const auto& completion = received[i];
     auto* slot = static_cast<Slot*>(completion.cookie);
@@ -270,8 +274,12 @@ IrqDisposition VirtioNet::irq(irq_id_t number) {
                        LITTLE_TO_HOST16(header->numBuffers) <= 1;
     if (valid) {
       gotPacket();
-      NetworkStack::instance().receive(
-          frameLength, reinterpret_cast<uintptr_t>(slot->data + sizeof(VirtioNetHeader)), this, 0);
+      if (admitted) {
+        stack.receive(frameLength,
+                      reinterpret_cast<uintptr_t>(slot->data + sizeof(VirtioNetHeader)), device, 0);
+      } else {
+        Metrics::increment(Metrics::NetworkRxNoDevice);
+      }
     } else {
       badPacket();
     }

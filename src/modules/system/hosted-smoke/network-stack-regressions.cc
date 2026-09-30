@@ -7,10 +7,13 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/new"
 
@@ -20,7 +23,6 @@
 #include "modules/system/lwip/include/lwip/sys.h"
 #include "modules/system/lwip/include/lwip/tcpip.h"
 #include "modules/system/network-stack/NetworkStack.h"
-#include "system/kernel/core/processor/DeviceHardIrqContext.h"
 
 namespace {
 class HostedNetworkDevice final : public Network {
@@ -140,8 +142,25 @@ bool deviceLeaseDeregisterDrain() {
   return passed;
 }
 
+class MailboxHardIrqProbe final : public HardIrqHandler {
+ public:
+  MailboxHardIrqProbe(sys_mbox_t* mailbox, void* payload)
+      : mailbox(mailbox), payload(payload), result(ERR_OK) {}
+
+  HardIrqDisposition irq(irq_id_t, InterruptState&) override {
+    result = sys_mbox_trypost(mailbox, payload);
+    return HardIrqDisposition::Handled;
+  }
+
+  sys_mbox_t* mailbox;
+  void* payload;
+  err_t result;
+};
+
 bool mailboxTryPostRejectsHardIrq() {
   static const char* Test = "mailbox-hard-irq-trypost";
+  static IrqHandlerRegistry registry;
+  constexpr uint8_t TestIrq = 42;
 
   sys_mbox_t mailbox = nullptr;
   if (sys_mbox_new(&mailbox, 1) != ERR_OK) {
@@ -149,21 +168,30 @@ bool mailboxTryPostRejectsHardIrq() {
   }
 
   int payload = 0;
-  err_t result = ERR_OK;
-  size_t previousDepth = 0;
-  bool restorationArmed = false;
-  {
-    DeviceHardIrqContext hardIrq(previousDepth, restorationArmed);
-    result = sys_mbox_trypost(&mailbox, &payload);
+  MailboxHardIrqProbe probe(&mailbox, &payload);
+  if (!registry.registerHardHandler(TestIrq, &probe)) {
+    sys_mbox_free(&mailbox);
+    return check(false, Test, "hard IRQ registration failed");
   }
+
+  alignas(InterruptState) uint8_t stateStorage[sizeof(InterruptState)] = {};
+  InterruptState& state = *reinterpret_cast<InterruptState*>(stateStorage);
+  HardIrqDisposition disposition = HardIrqDisposition::NotHandled;
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  const bool dispatched = registry.dispatchHard(TestIrq, state, disposition);
+  Processor::setInterrupts(interruptsWereEnabled);
+  const bool removed = registry.unregisterHandler(TestIrq, &probe) ==
+                       IrqHandlerRegistry::UnregisterResult::Completed;
 
   void* fetched = nullptr;
   const u32_t fetchResult = sys_arch_mbox_tryfetch(&mailbox, &fetched);
   sys_mbox_free(&mailbox);
 
   const bool passed =
-      check(result == ERR_WOULDBLOCK && fetchResult == SYS_MBOX_EMPTY && !fetched, Test,
-            "the ISR call enqueued data or entered a blocking notification path");
+      check(dispatched && disposition == HardIrqDisposition::Handled && removed &&
+                probe.result == ERR_WOULDBLOCK && fetchResult == SYS_MBOX_EMPTY && !fetched,
+            Test, "the ISR call enqueued data or entered a blocking notification path");
   if (passed) {
     NOTICE("HOSTED-NETWORK-TEST: PASS " << Test);
   }
@@ -225,15 +253,11 @@ err_t receiveQueuedPacket(struct pbuf* packet, struct netif* interface) {
 
 err_t holdReceiveInput(struct pbuf* packet, struct netif* interface) {
   ReceiveContext* context = g_ReceiveContext;
-  if ((context->inputs += 1) != 1) {
-    context->failures += 1;
-    pbuf_free(packet);
-    return ERR_OK;
-  }
-
-  context->inputEntered.release();
-  if (!context->allowInput.acquireForCompletion()) {
-    context->failures += 1;
+  if ((context->inputs += 1) == 1) {
+    context->inputEntered.release();
+    if (!context->allowInput.acquireForCompletion()) {
+      context->failures += 1;
+    }
   }
   if (!context->admitInput) {
     pbuf_free(packet);
@@ -249,12 +273,19 @@ err_t holdReceiveInput(struct pbuf* packet, struct netif* interface) {
   return result;
 }
 
-int receivePacket(void* parameter) {
+int receivePacketBatch(void* parameter) {
   ReceiveContext* context = reinterpret_cast<ReceiveContext*>(parameter);
+  NetworkStack::DeviceLease batch;
+  if (!context->stack->acquireDevice(context->device, batch)) {
+    context->failures += 1;
+    return 0;
+  }
   uint8_t packet[68] = {};
   packet[4] = 0x5a;
   packet[67] = 0xa5;
-  context->stack->receive(64, reinterpret_cast<uintptr_t>(packet), context->device, 4);
+  for (size_t i = 0; i < 2; ++i) {
+    context->stack->receive(64, reinterpret_cast<uintptr_t>(packet), batch, 4);
+  }
   return 0;
 }
 
@@ -286,7 +317,7 @@ bool receiveInterfaceRetirement() {
   bool queueDraining = false;
 
   if (coreHeld) {
-    receiver = new Thread(Scheduler::instance().getKernelProcess(), receivePacket, &context,
+    receiver = new Thread(Scheduler::instance().getKernelProcess(), receivePacketBatch, &context,
                           nullptr, false, true);
     receiver->setName("hosted network receive");
     inputHeld = context.inputEntered.acquire(1, 2);
@@ -311,7 +342,7 @@ bool receiveInterfaceRetirement() {
   receiverJoined = receiver && receiver->join();
   if (remover && leaseDraining) {
     queueDraining = waitUntilQueued(remover, Thread::SemWait) && !context.removal.returned &&
-                    !context.delivered && context.enqueued == 1;
+                    !context.delivered && context.enqueued == 2;
   }
 
   context.allowCore.release();
@@ -323,9 +354,9 @@ bool receiveInterfaceRetirement() {
 
   bool passed = true;
   passed &= check(coreHeld && inputHeld && leaseDraining && lateRejected && receiverJoined, Test,
-                  "receive did not pin its interface through input admission");
+                  "receive batch did not pin its interface through input admission");
   passed &= check(queueDraining && removerJoined && context.removal.returned == 1 &&
-                      context.delivered == 1 && !context.failures && !isRegistered(stack, &device),
+                      context.delivered == 2 && !context.failures && !isRegistered(stack, &device),
                   Test, "queued input did not finish before interface retirement");
   if (passed) {
     NOTICE("HOSTED-NETWORK-TEST: PASS " << Test);

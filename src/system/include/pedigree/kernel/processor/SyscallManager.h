@@ -154,10 +154,10 @@ class SyscallManager {
   class HandlerLease {
    public:
     ALWAYS_INLINE HandlerLease()
-        : m_pManager(nullptr), m_Cleanup(DeferredScopeRecord::Uninitialised{}) {}
+        : m_pThread(nullptr), m_Cleanup(DeferredScopeRecord::Uninitialised{}) {}
     ALWAYS_INLINE ~HandlerLease() {
-      if (m_pManager) {
-        m_pManager->releaseHandler(*this, true);
+      if (m_pThread) {
+        releaseHandler(*this, true);
       }
     }
 
@@ -167,7 +167,6 @@ class SyscallManager {
     HandlerLease(const HandlerLease&) = delete;
     HandlerLease& operator=(const HandlerLease&) = delete;
 
-    SyscallManager* m_pManager;
     Service_t m_Service;
     SyscallHandler* m_pHandler;
     FastEntry m_Entry;
@@ -201,7 +200,7 @@ class SyscallManager {
   static void abandonedHandlerCleanup(void* context);
   bool requestPostSyscallAction(PostSyscallActionKind kind, intptr_t value,
                                 const ProcessorState* state = nullptr);
-  void releaseHandler(HandlerLease& lease, bool normalReturn);
+  static void releaseHandler(HandlerLease& lease, bool normalReturn);
 
   /** The copy-constructor
    *\note Not implemented (singleton) */

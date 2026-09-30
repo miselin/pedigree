@@ -229,7 +229,7 @@ void IrqHandlerRegistry::invalidateThreadedLine(uint8_t irq, size_t throughGener
         }
       }
     }
-    unpinActionMutation(slot, publication, cleanup, thread);
+    unpinActionMutation(cleanup, thread);
   }
   finishThreadedActionMutation(actionMutation);
   tryReclaimTombstones(irq);
@@ -376,7 +376,7 @@ bool IrqHandlerRegistry::pinActionMutation(HandlerSlot& slot, size_t publication
   if (thread) {
     thread->armAtomicStateCleanup(cleanup.cleanup, abandonDispatch, &cleanup);
   }
-  if (!publishDispatch(slot, cleanup.owner, &cleanup, publication, 0, false)) {
+  if (!publishDispatch(cleanup, 0)) {
     if (thread) {
       thread->disarmAtomicStateCleanup(cleanup.cleanup);
     }
@@ -384,15 +384,14 @@ bool IrqHandlerRegistry::pinActionMutation(HandlerSlot& slot, size_t publication
     return false;
   }
   if (__atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST) != publication) {
-    unpinActionMutation(slot, publication, cleanup, thread);
+    unpinActionMutation(cleanup, thread);
     return false;
   }
   return true;
 }
 
-void IrqHandlerRegistry::unpinActionMutation(HandlerSlot& slot, size_t publication,
-                                             DispatchCleanup& cleanup, Thread* thread) {
-  unpublishDispatch(&cleanup, slot, publication, true);
+void IrqHandlerRegistry::unpinActionMutation(DispatchCleanup& cleanup, Thread* thread) {
+  unpublishDispatch(cleanup, true);
   if (thread) {
     thread->disarmAtomicStateCleanup(cleanup.cleanup);
   }
@@ -610,29 +609,28 @@ bool IrqHandlerRegistry::retireSlotOrObserveClosed(HandlerSlot& slot, size_t exp
          __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != expectedHandler;
 }
 
-IrqHandlerRegistry::ActiveDispatch* IrqHandlerRegistry::publishDispatch(HandlerSlot& slot,
-                                                                        void* owner, void* token,
-                                                                        size_t admittedPublication,
-                                                                        size_t controllerGeneration,
-                                                                        bool callback) {
-  assert(owner);
-  assert(token);
+bool IrqHandlerRegistry::publishDispatch(DispatchCleanup& cleanup, size_t controllerGeneration) {
+  HandlerSlot& slot = *cleanup.slot;
+  void* token = &cleanup;
+  assert(cleanup.owner);
   for (size_t i = 0; i < MaxActiveDispatches; ++i) {
     ActiveDispatch& dispatch = m_ActiveDispatches[i];
+    // Select before claiming so cleanup can release even a partial publication.
+    __atomic_store_n(&cleanup.activeDispatch, &dispatch, __ATOMIC_RELAXED);
     void* expectedToken = nullptr;
     if (__atomic_compare_exchange_n(&dispatch.token, &expectedToken, token, false, __ATOMIC_SEQ_CST,
                                     __ATOMIC_SEQ_CST)) {
       __atomic_add_fetch(&dispatch.generation, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
-      __atomic_store_n(&dispatch.owner, owner, __ATOMIC_RELAXED);
-      __atomic_store_n(&dispatch.admittedPublication, admittedPublication, __ATOMIC_RELAXED);
+      __atomic_store_n(&dispatch.owner, cleanup.owner, __ATOMIC_RELAXED);
+      __atomic_store_n(&dispatch.admittedPublication, cleanup.publication, __ATOMIC_RELAXED);
       __atomic_store_n(&dispatch.controllerGeneration, controllerGeneration, __ATOMIC_RELAXED);
       __atomic_store_n(&dispatch.callback,
-                       callback ? static_cast<size_t>(1) : static_cast<size_t>(0),
+                       cleanup.callback ? static_cast<size_t>(1) : static_cast<size_t>(0),
                        __ATOMIC_RELAXED);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       HandlerHazardHook hazardHook = nullptr;
-      if (callback) {
+      if (cleanup.callback) {
         hazardHook = __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
         if (hazardHook) {
           hazardHook(__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE), HandlerHazardStage::Claimed);
@@ -646,7 +644,7 @@ IrqHandlerRegistry::ActiveDispatch* IrqHandlerRegistry::publishDispatch(HandlerS
       __atomic_store_n(&dispatch.slot, &slot, __ATOMIC_SEQ_CST);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-      if (callback) {
+      if (cleanup.callback) {
         hazardHook = __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
         if (hazardHook) {
           hazardHook(__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE),
@@ -654,57 +652,50 @@ IrqHandlerRegistry::ActiveDispatch* IrqHandlerRegistry::publishDispatch(HandlerS
         }
       }
 #endif
-      return &dispatch;
+      return true;
     }
   }
 
-  return nullptr;
+  return false;
 }
 
-bool IrqHandlerRegistry::unpublishDispatch(void* token, HandlerSlot& slot,
-                                           size_t admittedPublication, bool required) {
-  assert(token);
-  bool found = false;
-  bool committed = false;
-  bool callback = false;
-  size_t controllerGeneration = 0;
-  for (size_t i = 0; i < MaxActiveDispatches; ++i) {
-    ActiveDispatch& dispatch = m_ActiveDispatches[i];
-    if (__atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) != token) {
-      continue;
-    }
-
-    const size_t generation = __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
-    HandlerSlot* publishedSlot = __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
-    if (__atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) != token ||
-        __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) != generation) {
-      continue;
-    }
-
-    if (publishedSlot && publishedSlot != &slot) {
-      FATAL_NOLOCK("IRQ callback hazard changed slots during release.");
-      return false;
-    }
-
-    committed = publishedSlot == &slot;
-    callback = __atomic_load_n(&dispatch.callback, __ATOMIC_RELAXED) != 0;
-    controllerGeneration = __atomic_load_n(&dispatch.controllerGeneration, __ATOMIC_RELAXED);
-    __atomic_store_n(&dispatch.slot, nullptr, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&dispatch.admittedPublication, static_cast<size_t>(0), __ATOMIC_RELAXED);
-    __atomic_store_n(&dispatch.controllerGeneration, static_cast<size_t>(0), __ATOMIC_RELAXED);
-    __atomic_store_n(&dispatch.callback, static_cast<size_t>(0), __ATOMIC_RELAXED);
-    __atomic_store_n(&dispatch.owner, nullptr, __ATOMIC_RELAXED);
-    __atomic_store_n(&dispatch.token, nullptr, __ATOMIC_RELEASE);
-    found = true;
-    break;
-  }
-
-  if (!found) {
+bool IrqHandlerRegistry::unpublishDispatch(DispatchCleanup& cleanup, bool required) {
+  ActiveDispatch* dispatch = __atomic_load_n(&cleanup.activeDispatch, __ATOMIC_RELAXED);
+  void* token = &cleanup;
+  if (!dispatch || __atomic_load_n(&dispatch->token, __ATOMIC_ACQUIRE) != token) {
     if (required) {
       FATAL_NOLOCK("IRQ callback hazard was released more than once.");
     }
     return false;
   }
+
+  const size_t generation = __atomic_load_n(&dispatch->generation, __ATOMIC_ACQUIRE);
+  HandlerSlot* publishedSlot = __atomic_load_n(&dispatch->slot, __ATOMIC_SEQ_CST);
+  if (__atomic_load_n(&dispatch->token, __ATOMIC_ACQUIRE) != token ||
+      __atomic_load_n(&dispatch->generation, __ATOMIC_ACQUIRE) != generation) {
+    if (required) {
+      FATAL_NOLOCK("IRQ callback hazard changed during release.");
+    }
+    return false;
+  }
+
+  HandlerSlot& slot = *cleanup.slot;
+  const size_t admittedPublication = cleanup.publication;
+  if (publishedSlot && publishedSlot != &slot) {
+    FATAL_NOLOCK("IRQ callback hazard changed slots during release.");
+    return false;
+  }
+
+  const bool committed = publishedSlot == &slot;
+  const bool callback = __atomic_load_n(&dispatch->callback, __ATOMIC_RELAXED) != 0;
+  const size_t controllerGeneration =
+      __atomic_load_n(&dispatch->controllerGeneration, __ATOMIC_RELAXED);
+  __atomic_store_n(&dispatch->slot, nullptr, __ATOMIC_SEQ_CST);
+  __atomic_store_n(&dispatch->admittedPublication, static_cast<size_t>(0), __ATOMIC_RELAXED);
+  __atomic_store_n(&dispatch->controllerGeneration, static_cast<size_t>(0), __ATOMIC_RELAXED);
+  __atomic_store_n(&dispatch->callback, static_cast<size_t>(0), __ATOMIC_RELAXED);
+  __atomic_store_n(&dispatch->owner, nullptr, __ATOMIC_RELAXED);
+  __atomic_store_n(&dispatch->token, nullptr, __ATOMIC_RELEASE);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   IrqHandlerBase* releasedHandler = nullptr;
@@ -724,10 +715,10 @@ bool IrqHandlerRegistry::unpublishDispatch(void* token, HandlerSlot& slot,
                                 false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
   }
 
-  if (committed && !hasActiveDispatch(slot, admittedPublication)) {
+  if (committed) {
     const size_t publication = __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
     if (generationOf(publication) == generationOf(admittedPublication) &&
-        modeOf(publication) == SlotMode::Closed) {
+        modeOf(publication) == SlotMode::Closed && !hasActiveDispatch(slot, admittedPublication)) {
       IrqHandlerBase* handler = __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
       if (handler) {
         retireSlot(slot, publication, handler);
@@ -750,7 +741,7 @@ void IrqHandlerRegistry::abandonDispatch(void* context) {
     DeviceHardIrqContext::restoreDepth(dispatch->previousDeviceHardIrqDepth);
     dispatch->restoreDeviceHardIrqDepth = false;
   }
-  dispatch->registry->unpublishDispatch(dispatch, *dispatch->slot, dispatch->publication, false);
+  dispatch->registry->unpublishDispatch(*dispatch, false);
   restoreDispatchInterruptState(*dispatch);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -1332,7 +1323,7 @@ bool IrqHandlerRegistry::dispatchHard(uint8_t irq, InterruptState& state,
     }
 #endif
 
-    if (!publishDispatch(slot, owner, &dispatchCleanup, publication, dispatchGeneration)) {
+    if (!publishDispatch(dispatchCleanup, dispatchGeneration)) {
       if (thread) {
         thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
       }
@@ -1369,7 +1360,7 @@ bool IrqHandlerRegistry::dispatchHard(uint8_t irq, InterruptState& state,
         currentMode != SlotMode::Enabled ||
         __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != handler ||
         __atomic_load_n(&slot.admissionEpoch, __ATOMIC_ACQUIRE) != admissionEpoch) {
-      unpublishDispatch(&dispatchCleanup, slot, publication, true);
+      unpublishDispatch(dispatchCleanup, true);
       if (thread) {
         thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
       }
@@ -1410,7 +1401,7 @@ bool IrqHandlerRegistry::dispatchHard(uint8_t irq, InterruptState& state,
         disposition = callbackDisposition;
       }
     }
-    unpublishDispatch(&dispatchCleanup, slot, publication, true);
+    unpublishDispatch(dispatchCleanup, true);
     if (thread) {
       thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
     }
@@ -1549,7 +1540,7 @@ bool IrqHandlerRegistry::publishThreadedDispatch(uint8_t irq, size_t dispatchGen
     }
 #endif
 
-    if (!publishDispatch(slot, owner, &dispatchCleanup, publication, dispatchGeneration, false)) {
+    if (!publishDispatch(dispatchCleanup, dispatchGeneration)) {
       if (thread) {
         thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
       }
@@ -1636,7 +1627,7 @@ bool IrqHandlerRegistry::publishThreadedDispatch(uint8_t irq, size_t dispatchGen
     }
     admitted = true;
 
-    unpublishDispatch(&dispatchCleanup, slot, publication, true);
+    unpublishDispatch(dispatchCleanup, true);
     if (thread) {
       thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
     }
@@ -1783,7 +1774,7 @@ bool IrqHandlerRegistry::dispatchThreaded(uint8_t irq, size_t dispatchGeneration
       }
 #endif
 
-      if (!publishDispatch(slot, owner, &dispatchCleanup, publication, dispatchGeneration)) {
+      if (!publishDispatch(dispatchCleanup, dispatchGeneration)) {
         if (thread) {
           thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
         }
@@ -1794,7 +1785,7 @@ bool IrqHandlerRegistry::dispatchThreaded(uint8_t irq, size_t dispatchGeneration
 
       if (__atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST) != publication ||
           __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != handler) {
-        unpublishDispatch(&dispatchCleanup, slot, publication, true);
+        unpublishDispatch(dispatchCleanup, true);
         if (thread) {
           thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
         }
@@ -1833,7 +1824,7 @@ bool IrqHandlerRegistry::dispatchThreaded(uint8_t irq, size_t dispatchGeneration
         pending = exactPending;
       }
       if (!claimed) {
-        unpublishDispatch(&dispatchCleanup, slot, publication, true);
+        unpublishDispatch(dispatchCleanup, true);
         if (thread) {
           thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
         }
@@ -1850,7 +1841,7 @@ bool IrqHandlerRegistry::dispatchThreaded(uint8_t irq, size_t dispatchGeneration
       } else if (disposition == IrqDisposition::Quiesced) {
         result.allowRearm = true;
       }
-      unpublishDispatch(&dispatchCleanup, slot, publication, true);
+      unpublishDispatch(dispatchCleanup, true);
       if (thread) {
         thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
       }

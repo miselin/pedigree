@@ -77,6 +77,8 @@ class EXPORTED_PUBLIC FileDescriptor {
     ReadyMask queryFileReady(bool reading, bool writing) const;
     ReadinessGenerations fileReadinessGenerations() const;
     SharedPointer<ConsoleIoState> terminalEpoch(bool waitForReopen = true) const;
+    // Endpoint owners are set before descriptor publication and never replaced.
+    // Retaining the description therefore protects lock-free owner snapshots.
     SharedPointer<NetworkSyscalls> getNetworkImpl() const;
     SharedPointer<EventFd> getEventFdImpl() const;
     SharedPointer<TimerFd> getTimerFdImpl() const;

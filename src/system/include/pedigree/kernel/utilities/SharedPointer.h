@@ -169,14 +169,10 @@ SharedPointer<T>::~SharedPointer() {
 }
 
 template <class T>
-SharedPointer<T>::SharedPointer(const SharedPointer<T>& p) : m_Control(0) {
-  if (p.m_Control) {
-    __atomic_add_fetch(&p.m_Control->refcount, 1, __ATOMIC_SEQ_CST);
+SharedPointer<T>::SharedPointer(const SharedPointer<T>& p) : m_Control(p.m_Control) {
+  if (m_Control) {
+    __atomic_add_fetch(&m_Control->refcount, 1, __ATOMIC_SEQ_CST);
   }
-
-  release();
-
-  m_Control = p.m_Control;
 }
 
 template <class T>
@@ -187,6 +183,10 @@ void SharedPointer<T>::reset() {
 template <class T>
 void SharedPointer<T>::reset(T* ptr) {
   release();
+
+  if (!ptr) {
+    return;
+  }
 
   m_Control = new Control;
   m_Control->refcount = 1;

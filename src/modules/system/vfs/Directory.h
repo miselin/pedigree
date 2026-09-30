@@ -93,6 +93,9 @@ class EXPORTED_PUBLIC Directory : public File {
 
     void reset();
 
+    // Transfers the tracked-file reference, leaving the stack's deferral local.
+    File* releaseOwnership();
+
     void swap(ChildLease& other);
 
    private:

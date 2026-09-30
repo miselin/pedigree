@@ -7,6 +7,8 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/process/Completion.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
@@ -48,6 +50,72 @@ bool waitUntilQueued(Thread* thread, size_t debugState) {
     Scheduler::instance().yield();
   }
   return false;
+}
+
+class NestedRemovalProbe final : public IrqHandler {
+ public:
+  NestedRemovalProbe(IrqHandlerRegistry& registry, uint8_t key)
+      : registry(registry),
+        key(key),
+        nested(nullptr),
+        calls(0),
+        removed(false),
+        nestedRetired(true) {}
+
+  IrqDisposition irq(irq_id_t) override {
+    ++calls;
+    if (nested) {
+      const bool interruptsWereEnabled = Processor::getInterrupts();
+      Processor::setInterrupts(false);
+      const bool published = registry.publishThreadedDispatch(nested->key, 1);
+      Processor::setInterrupts(interruptsWereEnabled);
+      IrqHandlerRegistry::ThreadedDispatchResult result = {};
+      nestedRetired = published && registry.dispatchThreaded(nested->key, 1, result) &&
+                      result.handled &&
+                      registry.unregisterHandler(nested->key, nested) ==
+                          IrqHandlerRegistry::UnregisterResult::NotFound;
+    }
+    removed =
+        registry.unregisterHandler(key, this) == IrqHandlerRegistry::UnregisterResult::Deferred;
+    return IrqDisposition::Handled;
+  }
+
+  IrqHandlerRegistry& registry;
+  uint8_t key;
+  NestedRemovalProbe* nested;
+  size_t calls;
+  bool removed;
+  bool nestedRetired;
+};
+
+bool registryNestedRemoval() {
+  constexpr const char* Test = "registry-nested-removal";
+  static IrqHandlerRegistry registry;
+  NestedRemovalProbe outer(registry, 2);
+  NestedRemovalProbe inner(registry, 3);
+  outer.nested = &inner;
+  const bool registered = registry.registerThreadedHandler(outer.key, &outer) &&
+                          registry.registerThreadedHandler(inner.key, &inner);
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  const bool published = registered && registry.publishThreadedDispatch(outer.key, 1);
+  Processor::setInterrupts(interruptsWereEnabled);
+  IrqHandlerRegistry::ThreadedDispatchResult result = {};
+  const bool dispatched = published && registry.dispatchThreaded(outer.key, 1, result);
+  const bool reused = registry.registerThreadedHandler(outer.key, &outer) &&
+                      registry.registerThreadedHandler(inner.key, &inner);
+  const bool cleaned = registry.unregisterHandler(outer.key, &outer) ==
+                           IrqHandlerRegistry::UnregisterResult::Completed &&
+                       registry.unregisterHandler(inner.key, &inner) ==
+                           IrqHandlerRegistry::UnregisterResult::Completed;
+  const bool passed =
+      check(registered && dispatched && result.handled && outer.calls == 1 && inner.calls == 1 &&
+                outer.removed && inner.removed && outer.nestedRetired && reused && cleaned,
+            Test, "nested callback removal leaked admission or retirement");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
 }
 
 bool radixTreeExportedAbi() {
@@ -1340,8 +1408,8 @@ bool terminalTimeoutCleanup() {
 }  // namespace
 
 bool runHostedPrimitiveRegressions(Thread* thread) {
-  return radixTreeExportedAbi() && semaphoreDrainAvailable() && completionLifecycle() &&
-         terminalCompletionBarrier() && operationBarrierLifecycle() &&
+  return registryNestedRemoval() && radixTreeExportedAbi() && semaphoreDrainAvailable() &&
+         completionLifecycle() && terminalCompletionBarrier() && operationBarrierLifecycle() &&
          conditionVariableTimeoutAccounting(thread) && memoryPoolBlockingAndStride() &&
          memoryPoolCloseAndDrain() && memoryPoolTerminalDrain() &&
          memoryPressureCallbackBarrier() && bufferCloseAndDrain() &&

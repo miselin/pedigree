@@ -71,18 +71,19 @@ bool TimerHandlerRegistry::retireSlot(HandlerSlot& slot, size_t expectedPublicat
   return true;
 }
 
-TimerHandlerRegistry::ActiveDispatch* TimerHandlerRegistry::publishDispatch(HandlerSlot& slot,
-                                                                            void* owner,
-                                                                            void* token) {
-  assert(owner);
-  assert(token);
+bool TimerHandlerRegistry::publishDispatch(DispatchCleanup& cleanup) {
+  HandlerSlot& slot = *cleanup.slot;
+  void* token = &cleanup;
+  assert(cleanup.owner);
   for (size_t i = 0; i < MaxActiveDispatches; ++i) {
     ActiveDispatch& dispatch = m_ActiveDispatches[i];
+    // Select before claiming so cleanup can release even a partial publication.
+    __atomic_store_n(&cleanup.activeDispatch, &dispatch, __ATOMIC_RELAXED);
     void* expectedToken = nullptr;
     if (__atomic_compare_exchange_n(&dispatch.token, &expectedToken, token, false, __ATOMIC_SEQ_CST,
                                     __ATOMIC_SEQ_CST)) {
       __atomic_add_fetch(&dispatch.generation, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
-      __atomic_store_n(&dispatch.owner, owner, __ATOMIC_RELAXED);
+      __atomic_store_n(&dispatch.owner, cleanup.owner, __ATOMIC_RELAXED);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       HandlerHazardClaimHook hazardClaimHook =
@@ -96,50 +97,44 @@ TimerHandlerRegistry::ActiveDispatch* TimerHandlerRegistry::publishDispatch(Hand
       // token claim, so abandoning either side of this publication is
       // recoverable without a separate in-flight counter.
       __atomic_store_n(&dispatch.slot, &slot, __ATOMIC_SEQ_CST);
-      return &dispatch;
+      return true;
     }
   }
 
-  return nullptr;
+  return false;
 }
 
-bool TimerHandlerRegistry::unpublishDispatch(void* token, HandlerSlot& slot,
-                                             size_t admittedPublication, bool required) {
-  assert(token);
-  bool found = false;
-  bool committed = false;
-  for (size_t i = 0; i < MaxActiveDispatches; ++i) {
-    ActiveDispatch& dispatch = m_ActiveDispatches[i];
-    if (__atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) != token) {
-      continue;
-    }
-
-    const size_t generation = __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
-    HandlerSlot* publishedSlot = __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
-    if (__atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) != token ||
-        __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) != generation) {
-      continue;
-    }
-
-    if (publishedSlot && publishedSlot != &slot) {
-      FATAL_NOLOCK("Timer callback hazard changed slots during release.");
-      return false;
-    }
-
-    committed = publishedSlot == &slot;
-    __atomic_store_n(&dispatch.slot, nullptr, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&dispatch.owner, nullptr, __ATOMIC_RELAXED);
-    __atomic_store_n(&dispatch.token, nullptr, __ATOMIC_RELEASE);
-    found = true;
-    break;
-  }
-
-  if (!found) {
+bool TimerHandlerRegistry::unpublishDispatch(DispatchCleanup& cleanup, bool required) {
+  ActiveDispatch* dispatch = __atomic_load_n(&cleanup.activeDispatch, __ATOMIC_RELAXED);
+  void* token = &cleanup;
+  if (!dispatch || __atomic_load_n(&dispatch->token, __ATOMIC_ACQUIRE) != token) {
     if (required) {
       FATAL_NOLOCK("Timer callback hazard was released more than once.");
     }
     return false;
   }
+
+  const size_t generation = __atomic_load_n(&dispatch->generation, __ATOMIC_ACQUIRE);
+  HandlerSlot* publishedSlot = __atomic_load_n(&dispatch->slot, __ATOMIC_SEQ_CST);
+  if (__atomic_load_n(&dispatch->token, __ATOMIC_ACQUIRE) != token ||
+      __atomic_load_n(&dispatch->generation, __ATOMIC_ACQUIRE) != generation) {
+    if (required) {
+      FATAL_NOLOCK("Timer callback hazard changed during release.");
+    }
+    return false;
+  }
+
+  HandlerSlot& slot = *cleanup.slot;
+  const size_t admittedPublication = cleanup.publication;
+  if (publishedSlot && publishedSlot != &slot) {
+    FATAL_NOLOCK("Timer callback hazard changed slots during release.");
+    return false;
+  }
+
+  const bool committed = publishedSlot == &slot;
+  __atomic_store_n(&dispatch->slot, nullptr, __ATOMIC_SEQ_CST);
+  __atomic_store_n(&dispatch->owner, nullptr, __ATOMIC_RELAXED);
+  __atomic_store_n(&dispatch->token, nullptr, __ATOMIC_RELEASE);
 
   if (!committed) {
     return true;
@@ -188,7 +183,7 @@ bool TimerHandlerRegistry::unpublishDispatch(void* token, HandlerSlot& slot,
 
 void TimerHandlerRegistry::abandonDispatch(void* context) {
   DispatchCleanup* dispatch = reinterpret_cast<DispatchCleanup*>(context);
-  dispatch->registry->unpublishDispatch(dispatch, *dispatch->slot, dispatch->publication, false);
+  dispatch->registry->unpublishDispatch(*dispatch, false);
 }
 
 bool TimerHandlerRegistry::hasActiveDispatch(HandlerSlot& target) const {
@@ -568,8 +563,7 @@ bool TimerHandlerRegistry::dispatchSelected(uint64_t delta, TimerHandler* onlyHa
       thread->armAtomicStateCleanup(dispatchCleanup.cleanup, abandonDispatch, &dispatchCleanup);
     }
 
-    ActiveDispatch* activeDispatch = publishDispatch(slot, owner, &dispatchCleanup);
-    if (!activeDispatch) {
+    if (!publishDispatch(dispatchCleanup)) {
       if (thread) {
         thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
       }
@@ -579,7 +573,7 @@ bool TimerHandlerRegistry::dispatchSelected(uint64_t delta, TimerHandler* onlyHa
 
     if (__atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST) != publication ||
         __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != handler) {
-      unpublishDispatch(&dispatchCleanup, slot, publication, true);
+      unpublishDispatch(dispatchCleanup, true);
       if (thread) {
         thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
       }
@@ -598,7 +592,7 @@ bool TimerHandlerRegistry::dispatchSelected(uint64_t delta, TimerHandler* onlyHa
         }
       }
       if (deadline == NoDeadline || deadline > now) {
-        unpublishDispatch(&dispatchCleanup, slot, publication, true);
+        unpublishDispatch(dispatchCleanup, true);
         if (thread) {
           thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
         }
@@ -619,7 +613,7 @@ bool TimerHandlerRegistry::dispatchSelected(uint64_t delta, TimerHandler* onlyHa
     // state: a timer interrupt can arrive while that state is being
     // mutated.
     handler->timer(callbackDelta);
-    unpublishDispatch(&dispatchCleanup, slot, publication, true);
+    unpublishDispatch(dispatchCleanup, true);
     if (thread) {
       thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
     }

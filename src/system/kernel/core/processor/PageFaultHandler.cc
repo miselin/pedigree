@@ -73,9 +73,12 @@ bool PageFaultHandler::retireSlot(HandlerSlot& slot, size_t expectedPublication,
   return true;
 }
 
-bool PageFaultHandler::publishDispatch(HandlerSlot& slot, void* owner, void* token) {
+bool PageFaultHandler::publishDispatch(HandlerSlot& slot, void* owner, DispatchCleanup& cleanup) {
+  void* token = &cleanup;
   for (size_t i = 0; i < MaxActiveDispatches; ++i) {
     ActiveDispatch& dispatch = m_ActiveDispatches[i];
+    // Select before claiming so cleanup can release even a partial publication.
+    __atomic_store_n(&cleanup.activeDispatch, &dispatch, __ATOMIC_RELAXED);
     void* expectedToken = nullptr;
     if (__atomic_compare_exchange_n(&dispatch.token, &expectedToken, token, false, __ATOMIC_SEQ_CST,
                                     __ATOMIC_SEQ_CST)) {
@@ -92,23 +95,18 @@ bool PageFaultHandler::publishDispatch(HandlerSlot& slot, void* owner, void* tok
   return false;
 }
 
-void PageFaultHandler::unpublishDispatch(void* token) {
-  HandlerSlot* releasedSlot = nullptr;
-  for (size_t i = 0; i < MaxActiveDispatches; ++i) {
-    ActiveDispatch& dispatch = m_ActiveDispatches[i];
-    if (__atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) != token) {
-      continue;
-    }
-
-    releasedSlot = __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&dispatch.slot, nullptr, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&dispatch.owner, nullptr, __ATOMIC_RELAXED);
-    __atomic_store_n(&dispatch.token, nullptr, __ATOMIC_RELEASE);
-    break;
+void PageFaultHandler::unpublishDispatch(DispatchCleanup& cleanup) {
+  ActiveDispatch* dispatch = __atomic_load_n(&cleanup.activeDispatch, __ATOMIC_RELAXED);
+  void* token = &cleanup;
+  // Cleanup can run before the selected entry was claimed.
+  if (!dispatch || __atomic_load_n(&dispatch->token, __ATOMIC_ACQUIRE) != token) {
+    return;
   }
 
-  // Cleanup may run after it was armed but before a hazard entry was
-  // claimed, so a missing token is a valid abandoned-stack outcome.
+  HandlerSlot* releasedSlot = __atomic_load_n(&dispatch->slot, __ATOMIC_SEQ_CST);
+  __atomic_store_n(&dispatch->slot, nullptr, __ATOMIC_SEQ_CST);
+  __atomic_store_n(&dispatch->owner, nullptr, __ATOMIC_RELAXED);
+  __atomic_store_n(&dispatch->token, nullptr, __ATOMIC_RELEASE);
   if (!releasedSlot) {
     return;
   }
@@ -142,7 +140,7 @@ void PageFaultHandler::unpublishDispatch(void* token) {
 void PageFaultHandler::abandonedHandlerCleanup(void* context) {
   DispatchCleanup* dispatch = reinterpret_cast<DispatchCleanup*>(context);
   if (dispatch && dispatch->registry) {
-    dispatch->registry->unpublishDispatch(dispatch);
+    dispatch->registry->unpublishDispatch(*dispatch);
   }
 }
 
@@ -410,7 +408,7 @@ bool PageFaultHandler::dispatchHandlers(InterruptState& state, uintptr_t address
                                     &dispatchCleanup);
     }
 
-    if (!publishDispatch(slot, currentDispatchOwner(), &dispatchCleanup)) {
+    if (!publishDispatch(slot, currentDispatchOwner(), dispatchCleanup)) {
       if (thread) {
         thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
       }
@@ -420,7 +418,7 @@ bool PageFaultHandler::dispatchHandlers(InterruptState& state, uintptr_t address
 
     if (__atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST) != publication ||
         __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != handler) {
-      unpublishDispatch(&dispatchCleanup);
+      unpublishDispatch(dispatchCleanup);
       if (thread) {
         thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
       }
@@ -435,7 +433,7 @@ bool PageFaultHandler::dispatchHandlers(InterruptState& state, uintptr_t address
 #endif
 
     const bool handled = handler->trap(state, address, bIsWrite, bWasPresent);
-    unpublishDispatch(&dispatchCleanup);
+    unpublishDispatch(dispatchCleanup);
     if (thread) {
       thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
     }

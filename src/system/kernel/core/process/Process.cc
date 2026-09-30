@@ -377,37 +377,14 @@ void Process::ThreadLease::reset() {
 }
 
 Process::FileContextLease::FileContextLease()
-    : m_pFile(nullptr), m_bVfsReference(false), m_TerminationDeferral(true) {}
+    : m_pFile(nullptr), m_TerminationDeferral(false), m_Context() {}
 
-Process::FileContextLease::~FileContextLease() {
-  reset();
-}
+Process::FileContextLease::~FileContextLease() = default;
 
 void Process::FileContextLease::reset() {
-  File* file = m_pFile;
-  const bool release = m_bVfsReference;
   m_pFile = nullptr;
-  m_bVfsReference = false;
-  if (release) {
-    file->releaseVfsReference();
-  }
-}
-
-void Process::FileContextLease::adopt(File* file, bool vfsReference) {
-  if (m_pFile) {
-    FATAL("Process FileContextLease adopted over an active reference");
-  }
-  m_pFile = file;
-  m_bVfsReference = vfsReference;
-}
-
-void Process::FileContextLease::swap(FileContextLease& other) {
-  File* file = m_pFile;
-  const bool vfsReference = m_bVfsReference;
-  m_pFile = other.m_pFile;
-  m_bVfsReference = other.m_bVfsReference;
-  other.m_pFile = file;
-  other.m_bVfsReference = vfsReference;
+  m_Context.reset();
+  m_TerminationDeferral = TerminationDeferral(false);
 }
 
 Process::Process() : Process(DeferredPublication()) {
@@ -700,12 +677,12 @@ SharedPointer<Process::ControllingTerminal> Process::acquireCttyContext() const 
 }
 
 File* Process::acquireCtty(FileContextLease& lease) const {
-  auto context = acquireCttyContext();
-  FileContextLease replacement;
-  File* file = context ? context->file() : nullptr;
-  if (file && file->retainVfsReference())
-    replacement.adopt(file, true);
-  lease.swap(replacement);
+  lease.m_TerminationDeferral = TerminationDeferral(true);
+  lease.m_Context = acquireCttyContext();
+  lease.m_pFile = lease.m_Context ? lease.m_Context->file() : nullptr;
+  if (!lease.m_pFile) {
+    lease.reset();
+  }
   return lease.get();
 }
 

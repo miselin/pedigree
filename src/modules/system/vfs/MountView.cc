@@ -9,18 +9,21 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #endif
 
+VfsNodeReference::VfsNodeReference(Directory::ChildLease& child)
+    : m_Node(child.releaseOwnership()),
+      m_Ownership(m_Node ? Ownership::Tracked : Ownership::Borrowed) {}
 VfsNodeReference::VfsNodeReference(VfsNodeReference&& other) noexcept
-    : m_Node(other.m_Node), m_Tracked(other.m_Tracked) {
+    : m_Node(other.m_Node), m_Ownership(other.m_Ownership) {
   other.m_Node = nullptr;
-  other.m_Tracked = false;
+  other.m_Ownership = Ownership::Borrowed;
 }
 VfsNodeReference& VfsNodeReference::operator=(VfsNodeReference&& other) noexcept {
   if (this != &other) {
     reset();
     m_Node = other.m_Node;
-    m_Tracked = other.m_Tracked;
+    m_Ownership = other.m_Ownership;
     other.m_Node = nullptr;
-    other.m_Tracked = false;
+    other.m_Ownership = Ownership::Borrowed;
   }
   return *this;
 }
@@ -28,23 +31,32 @@ VfsNodeReference::~VfsNodeReference() {
   reset();
 }
 void VfsNodeReference::reset() {
+  if (m_Ownership == Ownership::Borrowed) {
+    m_Node = nullptr;
+    return;
+  }
 #if THREADS && !defined(STANDALONE_MUTEXES)
   TerminationDeferral lifetime;
 #endif
   File* node = m_Node;
-  const bool tracked = m_Tracked;
+  const auto ownership = m_Ownership;
   m_Node = nullptr;
-  m_Tracked = false;
-  if (tracked)
+  m_Ownership = Ownership::Borrowed;
+  if (ownership == Ownership::Tracked) {
+    VFS::instance().untrackFile(node);
+  } else {
     node->releaseVfsReference();
+  }
 }
 bool VfsNodeReference::retain(File* node, Filesystem* backing) {
   if (m_Node || !node || !backing || node->getFilesystem() != backing)
     return false;
-  m_Tracked = node->retainVfsReference();
-  if (!m_Tracked && node != backing->getRoot())
+  const bool retained = node->retainVfsReference();
+  if (!retained && node != backing->getRoot()) {
     return false;
+  }
   m_Node = node;
+  m_Ownership = retained ? Ownership::Virtual : Ownership::Borrowed;
   return true;
 }
 
@@ -52,7 +64,7 @@ bool VfsNodeReference::retainAnonymous(File* node) {
   if (m_Node || !node || node->isDirectory() || !node->retainVfsReference())
     return false;
   m_Node = node;
-  m_Tracked = true;
+  m_Ownership = Ownership::Virtual;
   return true;
 }
 
@@ -165,6 +177,15 @@ bool VfsMountView::State::makePath(const VfsAttachmentRef& attachment, File* nod
                                    FilesystemPathRef& result) {
   VfsNodeReference retained;
   if (!attachment || !retained.retain(node, attachment->backing.filesystem())) {
+    SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+  return makePath(attachment, pedigree_std::move(retained), result);
+}
+bool VfsMountView::State::makePath(const VfsAttachmentRef& attachment, VfsNodeReference&& retained,
+                                   FilesystemPathRef& result) {
+  if (!attachment || !retained.get() ||
+      retained.get()->getFilesystem() != attachment->backing.filesystem()) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }

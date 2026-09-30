@@ -83,7 +83,6 @@ class EXPORTED_PUBLIC ExecutionContextGuard {
   size_t m_StateLevel;
   ExecutionContext m_Previous;
   AtomicStateCleanupRecord m_Cleanup;
-  bool m_Active;
 };
 
 #endif

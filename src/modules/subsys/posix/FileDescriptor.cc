@@ -200,32 +200,26 @@ uint64_t FileDescriptor::writeFile(uint64_t location, uint64_t size, uintptr_t b
 }
 
 SharedPointer<NetworkSyscalls> FileDescriptor::OpenFileDescription::getNetworkImpl() const {
-  LockGuard<Mutex> guard(lock);
   return networkImpl;
 }
 
 SharedPointer<EventFd> FileDescriptor::OpenFileDescription::getEventFdImpl() const {
-  LockGuard<Mutex> guard(lock);
   return eventFdImpl;
 }
 
 SharedPointer<TimerFd> FileDescriptor::OpenFileDescription::getTimerFdImpl() const {
-  LockGuard<Mutex> guard(lock);
   return timerFdImpl;
 }
 
 SharedPointer<SignalFd> FileDescriptor::OpenFileDescription::getSignalFdImpl() const {
-  LockGuard<Mutex> guard(lock);
   return signalFdImpl;
 }
 
 SharedPointer<InotifyInstance> FileDescriptor::OpenFileDescription::getInotifyImpl() const {
-  LockGuard<Mutex> guard(lock);
   return inotifyImpl;
 }
 
 SharedPointer<FanotifyInstance> FileDescriptor::OpenFileDescription::getFanotifyImpl() const {
-  LockGuard<Mutex> guard(lock);
   return fanotifyImpl;
 }
 
@@ -464,6 +458,7 @@ FileDescriptor::OpenFileDescriptionLease FileDescriptor::acquireOpenFileDescript
 
 void FileDescriptor::setNetworkImpl(const SharedPointer<NetworkSyscalls>& implementation) {
   LockGuard<Mutex> guard(m_OpenFile->lock);
+  assert(!m_OpenFile->getFile() && !m_OpenFile->networkImpl);
   networkImpl = implementation;
   m_OpenFile->networkImpl = implementation;
   if (networkImpl) {
@@ -548,6 +543,7 @@ bool FileDescriptor::signalFdPublished() const {
 
 void FileDescriptor::setInotifyImpl(const SharedPointer<InotifyInstance>& implementation) {
   LockGuard<Mutex> guard(m_OpenFile->lock);
+  assert(!m_OpenFile->getFile());
   assert(!m_OpenFile->inotifyImpl);
   m_OpenFile->inotifyImpl = implementation;
 }
@@ -568,7 +564,6 @@ SharedPointer<FanotifyInstance> FileDescriptor::getFanotifyImpl() const {
 }
 
 SharedPointer<PosixMessageQueue> FileDescriptor::OpenFileDescription::getMqueueImpl() const {
-  LockGuard<Mutex> guard(lock);
   return mqueueImpl;
 }
 

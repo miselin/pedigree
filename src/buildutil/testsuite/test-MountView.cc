@@ -21,6 +21,32 @@ class CountedRamFs final : public RamFs {
   std::atomic<size_t>& destroyed;
 };
 
+class CountedPathFile final : public RamFile {
+ public:
+  CountedPathFile(Filesystem* filesystem, File* parent, size_t& retains, size_t& releases,
+                  size_t& destroyed)
+      : RamFile(String("retained"), 1, filesystem, parent),
+        retains(retains),
+        releases(releases),
+        destroyed(destroyed) {}
+  ~CountedPathFile() override {
+    ++destroyed;
+  }
+  bool retainVfsReference() override {
+    ++retains;
+    return File::retainVfsReference();
+  }
+  void releaseVfsReference() override {
+    ++releases;
+    File::releaseVfsReference();
+  }
+
+ private:
+  size_t& retains;
+  size_t& releases;
+  size_t& destroyed;
+};
+
 class ResettingObserver final : public FileEventObserver {
  public:
   explicit ResettingObserver(VFS::MountOperation& operation) : operation(operation) {}
@@ -104,6 +130,24 @@ class MountViewTest : public testing::Test {
   FilesystemPathRef covered;
 };
 }  // namespace
+
+TEST_F(MountViewTest, ResolvedChildTransfersItsLookupReferenceAcrossUnlink) {
+  size_t retains = 0, releases = 0, fileDestroyed = 0;
+  auto* file = new CountedPathFile(root, covered->node(), retains, releases, fileDestroyed);
+  ASSERT_TRUE(static_cast<RamDir*>(covered->node())->addEntry(String("retained"), file));
+  FilesystemPathRef found;
+  VfsMountView::ResolveOptions options;
+  ASSERT_TRUE(view->resolve(context.reference(), covered, String("retained"), options, found));
+  ASSERT_EQ(found->node(), file);
+  EXPECT_EQ(retains, 0U);
+  ASSERT_TRUE(view->remove(covered, String("retained"), file));
+  EXPECT_EQ(fileDestroyed, 0U);
+  EXPECT_EQ(found->node()->getName(), String("retained"));
+  const size_t releasesBeforeReset = releases;
+  found.reset();
+  EXPECT_EQ(fileDestroyed, 1U);
+  EXPECT_EQ(releases, releasesBeforeReset);
+}
 
 TEST_F(MountViewTest, TerminalShutdownDrainsOwnersBeforeReturningOwnedBackends) {
   auto* filesystem = fresh();

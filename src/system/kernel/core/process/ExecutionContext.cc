@@ -12,40 +12,38 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 
 ExecutionContextGuard::ExecutionContextGuard(ExecutionContext context)
-    : m_Thread(Processor::information().getCurrentThread()),
-      m_StateLevel(0),
-      m_Previous(ExecutionContext::AtomicThread),
-      m_Cleanup(),
-      m_Active(false) {
-  if (!m_Thread) {
+    : m_Thread(nullptr), m_StateLevel(0), m_Previous(ExecutionContext::AtomicThread), m_Cleanup() {
+  Thread* thread = Processor::information().getCurrentThread();
+  if (!thread) {
     return;
   }
 
   const bool interruptsWereEnabled = Processor::getInterrupts();
   Processor::setInterrupts(false);
 
-  m_StateLevel = __atomic_load_n(&m_Thread->m_nStateLevel, __ATOMIC_ACQUIRE);
-  m_Previous = m_Thread->m_StateLevels[m_StateLevel].m_ExecutionContext.current();
+  m_StateLevel = __atomic_load_n(&thread->m_nStateLevel, __ATOMIC_ACQUIRE);
+  m_Previous = thread->m_StateLevels[m_StateLevel].m_ExecutionContext.current();
 
   // Publish abandonment cleanup before changing the classification. A
   // nested fault can therefore never leave a reused Thread state labelled
   // as an IRQ context.
-  m_Thread->armAtomicStateCleanup(m_Cleanup, abandon, this);
-  m_Active = true;
-  m_Thread->m_StateLevels[m_StateLevel].m_ExecutionContext.enter(context);
+  thread->armAtomicStateCleanup(m_Cleanup, abandon, this);
+  m_Thread = thread;
+  thread->m_StateLevels[m_StateLevel].m_ExecutionContext.enter(context);
 
   Processor::setInterrupts(interruptsWereEnabled);
 }
 
 ExecutionContextGuard::~ExecutionContextGuard() {
-  if (!m_Active) {
+  Thread* thread = m_Thread;
+  if (!thread) {
     return;
   }
 
   const bool interruptsWereEnabled = Processor::getInterrupts();
   Processor::setInterrupts(false);
   restore();
-  m_Thread->disarmAtomicStateCleanup(m_Cleanup);
+  thread->disarmAtomicStateCleanup(m_Cleanup);
   Processor::setInterrupts(interruptsWereEnabled);
 }
 
@@ -57,7 +55,7 @@ void ExecutionContextGuard::abandon(void* context) {
 }
 
 void ExecutionContextGuard::restore() {
-  if (!m_Active) {
+  if (!m_Thread) {
     return;
   }
 
@@ -67,5 +65,5 @@ void ExecutionContextGuard::restore() {
   }
 
   m_Thread->m_StateLevels[m_StateLevel].m_ExecutionContext.restore(m_Previous);
-  m_Active = false;
+  m_Thread = nullptr;
 }

@@ -72,7 +72,7 @@ NetworkStack::DeviceLease& NetworkStack::DeviceLease::operator=(DeviceLease&& ot
   return *this;
 }
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS && PEDIGREE_HOSTED_NETWORK_REGRESSION
+#if PEDIGREE_HOSTED_NETWORK_REGRESSION
 extern bool runHostedNetworkStackRegressions();
 #endif
 
@@ -234,6 +234,14 @@ void NetworkStack::receive(size_t nBytes, uintptr_t packet, Network* pCard, uint
     return;
   }
 
+  receive(nBytes, packet, device, offset);
+}
+
+void NetworkStack::receive(size_t nBytes, uintptr_t packet, const DeviceLease& device,
+                           uint32_t offset) {
+  assert(!Processor::inDeviceHardIrq());
+  assert(device.device());
+  Network* pCard = device.device();
   packet += offset;
 
   const size_t packetLength = nBytes;
@@ -394,7 +402,7 @@ void NetworkStack::deRegisterDevice(Network* pDevice) {
 static bool entry() {
   g_NetworkStack = new NetworkStack();
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS && PEDIGREE_HOSTED_NETWORK_REGRESSION
+#if PEDIGREE_HOSTED_NETWORK_REGRESSION
   if (!runHostedNetworkStackRegressions()) {
     delete g_NetworkStack;
     g_NetworkStack = nullptr;

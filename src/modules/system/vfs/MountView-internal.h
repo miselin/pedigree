@@ -12,6 +12,7 @@
 class VfsNodeReference {
  public:
   VfsNodeReference() = default;
+  explicit VfsNodeReference(Directory::ChildLease& child);
   VfsNodeReference(VfsNodeReference&& other) noexcept;
   VfsNodeReference& operator=(VfsNodeReference&& other) noexcept;
   ~VfsNodeReference();
@@ -25,8 +26,9 @@ class VfsNodeReference {
  private:
   VfsNodeReference(const VfsNodeReference&) = delete;
   VfsNodeReference& operator=(const VfsNodeReference&) = delete;
+  enum class Ownership { Borrowed, Tracked, Virtual };
   File* m_Node = nullptr;
-  bool m_Tracked = false;
+  Ownership m_Ownership = Ownership::Borrowed;
 };
 
 class VfsAttachment {
@@ -105,6 +107,8 @@ struct VfsMountView::State {
   VfsPath* nodePath(const FilesystemPathRef& reference) const;
   VfsPath* path(const FilesystemPathRef& reference) const;
   bool makePath(const VfsAttachmentRef& attachment, File* node, FilesystemPathRef& result);
+  bool makePath(const VfsAttachmentRef& attachment, VfsNodeReference&& node,
+                FilesystemPathRef& result);
   bool context(const FilesystemContextRef& reference, VfsFilesystemContext*& result) const;
   bool createContext(const VfsFilesystemContext* parent, FilesystemContextOwner& result);
   bool cross(const FilesystemPathRef& path, FilesystemPathRef& result);

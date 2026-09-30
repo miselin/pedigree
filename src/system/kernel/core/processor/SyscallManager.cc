@@ -224,44 +224,34 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
 bool SyscallManager::acquireHandler(Service_t service, HandlerLease& lease,
                                     PostSyscallAction& action) {
   Thread* thread = Processor::information().getCurrentThread();
-  if (UNLIKELY(service >= serviceEnd) || lease.m_pManager || !thread) {
+  if (UNLIKELY(service >= serviceEnd) || lease.m_pThread || !thread) {
     return false;
   }
 
   const bool interrupts = Processor::getInterrupts();
   Processor::setInterrupts(false);
+  size_t& admission = thread->m_ActiveSyscalls[service];
+  const size_t count = __atomic_load_n(&admission, __ATOMIC_RELAXED);
+  if (count == ~size_t(0)) {
+    FATAL("Syscall admission nesting overflow.");
+  }
+  // Publish admission before reading the handler. The SC order with
+  // unpublication and the writer's scan either includes us in the drain or
+  // makes us observe the closed slot, without first borrowing its pointer.
+  __atomic_store_n(&admission, count + 1, __ATOMIC_SEQ_CST);
   HandlerSlot* slot;
-  while (true) {
-    slot = __atomic_load_n(&m_Published[service], __ATOMIC_ACQUIRE);
-    if (!slot) {
-      Processor::setInterrupts(interrupts);
-      return false;
-    }
+  do {
+    slot = __atomic_load_n(&m_Published[service], __ATOMIC_SEQ_CST);
     if (slot == &m_ClosingSlot) {
       Processor::pause();
-      continue;
     }
-
-    size_t& admission = thread->m_ActiveSyscalls[service];
-    const size_t count = __atomic_load_n(&admission, __ATOMIC_RELAXED);
-    if (count == ~size_t(0)) {
-      FATAL("Syscall admission nesting overflow.");
-    }
-    // This publication and reload share an SC order with unpublication and
-    // the writer's scan. Either the scan sees us or we see the closed slot.
-    __atomic_store_n(&admission, count + 1, __ATOMIC_SEQ_CST);
-    slot = __atomic_load_n(&m_Published[service], __ATOMIC_SEQ_CST);
-    if (slot && slot != &m_ClosingSlot) {
-      break;
-    }
+  } while (slot == &m_ClosingSlot);
+  if (!slot) {
     __atomic_store_n(&admission, count, __ATOMIC_RELEASE);
-    if (!slot) {
-      Processor::setInterrupts(interrupts);
-      return false;
-    }
+    Processor::setInterrupts(interrupts);
+    return false;
   }
 
-  lease.m_pManager = this;
   lease.m_Service = service;
   lease.m_pHandler = slot->handler;
   lease.m_Entry = slot->entry;
@@ -310,8 +300,6 @@ void SyscallManager::releaseHandler(HandlerLease& lease, bool normalReturn) {
   if (!count) {
     FATAL("Syscall admission nesting underflow.");
   }
-  lease.m_pManager = nullptr;
-  lease.m_pHandler = nullptr;
   lease.m_pThread = nullptr;
   __atomic_store_n(&admission, count - 1, __ATOMIC_RELEASE);
   Processor::setInterrupts(interrupts);
@@ -319,8 +307,8 @@ void SyscallManager::releaseHandler(HandlerLease& lease, bool normalReturn) {
 
 void SyscallManager::abandonedHandlerCleanup(void* context) {
   HandlerLease* lease = reinterpret_cast<HandlerLease*>(context);
-  if (lease && lease->m_pManager) {
-    lease->m_pManager->releaseHandler(*lease, false);
+  if (lease && lease->m_pThread) {
+    releaseHandler(*lease, false);
   }
 }
 
