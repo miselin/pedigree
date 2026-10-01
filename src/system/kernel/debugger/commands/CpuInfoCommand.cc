@@ -172,7 +172,7 @@ const char* CpuInfoCommand::getLine1(size_t index, DebuggerIO::Colour& colour,
                                      DebuggerIO::Colour& bgColour) {
   colour = DebuggerIO::White;
   bgColour = DebuggerIO::Black;
-  return index < m_LineCount ? m_Lines[index] : nullptr;
+  return index < m_LineCount ? static_cast<const char*>(m_Lines[index]) : nullptr;
 }
 
 const char* CpuInfoCommand::getLine2(size_t index, size_t& colOffset, DebuggerIO::Colour& colour,

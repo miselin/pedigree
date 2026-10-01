@@ -51,8 +51,9 @@ if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
 endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
-    set(ARCH_KERNEL_FLAGS "-m64" "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx")
-    set(ARCH_KERNEL_LINKFLAGS "-m64")
+    set(ARCH_KERNEL_FLAGS "-m64" "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx"
+        "-fno-pic" "-fno-pie")
+    set(ARCH_KERNEL_LINKFLAGS "-m64" "-no-pie")
 elseif (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     if (PEDIGREE_HOSTED_DARWIN)
         set(ARCH_KERNEL_FLAGS
@@ -551,9 +552,12 @@ else ()
         ${KERNEL_SRCS} ${PROCESSOR_SRCS} ${MACHINE_SRCS} ${UDIS86_SRCS} ${HASH_SRCS} ${SLAM_SRCS} ${LOG_SRCS} ${CMAKE_CURRENT_SOURCE_DIR}/sharedshim.cc)
     target_compile_options(kernel_shared PRIVATE
         $<$<COMPILE_LANGUAGE:C>:-w ${GENERIC_CFLAGS} ${KERNEL_CFLAGS}>
-        $<$<COMPILE_LANGUAGE:CXX>:-w ${GENERIC_CXXFLAGS} ${GENERIC_KERNEL_CXXFLAGS}>)
+        $<$<COMPILE_LANGUAGE:CXX>:-w ${GENERIC_CXXFLAGS} ${GENERIC_KERNEL_CXXFLAGS}>
+        -fPIC)
     target_compile_definitions(kernel_shared PRIVATE -D__UD_STANDALONE__)
-    target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS})
+    set(KERNEL_SHARED_ARCH_LINKFLAGS ${ARCH_KERNEL_LINKFLAGS})
+    list(REMOVE_ITEM KERNEL_SHARED_ARCH_LINKFLAGS "-no-pie")
+    target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${KERNEL_SHARED_ARCH_LINKFLAGS})
     target_include_directories(kernel_shared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     if (PEDIGREE_HOSTED_DARWIN)
         target_link_options(kernel_shared PRIVATE -Wl,-undefined,dynamic_lookup)

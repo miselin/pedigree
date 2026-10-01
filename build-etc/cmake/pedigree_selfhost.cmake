@@ -18,8 +18,8 @@ if (NOT DEFINED PEDIGREE_TARGET_SYSROOT AND
         "Prepared Alpine SDK for target headers and libraries")
 endif ()
 set(PEDIGREE_TARGET_SYSROOT
-    "${PEDIGREE_SOURCE_ROOT}/scripts/alpine/build/x86_64/sysroot" CACHE PATH
-    "Prepared Alpine SDK for target headers and libraries")
+    "/" CACHE PATH
+    "Alpine SDK for target headers and libraries")
 list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES PEDIGREE_TARGET_SYSROOT)
 
 set(PEDIGREE_NATIVE_TOOL_ROOT "/usr" CACHE PATH
@@ -55,6 +55,7 @@ pedigree_find_native_program(PEDIGREE_RANLIB ranlib)
 pedigree_find_native_program(PEDIGREE_READELF readelf)
 pedigree_find_native_program(PEDIGREE_STRIP strip)
 
+set(PEDIGREE_NATIVE_COMPILER_TARGET "")
 foreach(compiler IN ITEMS
     "${PEDIGREE_C_COMPILER}" "${PEDIGREE_CXX_COMPILER}")
     execute_process(
@@ -64,11 +65,15 @@ foreach(compiler IN ITEMS
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET)
     if (NOT PEDIGREE_DUMPMACHINE_RESULT EQUAL 0 OR
-        NOT PEDIGREE_DUMPMACHINE STREQUAL "x86_64-pedigree")
+        NOT PEDIGREE_DUMPMACHINE MATCHES
+            "^(x86_64-pedigree|x86_64-alpine-linux-musl)$" OR
+        (PEDIGREE_NATIVE_COMPILER_TARGET AND
+            NOT PEDIGREE_DUMPMACHINE STREQUAL PEDIGREE_NATIVE_COMPILER_TARGET))
         message(FATAL_ERROR
-            "The native compiler must target x86_64-pedigree; "
+            "The native compilers must share an x86-64 Pedigree or Alpine target; "
             "${compiler} reports '${PEDIGREE_DUMPMACHINE}'")
     endif ()
+    set(PEDIGREE_NATIVE_COMPILER_TARGET "${PEDIGREE_DUMPMACHINE}")
 endforeach()
 unset(compiler)
 unset(PEDIGREE_DUMPMACHINE)
@@ -126,3 +131,4 @@ set(CMAKE_READELF "${PEDIGREE_READELF}" CACHE FILEPATH "" FORCE)
 set(CMAKE_STRIP "${PEDIGREE_STRIP}" CACHE FILEPATH "" FORCE)
 
 include("${CMAKE_CURRENT_LIST_DIR}/pedigree_amd64_target.cmake")
+set(PEDIGREE_COMPILER_TARGET "${PEDIGREE_NATIVE_COMPILER_TARGET}")

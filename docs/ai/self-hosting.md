@@ -2,37 +2,36 @@
 
 The self-host build profile is an experimental first step toward working on a
 Pedigree checkout from within Pedigree. It builds the amd64 kernel, dynamic
-modules and initrd, and in-tree user applications and libraries. It does not
-build an HDD image, ISO, or UEFI boot image, and it never installs files into
-`/boot`. Static-driver builds and compiled distribution keymaps are also
-excluded from this initial profile.
+modules and initrd. In-tree user applications and libraries can be enabled with
+`PEDIGREE_BUILD_USER_DIR=ON`; the Alpine base profile leaves them disabled. It
+does not build an HDD image, ISO, or UEFI boot image, and it never installs
+files into `/boot`. Static-driver builds and compiled distribution keymaps
+are also excluded from this initial profile.
 
 Cross and native builds consume the same amd64 target profile, so kernel and
 userspace ABI settings do not depend on where the compiler is running.
 
-This profile has not yet been verified on a running Pedigree system. The CMake
-graph can be exercised from existing cross-build environments, but a successful
-native build remains the acceptance test.
+The Alpine-native path can be configured and built on Pedigree; booting the
+resulting kernel and initrd remains the end-to-end acceptance test.
 
 ## Bootstrap boundary
 
 The first native build still starts with tools and packages installed by an
 external seed. It does not rebuild or install its own CMake, compiler, binutils,
-NASM, shell, or package dependencies. The selected native GCC must report
-`x86_64-pedigree` from `gcc -dumpmachine`; an ordinary Linux compiler is not a
-substitute.
+NASM, shell, or package dependencies. On Alpine, the selected native GCC reports
+`x86_64-alpine-linux-musl` from `gcc -dumpmachine`; the older `x86_64-pedigree`
+toolchain remains supported when paired with a prepared SDK.
 
-That seed must be modern enough for the current source: the maintained
-toolchain is GCC 15.3.0, binutils 2.46.1, and NASM 3.02, and the root build
-requires C/C++23. Enabling `PEDIGREE_AUTO_VAR_INIT` additionally requires the
-pattern and zero modes of `-ftrivial-auto-var-init`. The GCC 8.3 files in the
-historical `images/local` snapshot are not a usable self-host seed.
+That seed must be modern enough for the current source: the root build requires
+C/C++23. Enabling `PEDIGREE_AUTO_VAR_INIT` additionally requires the pattern and
+zero modes of `-ftrivial-auto-var-init`. The GCC 8.3 files in the historical
+`images/local` snapshot are not a usable self-host seed.
 
 Once those tools are available, this slice can rebuild:
 
 - the UEFI-bootable Pedigree kernel;
 - kernel modules and the deterministic initrd containing them;
-- the user applications and libraries defined in this checkout.
+- the user applications and libraries defined in this checkout when enabled.
 
 That is enough to shorten the edit-build-test loop on Pedigree, while compiler
 and package self-bootstrap remain later milestones.
@@ -41,16 +40,18 @@ and package self-bootstrap remain later milestones.
 
 - A populated Pedigree source checkout, including required submodules.
 - CMake 3.21 or newer.
-- A Pedigree-hosted GCC/G++ toolchain targeting `x86_64-pedigree`, plus the
+- Alpine GCC/G++ targeting `x86_64-alpine-linux-musl`, or a Pedigree-hosted
+  GCC/G++ toolchain targeting `x86_64-pedigree`, plus the
   matching `ar`, `gcc-ar`, `gcc-ranlib`, `ld`, `nm`, `objcopy`, `objdump`,
   `ranlib`, `readelf`, and `strip` tools. The selected toolchain must also
   provide its matching `libgcc` and `libstdc++` runtimes.
 - NASM, a POSIX shell, GNU Make, and standard POSIX command-line utilities.
-- An Alpine x64 SDK prepared on a Linux or macOS host with Docker and copied
-  into the guest. Set `PEDIGREE_TARGET_SYSROOT` to its `sysroot/` directory.
-  Native configuration does not run Docker or acquire packages.
-- zlib development headers and library. The native initrd builder links zlib
-  directly, so no `gzip` executable is needed.
+- Alpine development headers and libraries installed locally. The default
+  `PEDIGREE_TARGET_SYSROOT=/` uses them directly. Set it to a prepared SDK
+  directory if using a separate sysroot; native configuration does not run
+  Docker or acquire packages.
+- `zlib-dev` for the native initrd builder. It links zlib directly, so no
+  `gzip` executable is needed.
 - Development headers and libraries needed by any enabled in-tree user
   applications. The Alpine desktop profile supplies their dependencies in the
   separate SDK. The default base profile leaves these applications disabled.
@@ -141,11 +142,11 @@ cmake -S . -B build \
 
 ## First build
 
-With the native tools installed and a prepared SDK copied into the guest, run
-from the checkout:
+With Alpine's `build-base`, `cmake`, `nasm`, and `binutils` installed, run from
+the checkout:
 
 ```sh
-PEDIGREE_TARGET_SYSROOT=/path/to/alpine/sysroot ./easy_build_selfhost.sh
+./easy_build_selfhost.sh
 ```
 
 The default build directory is `build-selfhost`, and the default parallelism is
@@ -157,7 +158,7 @@ one job. Useful overrides are:
 | `PEDIGREE_BUILD_JOBS` | `1` | Parallel build jobs |
 | `PEDIGREE_BUILD_TYPE` | `Debug` | CMake build type |
 | `PEDIGREE_NATIVE_TOOL_ROOT` | `/usr` | Prefix containing the native toolchain |
-| `PEDIGREE_TARGET_SYSROOT` | `scripts/alpine/build/x86_64/sysroot` | Prepared Alpine SDK |
+| `PEDIGREE_TARGET_SYSROOT` | `/` | Installed Alpine SDK; override to use a prepared SDK |
 | `PEDIGREE_CMAKE` | `cmake` | CMake executable or absolute path |
 | `PEDIGREE_CMAKE_GENERATOR` | CMake default | Optional generator name |
 
@@ -179,9 +180,10 @@ With the default build directory, the primary products are:
 - `build-selfhost/src/modules/initrd.tar.uncomp` — raw module initrd for the
   UEFI image;
 - `build-selfhost/src/modules/initrd.manifest` — deterministic initrd contents;
-- `build-selfhost/src/user/` — built user applications and libraries;
+- `build-selfhost/src/user/` — built user applications and libraries when
+  `PEDIGREE_BUILD_USER_DIR=ON`;
 - `build-selfhost/pedigree-c-sdk/usr/` — Pedigree-specific userspace library
-  and public headers.
+  and public headers when `PEDIGREE_BUILD_USER_DIR=ON`.
 
 The self-host wrapper disables `PEDIGREE_BUILD_UEFI`, so configuring these
 artifacts does not require Clang or the ext2 image utility. UEFI image packaging
