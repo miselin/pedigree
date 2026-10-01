@@ -82,22 +82,22 @@ static void printChar(char c, size_t x, size_t y) {
   g_pFramebuffer->blit(g_pFont, 0, c * FONT_HEIGHT, x, y, FONT_WIDTH, FONT_HEIGHT);
 }
 
-static void printChar(char c) {
-  if (!g_pFramebuffer)
-    return;
+static bool printChar(char c) {
+  if (!g_pFramebuffer) {
+    return false;
+  }
 
-  if (!c)
-    return;
+  if (!c) {
+    return false;
+  }
 
-  if (c == '\t')
+  if (c == '\t') {
     g_LogX = (g_LogX + 8) & ~7;
-  else if (c == '\r')
+  } else if (c == '\r') {
     g_LogX = 0;
-  else if (c == '\n') {
+  } else if (c == '\n') {
     g_LogX = 0;
     g_LogY++;
-
-    g_pFramebuffer->redraw(g_LogBoxX, g_LogBoxY, g_LogW, g_LogH, true);
   } else if (c >= ' ') {
     g_pFramebuffer->blit(g_pFont, 0, c * FONT_HEIGHT, g_LogBoxX + (g_LogX * FONT_WIDTH),
                          g_LogBoxY + (g_LogY * FONT_HEIGHT), FONT_WIDTH, FONT_HEIGHT);
@@ -107,8 +107,6 @@ static void printChar(char c) {
   if (g_LogX >= g_LogW / FONT_WIDTH) {
     g_LogX = 0;
     g_LogY++;
-
-    g_pFramebuffer->redraw(g_LogBoxX, g_LogBoxY, g_LogW, g_LogH, true);
   }
 
   // Overflowed the view?
@@ -117,25 +115,30 @@ static void printChar(char c) {
     size_t diff = g_LogY - (g_LogH / FONT_HEIGHT) + 1;
 
     // Scroll up
-    g_pFramebuffer->copy(g_LogBoxX, g_LogBoxY + (diff * FONT_HEIGHT), g_LogBoxX, g_LogBoxY,
-                         g_LogW - g_LogBoxX, ((g_LogH / FONT_HEIGHT) - diff) * FONT_HEIGHT);
+    g_pFramebuffer->copy(g_LogBoxX, g_LogBoxY + (diff * FONT_HEIGHT), g_LogBoxX, g_LogBoxY, g_LogW,
+                         ((g_LogH / FONT_HEIGHT) - diff) * FONT_HEIGHT);
     g_pFramebuffer->rect(g_LogBoxX, g_LogBoxY + ((g_LogH / FONT_HEIGHT) - diff) * FONT_HEIGHT,
-                         g_LogW - g_LogBoxX, diff * FONT_HEIGHT, g_BackgroundColour, g_ColorFormat);
+                         g_LogW, diff * FONT_HEIGHT, g_BackgroundColour, g_ColorFormat);
 
-    g_LogY = (g_LogH / FONT_HEIGHT) - diff;
-
-    g_pFramebuffer->redraw(g_LogBoxX, g_LogBoxY, g_LogW, g_LogH, true);
+    g_LogY -= diff;
+    return true;
   }
+  return false;
 }
 
-static void printString(const char* str, size_t len = 0) {
+static bool printString(const char* str, size_t len = 0) {
   if (len == 0) {
     len = StringLength(str);
   }
 
   if (!g_NoGraphics) {
-    for (size_t i = 0; i < len; i++)
-      printChar(str[i]);
+    bool scrolled = false;
+    for (size_t i = 0; i < len; i++) {
+      if (printChar(str[i])) {
+        scrolled = true;
+      }
+    }
+    return scrolled;
   } else {
     static HugeStaticString s;
     s += str;
@@ -159,6 +162,7 @@ static void printString(const char* str, size_t len = 0) {
     bootIO.write(s, c, BootIO::Black);
     s.clear();
   }
+  return false;
 }
 
 static void printString(const LogCord& str) {
@@ -169,8 +173,27 @@ static void printString(const LogCord& str) {
   if (!g_PrintLock.tryAcquire()) {
     return;
   }
+  Framebuffer* parent = nullptr;
+  size_t firstRow = g_LogY;
+  bool scrolled = false;
+  if (!g_NoGraphics && g_pFramebuffer) {
+    // Scroll the RAM backing buffer, avoiding reads from slow scanout memory.
+    // Publish the completed message once, including any wrapped lines.
+    parent = g_pFramebuffer->getParent();
+    g_pFramebuffer->setParent(nullptr);
+  }
   for (auto it = str.segbegin(); it != str.segend(); ++it) {
-    printString(it.ptr(), it.length());
+    if (printString(it.ptr(), it.length())) {
+      scrolled = true;
+    }
+  }
+  if (parent) {
+    g_pFramebuffer->setParent(parent);
+    if (scrolled) {
+      firstRow = 0;
+    }
+    g_pFramebuffer->redraw(g_LogBoxX, g_LogBoxY + firstRow * FONT_HEIGHT, g_LogW,
+                           (g_LogY - firstRow + 1) * FONT_HEIGHT, false);
   }
   g_PrintLock.release();
 }
