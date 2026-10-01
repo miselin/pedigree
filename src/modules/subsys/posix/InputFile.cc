@@ -241,6 +241,12 @@ int InputFile::select(bool bWriting, int timeout) {
   return m_Buffer.canRead(timeout == 1) ? 1 : 0;
 }
 
+ReadinessGenerations InputFile::readinessGenerations() {
+  ReadinessGenerations generations;
+  generations.read = m_Buffer.readableGeneration();
+  return generations;
+}
+
 bool InputFile::retainVfsReference() {
   if (!m_Endpoint) {
     return File::retainVfsReference();
@@ -366,6 +372,12 @@ int EvdevFile::select(bool bWriting, int timeout) {
     return 0;
   }
   return m_Buffer.canRead(timeout == 1) ? 1 : 0;
+}
+
+ReadinessGenerations EvdevFile::readinessGenerations() {
+  ReadinessGenerations generations;
+  generations.read = m_Buffer.readableGeneration();
+  return generations;
 }
 
 bool EvdevFile::supports(size_t command) const {

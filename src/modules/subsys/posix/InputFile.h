@@ -42,6 +42,10 @@ class InputFile final : public File {
   uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                          bool bCanBlock = true) override;
   int select(bool bWriting = false, int timeout = 0) override;
+  ReadinessGenerations readinessGenerations() override;
+  bool supportsReadinessNotifications() const override {
+    return true;
+  }
 
   bool isSeekable() const override {
     return false;
@@ -82,6 +86,10 @@ class EvdevFile final : public File {
   uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                          bool bCanBlock = true) override;
   int select(bool bWriting = false, int timeout = 0) override;
+  ReadinessGenerations readinessGenerations() override;
+  bool supportsReadinessNotifications() const override {
+    return true;
+  }
   bool supports(size_t command) const override;
   int command(size_t command, void* buffer) override;
 
