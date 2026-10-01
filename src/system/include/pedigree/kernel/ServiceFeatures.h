@@ -32,7 +32,7 @@ class EXPORTED_PUBLIC ServiceFeatures {
  public:
   enum Type {
     /** Write: send data to the Service. Open to interpretation (OTI) */
-    write = 0,
+    write = 16,
 
     /** Read: obtain data form the service. OTI */
     read = 1,

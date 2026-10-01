@@ -171,7 +171,6 @@ class FatFilesystem : public Filesystem {
   FatFile::State* m_StateList = nullptr;
   bool m_IoFailed = false;
   bool m_ShutdownComplete = false;
-  bool m_MountedClean = true;
   bool ensureCapacity(File* file, size_t size);
   bool zeroRange(File* file, size_t begin, size_t end);
   bool updateFileMetadata(File* file, size_t size);

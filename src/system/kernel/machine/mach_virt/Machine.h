@@ -22,7 +22,7 @@ class VirtMachine : public Machine {
   void initialise3() override;
   void deinitialise() override;
   bool supportsPowerOff() const override;
-  void finalShutdown(ShutdownType type) override;
+  const char* finalShutdown(ShutdownType type) override;
 
   Serial* getSerial(size_t n) override;
   size_t getNumSerial() override;

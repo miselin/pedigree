@@ -55,10 +55,10 @@ constexpr size_t FileLocation = DirectoryLocation + SectorSize;
 class FatDisk final : public Disk {
  public:
   static constexpr size_t DiskSize = 80 * SectorSize;
-  FatDisk() : bytes(DiskSize, 0), stored(DiskSize, 0) {}
+  explicit FatDisk(size_t size = DiskSize) : bytes(size, 0), stored(size, 0) {}
 
   BufferView read(uint64_t location) override {
-    if (location >= DiskSize || location == failedRead)
+    if (location >= bytes.size() || location == failedRead)
       return BufferView();
     ++references;
     ++reads;
@@ -87,7 +87,7 @@ class FatDisk final : public Disk {
   }
 
   bool pin(uint64_t location) override {
-    if (location >= DiskSize)
+    if (location >= bytes.size())
       return false;
     ++references;
     return true;
@@ -98,7 +98,7 @@ class FatDisk final : public Disk {
   }
 
   size_t getSize() const override {
-    return DiskSize;
+    return bytes.size();
   }
 
   size_t getBlockSize() const override {
@@ -286,6 +286,38 @@ TEST(FatShutdown, EmptyFilesystemStillChecksDeviceFlush) {
   EXPECT_EQ(disk.allCalls, 1U);
   disk.failedAll = false;
   EXPECT_EQ(filesystem.shutdown(), Filesystem::SyncStatus::Success);
+}
+
+TEST(FatShutdown, PreexistingDirtyOrErrorFlagsDoNotBlockFlushedShutdown) {
+  for (uint16_t flags : {0x7fff, 0xbfff}) {
+    FatDisk disk(8192 * SectorSize);
+    auto* superblock = reinterpret_cast<Superblock*>(disk.bytes.data());
+    superblock->BS_jmpBoot[0] = 0xEB;
+    superblock->BS_jmpBoot[1] = 0x3C;
+    superblock->BS_jmpBoot[2] = 0x90;
+    superblock->BPB_BytsPerSec = HOST_TO_LITTLE16(SectorSize);
+    superblock->BPB_SecPerClus = 1;
+    superblock->BPB_RsvdSecCnt = HOST_TO_LITTLE16(1);
+    superblock->BPB_NumFATs = 1;
+    superblock->BPB_RootEntCnt = HOST_TO_LITTLE16(SectorSize / sizeof(Dir));
+    superblock->BPB_TotSec16 = HOST_TO_LITTLE16(8192);
+    superblock->BPB_Media = 0xF8;
+    superblock->BPB_FATSz16 = HOST_TO_LITTLE16(32);
+    disk.bytes[510] = 0x55;
+    disk.bytes[511] = 0xAA;
+    auto* fat = reinterpret_cast<uint16_t*>(disk.bytes.data() + FatLocation);
+    fat[0] = HOST_TO_LITTLE16(0xfff8);
+    fat[1] = HOST_TO_LITTLE16(flags);
+
+    FatFilesystem filesystem;
+    ASSERT_TRUE(filesystem.initialise(&disk));
+    disk.failedAll = true;
+    EXPECT_EQ(filesystem.shutdown(), Filesystem::SyncStatus::IoError);
+    disk.failedAll = false;
+    EXPECT_EQ(filesystem.shutdown(), Filesystem::SyncStatus::Success);
+    const auto* storedFat = reinterpret_cast<const uint16_t*>(disk.stored.data() + FatLocation);
+    EXPECT_EQ(LITTLE_TO_HOST16(storedFat[1]), flags);
+  }
 }
 
 TEST(FatShutdown, LiveAliasPreventsTerminalCompletion) {

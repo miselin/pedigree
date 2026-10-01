@@ -228,7 +228,9 @@ bool FatFilesystem::initialise(Disk* pDisk) {
 
   // FAT16/32 entry 1 records clean shutdown and absence of previous I/O errors.
   const uint32_t cleanMask = m_Type == FAT16 ? 0xc000 : 0x0c000000;
-  m_MountedClean = m_Type == FAT12 || (getClusterEntry(1) & cleanMask) == cleanMask;
+  if (m_Type != FAT12 && (getClusterEntry(1) & cleanMask) != cleanMask) {
+    WARNING("FAT: volume was not clean at mount; filesystem check required");
+  }
 
   return true;
 }

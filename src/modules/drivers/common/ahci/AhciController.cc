@@ -279,8 +279,11 @@ void AhciController::shutdown() {
   if (m_Shutdown)
     return;
   // Cache writeback and queued requests still need both hardware and interrupts.
+  Machine::setShutdownDetail("AHCI: draining disk caches");
   shutdownDiskCaches();
+  Machine::setShutdownDetail("AHCI: joining request worker");
   RequestQueue::destroy();
+  Machine::setShutdownDetail("AHCI: locking interrupt state");
   {
     LockGuard<Mutex> irqLock(m_IrqLock);
     m_Stopping = true;
@@ -290,12 +293,14 @@ void AhciController::shutdown() {
       (void)m_Registers->read32(Ghc);
     }
   }
+  Machine::setShutdownDetail("AHCI: retiring interrupt handler");
   if (m_Irq && !Machine::instance().getIrqManager()->unregisterHandler(m_Irq, this))
     panic("AHCI: synchronous interrupt retirement failed");
   m_Irq = 0;
   for (auto* port : m_Ports)
     if (port)
       port->shutdown();
+  Machine::setShutdownDetail("AHCI: disabling PCI bus mastering");
   if (m_PciChanged) {
     // Reset replaced firmware's command state. Never resume its old bus mastering.
     const uint16_t command =

@@ -245,6 +245,11 @@ static bool terminalQuiesce() {
 
   Machine::setShutdownPhase(Machine::ShutdownPhase::Filesystems);
   posix_stop_accounting();
+  // Bound socket names outlive their descriptors and may reside in RAMFS or
+  // disk-backed directories. Destroy them before POSIX code and statics unload.
+  if (!VFS::instance().removeEphemeralFiles()) {
+    return false;
+  }
 #if THREADS
   // Process 0 survives the terminal halt; its bootstrap root would otherwise
   // keep the mount namespace and storage alive past filesystem shutdown.

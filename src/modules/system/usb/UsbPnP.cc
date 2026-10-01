@@ -21,6 +21,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -540,20 +541,26 @@ void UsbPnP::retireBindings(CallbackItem* item, bool reprobe) {
       // Keep the retiring registration alive through its driver's destructor,
       // then release it before another callback can bind the generic device.
       OperationBarrier::Lease binding = pedigree_std::move(candidate.binding);
+      Machine::setShutdownDetail("USB: locking bound device for retirement");
       LockGuard<Mutex> probeGuard(candidate.container->m_ProbeLock);
       UsbDevice* bound = candidate.container->m_pUsbDevice;
       UsbDevice* generic = new UsbDevice(bound);
       generic->m_UsbState = UsbDevice::HasInterface;
+      Machine::setShutdownDetail("USB: preparing bound driver for retirement");
       bound->prepareForDriverRetirement();
+      Machine::setShutdownDetail("USB: replacing bound driver");
       const bool replaced = candidate.container->replaceUsbDevice(generic);
       assert(replaced);
       (void)replaced;
     }
 
-    if (reprobe)
+    if (reprobe) {
+      Machine::setShutdownDetail("USB: reprobe after driver retirement");
       probeDeviceAdmitted(candidate.container, candidate.probe);
+    }
   }
 
+  Machine::setShutdownDetail("USB: waiting for retired bindings");
   item->bindings.wait();
 }
 
@@ -596,6 +603,7 @@ bool UsbPnP::unregisterCallback(CallbackItem* item) {
   if (callbackContext) {
     return false;
   }
+  Machine::setShutdownDetail("USB: draining probe callbacks");
   item->operations.wait();
   retireBindings(item, true);
   delete item;

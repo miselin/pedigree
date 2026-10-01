@@ -88,6 +88,7 @@ add_subdirectory(bootstrap)
 
 set(KERNEL_SRCS
     Rcu.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/ServiceFeatures.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Device.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/DeviceHashTree.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Disk.cc
@@ -426,6 +427,7 @@ set(TESTSUITE_SRCS
     testsuite/test-StringView.cc
     testsuite/test-LruCache.cc
     testsuite/test-Log.cc
+    testsuite/test-ServiceFeatures.cc
     testsuite/test-Cord.cc
     testsuite/test-MountView.cc
     testsuite/test-VFS.cc)

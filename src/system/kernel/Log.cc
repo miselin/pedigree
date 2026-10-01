@@ -298,7 +298,11 @@ bool Log::removeCallback(LogCallback* pCallback) {
 }
 
 void* Log::currentCallbackOwner() {
-#if THREADS
+#if UTILITY_LINUX
+  // Standalone tools have host threads even with kernel threading disabled.
+  static thread_local char owner;
+  return &owner;
+#elif THREADS
   ProcessorInformation& information = Processor::information();
   Thread* thread = information.getCurrentThread();
   return thread ? static_cast<void*>(thread) : static_cast<void*>(&information);
@@ -326,6 +330,11 @@ void Log::clearCallback(CallbackSlot* slot) {
 size_t Log::snapshotCallbacks(CallbackPin pins[LOG_CALLBACK_COUNT]) {
   auto guard = m_CallbackWaiters.acquire();
   void* owner = currentCallbackOwner();
+  // Rendering can itself log an error. Keep that entry in the ring without
+  // recursively entering renderers which may already hold their own locks.
+  if (isCallbackContext(owner)) {
+    return 0;
+  }
   size_t count = 0;
   for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i) {
     CallbackSlot* slot = &m_OutputCallbacks[i];
@@ -346,13 +355,14 @@ size_t Log::snapshotCallbacks(CallbackPin pins[LOG_CALLBACK_COUNT]) {
 
 bool Log::pinCallback(CallbackSlot* slot, CallbackPin& pin) {
   auto guard = m_CallbackWaiters.acquire();
-  if (!slot->callback || !slot->enabled) {
+  void* owner = currentCallbackOwner();
+  if (!slot->callback || !slot->enabled || isCallbackContext(owner)) {
     return false;
   }
 
   pin.slot = slot;
   pin.callback = slot->callback;
-  pin.owner = currentCallbackOwner();
+  pin.owner = owner;
   pin.next = m_ActiveCallbackPins;
   m_ActiveCallbackPins = &pin;
   ++slot->inFlight;

@@ -125,13 +125,14 @@ bool Pc::prepareShutdown(ShutdownType type) {
 #endif
 }
 
-void Pc::finalShutdown(ShutdownType type) {
+const char* Pc::finalShutdown(ShutdownType type) {
   if (type == ShutdownType::PowerOff) {
     NOTICE_NOLOCK("Powering off...");
 #if ACPI
-    Acpi::instance().powerOff();
+    return Acpi::instance().powerOff();
+#else
+    return "ACPI power-off support is disabled.";
 #endif
-    ERROR_NOLOCK("Power off failed; the machine is halted");
   } else if (type == ShutdownType::Restart) {
     NOTICE_NOLOCK("Rebooting...");
 #if ACPI
@@ -150,12 +151,12 @@ void Pc::finalShutdown(ShutdownType type) {
     for (size_t i = 0; i < 100000; ++i)
       asm volatile("pause");
     Processor::reset();
-    ERROR_NOLOCK("Reset failed; the machine is halted");
+    return "The firmware reset request returned without restarting the computer.";
   } else {
     NOTICE_NOLOCK("System halted");
   }
 
-  displayShutdownMessage("It is now safe to power off");
+  return nullptr;
 }
 
 void Pc::initialise() {
@@ -221,12 +222,17 @@ void Pc::deinitialise() {
     return;
   }
 
+  setShutdownPhase(ShutdownPhase::Devices, "RTC: stopping callbacks");
   Rtc::instance().uninitialise();
+  setShutdownPhase(ShutdownPhase::Devices, "PS/2: stopping controller");
   m_Ps2Controller->uninitialise();
+  setShutdownPhase(ShutdownPhase::Devices, "PS/2: joining keyboard reader");
   m_Keyboard->stopReaderThread();
   if (m_SchedulerTimerSelection.usesPit()) {
+    setShutdownPhase(ShutdownPhase::Devices, "PIT: stopping callbacks");
     Pit::instance().uninitialise();
   }
+  setShutdownPhase(ShutdownPhase::Devices, "IRQ: joining interrupt workers");
   if (!Pic::instance().shutdownThreaded()) {
     panic("Shutdown aborted: threaded IRQ workers did not stop");
   }

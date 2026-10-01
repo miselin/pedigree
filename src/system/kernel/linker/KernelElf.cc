@@ -790,6 +790,16 @@ bool KernelElf::completeUnloadAttempt(Module* module, ModuleUnloadClaim claim, b
       break;
   }
 
+  auto reportShutdown = [&](const char* step) {
+    if (terminal) {
+      NormalStaticString detail;
+      detail += module->name;
+      detail += ": ";
+      detail += step;
+      Machine::setShutdownPhase(Machine::ShutdownPhase::Modules, detail);
+    }
+  };
+  reportShutdown("checking live resources");
   const auto admission = runLifecycle && module->unloadAdmission ? module->unloadAdmission(terminal)
                                                                  : Module::UnloadAdmission::Ready;
   if (admission != Module::UnloadAdmission::Ready) {
@@ -823,6 +833,7 @@ bool KernelElf::completeUnloadAttempt(Module* module, ModuleUnloadClaim claim, b
       g_BootProgressUpdate("moduleunload");
   }
 
+  reportShutdown("stopping driver");
   if (module->runtime) {
     const bool retired = retireRuntimeModule(module, runLifecycle);
     finishClaimedUnload(module, wasFailed);
@@ -832,6 +843,7 @@ bool KernelElf::completeUnloadAttempt(Module* module, ModuleUnloadClaim claim, b
   if (runLifecycle && module->exit)
     module->exit();
 
+  reportShutdown("running destructors");
   // Check for a destructors list and execute.
   // Note: static drivers have their ctors/dtors all shared.
   EMIT_IF(!STATIC_DRIVERS) {
@@ -882,6 +894,7 @@ bool KernelElf::completeUnloadAttempt(Module* module, ModuleUnloadClaim claim, b
 
   NOTICE("KERNELELF: Module " << module->name << " unloaded.");
 
+  reportShutdown("releasing module memory");
   EMIT_IF(!STATIC_DRIVERS) {
     size_t pageSz = PhysicalMemoryManager::getPageSize();
     size_t numPages = (module->loadSize / pageSz) + (module->loadSize % pageSz ? 1 : 0);

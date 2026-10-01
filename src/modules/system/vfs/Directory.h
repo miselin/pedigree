@@ -246,6 +246,9 @@ class EXPORTED_PUBLIC Directory : public File {
    */
   AddStatus addEphemeralFile(File* pFile);
 
+  /** Remove transient names from the cached tree after namespace writers stop. */
+  void removeEphemeralFiles();
+
   /**
    * Empty the entire directory, deleting all files within it
    * (non-recursively). This does NOT check that the directory is "empty"

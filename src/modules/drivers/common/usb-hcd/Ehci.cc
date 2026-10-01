@@ -110,12 +110,14 @@ static constexpr uint32_t EhciScheduleStatusMask = 0xc000;
 static bool waitForMmioState(IoBase* base, size_t registerOffset, uint32_t mask, uint32_t expected,
                              size_t pollLimit = EhciPollLimit) {
   expected &= mask;
-  while (pollLimit) {
-    if ((base->read32(registerOffset) & mask) == expected)
+  const auto deadline = Time::getTicks() + pollLimit * Time::Multiplier::Millisecond;
+  do {
+    if ((base->read32(registerOffset) & mask) == expected) {
       return true;
-    --pollLimit;
-    Time::delay(1 * Time::Multiplier::Millisecond);
-  }
+    }
+    // Teardown must not depend on a timer event being delivered to this thread.
+    Processor::pause();
+  } while (Time::getTicks() < deadline);
   return (base->read32(registerOffset) & mask) == expected;
 }
 
@@ -1759,6 +1761,7 @@ void Ehci::cancelAsyncAndDrain(uintptr_t nTransaction, void (*pCallback)(uintptr
 bool Ehci::cancelInterruptInAndDrain(const UsbInterruptInToken& token,
                                      void (*callback)(uintptr_t, ssize_t), uintptr_t parameter,
                                      bool producerAlreadyStopped) {
+  Machine::setShutdownDetail("EHCI: entering interrupt cancellation");
   OperationBarrier::Lease cancellation;
   if (!m_CancelOperations.tryAcquire(cancellation))
     panic("EHCI interrupt-IN cancellation raced controller teardown");
@@ -1766,11 +1769,13 @@ bool Ehci::cancelInterruptInAndDrain(const UsbInterruptInToken& token,
   if (!producerAlreadyStopped) {
     bool matched = false;
     {
+      Machine::setShutdownDetail("EHCI: locking controller for cancellation");
       LockGuard<Mutex> guard(m_Mutex);
       const bool teardownHalted = m_InterruptClosure >= 2;
       uint32_t savedInterrupts = 0;
       uint32_t savedCommand = 0;
       if (!teardownHalted && m_pBase && m_nOpRegsOffset) {
+        Machine::setShutdownDetail("EHCI: halting interrupt DMA");
         savedInterrupts = m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
         savedCommand = m_pBase->read32(m_nOpRegsOffset + EHCI_CMD);
         m_pBase->write32(0, m_nOpRegsOffset + EHCI_INTR);
@@ -1781,6 +1786,7 @@ bool Ehci::cancelInterruptInAndDrain(const UsbInterruptInToken& token,
         }
       }
 
+      Machine::setShutdownDetail("EHCI: reclaiming interrupt descriptors");
       {
         LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
         constexpr size_t QhCount = EhciQhRegionBytes / sizeof(QH);
@@ -1800,11 +1806,14 @@ bool Ehci::cancelInterruptInAndDrain(const UsbInterruptInToken& token,
       }
 
       if (!teardownHalted && m_pBase && m_nOpRegsOffset) {
+        Machine::setShutdownDetail("EHCI: restarting controller after cancellation");
         m_pBase->write32(savedCommand, m_nOpRegsOffset + EHCI_CMD);
+        Machine::setShutdownDetail("EHCI: waiting for controller to run");
         if ((savedCommand & EHCI_CMD_RUN) &&
             !waitForMmioState(m_pBase, m_nOpRegsOffset + EHCI_STS, EHCI_STS_HALTED, 0)) {
           panic("EHCI interrupt-IN cancellation could not restart DMA");
         }
+        Machine::setShutdownDetail("EHCI: locking interrupt state after restart");
         LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
         uint32_t restoredInterrupts = savedInterrupts;
         if (m_InterruptClosure == 1)
@@ -1819,6 +1828,7 @@ bool Ehci::cancelInterruptInAndDrain(const UsbInterruptInToken& token,
   }
 
 #if X86_COMMON
+  Machine::setShutdownDetail("EHCI: draining interrupt callbacks");
   return m_CompletionDeliveries.cancelSubscription(token.transaction, token.generation);
 #else
   panic("non-x86 EHCI unexpectedly owned an interrupt-IN handle");

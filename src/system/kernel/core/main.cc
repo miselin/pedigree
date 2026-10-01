@@ -602,12 +602,20 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
   // Firmware register access can still allocate mappings. Keep physical-memory
   // bookkeeping alive until the final attempt to power off or reset returns.
   Machine::setShutdownPhase(Machine::ShutdownPhase::FinalAction);
-  Machine::instance().finalShutdown(g_ShutdownType);
+  StaticString<256> shutdownResult;
+  if (const char* result = Machine::instance().finalShutdown(g_ShutdownType)) {
+    shutdownResult = result;
+  }
 #endif
 
   // Release processor bookkeeping before hosted global destruction or after a
   // bare-metal firmware action returned without switching the machine off.
+#if HOSTED
   Machine::setShutdownPhase(Machine::ShutdownPhase::ProcessorCleanup);
+#else
+  // Keep the firmware result visible even if processor cleanup itself fails.
+  Machine::setShutdownPhase(Machine::ShutdownPhase::ProcessorCleanup, shutdownResult);
+#endif
   Processor::deinitialise();
 
 #if HOSTED
@@ -627,10 +635,19 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
   TRACE("kernel main() terminating");
 
 #if !HOSTED
-  // The boot entry lives in the discarded init mapping, so bare-metal cannot
-  // return after terminal shutdown.
-  while (true)
+  StaticString<512> shutdownMessage(
+      "Shutdown complete.\nIt's now safe to power off your computer.");
+  if (shutdownResult.length()) {
+    shutdownMessage += "\n\n";
+    shutdownMessage += shutdownResult;
+  }
+  Machine::instance().displayShutdownMessage(shutdownMessage);
+
+  // An NMI may wake HLT; return to the halted state with IRQs disabled.
+  while (true) {
+    Processor::setInterrupts(false);
     Processor::halt();
+  }
 #endif
 }
 

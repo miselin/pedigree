@@ -61,7 +61,10 @@ class EXPORTED_PUBLIC Machine {
     FinalAction,
   };
 
-  static void setShutdownPhase(ShutdownPhase phase);
+  /** Publishes progress directly to the retained console and serial output. */
+  static void setShutdownPhase(ShutdownPhase phase, const char* detail = nullptr);
+  /** Updates progress only when a shutdown has already been requested. */
+  static void setShutdownDetail(const char* detail);
   static const char* shutdownPhaseName();
 
   static Machine& instance();
@@ -73,10 +76,11 @@ class EXPORTED_PUBLIC Machine {
   virtual bool prepareShutdown(ShutdownType type) {
     return true;
   }
-  /** Runs after all workers, devices and other processors have stopped. */
-  virtual void finalShutdown(ShutdownType type);
+  /** Runs after all workers, devices and other processors have stopped.
+   * If it returns, provides a retained diagnostic string, or nullptr for halt. */
+  virtual const char* finalShutdown(ShutdownType type);
 
-  /** Uses retained console providers after other display writers have stopped. */
+  /** Writes through retained console providers without invoking log callbacks. */
   void displayShutdownMessage(const char* message);
 
   /**

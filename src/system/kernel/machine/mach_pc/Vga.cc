@@ -30,7 +30,7 @@ X86Vga::X86Vga() : m_Framebuffer("Console framebuffer") {}
 X86Vga::~X86Vga() {}
 
 bool X86Vga::setLargestTextMode() {
-  LockGuard<Spinlock> guard(m_ConsoleLock);
+  LockGuard<Spinlock> guard(m_ConsoleLock, !m_PanicMode);
   m_Console.invalidate();
   return true;
 }
@@ -55,7 +55,7 @@ void X86Vga::peekBuffer(uint8_t* pBuffer, size_t nBufLen) {
 }
 
 void X86Vga::moveCursor(size_t nX, size_t nY) {
-  LockGuard<Spinlock> guard(m_ConsoleLock);
+  LockGuard<Spinlock> guard(m_ConsoleLock, !m_PanicMode);
   m_Console.moveCursor(nX, nY);
   m_Console.flush();
   if (m_pConsoleFramebuffer) {
@@ -64,7 +64,7 @@ void X86Vga::moveCursor(size_t nX, size_t nY) {
 }
 
 void X86Vga::flush() {
-  LockGuard<Spinlock> guard(m_ConsoleLock);
+  LockGuard<Spinlock> guard(m_ConsoleLock, !m_PanicMode);
   m_Console.flush();
   if (m_pConsoleFramebuffer) {
     m_pConsoleFramebuffer->redraw();

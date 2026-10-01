@@ -85,6 +85,9 @@ class X86Vga : public Vga {
   virtual void moveCursor(size_t nX, size_t nY);
   virtual void flush();
   bool setFramebuffer(Framebuffer* framebuffer) override;
+  void enterPanicMode() override {
+    m_PanicMode = true;
+  }
 
   bool initialise();
 
@@ -98,6 +101,7 @@ class X86Vga : public Vga {
 
   MemoryMappedIo m_Framebuffer;
   Spinlock m_ConsoleLock{false, true};
+  bool m_PanicMode = false;
   FramebufferConsole m_Console;
   Framebuffer* m_pConsoleFramebuffer = nullptr;
 };

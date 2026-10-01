@@ -30,6 +30,7 @@
 #include "pedigree/kernel/machine/Framebuffer.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cord.h"
 #include "pedigree/kernel/utilities/StaticString.h"
@@ -128,8 +129,6 @@ static void printChar(char c) {
 }
 
 static void printString(const char* str, size_t len = 0) {
-  LockGuard<Mutex> guard(g_PrintLock);
-
   if (len == 0) {
     len = StringLength(str);
   }
@@ -163,9 +162,17 @@ static void printString(const char* str, size_t len = 0) {
 }
 
 static void printString(const LogCord& str) {
+  TerminationDeferral lifetime;
+  // Progress rendering can log while holding this lock, and another CPU can
+  // log while holding a driver lock needed by the renderer. The ring retains
+  // messages even when the splash cannot safely display them now.
+  if (!g_PrintLock.tryAcquire()) {
+    return;
+  }
   for (auto it = str.segbegin(); it != str.segend(); ++it) {
     printString(it.ptr(), it.length());
   }
+  g_PrintLock.release();
 }
 
 static void printStringAt(const char* str, size_t x, size_t y) {

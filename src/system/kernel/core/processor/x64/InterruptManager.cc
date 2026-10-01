@@ -22,6 +22,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Metrics.h"
+#include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -238,13 +239,21 @@ void X64InterruptManager::interrupt(InterruptState& interruptState) {
     // over?
     // TODO: Rework this
     // for now just print out the exception name and number
-    static LargeStaticString e;
-    e.clear();
+    LargeStaticString e;
     e.append("Exception #0x");
     e.append(nIntNumber, 16);
     e.append(": \"");
     e.append(g_ExceptionNames[nIntNumber]);
     e.append("\"");
+
+    // Shutdown may have retired both log callbacks and debugger services.
+    if (interruptState.kernelMode() && KernelElf::instance().isShuttingDown()) {
+      e.append(" RIP 0x");
+      e.append(interruptState.getInstructionPointer(), 16, 16, '0');
+      e.append(", error code 0x");
+      e.append(interruptState.getErrorCode(), 16, 8, '0');
+      panic(e);
+    }
 
 #if THREADS
     e.append(" CPU=");

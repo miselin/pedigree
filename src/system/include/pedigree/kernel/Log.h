@@ -156,7 +156,10 @@ class Log {
  public:
   struct LogEntry;
 
-  /** Output callback function type. Inherit and implement callback to use. */
+  /** Output callback function type. Inherit and implement callback to use.
+   * Messages logged from a callback remain in the ring but are not dispatched
+   * recursively to callbacks. Callbacks run without the log buffer lock.
+   */
   class EXPORTED_PUBLIC LogCallback {
    public:
     virtual void callback(const LogCord& cord, bool locked = true) = 0;

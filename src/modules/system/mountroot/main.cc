@@ -26,6 +26,7 @@
 #include "pedigree/kernel/core/BootIO.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/utilities/Iterator.h"
@@ -335,11 +336,20 @@ static bool isLiveDiskFilesystem(Filesystem* filesystem) {
   return false;
 }
 
+static void showUnmount(Filesystem* filesystem) {
+  LargeStaticString detail;
+  detail += "Unmounting ";
+  detail += filesystem->getVolumeLabel();
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Filesystems, detail);
+}
+
 static void destroy() {
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Filesystems, "Draining mount service");
   ServiceManager::instance().removeService(String("mountroot"));
   NOTICE("Unmounting all filesystems...");
 
   Vector<Filesystem*> ownedBackings;
+  Machine::setShutdownPhase(Machine::ShutdownPhase::Filesystems, "Releasing mount namespace");
   if (!VFS::instance().shutdownMountView(ownedBackings)) {
     panic("mountroot could not drain the filesystem namespace");
   }
@@ -361,6 +371,7 @@ static void destroy() {
   // retains a File in the original backing filesystem.
   while (liveDiskFilesystems.count()) {
     Filesystem* filesystem = liveDiskFilesystems.popFront();
+    showUnmount(filesystem);
     NOTICE("Unmounting " << filesystem->getVolumeLabel() << " [" << Hex << filesystem << "]...");
     if (!VFS::instance().unregisterFilesystem(filesystem, true, true)) {
       panic("mountroot could not cleanly unmount a live-disk filesystem");
@@ -369,6 +380,7 @@ static void destroy() {
   }
 
   if (g_pLiveDisk) {
+    Machine::setShutdownPhase(Machine::ShutdownPhase::Filesystems, "Retiring live disk");
     Device::foreach (removeLiveDisk);
     if (g_pLiveDisk) {
       panic("mountroot could not retire its live-disk device");
@@ -377,6 +389,7 @@ static void destroy() {
 
   while (backingFilesystems.count()) {
     Filesystem* filesystem = backingFilesystems.popFront();
+    showUnmount(filesystem);
     NOTICE("Unmounting " << filesystem->getVolumeLabel() << " [" << Hex << filesystem << "]...");
     if (!VFS::instance().unregisterFilesystem(filesystem, true, true)) {
       panic("mountroot could not cleanly unmount a backing filesystem");

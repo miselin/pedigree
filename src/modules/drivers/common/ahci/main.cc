@@ -16,6 +16,7 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
 
@@ -73,11 +74,13 @@ void exit() {
   while (controllers.count()) {
     AhciController* controller = controllers.popFront();
     controller->shutdown();
+    Machine::setShutdownDetail("AHCI: removing controller from device tree");
     {
       Device::TreeLockGuard guard;
       controller->getParent()->removeChild(controller);
       controller->setParent(nullptr);
     }
+    Machine::setShutdownDetail("AHCI: releasing controller");
     delete controller;
   }
 }

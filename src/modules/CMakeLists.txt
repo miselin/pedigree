@@ -674,6 +674,7 @@ if (PEDIGREE_MACHINE_HASPCI)
     include(${CMAKE_SOURCE_DIR}/external/uacpi/uacpi.cmake)
     pedigree_module(acpi "" ""
         ${UACPI_SOURCES}
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/acpi/AcpiEc.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/acpi/KernelApi.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/acpi/AcpiEvents.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/acpi/PciFirmware.cc

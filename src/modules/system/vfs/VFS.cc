@@ -997,6 +997,29 @@ Filesystem::SyncStatus VFS::syncAll() {
   return firstError;
 }
 
+bool VFS::removeEphemeralFiles() {
+  Vector<MountIdentity> mounts;
+  {
+    LockGuard<Mutex> guard(m_MountTableLock);
+    for (auto it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
+      MountIdentity identity;
+      identity.m_State = it.value()->state;
+      mounts.pushBack(identity);
+    }
+  }
+  for (const auto& mount : mounts) {
+    FilesystemPin pin;
+    if (!mount.pin(pin)) {
+      return false;
+    }
+    File* root = pin.filesystem()->getRoot();
+    if (root && root->isDirectory()) {
+      Directory::fromFile(root)->removeEphemeralFiles();
+    }
+  }
+  return true;
+}
+
 File* VFS::find(const String& path, File* pStartNode) {
   Metrics::increment(Metrics::VfsFindCalls);
   // NOTICE("find: " << path);

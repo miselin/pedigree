@@ -22,6 +22,7 @@
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 Machine::~Machine() {}
 
@@ -29,8 +30,25 @@ namespace {
 Machine::ShutdownPhase shutdownPhase = Machine::ShutdownPhase::NotStarted;
 }
 
-void Machine::setShutdownPhase(ShutdownPhase phase) {
+void Machine::setShutdownPhase(ShutdownPhase phase, const char* detail) {
   __atomic_store(&shutdownPhase, &phase, __ATOMIC_RELAXED);
+  setShutdownDetail(detail);
+}
+
+void Machine::setShutdownDetail(const char* detail) {
+  if (__atomic_load_n(&shutdownPhase, __ATOMIC_RELAXED) == ShutdownPhase::NotStarted) {
+    return;
+  }
+  StaticString<512> message;
+  message += "Shutting down...\nPhase: ";
+  message += shutdownPhaseName();
+  if (detail) {
+    message += '\n';
+    message += detail;
+  }
+  // Copy module-owned detail into the stack buffer and bypass log callbacks:
+  // the next drain may hang after the debugger and log renderers have retired.
+  instance().displayShutdownMessage(message);
 }
 
 const char* Machine::shutdownPhaseName() {
@@ -72,14 +90,22 @@ const char* Machine::shutdownPhaseName() {
   return "unknown";
 }
 
-void Machine::finalShutdown(ShutdownType type) {
-  if (type == ShutdownType::Restart)
+const char* Machine::finalShutdown(ShutdownType type) {
+  if (type == ShutdownType::Restart) {
     Processor::reset();
+  }
+  return type == ShutdownType::Halt ? nullptr : "Automatic power-off or restart is unavailable.";
 }
 
 void Machine::displayShutdownMessage(const char* message) {
   if (!message)
     return;
+  // Publish serial evidence before entering the display provider.
+  Serial* serial = getNumSerial() ? getSerial(0) : nullptr;
+  if (serial) {
+    serial->write_str(message);
+    serial->write_str("\r\n");
+  }
   Vga* console = getNumVga() ? getVga(0) : nullptr;
   if (console) {
     console->setLargestTextMode();
@@ -117,12 +143,6 @@ void Machine::displayShutdownMessage(const char* message) {
       console->moveCursor(cols, rows);
       console->flush();
     }
-  }
-  // Logging and graphics service callbacks may already have been unloaded.
-  Serial* serial = getNumSerial() ? getSerial(0) : nullptr;
-  if (serial) {
-    serial->write_str(message);
-    serial->write_str("\r\n");
   }
 }
 

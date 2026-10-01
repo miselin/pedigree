@@ -21,6 +21,7 @@
 #include "pedigree/kernel/Metrics.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/debugger/Debugger.h"
+#include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -103,14 +104,19 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) 
   }
 
   //  Get PFE location and error code
-  static LargeStaticString sError;
-  sError.clear();
+  LargeStaticString sError;
   sError.append("Page Fault Exception at 0x");
   sError.append(cr2, 16, 16, '0');
   sError.append(", EIP 0x");
   sError.append(state.getInstructionPointer(), 16, 16, '0');
   sError.append(", error code 0x");
   sError.append(code, 16, 8, '0');
+
+  // Module teardown can retire debugger dependencies and process machinery.
+  // The terminal panic path uses the retained display without log callbacks.
+  if (state.kernelMode() && KernelElf::instance().isShuttingDown()) {
+    panic(sError);
+  }
 
   //  Extract error code information
   static LargeStaticString sCode;

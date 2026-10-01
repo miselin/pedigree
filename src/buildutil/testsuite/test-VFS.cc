@@ -1227,6 +1227,33 @@ TEST(VFS, ExpectedRemovalCannotDeleteReplacementAndEphemeralSkipsDriverRemoval) 
   EXPECT_EQ(staleDestructions.load(), 1U);
 }
 
+TEST(VFS, ShutdownRemovesNestedEphemeralNamesBeforeFilesystemDestruction) {
+  VFS vfs;
+  RamFs filesystem;
+  ASSERT_TRUE(filesystem.initialise(nullptr));
+  vfs.registerFilesystem(&filesystem, String("transient-test"));
+  ASSERT_TRUE(vfs.setRootFilesystem(&filesystem));
+  ASSERT_TRUE(vfs.createDirectory(String("/nested"), 0755));
+  ASSERT_TRUE(vfs.createFile(String("/nested/regular"), 0644));
+  auto* root = Directory::fromFile(filesystem.getRoot());
+  auto* directory = Directory::fromFile(vfs.find(String("/nested")));
+  std::atomic<size_t> fileDestructions(0);
+  ASSERT_EQ(root->addEphemeralFile(
+                new LifetimeTestFile(String("root-socket"), &filesystem, root, fileDestructions)),
+            Directory::AddStatus::Added);
+  ASSERT_EQ(directory->addEphemeralFile(
+                new LifetimeTestFile(String("socket"), &filesystem, directory, fileDestructions)),
+            Directory::AddStatus::Added);
+  EXPECT_TRUE(vfs.removeEphemeralFiles());
+  EXPECT_EQ(fileDestructions.load(), 2U);
+  EXPECT_NE(vfs.find(String("/nested/regular")), nullptr);
+  EXPECT_EQ(vfs.find(String("/nested/socket")), nullptr);
+  EXPECT_EQ(vfs.find(String("/root-socket")), nullptr);
+  EXPECT_TRUE(vfs.removeEphemeralFiles());
+  EXPECT_EQ(fileDestructions.load(), 2U);
+  EXPECT_TRUE(vfs.unregisterFilesystem(&filesystem, false));
+}
+
 TEST(VFS, NonEmptyEphemeralDirectoryCannotBeRemoved) {
   SparseMutationFilesystem filesystem;
   SparseMutationDirectory* root = filesystem.root();

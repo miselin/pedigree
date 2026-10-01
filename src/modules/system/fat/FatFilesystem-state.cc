@@ -275,8 +275,11 @@ Filesystem::SyncStatus FatFilesystem::shutdown() {
     return SyncStatus::IoError;
   // Closing aliases may release orphan clusters or queue directory attributes.
   status = sync();
-  if (status != SyncStatus::Success || m_IoFailed || !m_MountedClean)
+  // Pre-existing dirty/error bits remain for fsck; only this mount's failures
+  // prevent completion after its writes have drained.
+  if (status != SyncStatus::Success || m_IoFailed) {
     return status == SyncStatus::Success ? SyncStatus::IoError : status;
+  }
   m_ShutdownComplete = true;
   return SyncStatus::Success;
 }

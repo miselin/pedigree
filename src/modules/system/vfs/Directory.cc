@@ -958,6 +958,53 @@ Directory::AddStatus Directory::addEphemeralFile(File* pFile) {
   return addResidentDirectoryEntry(reservation, pFile, true) ? AddStatus::Added : AddStatus::Exists;
 }
 
+void Directory::removeEphemeralFiles() {
+  Vector<File*> children;
+  {
+    LockGuard<Mutex> namespaceGuard(m_NamespaceMutationLock);
+    Vector<String> names;
+    {
+      LockGuard<Mutex> guard(m_CacheLock);
+      // Only materialised directories can own ephemeral entries. Avoid disk
+      // reads or following symlinks while retiring the transient namespace.
+      auto retainDirectory = [&](DirectoryEntry* entry) {
+        if (entry->active()) {
+          File* file = entry->get();
+          if (file->isDirectory() && VFS::instance().retainTrackedFile(file)) {
+            children.pushBack(file);
+          }
+        }
+      };
+      for (auto entry : m_Cache) {
+        retainDirectory(entry);
+      }
+      for (auto entry : m_ResidentEntries) {
+        retainDirectory(entry);
+      }
+      for (const auto& name : m_ResidentOrder) {
+        if (m_EphemeralEntries.contains(name)) {
+          names.pushBack(name);
+        }
+      }
+    }
+    for (const auto& name : names) {
+      File* file = nullptr;
+      {
+        LockGuard<Mutex> guard(m_CacheLock);
+        auto entry = m_ResidentEntries.lookup(name);
+        if (entry.hasValue()) {
+          file = entry.value()->get();
+        }
+      }
+      removeEphemeralFileLocked(HashedStringView(name), file);
+    }
+  }
+  for (File* child : children) {
+    Directory::fromFile(child)->removeEphemeralFiles();
+    VFS::instance().untrackFile(child);
+  }
+}
+
 bool Directory::removeEphemeralFileLocked(const HashedStringView& name, File* expected) {
   DirectoryEntry* entry = nullptr;
   {

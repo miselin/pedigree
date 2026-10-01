@@ -17,6 +17,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/TargetInfo.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -28,6 +29,7 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "Registers.h"
@@ -666,9 +668,18 @@ bool AhciPort::transferBatch(Disk::ReadBuffer* buffers, size_t count, bool inter
 }
 
 void AhciPort::shutdown() {
+  auto reportShutdown = [&](const char* step) {
+    LargeStaticString detail("AHCI: port ");
+    detail.append(m_Port);
+    detail += ": ";
+    detail += step;
+    Machine::setShutdownDetail(detail);
+  };
+  reportShutdown("locking command state");
   LockGuard<Mutex> command(m_CommandLock);
   if (!m_AddressesInstalled)
     return;
+  reportShutdown("draining active commands");
   const auto deadline = Time::getTicks() + 120 * Time::Multiplier::Second;
   for (;;) {
     {
@@ -685,8 +696,10 @@ void AhciPort::shutdown() {
     m_Online = false;
     write(PortIe, 0);
   }
+  reportShutdown("stopping DMA engines");
   if (!stopEngines())
     panic("AHCI: cannot stop port DMA during shutdown");
+  reportShutdown("clearing DMA addresses");
   write(Clb, 0);
   write(Clbu, 0);
   write(Fb, 0);

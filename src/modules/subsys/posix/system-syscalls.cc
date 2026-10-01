@@ -1353,8 +1353,11 @@ int posix_reboot(uint32_t magic1, uint32_t magic2, uint32_t command) {
 
   // Catch known writeback failures before committing to terminal teardown.
   // Module shutdown closes writers and performs the final cache drains.
+  Machine::instance().displayShutdownMessage("Shutdown requested...\nSynchronizing filesystems");
   const auto status = VFS::instance().syncAll();
   if (status == Filesystem::SyncStatus::IoError || status == Filesystem::SyncStatus::NoMemory) {
+    Machine::instance().displayShutdownMessage(
+        "Shutdown failed: filesystem synchronization failed");
     syscallError(status == Filesystem::SyncStatus::IoError ? Error::IoError : Error::OutOfMemory);
     return -1;
   }

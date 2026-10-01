@@ -265,6 +265,9 @@ class EXPORTED_PUBLIC VFS {
   /** Pins all registered filesystems, attempts each, and returns the first error. */
   Filesystem::SyncStatus syncAll();
 
+  /** Retire transient names before their providers unload; namespace writers must be stopped. */
+  bool removeEphemeralFiles();
+
   /** Attempts to obtain a File for a specific path. */
   File* find(const String& path, File* pStartNode = 0);
 

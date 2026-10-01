@@ -149,19 +149,21 @@ bool Acpi::supportsPowerOff() const {
                               m_pFacp->acpiEnableCommand));
 }
 
-void Acpi::powerOff() {
+const char* Acpi::powerOff() {
   const auto* provider = __atomic_load_n(&m_PowerManagement, __ATOMIC_ACQUIRE);
   if (provider && provider->powerOff) {
-    provider->powerOff();
-    return;
+    return provider->powerOff();
   }
-  if (!m_PowerOffValid)
-    return;
+  if (!m_PowerOffValid) {
+    return "ACPI: no supported S5 power-off method is available.";
+  }
   const uint16_t portA = m_pFacp->pm1aControlBlock;
   const uint16_t portB = m_pFacp->pm1bControlBlock;
   if (!(readControl(portA) & 1)) {
-    if (!m_pFacp->smiCommandPort || m_pFacp->smiCommandPort > 0xffff || !m_pFacp->acpiEnableCommand)
-      return;
+    if (!m_pFacp->smiCommandPort || m_pFacp->smiCommandPort > 0xffff ||
+        !m_pFacp->acpiEnableCommand) {
+      return "ACPI: firmware provides no usable ACPI-mode enable command.";
+    }
     // SCI interrupts remain disabled during this terminal transition. Do not
     // enable ACPI mode during normal operation without an SCI handler.
     writeCommand(m_pFacp->smiCommandPort, m_pFacp->acpiEnableCommand);
@@ -170,7 +172,7 @@ void Acpi::powerOff() {
       asm volatile("pause");
     if (!attempts) {
       ERROR_NOLOCK("ACPI: timed out enabling ACPI mode for power off");
-      return;
+      return "ACPI: timed out enabling ACPI mode for power-off.";
     }
   }
 
@@ -187,5 +189,6 @@ void Acpi::powerOff() {
     writeControl(portB, controlB | (1U << 13));
   for (size_t i = 0; i < 1000000; ++i)
     asm volatile("pause");
+  return "ACPI: static S5 register writes returned without powering off.";
 }
 #endif

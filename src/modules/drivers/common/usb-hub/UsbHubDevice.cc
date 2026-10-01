@@ -19,6 +19,7 @@
 
 #include "UsbHubDevice.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/time/Time.h"
 
@@ -46,6 +47,7 @@ UsbHubDevice::UsbHubDevice(UsbDevice* dev)
 
 UsbHubDevice::~UsbHubDevice() {
   stopHotplug();
+  Machine::setShutdownDetail("USB hub: disconnecting children");
   disconnectAllDevices();
   delete[] m_StatusBuffer;
 }
@@ -64,11 +66,15 @@ void UsbHubDevice::quiesceForRetirement() {
 }
 
 void UsbHubDevice::stopHotplug() {
+  Machine::setShutdownDetail("USB hub: cancelling status interrupt");
   if (!m_StatusInterrupt.reset()) {
     panic("USB hub destroyed from a running interrupt callback");
   }
+  Machine::setShutdownDetail("USB hub: stopping port-change notifications");
   m_StatusChange.stopAfterQuiesce();
+  Machine::setShutdownDetail("USB hub: joining hotplug worker");
   RequestQueue::destroy();
+  Machine::setShutdownDetail("USB hub: hotplug stopped");
 }
 
 void UsbHubDevice::initialiseDriver() {

@@ -79,6 +79,10 @@ class Vga {
   // Memory-backed consoles need an explicit presentation after direct cell writes.
   virtual void flush() {}
 
+  // Terminal only: interrupts must be disabled and all other CPUs stopped.
+  // The interrupted CPU may itself own the console lock; execution cannot resume.
+  virtual void enterPanicMode() {}
+
   // The provider and its mapped pixels must remain valid for the kernel lifetime.
   // Console presentation calls redraw with interrupts disabled; it must not wait.
   virtual bool setFramebuffer(Framebuffer*) {

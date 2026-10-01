@@ -29,6 +29,7 @@
 #include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Serial.h"
+#include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
@@ -164,6 +165,10 @@ void panic(const char* msg) {
     // Module-backed graphics and debugger providers may already be unmapped.
     // Keep the failure visible without turning it into a fault or a reset.
     if (processorsStopped) {
+      Vga* console = Machine::instance().getNumVga() ? Machine::instance().getVga(0) : nullptr;
+      if (console) {
+        console->enterPanicMode();
+      }
       Machine::instance().displayShutdownMessage(shutdownFailure);
     } else if (Machine::instance().getNumSerial()) {
       Machine::instance().getSerial(0)->write_str(shutdownFailure);

@@ -53,13 +53,13 @@ class Acpi {
   bool supportsPowerOff() const;
   struct PowerManagement {
     bool (*prepare)(bool powerOff);
-    void (*powerOff)();
+    const char* (*powerOff)();
     void (*reset)();
   };
   /** The provider and its callbacks must remain mapped through shutdown. */
   EXPORTED_PUBLIC void setPowerManagement(const PowerManagement* provider);
   bool prepareShutdown(bool powerOff);
-  void powerOff();
+  const char* powerOff();
   void reset();
 
   uint8_t getRtcCenturyIndex() const {

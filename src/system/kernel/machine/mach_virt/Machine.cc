@@ -99,15 +99,19 @@ bool VirtMachine::supportsPowerOff() const {
   return VirtDeviceTree::psciAvailable();
 }
 
-void VirtMachine::finalShutdown(ShutdownType type) {
+const char* VirtMachine::finalShutdown(ShutdownType type) {
+  if (type == ShutdownType::Halt) {
+    return nullptr;
+  }
   if (!VirtDeviceTree::psciAvailable()) {
-    return;
+    return "PSCI power management is unavailable.";
   }
   if (type == ShutdownType::Restart) {
     psci(0x84000009, VirtDeviceTree::psciUsesHvc());
   } else if (type == ShutdownType::PowerOff) {
     psci(0x84000008, VirtDeviceTree::psciUsesHvc());
   }
+  return "The PSCI request returned without powering off or restarting the computer.";
 }
 
 Serial* VirtMachine::getSerial(size_t n) {
