@@ -65,6 +65,8 @@ printf 'pedigree\n' > "$root/etc/hostname"
 printf '/dev/root / ext2 defaults 0 0\n' > "$root/etc/fstab"
 printf 'ttyS0::respawn:/sbin/getty -L 115200 ttyS0 vt100\n' > "$root/etc/inittab"
 mkdir -p "$root/run/sockets"
+mkdir -p "$root/dev/shm"
+chmod 1777 "$root/dev/shm"
 # The development image permits local root login without a password.
 rm -f "$root/etc/securetty"
 sed -i 's/^root:[^:]*:/root::/' "$root/etc/shadow"
