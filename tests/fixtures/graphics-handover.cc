@@ -42,7 +42,7 @@ struct Spinlock {
 };
 template <class T>
 struct LockGuard {
-  explicit LockGuard(T& value) : lock(value) {
+  explicit LockGuard(T& value, bool = true) : lock(value) {
     assert(!lock.held);
     lock.held = true;
   }
@@ -158,6 +158,7 @@ struct X86Vga {
   Spinlock m_ConsoleLock;
   FramebufferConsole m_Console;
   Framebuffer* m_pConsoleFramebuffer = nullptr;
+  bool m_PanicMode = false;
 };
 struct Vga {
   void setLargestTextMode() {}

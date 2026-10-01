@@ -20,8 +20,11 @@
 #ifndef PEDIGREE_FB_FRAMEBUFFER_H
 #define PEDIGREE_FB_FRAMEBUFFER_H
 
+#include <signal.h>
+
 #include <cairo/cairo.h>
 #include <pedigree/fb.h>
+#include <sys/vt.h>
 
 /** Abstracts the system's framebuffer offering. */
 class Framebuffer {
@@ -31,6 +34,29 @@ class Framebuffer {
 
   /** General system-specific initialisation. */
   bool initialise();
+
+  /** Claim the active VT on the thread which will present every frame. */
+  bool claimTerminal();
+
+  /** Keeps VT release notifications deferred until scanout writes finish. */
+  class FrameGuard {
+   public:
+    explicit FrameGuard(const Framebuffer& framebuffer);
+    ~FrameGuard();
+    explicit operator bool() const {
+      return m_Active;
+    }
+
+   private:
+    FrameGuard(const FrameGuard&) = delete;
+    FrameGuard& operator=(const FrameGuard&) = delete;
+    sigset_t m_PreviousMask;
+    bool m_Masked;
+    bool m_Active;
+  };
+
+  /** A reacquired VT needs its retained scene presented again. */
+  bool takeRedraw();
 
   /** Store current mode (before switching). */
   void storeMode();
@@ -70,6 +96,8 @@ class Framebuffer {
 
  private:
   int mapMode(const pedigree_fb_mode& mode);
+  static void terminalSignal(int signal);
+  void releaseTerminal();
 
   void* m_pFramebuffer;
   size_t m_FramebufferSize;
@@ -84,6 +112,15 @@ class Framebuffer {
 
   bool m_bStoredMode;
   pedigree_fb_mode m_StoredMode;
+
+  int m_Terminal = -1;
+  volatile sig_atomic_t m_TerminalActive = 1;
+  volatile sig_atomic_t m_TerminalRedraw = 0;
+  int m_PreviousDisplayMode = 0;
+  vt_mode m_PreviousTerminalMode = {};
+  struct sigaction m_PreviousReleaseAction = {};
+  struct sigaction m_PreviousAcquireAction = {};
+  sigset_t m_PreviousTerminalMask;
 };
 
 #endif

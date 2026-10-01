@@ -963,6 +963,9 @@ void DevFs::revertInode() {
 
 void DevFs::handleInput(InputManager::InputNotification& in) {
   uint64_t c = in.data.key.key;
+  if (!m_VtManager || (c & (CTRL_KEY | ALT_KEY)) != (CTRL_KEY | ALT_KEY)) {
+    return;
+  }
   if (c & SPECIAL_KEY) {
     uint32_t k = c & 0xFFFFFFFFUL;
     char* s = reinterpret_cast<char*>(&k);

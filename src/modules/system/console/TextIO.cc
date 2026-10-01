@@ -2240,14 +2240,19 @@ void TextIO::handleInput(InputManager::InputNotification& in) {
 void TextIO::markPrimary() {
   // Set ourselves as the primary and get straight to work loading our own
   // terminal state (instead of the previous one's)
-  m_bOwnsConsole = true;
-  if (m_pVga) {
-    m_pVga->moveCursor(m_CursorX, m_CursorY);
+  {
+    LockGuard<Mutex> guard(m_Lock);
+    m_bOwnsConsole = true;
+    ByteSet(m_VtermDirty, 1, sizeof(m_VtermDirty));
+    if (m_pVga) {
+      m_pVga->moveCursor(m_CursorX, m_CursorY);
+    }
   }
   flip();
 }
 
 void TextIO::unmarkPrimary() {
+  LockGuard<Mutex> guard(m_Lock);
   m_bOwnsConsole = false;
 }
 

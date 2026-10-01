@@ -2749,9 +2749,15 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     return -1;
   }
 
-  if ((command & 0xff00) == 0x5600 && !ConsoleManager::instance().isConsole(f->getFile())) {
-    SYSCALL_ERROR(NotAConsole);
-    return -1;
+  size_t terminalNumber = ~size_t(0);
+  if ((command & 0xff00) == 0x5600 || command == 0x4b3a || command == 0x4b3b) {
+    if (ConsoleManager::instance().isConsole(f->getFile())) {
+      terminalNumber = static_cast<ConsoleFile*>(f->getFile())->getPhysicalConsoleNumber();
+    }
+    if (!g_pDevFs->getTerminalManager().isTerminal(terminalNumber)) {
+      SYSCALL_ERROR(NotAConsole);
+      return -1;
+    }
   }
 
   if (f->getFile()->supports(command)) {
@@ -2788,25 +2794,25 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     }
 
     // KDSETMODE
-    case 0x4b3a:
-      /// \todo what do we do when switching to graphics mode?
-      F_NOTICE(" -> KDSETMODE (stubbed), arg=" << buf);
-      if (buf == reinterpret_cast<void*>(1)) {
-        g_pDevFs->getTerminalManager().setSystemMode(VirtualTerminalManager::Graphics);
-      } else {
-        g_pDevFs->getTerminalManager().setSystemMode(VirtualTerminalManager::Text);
+    case 0x4b3a: {
+      const uintptr_t mode = reinterpret_cast<uintptr_t>(buf);
+      if (mode > 1) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
       }
+      g_pDevFs->getTerminalManager().setSystemMode(
+          terminalNumber, mode ? VirtualTerminalManager::Graphics : VirtualTerminalManager::Text);
       return 0;
+    }
 
     // KDGETMODE
     case 0x4b3b: {
-      F_NOTICE(" -> KDGETMODE");
-      const int mode =
-          g_pDevFs->getTerminalManager().getSystemMode() == VirtualTerminalManager::Graphics ? 1
-                                                                                             : 0;
+      const int mode = g_pDevFs->getTerminalManager().getSystemMode(terminalNumber) ==
+                               VirtualTerminalManager::Graphics
+                           ? 1
+                           : 0;
       return copyIoctlResult(buf, mode);
     }
-      return 0;
 
     // KDGKBMODE
     case 0x4b44:
@@ -3034,37 +3040,26 @@ int posix_ioctl(int fd, size_t command, void* buf) {
       F_NOTICE(" -> VT_OPENQRY (stubbed)");
 
       size_t newTty = g_pDevFs->getTerminalManager().openInactive();
-      const int result = newTty != ~0U ? static_cast<int>(newTty + 1) : -1;
+      const int result = newTty != ~size_t(0) ? static_cast<int>(newTty + 1) : -1;
       return copyIoctlResult(buf, result);
     }
 
     // VT_GETMODE
-    case 0x5601: {
-      F_NOTICE(" -> VT_GETMODE (stubbed)");
-
-      /// \todo this should actually use the tty number of the file
-      /// descriptor
-      size_t currentTty = g_pDevFs->getTerminalManager().getCurrentTerminalNumber();
-
-      return copyIoctlResult(buf, g_pDevFs->getTerminalManager().getTerminalMode(currentTty));
-    }
-      return 0;
+    case 0x5601:
+      return copyIoctlResult(buf, g_pDevFs->getTerminalManager().getTerminalMode(terminalNumber));
 
     // VT_SETMODE
     case 0x5602: {
-      F_NOTICE(" -> VT_SETMODE (stubbed)");
-
       struct vt_mode mode = {};
       if (!copyIoctlInput(buf, mode)) {
         return -1;
       }
-
-      /// \todo this should actually use the tty number of the file
-      /// descriptor
-      size_t currentTty = g_pDevFs->getTerminalManager().getCurrentTerminalNumber();
-      g_pDevFs->getTerminalManager().setTerminalMode(currentTty, mode);
-    }
+      if (!g_pDevFs->getTerminalManager().setTerminalMode(terminalNumber, mode)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
       return 0;
+    }
 
     // VT_GETSTATE
     case 0x5603: {
@@ -3076,29 +3071,31 @@ int posix_ioctl(int fd, size_t command, void* buf) {
 
     // VT_RELDISP
     case 0x5605: {
-      F_NOTICE(" -> VT_RELDISP (stubbed)");
-
-      NOTICE("VT_RELDISP");
-      uintptr_t ibuf = reinterpret_cast<uintptr_t>(buf);
-      if (ibuf == 0) {
-        NOTICE(" -> switch disallowed");
-        g_pDevFs->getTerminalManager().reportPermission(VirtualTerminalManager::Disallowed);
-      } else if (ibuf == 1) {
-        NOTICE(" -> switch allowed");
-        g_pDevFs->getTerminalManager().reportPermission(VirtualTerminalManager::Allowed);
-      } else {
-        NOTICE(" -> switch acknowledged");
+      const uintptr_t permission = reinterpret_cast<uintptr_t>(buf);
+      auto& terminals = g_pDevFs->getTerminalManager();
+      const bool accepted =
+          permission == VT_ACKACQ
+              ? terminals.acknowledgeAcquire(terminalNumber)
+              : permission <= 1 &&
+                    terminals.reportPermission(terminalNumber,
+                                               permission ? VirtualTerminalManager::Allowed
+                                                          : VirtualTerminalManager::Disallowed);
+      if (!accepted) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
       }
-    }
       return 0;
+    }
 
     // VT_ACTIVATE
     case 0x5606: {
-      uintptr_t ttyNum = reinterpret_cast<uintptr_t>(buf);
-      F_NOTICE(" -> VT_ACTIVATE -> " << ttyNum);
-      g_pDevFs->getTerminalManager().activate(ttyNum - 1);
-    }
+      const uintptr_t ttyNum = reinterpret_cast<uintptr_t>(buf);
+      if (!ttyNum || !g_pDevFs->getTerminalManager().activate(ttyNum - 1)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
       return 0;
+    }
 
     // VT_WAITACTIVE
     case 0x5607:

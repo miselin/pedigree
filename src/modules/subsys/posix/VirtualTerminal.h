@@ -50,10 +50,11 @@ class VirtualTerminalManager {
    * owning process will respond with an ioctl that leads to a call to
    * reportPermission() that may or may not block the transition.
    */
-  void activate(size_t n);
+  bool activate(size_t n);
 
   /** Report permission to switch. */
-  void reportPermission(SwitchPermission perm);
+  bool reportPermission(size_t n, SwitchPermission perm);
+  bool acknowledgeAcquire(size_t n);
 
   /** Find an inactive VT and open it, returning its number. */
   size_t openInactive();
@@ -66,26 +67,30 @@ class VirtualTerminalManager {
   File* getCurrentTerminalFile() const;
 
   struct vt_mode getTerminalMode(size_t n) const;
-  void setTerminalMode(size_t n, struct vt_mode mode);
+  bool setTerminalMode(size_t n, struct vt_mode mode);
+  bool isTerminal(size_t n) const;
 
   struct vt_stat getState() const;
 
-  void setSystemMode(SystemMode mode);
-  SystemMode getSystemMode() const;
+  void setSystemMode(size_t n, SystemMode mode);
+  SystemMode getSystemMode(size_t n) const;
 
   void setInputMode(size_t n, TextIO::InputMode newMode);
   TextIO::InputMode getInputMode(size_t n) const;
 
  private:
-  void sendSignal(size_t n, bool acq);
+  bool sendSignal(size_t n, bool acq);
+  void switchTerminal(size_t n);
 
   struct VirtualTerminal {
     TextIO* textio;
     File* file;
     struct vt_mode mode;
+    SystemMode systemMode;
 
 #if THREADS
-    Process* owner;
+    size_t owner;
+    size_t ownerThread;
 #endif
   };
 
@@ -105,7 +110,7 @@ class VirtualTerminalManager {
 
   bool m_bSwitchingLocked;
 
-  SystemMode m_SystemMode;
+  mutable Mutex m_Lock;
 };
 
 #endif

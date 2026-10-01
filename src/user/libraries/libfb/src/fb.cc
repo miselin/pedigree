@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,7 +28,20 @@
 #include <pedigree/fb.h>
 #include <pedigree/log.h>
 #include <sys/ioctl.h>
+#include <sys/kd.h>
 #include <sys/mman.h>
+
+namespace {
+Framebuffer* terminalFramebuffer = nullptr;
+
+sigset_t terminalSignals() {
+  sigset_t signals;
+  sigemptyset(&signals);
+  sigaddset(&signals, SIGUSR1);
+  sigaddset(&signals, SIGUSR2);
+  return signals;
+}
+}  // namespace
 
 Framebuffer::Framebuffer()
     : m_pFramebuffer(0),
@@ -41,6 +55,7 @@ Framebuffer::Framebuffer()
       m_StoredMode() {}
 
 Framebuffer::~Framebuffer() {
+  releaseTerminal();
   if (m_pFramebuffer) {
     munmap(m_pFramebuffer, m_FramebufferSize);
     m_pFramebuffer = 0;
@@ -51,6 +66,146 @@ Framebuffer::~Framebuffer() {
     close(m_Fb);
     m_Fb = -1;
   }
+}
+
+Framebuffer::FrameGuard::FrameGuard(const Framebuffer& framebuffer)
+    : m_Masked(false), m_Active(false) {
+  if (framebuffer.m_Terminal < 0) {
+    m_Active = true;
+    return;
+  }
+  const sigset_t signals = terminalSignals();
+  m_Masked = sigprocmask(SIG_BLOCK, &signals, &m_PreviousMask) == 0;
+  m_Active = m_Masked && framebuffer.m_TerminalActive;
+}
+
+Framebuffer::FrameGuard::~FrameGuard() {
+  if (m_Masked) {
+    sigprocmask(SIG_SETMASK, &m_PreviousMask, nullptr);
+  }
+}
+
+bool Framebuffer::claimTerminal() {
+  if (m_Terminal >= 0) {
+    return true;
+  }
+  if (terminalFramebuffer) {
+    return false;
+  }
+  int terminal = open("/dev/tty0", O_RDWR | O_NOCTTY | O_CLOEXEC);
+  if (terminal < 0) {
+    return false;
+  }
+  vt_stat state = {};
+  if (ioctl(terminal, VT_GETSTATE, &state) < 0 || !state.v_active) {
+    close(terminal);
+    return false;
+  }
+  const unsigned number = state.v_active;
+  close(terminal);
+  char path[32];
+  snprintf(path, sizeof(path), "/dev/tty%u", number);
+  terminal = open(path, O_RDWR | O_NOCTTY | O_CLOEXEC);
+  if (terminal < 0) {
+    return false;
+  }
+  if (ioctl(terminal, VT_GETMODE, &m_PreviousTerminalMode) < 0 ||
+      m_PreviousTerminalMode.mode != VT_AUTO ||
+      ioctl(terminal, KDGETMODE, &m_PreviousDisplayMode) < 0) {
+    close(terminal);
+    return false;
+  }
+  const sigset_t signals = terminalSignals();
+  if (sigprocmask(SIG_BLOCK, &signals, &m_PreviousTerminalMask) < 0) {
+    close(terminal);
+    return false;
+  }
+  struct sigaction action = {};
+  action.sa_handler = terminalSignal;
+  action.sa_mask = signals;
+  if (sigaction(SIGUSR1, &action, &m_PreviousReleaseAction) < 0) {
+    close(terminal);
+    sigprocmask(SIG_SETMASK, &m_PreviousTerminalMask, nullptr);
+    return false;
+  }
+  if (sigaction(SIGUSR2, &action, &m_PreviousAcquireAction) < 0) {
+    sigaction(SIGUSR1, &m_PreviousReleaseAction, nullptr);
+    close(terminal);
+    sigprocmask(SIG_SETMASK, &m_PreviousTerminalMask, nullptr);
+    return false;
+  }
+  m_Terminal = terminal;
+  terminalFramebuffer = this;
+  vt_mode mode = {};
+  mode.mode = VT_PROCESS;
+  mode.relsig = SIGUSR1;
+  mode.acqsig = SIGUSR2;
+  if (ioctl(terminal, VT_SETMODE, &mode) < 0 || ioctl(terminal, KDSETMODE, KD_GRAPHICS) < 0 ||
+      ioctl(terminal, VT_GETSTATE, &state) < 0) {
+    releaseTerminal();
+    return false;
+  }
+  m_TerminalActive = state.v_active == number;
+  sigprocmask(SIG_UNBLOCK, &signals, nullptr);
+  return true;
+}
+
+void Framebuffer::terminalSignal(int signal) {
+  const int previousError = errno;
+  Framebuffer* framebuffer = terminalFramebuffer;
+  if (framebuffer) {
+    if (signal == SIGUSR1) {
+      framebuffer->m_TerminalActive = 0;
+      if (ioctl(framebuffer->m_Terminal, VT_RELDISP, 1) < 0) {
+        framebuffer->m_TerminalActive = 1;
+      }
+    } else if (signal == SIGUSR2) {
+      if (ioctl(framebuffer->m_Terminal, VT_RELDISP, VT_ACKACQ) == 0) {
+        framebuffer->m_TerminalActive = 1;
+        framebuffer->m_TerminalRedraw = 1;
+      }
+    }
+  }
+  errno = previousError;
+}
+
+bool Framebuffer::takeRedraw() {
+  FrameGuard guard(*this);
+  const bool redraw = guard && m_TerminalRedraw;
+  if (redraw) {
+    m_TerminalRedraw = 0;
+  }
+  return redraw;
+}
+
+void Framebuffer::releaseTerminal() {
+  if (m_Terminal < 0) {
+    return;
+  }
+  const sigset_t signals = terminalSignals();
+  sigset_t mask;
+  sigprocmask(SIG_BLOCK, &signals, &mask);
+  ioctl(m_Terminal, KDSETMODE, m_PreviousDisplayMode);
+  ioctl(m_Terminal, VT_SETMODE, &m_PreviousTerminalMode);
+  // Notifications queued before ownership was returned must not reach the
+  // application's previous handlers after this object is destroyed.
+  const timespec timeout = {};
+  while (sigtimedwait(&signals, nullptr, &timeout) >= 0) {
+  }
+  terminalFramebuffer = nullptr;
+  sigaction(SIGUSR1, &m_PreviousReleaseAction, nullptr);
+  sigaction(SIGUSR2, &m_PreviousAcquireAction, nullptr);
+  close(m_Terminal);
+  m_Terminal = -1;
+  const int notifications[] = {SIGUSR1, SIGUSR2};
+  for (const int signal : notifications) {
+    if (sigismember(&m_PreviousTerminalMask, signal)) {
+      sigaddset(&mask, signal);
+    } else {
+      sigdelset(&mask, signal);
+    }
+  }
+  sigprocmask(SIG_SETMASK, &mask, nullptr);
 }
 
 bool Framebuffer::initialise() {
