@@ -62,6 +62,13 @@ class EXPORTED_PUBLIC Framebuffer {
    *  backed only by a virtual buffer should retain the default failure. */
   virtual physical_uintptr_t getPhysicalPage(size_t offset) const;
 
+  size_t getMappingFlags() const {
+    return m_MappingFlags;
+  }
+  void setMappingFlags(size_t flags) {
+    m_MappingFlags = flags;
+  }
+
   /** Creates a new buffer to be used for blits from the given raw pixel
    *  data. Performs automatic conversion of the pixel format to the
    *  pixel format of the current display mode.
@@ -220,6 +227,9 @@ class EXPORTED_PUBLIC Framebuffer {
 
   /// Inherited by drivers that provide a hardware redraw function
   virtual void hwRedraw(size_t x = ~0UL, size_t y = ~0UL, size_t w = ~0UL, size_t h = ~0UL);
+
+ private:
+  size_t m_MappingFlags = 0;
 };
 
 #endif

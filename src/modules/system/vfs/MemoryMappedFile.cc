@@ -601,6 +601,9 @@ bool MemoryMappedFile::trap(VirtualAddressSpace& va, uintptr_t address, bool bWr
     }
 
     size_t flags = VirtualAddressSpace::Shared | VirtualAddressSpace::Borrowed;
+    flags |= m_pBacking->physicalMappingFlags() &
+             (VirtualAddressSpace::WriteCombine | VirtualAddressSpace::CacheDisable |
+              VirtualAddressSpace::WriteThrough);
     if (!m_bCopyOnWrite && (m_Permissions & Write)) {
       m_pBacking->markPageExternallyWritable(fileOffset);
       flags |= VirtualAddressSpace::Write;

@@ -167,6 +167,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   virtual bool isDirectPhysicalMapping() const {
     return false;
   }
+  size_t physicalMappingFlags() const {
+    return m_PhysicalMappingFlags;
+  }
 
   /**
    * Specifies that the system is done with the physical page retrieved
@@ -671,6 +674,11 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   Mutex m_WriteLock;
   Mutex m_DataMutationLock;
   size_t m_PhysicalPageLoans = 0;
+  size_t m_PhysicalMappingFlags = 0;
+
+  void setPhysicalMappingFlags(size_t flags) {
+    m_PhysicalMappingFlags = flags;
+  }
 
   Mutex m_Lock;
 

@@ -417,6 +417,8 @@ bool FramebufferFile::initialise() {
         // Set the file size to reflect the size of the framebuffer.
         setSize(m_pGraphicsParameters->providerResult.pFramebuffer->getHeight() *
                 m_pGraphicsParameters->providerResult.pFramebuffer->getBytesPerLine());
+        setPhysicalMappingFlags(
+            m_pGraphicsParameters->providerResult.pFramebuffer->getMappingFlags());
 
         Display::ScreenMode currentMode;
         if (m_pGraphicsParameters->providerResult.pDisplay->getCurrentScreenMode(currentMode)) {
