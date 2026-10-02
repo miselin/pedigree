@@ -2010,7 +2010,8 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
       lwipToSyscallError(err);
       ok = false;
     } else {
-      bytesWritten += netbuf_len(buffer.get());
+      // lwIP can prepend protocol headers to the netbuf while sending.
+      bytesWritten += datagramLength;
     }
   }
 
