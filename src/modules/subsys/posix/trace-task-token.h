@@ -9,6 +9,7 @@
 
 class PosixTraceContext;
 class Thread;
+class ParentDeathSignals;
 
 enum class TraceStatus {
   Success,
@@ -32,9 +33,16 @@ class EXPORTED_PUBLIC TraceTaskToken {
   TraceTaskToken() = default;
   Snapshot snapshot() const;
   bool live() const;
+  int parentDeathSignal() const {
+    return __atomic_load_n(&m_ParentDeathSignal, __ATOMIC_ACQUIRE);
+  }
+  void clearParentDeathSignal() {
+    __atomic_store_n(&m_ParentDeathSignal, 0, __ATOMIC_RELEASE);
+  }
 
  private:
   friend class PosixTraceContext;
+  friend class ParentDeathSignals;
   TraceTaskToken(const TraceTaskToken&) = delete;
   TraceTaskToken& operator=(const TraceTaskToken&) = delete;
   void publish(const Thread&);
@@ -42,6 +50,11 @@ class EXPORTED_PUBLIC TraceTaskToken {
   void close();
   mutable Spinlock m_Lock;
   Snapshot m_Identity;
+  // Registry membership and creator admission use the parent-death policy mutex.
+  // Credential commits can clear the signal without taking a sleeping lock.
+  int m_ParentDeathSignal = 0;
+  bool m_ParentDeathArmed = false;
+  SharedPointer<TraceTaskToken> m_ParentDeathCreator;
 };
 using TraceTaskRef = SharedPointer<TraceTaskToken>;
 #endif

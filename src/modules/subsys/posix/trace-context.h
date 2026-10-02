@@ -14,10 +14,13 @@ class EXPORTED_PUBLIC PreparedTraceTask {
 
  private:
   friend class PosixTraceContext;
+  friend class ParentDeathSignals;
   PreparedTraceTask(const PreparedTraceTask&) = delete;
   PreparedTraceTask& operator=(const PreparedTraceTask&) = delete;
   TraceTaskRef m_Token;
   PreparedTraceTask* m_Next = nullptr;
+  PreparedTraceTask* m_ParentDeathNext = nullptr;
+  PreparedTraceTask* m_ParentDeathPrevious = nullptr;
 };
 
 // Declare inside the existing Process::ThreadCreationScope lifetime.
@@ -64,6 +67,7 @@ class EXPORTED_PUBLIC PosixTraceContext {
   bool taskToken(const Thread&, TraceTaskRef&) const;
   void setCreator(const TraceTaskRef&);
   TraceTaskRef creator() const;
+  bool setParentDeathSignal(const Thread&, int);
   void promoteExec(const Thread&);
   void retireTask(const Thread&);
   void close();

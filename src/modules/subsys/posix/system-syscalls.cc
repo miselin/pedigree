@@ -1377,6 +1377,36 @@ int posix_prctl(int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_
                   << ")");
 
   Thread* thread = Processor::information().getCurrentThread();
+  if (option == 1 || option == 2) {  // PR_SET_PDEATHSIG / PR_GET_PDEATHSIG
+    auto* subsystem = static_cast<PosixSubsystem*>(thread->getParent()->getSubsystem());
+    if (!subsystem) {
+      SYSCALL_ERROR(NoSuchProcess);
+      return -1;
+    }
+    if (option == 1) {
+      if (arg2 >= PosixSubsystem::SignalDispositionCount) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      if (!subsystem->traceContext().setParentDeathSignal(*thread, static_cast<int>(arg2))) {
+        SYSCALL_ERROR(NoSuchProcess);
+        return -1;
+      }
+    } else {
+      TraceTaskRef task;
+      if (!subsystem->traceContext().taskToken(*thread, task)) {
+        SYSCALL_ERROR(NoSuchProcess);
+        return -1;
+      }
+      const int signal = task->parentDeathSignal();
+      if (!PosixSubsystem::copyToUser(reinterpret_cast<void*>(arg2), &signal, sizeof(signal))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+    }
+    thread->setErrno(0);
+    return 0;
+  }
   if (option == 3 || option == 4) {
     PosixProcess* process = getPosixProcess();
     if (!process) {

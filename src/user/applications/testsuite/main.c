@@ -25,6 +25,7 @@
 extern void test_mprotect();
 extern void test_mmap();
 extern void test_prctl(void);
+extern int test_prctl_exec(void);
 extern void test_resource_accounting(void);
 extern void test_syscall_contracts(void);
 extern void test_vm_contracts(void);
@@ -137,6 +138,9 @@ int main(int argc, char* argv[]) {
   if (argc == 2 && !strcmp(argv[1], "--prctl")) {
     test_prctl();
     return 0;
+  }
+  if (argc == 2 && !strcmp(argv[1], "--prctl-exec")) {
+    return test_prctl_exec();
   }
   if (argc == 2 && !strcmp(argv[1], "--resource")) {
     test_resource_accounting();

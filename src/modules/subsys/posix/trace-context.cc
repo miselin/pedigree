@@ -14,6 +14,97 @@ size_t localId(const Thread& thread) {
 }
 }  // namespace
 
+// Reuse the task tokens' existing lifetime and creating-thread identity. All
+// fanout is pinned under this policy lock and delivered after releasing it.
+class ParentDeathSignals {
+ public:
+  static void publish(PreparedTraceTask& task, const TraceTaskRef& creator) {
+    LockGuard<Mutex> guard(s_Lock);
+    task.m_Token->m_ParentDeathCreator = creator;
+    task.m_ParentDeathNext = s_Tasks;
+    if (s_Tasks) {
+      s_Tasks->m_ParentDeathPrevious = &task;
+    }
+    s_Tasks = &task;
+  }
+
+  static bool arm(const TraceTaskRef& task, int signal) {
+    LockGuard<Mutex> guard(s_Lock);
+    if (!task->live()) {
+      return false;
+    }
+    const bool armed = signal && task->m_ParentDeathCreator && task->m_ParentDeathCreator->live();
+    if (armed != task->m_ParentDeathArmed) {
+      if (armed) {
+        ++s_ArmedCount;
+      } else {
+        --s_ArmedCount;
+      }
+    }
+    task->m_ParentDeathArmed = armed;
+    __atomic_store_n(&task->m_ParentDeathSignal, signal, __ATOMIC_RELEASE);
+    return true;
+  }
+
+  static void retire(PreparedTraceTask& node) {
+    const TraceTaskRef& task = node.m_Token;
+    struct Delivery {
+      TraceTaskRef task;
+      int signal;
+    };
+    Vector<Delivery> deliveries;
+    {
+      LockGuard<Mutex> guard(s_Lock);
+      if (node.m_ParentDeathPrevious) {
+        node.m_ParentDeathPrevious->m_ParentDeathNext = node.m_ParentDeathNext;
+      } else {
+        s_Tasks = node.m_ParentDeathNext;
+      }
+      if (node.m_ParentDeathNext) {
+        node.m_ParentDeathNext->m_ParentDeathPrevious = node.m_ParentDeathPrevious;
+      }
+      node.m_ParentDeathNext = node.m_ParentDeathPrevious = nullptr;
+      if (task->m_ParentDeathArmed) {
+        task->m_ParentDeathArmed = false;
+        --s_ArmedCount;
+      }
+      // Most tasks never request this feature. Their exit is constant-time.
+      if (!s_ArmedCount) {
+        return;
+      }
+      for (auto* child = s_Tasks; child; child = child->m_ParentDeathNext) {
+        if (child->m_Token->m_ParentDeathCreator != task || !child->m_Token->m_ParentDeathArmed) {
+          continue;
+        }
+        child->m_Token->m_ParentDeathArmed = false;
+        --s_ArmedCount;
+        const int signal = child->m_Token->parentDeathSignal();
+        if (signal) {
+          // The owning task node cannot release its token until retirement
+          // removes it under this same policy lock.
+          deliveries.pushBack({child->m_Token, signal});
+        }
+      }
+    }
+    for (const auto& delivery : deliveries) {
+      Process::ThreadLease target;
+      if (posix_trace_acquire_task(delivery.task, target) != TraceStatus::Success) {
+        continue;
+      }
+      auto* subsystem = static_cast<PosixSubsystem*>(target->getParent()->getSubsystem());
+      subsystem->sendSignal(target.get(), delivery.signal, false, true);
+    }
+  }
+
+ private:
+  static Mutex s_Lock;
+  static PreparedTraceTask* s_Tasks;
+  static size_t s_ArmedCount;
+};
+Mutex ParentDeathSignals::s_Lock;
+PreparedTraceTask* ParentDeathSignals::s_Tasks = nullptr;
+size_t ParentDeathSignals::s_ArmedCount = 0;
+
 TraceTaskToken::Snapshot TraceTaskToken::snapshot() const {
   LockGuard<Spinlock> guard(m_Lock);
   return m_Identity;
@@ -93,6 +184,7 @@ TraceStatus PosixTraceContext::publishTask(UniquePointer<PreparedTraceTask>& pre
   if (tokenUnlocked(localId(thread)))
     return TraceStatus::Denied;
   prepared.get()->m_Token->publish(thread);
+  ParentDeathSignals::publish(*prepared.get(), m_Creator);
   auto* node = prepared.releaseOwnership();
   node->m_Next = m_Tasks;
   m_Tasks = node;
@@ -138,6 +230,14 @@ void PosixTraceContext::setCreator(const TraceTaskRef& token) {
 TraceTaskRef PosixTraceContext::creator() const {
   LockGuard<Mutex> guard(m_AdmissionLock);
   return valid() ? m_Creator : TraceTaskRef{};
+}
+
+bool PosixTraceContext::setParentDeathSignal(const Thread& thread, int signal) {
+  TraceTaskRef task;
+  if (!taskToken(thread, task)) {
+    return false;
+  }
+  return ParentDeathSignals::arm(task, signal);
 }
 
 void PosixTraceContext::promoteExec(const Thread& thread) {
@@ -207,6 +307,7 @@ void PosixTraceContext::retireTask(const Thread& thread) {
     if (m_Incoming && m_Incoming->tracee() == retired->m_Token)
       incoming = pedigree_std::move(m_Incoming);
   }
+  ParentDeathSignals::retire(*retired);
   if (incoming)
     incoming->taskClosed(retired->m_Token);
   for (;;) {
@@ -263,6 +364,7 @@ void PosixTraceContext::close() {
   }
   while (tasks) {
     auto* next = tasks->m_Next;
+    ParentDeathSignals::retire(*tasks);
     delete tasks;
     tasks = next;
   }

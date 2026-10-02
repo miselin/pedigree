@@ -6,6 +6,17 @@
 #include "modules/system/users/User.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 
+namespace {
+TraceTaskRef credentialTaskToken(Thread& task) {
+  TraceTaskRef token;
+  auto* subsystem = static_cast<PosixSubsystem*>(task.getParent()->getSubsystem());
+  if (subsystem) {
+    subsystem->traceContext().taskToken(task, token);
+  }
+  return token;
+}
+}  // namespace
+
 PosixProcess::CredentialSnapshot PosixProcess::snapshotCredentials() const {
   LockGuard<Spinlock> guard(m_CredentialLock);
   return m_Credentials;
@@ -45,6 +56,7 @@ PosixProcess::CredentialStatus PosixProcess::changeCredentials(Thread& task,
                                                                uint32_t first, uint32_t second,
                                                                uint32_t third) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+  const TraceTaskRef token = credentialTaskToken(task);
   LockGuard<Spinlock> guard(m_CredentialLock);
   if (task.getParent() != this)
     return CredentialStatus::Invalid;
@@ -58,6 +70,10 @@ PosixProcess::CredentialStatus PosixProcess::changeCredentials(Thread& task,
                                                 group ? fsgid : fsuid, next, nextFs);
   if (status != CredentialStatus::Success)
     return status;
+  if (token && (m_Credentials.euid != next.euid || m_Credentials.egid != next.egid ||
+                (group ? fsgid : fsuid) != nextFs)) {
+    token->clearParentDeathSignal();
+  }
   m_Credentials = next;
   publishCredentialReadCache();
   publishFilesystemIds(task, group ? fsuid : nextFs, group ? nextFs : fsgid);
@@ -98,6 +114,7 @@ PosixProcess::CredentialStatus PosixProcess::replaceGroups(Thread& task, const u
 
 uint32_t PosixProcess::changeFilesystemId(Thread& task, bool group, uint32_t requested) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+  const TraceTaskRef token = credentialTaskToken(task);
   LockGuard<Spinlock> guard(m_CredentialLock);
   uint32_t uid = m_Credentials.euid, gid = m_Credentials.egid;
   if (task.getParent() != this)
@@ -110,6 +127,9 @@ uint32_t PosixProcess::changeFilesystemId(Thread& task, bool group, uint32_t req
   if (requested != UINT32_MAX && requested != old &&
       (!m_Credentials.euid || requested == real || requested == effective || requested == saved)) {
     publishFilesystemIds(task, group ? uid : requested, group ? requested : gid);
+    if (token) {
+      token->clearParentDeathSignal();
+    }
     m_Credentials.dumpable = false;
     ++m_Credentials.generation;
   }
@@ -127,7 +147,13 @@ void PosixProcess::setDumpable(bool dumpable) {
 
 void PosixProcess::commitExecCredentials(Thread& task, bool readable) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+  const TraceTaskRef token = credentialTaskToken(task);
   LockGuard<Spinlock> guard(m_CredentialLock);
+  uint32_t fsuid = m_Credentials.euid, fsgid = m_Credentials.egid;
+  loadFilesystemIds(task, fsuid, fsgid);
+  if (token && (fsuid != m_Credentials.euid || fsgid != m_Credentials.egid)) {
+    token->clearParentDeathSignal();
+  }
   m_Credentials.suid = m_Credentials.euid;
   m_Credentials.sgid = m_Credentials.egid;
   publishFilesystemIds(task, m_Credentials.euid, m_Credentials.egid);
