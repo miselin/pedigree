@@ -196,8 +196,11 @@ UnixSocketConnection::Stream::ControlGuard::~ControlGuard() {
   }
 }
 
-UnixSocketConnection::Stream::Stream()
-    : m_Bytes(MAX_UNIX_STREAM_QUEUE),
+UnixSocketConnection::Stream::Stream(bool packets)
+    : m_Packets(packets),
+      m_Records(MAX_UNIX_PACKET_BACKLOG * sizeof(uintptr_t)),
+      m_PendingPackets(),
+      m_Bytes(MAX_UNIX_STREAM_QUEUE),
 #if defined(PEDIGREE_EXTERNAL_SOURCE)
       m_SendLock(),
       m_ReceiveLock(),
@@ -384,24 +387,99 @@ size_t UnixSocketConnection::Stream::readVectors(struct iovec* vectors, size_t v
   return totalRead;
 }
 
+bool UnixSocketConnection::Stream::writePacket(const uint8_t* buffer, size_t count, bool block,
+                                               const SharedPointer<SocketRights>& rights,
+                                               bool* interrupted) {
+  if (interrupted) {
+    *interrupted = false;
+  }
+  StreamSerializationGuard sendGuard(m_SendLock, block ? StreamSerializationWait::Interruptible
+                                                       : StreamSerializationWait::Nonblocking);
+  if (!sendGuard || !m_Records.canWrite(block)) {
+    captureStreamInterruption(block, interrupted);
+    return false;
+  }
+
+  Packet* packet = new Packet();
+  packet->length = count;
+  packet->rights = rights;
+  if (count) {
+    packet->bytes = new uint8_t[count];
+    MemoryCopy(packet->bytes, buffer, count);
+  }
+
+  // The send gate reserves the observed free slot. Do not wait for queue
+  // capacity while holding the control lock, which shutdown also uses.
+  // Pointer publication and ownership insertion must remain indivisible
+  // with respect to both receives and shutdown's deferred drain.
+  ControlGuard controlGuard(*this);
+  const uintptr_t record = reinterpret_cast<uintptr_t>(packet);
+  if (m_Records.writeAtomic(reinterpret_cast<const uint8_t*>(&record), sizeof(record), true) !=
+      sizeof(record)) {
+    delete packet;
+    captureStreamInterruption(block, interrupted);
+    return false;
+  }
+  m_PendingPackets.pushBack(packet);
+  return true;
+}
+
+bool UnixSocketConnection::Stream::readPacket(uint8_t* buffer, size_t count, bool block,
+                                              SharedPointer<SocketRights>& rights,
+                                              uint64_t& bytesRead, uint64_t& packetLength,
+                                              bool* interrupted) {
+  rights.reset();
+  bytesRead = packetLength = 0;
+  if (interrupted) {
+    *interrupted = false;
+  }
+  StreamSerializationGuard receiveGuard(m_ReceiveLock, block
+                                                           ? StreamSerializationWait::Interruptible
+                                                           : StreamSerializationWait::Nonblocking);
+  if (!receiveGuard || !m_Records.canRead(block)) {
+    captureStreamInterruption(block, interrupted);
+    return false;
+  }
+
+  ControlGuard controlGuard(*this);
+  uintptr_t record = 0;
+  if (m_Records.read(reinterpret_cast<uint8_t*>(&record), sizeof(record), false) !=
+      sizeof(record)) {
+    captureStreamInterruption(block, interrupted);
+    return false;
+  }
+  Packet* packet = reinterpret_cast<Packet*>(record);
+  assert(m_PendingPackets.count() && *m_PendingPackets.begin() == packet);
+  m_PendingPackets.popFront();
+  packetLength = packet->length;
+  bytesRead = count < packetLength ? count : packetLength;
+  if (bytesRead) {
+    MemoryCopy(buffer, packet->bytes, bytesRead);
+  }
+  rights = packet->rights;
+  delete packet;
+  return true;
+}
+
 bool UnixSocketConnection::Stream::canWrite(bool block) {
-  return m_Bytes.canWrite(block);
+  return m_Packets ? m_Records.canWrite(block) : m_Bytes.canWrite(block);
 }
 
 bool UnixSocketConnection::Stream::canRead(bool block) {
-  return m_Bytes.canRead(block);
+  return m_Packets ? m_Records.canRead(block) : m_Bytes.canRead(block);
 }
 
 uint64_t UnixSocketConnection::Stream::readableGeneration() const {
-  return m_Bytes.readableGeneration();
+  return m_Packets ? m_Records.readableGeneration() : m_Bytes.readableGeneration();
 }
 
 uint64_t UnixSocketConnection::Stream::writableGeneration() const {
-  return m_Bytes.writableGeneration();
+  return m_Packets ? m_Records.writableGeneration() : m_Bytes.writableGeneration();
 }
 
 void UnixSocketConnection::Stream::disableWrites() {
   m_Bytes.disableWrites();
+  m_Records.disableWrites();
 }
 
 void UnixSocketConnection::Stream::disableReads() {
@@ -411,6 +489,7 @@ void UnixSocketConnection::Stream::disableReads() {
   // signal-handler caller may itself own.
   disableWrites();
   m_Bytes.disableReads();
+  m_Records.disableReads();
 
 #if !defined(PEDIGREE_EXTERNAL_SOURCE)
   if (m_ControlLock.isOwnedByCurrentThread()) {
@@ -425,22 +504,41 @@ void UnixSocketConnection::Stream::disableReads() {
 }
 
 void UnixSocketConnection::Stream::monitor(Semaphore* waiter) {
-  m_Bytes.monitor(waiter);
+  if (m_Packets) {
+    m_Records.monitor(waiter);
+  } else {
+    m_Bytes.monitor(waiter);
+  }
 }
 
 void UnixSocketConnection::Stream::monitor(Thread* thread, Event* event) {
-  m_Bytes.monitor(thread, event);
+  if (m_Packets) {
+    m_Records.monitor(thread, event);
+  } else {
+    m_Bytes.monitor(thread, event);
+  }
 }
 
 void UnixSocketConnection::Stream::cullMonitorTargets(Semaphore* waiter) {
-  m_Bytes.cullMonitorTargets(waiter);
+  if (m_Packets) {
+    m_Records.cullMonitorTargets(waiter);
+  } else {
+    m_Bytes.cullMonitorTargets(waiter);
+  }
 }
 
 void UnixSocketConnection::Stream::cullMonitorTargets(Event* event) {
-  m_Bytes.cullMonitorTargets(event);
+  if (m_Packets) {
+    m_Records.cullMonitorTargets(event);
+  } else {
+    m_Bytes.cullMonitorTargets(event);
+  }
 }
 
 void UnixSocketConnection::Stream::discardControls() {
+  while (m_PendingPackets.count()) {
+    delete m_PendingPackets.popFront();
+  }
   while (m_Controls.count()) {
     delete m_Controls.popFront();
   }
@@ -452,9 +550,9 @@ void UnixSocketConnection::Stream::discardControlsIfRequested() {
   }
 }
 
-UnixSocketConnection::UnixSocketConnection()
-    : m_FirstStream(),
-      m_SecondStream(),
+UnixSocketConnection::UnixSocketConnection(bool packets)
+    : m_FirstStream(packets),
+      m_SecondStream(packets),
       m_Active(false),
       m_Failed(false),
       m_Closed{false, false},
@@ -496,7 +594,7 @@ UnixSocket::~UnixSocket() {
 }
 
 int UnixSocket::select(bool bWriting, int timeout) {
-  if (m_Type == Streaming) {
+  if (m_Type != Datagram) {
     SharedPointer<UnixSocketConnection> connection;
     SocketState state;
     bool shutdown = false;
@@ -565,6 +663,13 @@ uint64_t UnixSocket::readBytewise(uint64_t location, uint64_t size, uintptr_t bu
 }
 
 uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, String& from) {
+  if (m_Type == SequencedPacket) {
+    from = String();
+    SharedPointer<SocketRights> rights;
+    uint64_t bytesRead = 0, packetLength = 0;
+    receivePacket(size, buffer, bCanBlock, rights, bytesRead, packetLength);
+    return bytesRead;
+  }
   if (m_Type == Streaming) {
     from = String();
     return receiveStream(size, buffer, bCanBlock, nullptr);
@@ -652,6 +757,10 @@ bool UnixSocket::receiveDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock
 
 uint64_t UnixSocket::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                    bool bCanBlock) {
+  if (m_Type == SequencedPacket) {
+    SharedPointer<SocketRights> rights;
+    return sendPacket(size, buffer, bCanBlock, rights) ? size : 0;
+  }
   if (m_Type == Streaming) {
     SharedPointer<SocketRights> rights;
     return sendStream(size, buffer, bCanBlock, rights);
@@ -688,6 +797,68 @@ uint64_t UnixSocket::sendStream(const struct iovec* vectors, size_t vectorCount,
 
   return outgoingStream(connection)
       ->writeVectors(vectors, vectorCount, bCanBlock, rights, interrupted);
+}
+
+bool UnixSocket::sendPacket(uint64_t size, uintptr_t buffer, bool bCanBlock,
+                            const SharedPointer<SocketRights>& rights, int* error) {
+  if (error) {
+    *error = 0;
+  }
+  auto fail = [error](int value) {
+    if (error) {
+      *error = value;
+    }
+    return false;
+  };
+  if (m_Type != SequencedPacket) {
+    return fail(EPROTOTYPE);
+  }
+  if (size > MAX_UNIX_STREAM_QUEUE) {
+    return fail(EMSGSIZE);
+  }
+  SharedPointer<UnixSocketConnection> connection;
+  SocketState state;
+  {
+    LockGuard<Mutex> guard(m_ConnectionLock);
+    state = getStateLocked();
+    connection = m_Connection;
+  }
+  if (!connection || state != Active || writeShutdown()) {
+    return fail(wasConnected() ? EPIPE : ENOTCONN);
+  }
+  bool interrupted = false;
+  if (outgoingStream(connection)
+          ->writePacket(reinterpret_cast<const uint8_t*>(buffer), size, bCanBlock, rights,
+                        &interrupted)) {
+    return true;
+  }
+  if (interrupted) {
+    return fail(EINTR);
+  }
+  return fail(getState() == Closed || writeShutdown() ? EPIPE : EAGAIN);
+}
+
+bool UnixSocket::receivePacket(uint64_t size, uintptr_t buffer, bool bCanBlock,
+                               SharedPointer<SocketRights>& rights, uint64_t& bytesRead,
+                               uint64_t& packetLength, bool* interrupted) {
+  rights.reset();
+  bytesRead = packetLength = 0;
+  if (interrupted) {
+    *interrupted = false;
+  }
+  SharedPointer<UnixSocketConnection> connection;
+  SocketState state;
+  {
+    LockGuard<Mutex> guard(m_ConnectionLock);
+    state = getStateLocked();
+    connection = m_Connection;
+  }
+  if (m_Type != SequencedPacket || !connection || (state != Active && state != Closed)) {
+    return false;
+  }
+  return incomingStream(connection)
+      ->readPacket(reinterpret_cast<uint8_t*>(buffer), size, state == Active && bCanBlock, rights,
+                   bytesRead, packetLength, interrupted);
 }
 
 bool UnixSocket::sendDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock, uintptr_t source,
@@ -761,11 +932,12 @@ void UnixSocket::destroyDatagram(struct buf* datagram) {
 bool UnixSocket::bind(UnixSocket* other, bool block) {
   (void)block;
 
-  if (!other || m_Type != Streaming || other->m_Type != Streaming) {
+  if (!other || m_Type == Datagram || other->m_Type != m_Type) {
     return false;
   }
 
-  SharedPointer<UnixSocketConnection> connection(new UnixSocketConnection());
+  SharedPointer<UnixSocketConnection> connection(
+      new UnixSocketConnection(m_Type == SequencedPacket));
   {
     LockGuard<Mutex> guard(m_ConnectionLock);
     if (m_State != Inactive || other->m_State != Inactive || m_Connection || other->m_Connection) {
@@ -822,8 +994,8 @@ void UnixSocket::unbind() {
         side ? &connection->m_FirstStream : &connection->m_SecondStream;
     incoming->disableReads();
     outgoing->disableWrites();
-    incoming->buffer().notifyMonitors();
-    outgoing->buffer().notifyMonitors();
+    notifyStream(incoming);
+    notifyStream(outgoing);
   }
 
   m_Stream.disableWrites();
@@ -842,7 +1014,7 @@ bool UnixSocket::shutdown(int how) {
   bool side = false;
   {
     LockGuard<Mutex> guard(m_ConnectionLock);
-    if (m_Type != Streaming || !m_Connection || !m_Connection->m_Active || m_Connection->m_Failed ||
+    if (m_Type == Datagram || !m_Connection || !m_Connection->m_Active || m_Connection->m_Failed ||
         m_Connection->m_Closed[0] || m_Connection->m_Closed[1]) {
       SYSCALL_ERROR(NotConnected);
       return false;
@@ -862,11 +1034,11 @@ bool UnixSocket::shutdown(int how) {
   auto* outgoing = side ? &connection->m_FirstStream : &connection->m_SecondStream;
   if (how == SHUT_RD || how == SHUT_RDWR) {
     incoming->disableReads();
-    incoming->buffer().notifyMonitors();
+    notifyStream(incoming);
   }
   if (how == SHUT_WR || how == SHUT_RDWR) {
     outgoing->disableWrites();
-    outgoing->buffer().notifyMonitors();
+    notifyStream(outgoing);
   }
   return true;
 }
@@ -908,8 +1080,8 @@ void UnixSocket::acknowledgeBind() {
     connection->m_Creds[m_ConnectionSide ? 1 : 0] = m_Creds;
   }
 
-  connection->m_FirstStream.buffer().notifyMonitors();
-  connection->m_SecondStream.buffer().notifyMonitors();
+  notifyStream(&connection->m_FirstStream);
+  notifyStream(&connection->m_SecondStream);
 }
 
 bool UnixSocket::addSocket(UnixSocket* socket) {
@@ -934,8 +1106,8 @@ bool UnixSocket::addSocket(UnixSocket* socket) {
   // listener teardown so a failed enqueue remains caller-owned.
   uint8_t c = 0;
   if (m_Stream.write(&c, 1, false) == 1) {
-    connection->m_FirstStream.buffer().notifyMonitors();
-    connection->m_SecondStream.buffer().notifyMonitors();
+    notifyStream(&connection->m_FirstStream);
+    notifyStream(&connection->m_SecondStream);
     return true;
   }
 
@@ -1024,10 +1196,10 @@ void UnixSocket::addWaiter(Semaphore* waiter, bool read, bool write) {
     // Repair close-before-enrollment without nesting buffer operations
     // under m_ConnectionLock. A concurrent notifier clears these targets.
     if (monitorRead) {
-      incoming->buffer().notifyMonitors();
+      notifyStream(incoming);
     }
     if (write && (!monitorRead || outgoing != incoming)) {
-      outgoing->buffer().notifyMonitors();
+      notifyStream(outgoing);
     }
   }
 }
@@ -1101,9 +1273,9 @@ void UnixSocket::addWaiter(Thread* thread, Event* event) {
   if (closed) {
     // Repair close-before-enrollment; notifyMonitors is idempotent with a
     // concurrent unbind notifier because it consumes registered targets.
-    first->buffer().notifyMonitors();
+    notifyStream(first);
     if (second != first) {
-      second->buffer().notifyMonitors();
+      notifyStream(second);
     }
   }
 }
@@ -1131,8 +1303,8 @@ void UnixSocket::removeWaiter(Event* event) {
 bool UnixSocket::markListening() {
   LockGuard<Mutex> guard(m_ConnectionLock);
 
-  if (m_Type != Streaming) {
-    // can't listen() on a non-streaming socket
+  if (m_Type == Datagram) {
+    // Datagram sockets do not accept connections
     return false;
   }
 
@@ -1152,7 +1324,7 @@ UnixSocket::SocketState UnixSocket::getState() const {
 }
 
 UnixSocket::SocketState UnixSocket::getStateLocked() const {
-  if (m_Type != Streaming || !m_Connection) {
+  if (m_Type == Datagram || !m_Connection) {
     return m_State;
   }
 
@@ -1221,8 +1393,8 @@ void UnixSocket::failConnection() {
   connection->m_FirstStream.disableReads();
   connection->m_SecondStream.disableWrites();
   connection->m_SecondStream.disableReads();
-  connection->m_FirstStream.buffer().notifyMonitors();
-  connection->m_SecondStream.buffer().notifyMonitors();
+  notifyStream(&connection->m_FirstStream);
+  notifyStream(&connection->m_SecondStream);
 }
 
 struct ucred UnixSocket::getPeerCredentials() const {
@@ -1359,4 +1531,12 @@ bool UnixFilesystem::removeNode(File* parent, const String& filename, File* file
     return static_cast<UnixDirectory*>(file)->removeFromParent(pParent, filename);
   }
   return pParent->removeEntry(filename, file);
+}
+
+void UnixSocket::notifyStream(UnixSocketConnection::Stream* stream) {
+  if (m_Type == SequencedPacket) {
+    stream->records().notifyMonitors();
+  } else {
+    stream->buffer().notifyMonitors();
+  }
 }

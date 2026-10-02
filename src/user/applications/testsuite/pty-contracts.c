@@ -100,6 +100,64 @@ static void test_openpty_contract(void) {
   close(master);
 }
 
+static void test_ioctl_contracts(void) {
+  int master = -1;
+  int slave = -1;
+  require(openpty(&master, &slave, NULL, NULL, NULL) == 0, "ioctl openpty");
+  make_raw(slave);
+  int session = -1;
+  errno = 0;
+  require(ioctl(slave, TIOCGSID, &session) == -1 && errno == ENOTTY, "unattached slave TIOCGSID");
+  errno = 0;
+  require(ioctl(master, TIOCGSID, &session) == -1 && errno == ENOTTY, "unattached master TIOCGSID");
+  require(write(master, "f", 1) == 1, "invalid flush input");
+  errno = 0;
+  require(ioctl(slave, TCFLSH, 99) == -1 && errno == EINVAL, "TCFLSH invalid selector");
+  errno = 0;
+  require(tcflush(slave, -1) == -1 && errno == EINVAL, "tcflush negative selector");
+  char received = 0;
+  require(read(slave, &received, 1) == 1 && received == 'f', "invalid flush preserves input");
+
+  int ready[2];
+  int release[2];
+  require(pipe(ready) == 0 && pipe(release) == 0, "session query pipes");
+  pid_t child = fork();
+  require(child >= 0, "session query fork");
+  if (child == 0) {
+    close(master);
+    close(ready[0]);
+    close(release[1]);
+    require(setsid() == getpid(), "session query setsid");
+    require(ioctl(slave, TIOCSCTTY, 0) == 0, "session query TIOCSCTTY");
+    require(ioctl(slave, TIOCGSID, &session) == 0 && session == getsid(0),
+            "controlling slave TIOCGSID");
+    errno = 0;
+    require(ioctl(slave, TIOCGSID, (void*)1) == -1 && errno == EFAULT, "TIOCGSID bad address");
+    require(write(ready[1], "r", 1) == 1, "session query ready");
+    read_exact(release[0], &received, 1, "session query release");
+    _exit(0);
+  }
+  close(ready[1]);
+  close(release[0]);
+  read_exact(ready[0], &received, 1, "session query child ready");
+  require(ioctl(master, TIOCGSID, &session) == 0 && session == child,
+          "master queries slave session");
+  errno = 0;
+  require(ioctl(slave, TIOCGSID, &session) == -1 && errno == ENOTTY,
+          "noncontrolling slave TIOCGSID");
+  require(write(release[1], "r", 1) == 1, "session query release child");
+  int status = 0;
+  require(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0,
+          "session query child status");
+  errno = 0;
+  require(ioctl(master, TIOCGSID, &session) == -1 && errno == ENOTTY,
+          "TIOCGSID after session exit");
+  close(ready[0]);
+  close(release[1]);
+  close(slave);
+  close(master);
+}
+
 static void test_bulk_transfer(int from_master, int blocking, int signals) {
   int master = -1;
   int slave = -1;
@@ -244,6 +302,7 @@ void test_pty_contracts(void) {
   fflush(stdout);
   test_posix_openpt_contract();
   test_openpty_contract();
+  test_ioctl_contracts();
   test_bulk_transfer(1, 0, 0);
   test_bulk_transfer(1, 0, 1);
   test_bulk_transfer(0, 0, 0);

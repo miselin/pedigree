@@ -17,6 +17,7 @@ class TerminalControl final : public ConsoleControlState {
   static int setForeground(ConsoleFile& console, int group,
                            const SharedPointer<ConsoleIoState>& opened);
   static int foreground(ConsoleFile& console, const SharedPointer<ConsoleIoState>& opened);
+  static int session(ConsoleFile& console, const SharedPointer<ConsoleIoState>& opened);
   static int hangup();
   static void processTerminated(PosixProcess& process);
 

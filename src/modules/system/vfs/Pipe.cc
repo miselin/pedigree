@@ -90,6 +90,10 @@ void Pipe::bufferChanged(void* context) {
   static_cast<Pipe*>(context)->dataChanged();
 }
 
+size_t Pipe::readableBytes() {
+  return m_Buffer.getDataSize();
+}
+
 int Pipe::select(bool bWriting, int timeout) {
   if (bWriting) {
     return m_Buffer.canWrite(timeout > 0) ? 1 : 0;

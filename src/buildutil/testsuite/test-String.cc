@@ -349,6 +349,32 @@ TEST(PedigreeString, AssignAnother) {
   EXPECT_EQ(s, s2);
 }
 
+TEST(PedigreeString, CopyEmptyStringHasNoUninitializedStorage) {
+  String empty;
+  String copied(empty);
+  EXPECT_EQ(copied.length(), size_t(0));
+  EXPECT_EQ(copied.size(), size_t(0));
+  EXPECT_EQ(copied.cstr(), nullptr);
+
+  empty.reserve(64);
+  String reservedCopy(empty);
+  EXPECT_EQ(reservedCopy.length(), size_t(0));
+  EXPECT_EQ(reservedCopy.size(), size_t(0));
+  EXPECT_EQ(reservedCopy.cstr(), nullptr);
+}
+
+TEST(PedigreeString, AssignEmptyStringClearsExistingContent) {
+  String destination(bigstring());
+  destination.hash();
+  String empty;
+  destination.assign(empty);
+  EXPECT_EQ(destination.length(), size_t(0));
+  EXPECT_EQ(destination.size(), size_t(0));
+  EXPECT_EQ(destination.cstr(), nullptr);
+  EXPECT_EQ(destination.hash(), empty.hash());
+  EXPECT_EQ(destination, empty);
+}
+
 TEST(PedigreeString, ReduceReserve) {
   // This should also not leak.
   String s;

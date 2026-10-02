@@ -519,6 +519,7 @@ pedigree_app(testsuite OFF OFF "" TEST
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/resource.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/scm-rights.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/scm-rights-stream.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/unix-seqpacket.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/unix-stream-interruption.c)
 pedigree_app(thread-test OFF OFF "pedigree-c-user;stdc++" TEST ${CMAKE_CURRENT_SOURCE_DIR}/applications/thread-test/main.cc)
 pedigree_app(ttyterm ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ttyterm/ttyterm.cc)

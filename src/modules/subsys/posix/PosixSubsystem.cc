@@ -2939,7 +2939,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   size_t envc = 0;
   for (size_t i = 0; i < env.count(); ++i) {
     String& str = env[i];
-    STACK_PUSH_STRING(loaderStack, static_cast<const char*>(str), str.length() + 1);
+    STACK_PUSH_STRING(loaderStack, str.length() ? str.cstr() : "", str.length() + 1);
     PS_NOTICE("env[" << envc << "]: " << str);
     envs[envc++] = reinterpret_cast<char*>(loaderStack);
   }
@@ -2951,7 +2951,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   size_t argc = 0;
   for (size_t i = 0; i < argv.count(); ++i) {
     String& str = argv[i];
-    STACK_PUSH_STRING(loaderStack, static_cast<const char*>(str), str.length() + 1);
+    STACK_PUSH_STRING(loaderStack, str.length() ? str.cstr() : "", str.length() + 1);
     PS_NOTICE("argv[" << argc << "]: " << str);
     argvs[argc++] = reinterpret_cast<char*>(loaderStack);
   }
@@ -3018,8 +3018,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 
   // env
   STACK_PUSH(loaderStack, 0);  // env[N]
-  for (size_t i = 0; i < envc; ++i) {
-    STACK_PUSH(loaderStack, reinterpret_cast<uintptr_t>(envs[i]));
+  for (size_t i = envc; i > 0; --i) {
+    STACK_PUSH(loaderStack, reinterpret_cast<uintptr_t>(envs[i - 1]));
   }
   delete[] envs;
 

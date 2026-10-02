@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -17,6 +18,111 @@
 #include <sys/wait.h>
 
 extern void fail(void) __attribute__((noreturn));
+extern char** environ;
+
+int exec_arguments_child(int argc, char* argv[]) {
+  const char* arguments[] = {"", "--exec-arguments-child", "", "before", "", "after", ""};
+  const char* environment[] = {"",
+                               "PEDIGREE_EXEC_BEFORE=one",
+                               "",
+                               "PEDIGREE_EXEC_AFTER=two",
+                               "PEDIGREE_EXEC_DUP=first",
+                               "PEDIGREE_EXEC_DUP=second",
+                               ""};
+  if (argc != (int)(sizeof(arguments) / sizeof(arguments[0]))) {
+    return 124;
+  }
+  for (size_t i = 0; i < sizeof(arguments) / sizeof(arguments[0]); ++i) {
+    if (strcmp(argv[i], arguments[i])) {
+      return 125;
+    }
+  }
+  for (size_t i = 0; i < sizeof(environment) / sizeof(environment[0]); ++i) {
+    if (!environ[i] || strcmp(environ[i], environment[i])) {
+      printf("exec environment entry %lu changed\n", (unsigned long)i);
+      return 126;
+    }
+  }
+  if (environ[sizeof(environment) / sizeof(environment[0])]) {
+    return 127;
+  }
+  const char* duplicate = getenv("PEDIGREE_EXEC_DUP");
+  if (!duplicate || strcmp(duplicate, "first")) {
+    return 133;
+  }
+
+  const char commandLine[] = "\0--exec-arguments-child\0\0before\0\0after\0\0";
+  // Exercise whole fields and reads starting at each individual NUL separator.
+  const size_t chunks[] = {1, sizeof(commandLine)};
+  for (size_t pass = 0; pass < sizeof(chunks) / sizeof(chunks[0]); ++pass) {
+    const size_t chunk = chunks[pass];
+    int fd = open("/proc/self/cmdline", O_RDONLY);
+    if (fd < 0) {
+      return 128;
+    }
+    char contents[sizeof(commandLine)];
+    size_t length = 0;
+    for (;;) {
+      ssize_t result = read(fd, contents + length,
+                            chunk < sizeof(contents) - length ? chunk : sizeof(contents) - length);
+      if (result < 0 && errno == EINTR) {
+        continue;
+      }
+      if (result < 0) {
+        close(fd);
+        return 129;
+      }
+      if (!result) {
+        break;
+      }
+      length += (size_t)result;
+      if (length == sizeof(contents)) {
+        close(fd);
+        return 130;
+      }
+    }
+    if (close(fd) || length != sizeof(commandLine) - 1 || memcmp(contents, commandLine, length)) {
+      return 131;
+    }
+  }
+  return 0;
+}
+
+void test_exec_arguments(const char* program) {
+  puts("Testing empty exec arguments, environment, and proc cmdline...");
+  fflush(stdout);
+  pid_t child = fork();
+  if (child < 0) {
+    fail();
+  }
+  if (!child) {
+    char* const arguments[] = {(char*)"", (char*)"--exec-arguments-child",
+                               (char*)"", (char*)"before",
+                               (char*)"", (char*)"after",
+                               (char*)"", 0};
+    char* const environment[] = {(char*)"",
+                                 (char*)"PEDIGREE_EXEC_BEFORE=one",
+                                 (char*)"",
+                                 (char*)"PEDIGREE_EXEC_AFTER=two",
+                                 (char*)"PEDIGREE_EXEC_DUP=first",
+                                 (char*)"PEDIGREE_EXEC_DUP=second",
+                                 (char*)"",
+                                 0};
+    execve(program, arguments, environment);
+    _exit(132);
+  }
+  int statusCode = 0;
+  pid_t waited;
+  do {
+    waited = waitpid(child, &statusCode, 0);
+  } while (waited < 0 && errno == EINTR);
+  if (waited != child || !WIFEXITED(statusCode) || WEXITSTATUS(statusCode)) {
+    printf("empty exec child status=%d\n", statusCode);
+    fail();
+  }
+  puts("OK");
+  fflush(stdout);
+}
 
 static int write_fixture(const char* path, const char* contents, size_t length, mode_t mode) {
   int fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, mode);

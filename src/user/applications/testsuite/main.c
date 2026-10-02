@@ -41,6 +41,9 @@ extern void test_epoll_pty(void);
 extern void test_pty_contracts(void);
 extern int exec_shebang_child(int argc, char* argv[]);
 extern void test_exec_shebang(const char* program);
+extern void test_exec_arguments(const char* program);
+extern int exec_arguments_child(int argc, char* argv[]);
+extern void test_unix_seqpacket(void);
 extern int process_exec_signal_child(void);
 extern void test_linux_signal_frame(void);
 extern void test_process(const char* program);
@@ -50,6 +53,7 @@ extern void test_posix_spawn(const char* program);
 extern void test_scm_rights(void);
 extern void test_scm_rights_stream(void);
 extern void test_unix_stream_interruption(void);
+extern void test_unix_seqpacket_interruption(void);
 
 static jmp_buf buf;
 
@@ -60,6 +64,9 @@ void fail() {
 }
 
 int main(int argc, char* argv[]) {
+  if (argc > 1 && !strcmp(argv[1], "--exec-arguments-child")) {
+    return exec_arguments_child(argc, argv);
+  }
   if (argc == 2 && !strcmp(argv[1], "--exec-signal-child"))
     return process_exec_signal_child();
   if (argc > 1 && !strncmp(argv[1], "--exec-shebang-", sizeof("--exec-shebang-") - 1))
@@ -70,6 +77,14 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  if (argc == 2 && !strcmp(argv[1], "--exec-arguments")) {
+    test_exec_arguments(argv[0]);
+    return 0;
+  }
+  if (argc == 2 && !strcmp(argv[1], "--unix-seqpacket")) {
+    test_unix_seqpacket();
+    return 0;
+  }
   if (argc == 2 && !strcmp(argv[1], "--scm-rights")) {
     test_scm_rights();
     return 0;
@@ -109,6 +124,10 @@ int main(int argc, char* argv[]) {
   }
   if (argc == 2 && !strcmp(argv[1], "--scm-rights-stream")) {
     test_scm_rights_stream();
+    return 0;
+  }
+  if (argc == 2 && !strcmp(argv[1], "--unix-seqpacket-interruption")) {
+    test_unix_seqpacket_interruption();
     return 0;
   }
   if (argc == 2 && !strcmp(argv[1], "--unix-stream-interruption")) {
@@ -172,13 +191,16 @@ int main(int argc, char* argv[]) {
   test_futex_contracts(argv[0]);
   test_fs_mutation_contracts();
   test_exec_shebang(argv[0]);
+  test_exec_arguments(argv[0]);
   test_process(argv[0]);
   test_dup3();
   test_epoll_pty();
   test_pty_contracts();
   test_scm_rights();
   test_scm_rights_stream();
+  test_unix_seqpacket();
   test_unix_stream_interruption();
+  test_unix_seqpacket_interruption();
   test_fs();
 
   printf("Tests complete!\n");

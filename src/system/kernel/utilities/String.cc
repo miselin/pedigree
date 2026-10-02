@@ -251,8 +251,15 @@ size_t String::prevCharacter(size_t c) const {
 void String::assign(const String& x) {
   assert(assignable());
 
-  if (this == &x)
+  if (this == &x) {
     return;
+  }
+
+  // Empty strings may have no storage, including a terminating byte.
+  if (!x.length()) {
+    clear();
+    return;
+  }
 
   if (extract() && x.extract()) {
     assert(extract() != x.extract());

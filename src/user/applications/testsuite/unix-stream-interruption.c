@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <sys/socket.h>
@@ -22,7 +23,7 @@
 
 extern void fail(void) __attribute__((noreturn));
 
-enum { wait_attempts = 100000 };
+enum { wait_timeout_seconds = 2 };
 
 enum io_operation {
   receive_operation,
@@ -39,6 +40,7 @@ struct io_context {
   volatile int entered;
   volatile int returned;
   long tid;
+  int tid_error;
   ssize_t result;
   int error;
 };
@@ -48,6 +50,7 @@ union control_buffer {
   unsigned char bytes[CMSG_SPACE(sizeof(int))];
 };
 
+static int socket_type = SOCK_STREAM;
 static volatile sig_atomic_t signal_calls;
 static volatile sig_atomic_t close_from_signal = -1;
 static volatile sig_atomic_t signal_close_result = -2;
@@ -64,7 +67,9 @@ static void signal_handler(int signal_number) {
 
 static void* run_io(void* parameter) {
   struct io_context* context = parameter;
+  errno = 0;
   context->tid = syscall(SYS_gettid);
+  context->tid_error = context->tid < 0 ? errno : 0;
   errno = 0;
   __atomic_store_n(&context->entered, 1, __ATOMIC_RELEASE);
   if (context->use_message) {
@@ -99,13 +104,41 @@ static void* run_io(void* parameter) {
   return 0;
 }
 
+static int monotonic_now(struct timespec* now) {
+  if (clock_gettime(CLOCK_MONOTONIC, now)) {
+    fprintf(stderr, "AF_UNIX interruption clock_gettime failed: errno=%d\n", errno);
+    return -1;
+  }
+  return 0;
+}
+
+static int deadline_passed(const struct timespec* deadline) {
+  struct timespec now;
+  if (monotonic_now(&now)) {
+    return -1;
+  }
+  return now.tv_sec > deadline->tv_sec ||
+         (now.tv_sec == deadline->tv_sec && now.tv_nsec >= deadline->tv_nsec);
+}
+
 static int wait_for_value(volatile int* value) {
-  for (size_t attempt = 0; attempt < wait_attempts; ++attempt) {
-    if (__atomic_load_n(value, __ATOMIC_ACQUIRE))
-      return 0;
+  struct timespec deadline;
+  if (monotonic_now(&deadline)) {
+    return -1;
+  }
+  deadline.tv_sec += wait_timeout_seconds;
+  while (!__atomic_load_n(value, __ATOMIC_ACQUIRE)) {
+    const int expired = deadline_passed(&deadline);
+    if (expired) {
+      if (expired > 0) {
+        errno = ETIMEDOUT;
+        fprintf(stderr, "AF_UNIX interruption state wait timed out\n");
+      }
+      return -1;
+    }
     sched_yield();
   }
-  return -1;
+  return 0;
 }
 
 static int install_signal_handler(void) {
@@ -119,18 +152,63 @@ static int install_signal_handler(void) {
 }
 
 static int interrupt_worker(struct io_context* context) {
-  for (size_t attempt = 0; attempt < 32; ++attempt) {
-    if (__atomic_load_n(&context->returned, __ATOMIC_ACQUIRE))
+  struct timespec deadline;
+  if (monotonic_now(&deadline)) {
+    return -1;
+  }
+  deadline.tv_sec += wait_timeout_seconds;
+  for (size_t attempt = 0;; ++attempt) {
+    if (__atomic_load_n(&context->returned, __ATOMIC_ACQUIRE)) {
       return 0;
-    if (syscall(SYS_tkill, context->tid, SIGUSR1))
+    }
+    if (deadline_passed(&deadline)) {
+      fprintf(stderr, "AF_UNIX interruption worker timed out: tid=%ld attempts=%zu\n", context->tid,
+              attempt);
       return -1;
-    for (size_t pause = 0; pause < 32; ++pause) {
-      if (__atomic_load_n(&context->returned, __ATOMIC_ACQUIRE))
+    }
+    if (syscall(SYS_tkill, context->tid, SIGUSR1)) {
+      const int error = errno;
+      // The worker can publish completion and exit between the initial
+      // returned check and tkill. Its completed I/O result is checked below.
+      if (__atomic_load_n(&context->returned, __ATOMIC_ACQUIRE)) {
         return 0;
-      sched_yield();
+      }
+      fprintf(stderr, "AF_UNIX interruption tkill failed: tid=%ld errno=%d\n", context->tid, error);
+      errno = error;
+      return -1;
+    }
+    if (attempt < 32) {
+      for (size_t pause = 0; pause < 32; ++pause) {
+        if (__atomic_load_n(&context->returned, __ATOMIC_ACQUIRE)) {
+          return 0;
+        }
+        sched_yield();
+      }
+      if (attempt == 31) {
+        fprintf(stderr, "AF_UNIX interruption initial yield budget exhausted: tid=%ld\n",
+                context->tid);
+      }
+    } else {
+      // Publishing entered does not prove the worker is already blocked in
+      // its socket syscall. Keep retries bounded by elapsed time on SMP.
+      const struct timespec pause = {.tv_nsec = 10000000};
+      if (nanosleep(&pause, NULL) && errno != EINTR) {
+        fprintf(stderr, "AF_UNIX interruption retry sleep failed: errno=%d\n", errno);
+        return -1;
+      }
     }
   }
-  return -1;
+}
+
+static int receive_stage_failed(const char* stage, int error, const struct io_context* context) {
+  const int entered = __atomic_load_n(&context->entered, __ATOMIC_ACQUIRE);
+  const int returned = __atomic_load_n(&context->returned, __ATOMIC_ACQUIRE);
+  fprintf(stderr,
+          "AF_UNIX interrupted receive failed: stage=%s error=%d tid=%ld tid_errno=%d "
+          "entered=%d returned=%d result=%ld io_errno=%d\n",
+          stage, error, entered ? context->tid : 0, entered ? context->tid_error : 0, entered,
+          returned, (long)(returned ? context->result : -2), returned ? context->error : 0);
+  return 12;
 }
 
 static int fill_send_queue(int descriptor, const char* payload, size_t length) {
@@ -161,7 +239,7 @@ static int interrupted_receive_child(void) {
 
   int sockets[2];
   char payload = 0;
-  if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets)) {
+  if (socketpair(AF_UNIX, socket_type, 0, sockets)) {
     fprintf(stderr, "interrupted receive socketpair failed: errno=%d\n", errno);
     return 11;
   }
@@ -174,9 +252,23 @@ static int interrupted_receive_child(void) {
       .result = -2,
   };
   pthread_t worker;
-  if (pthread_create(&worker, 0, run_io, &context) || wait_for_value(&context.entered) ||
-      context.tid <= 0 || interrupt_worker(&context) || pthread_join(worker, 0))
-    return 12;
+  int error = pthread_create(&worker, 0, run_io, &context);
+  if (error) {
+    return receive_stage_failed("pthread_create", error, &context);
+  }
+  if (wait_for_value(&context.entered)) {
+    return receive_stage_failed("worker_entered", errno, &context);
+  }
+  if (context.tid <= 0) {
+    return receive_stage_failed("worker_tid", context.tid_error, &context);
+  }
+  if (interrupt_worker(&context)) {
+    return receive_stage_failed("interrupt_worker", errno, &context);
+  }
+  error = pthread_join(worker, 0);
+  if (error) {
+    return receive_stage_failed("pthread_join", error, &context);
+  }
 
   if (context.result != -1 || context.error != EINTR || signal_calls < 1)
     return 13;
@@ -191,7 +283,7 @@ static int partial_send_child(void) {
   int sockets[2];
   char payload[1024];
   memset(payload, 'q', sizeof(payload));
-  if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) ||
+  if (socketpair(AF_UNIX, socket_type, 0, sockets) ||
       fill_send_queue(sockets[0], payload, sizeof(payload)) || recv(sockets[1], payload, 1, 0) != 1)
     return 21;
 
@@ -222,7 +314,7 @@ static int interrupted_send_child(void) {
   int sockets[2];
   char payload[1024];
   memset(payload, 'i', sizeof(payload));
-  if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) ||
+  if (socketpair(AF_UNIX, socket_type, 0, sockets) ||
       fill_send_queue(sockets[0], payload, sizeof(payload)))
     return 26;
 
@@ -251,7 +343,7 @@ static int signal_handler_close_child(enum io_operation operation) {
   int sockets[2];
   char payload[1024];
   memset(payload, 'h', sizeof(payload));
-  if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets))
+  if (socketpair(AF_UNIX, socket_type, 0, sockets))
     return 51;
   if (operation == send_operation && fill_send_queue(sockets[0], payload, sizeof(payload)))
     return 52;
@@ -313,7 +405,7 @@ static int serialized_wait_child(enum io_operation operation) {
   int sockets[2];
   char payload[1024];
   memset(payload, 's', sizeof(payload));
-  if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets))
+  if (socketpair(AF_UNIX, socket_type, 0, sockets))
     return 41;
   if (operation == send_operation && fill_send_queue(sockets[0], payload, sizeof(payload)))
     return 42;
@@ -372,7 +464,7 @@ static int close_wake_child(enum io_operation operation, int close_local) {
   int sockets[2];
   char payload[1024];
   memset(payload, 'c', sizeof(payload));
-  if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets))
+  if (socketpair(AF_UNIX, socket_type, 0, sockets))
     return 31;
   if (operation == send_operation && fill_send_queue(sockets[0], payload, sizeof(payload)))
     return 32;
@@ -453,8 +545,10 @@ static int local_send_close_child(void) {
   return close_wake_child(send_operation, 1);
 }
 
-void test_unix_stream_interruption(void) {
-  puts("Testing AF_UNIX stream interruption and close wakeups... ");
+static void test_unix_interruption(int type) {
+  socket_type = type;
+  printf("Testing AF_UNIX %s interruption and close wakeups... \n",
+         type == SOCK_STREAM ? "stream" : "sequenced-packet");
   fflush(stdout);
   run_bounded(interrupted_receive_child);
   run_bounded(interrupted_send_child);
@@ -462,11 +556,21 @@ void test_unix_stream_interruption(void) {
   run_bounded(send_signal_handler_close_child);
   run_bounded(serialized_receive_wait_child);
   run_bounded(serialized_send_wait_child);
-  run_bounded(partial_send_child);
+  if (type == SOCK_STREAM) {
+    run_bounded(partial_send_child);
+  }
   run_bounded(peer_receive_close_child);
   run_bounded(local_receive_close_child);
   run_bounded(peer_send_close_child);
   run_bounded(local_send_close_child);
-  puts("OK\n");
+  puts(type == SOCK_STREAM ? "OK\n" : "SEQPACKET-INTERRUPTION-PASS");
   fflush(stdout);
+}
+
+void test_unix_stream_interruption(void) {
+  test_unix_interruption(SOCK_STREAM);
+}
+
+void test_unix_seqpacket_interruption(void) {
+  test_unix_interruption(SOCK_SEQPACKET);
 }

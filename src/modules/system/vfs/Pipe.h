@@ -100,6 +100,9 @@ class EXPORTED_PUBLIC Pipe : public File {
   /** Release a storage pin, retiring an unused anonymous pipe if needed. */
   void releaseVfsReference() override;
 
+  /** Returns a locked snapshot of unread bytes without consuming them. */
+  size_t readableBytes();
+
   /** Returns a locked diagnostic snapshot of the current reader count. */
   size_t getReaderCount();
 

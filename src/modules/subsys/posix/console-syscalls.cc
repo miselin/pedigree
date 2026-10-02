@@ -283,13 +283,16 @@ int console_setwinsize(File* file, const struct winsize* buf) {
   return ConsoleManager::instance().setWindowSize(file, buf->ws_row, buf->ws_col);
 }
 
-int console_flush(File* file, void* what) {
+int console_flush(File* file, int selector) {
   if (!ConsoleManager::instance().isConsole(file)) {
     // Error - not a TTY.
     return -1;
   }
 
-  /// \todo handle 'what' parameter
+  if (selector != TCIFLUSH && selector != TCOFLUSH && selector != TCIOFLUSH) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
   ConsoleManager::instance().flush(file);
   return 0;
 }

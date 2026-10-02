@@ -60,7 +60,7 @@ int posix_tcgetattr(int fd, struct termios* p);
 int posix_tcsetattr(int fd, int optional_actions, struct termios* p);
 int console_getwinsize(File* file, struct winsize* buf);
 int console_setwinsize(File* file, const struct winsize* buf);
-int console_flush(File* file, void* what);
+int console_flush(File* file, int selector);
 
 int console_ptsname(int fd, char* buf);
 int console_ttyname(int fd, char* buf);

@@ -76,6 +76,7 @@ class SocketRights {
 
 #define MAX_UNIX_DGRAM_BACKLOG 65536
 #define MAX_UNIX_STREAM_QUEUE 65536
+#define MAX_UNIX_PACKET_BACKLOG 64
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 using UnixStreamControlLockHook = void (*)();
@@ -92,13 +93,13 @@ class UnixSocketConnection {
   friend class UnixSocket;
 
  public:
-  UnixSocketConnection();
+  explicit UnixSocketConnection(bool packets = false);
 
  private:
   /** One ordered byte/control direction in a connected stream socket pair. */
   class Stream {
    public:
-    Stream();
+    explicit Stream(bool packets);
     ~Stream();
 
     size_t write(const uint8_t* buffer, size_t count, bool block,
@@ -110,6 +111,15 @@ class UnixSocketConnection {
                 SharedPointer<SocketRights>* rights = nullptr, bool* interrupted = nullptr);
     size_t readVectors(struct iovec* vectors, size_t vectorCount, bool block,
                        SharedPointer<SocketRights>* rights, bool* interrupted = nullptr);
+
+    bool writePacket(const uint8_t* buffer, size_t count, bool block,
+                     const SharedPointer<SocketRights>& rights, bool* interrupted);
+    bool readPacket(uint8_t* buffer, size_t count, bool block, SharedPointer<SocketRights>& rights,
+                    uint64_t& bytesRead, uint64_t& packetLength, bool* interrupted);
+
+    Buffer<uint8_t, true>& records() {
+      return m_Records;
+    }
 
     bool canWrite(bool block);
     bool canRead(bool block);
@@ -148,6 +158,19 @@ class UnixSocketConnection {
     void discardControls();
     void discardControlsIfRequested();
 
+    struct Packet {
+      Packet() : bytes(nullptr), length(0), rights() {}
+      ~Packet() {
+        delete[] bytes;
+      }
+      uint8_t* bytes;
+      size_t length;
+      SharedPointer<SocketRights> rights;
+    };
+
+    const bool m_Packets;
+    Buffer<uint8_t, true> m_Records;
+    List<Packet*> m_PendingPackets;
     Buffer<uint8_t, true> m_Bytes;
     UnixStreamSerializationGate m_SendLock;
     UnixStreamSerializationGate m_ReceiveLock;
@@ -239,7 +262,7 @@ class UnixFilesystem : public Filesystem {
  */
 class UnixSocket : public File {
  public:
-  enum SocketType { Streaming, Datagram };
+  enum SocketType { Streaming, Datagram, SequencedPacket };
 
   enum SocketState {
     Listening,   // listening for connections
@@ -280,6 +303,13 @@ class UnixSocket : public File {
                          SharedPointer<SocketRights>* rights, bool* interrupted = nullptr);
   uint64_t receiveStream(struct iovec* vectors, size_t vectorCount, bool bCanBlock,
                          SharedPointer<SocketRights>* rights, bool* interrupted = nullptr);
+
+  /** Queue or consume one record on a connected sequenced-packet socket. */
+  bool sendPacket(uint64_t size, uintptr_t buffer, bool bCanBlock,
+                  const SharedPointer<SocketRights>& rights, int* error = nullptr);
+  bool receivePacket(uint64_t size, uintptr_t buffer, bool bCanBlock,
+                     SharedPointer<SocketRights>& rights, uint64_t& bytesRead,
+                     uint64_t& packetLength, bool* interrupted = nullptr);
 
   virtual int select(bool bWriting = false, int timeout = 0);
 
@@ -361,6 +391,7 @@ class UnixSocket : public File {
   typedef Buffer<uint8_t, true> UnixSocketStream;
 
   void setCreds();
+  void notifyStream(UnixSocketConnection::Stream* stream);
   SocketState getStateLocked() const;
   UnixSocketConnection::Stream* incomingStream(
       const SharedPointer<UnixSocketConnection>& connection) const;

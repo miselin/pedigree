@@ -79,6 +79,48 @@ static void file_contracts(void) {
   puts("SYSCALL-CONTRACT: PASS file-modes-and-stat");
 }
 
+static void pipe_ioctl_contracts(void) {
+  int descriptors[2];
+  int available = -1;
+  require(pipe(descriptors) == 0, "FIONREAD pipe");
+  require(ioctl(descriptors[0], FIONREAD, &available) == 0 && available == 0,
+          "empty pipe FIONREAD");
+  require(write(descriptors[1], "abcde", 5) == 5, "FIONREAD pipe write");
+  for (int endpoint = 0; endpoint < 2; ++endpoint) {
+    require(ioctl(descriptors[endpoint], FIONREAD, &available) == 0 && available == 5,
+            "pipe endpoints FIONREAD");
+    errno = 0;
+    require(ioctl(descriptors[endpoint], FIONREAD, (void*)1) == -1 && errno == EFAULT,
+            "pipe FIONREAD bad address");
+  }
+  char data[5];
+  require(read(descriptors[0], data, 2) == 2 && !memcmp(data, "ab", 2), "FIONREAD partial read");
+  require(ioctl(descriptors[0], FIONREAD, &available) == 0 && available == 3,
+          "FIONREAD remaining bytes");
+  close(descriptors[1]);
+  require(ioctl(descriptors[0], FIONREAD, &available) == 0 && available == 3,
+          "FIONREAD bytes after writer close");
+  require(read(descriptors[0], data, sizeof(data)) == 3 && !memcmp(data, "cde", 3),
+          "FIONREAD does not consume bytes");
+  require(ioctl(descriptors[0], FIONREAD, &available) == 0 && available == 0 &&
+              read(descriptors[0], data, 1) == 0,
+          "drained pipe FIONREAD and EOF");
+  close(descriptors[0]);
+
+  char path[80];
+  snprintf(path, sizeof(path), "/tmp/fionread-contract-%d", getpid());
+  require(mkfifo(path, 0600) == 0, "FIONREAD FIFO create");
+  int fifo = open(path, O_RDWR | O_NONBLOCK);
+  require(fifo >= 0, "FIONREAD FIFO open");
+  require(write(fifo, "fifo", 4) == 4 && ioctl(fifo, FIONREAD, &available) == 0 && available == 4,
+          "FIFO FIONREAD");
+  require(read(fifo, data, sizeof(data)) == 4 && !memcmp(data, "fifo", 4),
+          "FIFO FIONREAD preserves bytes");
+  close(fifo);
+  require(unlink(path) == 0, "FIONREAD FIFO unlink");
+  puts("SYSCALL-CONTRACT: PASS pipe-and-fifo-FIONREAD");
+}
+
 static void socket_name_contracts(void) {
   int sockets[2];
   require(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0, "socketpair");
@@ -191,6 +233,7 @@ static void process_contracts(void) {
 
 void test_syscall_contracts(void) {
   file_contracts();
+  pipe_ioctl_contracts();
   socket_name_contracts();
   termios_contracts();
   process_contracts();

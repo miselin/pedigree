@@ -96,9 +96,15 @@ class SocketPayload {
       requested += message.msg_iov[i].iov_len;
     }
     size_t capacity = requested;
-    // Streams may make a short transfer. Datagrams must remain indivisible.
+    // Streams may make a short transfer. Packet writes must remain indivisible.
     if (type == SOCK_STREAM && capacity > 65536) {
       capacity = 65536;
+    } else if (domain == AF_UNIX && type == SOCK_SEQPACKET && capacity > MAX_UNIX_STREAM_QUEUE) {
+      if (sending) {
+        syscallError(EMSGSIZE);
+        return false;
+      }
+      capacity = MAX_UNIX_STREAM_QUEUE;
     } else if (domain == 16 && !sending && capacity > 32) {
       capacity = 32;
     } else if (domain == AF_INET && type == SOCK_DGRAM && capacity > 65535) {
@@ -180,8 +186,11 @@ bool copySocketAddress(const struct sockaddr_storage* address, socklen_t length,
   return true;
 }
 
-bool validateSocketMessageFlags(int flags, bool sending, int domain = 0) {
+bool validateSocketMessageFlags(int flags, bool sending, int domain = 0, int type = 0) {
   int supported = sending ? 0 : MSG_DONTWAIT;
+  if (sending && domain == AF_UNIX && type == SOCK_SEQPACKET) {
+    supported |= MSG_DONTWAIT;
+  }
 #ifdef MSG_NOSIGNAL
   if (sending || domain == 16) {
     // Socket writes do not currently raise SIGPIPE, so suppression requires
@@ -549,7 +558,7 @@ int posix_socket(int domain, int type, int protocol) {
   NetworkSyscalls* syscalls;
 
   if (domain == AF_UNIX) {
-    if (socketType != SOCK_STREAM && socketType != SOCK_DGRAM) {
+    if (socketType != SOCK_STREAM && socketType != SOCK_DGRAM && socketType != SOCK_SEQPACKET) {
       SYSCALL_ERROR(OperationNotSupported);
       return -1;
     }
@@ -598,7 +607,7 @@ int posix_socketpair(int domain, int type, int protocol, int sv[2]) {
   if (!splitSocketType(type, socketType, flags)) {
     return -1;
   }
-  if (socketType != SOCK_STREAM) {
+  if (socketType != SOCK_STREAM && socketType != SOCK_SEQPACKET) {
     SYSCALL_ERROR(OperationNotSupported);
     return -1;
   }
@@ -701,9 +710,6 @@ ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags) {
 
 ssize_t posix_send_descriptor(const DescriptorLease& f, const void* buff, size_t bufflen, int flags,
                               bool kernelBuffer) {
-  if (!validateSocketMessageFlags(flags, true)) {
-    return -1;
-  }
   if (!isSaneSocket(f)) {
     return -1;
   }
@@ -718,7 +724,9 @@ ssize_t posix_send_descriptor(const DescriptorLease& f, const void* buff, size_t
 
 ssize_t posix_sendmsg_descriptor(const DescriptorLease& f, const struct msghdr* message,
                                  const SharedPointer<SocketRights>& rights, bool kernelBuffer) {
-  if (!isSaneSocket(f)) {
+  if (!isSaneSocket(f) ||
+      !validateSocketMessageFlags(message->msg_flags, true, f->networkImpl->getDomain(),
+                                  f->networkImpl->getType())) {
     return -1;
   }
 
@@ -737,10 +745,6 @@ ssize_t posix_sendmsg_descriptor(const DescriptorLease& f, const struct msghdr* 
 ssize_t posix_sendto(int sock, const void* buff, size_t bufflen, int flags,
                      struct sockaddr_storage* address, socklen_t addrlen) {
   N_NOTICE("sendto");
-
-  if (!validateSocketMessageFlags(flags, true)) {
-    return -1;
-  }
 
   if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen,
                                     PosixSubsystem::SafeRead)) {
@@ -959,7 +963,8 @@ int posix_listen(int sock, int backlog) {
     return -1;
   }
 
-  if (f->networkImpl->getType() != SOCK_STREAM) {
+  if (f->networkImpl->getType() != SOCK_STREAM &&
+      !(f->networkImpl->getDomain() == AF_UNIX && f->networkImpl->getType() == SOCK_SEQPACKET)) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -1017,7 +1022,8 @@ int posix_accept4(int sock, struct sockaddr_storage* address, socklen_t* addrlen
     return -1;
   }
 
-  if (f->networkImpl->getType() != SOCK_STREAM) {
+  if (f->networkImpl->getType() != SOCK_STREAM &&
+      !(f->networkImpl->getDomain() == AF_UNIX && f->networkImpl->getType() == SOCK_SEQPACKET)) {
     SYSCALL_ERROR(OperationNotSupported);
     return -1;
   }
@@ -1166,10 +1172,6 @@ int posix_getsockopt(int sock, int level, int optname, void* optvalue, socklen_t
 ssize_t posix_sendmsg(int sockfd, const struct msghdr* msg, int flags) {
   N_NOTICE("sendmsg(" << sockfd << ", " << msg << ", " << flags << ")");
 
-  if (!validateSocketMessageFlags(flags, true)) {
-    return -1;
-  }
-
   struct msghdr message = {};
   if (!PosixSubsystem::copyFromUser(&message, msg, sizeof(message))) {
     SYSCALL_ERROR(BadAddress);
@@ -1237,7 +1239,8 @@ ssize_t posix_sendmsg(int sockfd, const struct msghdr* msg, int flags) {
   }
   if (rights &&
       (f->networkImpl->getDomain() != AF_UNIX ||
-       (f->networkImpl->getType() != SOCK_DGRAM && f->networkImpl->getType() != SOCK_STREAM))) {
+       (f->networkImpl->getType() != SOCK_DGRAM && f->networkImpl->getType() != SOCK_STREAM &&
+        f->networkImpl->getType() != SOCK_SEQPACKET))) {
     SYSCALL_ERROR(OperationNotSupported);
     return -1;
   }
@@ -3329,16 +3332,20 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
   }
   UnixSocket* target = targetReference->get();
 
-  if (getType() == SOCK_STREAM) {
-    N_NOTICE(" -> stream");
-    if (target->getType() != UnixSocket::Streaming || target->getState() != UnixSocket::Listening) {
+  if (getType() != SOCK_DGRAM) {
+    N_NOTICE(" -> connection-oriented");
+    if (target->getType() != getSocketType()) {
+      SYSCALL_ERROR(ProtocolWrongType);
+      return -1;
+    }
+    if (target->getState() != UnixSocket::Listening) {
       SYSCALL_ERROR(ConnectionRefused);
       return -1;
     }
 
     // Create the remote for accept() on the server side.
     UnixSocket* remote =
-        new UnixSocket(String(), g_pUnixSocketBacking, nullptr, nullptr, UnixSocket::Streaming);
+        new UnixSocket(String(), g_pUnixSocketBacking, nullptr, nullptr, getSocketType());
 
     // Pair first so accept can never observe an endpoint before its peer
     // exists. addSocket activates and queues the connection atomically;
@@ -3379,13 +3386,13 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
     m_RemotePath = pathname;
   }
 
-  if (getType() != SOCK_STREAM) {
+  if (getType() == SOCK_DGRAM) {
     notifyReadiness(ReadyWrite);
   }
 
   N_NOTICE(" -> remote is now " << pathname);
 
-  if (getType() == SOCK_STREAM && !isBlocking()) {
+  if (getType() != SOCK_DGRAM && !isBlocking()) {
     SYSCALL_ERROR(InProgress);
     return -1;
   }
@@ -3412,7 +3419,8 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
   }
 
   UnixSocket* localSocket = local->get();
-  if (getType() == SOCK_STREAM) {
+  const bool blocking = isBlocking() && !(msghdr->msg_flags & MSG_DONTWAIT);
+  if (getType() != SOCK_DGRAM) {
     if (localSocket->wasConnected()) {
       remoteReference = local->reference();
     } else {
@@ -3421,18 +3429,18 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
   }
 
   UnixSocket* remote = remoteReference ? remoteReference->get() : nullptr;
-  if (getType() == SOCK_STREAM && !remote) {
+  if (getType() != SOCK_DGRAM && !remote) {
     const bool closed = localSocket->getState() == UnixSocket::Closed;
     N_NOTICE(" -> " << (closed ? "closed" : "not connected"));
     syscallError(closed ? Error::BrokenPipe : Error::NotConnected);
     return -1;
   }
-  if (getType() == SOCK_STREAM && localSocket->writeShutdown()) {
+  if (getType() != SOCK_DGRAM && localSocket->writeShutdown()) {
     SYSCALL_ERROR(BrokenPipe);
     return -1;
   }
 
-  if (getType() != SOCK_STREAM && (msghdr->msg_name || !remote)) {
+  if (getType() == SOCK_DGRAM && (msghdr->msg_name || !remote)) {
     if (!msghdr->msg_name) {
       syscallError(EDESTADDRREQ);
       N_NOTICE(" -> sendto on unconnected socket with no address");
@@ -3455,8 +3463,8 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
     remote = remoteReference->get();
   }
 
-  if (getType() != SOCK_STREAM && (!remote || remote->getType() != UnixSocket::Datagram ||
-                                   remote->getState() == UnixSocket::Closed)) {
+  if (getType() == SOCK_DGRAM && (!remote || remote->getType() != UnixSocket::Datagram ||
+                                  remote->getState() == UnixSocket::Closed)) {
     syscallError(remote && remote->getType() != UnixSocket::Datagram ? Error::ProtocolWrongType
                                                                      : Error::ConnectionRefused);
     return -1;
@@ -3480,8 +3488,8 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
   uint64_t numWritten = 0;
   bool completedWrite = false;
   bool interrupted = false;
-  int datagramError = 0;
-  if (getType() == SOCK_DGRAM) {
+  int packetError = 0;
+  if (getType() != SOCK_STREAM) {
     size_t datagramLength = 0;
     for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
       if (msghdr->msg_iov[i].iov_len > static_cast<size_t>(SSIZE_MAX) - datagramLength) {
@@ -3508,9 +3516,14 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
       buffer = datagram.get();
     }
 
-    completedWrite =
-        remote->sendDatagram(datagramLength, reinterpret_cast<uintptr_t>(buffer), isBlocking(),
-                             reinterpret_cast<uintptr_t>(localPath.cstr()), rights, &datagramError);
+    if (getType() == SOCK_SEQPACKET) {
+      completedWrite = localSocket->sendPacket(datagramLength, reinterpret_cast<uintptr_t>(buffer),
+                                               blocking, rights, &packetError);
+    } else {
+      completedWrite =
+          remote->sendDatagram(datagramLength, reinterpret_cast<uintptr_t>(buffer), blocking,
+                               reinterpret_cast<uintptr_t>(localPath.cstr()), rights, &packetError);
+    }
     numWritten = completedWrite ? datagramLength : 0;
   } else {
     numWritten = localSocket->sendStream(msghdr->msg_iov, static_cast<size_t>(msghdr->msg_iovlen),
@@ -3518,15 +3531,15 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
     completedWrite = numWritten;
   }
   if (completedWrite) {
-    if (getType() == SOCK_STREAM) {
+    if (getType() != SOCK_DGRAM) {
       notifyPeer(localSocket, ReadyRead);
     } else {
       notifySocket(remote, ReadyRead);
     }
   }
   if (!completedWrite) {
-    if (datagramError) {
-      syscallError(datagramError);
+    if (packetError) {
+      syscallError(packetError);
       return -1;
     }
     if (interrupted) {
@@ -3535,13 +3548,14 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
       return -1;
     }
 
-    if (getType() == SOCK_STREAM && localSocket->getState() == UnixSocket::Closed) {
+    if (getType() != SOCK_DGRAM &&
+        (localSocket->getState() == UnixSocket::Closed || localSocket->writeShutdown())) {
       SYSCALL_ERROR(BrokenPipe);
       N_NOTICE(" -> -1 (EPIPE)");
       return -1;
     }
 
-    if (!isBlocking()) {
+    if (!blocking) {
       SYSCALL_ERROR(NoMoreProcesses);
       N_NOTICE(" -> -1 (EAGAIN)");
       return -1;
@@ -3560,7 +3574,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
   const int inputFlags = msghdr->msg_flags;
   const bool blocking = isBlocking() && !(inputFlags & MSG_DONTWAIT);
 #ifdef MSG_TRUNC
-  if ((inputFlags & MSG_TRUNC) && getType() != SOCK_DGRAM) {
+  if ((inputFlags & MSG_TRUNC) && getType() == SOCK_STREAM) {
     SYSCALL_ERROR(OperationNotSupported);
     return -1;
   }
@@ -3572,13 +3586,17 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
     return -1;
   }
   UnixSocket* localSocket = local->get();
+  if (getType() == SOCK_SEQPACKET && !localSocket->wasConnected()) {
+    SYSCALL_ERROR(NotConnected);
+    return -1;
+  }
 
   String remote;
   uint64_t numRead = 0;
   uint64_t datagramLength = 0;
   bool consumedDatagram = false;
   bool interrupted = false;
-  if (getType() == SOCK_DGRAM) {
+  if (getType() != SOCK_STREAM) {
     size_t datagramCapacity = 0;
     for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
       if (msghdr->msg_iov[i].iov_len > static_cast<size_t>(SSIZE_MAX) - datagramCapacity) {
@@ -3600,9 +3618,15 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
     }
 
     SharedPointer<SocketRights> receivedRights;
-    consumedDatagram =
-        localSocket->receiveDatagram(datagramCapacity, reinterpret_cast<uintptr_t>(buffer),
-                                     blocking, remote, receivedRights, numRead, datagramLength);
+    if (getType() == SOCK_SEQPACKET) {
+      consumedDatagram = localSocket->receivePacket(
+          datagramCapacity, reinterpret_cast<uintptr_t>(buffer), blocking, receivedRights, numRead,
+          datagramLength, &interrupted);
+    } else {
+      consumedDatagram =
+          localSocket->receiveDatagram(datagramCapacity, reinterpret_cast<uintptr_t>(buffer),
+                                       blocking, remote, receivedRights, numRead, datagramLength);
+    }
     if (rights) {
       *rights = receivedRights;
     }
@@ -3633,9 +3657,9 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
   // including a successful zero-length datagram and a drain to empty.
   notifyReadiness(ReadyRead);
 
-  if (numRead && getType() == SOCK_STREAM) {
-    // Consuming the incoming stream frees capacity in the peer's outgoing
-    // stream. The peer rechecks the precise level before reporting POLLOUT.
+  if ((numRead || consumedDatagram) && getType() != SOCK_DGRAM) {
+    // Consuming an incoming record or stream bytes frees the peer's outgoing
+    // capacity. The peer rechecks the precise level before reporting POLLOUT.
     notifyPeer(localSocket, ReadyWrite);
   }
 
@@ -3657,7 +3681,8 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
       return -1;
     }
 
-    if (getType() == SOCK_STREAM && localSocket->getState() == UnixSocket::Closed) {
+    if (getType() != SOCK_DGRAM && (localSocket->getState() == UnixSocket::Closed ||
+                                    (getType() == SOCK_SEQPACKET && localSocket->readShutdown()))) {
       N_NOTICE(" -> 0 (EOF)");
       return 0;
     }
@@ -3689,7 +3714,7 @@ int UnixSocketSyscalls::listen(int backlog) {
   }
   UnixSocket* localSocket = local->get();
 
-  if (localSocket->getType() != UnixSocket::Streaming) {
+  if (localSocket->getType() == UnixSocket::Datagram) {
     SYSCALL_ERROR(OperationNotSupported);
     return -1;
   }
@@ -4224,6 +4249,9 @@ bool UnixSocketSyscalls::pairWith(UnixSocketSyscalls* other) {
 UnixSocket::SocketType UnixSocketSyscalls::getSocketType() const {
   if (getType() == SOCK_STREAM) {
     return UnixSocket::Streaming;
+  }
+  if (getType() == SOCK_SEQPACKET) {
+    return UnixSocket::SequencedPacket;
   }
 
   return UnixSocket::Datagram;

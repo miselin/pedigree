@@ -708,7 +708,8 @@ class ProcessCommandLineFile final : public ProcessFile {
       }
       const uint64_t available = fieldSize - location;
       const uint64_t amount = min(size - copied, available);
-      MemoryCopy(reinterpret_cast<void*>(buffer + copied), argument.cstr() + location, amount);
+      const char* field = argument.length() ? argument.cstr() : "";
+      MemoryCopy(reinterpret_cast<void*>(buffer + copied), field + location, amount);
       copied += amount;
       location = 0;
       if (copied == size)

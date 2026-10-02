@@ -2717,7 +2717,7 @@ int posix_ioctl(int fd, size_t command, void* buf) {
 
   FileDescriptor::TerminalOperation terminalOperation;
   const bool terminalPolicyCommand =
-      command == TIOCSCTTY || command == TIOCGPGRP || command == TIOCSPGRP;
+      command == TIOCSCTTY || command == TIOCGPGRP || command == TIOCSPGRP || command == TIOCGSID;
   if (!terminalPolicyCommand && !f->acquireTerminalOperation(terminalOperation)) {
     SYSCALL_ERROR(IoError);
     return -1;
@@ -2766,12 +2766,16 @@ int posix_ioctl(int fd, size_t command, void* buf) {
 
   switch (command) {
     case FIONREAD: {
-      if (!ConsoleManager::instance().isConsole(f->getFile())) {
+      int available = 0;
+      if (f->getFile()->isPipe() || f->getFile()->isFifo()) {
+        available = static_cast<int>(Pipe::fromFile(f->getFile())->readableBytes());
+      } else if (ConsoleManager::instance().isConsole(f->getFile())) {
+        auto* console = static_cast<ConsoleFile*>(f->getFile());
+        available = static_cast<int>(console->readableBytes(*f->terminalEpoch()));
+      } else {
         SYSCALL_ERROR(NotAConsole);
         return -1;
       }
-      auto* console = static_cast<ConsoleFile*>(f->getFile());
-      const int available = static_cast<int>(console->readableBytes(*f->terminalEpoch()));
       F_NOTICE(" -> FIONREAD: " << Dec << available << " bytes");
       return copyIoctlResult(buf, available);
     }
@@ -2963,9 +2967,20 @@ int posix_ioctl(int fd, size_t command, void* buf) {
       }
     }
 
+    case TIOCGSID: {
+      if (ConsoleManager::instance().isConsole(f->getFile())) {
+        const pid_t session =
+            TerminalControl::session(*static_cast<ConsoleFile*>(f->getFile()), f->terminalEpoch());
+        return session < 0 ? -1 : copyIoctlResult(buf, session);
+      } else {
+        SYSCALL_ERROR(NotAConsole);
+        return -1;
+      }
+    }
+
     case TCFLSH: {
       if (ConsoleManager::instance().isConsole(f->getFile())) {
-        return console_flush(f->getFile(), 0);
+        return console_flush(f->getFile(), static_cast<int>(reinterpret_cast<uintptr_t>(buf)));
       } else {
         SYSCALL_ERROR(NotAConsole);
         return -1;

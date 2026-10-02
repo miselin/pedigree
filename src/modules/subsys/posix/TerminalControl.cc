@@ -203,6 +203,30 @@ int TerminalControl::foreground(ConsoleFile& console, const SharedPointer<Consol
   return static_cast<int>(__atomic_load_n(&control->m_Foreground, __ATOMIC_ACQUIRE));
 }
 
+int TerminalControl::session(ConsoleFile& console, const SharedPointer<ConsoleIoState>& opened) {
+  LockGuard<Mutex> guard(terminalPolicy);
+  if (opened && opened->revoked()) {
+    SYSCALL_ERROR(IoError);
+    return -1;
+  }
+  auto slot = console.controlState();
+  auto* control = static_cast<TerminalControl*>(slot.get());
+  if (!control || !control->active()) {
+    SYSCALL_ERROR(NotAConsole);
+    return -1;
+  }
+  // A PTY master can query its slave's session without controlling that terminal.
+  if (!console.isMaster()) {
+    PosixProcess* process = currentProcess();
+    if (!process || !currentTerminal(*process, console) ||
+        control->m_Session != process->getSessionId()) {
+      SYSCALL_ERROR(NotAConsole);
+      return -1;
+    }
+  }
+  return static_cast<int>(control->m_Session);
+}
+
 int TerminalControl::hangup() {
   TerminationDeferral deferral;
   Process* caller = Processor::information().getCurrentThread()->getParent();
