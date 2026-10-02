@@ -2765,6 +2765,17 @@ int posix_ioctl(int fd, size_t command, void* buf) {
   }
 
   switch (command) {
+    case FIONREAD: {
+      if (!ConsoleManager::instance().isConsole(f->getFile())) {
+        SYSCALL_ERROR(NotAConsole);
+        return -1;
+      }
+      auto* console = static_cast<ConsoleFile*>(f->getFile());
+      const int available = static_cast<int>(console->readableBytes(*f->terminalEpoch()));
+      F_NOTICE(" -> FIONREAD: " << Dec << available << " bytes");
+      return copyIoctlResult(buf, available);
+    }
+
     // KDGETLED
     case 0x4B31: {
       F_NOTICE(" -> KDGETLED, arg=" << buf);

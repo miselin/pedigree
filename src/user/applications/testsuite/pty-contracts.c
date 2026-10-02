@@ -39,10 +39,16 @@ static void make_raw(int descriptor) {
 
 static void exchange_byte(int writer, int reader, char expected, const char* operation) {
   char received = 0;
+  int available = -1;
+  require(ioctl(reader, FIONREAD, &available) == 0 && available == 0, "empty PTY FIONREAD");
   require(write(writer, &expected, 1) == 1, operation);
+  require(ioctl(reader, FIONREAD, &available) == 0 && available == 1, "queued PTY FIONREAD");
+  require(ioctl(reader, FIONREAD, &available) == 0 && available == 1,
+          "PTY FIONREAD preserves input");
   errno = 0;
   ssize_t amount = read(reader, &received, 1);
   require(amount == 1 && received == expected, operation);
+  require(ioctl(reader, FIONREAD, &available) == 0 && available == 0, "drained PTY FIONREAD");
 }
 
 static void read_exact(int descriptor, char* buffer, size_t length, const char* operation) {

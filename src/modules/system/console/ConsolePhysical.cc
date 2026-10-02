@@ -82,21 +82,37 @@ bool waitPhysical(ConsoleIoState& state) {
 }
 }  // namespace
 
+void ConsolePhysicalFile::collectInput(ConsoleIoState& state, bool canBlock) {
+  char input[512];
+  size_t amount = m_pTerminal->read(0, sizeof(input), reinterpret_cast<uintptr_t>(input), false);
+  if (amount) {
+    inputLineDiscipline(state, input, amount, canBlock, m_Flags, m_ControlChars);
+  }
+  char echo[512];
+  while (!state.revoked() && state.output.canRead(false)) {
+    size_t echoed = state.output.read(echo, sizeof(echo), false);
+    if (!echoed || writeIo(state, echoed, reinterpret_cast<uintptr_t>(echo), canBlock) != echoed) {
+      break;
+    }
+  }
+}
+
+size_t ConsolePhysicalFile::readableBytes(ConsoleIoState& state) {
+  // Physical input is collected on demand. FIONREAD must make it visible
+  // without consuming the bytes that the application's next read needs.
+  if (!state.revoked() && !state.input.canRead(false)) {
+    collectInput(state, false);
+  }
+  return state.input.getDataSize();
+}
+
 uint64_t ConsolePhysicalFile::readIo(ConsoleIoState& state, uint64_t size, uintptr_t buffer,
                                      bool canBlock) {
   while (!state.revoked()) {
-    if (state.input.canRead(false))
+    if (state.input.canRead(false)) {
       return state.input.read(reinterpret_cast<char*>(buffer), size, false);
-    char input[512];
-    size_t amount = m_pTerminal->read(0, sizeof(input), reinterpret_cast<uintptr_t>(input), false);
-    if (amount)
-      inputLineDiscipline(state, input, amount, canBlock, m_Flags, m_ControlChars);
-    char echo[512];
-    while (!state.revoked() && state.output.canRead(false)) {
-      size_t echoed = state.output.read(echo, sizeof(echo), false);
-      if (!echoed || writeIo(state, echoed, reinterpret_cast<uintptr_t>(echo), canBlock) != echoed)
-        break;
     }
+    collectInput(state, canBlock);
     if (state.input.canRead(false))
       continue;
     if (!canBlock || !waitPhysical(state))

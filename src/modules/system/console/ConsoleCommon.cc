@@ -219,6 +219,10 @@ ReadyMask ConsoleFile::queryReady(bool reading, bool writing) {
   return queryEpoch(captureOpenEpoch(false), reading, writing);
 }
 
+size_t ConsoleFile::readableBytes(ConsoleIoState& state) {
+  return (isMaster() ? state.output : state.input).getDataSize();
+}
+
 ReadinessGenerations ConsoleFile::epochGenerations(const SharedPointer<ConsoleIoState>& epoch) {
   ReadinessGenerations result;
   if (epoch) {

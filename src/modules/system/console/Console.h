@@ -96,6 +96,7 @@ class EXPORTED_PUBLIC ConsoleFile : public File {
   uint64_t writeEpoch(const SharedPointer<ConsoleIoState>& epoch, uint64_t size, uintptr_t buffer,
                       bool canBlock);
   ReadyMask queryEpoch(const SharedPointer<ConsoleIoState>& epoch, bool reading, bool writing);
+  virtual size_t readableBytes(ConsoleIoState& state);
   ReadinessGenerations epochGenerations(const SharedPointer<ConsoleIoState>& epoch);
   SharedPointer<ConsoleControlState> controlState();
   void setControlState(const SharedPointer<ConsoleControlState>& state);
@@ -273,6 +274,7 @@ class EXPORTED_PUBLIC ConsolePhysicalFile : public ConsoleFile {
   }
 
   void terminalReadinessChanged(ReadyMask mask);
+  size_t readableBytes(ConsoleIoState& state) override;
 
  private:
   File* m_pTerminal;
@@ -280,6 +282,7 @@ class EXPORTED_PUBLIC ConsolePhysicalFile : public ConsoleFile {
   SharedPointer<ReadinessObserver> m_TerminalReadinessObserver;
   ReadinessSubscription m_TerminalReadinessSubscription;
 
+  void collectInput(ConsoleIoState& state, bool canBlock);
   uint64_t readIo(ConsoleIoState&, uint64_t, uintptr_t, bool) override;
   uint64_t writeIo(ConsoleIoState&, uint64_t, uintptr_t, bool) override;
 };

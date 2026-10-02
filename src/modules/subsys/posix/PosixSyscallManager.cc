@@ -294,8 +294,14 @@ uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallS
       return posix_open(reinterpret_cast<const char*>(argument(0)), argument(1), argument(2));
     POSIX_CASE(POSIX_WRITE)
       return posix_write(argument(0), reinterpret_cast<char*>(argument(1)), argument(2));
-    POSIX_CASE(POSIX_READ)
-      return posix_read(argument(0), reinterpret_cast<char*>(argument(1)), argument(2));
+    POSIX_CASE(POSIX_READ) {
+      const int result = posix_read(argument(0), reinterpret_cast<char*>(argument(1)), argument(2));
+      if (result < 0) {
+        F_NOTICE("read(" << Dec << argument(0) << ") -> " << result
+                         << ", errno=" << Processor::information().getCurrentThread()->getErrno());
+      }
+      return result;
+    }
     POSIX_CASE(POSIX_PREAD64)
       return posix_pread64(static_cast<int>(argument(0)), reinterpret_cast<char*>(argument(1)),
                            static_cast<size_t>(argument(2)), static_cast<off_t>(argument(3)));
@@ -474,10 +480,16 @@ uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallS
     case POSIX_TCSETATTR:
       return posix_tcsetattr(argument(0), argument(1),
                              reinterpret_cast<struct termios*>(argument(2)));
-    POSIX_CASE(POSIX_IOCTL)
-    // musl's signed int request can be sign-extended into the syscall slot.
-      return posix_ioctl(argument(0), linuxAbi ? static_cast<uint32_t>(argument(1)) : argument(1),
-                         reinterpret_cast<void*>(argument(2)));
+    POSIX_CASE(POSIX_IOCTL) {
+      // musl's signed int request can be sign-extended into the syscall slot.
+      const size_t command = linuxAbi ? static_cast<uint32_t>(argument(1)) : argument(1);
+      const int result = posix_ioctl(argument(0), command, reinterpret_cast<void*>(argument(2)));
+      F_NOTICE(
+          "ioctl(" << Dec << argument(0) << ", " << Hex << command << ") -> " << Dec << result
+                   << ", errno="
+                   << (result < 0 ? Processor::information().getCurrentThread()->getErrno() : 0));
+      return result;
+    }
     POSIX_CASE(POSIX_STAT)
       return posix_stat(reinterpret_cast<const char*>(argument(0)),
                         reinterpret_cast<struct stat*>(argument(1)));
