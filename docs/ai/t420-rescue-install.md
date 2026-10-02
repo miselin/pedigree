@@ -285,8 +285,9 @@ unique data.
 
 For kernel updates, replace only the `current` artifact set with a matching
 kernel/initrd/EFI set. Rebuild the external driver against that same
-Pedigree build. UEFI needs the **uncompressed** initrd tar despite its `.tar`
-name. Once a set works on the laptop, copy it to `known-good`. Keep this
+Pedigree build. The current native x64 UEFI loader accepts either gzip-compressed
+or plain tar initrds under the `initrd.tar` name. Older loaders require the
+uncompressed tar. Once a set works on the laptop, copy it to `known-good`. Keep this
 backup when updating `current`. Do not `dd` the initial root image again over
 an installed system: that would replace its files and filesystem metadata.
 

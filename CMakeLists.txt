@@ -491,6 +491,10 @@ if (NOT PEDIGREE_SELF_HOSTED AND BUILD_TESTING)
         COMMAND ${PYTHON_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/test_create_initrd.py -v)
     add_test(
+        NAME uefi-gzip-tests
+        COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/test_uefi_gzip.py -v)
+    add_test(
         NAME musl-syscall-routing-tests
         COMMAND ${PYTHON_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/test_musl_syscall_routing.py -v)
@@ -772,7 +776,12 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             DEPENDS ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/loader.c
                     ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/exit_boot_services.h
                     ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/load_options.h
-                    ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/framebuffer.h)
+                    ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/framebuffer.h
+                    ${CMAKE_SOURCE_DIR}/src/system/boot/uefi/gzip.h
+                    ${CMAKE_SOURCE_DIR}/external/tinf/tinflate.c
+                    ${CMAKE_SOURCE_DIR}/external/tinf/tinfgzip.c
+                    ${CMAKE_SOURCE_DIR}/external/tinf/crc32.c
+                    ${CMAKE_SOURCE_DIR}/external/tinf/tinf.h)
         add_custom_command(OUTPUT ${UEFI_LOADER}
             COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/uefi_pe.py
             ${UEFI_LOADER_OBJECT} ${UEFI_LOADER}
@@ -873,12 +882,12 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             --efi ${UEFI_LOADER}
             ${UEFI_GRUB_ARGUMENT}
             --kernel ${CMAKE_BINARY_DIR}/src/system/kernel/kernel
-            --initrd ${CMAKE_BINARY_DIR}/src/modules/initrd.tar.uncomp
+            --initrd ${CMAKE_BINARY_DIR}/src/modules/initrd.tar
             --root ${UEFI_ROOT_IMAGE}
             DEPENDS ${UEFI_BOOT_DEPENDENCIES} ${UEFI_ROOT_IMAGE}
                 kernel initrd
             ${CMAKE_BINARY_DIR}/src/system/kernel/kernel
-            ${CMAKE_BINARY_DIR}/src/modules/initrd.tar.uncomp
+            ${CMAKE_BINARY_DIR}/src/modules/initrd.tar
                 ${CMAKE_SOURCE_DIR}/scripts/create_uefi_image.py
                 ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi.cfg
                 ${CMAKE_SOURCE_DIR}/images/grub/grub-uefi-stub.cfg)

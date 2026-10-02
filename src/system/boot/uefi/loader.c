@@ -10,6 +10,7 @@
 
 #include "exit_boot_services.h"
 #include "framebuffer.h"
+#include "gzip.h"
 #include "load_options.h"
 
 typedef uint16_t efi_char16_t;
@@ -26,6 +27,7 @@ typedef struct efi_file efi_file_t;
 
 typedef efi_status_t (*efi_handle_protocol_t)(efi_handle_t, efi_guid_t*, void**);
 typedef efi_status_t (*efi_allocate_pages_t)(uint32_t, uint32_t, uint64_t, uint64_t*);
+typedef efi_status_t (*efi_free_pages_t)(uint64_t, uint64_t);
 typedef efi_status_t (*efi_locate_device_path_t)(efi_guid_t*, void**, efi_handle_t*);
 typedef efi_status_t (*efi_locate_handle_buffer_t)(uint32_t, efi_guid_t*, void*, uint64_t*,
                                                    efi_handle_t**);
@@ -465,8 +467,9 @@ static void* read_file(efi_file_t* root, efi_char16_t* path, uint64_t* length) {
   if (root->open(root, &file, path, EFI_FILE_MODE_READ, 0) != EFI_SUCCESS)
     return 0;
   uint64_t size = file_size(file);
+  const uint64_t expected_size = size;
   void* buffer = size ? allocate_pages(size + 1, 0xffffffffULL) : 0;
-  if (!buffer || file->read(file, &size, buffer) != EFI_SUCCESS) {
+  if (!buffer || file->read(file, &size, buffer) != EFI_SUCCESS || size != expected_size) {
     file->close(file);
     return 0;
   }
@@ -592,6 +595,30 @@ efi_status_t efi_main(efi_handle_t image, efi_system_table_t* system_table) {
   if (!kernel_file || !initrd || !cmdline) {
     print((efi_char16_t*)L"UEFI: file read failed\r\n");
     return 1;
+  }
+  if (initrd_is_gzip(initrd, initrd_length)) {
+    unsigned int unpacked_length = gzip_initrd_size(initrd, initrd_length);
+    const unsigned int capacity = unpacked_length;
+    if (!unpacked_length) {
+      print((efi_char16_t*)L"UEFI: invalid or oversized gzip initrd\r\n");
+      return 1;
+    }
+    uint8_t* unpacked = (uint8_t*)allocate_pages(unpacked_length, 0xffffffffULL);
+    if (!unpacked) {
+      print((efi_char16_t*)L"UEFI: gzip initrd allocation failed\r\n");
+      return 1;
+    }
+    efi_free_pages_t free_pages = (efi_free_pages_t)system_table->boot_services->free_pages;
+    if (tinf_gzip_uncompress(unpacked, &unpacked_length, initrd, (unsigned int)initrd_length) !=
+        TINF_OK) {
+      free_pages((uint64_t)unpacked, pages_for(capacity));
+      print((efi_char16_t*)L"UEFI: invalid gzip initrd\r\n");
+      return 1;
+    }
+    free_pages((uint64_t)initrd, pages_for(initrd_length + 1));
+    initrd = unpacked;
+    initrd_length = unpacked_length;
+    print((efi_char16_t*)L"UEFI: gzip initrd decompressed\r\n");
   }
   if (options.arguments_length) {
     char* combined = (char*)allocate_pages(UEFI_COMMAND_LINE_CAPACITY, 0xffffffffULL);

@@ -1,0 +1,8 @@
+tinf v1.2.1
+https://github.com/jibsen/tinf
+Commit: 9929246b87f0946b124cfa2a89894b8943b0b072
+License: zlib (see LICENSE and source headers).
+
+Only the inflate, gzip, CRC32 sources and public header are vendored.
+Local changes in tinflate.c allow freestanding assertions and reject trailing
+deflate bytes. The loader combines the sources in one COFF translation unit.

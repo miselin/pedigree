@@ -176,9 +176,10 @@ cached by CMake.
 With the default build directory, the primary products are:
 
 - `build-selfhost/src/system/kernel/kernel` — UEFI boot kernel;
-- `build-selfhost/src/modules/initrd.tar` — compressed module initrd;
-- `build-selfhost/src/modules/initrd.tar.uncomp` — raw module initrd for the
-  UEFI image;
+- `build-selfhost/src/modules/initrd.tar` — compressed module initrd used by the
+  native x64 UEFI image;
+- `build-selfhost/src/modules/initrd.tar.uncomp` — raw module initrd for older
+  loaders;
 - `build-selfhost/src/modules/initrd.manifest` — deterministic initrd contents;
 - `build-selfhost/src/user/` — built user applications and libraries when
   `PEDIGREE_BUILD_USER_DIR=ON`;
