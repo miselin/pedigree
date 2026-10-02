@@ -54,6 +54,7 @@
 #include "file-metadata.h"
 #include "file-syscalls.h"
 #include "inotify-syscalls.h"
+#include "landlock.h"
 #include "memfd-syscalls.h"
 #include "metadata-syscalls.h"
 #include "modules/subsys/posix/IoEvent.h"
@@ -3760,6 +3761,10 @@ int posix_ftruncate(int a, off_t b) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
+  if (!pFd->truncateAllowed()) {
+    SYSCALL_ERROR(PermissionDenied);
+    return -1;
+  }
   return pFile->resize(static_cast<size_t>(b)) ? 0 : -1;
 }
 
@@ -4334,6 +4339,12 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
     return -1;
   }
 
+  bool allowTruncate = false;
+  if (!posix_landlock_open(fileLease.path(), flags, allowTruncate)) {
+    pSubsystem->freeFd(fd);
+    return -1;
+  }
+
   if (g_pDevFs && g_pDevFs->isControllingTerminalSelector(file)) {
     openingCtty = true;
     file = pProcess->acquireCtty(cttyLease);
@@ -4466,6 +4477,7 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
     return -1;
   }
   if (f) {
+    f->setTruncateAllowed(allowTruncate);
     pSubsystem->addFileDescriptor(fd, f);
     file->publishEvent(FileEvents::Open);
   }

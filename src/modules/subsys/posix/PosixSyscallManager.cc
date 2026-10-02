@@ -50,6 +50,7 @@
 #include "init-module-syscalls.h"
 #include "inotify-syscalls.h"
 #include "job-control-syscalls.h"
+#include "landlock.h"
 #include "linux-amd64-signal.h"
 #include "logging.h"
 #include "memfd-syscalls.h"
@@ -71,6 +72,7 @@
 #include "queued-signal.h"
 #include "quota-syscalls.h"
 #include "recvmmsg-syscalls.h"
+#include "sandbox-state.h"
 #include "scheduling-syscalls.h"
 #include "select-syscalls.h"
 #include "signal-syscalls.h"
@@ -290,6 +292,16 @@ uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallS
     handle_##target:
   switch (syscallNumber) {
     // POSIX system calls
+    POSIX_CASE(POSIX_SECCOMP)
+      return posix_seccomp(argument(0), argument(1), reinterpret_cast<const void*>(argument(2)));
+    POSIX_CASE(POSIX_LANDLOCK_CREATE_RULESET)
+      return posix_landlock_create_ruleset(reinterpret_cast<const void*>(argument(0)), argument(1),
+                                           argument(2));
+    POSIX_CASE(POSIX_LANDLOCK_ADD_RULE)
+      return posix_landlock_add_rule(argument(0), argument(1),
+                                     reinterpret_cast<const void*>(argument(2)), argument(3));
+    POSIX_CASE(POSIX_LANDLOCK_RESTRICT_SELF)
+      return posix_landlock_restrict_self(argument(0), argument(1));
     POSIX_CASE(POSIX_OPEN)
       return posix_open(reinterpret_cast<const char*>(argument(0)), argument(1), argument(2));
     POSIX_CASE(POSIX_WRITE)

@@ -14,6 +14,7 @@
 #include "PosixSubsystem.h"
 #include "file-metadata.h"
 #include "file-syscalls.h"
+#include "landlock.h"
 #include "metadata-abi.h"
 #include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/VFS.h"
@@ -127,6 +128,9 @@ MetadataResult truncatePath(const char* path, off_t length) {
   }
   if (!writableFilesystem(target.file) || !VFS::checkAccess(target.file, false, true, false))
     return -1;
+  if (!posix_landlock_check(target.retainedPath, LandlockAccess::Truncate)) {
+    return -1;
+  }
   return target.file->resize(static_cast<size_t>(length)) ? 0 : -1;
 }
 

@@ -657,6 +657,7 @@ pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MountView-mounts.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MountView-report.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MountView-entries.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MountView-access.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/VFS-mount-view.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/VFS.cc)
 
@@ -1062,6 +1063,9 @@ pedigree_module(posix "" "pedigree-vterm-kernel"
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/credential-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/process-vm-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/uts-namespace.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sandbox-state.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/seccomp-filter.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/landlock.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/namespace-file.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/namespace-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/scheduling-syscalls.cc

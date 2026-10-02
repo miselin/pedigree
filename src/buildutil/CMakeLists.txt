@@ -206,6 +206,7 @@ add_library(vfs
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/MountView-mounts.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/MountView-report.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/MountView-entries.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/MountView-access.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/VFS-mount-view.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/VFS.cc
 )
@@ -354,6 +355,8 @@ set(TESTSUITE_SRCS
     testsuite/test-Ext2Handles.cc
     testsuite/test-Ext2Owners.cc
     testsuite/test-PosixCredentials.cc
+    testsuite/test-SeccompFilter.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/seccomp-filter.cc
     testsuite/test-FanotifyQueue.cc
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/fanotify-queue.cc
     testsuite/test-FatWriteback.cc

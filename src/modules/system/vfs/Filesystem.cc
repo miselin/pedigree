@@ -488,7 +488,9 @@ bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringV
 }
 
 bool Filesystem::renameChildren(File* oldParentFile, const String& oldName, File* newParentFile,
-                                const String& newName, bool noReplace, bool sourceMustBeDirectory) {
+                                const String& newName, bool noReplace, bool sourceMustBeDirectory,
+                                const FilesystemPathRef* oldPath,
+                                const FilesystemPathRef* newPath) {
   InodeRetirementDrain retirement;
   VFS::NamespaceMutation namespaceWriter(VFS::instance());
   if (!oldParentFile || !newParentFile) {
@@ -554,6 +556,11 @@ bool Filesystem::renameChildren(File* oldParentFile, const String& oldName, File
     return false;
   }
   File* replaced = replacedLease.get();
+  if (oldPath && newPath &&
+      !VFS::instance().mountView()->authorizeRename(*oldPath, source, *newPath, replaced,
+                                                    namespaceWriter)) {
+    return false;
+  }
   // Both parent namespace locks exclude creators until reservation and commit.
   // Check before the same-inode fast path: NOREPLACE rejects hard-link aliases too.
   if (noReplace && replaced) {
@@ -687,7 +694,8 @@ bool Filesystem::renameNode(Directory*, const String&, File*, Directory*, const 
   return false;
 }
 
-bool Filesystem::removeChild(File* parent, const String& filename, File* expected) {
+bool Filesystem::removeChild(File* parent, const String& filename, File* expected,
+                             const FilesystemPathRef* parentPath) {
   InodeRetirementDrain retirement;
   VFS::NamespaceMutation namespaceWriter(VFS::instance());
   LockGuard<Mutex> structureGuard(m_StructureLock);
@@ -726,6 +734,11 @@ bool Filesystem::removeChild(File* parent, const String& filename, File* expecte
   }
   if (expected && target.get() != expected) {
     SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+
+  if (parentPath &&
+      !VFS::instance().mountView()->authorizeRemove(*parentPath, target.get(), namespaceWriter)) {
     return false;
   }
 

@@ -219,6 +219,19 @@ class EXPORTED_PUBLIC Thread {
          const ThreadPlacement* placement = nullptr);
 
   void snapshotPlacement(ThreadPlacement& placement);
+  // Subsystem-owned immutable restrictions survive exec and are shared by a
+  // newly cloned thread until it installs a more restrictive state.
+  class SecurityState {
+   public:
+    virtual ~SecurityState() = default;
+    virtual bool interceptSyscall(SyscallState&, uintptr_t&) const = 0;
+  };
+  using SecurityStateRef = SharedPointer<SecurityState>;
+  bool hasSecurityState() const {
+    return __atomic_load_n(&m_HasSecurityState, __ATOMIC_ACQUIRE);
+  }
+  SecurityStateRef securityState();
+  void setSecurityState(const SecurityStateRef& state);
   /** The allocator already holds the new Thread's construction lock. */
   void snapshotPlacementLocked(ThreadPlacement& placement) const;
   /** Success admits the returned generation; Busy names the existing one. */
@@ -1165,6 +1178,8 @@ class EXPORTED_PUBLIC Thread {
   uint32_t m_FilesystemUid = 0, m_FilesystemGid = 0;
   bool m_FilesystemIdsValid = false;
   const FilesystemCredentials* m_FilesystemOverride = nullptr;
+  SecurityStateRef m_SecurityState;
+  bool m_HasSecurityState = false;
 
   /** Allocation-free publication storage for scheduler-side retirement. */
   DeferredThreadReapNode m_DeferredReapNode;

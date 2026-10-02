@@ -60,6 +60,9 @@ class VfsPath final : public FilesystemPath {
   VfsMountView& view;
   VfsAttachmentRef attachment;
   VfsNodeReference file;
+  // A regular inode can have several names with different directory ancestry.
+  FilesystemPathRef lookupParent;
+  String lookupName;
 };
 
 struct VfsAttachmentRow {
@@ -109,6 +112,7 @@ struct VfsMountView::State {
   bool makePath(const VfsAttachmentRef& attachment, File* node, FilesystemPathRef& result);
   bool makePath(const VfsAttachmentRef& attachment, VfsNodeReference&& node,
                 FilesystemPathRef& result);
+  bool ancestors(const FilesystemPathRef& path, Vector<FilesystemPathRef>& result);
   bool context(const FilesystemContextRef& reference, VfsFilesystemContext*& result) const;
   bool createContext(const VfsFilesystemContext* parent, FilesystemContextOwner& result);
   bool cross(const FilesystemPathRef& path, FilesystemPathRef& result);

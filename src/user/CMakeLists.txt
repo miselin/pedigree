@@ -397,6 +397,8 @@ pedigree_app(metadata-contract-test OFF OFF "" TEST
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/metadata-contract-test/main.c)
 pedigree_app(pivot-root-contract-test OFF OFF "" TEST
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/pivot-root-contract-test/main.c)
+pedigree_app(sandbox-contract-test OFF OFF "" TEST
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/sandbox-contract-test/main.c)
 pedigree_app(execveat-contract-test OFF OFF "" TEST
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/execveat-contract-test/main.c)
 pedigree_app(executable-file-contract-test OFF OFF "" TEST

@@ -50,6 +50,7 @@
 #include "ProcFs.h"
 #include "eventfd-syscalls.h"
 #include "file-syscalls.h"
+#include "landlock.h"
 #include "linux-amd64-signal.h"
 #include "logging.h"
 #include "modules/system/linker/DynamicLinker.h"
@@ -62,6 +63,7 @@
 #include "posix-timer-syscalls.h"
 #include "pthread-syscalls.h"
 #include "queued-signal.h"
+#include "sandbox-state.h"
 #include "signal-syscalls.h"
 #include "signalfd-syscalls.h"
 #include "system-syscalls.h"
@@ -2575,6 +2577,10 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     if (!VFS::checkAccess(originalFile, false, false, true)) {
       return false;
     }
+    if (!posix_landlock_check(originalTargetLease.path(),
+                              LandlockAccess::Execute | LandlockAccess::ReadFile)) {
+      return false;
+    }
     allExecutableFilesReadable &= posix_exec_file_readable(originalFile);
 
     const size_t bytesRead =
@@ -2701,6 +2707,10 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     }
 
     if (!VFS::checkAccess(interpreterFile, false, false, true)) {
+      return false;
+    }
+    if (!posix_landlock_check(interpreterLease.path(),
+                              LandlockAccess::Execute | LandlockAccess::ReadFile)) {
       return false;
     }
     allExecutableFilesReadable &= posix_exec_file_readable(interpreterFile);
@@ -3052,6 +3062,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
       delete stack;
       return failAfterCommit(Error::OutOfMemory);
     }
+    posix_sandbox_inherit(*pNewThread, *pThread);
     m_Namespaces->publishThread(initialUts, *pNewThread, true);
     if (m_TraceContext.publishTask(initialTrace, *pNewThread) != TraceStatus::Success &&
         pNewThread->getUnwindState() != Thread::TerminateThread)

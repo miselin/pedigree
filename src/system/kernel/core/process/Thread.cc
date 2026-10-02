@@ -50,6 +50,21 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+Thread::SecurityStateRef Thread::securityState() {
+  LockGuard<Spinlock> guard(m_Lock);
+  return m_SecurityState;
+}
+
+void Thread::setSecurityState(const SecurityStateRef& state) {
+  SecurityStateRef previous;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    previous = pedigree_std::move(m_SecurityState);
+    m_SecurityState = state;
+    __atomic_store_n(&m_HasSecurityState, bool(state), __ATOMIC_RELEASE);
+  }
+}
+
 Thread::StackDiscardScope::StackDiscardScope(DeferredScopeRecord::Cleanup cleanup, void* context)
     : m_pThread(cleanup ? Processor::information().getCurrentThread() : nullptr), m_Record() {
   if (cleanup && !m_pThread) {

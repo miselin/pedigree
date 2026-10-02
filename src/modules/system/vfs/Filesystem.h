@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/DiskPaging.h"
+#include "pedigree/kernel/process/FilesystemContext.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -197,9 +198,12 @@ class EXPORTED_PUBLIC Filesystem {
   /** Serializes changes to directory ancestry against removal. */
   static Mutex m_StructureLock;
   /** Resolve and remove one child at a namespace-locked linearization point. */
-  bool removeChild(File* parent, const String& filename, File* expected);
+  bool removeChild(File* parent, const String& filename, File* expected,
+                   const FilesystemPathRef* parentPath = nullptr);
   bool renameChildren(File* oldParent, const String& oldName, File* newParent,
-                      const String& newName, bool noReplace, bool sourceMustBeDirectory);
+                      const String& newName, bool noReplace, bool sourceMustBeDirectory,
+                      const FilesystemPathRef* oldPath = nullptr,
+                      const FilesystemPathRef* newPath = nullptr);
 
   /** Internal function to find a node - Returns 0 on failure or the node.
       \param pNode The node to start parsing 'path' from.

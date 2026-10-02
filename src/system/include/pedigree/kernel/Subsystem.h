@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/FilesystemContext.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/utilities/String.h"
 
@@ -45,6 +46,16 @@ class EXPORTED_PUBLIC Subsystem {
   friend class Process;
 
  public:
+  virtual bool filesystemConstrained() const {
+    return false;
+  }
+  virtual uint64_t filesystemAccess(const FilesystemPathRef*, size_t) const {
+    return ~uint64_t(0);
+  }
+  virtual bool filesystemReparent(const FilesystemPathRef*, size_t, const FilesystemPathRef*,
+                                  size_t) const {
+    return true;
+  }
   enum class UserReturnResult { Continue, Terminal };
   enum class UserReturnEventResult { Deliver, Consumed, Terminal };
   virtual UserReturnResult userReturnCheckpoint(Thread&, UserReturnFrame&) {

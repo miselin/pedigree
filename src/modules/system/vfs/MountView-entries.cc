@@ -1,4 +1,5 @@
 /* Copyright (c) 2026, Pedigree Developers. */
+#include "pedigree/kernel/process/FilesystemAccess.h"
 #include "pedigree/kernel/syscallError.h"
 
 #include "MountView-internal.h"
@@ -52,21 +53,31 @@ bool VfsMountView::isMountpoint(File* node) const {
 }
 
 bool VfsMountView::createFile(const FilesystemPathRef& parent, const String& name, uint32_t mask) {
-  return validParent(parent, name, this) && absent(parent, name) &&
+  VFS::NamespaceMutation writer(m_Vfs);
+  return validParent(parent, name, this) &&
+         checkFilesystemAccess(parent, FilesystemAccess::MakeReg, &writer) &&
+         absent(parent, name) &&
          parent->node()->getFilesystem()->createFile(parent->node(), name, mask);
 }
 bool VfsMountView::createDirectory(const FilesystemPathRef& parent, const String& name,
                                    uint32_t mask) {
-  return validParent(parent, name, this) && absent(parent, name) &&
+  VFS::NamespaceMutation writer(m_Vfs);
+  return validParent(parent, name, this) &&
+         checkFilesystemAccess(parent, FilesystemAccess::MakeDir, &writer) &&
+         absent(parent, name) &&
          parent->node()->getFilesystem()->createDirectory(parent->node(), name, mask);
 }
 bool VfsMountView::createSymlink(const FilesystemPathRef& parent, const String& name,
                                  const String& value) {
-  return validParent(parent, name, this) && absent(parent, name) &&
+  VFS::NamespaceMutation writer(m_Vfs);
+  return validParent(parent, name, this) &&
+         checkFilesystemAccess(parent, FilesystemAccess::MakeSym, &writer) &&
+         absent(parent, name) &&
          parent->node()->getFilesystem()->createSymlink(parent->node(), name, value);
 }
 bool VfsMountView::createLink(const FilesystemPathRef& parent, const String& name,
                               const FilesystemPathRef& target) {
+  VFS::NamespaceMutation writer(m_Vfs);
   if (!validParent(parent, name, this))
     return false;
   auto* source = m_State->path(target);
@@ -84,12 +95,15 @@ bool VfsMountView::createLink(const FilesystemPathRef& parent, const String& nam
     SYSCALL_ERROR(OperationNotSupported);
     return false;
   }
+  if (!authorizeLink(parent, target, writer)) {
+    return false;
+  }
   return absent(parent, name) &&
          parent->node()->getFilesystem()->createLink(parent->node(), name, target->node());
 }
 bool VfsMountView::remove(const FilesystemPathRef& parent, const String& name, File* expected) {
   return validParent(parent, name, this) &&
-         parent->node()->getFilesystem()->removeChild(parent->node(), name, expected);
+         parent->node()->getFilesystem()->removeChild(parent->node(), name, expected, &parent);
 }
 bool VfsMountView::rename(const FilesystemPathRef& oldParent, const String& oldName,
                           const FilesystemPathRef& newParent, const String& newName, bool noReplace,
@@ -101,5 +115,16 @@ bool VfsMountView::rename(const FilesystemPathRef& oldParent, const String& oldN
     return false;
   }
   return oldParent->node()->getFilesystem()->renameChildren(
-      oldParent->node(), oldName, newParent->node(), newName, noReplace, sourceMustBeDirectory);
+      oldParent->node(), oldName, newParent->node(), newName, noReplace, sourceMustBeDirectory,
+      &oldParent, &newParent);
+}
+
+Directory::AddStatus VfsMountView::createEphemeral(const FilesystemPathRef& parent, File* node,
+                                                   uint64_t access) {
+  VFS::NamespaceMutation writer(m_Vfs);
+  if (!node || !validParent(parent, node->getName(), this) ||
+      !checkFilesystemAccess(parent, access, &writer)) {
+    return Directory::AddStatus::IoError;
+  }
+  return Directory::fromFile(parent->node())->addEphemeralFile(node);
 }

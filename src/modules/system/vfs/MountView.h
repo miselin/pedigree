@@ -69,6 +69,19 @@ class EXPORTED_PUBLIC VfsMountView {
   bool pathForNode(const FilesystemPathRef& sameAttachment, File* retainedNode,
                    FilesystemPathRef& result);
   bool samePath(const FilesystemPathRef& first, const FilesystemPathRef& second) const;
+  uint64_t filesystemAccess(const FilesystemPathRef& path,
+                            const VFS::NamespaceMutation* writer = nullptr);
+  bool checkFilesystemAccess(const FilesystemPathRef& path, uint64_t access,
+                             const VFS::NamespaceMutation* writer = nullptr);
+  bool authorizeRemove(const FilesystemPathRef& parent, File* node,
+                       const VFS::NamespaceMutation& writer);
+  bool authorizeLink(const FilesystemPathRef& parent, const FilesystemPathRef& target,
+                     const VFS::NamespaceMutation& writer);
+  bool authorizeRename(const FilesystemPathRef& oldParent, File* source,
+                       const FilesystemPathRef& newParent, File* replaced,
+                       const VFS::NamespaceMutation& writer, bool removeSource = true);
+  Directory::AddStatus createEphemeral(const FilesystemPathRef& parent, File* node,
+                                       uint64_t access);
 
   // Boot/fixture enrollment only; never resolves a raw File to a guessed mount.
   bool bootRootPath(FilesystemPathRef& result);

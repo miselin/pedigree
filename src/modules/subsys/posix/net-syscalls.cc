@@ -39,6 +39,7 @@
 
 #include "eventfd-syscalls.h"
 #include "file-syscalls.h"
+#include "landlock.h"
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/ResolvedPath.h"
@@ -3809,7 +3810,6 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t a
     return -1;
   }
   File* parentDirectory = parent->node();
-  Directory* pDir = Directory::fromFile(parentDirectory);
   if (parentDirectory->getFilesystem()->isReadOnly()) {
     SYSCALL_ERROR(ReadOnlyFilesystem);
     return -1;
@@ -3823,12 +3823,17 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t a
     return -1;
   }
   // Establish the descriptor's ownership before publishing the pathname.
-  // addEphemeralFile adds the directory's separate ownership on success.
+  // createEphemeral adds the directory's separate ownership on success.
   VFS::instance().trackFile(socket);
-  Directory::AddStatus addStatus = pDir->addEphemeralFile(socket);
+  syscallError(0);
+  const Directory::AddStatus addStatus =
+      view->createEphemeral(parent, socket, LandlockAccess::MakeSock);
   if (addStatus != Directory::AddStatus::Added) {
+    const size_t error = Processor::information().getCurrentThread()->getErrno();
     socket->releaseVfsReference();
-    if (addStatus == Directory::AddStatus::IoError) {
+    if (error) {
+      syscallError(error);
+    } else if (addStatus == Directory::AddStatus::IoError) {
       SYSCALL_ERROR(IoError);
     } else if (addStatus == Directory::AddStatus::Detached) {
       SYSCALL_ERROR(DoesNotExist);

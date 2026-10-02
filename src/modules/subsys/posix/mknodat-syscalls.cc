@@ -13,6 +13,7 @@
 #include "PosixProcess.h"
 #include "PosixSubsystem.h"
 #include "file-syscalls.h"
+#include "landlock.h"
 #include "metadata-syscalls.h"
 #include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/Pipe.h"
@@ -135,12 +136,18 @@ MknodResult createNode(int dirfd, const char* userPath, mode_t suppliedMode) {
   pipe->setPermissions(vfsPermissions);
   pipe->setUid(credentials.uid);
   pipe->setGid(credentials.gid);
-  const Directory::AddStatus added = directory->addEphemeralFile(pipe);
+  syscallError(0);
+  const Directory::AddStatus added = view->createEphemeral(parent, pipe, LandlockAccess::MakeFifo);
   if (added != Directory::AddStatus::Added) {
+    const size_t error = Processor::information().getCurrentThread()->getErrno();
     delete pipe;
-    syscallError(added == Directory::AddStatus::IoError    ? Error::IoError
-                 : added == Directory::AddStatus::Detached ? Error::DoesNotExist
-                                                           : Error::FileExists);
+    if (error) {
+      syscallError(error);
+    } else {
+      syscallError(added == Directory::AddStatus::IoError    ? Error::IoError
+                   : added == Directory::AddStatus::Detached ? Error::DoesNotExist
+                                                             : Error::FileExists);
+    }
     return -1;
   }
   return 0;

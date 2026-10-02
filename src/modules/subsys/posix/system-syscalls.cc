@@ -53,6 +53,7 @@
 #include "pipe-syscalls.h"
 #include "posixSyscallNumbers.h"
 #include "pthread-syscalls.h"
+#include "sandbox-state.h"
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
 #include "sysv-semaphore-syscalls.h"
@@ -495,6 +496,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
       }
       pThread->executionPersonality().inherit(
           Processor::information().getCurrentThread()->executionPersonality());
+      posix_sandbox_inherit(*pThread, *Processor::information().getCurrentThread());
       creatorNamespaces->publishThread(preparedUts, *pThread, false);
       if (creatorSubsystem->traceContext().publishTask(preparedTrace, *pThread) !=
               TraceStatus::Success &&
@@ -716,6 +718,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   }
   pThread->executionPersonality().inherit(
       Processor::information().getCurrentThread()->executionPersonality());
+  posix_sandbox_inherit(*pThread, *Processor::information().getCurrentThread());
   pSubsystem->namespaceContext()->publishThread(preparedUts, *pThread, true);
   if (pSubsystem->traceContext().publishTask(preparedTrace, *pThread) != TraceStatus::Success &&
       pThread->getUnwindState() != Thread::TerminateThread)
@@ -1377,6 +1380,27 @@ int posix_prctl(int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_
                   << ")");
 
   Thread* thread = Processor::information().getCurrentThread();
+  if (option == 38 || option == 39) {  // PR_SET_NO_NEW_PRIVS / PR_GET_NO_NEW_PRIVS
+    if (arg3 || arg4 || arg5 || (option == 38 ? arg2 != 1 : arg2 != 0)) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+    if (option == 38) {
+      return posix_set_no_new_privs();
+    }
+    thread->setErrno(0);
+    return posix_no_new_privs() ? 1 : 0;
+  }
+  if (option == 21) {  // PR_GET_SECCOMP
+    return posix_seccomp_mode();
+  }
+  if (option == 22) {  // PR_SET_SECCOMP
+    if (arg2 != 2) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+    return posix_seccomp(1, 0, reinterpret_cast<const void*>(arg3));
+  }
   if (option == 1 || option == 2) {  // PR_SET_PDEATHSIG / PR_GET_PDEATHSIG
     auto* subsystem = static_cast<PosixSubsystem*>(thread->getParent()->getSubsystem());
     if (!subsystem) {

@@ -119,6 +119,7 @@ class EXPORTED_PUBLIC FileDescriptor {
     int statusFlags;
     size_t descriptorOwners;
     bool vfsLease;
+    bool allowTruncate = true;
   };
 
   using OpenFileDescriptionLease = SharedPointer<OpenFileDescription>;
@@ -230,6 +231,15 @@ class EXPORTED_PUBLIC FileDescriptor {
 
   /// Get current status flags.
   int getStatusFlags() const;
+  bool truncateAllowed() const {
+    return m_OpenFile && m_OpenFile->allowTruncate;
+  }
+  // Set before publication; duplicated and transferred descriptors share this grant.
+  void setTruncateAllowed(bool allowed) {
+    if (m_OpenFile) {
+      m_OpenFile->allowTruncate = allowed;
+    }
+  }
 
   // F_SETFL cannot change access permissions; permission checks need no OFD lock.
   int getAccessFlags() const {

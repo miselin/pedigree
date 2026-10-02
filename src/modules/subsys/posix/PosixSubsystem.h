@@ -717,6 +717,11 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   bool checkAccess(const DescriptorLease& pFileDescriptor, bool bRead, bool bWrite,
                    bool bExecute) const;
+  uint64_t filesystemAccess(const FilesystemPathRef* ancestry, size_t count) const override;
+  bool filesystemConstrained() const override;
+  bool filesystemReparent(const FilesystemPathRef* source, size_t sourceCount,
+                          const FilesystemPathRef* destination,
+                          size_t destinationCount) const override;
 
   /** Invokes the given command (thread mechanism). */
   virtual bool invoke(const char* name, Vector<String>& argv, Vector<String>& env);

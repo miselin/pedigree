@@ -23,6 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/process/DeferredScope.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/SyscallHandler.h"
 #include "pedigree/kernel/processor/Syscalls.h"
 #include "pedigree/kernel/processor/state.h"
@@ -179,6 +180,13 @@ class SyscallManager {
   bool registerHandler(Service_t service, SyscallHandler* pHandler, Registration& registration,
                        FastEntry entry = nullptr);
   ALWAYS_INLINE uintptr_t dispatchHandler(const HandlerLease& lease, SyscallState& state) const {
+    if (UNLIKELY(lease.m_pThread->hasSecurityState())) {
+      auto security = lease.m_pThread->securityState();
+      uintptr_t result = 0;
+      if (security && security->interceptSyscall(state, result)) {
+        return result;
+      }
+    }
     return lease.m_Entry(lease.m_pHandler, state);
   }
   bool closeHandler(Registration& registration);

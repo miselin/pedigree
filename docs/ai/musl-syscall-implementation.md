@@ -23,6 +23,36 @@ lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
 
+## Linux command sandboxes
+
+The POSIX subsystem supports sticky, per-thread `PR_SET_NO_NEW_PRIVS`, seccomp
+classic BPF filters, and Landlock filesystem ABI 3. Restrictions survive thread
+creation, fork, and exec. Stacked filters and filesystem domains only narrow
+access; changing a ruleset after enforcement cannot widen an existing domain.
+Filesystem rules cover opens, execution, creation, removal, reparenting, and
+truncation. Existing descriptors retain their granted access, as on Linux.
+
+Seccomp supports `ALLOW`, `ERRNO`, `KILL_THREAD`, and `KILL_PROCESS`. Unsupported
+actions terminate the process; strict mode, TSYNC, and notification listeners
+are not supported. Filter and Landlock installation require `no_new_privs`,
+including for root. Landlock does not provide namespaces or extend its ABI 3
+rights to operations such as `chmod` and `ioctl`.
+
+The packaged Codex revision `694b6319d3ad2399f6e435760a22d9b9357f0697` can use
+its Landlock backend with this configuration:
+
+```toml
+[features]
+use_legacy_landlock = true
+```
+
+Use the app-server `command/exec` policy `{"type":"readOnly","networkAccess":false}`.
+The guest `sandbox-contract-test` covers writable Landlock roots separately.
+The packaged Codex fallback cannot preserve workspace metadata carveouts;
+workspace-write and profiles requiring direct runtime enforcement still need
+the bubblewrap backend. Bubblewrap's private mount/user/PID/network namespace
+setup is not implemented by this support.
+
 ## Descriptor close-on-exec ioctls
 
 `FIOCLEX` and `FIONCLEX` set and clear `FD_CLOEXEC` on any valid descriptor

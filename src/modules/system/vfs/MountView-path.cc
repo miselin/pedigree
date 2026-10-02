@@ -62,6 +62,10 @@ bool VfsMountView::State::parent(const FilesystemPathRef& reference, FilesystemP
   auto* current = path(reference);
   if (!current)
     return false;
+  if (!current->node()->isDirectory() && current->lookupParent) {
+    result = current->lookupParent;
+    return true;
+  }
   if (current->node() == current->attachment->root) {
     VfsAttachmentRef parentAttachment;
     SharedPointer<VfsNodeReference> covered;
@@ -272,6 +276,10 @@ bool VfsMountView::State::walk(const FilesystemContextSnapshot& context,
     FilesystemPathRef candidate;
     if (!makePath(path(current)->attachment, VfsNodeReference(child), candidate)) {
       return false;
+    }
+    if (!candidate->node()->isDirectory()) {
+      static_cast<VfsPath*>(candidate.get())->lookupParent = current;
+      static_cast<VfsPath*>(candidate.get())->lookupName = String(component);
     }
     current = pedigree_std::move(candidate);
     offset = next;
