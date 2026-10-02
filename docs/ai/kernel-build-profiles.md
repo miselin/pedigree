@@ -46,7 +46,7 @@ cmake -S . -B build-t420 \
   -DPEDIGREE_MEMORY_LOG=FALSE \
   -DPEDIGREE_LOG_TO_SERIAL=FALSE \
   -DPEDIGREE_TIME_ACCOUNTING=TRUE \
-  -DPEDIGREE_SAMPLED_TIME_ACCOUNTING=TRUE \
+  -DPEDIGREE_SAMPLED_TIME_ACCOUNTING=FALSE \
   -DPEDIGREE_SYSCALL_COUNTER=FALSE \
   -DPEDIGREE_ACTIVITY_DIAGNOSTICS=FALSE \
   -DPEDIGREE_X64_USER_ENTRY_DIAGNOSTICS=FALSE \
@@ -109,10 +109,10 @@ SLAM scribbling needs a separate source/build variant with
 allocations, so reserve it for bounded allocator debugging. Debug profiles are
 not comparable to deployment profiles for timing.
 
-For precise CPU accounting select `PEDIGREE_SAMPLED_TIME_ACCOUNTING=FALSE` while
-keeping `PEDIGREE_TIME_ACCOUNTING=TRUE`. Per-syscall timing additionally requires
-`PEDIGREE_BENCHMARK_SYSCALL_TIMING=TRUE`; sampled accounting and syscall timing
-cannot be enabled together. See [accounting limits](cpu-time-accounting.md) and
+The x64 one-shot scheduler requires precise CPU accounting, so keep
+`PEDIGREE_SAMPLED_TIME_ACCOUNTING=FALSE` and `PEDIGREE_TIME_ACCOUNTING=TRUE`.
+Per-syscall timing additionally requires
+`PEDIGREE_BENCHMARK_SYSCALL_TIMING=TRUE`. See [accounting limits](cpu-time-accounting.md) and
 [profiling tools](syscall-framework-performance.md#retained-profiling-and-regression-tools).
 
 ## Evidence for speed optimization
@@ -122,8 +122,9 @@ built with `-Os` and `-O3`, changing only `PEDIGREE_OPTIMIZE_SIZE`. Both images
 ran on a Darwin/arm64 host with QEMU 11.1.1 TCG, one SandyBridge vCPU, q35, and
 4 GiB RAM. Firmware, backing-chain topology, RAM-root fixture, GCC 15.3/musl
 binaries, inputs, and guest compiler commands matched. Normal interrupts,
-sampled accounting, and assertions remained enabled. This was not a test of
-every deployment setting above.
+sampled accounting, and assertions remained enabled. These measurements predate
+x64 one-shot scheduling, which now requires precise accounting. This was not a
+test of every deployment setting above.
 
 | Host-wall median | `-Os` | `-O3` | Reduction |
 | --- | ---: | ---: | ---: |
