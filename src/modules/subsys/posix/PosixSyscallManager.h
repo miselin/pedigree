@@ -57,9 +57,9 @@ class PosixSyscallManager : public SyscallHandler {
   /** The copy-constructor
    *\note Not implemented (singleton) */
   PosixSyscallManager& operator=(const PosixSyscallManager&);
-  /** Records seen unknown syscalls so we don't spam logs. */
-  Tree<uint64_t, bool> m_SeenUnknownSyscalls;
-  Mutex m_UnknownSyscallsLock;
+  /** Records unsupported syscalls per process so feature probes don't flood the log. */
+  Tree<uint64_t, bool> m_SeenUnsupportedSyscalls;
+  Mutex m_UnsupportedSyscallsLock;
   SyscallManager::Registration m_LinuxRegistration;
   SyscallManager::Registration m_PosixRegistration;
 };

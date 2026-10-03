@@ -96,6 +96,46 @@
 #endif
 
 namespace {
+class UnsupportedSyscallLog {
+ public:
+  UnsupportedSyscallLog(SyscallState& state, Tree<uint64_t, bool>& seen, Mutex& lock)
+      : m_State(state), m_Seen(seen), m_Lock(lock) {}
+
+  ~UnsupportedSyscallLog() {
+    Thread* thread = Processor::information().getCurrentThread();
+    const size_t error = thread->getErrno();
+    if (error != Error::Unimplemented && error != Error::OperationNotSupported) {
+      return;
+    }
+
+    Process* process = thread->getParent();
+    const uint64_t number = m_State.getSyscallNumber();
+    const bool linuxAbi = m_State.getSyscallService() == linuxCompat;
+    const uint64_t key = (static_cast<uint64_t>(process->getId()) << 32) |
+                         ((number & 0x3fffffff) << 2) | (static_cast<uint64_t>(linuxAbi) << 1) |
+                         (error == Error::OperationNotSupported);
+    bool firstOccurrence = false;
+    {
+      TerminationDeferral terminationDeferral;
+      LockGuard<Mutex> guard(m_Lock);
+      firstOccurrence = !m_Seen.lookup(key);
+      if (firstOccurrence) {
+        m_Seen.insert(key, true);
+      }
+    }
+    if (firstOccurrence) {
+      NOTICE("POSIX: pid=" << Dec << process->getId() << " " << (linuxAbi ? "Linux" : "native")
+                           << " syscall #" << number << " set "
+                           << (error == Error::Unimplemented ? "ENOSYS" : "ENOTSUP") << Hex);
+    }
+  }
+
+ private:
+  SyscallState& m_State;
+  Tree<uint64_t, bool>& m_Seen;
+  Mutex& m_Lock;
+};
+
 off_t linuxAmd64VectorOffset(uintptr_t low, uintptr_t high) {
   const uint64_t bits =
       (static_cast<uint64_t>(high) << 32U) | (static_cast<uint64_t>(low) & 0xFFFFFFFFULL);
@@ -171,6 +211,9 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
 }
 
 uintptr_t PosixSyscallManager::syscallEntry(SyscallHandler* handler, SyscallState& state) {
+  auto* manager = static_cast<PosixSyscallManager*>(handler);
+  UnsupportedSyscallLog unsupported(state, manager->m_SeenUnsupportedSyscalls,
+                                    manager->m_UnsupportedSyscallsLock);
 #if PEDIGREE_BENCHMARK_SYSCALL_TRACE
   Thread* thread = Processor::information().getCurrentThread();
   Process* process = thread ? thread->getParent() : nullptr;
@@ -192,7 +235,6 @@ uintptr_t PosixSyscallManager::syscallEntry(SyscallHandler* handler, SyscallStat
 
 uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallState& state) {
 #endif
-  auto* manager = static_cast<PosixSyscallManager*>(handler);
 #if PEDIGREE_SYSCALL_COUNTER
   Process* syscallProcess = Processor::information().getCurrentThread()->getParent();
   if (syscallProcess) {
@@ -263,20 +305,6 @@ uintptr_t PosixSyscallManager::syscallDispatch(SyscallHandler* handler, SyscallS
 #endif
     }
 
-    uint64_t key = (static_cast<uint64_t>(pProcess->getId()) << 32ULL) | syscallNumber;
-    bool firstOccurrence = false;
-    {
-      TerminationDeferral terminationDeferral;
-      LockGuard<Mutex> guard(manager->m_UnknownSyscallsLock);
-      firstOccurrence = !manager->m_SeenUnknownSyscalls.lookup(key);
-      if (firstOccurrence) {
-        manager->m_SeenUnknownSyscalls.insert(key, true);
-      }
-    }
-    if (firstOccurrence) {
-      ERROR("POSIX: unknown Linux syscall " << syscallNumber << " by pid=" << pProcess->getId()
-                                            << ", translation failed!");
-    }
     SYSCALL_ERROR(Unimplemented);
     return -1;
   }
