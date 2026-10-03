@@ -45,11 +45,14 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "file-syscalls.h"
+#include "ipc-namespace.h"
 #include "linux-resource-abi.h"
 #include "modules/system/linker/DynamicLinker.h"
 #include "modules/system/vfs/File.h"
+#include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
+#include "network-namespace.h"
 #include "pipe-syscalls.h"
 #include "posixSyscallNumbers.h"
 #include "pthread-syscalls.h"
@@ -57,6 +60,7 @@
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
 #include "sysv-semaphore-syscalls.h"
+#include "user-namespace.h"
 
 #define MACHINE_FORWARD_DECL_ONLY
 #include "pedigree/kernel/Subsystem.h"
@@ -102,9 +106,6 @@ static_assert(sizeof(struct rusage) == sizeof(LinuxRusage64) + 16 * sizeof(long)
 #define LINUX_PR_GET_NAME 16
 #define LINUX_TASK_NAME_LENGTH 16
 
-// capget/capset
-#define _LINUX_CAPABILITY_VERSION_1 0x19980330
-
 #define LINUX_GRND_NONBLOCK 0x1
 #define LINUX_GRND_RANDOM 0x2
 
@@ -129,7 +130,8 @@ CloneRoute cloneRoute(unsigned long flags) {
   constexpr unsigned long ExitSignalMask = 0xff;
   constexpr unsigned long SpawnFlags = CLONE_VM | CLONE_VFORK | SIGCHLD;
   constexpr unsigned long ProcessModifiers =
-      CLONE_NEWUTS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_SETTLS;
+      CLONE_NEWUTS | CLONE_NEWNS | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWIPC | CLONE_NEWNET |
+      CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_SETTLS;
   constexpr unsigned long ThreadRequired =
       CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD;
   constexpr unsigned long ThreadAllowed = ThreadRequired | CLONE_SYSVSEM | CLONE_SETTLS |
@@ -192,16 +194,6 @@ extern "C" EXPORTED_PUBLIC int posixCloneRouteForTest(unsigned long flags) {
 }
 #endif
 
-struct cap_header {
-  uint32_t version;
-  int pid;
-};
-
-struct cap_data {
-  uint32_t effective;
-  uint32_t permitted;
-  uint32_t inheritable;
-};
 
 //
 // Syscalls pertaining to system operations.
@@ -399,6 +391,36 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     }
   }
 
+  Thread& creator = *Processor::information().getCurrentThread();
+  TaskCredentialsRef childCredentials;
+  if ((flags & CLONE_NEWUSER) && !posix_user_namespace_prepare(creator, childCredentials)) {
+    return -1;
+  }
+  if (!(flags & CLONE_NEWUSER) &&
+      (flags & (CLONE_NEWNS | CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET)) &&
+      !posix_capable(PosixCapabilities::SysAdmin)) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return -1;
+  }
+  const auto ownerNamespace =
+      childCredentials ? childCredentials->userNamespace : posix_user_namespace(creator);
+  NetworkNamespaceRef childNetwork;
+  if ((flags & CLONE_NEWNET) && !posix_network_namespace_prepare(ownerNamespace, childNetwork)) {
+    return -1;
+  }
+  SharedPointer<IpcNamespace> childIpc;
+  if (flags & CLONE_NEWIPC) {
+    childIpc = SharedPointer<IpcNamespace>::tryAllocate(ownerNamespace);
+    if (!childIpc) {
+      SYSCALL_ERROR(OutOfMemory);
+      return -1;
+    }
+  }
+  Thread::SecurityStateRef childSecurity;
+  if (!posix_sandbox_prepare_namespaces(creator, childCredentials, childIpc, childNetwork,
+                                        childSecurity)) {
+    return -1;
+  }
   PosixSubsystem* creatorSubsystem = getSubsystem();
   TraceCloneAdmission traceCreation;
   TraceTaskRef creatorTask;
@@ -429,11 +451,8 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   UtsStatus utsPrepared;
   {
     MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
-    if ((flags & CLONE_NEWUTS) && getPosixProcess()->snapshotCredentials().euid != 0) {
-      SYSCALL_ERROR(NotEnoughPermissions);
-      return -1;
-    }
-    utsPrepared = posix_uts_prepare_thread(creatorUts, flags & CLONE_NEWUTS, preparedUts);
+    utsPrepared =
+        posix_uts_prepare_thread(creatorUts, flags & CLONE_NEWUTS, preparedUts, ownerNamespace);
   }
   if (utsPrepared != UtsStatus::Success)
     return posix_uts_error(utsPrepared);
@@ -506,7 +525,13 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
       if (setTls) {
         pThread->setTlsBase(newtls);
       }
-      threadId = linuxAbi ? pThread->getTaskId() : pThread->getId();
+      threadId = linuxAbi ? pThread->getUserspaceTaskId() : pThread->getId();
+    }
+    if (linuxAbi && !threadId) {
+      pThread->setUnwindState(Thread::TerminateThread);
+      pThread->startDetached();
+      SYSCALL_ERROR(OutOfMemory);
+      return -1;
     }
     {
       CloneInterruptScope enabled(true);
@@ -578,7 +603,12 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   // too; any rollback retires its owner after the mapping guard has unwound.
   FilesystemContextOwner childFilesystem;
   auto parentFilesystem = pParentProcess->acquireFilesystemContext();
-  if (!parentFilesystem || !parentFilesystem->forkForProcess(childFilesystem)) {
+  auto* parentView = VfsMountView::fromContext(parentFilesystem);
+  if (!parentFilesystem || !parentView ||
+      ((flags & CLONE_NEWNS)
+           ? !parentView->forkNamespace(parentFilesystem, childFilesystem,
+                                        ownerNamespace ? ownerNamespace->identity() : 0)
+           : !parentFilesystem->forkForProcess(childFilesystem))) {
     SYSCALL_ERROR(OutOfMemory);
     return -1;
   }
@@ -594,7 +624,9 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
     pProcess = new PosixProcess(pParentProcess, true, Process::FilesystemContextMode::Deferred,
                                 borrowAddressSpace);
-    if (!pProcess || !pProcess->getAddressSpace() || !pProcess->jobControlReady()) {
+    if (!pProcess || !pProcess->getAddressSpace() || !pProcess->jobControlReady() ||
+        !pProcess->pidNamespaceReady() ||
+        ((flags & CLONE_NEWPID) && !pProcess->createPidNamespace())) {
       delete pProcess;
       for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; sig++)
         Processor::information().getCurrentThread()->inhibitEvent(sig, false);
@@ -686,7 +718,8 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   }
 
   if (flags & CLONE_PARENT_SETTID) {
-    const int childId = static_cast<int>(pProcess->getUserspaceId());
+    const int childId =
+        static_cast<int>(pProcess->getUserspaceId(pParentProcess->pidNamespace().get()));
     if (!PosixSubsystem::copyToUser(ptid, &childId, sizeof(childId))) {
       delete pProcess;
       SYSCALL_ERROR(BadAddress);
@@ -718,7 +751,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   }
   pThread->executionPersonality().inherit(
       Processor::information().getCurrentThread()->executionPersonality());
-  posix_sandbox_inherit(*pThread, *Processor::information().getCurrentThread());
+  pThread->setSecurityState(childSecurity);
   pSubsystem->namespaceContext()->publishThread(preparedUts, *pThread, true);
   if (pSubsystem->traceContext().publishTask(preparedTrace, *pThread) != TraceStatus::Success &&
       pThread->getUnwindState() != Thread::TerminateThread)
@@ -735,7 +768,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   // Finish publishing the child-side POSIX state before it can execute.
   pedigree_copy_posix_thread(Processor::information().getCurrentThread(), pParentSubsystem, pThread,
                              pSubsystem);
-  const size_t childId = pProcess->getUserspaceId();
+  const size_t childId = pProcess->getUserspaceId(pParentProcess->pidNamespace().get());
   Uninterruptible parentEvents;
   pProcess->publish();
   if (!pThread->start()) {
@@ -861,7 +894,7 @@ int posix_getppid() {
       return 0;
     }
     if (pProcess->getParent() == parent.get()) {
-      return parent->getUserspaceId();
+      return parent->getUserspaceId(pProcess->pidNamespace().get());
     }
   }
 }
@@ -1088,7 +1121,7 @@ EXPORTED_PUBLIC int pedigree_login(int uid) {
     return -1;
   }
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  if (process->snapshotCredentials().euid != 0) {
+  if (!posix_global_capable(PosixCapabilities::Setuid)) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }
@@ -1323,7 +1356,7 @@ int posix_syslog(const char* msg, int prio) {
 }
 
 int posix_reboot(uint32_t magic1, uint32_t magic2, uint32_t command) {
-  if (Processor::information().getCurrentThread()->getParent()->getEffectiveUserId() != 0) {
+  if (!posix_global_capable(PosixCapabilities::SysBoot)) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }
@@ -1390,6 +1423,10 @@ int posix_prctl(int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_
     }
     thread->setErrno(0);
     return posix_no_new_privs() ? 1 : 0;
+  }
+  if (option == 7 || option == 8 || option == 23 || option == 24 || option == 27 || option == 28 ||
+      option == 47) {
+    return posix_capability_prctl(option, arg2, arg3, arg4, arg5);
   }
   if (option == 21) {  // PR_GET_SECCOMP
     return posix_seccomp_mode();
@@ -1629,9 +1666,9 @@ int posix_get_robust_list(int pid, struct robust_list_head** head_ptr, size_t* l
   Thread* current = Processor::information().getCurrentThread();
   Thread* target = current;
   Process::ThreadLease targetLease;
-  const size_t currentId = linuxAbi ? current->getTaskId() : current->getId();
+  const size_t currentId = linuxAbi ? current->getUserspaceTaskId() : current->getId();
   if (pid < 0 || (pid && static_cast<size_t>(pid) != currentId &&
-                  !(linuxAbi ? Scheduler::instance().acquireThreadByTaskId(targetLease, pid)
+                  !(linuxAbi ? Scheduler::instance().acquireThreadByUserspaceId(targetLease, pid)
                              : current->getParent()->acquireThreadById(targetLease, pid)))) {
     SYSCALL_ERROR(NoSuchProcess);
     return -1;
@@ -1668,7 +1705,7 @@ int posix_set_robust_list(struct robust_list_head* head, size_t len, bool linuxA
   // touching it; exit processing must bound and validate each later access.
   Thread* current = Processor::information().getCurrentThread();
   current->setRobustList(reinterpret_cast<uintptr_t>(head),
-                         linuxAbi ? current->getTaskId() : current->getId());
+                         linuxAbi ? current->getUserspaceTaskId() : current->getId());
 
   return 0;
 }
@@ -1809,57 +1846,5 @@ int posix_setitimer(int which, const struct itimerval* new_value, struct itimerv
     }
   }
 
-  return 0;
-}
-
-int posix_capget(void* hdrp, void* datap) {
-  if (!getPosixProcess()) {
-    return -1;
-  }
-  cap_header header = {};
-  if (!PosixSubsystem::copyFromUser(&header, hdrp, sizeof(header))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-  if (header.version != _LINUX_CAPABILITY_VERSION_1) {
-    const uint32_t version = _LINUX_CAPABILITY_VERSION_1;
-    if (!PosixSubsystem::copyToUser(hdrp, &version, sizeof(version))) {
-      SYSCALL_ERROR(BadAddress);
-      return -1;
-    }
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-  if (datap) {
-    const cap_data data = {0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF};
-    if (!PosixSubsystem::copyToUser(datap, &data, sizeof(data))) {
-      SYSCALL_ERROR(BadAddress);
-      return -1;
-    }
-  }
-  return 0;
-}
-
-int posix_capset(void* hdrp, const void* datap) {
-  cap_header header = {};
-  if (!PosixSubsystem::copyFromUser(&header, hdrp, sizeof(header))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-  if (header.version != _LINUX_CAPABILITY_VERSION_1) {
-    const uint32_t version = _LINUX_CAPABILITY_VERSION_1;
-    if (!PosixSubsystem::copyToUser(hdrp, &version, sizeof(version))) {
-      SYSCALL_ERROR(BadAddress);
-      return -1;
-    }
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-  cap_data data = {};
-  if (!PosixSubsystem::copyFromUser(&data, datap, sizeof(data))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-  // Capability policy remains the existing all-granted no-op contract.
   return 0;
 }

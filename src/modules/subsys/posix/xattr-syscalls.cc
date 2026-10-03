@@ -15,6 +15,8 @@
 #include "ResolvedPath.h"
 #include "file-syscalls.h"
 #include "modules/system/vfs/ExtendedAttributes.h"
+#include "modules/system/vfs/MountView.h"
+#include "user-namespace.h"
 #include "xattr-syscalls.h"
 
 namespace {
@@ -124,7 +126,8 @@ bool permitted(File* file, const String& name, bool write) {
       return false;
     }
     const uint32_t uid = credentials.uid;
-    if ((attributes.permissions & FILE_STICKY) && uid != 0 &&
+    if ((attributes.permissions & FILE_STICKY) &&
+        !posix_global_capable(PosixCapabilities::Fowner) &&
         static_cast<uint64_t>(uid) != attributes.uid) {
       SYSCALL_ERROR(NotEnoughPermissions);
       return false;
@@ -256,6 +259,13 @@ XattrResult changeAttribute(TargetKind kind, const char* path, int fd, const cha
   }
   if (kind != TargetKind::Descriptor && !target.resolve(kind, path, fd))
     return -1;
+  VfsMountView::WriteLease mountWrite;
+  const auto retainedPath = target.pathLease.path() ? target.pathLease.path()
+                            : target.descriptor     ? target.descriptor->openingPath()
+                                                    : FilesystemPathRef();
+  if (retainedPath && !mountWrite.acquire(retainedPath)) {
+    return -1;
+  }
   if (!permitted(target.file, name, true))
     return -1;
   return static_cast<int>(

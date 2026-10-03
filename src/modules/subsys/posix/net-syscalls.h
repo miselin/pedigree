@@ -31,6 +31,7 @@
 
 #include "logging.h"
 #include "modules/subsys/posix/UnixFilesystem.h"
+#include "network-namespace.h"
 #include <sys/socket.h>
 #include <sys/types.h>
 
@@ -45,6 +46,7 @@ struct netbuf;
 struct netconn;
 
 class Semaphore;
+class MqueueNetlinkSocket;
 class FileDescriptor;
 class DescriptorLease;
 class UnixSocket;
@@ -87,6 +89,9 @@ class NetworkSyscalls : public ReadinessSource {
 
   /// Implementation-specific final socket creation logic,
   /// implementations must set a SYSCALL_ERROR on failure.
+  virtual MqueueNetlinkSocket* asMqueueNetlink() {
+    return nullptr;
+  }
   virtual bool create();
   virtual int connect(const struct sockaddr_storage* address, socklen_t addrlen) = 0;
 
@@ -152,6 +157,10 @@ class NetworkSyscalls : public ReadinessSource {
     return m_Protocol;
   }
 
+  const NetworkNamespaceRef& networkNamespace() const {
+    return m_NetworkNamespace;
+  }
+
   bool isBlocking() const;
 
   virtual void setBlocking(bool blocking);
@@ -160,6 +169,9 @@ class NetworkSyscalls : public ReadinessSource {
   void deferReceiveError(int error);
 
  protected:
+  virtual bool usesLocalEndpointLifetime() const {
+    return false;
+  }
   ReadyMask pendingReceiveReadiness() const;
   ReadinessGenerations withReceiveErrorGeneration(ReadinessGenerations generations) const;
 
@@ -174,6 +186,7 @@ class NetworkSyscalls : public ReadinessSource {
   int m_Domain;
   int m_Type;
   int m_Protocol;
+  NetworkNamespaceRef m_NetworkNamespace;
 
   Atomic<bool> m_Blocking;
   mutable Mutex m_ReceiveErrorLock;
@@ -302,6 +315,12 @@ class UnixSocketSyscalls : public NetworkSyscalls {
   /// sockets directly communicate with each other.
   bool pairWith(UnixSocketSyscalls* other);
 
+ protected:
+  bool usesLocalEndpointLifetime() const override {
+    return true;
+  }
+  virtual UnixSocketSyscalls* createAcceptedSocket();
+
  private:
   friend class UnixSocketGeneration;
   friend bool runHostedUnixEndpointLifetimeRegression(Process* process);
@@ -360,10 +379,11 @@ class UnixSocketSyscalls : public NetworkSyscalls {
   static void unregisterSocket(UnixSocket* socket, List<UnixSocket*>& peers);
   void notifyPeer(UnixSocket* socket, ReadyMask mask);
   static void notifySocket(UnixSocket* socket, ReadyMask mask);
-  static bool publishAbstractSocket(const String& address,
-                                    const SharedPointer<UnixSocketReference>& reference);
-  static SharedPointer<UnixSocketReference> acquireSocket(const String& address);
-  static void removeAbstractSocket(const String& address, UnixSocket* socket);
+  String abstractKey(const String& address) const;
+  bool publishAbstractSocket(const String& address,
+                             const SharedPointer<UnixSocketReference>& reference);
+  SharedPointer<UnixSocketReference> acquireSocket(const String& address);
+  void removeAbstractSocket(const String& address, UnixSocket* socket);
 
   SharedPointer<UnixSocketGeneration> acquireLocalEndpoint() const;
   void replaceLocalEndpoint(UnixSocket* socket, bool tracked, const String* localPath = nullptr);

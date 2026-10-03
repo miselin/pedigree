@@ -38,6 +38,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "File.h"
+#include "MountView.h"
 #include "VFS.h"
 
 MemoryMapManager MemoryMapManager::m_Instance;
@@ -187,7 +188,10 @@ MemoryMappedFile::MemoryMappedFile(uintptr_t address, size_t length, size_t offs
       m_bVfsLease(backing && VFS::instance().retainTrackedFile(backing)),
       m_ExecutableUse(executableUse || (bCopyOnWrite && (perms & Exec))),
       m_SharedWriteUse(!bCopyOnWrite && (maximumPerms & Write)),
-      m_UseAdmitted(backing && backing->acquireMappingUse(m_ExecutableUse, m_SharedWriteUse)) {
+      m_UseAdmitted(backing && backing->acquireMappingUse(m_ExecutableUse, m_SharedWriteUse)),
+      m_MountAdmitted(!m_SharedWriteUse || !backing->supportsRegularFileOperations() ||
+                      backing->isBlockDevice() || !m_Origin.openingPath || m_Origin.writeLease ||
+                      VfsMountView::retainWrite(m_Origin.openingPath, m_Origin.writeLease)) {
   assert(m_pBacking);
   m_Attachment = attachment;
 }
@@ -203,6 +207,7 @@ MemoryMappedFile::~MemoryMappedFile() {
     VFS::instance().untrackFile(m_pBacking);
   }
   m_Origin.openingPath.reset();
+  m_Origin.writeLease.reset();
 }
 
 MemoryMappedObject* MemoryMappedFile::clone() {

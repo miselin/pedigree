@@ -18,6 +18,7 @@
 #include "metadata-abi.h"
 #include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/VFS.h"
+#include "user-namespace.h"
 #include <sys/stat.h>
 
 namespace {
@@ -116,6 +117,7 @@ MetadataResult truncatePath(const char* path, off_t length) {
     return -1;
   }
   MetadataPath target;
+  VfsMountView::WriteLease mountWrite;
   if (!target.resolve(AT_FDCWD, path, 0))
     return -1;
   if (target.file->isDirectory()) {
@@ -126,7 +128,9 @@ MetadataResult truncatePath(const char* path, off_t length) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-  if (!writableFilesystem(target.file) || !VFS::checkAccess(target.file, false, true, false))
+  if ((!writableFilesystem(target.file) ||
+       (target.retainedPath && !mountWrite.acquire(target.retainedPath))) ||
+      !VFS::checkAccess(target.file, false, true, false))
     return -1;
   if (!posix_landlock_check(target.retainedPath, LandlockAccess::Truncate)) {
     return -1;
@@ -136,7 +140,10 @@ MetadataResult truncatePath(const char* path, off_t length) {
 
 MetadataResult linkOwnership(const char* path, uid_t owner, gid_t group) {
   MetadataPath target;
-  if (!target.resolve(AT_FDCWD, path, AT_SYMLINK_NOFOLLOW) || !writableFilesystem(target.file))
+  VfsMountView::WriteLease mountWrite;
+  if (!target.resolve(AT_FDCWD, path, AT_SYMLINK_NOFOLLOW) ||
+      (!writableFilesystem(target.file) ||
+       (target.retainedPath && !mountWrite.acquire(target.retainedPath))))
     return -1;
   return posix_chown_file(target.file, owner, group) ? 0 : -1;
 }
@@ -147,7 +154,10 @@ MetadataResult chmodAt(int dirfd, const char* path, mode_t mode, int flags) {
     return -1;
   }
   MetadataPath target;
-  if (!target.resolve(dirfd, path, flags) || !writableFilesystem(target.file))
+  VfsMountView::WriteLease mountWrite;
+  if (!target.resolve(dirfd, path, flags) ||
+      (!writableFilesystem(target.file) ||
+       (target.retainedPath && !mountWrite.acquire(target.retainedPath))))
     return -1;
   if (target.file->isSymlink()) {
     SYSCALL_ERROR(OperationNotSupported);
@@ -183,17 +193,20 @@ MetadataResult updateTimes(int dirfd, const char* path, const void* userTimes, i
     return -1;
   }
   MetadataPath target;
+  VfsMountView::WriteLease mountWrite;
   if (!target.resolve(
           dirfd, path, flags,
           descriptorOnly ? MetadataPath::Input::OpenDescriptor : MetadataPath::Input::Path) ||
-      !writableFilesystem(target.file))
+      (!writableFilesystem(target.file) ||
+       (target.retainedPath && !mountWrite.acquire(target.retainedPath))))
     return -1;
   FilesystemCredentials credentials;
   if (!Process::currentFilesystemCredentials(credentials)) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }
-  const bool owner = !credentials.uid || credentials.uid == target.file->getUid();
+  const bool owner =
+      posix_global_capable(PosixCapabilities::Fowner) || credentials.uid == target.file->getUid();
   const bool touch = times[0].nanoseconds == TimeNow && times[1].nanoseconds == TimeNow;
   if (!owner && !touch) {
     SYSCALL_ERROR(NotEnoughPermissions);

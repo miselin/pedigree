@@ -12,6 +12,7 @@
 
 #include "FileDescriptor.h"
 #include "PosixSubsystem.h"
+#include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/Pipe.h"
 #include "net-syscalls.h"
 #include "pipe-transfer-syscalls.h"
@@ -178,6 +179,11 @@ ssize_t mixedSplice(Thread* thread, Endpoint& input, Endpoint& output, int64_t* 
                    : positions.offset(writingPipe ? PositionSide::Input : PositionSide::Output);
       if (!validRange(position, count) || interrupted(thread))
         return -1;
+      VfsMountView::WriteLease mountWrite;
+      if (output.file && !output.pipe && output.descriptor->openingPath() &&
+          !mountWrite.acquire(output.descriptor->openingPath())) {
+        return -1;
+      }
       ssize_t moved;
       if (writingPipe) {
         Pipe::WriteReservation reservation;
@@ -293,6 +299,11 @@ ssize_t posix_splice(int inputFd, int64_t* inputOffset, int outputFd, int64_t* o
     }
     if (!accessAllowed(input, false) || !accessAllowed(output, true))
       return -1;
+    VfsMountView::WriteLease mountWrite;
+    if (output.file && !output.pipe && output.descriptor->openingPath() &&
+        !mountWrite.acquire(output.descriptor->openingPath())) {
+      return -1;
+    }
     ssize_t moved;
     if (input.pipe && output.pipe) {
       const bool canBlock = !(flags & Nonblock) && !((input.flags | output.flags) & O_NONBLOCK);

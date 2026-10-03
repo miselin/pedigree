@@ -22,6 +22,7 @@
 #include "pthread-syscalls.h"
 #include "system-syscalls.h"
 #include "timerfd-syscalls.h"
+#include "user-namespace.h"
 
 #ifndef SG_NOTICE
 #define SG_NOTICE(x)
@@ -281,7 +282,7 @@ int posix_clock_settime(clockid_t clockId, const LinuxKernelTimespec* value) {
     return -1;
   }
   Process* process = Processor::information().getCurrentThread()->getParent();
-  if (process->getEffectiveUserId() != 0) {
+  if (!posix_global_capable(PosixCapabilities::SysTime)) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }

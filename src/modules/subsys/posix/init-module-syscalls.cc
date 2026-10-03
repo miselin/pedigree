@@ -9,11 +9,12 @@
 #include "pedigree/kernel/syscallError.h"
 
 #include "PosixSubsystem.h"
+#include "user-namespace.h"
 
 int posix_init_module(const void* image, size_t length, const char* parameters) {
   TerminationDeferral lifetime;
   Thread* thread = Processor::information().getCurrentThread();
-  if (thread->getParent()->getEffectiveUserId() != 0) {
+  if (!posix_global_capable(16)) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }

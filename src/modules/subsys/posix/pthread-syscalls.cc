@@ -760,11 +760,11 @@ pid_t posix_gettid(bool linuxAbi) {
   // Go caches this value before creating another thread, so it must not
   // change when the process transitions from one thread to several.
   Thread* current = Processor::information().getCurrentThread();
-  return linuxAbi ? current->getTaskId() : current->getId();
+  return linuxAbi ? current->getUserspaceTaskId() : current->getId();
 }
 
 pid_t posix_set_tid_address(int* tidptr, bool linuxAbi) {
   Thread* thread = Processor::information().getCurrentThread();
   thread->setClearChildTid(reinterpret_cast<uintptr_t>(tidptr));
-  return linuxAbi ? thread->getTaskId() : thread->getId();
+  return linuxAbi ? thread->getUserspaceTaskId() : thread->getId();
 }

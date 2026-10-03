@@ -67,6 +67,7 @@ struct SemaphoreValue {
 };
 
 struct Set {
+  uint64_t namespaceId = posix_ipc_namespace_id();
   Metadata metadata = {};
   SemaphoreValue semaphores[MaximumSemaphores];
   ConditionVariable changed;
@@ -101,11 +102,13 @@ size_t undoRecordCount = 0;
 UndoOwner* undoOwners = nullptr;
 size_t undoOwnerCount = 0;
 
-SharedPointer<Set> findSet(int id) {
+SharedPointer<Set> findSet(int id, bool enforceNamespace = true) {
   if (id < 0)
     return {};
   const SharedPointer<Set>& set = registry[static_cast<unsigned>(id) % MaximumSets];
-  return set && set->id == id ? set : SharedPointer<Set>();
+  return set && set->id == id && (!enforceNamespace || set->namespaceId == posix_ipc_namespace_id())
+             ? set
+             : SharedPointer<Set>();
 }
 
 UndoOwner* findOwner(Thread* thread) {
@@ -239,8 +242,9 @@ int posix_semget(int key, int count, int flags) {
       continue;
     }
     Set& set = *registry[i];
-    if (!key || set.metadata.permission.key != key)
+    if (!key || set.namespaceId != posix_ipc_namespace_id() || set.metadata.permission.key != key) {
       continue;
+    }
     if ((flags & (Create | Exclusive)) == (Create | Exclusive)) {
       SYSCALL_ERROR(FileExists);
       return -1;
@@ -320,7 +324,7 @@ int posix_semtimedop(int id, const void* operations, size_t count, const void* t
   }
   LockGuard<Mutex> guard(registryLock);
   SharedPointer<Set> set = findSet(id);
-  if (!set) {
+  if (!set || set->namespaceId != posix_ipc_namespace_id()) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -398,7 +402,7 @@ int posix_semctl(int id, int number, int command, uintptr_t argument) {
   if (command == Info || command == SemInfo) {
     int highest = 0, usedSets = 0, usedSemaphores = 0;
     for (size_t i = 0; i < MaximumSets; ++i) {
-      if (registry[i]) {
+      if (registry[i] && registry[i]->namespaceId == posix_ipc_namespace_id()) {
         highest = i;
         ++usedSets;
         usedSemaphores += registry[i]->metadata.count;
@@ -425,7 +429,7 @@ int posix_semctl(int id, int number, int command, uintptr_t argument) {
   SharedPointer<Set> set = byIndex && id >= 0 && id < static_cast<int>(MaximumSets) ? registry[id]
                            : byIndex ? SharedPointer<Set>()
                                      : findSet(id);
-  if (!set) {
+  if (!set || set->namespaceId != posix_ipc_namespace_id()) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -580,7 +584,7 @@ void posix_sem_thread_exit(Thread* thread) {
       link = &record->next;
       continue;
     }
-    SharedPointer<Set> set = findSet(record->id);
+    SharedPointer<Set> set = findSet(record->id, false);
     if (set && record->adjustment) {
       SemaphoreValue& semaphore = set->semaphores[record->number];
       const int value = semaphore.value + record->adjustment;
@@ -595,4 +599,16 @@ void posix_sem_thread_exit(Thread* thread) {
     --undoRecordCount;
   }
   delete group;
+}
+
+void posix_sem_namespace_exit(uint64_t identity) {
+  LockGuard<Mutex> guard(registryLock);
+  for (auto& set : registry) {
+    if (set && set->namespaceId == identity) {
+      set->removed = true;
+      clearUndo(set->id);
+      set->changed.broadcast();
+      set.reset();
+    }
+  }
 }

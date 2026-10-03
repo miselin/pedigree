@@ -9,6 +9,10 @@ struct FilesystemCredentials {
   uint32_t groups[MaximumGroups] = {};
   size_t groupCount = 0;
   bool valid = false;
+  // POSIX supplies capability authority explicitly; other subsystem callers
+  // retain the traditional numeric-root credential convention.
+  bool enforceCapabilities = false;
+  uint64_t capabilities = 0;
   bool inGroup(uint32_t id) const {
     if (gid == id)
       return true;

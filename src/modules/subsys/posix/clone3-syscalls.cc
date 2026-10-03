@@ -65,10 +65,11 @@ long posix_clone3(SyscallState& state, const LinuxCloneArgs* userArgs, size_t si
     return -1;
   }
 
-  constexpr uint64_t AllowedFlags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
-                                    CLONE_VFORK | CLONE_THREAD | CLONE_SYSVSEM | CLONE_SETTLS |
-                                    CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID |
-                                    CLONE_CHILD_SETTID | CLONE_NEWUTS | LinuxCloneAbi::ClearSighand;
+  constexpr uint64_t AllowedFlags =
+      CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_VFORK | CLONE_THREAD |
+      CLONE_SYSVSEM | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID |
+      CLONE_CHILD_SETTID | CLONE_NEWUTS | CLONE_NEWNS | CLONE_NEWUSER | CLONE_NEWPID |
+      CLONE_NEWIPC | CLONE_NEWNET | LinuxCloneAbi::ClearSighand;
   const bool clearSignalHandlers = args.flags & LinuxCloneAbi::ClearSighand;
   const bool thread = args.flags & CLONE_THREAD;
   if ((args.flags & ~AllowedFlags) || args.pidfd || args.set_tid || args.set_tid_size ||

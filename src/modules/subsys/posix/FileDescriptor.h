@@ -25,6 +25,7 @@
 #include "pedigree/kernel/process/FilesystemContext.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Readiness.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/types.h"
@@ -61,6 +62,8 @@ class EXPORTED_PUBLIC FileDescriptor {
   class OpenFileDescription {
    public:
     ~OpenFileDescription();
+    SharedPointer<Process::ControllingTerminal> terminalContext;
+    SharedPointer<FilesystemWriteLease> mountWrite;
 
     AdvisoryOwner& advisoryOwner() {
       return m_AdvisoryOwner;

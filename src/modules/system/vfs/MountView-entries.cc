@@ -24,8 +24,7 @@ bool validParent(const FilesystemPathRef& parent, const String& name, const VfsM
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
-  if (parent->node()->getFilesystem()->isReadOnly()) {
-    SYSCALL_ERROR(ReadOnlyFilesystem);
+  if (!view->writable(parent)) {
     return false;
   }
   return VFS::checkAccess(parent->node(), false, true, true);
@@ -53,6 +52,10 @@ bool VfsMountView::isMountpoint(File* node) const {
 }
 
 bool VfsMountView::createFile(const FilesystemPathRef& parent, const String& name, uint32_t mask) {
+  auto* owner = fromPath(parent);
+  if (owner && owner != this) {
+    return owner->createFile(parent, name, mask);
+  }
   VFS::NamespaceMutation writer(m_Vfs);
   return validParent(parent, name, this) &&
          checkFilesystemAccess(parent, FilesystemAccess::MakeReg, &writer) &&
@@ -61,6 +64,10 @@ bool VfsMountView::createFile(const FilesystemPathRef& parent, const String& nam
 }
 bool VfsMountView::createDirectory(const FilesystemPathRef& parent, const String& name,
                                    uint32_t mask) {
+  auto* owner = fromPath(parent);
+  if (owner && owner != this) {
+    return owner->createDirectory(parent, name, mask);
+  }
   VFS::NamespaceMutation writer(m_Vfs);
   return validParent(parent, name, this) &&
          checkFilesystemAccess(parent, FilesystemAccess::MakeDir, &writer) &&
@@ -69,6 +76,10 @@ bool VfsMountView::createDirectory(const FilesystemPathRef& parent, const String
 }
 bool VfsMountView::createSymlink(const FilesystemPathRef& parent, const String& name,
                                  const String& value) {
+  auto* owner = fromPath(parent);
+  if (owner && owner != this) {
+    return owner->createSymlink(parent, name, value);
+  }
   VFS::NamespaceMutation writer(m_Vfs);
   return validParent(parent, name, this) &&
          checkFilesystemAccess(parent, FilesystemAccess::MakeSym, &writer) &&
@@ -77,6 +88,10 @@ bool VfsMountView::createSymlink(const FilesystemPathRef& parent, const String& 
 }
 bool VfsMountView::createLink(const FilesystemPathRef& parent, const String& name,
                               const FilesystemPathRef& target) {
+  auto* owner = fromPath(parent);
+  if (owner && owner != this) {
+    return owner->createLink(parent, name, target);
+  }
   VFS::NamespaceMutation writer(m_Vfs);
   if (!validParent(parent, name, this))
     return false;
@@ -102,12 +117,20 @@ bool VfsMountView::createLink(const FilesystemPathRef& parent, const String& nam
          parent->node()->getFilesystem()->createLink(parent->node(), name, target->node());
 }
 bool VfsMountView::remove(const FilesystemPathRef& parent, const String& name, File* expected) {
+  auto* owner = fromPath(parent);
+  if (owner && owner != this) {
+    return owner->remove(parent, name, expected);
+  }
   return validParent(parent, name, this) &&
          parent->node()->getFilesystem()->removeChild(parent->node(), name, expected, &parent);
 }
 bool VfsMountView::rename(const FilesystemPathRef& oldParent, const String& oldName,
                           const FilesystemPathRef& newParent, const String& newName, bool noReplace,
                           bool sourceMustBeDirectory) {
+  auto* owner = fromPath(oldParent);
+  if (owner && owner != this) {
+    return owner->rename(oldParent, oldName, newParent, newName, noReplace, sourceMustBeDirectory);
+  }
   if (!validParent(oldParent, oldName, this) || !validParent(newParent, newName, this))
     return false;
   if (m_State->path(oldParent)->attachment.get() != m_State->path(newParent)->attachment.get()) {
@@ -121,6 +144,10 @@ bool VfsMountView::rename(const FilesystemPathRef& oldParent, const String& oldN
 
 Directory::AddStatus VfsMountView::createEphemeral(const FilesystemPathRef& parent, File* node,
                                                    uint64_t access) {
+  auto* owner = fromPath(parent);
+  if (owner && owner != this) {
+    return owner->createEphemeral(parent, node, access);
+  }
   VFS::NamespaceMutation writer(m_Vfs);
   if (!node || !validParent(parent, node->getName(), this) ||
       !checkFilesystemAccess(parent, access, &writer)) {

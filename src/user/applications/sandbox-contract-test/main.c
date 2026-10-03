@@ -475,9 +475,18 @@ static int command_check(const char* directory, const char* protected, int writa
   return 0;
 }
 
+int namespace_tests(void);
+int namespace_network_test(void);
+
 int main(int argc, char** argv) {
   setvbuf(stdout, NULL, _IONBF, 0);
   alarm(90);
+  if (argc == 2 && !strcmp(argv[1], "--network-test")) {
+    return namespace_network_test();
+  }
+  if (argc == 2 && !strcmp(argv[1], "--namespaces-test")) {
+    return namespace_tests();
+  }
   if (argc == 2 && !strcmp(argv[1], "--probe")) {
     return probe();
   }
@@ -496,6 +505,7 @@ int main(int argc, char** argv) {
     return confined_checks(&fixture, descriptor);
   }
   CHECK(argc == 1);
+  EXPECT(openat(AT_FDCWD, "", O_RDONLY), -1, ENOENT);
   char executable[4096];
   if (!realpath(argv[0], executable)) {
     ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);

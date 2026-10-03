@@ -13,7 +13,7 @@ class VfsPath;
 class VfsFilesystemContext;
 class VfsAttachment;
 
-/** One shared view. Filesystem registration and storage retirement stay in VFS. */
+/** One mount namespace. Filesystem registration and storage retirement stay in VFS. */
 class EXPORTED_PUBLIC VfsMountView {
  public:
   struct ResolveOptions {
@@ -26,12 +26,36 @@ class EXPORTED_PUBLIC VfsMountView {
     uint64_t parentId = 0;
     VFS::MountIdentity backing;
     String path;
+    String root;
+    uint64_t flags = 0;
   };
+  enum MountFlags : uint64_t { ReadOnly = 1, NoSuid = 2, NoDev = 4, NoExec = 8 };
+  static constexpr uint64_t SupportedMountFlags = ReadOnly | NoSuid | NoDev | NoExec;
+  class WriteLease final : public FilesystemWriteLease {
+   public:
+    WriteLease() = default;
+    ~WriteLease() override;
+    bool acquire(const FilesystemPathRef& path);
+
+   private:
+    WriteLease(const WriteLease&) = delete;
+    WriteLease& operator=(const WriteLease&) = delete;
+    FilesystemPathRef m_Path;
+  };
+  static bool retainWrite(const FilesystemPathRef& path,
+                          SharedPointer<FilesystemWriteLease>& result);
 
   explicit VfsMountView(VFS& vfs);
   ~VfsMountView();
   bool initialise(Filesystem* bootRoot);
   bool createBootContext(FilesystemContextOwner& result);
+  static VfsMountView* fromContext(const FilesystemContextRef& context);
+  static VfsMountView* fromPath(const FilesystemPathRef& path);
+  bool forkNamespace(const FilesystemContextRef& context, FilesystemContextOwner& result,
+                     uint64_t ownerNamespace = 0);
+  uint64_t ownerNamespace() const {
+    return m_OwnerNamespace;
+  }
   bool resolve(const FilesystemContextRef& context, const FilesystemPathRef& start,
                const String& path, const ResolveOptions& options, FilesystemPathRef& result);
   bool follow(const FilesystemContextRef& context, const FilesystemPathRef& selected,
@@ -48,7 +72,14 @@ class EXPORTED_PUBLIC VfsMountView {
   // Attachment ownership transfers only after successful graph publication.
   // Attachments identify a mounted root, independently of backing identity.
   bool attach(const FilesystemContextRef& context, const FilesystemPathRef& covered,
-              Filesystem* backing, BackingOwnership ownership = BackingOwnership::External);
+              Filesystem* backing, BackingOwnership ownership = BackingOwnership::External,
+              uint64_t flags = 0);
+  bool bind(const FilesystemContextRef& context, const FilesystemPathRef& source,
+            const FilesystemPathRef& target, bool recursive);
+  bool remount(const FilesystemContextRef& context, const FilesystemPathRef& target, uint64_t flags,
+               bool recursive = false);
+  uint64_t mountFlags(const FilesystemPathRef& path) const;
+  bool writable(const FilesystemPathRef& path) const;
   bool detach(const FilesystemContextRef& context, const String& target, bool lazy);
   bool detachBackingForShutdown(Filesystem* backing);
   bool detachBackingForRemoval(Filesystem* backing);
@@ -95,6 +126,11 @@ class EXPORTED_PUBLIC VfsMountView {
   struct State;
   State* m_State;
   VFS& m_Vfs;
+  size_t m_References = 1;
+  bool m_Automatic = false;
+  uint64_t m_OwnerNamespace = 0;
+  void retain();
+  void release();
   VfsMountView(const VfsMountView&) = delete;
   VfsMountView& operator=(const VfsMountView&) = delete;
 };

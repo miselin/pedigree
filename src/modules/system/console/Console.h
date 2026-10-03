@@ -102,6 +102,12 @@ class EXPORTED_PUBLIC ConsoleFile : public File {
   void setControlState(const SharedPointer<ConsoleControlState>& state);
 
   virtual bool isMaster() = 0;
+  bool isCharacterDevice() const override {
+    return true;
+  }
+  bool isConsole() const override {
+    return true;
+  }
 
   bool isPtySlave() {
     return !isMaster() && getParent() != nullptr;

@@ -25,9 +25,11 @@ void PosixProcess::initializeJobControl(Process* parent) {
   auto* group = new ProcessGroup;
   if (!group)
     return;
-  group->processGroupId = getUserspaceId();
-  group->sessionId = getUserspaceId();
+  group->processGroupId = getUserspaceId(Process::rootPidNamespace().get());
+  group->sessionId = getUserspaceId(Process::rootPidNamespace().get());
   group->Leader = this;
+  group->identity = pidIdentity();
+  group->sessionIdentity = pidIdentity();
   setProcessGroup(group);
 }
 
@@ -59,8 +61,10 @@ void PosixProcess::setProcessGroup(ProcessGroup* group) {
       m_GroupNext->m_GroupPrevious = this;
     group->firstMember = this;
     ++group->memberCount;
-    m_GroupMembership =
-        static_cast<size_t>(group->processGroupId) == getUserspaceId() ? Leader : Member;
+    m_GroupMembership = static_cast<size_t>(group->processGroupId) ==
+                                getUserspaceId(Process::rootPidNamespace().get())
+                            ? Leader
+                            : Member;
     if (!group->registered)
       ProcessGroupManager::instance().registerGroup(group->processGroupId, group);
   }
@@ -79,11 +83,11 @@ ProcessGroup* PosixProcess::getProcessGroup() const {
   return m_pProcessGroup;
 }
 
-bool PosixProcess::getProcessGroupId(size_t& id) const {
+bool PosixProcess::getProcessGroupId(size_t& id, const UserspacePidNamespace* space) const {
   RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
   if (!m_pProcessGroup)
     return false;
-  id = m_pProcessGroup->processGroupId;
+  id = space ? m_pProcessGroup->identity->id(space) : m_pProcessGroup->processGroupId;
   return true;
 }
 
@@ -101,9 +105,9 @@ PosixProcess::Membership PosixProcess::getGroupMembership() const {
   return m_GroupMembership;
 }
 
-size_t PosixProcess::getSessionId() const {
+size_t PosixProcess::getSessionId(const UserspacePidNamespace* space) const {
   RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
-  return m_SessionId;
+  return space && m_pProcessGroup ? m_pProcessGroup->sessionIdentity->id(space) : m_SessionId;
 }
 
 bool PosixProcess::sharesSession(const PosixProcess& other) const {
@@ -137,12 +141,15 @@ int PosixProcess::createSession() {
   int error = 0;
   {
     RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
-    if (ProcessGroupManager::instance().findGroup(getUserspaceId())) {
+    if (ProcessGroupManager::instance().findGroup(
+            getUserspaceId(Process::rootPidNamespace().get()))) {
       error = Error::NotEnoughPermissions;
     } else {
-      prepared.get()->processGroupId = getUserspaceId();
-      prepared.get()->sessionId = getUserspaceId();
+      prepared.get()->processGroupId = getUserspaceId(Process::rootPidNamespace().get());
+      prepared.get()->sessionId = getUserspaceId(Process::rootPidNamespace().get());
       prepared.get()->Leader = this;
+      prepared.get()->identity = pidIdentity();
+      prepared.get()->sessionIdentity = pidIdentity();
       setProcessGroup(prepared.releaseOwnership());
     }
   }
@@ -153,11 +160,24 @@ int PosixProcess::createSession() {
 }
 
 int PosixProcess::changeProcessGroup(PosixProcess& caller, int id) {
+  {
+    RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
+    auto* visible = ProcessGroupManager::instance().findGroup(id, caller.pidNamespace().get());
+    if (visible) {
+      id = visible->processGroupId;
+    } else if (static_cast<size_t>(id) == getUserspaceId(caller.pidNamespace().get())) {
+      id = getUserspaceId(Process::rootPidNamespace().get());
+    } else {
+      syscallError(Error::NotEnoughPermissions);
+      return -1;
+    }
+  }
   // Both the registry and memberships are intrusive: commit cannot allocate
   // while the group spinlock is held, or partially leave the original group.
   UniquePointer<ProcessGroup> prepared;
-  if (static_cast<size_t>(id) == getUserspaceId())
+  if (static_cast<size_t>(id) == getUserspaceId(Process::rootPidNamespace().get())) {
     prepared = UniquePointer<ProcessGroup>::allocate();
+  }
   int error = 0;
   {
     RecursingLockGuard<Spinlock> guard(ProcessGroupManager::instance().lock());
@@ -168,20 +188,22 @@ int PosixProcess::changeProcessGroup(PosixProcess& caller, int id) {
       error = Error::NotEnoughPermissions;
     else if (this != &caller && m_ExecCommitted)
       error = Error::PermissionDenied;
-    else if (m_SessionId == getUserspaceId())
+    else if (m_SessionId == getUserspaceId(Process::rootPidNamespace().get())) {
       error = Error::NotEnoughPermissions;
-    else if (existing && existing->sessionId != m_SessionId)
+    } else if (existing && existing->sessionId != m_SessionId) {
       error = Error::NotEnoughPermissions;
-    else if (existing)
+    } else if (existing)
       setProcessGroup(existing);
-    else if (static_cast<size_t>(id) != getUserspaceId())
+    else if (static_cast<size_t>(id) != getUserspaceId(Process::rootPidNamespace().get())) {
       error = Error::NotEnoughPermissions;
-    else if (!prepared)
+    } else if (!prepared) {
       error = Error::OutOfMemory;
-    else {
+    } else {
       prepared.get()->processGroupId = id;
       prepared.get()->sessionId = m_SessionId;
       prepared.get()->Leader = this;
+      prepared.get()->identity = pidIdentity();
+      prepared.get()->sessionIdentity = m_pProcessGroup->sessionIdentity;
       setProcessGroup(prepared.releaseOwnership());
     }
   }

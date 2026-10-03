@@ -356,6 +356,12 @@ MemoryMappedObject* MemoryMapManager::publishMapping(
     plan.inserted->m_OwnsMappings = false;
     plan.inserted->m_LockMode = mode;
     plan.staged.pushBack(plan.inserted);
+    if (file && !static_cast<MemoryMappedFile*>(plan.inserted)->m_MountAdmitted) {
+      if (status) {
+        *status = MapStatus::PolicyDenied;
+      }
+      return nullptr;
+    }
     if (file && !static_cast<MemoryMappedFile*>(plan.inserted)->m_UseAdmitted) {
       if (status)
         *status = MapStatus::TextBusy;

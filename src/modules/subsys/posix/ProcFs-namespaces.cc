@@ -120,10 +120,11 @@ class NamespaceDirectory final : public ProcFsDirectory {
 
 class TaskDirectory final : public ProcFsDirectory {
  public:
-  TaskDirectory(ProcFs& filesystem, File* parent,
+  TaskDirectory(ProcFs& filesystem, File* parent, size_t pid,
                 const SharedPointer<PosixNamespaceContext>& context)
       : ProcFsDirectory(String("task"), 0, 0, 0, filesystem.getNextInode(), &filesystem, 0, parent),
-        m_Context(context) {
+        m_Context(context),
+        m_Pid(pid) {
     setPermissions(DirectoryPermissions);
   }
 
@@ -140,13 +141,24 @@ class TaskDirectory final : public ProcFsDirectory {
   }
 
  protected:
+  bool cacheResolvedChildren() const override {
+    return false;
+  }
+
   LookupStatus resolveChild(const StringView& name, File*& child) override {
     child = nullptr;
     size_t taskId = 0;
     PosixUtsTarget target;
-    if (!taskNumber(name, taskId) || !m_Context->taskTarget(taskId, target))
-      return LookupStatus::NotFound;
     auto& filesystem = *static_cast<ProcFs*>(getFilesystem());
+    Scheduler::ProcessLease process;
+    Process::ThreadLease thread;
+    if (!taskNumber(name, taskId) ||
+        !Scheduler::instance().acquireProcessByUserspaceId(process, m_Pid,
+                                                           filesystem.pidNamespace().get()) ||
+        !process->acquireThreadByUserspaceId(thread, taskId, filesystem.pidNamespace().get()) ||
+        !m_Context->taskTarget(thread->getTaskId(), target)) {
+      return LookupStatus::NotFound;
+    }
     auto* directory =
         new ProcFsDirectory(String(name), 0, 0, 0, filesystem.getNextInode(), &filesystem, 0, this);
     if (!directory)
@@ -164,28 +176,46 @@ class TaskDirectory final : public ProcFsDirectory {
 
   ReadStatus readDirectory(uint64_t& cookie, DirectoryEntryEmitter emitter,
                            void* context) override {
-    size_t taskId = 0;
-    PosixUtsTarget target;
-    while (m_Context->nextTaskTarget(cookie, taskId, target)) {
+    auto& filesystem = *static_cast<ProcFs*>(getFilesystem());
+    Scheduler::ProcessLease process;
+    if (!Scheduler::instance().acquireProcessByUserspaceId(process, m_Pid,
+                                                           filesystem.pidNamespace().get())) {
+      return ReadStatus::Complete;
+    }
+    while (true) {
+      size_t selected = 0;
+      for (size_t i = 0; i < process->getNumThreads(); ++i) {
+        Process::ThreadLease thread;
+        if (!process->acquireThread(thread, i)) {
+          continue;
+        }
+        const size_t id = thread->getUserspaceTaskId(filesystem.pidNamespace().get());
+        if (id > cookie && (!selected || id < selected)) {
+          selected = id;
+        }
+      }
+      if (!selected) {
+        return ReadStatus::Complete;
+      }
       NormalStaticString name;
-      name.append(taskId);
+      name.append(selected);
       ChildLease child;
       const LookupStatus status = lookupChild(HashedStringView(name), child);
       if (status == LookupStatus::IoError)
         return ReadStatus::IoError;
       if (status == LookupStatus::Found) {
         DirectoryEntryView entry{StringView(name, name.length()), child.get()->getInode(),
-                                 EntryType::Directory, cookie, taskId};
+                                 EntryType::Directory, cookie, selected};
         if (!emitter(context, entry))
           return ReadStatus::Stopped;
       }
-      cookie = taskId;
+      cookie = selected;
     }
-    return ReadStatus::Complete;
   }
 
  private:
   SharedPointer<PosixNamespaceContext> m_Context;
+  size_t m_Pid;
 };
 
 class ProcessPathLink final : public Symlink {
@@ -208,7 +238,8 @@ class ProcessPathLink final : public Symlink {
 
   bool followPath(FilesystemPathRef& result) override {
     Scheduler::ProcessLease process;
-    if (!Scheduler::instance().acquireProcessByUserspaceId(process, m_Pid) ||
+    if (!Scheduler::instance().acquireProcessByUserspaceId(
+            process, m_Pid, static_cast<ProcFs*>(getFilesystem())->pidNamespace().get()) ||
         process->getType() != Process::Posix) {
       SYSCALL_ERROR(DoesNotExist);
       return false;
@@ -232,7 +263,8 @@ class ProcessPathLink final : public Symlink {
     if (!followPath(path))
       return -1;
     Scheduler::ProcessLease process;
-    if (!Scheduler::instance().acquireProcessByUserspaceId(process, m_Pid)) {
+    if (!Scheduler::instance().acquireProcessByUserspaceId(
+            process, m_Pid, static_cast<ProcFs*>(getFilesystem())->pidNamespace().get())) {
       SYSCALL_ERROR(DoesNotExist);
       return -1;
     }
@@ -273,7 +305,7 @@ class ProcessDirectory final : public ProcFsDirectory {
     if (!namespaces)
       return false;
     addEntry(String("ns"), namespaces);
-    m_Tasks = new TaskDirectory(filesystem, this, m_Context);
+    m_Tasks = new TaskDirectory(filesystem, this, pid, m_Context);
     if (!m_Tasks)
       return false;
     addEntry(String("task"), m_Tasks);
@@ -317,40 +349,11 @@ class SelfLink final : public Symlink {
     setPermissions(DirectoryPermissions | FILE_UW | FILE_GW | FILE_OW);
   }
 
-  bool isPathLink() const override {
-    return true;
-  }
-
-  bool followPath(FilesystemPathRef& result) override {
-    auto* thread = Processor::information().getCurrentThread();
-    auto* process = thread ? thread->getParent() : nullptr;
-    if (!process || process->getType() != Process::Posix) {
-      SYSCALL_ERROR(DoesNotExist);
-      return false;
-    }
-
-    auto context = process->acquireFilesystemContext();
-    auto* view = VFS::instance().mountView();
-    if (!context || !view) {
-      SYSCALL_ERROR(DoesNotExist);
-      return false;
-    }
-
-    NormalStaticString target("/proc/");
-    target.append(process->getUserspaceId());
-    if (m_Thread) {
-      target.append("/task/");
-      target.append(thread->getTaskId());
-    }
-
-    VfsMountView::ResolveOptions options;
-    return view->resolve(context, nullptr, String(target, target.length()), options, result);
-  }
-
   int followLink(char* buffer, size_t length) override {
     NormalStaticString target;
-    if (!name(target))
+    if (!name(target)) {
       return -1;
+    }
     const size_t copied = length < target.length() ? length : target.length();
     MemoryCopy(buffer, static_cast<const char*>(target), copied);
     return static_cast<int>(copied);
@@ -364,10 +367,12 @@ class SelfLink final : public Symlink {
       SYSCALL_ERROR(DoesNotExist);
       return false;
     }
-    result.append(process->getUserspaceId());
+    result.append(
+        process->getUserspaceId(static_cast<ProcFs*>(getFilesystem())->pidNamespace().get()));
     if (m_Thread) {
       result.append("/task/");
-      result.append(thread->getTaskId());
+      result.append(
+          thread->getUserspaceTaskId(static_cast<ProcFs*>(getFilesystem())->pidNamespace().get()));
     }
     return true;
   }
@@ -392,9 +397,13 @@ ProcFsDirectory* ProcFs::createProcessDirectory(PosixProcess* process) {
   auto* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
   auto context = subsystem ? subsystem->namespaceContext() : SharedPointer<PosixNamespaceContext>();
   NormalStaticString name;
-  name.append(process->getUserspaceId());
+  name.append(process->getUserspaceId(m_PidNamespace.get()));
   auto* directory = new ProcessDirectory(*this, String(name, name.length()), context);
-  if (directory && !directory->initialise(*this, process->getUserspaceId())) {
+  if (directory && !directory->initialise(*this, process->getUserspaceId(m_PidNamespace.get()))) {
+    delete directory;
+    directory = nullptr;
+  }
+  if (directory && !procfsAddUserMaps(*this, *directory, *process)) {
     delete directory;
     directory = nullptr;
   }

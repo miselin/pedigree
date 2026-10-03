@@ -149,6 +149,150 @@ TEST_F(MountViewTest, ResolvedChildTransfersItsLookupReferenceAcrossUnlink) {
   EXPECT_EQ(releases, releasesBeforeReset);
 }
 
+TEST_F(MountViewTest, PrivateNamespaceOwnsTopologyAndRetainedPathsOutliveContext) {
+  FilesystemContextOwner privateContext;
+  ASSERT_TRUE(view->forkNamespace(context.reference(), privateContext, 17));
+  auto* privateView = VfsMountView::fromContext(privateContext.reference());
+  ASSERT_NE(privateView, view);
+  EXPECT_EQ(privateView->ownerNamespace(), 17U);
+  FilesystemPathRef privatePoint, mounted, parentPoint;
+  VfsMountView::ResolveOptions options;
+  ASSERT_TRUE(privateView->resolve(privateContext.reference(), {}, String("/mounted"), options,
+                                   privatePoint));
+  auto* filesystem = fresh();
+  ASSERT_NE(filesystem, nullptr);
+  ASSERT_TRUE(privateView->attach(privateContext.reference(), privatePoint, filesystem,
+                                  VfsMountView::BackingOwnership::Attachment));
+  ASSERT_TRUE(
+      privateView->resolve(privateContext.reference(), {}, String("/mounted"), options, mounted));
+  ASSERT_TRUE(privateView->createFile(mounted, String("private"), 0666));
+  ASSERT_TRUE(view->resolve(context.reference(), {}, String("/mounted"), options, parentPoint));
+  EXPECT_EQ(parentPoint->node(), covered->node());
+  FilesystemPathRef missing;
+  EXPECT_FALSE(
+      view->resolve(context.reference(), {}, String("/mounted/private"), options, missing));
+  privatePoint.reset();
+  privateContext.reset();
+  EXPECT_EQ(destroyed.load(), 0U);
+  EXPECT_TRUE(privateView->createFile(mounted, String("retained"), 0666));
+  mounted.reset();
+  EXPECT_EQ(destroyed.load(), 1U);
+}
+
+TEST_F(MountViewTest, BindAliasesHaveIndependentReadonlyFlagsAndWriterAdmission) {
+  FilesystemPathRef rootPath, source, alias;
+  ASSERT_TRUE(view->bootRootPath(rootPath));
+  ASSERT_TRUE(view->createDirectory(rootPath, String("source"), 0777));
+  VfsMountView::ResolveOptions options;
+  ASSERT_TRUE(view->resolve(context.reference(), {}, String("/source"), options, source));
+  ASSERT_TRUE(view->bind(context.reference(), source, covered, false));
+  ASSERT_TRUE(view->resolve(context.reference(), {}, String("/mounted"), options, alias));
+  EXPECT_EQ(source->node(), alias->node());
+  EXPECT_NE(view->attachmentId(source), view->attachmentId(alias));
+  {
+    VfsMountView::WriteLease writing;
+    ASSERT_TRUE(writing.acquire(alias));
+    EXPECT_FALSE(view->remount(context.reference(), alias, VfsMountView::ReadOnly));
+  }
+  ASSERT_TRUE(view->remount(context.reference(), alias, VfsMountView::ReadOnly));
+  EXPECT_FALSE(view->createFile(alias, String("denied"), 0666));
+  EXPECT_TRUE(view->createFile(source, String("allowed"), 0666));
+  VfsMountView::WriteLease denied;
+  EXPECT_FALSE(denied.acquire(alias));
+  FilesystemContextOwner privateContext;
+  ASSERT_TRUE(view->forkNamespace(context.reference(), privateContext));
+  auto* privateView = VfsMountView::fromContext(privateContext.reference());
+  FilesystemPathRef privateAlias;
+  ASSERT_TRUE(privateView->resolve(privateContext.reference(), {}, String("/mounted"), options,
+                                   privateAlias));
+  ASSERT_TRUE(privateView->remount(privateContext.reference(), privateAlias, 0));
+  EXPECT_TRUE(privateView->createFile(privateAlias, String("private-write"), 0666));
+  EXPECT_EQ(view->mountFlags(alias), VfsMountView::ReadOnly);
+  FilesystemContextOwner descendant;
+  ASSERT_TRUE(view->forkNamespace(context.reference(), descendant, 18));
+  auto* descendantView = VfsMountView::fromContext(descendant.reference());
+  FilesystemPathRef locked;
+  ASSERT_TRUE(
+      descendantView->resolve(descendant.reference(), {}, String("/mounted"), options, locked));
+  EXPECT_FALSE(descendantView->remount(descendant.reference(), locked, 0));
+  EXPECT_FALSE(descendantView->detach(descendant.reference(), String("/mounted"), true));
+  FilesystemPathRef descendantSource;
+  ASSERT_TRUE(descendantView->resolve(descendant.reference(), {}, String("/source"), options,
+                                      descendantSource));
+  ASSERT_TRUE(descendantView->bind(descendant.reference(), alias, descendantSource, false));
+  FilesystemPathRef imported;
+  ASSERT_TRUE(
+      descendantView->resolve(descendant.reference(), {}, String("/source"), options, imported));
+  EXPECT_FALSE(descendantView->remount(descendant.reference(), imported, 0));
+}
+
+TEST_F(MountViewTest, InheritedDirectoryPathsRemainUsableAndSamePathPivotDetachesOldRoot) {
+  FilesystemContextOwner privateContext;
+  ASSERT_TRUE(view->forkNamespace(context.reference(), privateContext, 18));
+  auto* privateView = VfsMountView::fromContext(privateContext.reference());
+  VfsMountView::ResolveOptions options;
+  FilesystemPathRef oldRoot, inherited, target, newRoot;
+  ASSERT_TRUE(view->bootRootPath(oldRoot));
+  ASSERT_TRUE(privateView->resolve(privateContext.reference(), oldRoot, String("mounted"), options,
+                                   inherited));
+  EXPECT_TRUE(view->samePath(inherited, covered));
+  ASSERT_TRUE(
+      privateView->resolve(privateContext.reference(), {}, String("/mounted"), options, target));
+  auto* filesystem = fresh();
+  ASSERT_NE(filesystem, nullptr);
+  ASSERT_TRUE(privateView->attach(privateContext.reference(), target, filesystem,
+                                  VfsMountView::BackingOwnership::Attachment));
+  ASSERT_TRUE(
+      privateView->resolve(privateContext.reference(), {}, String("/mounted"), options, newRoot));
+  ASSERT_TRUE(privateView->createDirectory(newRoot, String("source"), 0777));
+  FilesystemPathRef bindPoint;
+  ASSERT_TRUE(privateView->resolve(privateContext.reference(), {}, String("/mounted/source"),
+                                   options, bindPoint));
+  ASSERT_TRUE(privateView->bind(privateContext.reference(), inherited, bindPoint, false));
+  ASSERT_TRUE(privateView->changeCwd(privateContext.reference(), newRoot));
+  ASSERT_TRUE(privateView->pivot(privateContext.reference(), String("."), String(".")));
+  ASSERT_TRUE(privateView->detach(privateContext.reference(), String("."), true));
+  FilesystemPathRef after;
+  ASSERT_TRUE(privateView->resolve(privateContext.reference(), {}, String("/"), options, after));
+  EXPECT_EQ(after->node(), filesystem->getRoot());
+  FilesystemPathRef parent;
+  ASSERT_TRUE(view->resolve(context.reference(), {}, String("/"), options, parent));
+  EXPECT_EQ(parent->node(), root->getRoot());
+}
+
+TEST_F(MountViewTest, RecursiveBindCopiesChildMountsAndFileOvermountsUnwind) {
+  FilesystemPathRef rootPath, source, child, boundChild, file, destination, first, second;
+  ASSERT_TRUE(view->bootRootPath(rootPath));
+  ASSERT_TRUE(view->createDirectory(rootPath, String("source"), 0777));
+  VfsMountView::ResolveOptions options;
+  ASSERT_TRUE(view->resolve(context.reference(), {}, String("/source"), options, source));
+  ASSERT_TRUE(view->createDirectory(source, String("child"), 0777));
+  ASSERT_TRUE(view->resolve(context.reference(), {}, String("/source/child"), options, child));
+  auto* filesystem = fresh();
+  ASSERT_NE(filesystem, nullptr);
+  ASSERT_TRUE(view->attach(context.reference(), child, filesystem,
+                           VfsMountView::BackingOwnership::Attachment));
+  ASSERT_TRUE(view->bind(context.reference(), source, covered, true));
+  ASSERT_TRUE(
+      view->resolve(context.reference(), {}, String("/mounted/child"), options, boundChild));
+  EXPECT_EQ(boundChild->node(), filesystem->getRoot());
+  ASSERT_TRUE(view->createFile(source, String("file"), 0666));
+  ASSERT_TRUE(view->createFile(source, String("target"), 0666));
+  ASSERT_TRUE(view->resolve(context.reference(), {}, String("/source/file"), options, file));
+  ASSERT_TRUE(
+      view->resolve(context.reference(), {}, String("/source/target"), options, destination));
+  ASSERT_TRUE(view->bind(context.reference(), file, destination, false));
+  ASSERT_TRUE(view->resolve(context.reference(), {}, String("/source/target"), options, first));
+  ASSERT_TRUE(view->bind(context.reference(), file, first, false));
+  ASSERT_TRUE(view->resolve(context.reference(), {}, String("/source/target"), options, second));
+  EXPECT_NE(view->attachmentId(first), view->attachmentId(second));
+  EXPECT_EQ(second->node(), file->node());
+  ASSERT_TRUE(view->detach(context.reference(), String("/source/target"), true));
+  FilesystemPathRef restored;
+  ASSERT_TRUE(view->resolve(context.reference(), {}, String("/source/target"), options, restored));
+  EXPECT_EQ(view->attachmentId(restored), view->attachmentId(first));
+}
+
 TEST_F(MountViewTest, TerminalShutdownDrainsOwnersBeforeReturningOwnedBackends) {
   auto* filesystem = fresh();
   ASSERT_NE(filesystem, nullptr);

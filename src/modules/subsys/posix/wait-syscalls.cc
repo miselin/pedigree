@@ -52,7 +52,9 @@ void snapshotCurrentGroup(PosixWait::Request& request) {
   auto* process =
       static_cast<PosixProcess*>(Processor::information().getCurrentThread()->getParent());
   size_t group = 0;
-  request.id = process->getProcessGroupId(group) ? static_cast<int32_t>(group) : -1;
+  request.id = process->getProcessGroupId(group, process->pidNamespace().get())
+                   ? static_cast<int32_t>(group)
+                   : -1;
 }
 
 void eventOptions(unsigned options, PosixWait::Request& request) {

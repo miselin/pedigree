@@ -76,6 +76,7 @@ class EXPORTED_PUBLIC VFS {
   /** Odd while a namespace writer owns admission; readers never hold it for I/O. */
   uint64_t namespaceGeneration() const;
   VfsMountView* mountView() const;
+  VfsMountView* bootMountView() const;
   /** Terminal-only: detach a drained namespace and return attachment-owned backends. */
   bool shutdownMountView(Vector<Filesystem*>& ownedBackings);
   bool initialiseMountView();

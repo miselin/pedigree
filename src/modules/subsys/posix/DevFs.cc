@@ -38,6 +38,7 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/machine/Vga.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/SecureRandom.h"
@@ -249,16 +250,22 @@ uint64_t NullFile::writeBytewise(uint64_t location, uint64_t size, uintptr_t buf
 }
 
 PtmxFile::PtmxFile(String str, size_t inode, Filesystem* pParentFS, File* pParent,
-                   DevFsDirectory* ptsDirectory)
+                   DevFsDirectory* ptsDirectory, uint32_t slavePermissions, bool callerOwns)
     : File(str, 0, 0, 0, inode, pParentFS, 0, pParent),
       m_Terminals(),
-      m_pPtsDirectory(ptsDirectory) {
+      m_pPtsDirectory(ptsDirectory),
+      m_SlavePermissions(slavePermissions),
+      m_CallerOwns(callerOwns) {
   setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
   setUidOnly(0);
   setGidOnly(0);
 }
 
-PtmxFile::~PtmxFile() {}
+PtmxFile::~PtmxFile() {
+  for (auto* master : m_Masters) {
+    VFS::instance().untrackFile(master);
+  }
+}
 
 uint64_t PtmxFile::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                 bool bCanBlock) {
@@ -271,9 +278,13 @@ uint64_t PtmxFile::writeBytewise(uint64_t location, uint64_t size, uintptr_t buf
 }
 
 File* PtmxFile::open() {
+  LockGuard<Mutex> guard(m_Lock);
+  if (!m_Masters.tryReserve(m_Masters.count() + 1)) {
+    SYSCALL_ERROR(OutOfMemory);
+    return nullptr;
+  }
   // find a new terminal ID that we can safely use
   size_t terminal = m_Terminals.getFirstClear();
-  m_Terminals.set(terminal);
 
   // create the terminals
   String masterName, slaveName;
@@ -284,15 +295,46 @@ File* PtmxFile::open() {
       new ConsoleMasterFile(terminal, masterName, m_pPtsDirectory->getFilesystem());
   ConsoleSlaveFile* pSlave =
       new ConsoleSlaveFile(terminal, slaveName, m_pPtsDirectory->getFilesystem(), m_pPtsDirectory);
+  if (!pMaster || !pSlave) {
+    delete pMaster;
+    delete pSlave;
+    SYSCALL_ERROR(OutOfMemory);
+    return nullptr;
+  }
+  pMaster->setInode(getFilesystem() == g_pDevFs ? g_pDevFs->getNextInode() : 3 + terminal * 2);
+  pSlave->setInode(getFilesystem() == g_pDevFs ? g_pDevFs->getNextInode() : 4 + terminal * 2);
+  pSlave->setPermissions(m_SlavePermissions);
+  if (m_CallerOwns) {
+    FilesystemCredentials credentials;
+    if (!Process::currentFilesystemCredentials(credentials)) {
+      delete pMaster;
+      delete pSlave;
+      SYSCALL_ERROR(NotEnoughPermissions);
+      return nullptr;
+    }
+    pMaster->setUid(credentials.uid);
+    pMaster->setGid(credentials.gid);
+    pSlave->setUid(credentials.uid);
+    pSlave->setGid(credentials.gid);
+  }
 
   pMaster->setOther(pSlave);
   pSlave->setOther(pMaster);
 
-  m_pPtsDirectory->addEntry(slaveName, pSlave);
+  if (!m_pPtsDirectory->addEntry(slaveName, pSlave)) {
+    delete pMaster;
+    delete pSlave;
+    SYSCALL_ERROR(OutOfMemory);
+    return nullptr;
+  }
+  VFS::instance().trackFile(pMaster);
+  m_Masters.pushBack(pMaster);
+  m_Terminals.set(terminal);
 
   // we actually open the newly-created master, which does not exist in the
   // filesystem at all
-  /// \todo so, when this master is closed, we'll leak these resources...
+  // The private devpts filesystem owns the pair; descriptor paths and controlling
+  // terminal bindings retain its storage until neither endpoint can be used.
   return pMaster;
 }
 
@@ -956,11 +998,11 @@ bool DevFs::initialise(Disk* pDisk) {
 }
 
 size_t DevFs::getNextInode() {
-  return m_NextInode++;
+  return __atomic_fetch_add(&m_NextInode, 1, __ATOMIC_RELAXED);
 }
 
 void DevFs::revertInode() {
-  --m_NextInode;
+  __atomic_fetch_sub(&m_NextInode, 1, __ATOMIC_RELAXED);
 }
 
 void DevFs::handleInput(InputManager::InputNotification& in) {

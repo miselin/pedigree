@@ -3740,4 +3740,11 @@ bool Thread::markReapable() {
   return deleteNow;
 }
 
+size_t Thread::getUserspaceTaskId(const UserspacePidNamespace* space) const {
+  if (m_pParent && getTaskId() == m_pParent->getId()) {
+    return m_pParent->getUserspaceId(space);
+  }
+  return m_UserspacePid ? m_UserspacePid->id(space) : 0;
+}
+
 #endif  // THREADS

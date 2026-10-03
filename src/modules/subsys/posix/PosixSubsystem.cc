@@ -69,6 +69,7 @@
 #include "system-syscalls.h"
 #include "sysv-semaphore-syscalls.h"
 #include "timerfd-syscalls.h"
+#include "user-namespace.h"
 
 #if X64 && !HOSTED
 extern char __posix_compat_vsyscall_base;
@@ -237,6 +238,18 @@ ProcessGroup* ProcessGroupManager::findGroup(size_t gid) const {
   for (ProcessGroup* group = m_Groups; group; group = group->registryNext)
     if (static_cast<size_t>(group->processGroupId) == gid)
       return group;
+  return nullptr;
+}
+
+ProcessGroup* ProcessGroupManager::findGroup(size_t gid, const UserspacePidNamespace* space) const {
+  if (!gid) {
+    return nullptr;
+  }
+  for (ProcessGroup* group = m_Groups; group; group = group->registryNext) {
+    if (group->identity && group->identity->id(space) == gid) {
+      return group;
+    }
+  }
   return nullptr;
 }
 
@@ -921,7 +934,7 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
   // Group membership must survive for wait's zombie selection. PosixProcess
   // retires it after removal from lookup and drainage of retained observers.
 
-  posix_mqueue_process_exit(pProcess->getUserspaceId());
+  posix_mqueue_process_exit(pProcess->getId());
 
   // Clean up the descriptor table
   freeMultipleFds();
@@ -1364,6 +1377,21 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(
   }
 
   Process* process = target->getParent();
+  auto pidNamespace = process->pidNamespace();
+  if (pidNamespace && pidNamespace->parent() && !pidNamespace->dead() &&
+      process->getUserspaceId() == 1) {
+    auto* sender = Processor::information().getCurrentThread();
+    auto* senderProcess = sender ? sender->getParent() : nullptr;
+    const bool ancestor = !senderProcess || !senderProcess->getUserspaceId(pidNamespace.get());
+    const auto* disposition = m_SignalHandlers.lookup(sig);
+    const bool blocked =
+        (target->getSignalMask() | target->getSynchronousSignalMask()) & (uint64_t(1) << (sig - 1));
+    if ((!disposition || disposition->type != 0) && !blocked &&
+        !(ancestor && (sig == SIGKILL || sig == SIGSTOP))) {
+      m_SignalHandlersLock.release();
+      return SignalDeliveryResult::Rejected;
+    }
+  }
   if (processDirected) {
     // Exec's pending-signal handoff holds this same lock after publishing
     // its owner, so an old-target publication must finish before the move.
@@ -1464,7 +1492,8 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(
     int32_t senderPid = 0;
     uint32_t senderUid = 0;
     if (senderProcess && senderProcess->getType() == Process::Posix) {
-      senderPid = static_cast<int32_t>(senderProcess->getUserspaceId());
+      senderPid =
+          static_cast<int32_t>(senderProcess->getUserspaceId(process->pidNamespace().get()));
       const int64_t uid = senderProcess->getUserId();
       if (uid >= 0) {
         senderUid = static_cast<uint32_t>(uid);
@@ -2031,7 +2060,7 @@ void PosixSubsystem::retireDescriptor(FileDescriptor* descriptor) {
   if (!descriptor->getFile()) {
     SharedPointer<PosixMessageQueue> queue = descriptor->getMqueueImpl();
     if (queue && m_pProcess) {
-      posix_mqueue_close(queue.get(), m_pProcess->getUserspaceId());
+      posix_mqueue_close(queue.get(), m_pProcess->getId());
     }
   }
   descriptor->unpublish();
@@ -2577,6 +2606,12 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     if (!VFS::checkAccess(originalFile, false, false, true)) {
       return false;
     }
+    auto* executableView = VfsMountView::fromPath(originalTargetLease.path());
+    if (executableView &&
+        (executableView->mountFlags(originalTargetLease.path()) & VfsMountView::NoExec)) {
+      SYSCALL_ERROR(PermissionDenied);
+      return false;
+    }
     if (!posix_landlock_check(originalTargetLease.path(),
                               LandlockAccess::Execute | LandlockAccess::ReadFile)) {
       return false;
@@ -2709,6 +2744,12 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     if (!VFS::checkAccess(interpreterFile, false, false, true)) {
       return false;
     }
+    auto* executableView = VfsMountView::fromPath(interpreterLease.path());
+    if (executableView &&
+        (executableView->mountFlags(interpreterLease.path()) & VfsMountView::NoExec)) {
+      SYSCALL_ERROR(PermissionDenied);
+      return false;
+    }
     if (!posix_landlock_check(interpreterLease.path(),
                               LandlockAccess::Execute | LandlockAccess::ReadFile)) {
       return false;
@@ -2784,7 +2825,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 
   // A descriptor can survive exec after clearing FD_CLOEXEC, but its old
   // image's notification registration must not target the replacement image.
-  posix_mqueue_process_exit(pProcess->getUserspaceId());
+  posix_mqueue_process_exit(pProcess->getId());
 
   // Wipe out old address space.
   // Earlier failures preserve the registration. From this irreversible
@@ -2875,6 +2916,9 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
     p->commitExecCredentials(*pThread, allExecutableFilesReadable);
     execCredentials = p->snapshotCredentials();
+    if (!posix_capabilities_exec(*pThread, execCredentials.euid)) {
+      return failAfterCommit(Error::OutOfMemory);
+    }
   } else {
     execCredentials.ruid = pProcess->getUserId();
     execCredentials.euid = pProcess->getEffectiveUserId();

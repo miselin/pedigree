@@ -54,6 +54,7 @@ struct Message {
 };
 
 struct Queue {
+  uint64_t namespaceId = posix_ipc_namespace_id();
   Queue(int identifier, int key, int mode) : id(identifier), removed(false), status{} {
     PosixIpc::initialize(status.permission, key, mode, identifier / MaximumQueues);
     status.capacity = DefaultQueueBytes;
@@ -76,12 +77,14 @@ SharedPointer<Queue> findQueue(int id, bool index = false) {
   LockGuard<Mutex> guard(registryLock);
   if (id >= 0) {
     if (index) {
-      if (static_cast<size_t>(id) < MaximumQueues && queues[id]) {
+      if (static_cast<size_t>(id) < MaximumQueues && queues[id] &&
+          queues[id]->namespaceId == posix_ipc_namespace_id()) {
         return queues[id];
       }
     } else {
       for (size_t i = 0; i < MaximumQueues; ++i) {
-        if (queues[i] && queues[i]->id == id) {
+        if (queues[i] && queues[i]->namespaceId == posix_ipc_namespace_id() &&
+            queues[i]->id == id) {
           return queues[i];
         }
       }
@@ -129,7 +132,7 @@ int queueInfo(int command, void* buffer) {
   int highest = 0;
   LockGuard<Mutex> guard(registryLock);
   for (size_t i = 0; i < MaximumQueues; ++i) {
-    if (!queues[i]) {
+    if (!queues[i] || queues[i]->namespaceId != posix_ipc_namespace_id()) {
       continue;
     }
     highest = i;
@@ -166,7 +169,8 @@ int posix_msgget(int32_t key, int flags) {
       if (freeSlot == MaximumQueues) {
         freeSlot = i;
       }
-    } else if (key && queues[i]->status.permission.key == key) {
+    } else if (key && queues[i]->namespaceId == posix_ipc_namespace_id() &&
+               queues[i]->status.permission.key == key) {
       if ((flags & (Create | Exclusive)) == (Create | Exclusive)) {
         SYSCALL_ERROR(FileExists);
         return -1;
@@ -345,7 +349,7 @@ int posix_msgctl(int id, int command, void* buffer) {
   if (command == Remove) {
     queue->removed = true;
     for (size_t i = 0; i < MaximumQueues; ++i) {
-      if (queues[i] && queues[i]->id == id) {
+      if (queues[i] && queues[i]->namespaceId == posix_ipc_namespace_id() && queues[i]->id == id) {
         queues[i].reset();
         break;
       }
@@ -356,7 +360,8 @@ int posix_msgctl(int id, int command, void* buffer) {
       SYSCALL_ERROR(InvalidArgument);
       return -1;
     }
-    if (input.capacity > DefaultQueueBytes && PosixIpc::process()->getEffectiveUserId() != 0) {
+    if (input.capacity > DefaultQueueBytes &&
+        !posix_namespace_capable(posix_ipc_owner(), PosixCapabilities::SysResource)) {
       SYSCALL_ERROR(NotEnoughPermissions);
       return -1;
     }
@@ -372,4 +377,18 @@ int posix_msgctl(int id, int command, void* buffer) {
   }
   queue->changed.broadcast();
   return 0;
+}
+
+void posix_msg_namespace_exit(uint64_t identity) {
+  LockGuard<Mutex> registryGuard(registryLock);
+  for (auto& entry : queues) {
+    if (entry && entry->namespaceId == identity) {
+      auto queue = entry;
+      LockGuard<Mutex> guard(queue->lock);
+      queue->removed = true;
+      queue->messages.clear();
+      queue->changed.broadcast();
+      entry.reset();
+    }
+  }
 }

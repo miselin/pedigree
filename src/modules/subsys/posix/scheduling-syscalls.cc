@@ -35,8 +35,9 @@ class SchedulingResult {
 
 bool acquireTarget(int pid, Process::ThreadLease& target) {
   Thread* caller = Processor::information().getCurrentThread();
-  const bool found = pid == 0 ? caller->getParent()->acquireThread(target, caller)
-                              : pid > 0 && Scheduler::instance().acquireThreadByTaskId(target, pid);
+  const bool found = pid == 0
+                         ? caller->getParent()->acquireThread(target, caller)
+                         : pid > 0 && Scheduler::instance().acquireThreadByUserspaceId(target, pid);
   if (found && target->getParent()->getType() == Process::Posix &&
       target->getParent()->getSubsystem() && target->getUnwindState() != Thread::TerminateThread) {
     ThreadPlacement placement;

@@ -102,6 +102,10 @@ PosixMessageQueue::~PosixMessageQueue() {
   delete m_State;
 }
 
+uint64_t PosixMessageQueue::namespaceId() const {
+  return m_State->namespaceId;
+}
+
 const String& PosixMessageQueue::name() const {
   return m_State->name;
 }
@@ -109,7 +113,7 @@ const String& PosixMessageQueue::name() const {
 bool PosixMessageQueue::mayOpen(Process* process, int flags) const {
   const auto& state = *m_State;
   const int64_t uid = process->getEffectiveUserId();
-  if (uid == 0) {
+  if (posix_namespace_capable(posix_ipc_owner(), PosixCapabilities::DacOverride)) {
     return true;
   }
   unsigned mode = state.mode;
@@ -128,7 +132,8 @@ bool PosixMessageQueue::mayOpen(Process* process, int flags) const {
 
 bool PosixMessageQueue::mayUnlink(Process* process) const {
   const int64_t uid = process->getEffectiveUserId();
-  return uid == 0 || uid == m_State->uid;
+  return uid == m_State->uid ||
+         posix_namespace_capable(posix_ipc_owner(), PosixCapabilities::Fowner);
 }
 
 int PosixMessageQueue::send(const char* data, size_t length, unsigned priority, bool nonblock,
@@ -278,7 +283,7 @@ void MqueueNotification::complete(bool removed) {
     return;
   }
   if (socket) {
-    static_cast<MqueueNetlinkSocket*>(socket.get())->deliverCookie(cookie, removed);
+    socket->asMqueueNetlink()->deliverCookie(cookie, removed);
   } else if (!removed && event.notify == 0) {
     // The queue lock also serializes exit cancellation. Pin the exact process
     // before dropping the registration so PID recycling cannot retarget it.
@@ -313,7 +318,7 @@ int PosixMessageQueue::notify(const LinuxMqSigevent* userEvent) {
     if (event.notify == 2) {
       DescriptorLease socket;
       if (!acquireDescriptor(event.signal, socket) || !socket->networkImpl ||
-          socket->networkImpl->getDomain() != 16) {
+          !socket->networkImpl->asMqueueNetlink()) {
         SYSCALL_ERROR(BadFileDescriptor);
         return -1;
       }
@@ -325,7 +330,7 @@ int PosixMessageQueue::notify(const LinuxMqSigevent* userEvent) {
       notification.socket = socket->networkImpl;
     }
     notification.process = process;
-    notification.pid = process->getUserspaceId();
+    notification.pid = process->getId();
   }
   auto& state = *m_State;
   LockGuard<Mutex> guard(state.lock);
@@ -339,8 +344,7 @@ int PosixMessageQueue::notify(const LinuxMqSigevent* userEvent) {
     SYSCALL_ERROR(DeviceBusy);
     return -1;
   }
-  if (notification.socket &&
-      !static_cast<MqueueNetlinkSocket*>(notification.socket.get())->reserveCookie()) {
+  if (notification.socket && !notification.socket->asMqueueNetlink()->reserveCookie()) {
     return -1;
   }
   state.notification = notification;

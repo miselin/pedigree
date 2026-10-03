@@ -13,6 +13,7 @@
 
 #include "PosixSubsystem.h"
 #include "clock-syscalls.h"
+#include "user-namespace.h"
 
 namespace {
 struct LinuxTimex {
@@ -87,8 +88,7 @@ int posix_clock_adjtime(int clockId, void* value) {
     return -1;
   }
   const bool readOnly = requested.modes == 0 || requested.modes == AdjustSingleShotRead;
-  if (!readOnly &&
-      Processor::information().getCurrentThread()->getParent()->getEffectiveUserId() != 0) {
+  if (!readOnly && !posix_global_capable(PosixCapabilities::SysTime)) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }

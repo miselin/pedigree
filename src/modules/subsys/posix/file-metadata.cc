@@ -9,13 +9,14 @@
 #include "modules/system/console/Console.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
+#include "user-namespace.h"
 #include <sys/stat.h>
 
 bool posix_stat_file(const char* name, File* pFile, struct stat* st) {
   static ConstantString nullName = MakeConstantString("null");
   int mode = 0;
   /// \todo files really should be able to expose their "type"...
-  if (ConsoleManager::instance().isConsole(pFile) ||
+  if (pFile->isCharacterDevice() ||
       (pFile->getFilesystem() == g_pDevFs && pFile->getName() == nullName)) {
     F_NOTICE("    -> S_IFCHR");
     mode = S_IFCHR;
@@ -67,25 +68,26 @@ bool posix_stat_file(const char* name, File* pFile, struct stat* st) {
 
   Filesystem* pFs = pFile->getFilesystem();
 
-  st->st_dev = static_cast<short>(reinterpret_cast<uintptr_t>(pFile->getFilesystem()));
+  st->st_dev = 0;
   VFS::MountOperation mount;
-  if (VFS::instance().acquireMount(pFs, mount) && mount.filesystem()->getDisk()) {
+  if (VFS::instance().acquireMount(pFs, mount)) {
     if (mount.id() > PosixBlock::MaximumMinor) {
       SYSCALL_ERROR(ValueTooLarge);
       return false;
     }
-    st->st_dev = PosixBlock::encode(PosixBlock::MountedMajor, mount.id());
+    st->st_dev = PosixBlock::encode(mount.filesystem()->getDisk() ? PosixBlock::MountedMajor : 0,
+                                    mount.id());
   }
   F_NOTICE("    -> " << st->st_dev);
   st->st_ino = attributes.inode ? attributes.inode : pFile->getInode();
   F_NOTICE("    -> " << st->st_ino);
   st->st_mode = mode;
   st->st_nlink = attributes.links;
-  st->st_uid = attributes.uid;
-  st->st_gid = attributes.gid;
+  st->st_uid = posix_visible_id(false, attributes.uid);
+  st->st_gid = posix_visible_id(true, attributes.gid);
   F_NOTICE("    -> uid=" << Dec << st->st_uid);
   F_NOTICE("    -> gid=" << Dec << st->st_gid);
-  st->st_rdev = pFile->isBlockDevice() ? pFile->deviceNumber() : 0;
+  st->st_rdev = (pFile->isBlockDevice() || pFile->isCharacterDevice()) ? pFile->deviceNumber() : 0;
   st->st_size = attributes.size;
   F_NOTICE("    -> " << st->st_size);
   st->st_atime = attributes.accessed;
@@ -118,7 +120,7 @@ bool posix_chmod_file(File* pFile, mode_t mode) {
   }
   FilesystemCredentials credentials;
   if (!Process::currentFilesystemCredentials(credentials) ||
-      (credentials.uid != pFile->getUid() && credentials.uid != 0)) {
+      (credentials.uid != pFile->getUid() && !posix_global_capable(PosixCapabilities::Fowner))) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return false;
   }
@@ -157,10 +159,15 @@ bool posix_chown_file(File* pFile, uid_t owner, gid_t group) {
     return false;
   }
   auto attributes = pFile->getAttributes();
-  const uint32_t newOwner = owner == UINT32_MAX ? attributes.uid : owner;
-  const uint32_t newGroup = group == UINT32_MAX ? attributes.gid : group;
-  if (credentials.uid != 0 && (credentials.uid != attributes.uid || newOwner != attributes.uid ||
-                               (newGroup != attributes.gid && !credentials.inGroup(newGroup)))) {
+  uint32_t newOwner = attributes.uid, newGroup = attributes.gid;
+  if ((owner != UINT32_MAX && !posix_global_id(false, owner, newOwner)) ||
+      (group != UINT32_MAX && !posix_global_id(true, group, newGroup))) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  if (!posix_global_capable(PosixCapabilities::Chown) &&
+      (credentials.uid != attributes.uid || newOwner != attributes.uid ||
+       (newGroup != attributes.gid && !credentials.inGroup(newGroup)))) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return false;
   }

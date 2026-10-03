@@ -31,15 +31,32 @@ class VfsNodeReference {
   Ownership m_Ownership = Ownership::Borrowed;
 };
 
+class VfsBacking {
+ public:
+  explicit VfsBacking(VFS::FilesystemPin&& retained) : pin(pedigree_std::move(retained)) {}
+  ~VfsBacking();
+  VFS* owningRegistry = nullptr;
+  VFS::FilesystemPin pin;
+};
+using VfsBackingRef = SharedPointer<VfsBacking>;
+
 class VfsAttachment {
  public:
-  VfsAttachment(VFS::FilesystemPin&& pin, uint64_t identity)
-      : backing(pedigree_std::move(pin)), root(backing.filesystem()->getRoot()), id(identity) {}
-  ~VfsAttachment();
-  VFS* owningRegistry = nullptr;
-  VFS::FilesystemPin backing;
+  VfsAttachment(const VfsBackingRef& retained, uint64_t identity, VfsNodeReference&& selected,
+                uint64_t options)
+      : backing(retained),
+        root(selected.get()),
+        id(identity),
+        flags(options),
+        rootReference(pedigree_std::move(selected)) {}
+  VfsBackingRef backing;
   File* const root;
   const uint64_t id;
+  Atomic<uint64_t> flags;
+  uint64_t lockedFlags = 0;
+  bool lockedMount = false;
+  Atomic<size_t> writers{0};
+  VfsNodeReference rootReference;
   Atomic<size_t> paths{0};
 };
 using VfsAttachmentRef = SharedPointer<VfsAttachment>;
@@ -78,11 +95,16 @@ struct VfsContextRow {
 
 class VfsFilesystemContext final : public FilesystemContext {
  public:
-  explicit VfsFilesystemContext(VfsMountView& owner) : view(owner) {}
+  explicit VfsFilesystemContext(VfsMountView& owner) : view(owner) {
+    view.retain();
+  }
   ~VfsFilesystemContext() override;
   bool snapshot(FilesystemContextSnapshot& result) const override;
   bool forkForProcess(FilesystemContextOwner& result) const override;
   void retireProcessOwner() override;
+  const void* provider() const override {
+    return &view;
+  }
 
   VfsMountView& view;
   FilesystemPathRef root;
@@ -106,12 +128,15 @@ struct VfsMountView::State {
 
   VfsAttachmentRow* find(uint64_t id) const;
   VfsAttachmentRow* at(const VfsPath& path) const;
+  bool snapshotRows(Vector<VfsAttachmentRow>& result);
   bool contains(const FilesystemPathRef& path) const;
   VfsPath* nodePath(const FilesystemPathRef& reference) const;
   VfsPath* path(const FilesystemPathRef& reference) const;
   bool makePath(const VfsAttachmentRef& attachment, File* node, FilesystemPathRef& result);
   bool makePath(const VfsAttachmentRef& attachment, VfsNodeReference&& node,
                 FilesystemPathRef& result);
+  bool makeAttachment(const VfsBackingRef& backing, File* root, uint64_t flags,
+                      VfsAttachmentRef& result);
   bool ancestors(const FilesystemPathRef& path, Vector<FilesystemPathRef>& result);
   bool context(const FilesystemContextRef& reference, VfsFilesystemContext*& result) const;
   bool createContext(const VfsFilesystemContext* parent, FilesystemContextOwner& result);
@@ -130,7 +155,7 @@ struct VfsMountView::State {
             const String& pathname, const ResolveOptions& options, FilesystemPathRef& result,
             size_t& links);
   bool attach(const FilesystemPathRef& covered, VFS::FilesystemPin&& pin,
-              const VFS::NamespaceMutation& writer, BackingOwnership ownership);
+              const VFS::NamespaceMutation& writer, BackingOwnership ownership, uint64_t flags);
   void reapDetached();
 };
 #endif

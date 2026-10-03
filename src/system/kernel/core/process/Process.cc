@@ -61,6 +61,110 @@ SharedPointer<UserspacePidNamespace> defaultUserspacePidNamespace() {
 }
 }  // namespace
 
+UserspacePid::UserspacePid(const SharedPointer<UserspacePidNamespace>& space) : m_Namespace(space) {
+  for (auto current = space; current; current = current->parent()) {
+    m_Ids.pushBack(current->allocate());
+  }
+}
+
+size_t UserspacePid::id(const UserspacePidNamespace* space) const {
+  if (!space) {
+    space = m_Namespace.get();
+  }
+  size_t index = 0;
+  for (auto current = m_Namespace; current; current = current->parent(), ++index) {
+    if (current.get() == space) {
+      return m_Ids[index];
+    }
+  }
+  return 0;
+}
+
+SharedPointer<UserspacePidNamespace> Process::rootPidNamespace() {
+  return defaultUserspacePidNamespace();
+}
+
+SharedPointer<UserspacePidNamespace> Process::pidNamespaceForChildren() {
+  LockGuard<Spinlock> guard(m_Lock);
+  return m_ChildrenPidNamespace ? m_ChildrenPidNamespace
+         : m_UserspaceNamespace ? m_UserspaceNamespace
+                                : defaultUserspacePidNamespace();
+}
+
+bool Process::pidNamespaceReady() const {
+  if (!m_UserspacePid) {
+    return false;
+  }
+  for (auto space = m_UserspaceNamespace; space; space = space->parent()) {
+    if (space->dead()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool Process::createPidNamespace() {
+  if (m_bPublished || m_Threads.count() || !pidNamespaceReady() ||
+      m_UserspaceNamespace->depth() >= 32) {
+    return false;
+  }
+  auto space = SharedPointer<UserspacePidNamespace>::tryAllocate(m_UserspaceNamespace);
+  auto identity =
+      space ? SharedPointer<UserspacePid>::tryAllocate(space) : SharedPointer<UserspacePid>();
+  if (!identity) {
+    return false;
+  }
+  m_UserspaceNamespace = space;
+  m_UserspacePid = identity;
+  return true;
+}
+
+bool Process::unsharePidNamespace() {
+  if (!pidNamespaceReady() || m_UserspaceNamespace->depth() >= 32) {
+    return false;
+  }
+  auto space = SharedPointer<UserspacePidNamespace>::tryAllocate(m_UserspaceNamespace);
+  return unsharePidNamespace(space);
+}
+
+bool Process::unsharePidNamespace(const SharedPointer<UserspacePidNamespace>& prepared) {
+  if (!prepared || prepared->parent().get() != m_UserspaceNamespace.get() ||
+      prepared->depth() > 32 || prepared->dead()) {
+    return false;
+  }
+  LockGuard<Spinlock> guard(m_Lock);
+  if (m_ChildrenPidNamespace) {
+    return false;
+  }
+  m_ChildrenPidNamespace = prepared;
+  return true;
+}
+
+namespace {
+bool acquireNamespaceReaper(Process* process, Scheduler::ProcessLease& reaper) {
+  for (auto space = process->pidNamespace(); space; space = space->parent()) {
+    Process* candidate = space->init();
+    if (!space->dead() && candidate != process &&
+        Scheduler::instance().acquireProcess(reaper, candidate)) {
+      // The namespace does not own its init. Validate identity after pinning
+      // so a reused Process address cannot become the namespace's reaper.
+      if (reaper->pidNamespace().get() == space.get() && reaper->getUserspaceId() == 1 &&
+          !space->dead()) {
+        return true;
+      }
+    }
+    reaper.reset();
+  }
+  Process* candidate = Process::getInit();
+  if (candidate != process && Scheduler::instance().acquireProcess(reaper, candidate) &&
+      Process::getInit() == reaper.get()) {
+    return true;
+  }
+  reaper.reset();
+  return false;
+}
+}  // namespace
+
 Process* Process::m_pInitProcess = 0;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -396,7 +500,7 @@ Process::Process(DeferredPublication, ProcessType type)
       m_NextTid(0),
       m_Id(Scheduler::instance().reserveProcessId()),
       m_UserspaceNamespace(),
-      m_UserspaceId(0),
+      m_UserspacePid(),
       str(),
       m_pParent(0),
       m_pAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
@@ -467,9 +571,8 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite,
     : m_Threads(),
       m_NextTid(0),
       m_Id(Scheduler::instance().reserveProcessId()),
-      m_UserspaceNamespace(pParent->m_UserspaceNamespace ? pParent->m_UserspaceNamespace
-                                                         : defaultUserspacePidNamespace()),
-      m_UserspaceId(m_UserspaceNamespace ? m_UserspaceNamespace->allocate() : 0),
+      m_UserspaceNamespace(pParent->pidNamespaceForChildren()),
+      m_UserspacePid(SharedPointer<UserspacePid>::tryAllocate(m_UserspaceNamespace)),
       str(),
       m_pParent(pParent),
       m_pAddressSpace(0),
@@ -637,6 +740,24 @@ bool Process::installFilesystemContext(FilesystemContextOwner&& context) {
   // The old slot is empty, so moving ownership cannot invoke provider code.
   m_FilesystemContext = pedigree_std::move(context);
   m_bFilesystemContextReady = true;
+  return true;
+}
+
+bool Process::replaceFilesystemContext(FilesystemContextOwner&& replacement,
+                                       const FilesystemContextRef& expected) {
+  if (!replacement) {
+    return false;
+  }
+  FilesystemContextOwner retired;
+  {
+    LockGuard<Mutex> guard(m_FilesystemContextLock);
+    if (m_FilesystemContext.reference().get() != expected.get()) {
+      return false;
+    }
+    retired = pedigree_std::move(m_FilesystemContext);
+    m_FilesystemContext = pedigree_std::move(replacement);
+  }
+  retired.reset();
   return true;
 }
 
@@ -827,6 +948,10 @@ void Process::publish() {
     FATAL("Process::publish() called more than once.");
   }
 
+  if (m_UserspaceNamespace && getUserspaceId() == 1) {
+    m_UserspaceNamespace->setInit(this);
+  }
+
   Process* pRequestedParent = getParent();
   if (!pRequestedParent) {
     Scheduler::instance().addProcess(this);
@@ -837,7 +962,7 @@ void Process::publish() {
   Scheduler::ProcessLease requestedParent;
   if (!Scheduler::instance().acquireProcess(requestedParent, pRequestedParent)) {
     Scheduler::ProcessLease init;
-    const bool initAcquired = Scheduler::instance().acquireProcess(init, Process::getInit());
+    const bool initAcquired = acquireNamespaceReaper(this, init);
     Process* publishParent =
         initAcquired && canAdoptChildren(init.get(), this) ? init.get() : nullptr;
     if (publishParent) {
@@ -867,8 +992,7 @@ void Process::publish() {
 
   if (!pPublishParent) {
     Scheduler::ProcessLease publishParent;
-    const bool publishParentAcquired =
-        Scheduler::instance().acquireProcess(publishParent, Process::getInit());
+    const bool publishParentAcquired = acquireNamespaceReaper(this, publishParent);
     if (publishParentAcquired && publishParent.get() != pRequestedParent &&
         canAdoptChildren(publishParent.get(), this)) {
       auto publishGuard = publishParent->m_ChildStateWaiters.acquire();
@@ -1202,6 +1326,9 @@ size_t Process::addThread(Thread* pThread) {
   __atomic_store_n(&pThread->m_TaskId,
                    localId == 1 ? m_Id : Scheduler::instance().reserveProcessId(),
                    __ATOMIC_RELEASE);
+  pThread->m_UserspacePid = localId == 1
+                                ? m_UserspacePid
+                                : SharedPointer<UserspacePid>::tryAllocate(m_UserspaceNamespace);
   Metrics::increment(Metrics::ThreadCreated);
   return localId;
 }
@@ -1349,6 +1476,34 @@ bool Process::acquireThreadByTaskId(ThreadLease& lease, size_t id) {
     LockGuard<Spinlock> guard(m_Lock);
     for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); ++it) {
       if (*it && (*it)->getTaskId() == id) {
+        thread = *it;
+        break;
+      }
+    }
+    if (!thread || !beginExternalLease()) {
+      thread = nullptr;
+    } else if (!thread->beginExternalLease()) {
+      endExternalLease();
+      thread = nullptr;
+    }
+  }
+
+  if (!thread) {
+    lease.reset();
+    return false;
+  }
+
+  lease = ThreadLease(this, thread);
+  return true;
+}
+
+bool Process::acquireThreadByUserspaceId(ThreadLease& lease, size_t id,
+                                         const UserspacePidNamespace* space) {
+  Thread* thread = nullptr;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); ++it) {
+      if (*it && (*it)->getUserspaceTaskId(space) == id) {
         thread = *it;
         break;
       }
@@ -1628,6 +1783,12 @@ bool Process::beginTermination(int code, Subsystem::ExitCause cause) {
   }
   transitionToTerminating();
 
+  const bool closesPidNamespace =
+      m_UserspaceNamespace && m_UserspaceNamespace->parent() && getUserspaceId() == 1;
+  if (closesPidNamespace) {
+    m_UserspaceNamespace->close();
+  }
+
   // Init cannot accept any more orphans once its own teardown starts.
   Process* expectedInit = this;
   __atomic_compare_exchange_n(&m_pInitProcess, &expectedInit, static_cast<Process*>(0), false,
@@ -1644,8 +1805,7 @@ bool Process::beginTermination(int code, Subsystem::ExitCause cause) {
   // Reparent every child, including terminated-but-unreaped children. Direct
   // deletion here races both waitpid and a child still switching off-stack.
   Scheduler::ProcessLease newParent;
-  const bool newParentAcquired =
-      Scheduler::instance().acquireProcess(newParent, Process::getInit());
+  const bool newParentAcquired = acquireNamespaceReaper(this, newParent);
   Process* pNewParent = newParentAcquired ? newParent.get() : nullptr;
   auto moveChildren = [this](Process* pParent) {
     while (true) {
@@ -1684,6 +1844,23 @@ bool Process::beginTermination(int code, Subsystem::ExitCause cause) {
     m_TerminationElectionHook(this, pCurrentThread);
   }
 #endif
+
+  if (closesPidNamespace) {
+    size_t after = 0;
+    Scheduler::ProcessLease member;
+    while (Scheduler::instance().acquireNextProcess(member, after)) {
+      after = member->getId();
+      if (member.get() == this || !member->getUserspaceId(m_UserspaceNamespace.get())) {
+        continue;
+      }
+      ThreadLease recipient;
+      if (member->getSubsystem() && member->acquireProcessSignalThread(recipient)) {
+        member->getSubsystem()->kill(Subsystem::Unknown, recipient.get());
+      }
+      recipient.reset();
+      member->waitUntilTerminationReapable();
+    }
+  }
 
   // Peers take a thread-only exit path. Re-entering Subsystem::exit() here
   // would rerun process teardown and recreate the historical deadlocks.

@@ -13,6 +13,7 @@
 #include "FileDescriptor.h"
 #include "PosixSubsystem.h"
 #include "modules/system/vfs/File.h"
+#include "modules/system/vfs/MountView.h"
 #include "net-syscalls.h"
 #include "transfer-syscalls.h"
 
@@ -180,6 +181,12 @@ ssize_t sendFile(PosixSubsystem* subsystem, Thread* thread, int outputFd, int in
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
+  VfsMountView::WriteLease mountWrite;
+  if (output->openingPath() && output->getFile() &&
+      output->getFile()->supportsRegularFileOperations() && !output->getFile()->isBlockDevice() &&
+      !mountWrite.acquire(output->openingPath())) {
+    return -1;
+  }
   auto outputDescription = output->acquireOpenFileDescription();
   if (!outputDescription) {
     SYSCALL_ERROR(BadFileDescriptor);
@@ -301,6 +308,12 @@ ssize_t posix_copy_file_range(int inputFd, int64_t* inputOffset, int outputFd,
       return -1;
     }
     auto inputDescription = input->acquireOpenFileDescription();
+    VfsMountView::WriteLease mountWrite;
+    if (output->openingPath() && output->getFile() &&
+        output->getFile()->supportsRegularFileOperations() && !output->getFile()->isBlockDevice() &&
+        !mountWrite.acquire(output->openingPath())) {
+      return -1;
+    }
     auto outputDescription = output->acquireOpenFileDescription();
     if (!inputDescription || !outputDescription) {
       SYSCALL_ERROR(BadFileDescriptor);

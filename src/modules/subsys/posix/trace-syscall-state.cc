@@ -86,10 +86,11 @@ TraceStatus posix_trace_lookup(int32_t tid, TraceRelationRef& result) {
   TraceTaskRef selected;
   {
     Process::ThreadLease task;
-    if (!Scheduler::instance().acquireThreadByTaskId(task, static_cast<size_t>(tid)) ||
+    if (!Scheduler::instance().acquireThreadByUserspaceId(task, static_cast<size_t>(tid)) ||
         task->getParent()->getType() != Process::Posix || !task->acceptingEvents() ||
-        task->getUnwindState() != Thread::Continue)
+        task->getUnwindState() != Thread::Continue) {
       return TraceStatus::Missing;
+    }
     auto* subsystem = static_cast<PosixSubsystem*>(task->getParent()->getSubsystem());
     if (!subsystem || !subsystem->traceContext().taskToken(*task.get(), selected) ||
         !Scheduler::instance().acquireProcess(process, task->getParent()))

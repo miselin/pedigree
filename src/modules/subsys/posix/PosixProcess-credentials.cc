@@ -5,6 +5,7 @@
 #include "modules/system/users/Group.h"
 #include "modules/system/users/User.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
+#include "user-namespace.h"
 
 namespace {
 TraceTaskRef credentialTaskToken(Thread& task) {
@@ -23,6 +24,11 @@ PosixProcess::CredentialSnapshot PosixProcess::snapshotCredentials() const {
 }
 
 FilesystemCredentials PosixProcess::realFilesystemCredentials() const {
+  Thread* task = Processor::information().getCurrentThread();
+  PosixTaskCredentials authority;
+  if (task && task->getParent() == this) {
+    authority = posix_task_credentials(*task);
+  }
   LockGuard<Spinlock> guard(m_CredentialLock);
   FilesystemCredentials out;
   out.uid = m_Credentials.ruid;
@@ -31,11 +37,19 @@ FilesystemCredentials PosixProcess::realFilesystemCredentials() const {
   for (size_t i = 0; i < out.groupCount; ++i)
     out.groups[i] = m_Credentials.groups[i];
   out.valid = true;
+  out.enforceCapabilities = true;
+  if (!out.uid && !authority.userNamespace) {
+    out.capabilities = authority.permitted;
+  }
   return out;
 }
 
 bool PosixProcess::snapshotFilesystemCredentials(const Thread* task,
                                                  FilesystemCredentials& out) const {
+  PosixTaskCredentials authority;
+  if (task && task->getParent() == this) {
+    authority = posix_task_credentials(*const_cast<Thread*>(task));
+  }
   LockGuard<Spinlock> guard(m_CredentialLock);
   out = FilesystemCredentials();
   if (task && task->getParent() != this)
@@ -48,6 +62,10 @@ bool PosixProcess::snapshotFilesystemCredentials(const Thread* task,
   for (size_t i = 0; i < out.groupCount; ++i)
     out.groups[i] = m_Credentials.groups[i];
   out.valid = true;
+  out.enforceCapabilities = true;
+  if (!authority.userNamespace) {
+    out.capabilities = authority.effective;
+  }
   return true;
 }
 
@@ -57,19 +75,31 @@ PosixProcess::CredentialStatus PosixProcess::changeCredentials(Thread& task,
                                                                uint32_t third) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
   const TraceTaskRef token = credentialTaskToken(task);
+  const bool group = change == CredentialChange::SetGid || change == CredentialChange::SetReGid ||
+                     change == CredentialChange::SetResGid;
+  const bool privileged =
+      posix_capable(group ? PosixCapabilities::Setgid : PosixCapabilities::Setuid);
+  auto space = posix_user_namespace(task);
+  uint32_t root = 0;
+  if (space && !space->toGlobal(false, 0, root)) {
+    root = UINT32_MAX;
+  }
   LockGuard<Spinlock> guard(m_CredentialLock);
   if (task.getParent() != this)
     return CredentialStatus::Invalid;
   uint32_t fsuid = m_Credentials.euid, fsgid = m_Credentials.egid;
   loadFilesystemIds(task, fsuid, fsgid);
-  const bool group = change == CredentialChange::SetGid || change == CredentialChange::SetReGid ||
-                     change == CredentialChange::SetResGid;
   CredentialSnapshot next;
   uint32_t nextFs;
   const auto status = PosixCredentials::prepare(m_Credentials, change, first, second, third,
-                                                group ? fsgid : fsuid, next, nextFs);
+                                                group ? fsgid : fsuid, next, nextFs, privileged);
   if (status != CredentialStatus::Success)
     return status;
+  if (!group &&
+      !posix_capabilities_uid_change(task, m_Credentials.ruid, m_Credentials.euid,
+                                     m_Credentials.suid, next.ruid, next.euid, next.suid, root)) {
+    return CredentialStatus::NoMemory;
+  }
   if (token && (m_Credentials.euid != next.euid || m_Credentials.egid != next.egid ||
                 (group ? fsgid : fsuid) != nextFs)) {
     token->clearParentDeathSignal();
@@ -96,10 +126,11 @@ PosixProcess::CredentialStatus PosixProcess::replaceGroups(Thread& task, const u
     ordered[position] = groups[i];
   }
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+  const bool privileged = posix_capable(PosixCapabilities::Setgid);
   LockGuard<Spinlock> guard(m_CredentialLock);
   if (task.getParent() != this)
     return CredentialStatus::Invalid;
-  if (m_Credentials.euid)
+  if (!privileged)
     return CredentialStatus::Denied;
   bool changed = count != m_Credentials.groupCount;
   for (size_t i = 0; i < count; ++i) {
@@ -115,6 +146,12 @@ PosixProcess::CredentialStatus PosixProcess::replaceGroups(Thread& task, const u
 uint32_t PosixProcess::changeFilesystemId(Thread& task, bool group, uint32_t requested) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
   const TraceTaskRef token = credentialTaskToken(task);
+  const bool privileged =
+      posix_capable(group ? PosixCapabilities::Setgid : PosixCapabilities::Setuid);
+  auto space = posix_user_namespace(task);
+  uint32_t root = 0;
+  if (space && !space->toGlobal(false, 0, root))
+    root = UINT32_MAX;
   LockGuard<Spinlock> guard(m_CredentialLock);
   uint32_t uid = m_Credentials.euid, gid = m_Credentials.egid;
   if (task.getParent() != this)
@@ -125,7 +162,9 @@ uint32_t PosixProcess::changeFilesystemId(Thread& task, bool group, uint32_t req
   const uint32_t effective = group ? m_Credentials.egid : m_Credentials.euid;
   const uint32_t saved = group ? m_Credentials.sgid : m_Credentials.suid;
   if (requested != UINT32_MAX && requested != old &&
-      (!m_Credentials.euid || requested == real || requested == effective || requested == saved)) {
+      (privileged || requested == real || requested == effective || requested == saved)) {
+    if (!group && !posix_capabilities_fsuid_change(task, old, requested, root))
+      return old;
     publishFilesystemIds(task, group ? uid : requested, group ? requested : gid);
     if (token) {
       token->clearParentDeathSignal();
@@ -171,6 +210,7 @@ bool PosixProcess::installUserIdentity(User* user, Group* group, const uint32_t*
     if (groups[i] == UINT32_MAX)
       return false;
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
+  Thread* current = Processor::information().getCurrentThread();
   LockGuard<Spinlock> guard(m_CredentialLock);
   CredentialSnapshot next;
   next.ruid = next.euid = next.suid = user->getId();
@@ -180,10 +220,14 @@ bool PosixProcess::installUserIdentity(User* user, Group* group, const uint32_t*
     next.groups[i] = groups[i];
   next.generation = m_Credentials.generation + 1;
   next.dumpable = false;
+  if (current && current->getParent() == this &&
+      !posix_capabilities_uid_change(*current, m_Credentials.ruid, m_Credentials.euid,
+                                     m_Credentials.suid, next.ruid, next.euid, next.suid, 0)) {
+    return false;
+  }
   m_Credentials = next;
   publishCredentialReadCache();
   publishAccountIdentity(user, group);
-  Thread* current = Processor::information().getCurrentThread();
   if (current && current->getParent() == this)
     publishFilesystemIds(*current, next.euid, next.egid);
   return true;

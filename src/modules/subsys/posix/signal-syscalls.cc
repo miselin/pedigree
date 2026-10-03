@@ -543,7 +543,7 @@ int posix_tkill(int tid, int sig, bool linuxAbi) {
   Process* caller = current ? current->getParent() : nullptr;
   Process::ThreadLease thread;
   if (!caller ||
-      !(linuxAbi ? Scheduler::instance().acquireThreadByTaskId(thread, tid)
+      !(linuxAbi ? Scheduler::instance().acquireThreadByUserspaceId(thread, tid)
                  : caller->acquireThreadById(thread, tid)) ||
       thread->getParent()->getType() != Process::Posix) {
     SYSCALL_ERROR(NoSuchProcess);
@@ -577,8 +577,11 @@ int posix_tgkill(int tgid, int tid, int sig, bool linuxAbi) {
   Process::ThreadLease thread;
   if (!Scheduler::instance().acquireProcessByUserspaceId(process, static_cast<size_t>(tgid)) ||
       process->getType() != Process::Posix ||
-      !(linuxAbi ? process->acquireThreadByTaskId(thread, static_cast<size_t>(tid))
-                 : process->acquireThreadById(thread, static_cast<size_t>(tid)))) {
+      !(linuxAbi
+            ? process->acquireThreadByUserspaceId(
+                  thread, static_cast<size_t>(tid),
+                  Processor::information().getCurrentThread()->getParent()->pidNamespace().get())
+            : process->acquireThreadById(thread, static_cast<size_t>(tid)))) {
     SYSCALL_ERROR(NoSuchProcess);
     return -1;
   }
@@ -625,7 +628,8 @@ int posix_kill(int pid, int sig) {
   PosixProcess* pThisProcess =
       static_cast<PosixProcess*>(Processor::information().getCurrentThread()->getParent());
   size_t thisGroupId = 0;
-  const bool thisHasGroup = pThisProcess->getProcessGroupId(thisGroupId);
+  const bool thisHasGroup =
+      pThisProcess->getProcessGroupId(thisGroupId, pThisProcess->pidNamespace().get());
 
   bool bKillingSelf = false;
   bool foundTarget = false;
@@ -647,13 +651,18 @@ int posix_kill(int pid, int sig) {
       continue;
     }
 
+    if (!pProcess->getUserspaceId(pThisProcess->pidNamespace().get())) {
+      continue;
+    }
     PosixProcess* pPosixProcess = static_cast<PosixProcess*>(pProcess);
     bool selected = false;
     if (pid > 0) {
-      selected = static_cast<int>(pProcess->getUserspaceId()) == pid;
+      selected =
+          static_cast<int>(pProcess->getUserspaceId(pThisProcess->pidNamespace().get())) == pid;
     } else {
       size_t groupId = 0;
-      const bool hasGroup = pPosixProcess->getProcessGroupId(groupId);
+      const bool hasGroup =
+          pPosixProcess->getProcessGroupId(groupId, pThisProcess->pidNamespace().get());
       if (pid == 0) {
         // Any process in the same process group as the caller.
         selected = hasGroup && thisHasGroup && groupId == thisGroupId;
@@ -664,7 +673,8 @@ int posix_kill(int pid, int sig) {
       } else if (pid == -1) {
         // Linux broadcasts exclude init and the caller, including when
         // init uses this to stop userspace during shutdown.
-        selected = pProcess->getUserspaceId() > 1 && pProcess != pThisProcess;
+        selected = pProcess->getUserspaceId(pThisProcess->pidNamespace().get()) > 1 &&
+                   pProcess != pThisProcess;
       } else {
         // Absolute group ID reference
         selected = hasGroup && groupId == static_cast<size_t>(-static_cast<int64_t>(pid));
@@ -680,7 +690,7 @@ int posix_kill(int pid, int sig) {
       continue;
     }
 
-    processList.pushBack(pProcess->getUserspaceId());
+    processList.pushBack(pProcess->getUserspaceId(pThisProcess->pidNamespace().get()));
   }
 
   // No process(es) found?

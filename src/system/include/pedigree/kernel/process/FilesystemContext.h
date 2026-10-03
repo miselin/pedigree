@@ -19,6 +19,12 @@ class EXPORTED_PUBLIC FilesystemPath {
 };
 using FilesystemPathRef = SharedPointer<FilesystemPath>;
 
+/** A retained filesystem mutation capability, including shared writable mappings. */
+class EXPORTED_PUBLIC FilesystemWriteLease {
+ public:
+  virtual ~FilesystemWriteLease() = default;
+};
+
 struct EXPORTED_PUBLIC FilesystemContextSnapshot {
   FilesystemPathRef root;
   FilesystemPathRef cwd;
@@ -30,6 +36,9 @@ class EXPORTED_PUBLIC FilesystemContextOwner;
 class EXPORTED_PUBLIC FilesystemContext {
  public:
   virtual ~FilesystemContext() = default;
+  virtual const void* provider() const {
+    return nullptr;
+  }
   virtual bool snapshot(FilesystemContextSnapshot& result) const = 0;
   // The provider enrolls the unpublished child before returning success.
   virtual bool forkForProcess(FilesystemContextOwner& result) const = 0;

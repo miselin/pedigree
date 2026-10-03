@@ -25,11 +25,17 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 
 #include "PosixProcess.h"
 #include "file-syscalls.h"
 #include "modules/system/users/Group.h"
 #include "modules/system/users/User.h"
+
+namespace {
+Mutex procRegistryLock;
+ProcFs* procRegistry = nullptr;
+}  // namespace
 
 /// \todo expose this via PhysicalMemoryManager interface
 extern size_t g_FreePages;
@@ -319,6 +325,16 @@ size_t ConstantFile::getSize() {
 ProcFsDirectory::~ProcFsDirectory() = default;
 
 ProcFs::~ProcFs() {
+  {
+    LockGuard<Mutex> guard(procRegistryLock);
+    ProcFs** link = &procRegistry;
+    while (*link && *link != this) {
+      link = &(*link)->m_RegistryNext;
+    }
+    if (*link) {
+      *link = m_RegistryNext;
+    }
+  }
   delete m_pRoot;
 }
 
@@ -355,6 +371,20 @@ bool ProcFs::initialise(Disk* pDisk) {
 
   initialiseResolverFile();
   initialiseNetworkFile();
+
+  auto* sys = new ProcFsDirectory(String("sys"), 0, 0, 0, getNextInode(), this, 0, m_pRoot);
+  auto* kernel = new ProcFsDirectory(String("kernel"), 0, 0, 0, getNextInode(), this, 0, sys);
+  constexpr uint32_t directoryMode = FILE_UR | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX;
+  sys->setPermissions(directoryMode);
+  kernel->setPermissions(directoryMode);
+  m_pRoot->addEntry(sys->getName(), sys);
+  sys->addEntry(kernel->getName(), kernel);
+  const char* overflowNames[] = {"overflowuid", "overflowgid"};
+  for (const char* name : overflowNames) {
+    auto* value = new ConstantFile(String(name), "65534\n", 6, getNextInode(), this, kernel);
+    value->setPermissions(FILE_UR | FILE_GR | FILE_OR);
+    kernel->addEntry(value->getName(), value);
+  }
 
   UptimeFile* uptime = new UptimeFile(getNextInode(), this, m_pRoot);
   m_pRoot->addEntry(uptime->getName(), uptime);
@@ -471,7 +501,24 @@ bool ProcFs::initialise(Disk* pDisk) {
       String("devices"), m_PciDevices.cstr(), m_PciDevices.length(), getNextInode(), this, pPciDir);
   pPciDir->addEntry(pPciDevices->getName(), pPciDevices);
 
-  return initialiseNamespaceLinks();
+  if (!initialiseNamespaceLinks()) {
+    return false;
+  }
+  LockGuard<Mutex> guard(procRegistryLock);
+  if (!m_Registered) {
+    m_RegistryNext = procRegistry;
+    procRegistry = this;
+    m_Registered = true;
+  }
+  size_t after = 0;
+  Scheduler::ProcessLease process;
+  while (Scheduler::instance().acquireNextProcess(process, after)) {
+    after = process->getId();
+    if (process->getType() == Process::Posix) {
+      addProcess(static_cast<PosixProcess*>(process.get()));
+    }
+  }
+  return true;
 }
 
 size_t ProcFs::getNextInode() {
@@ -484,8 +531,17 @@ void ProcFs::revertInode() {
 }
 
 void ProcFs::addProcess(PosixProcess* proc) {
-  size_t pid = proc->getUserspaceId();
+  size_t pid = proc->getUserspaceId(m_PidNamespace.get());
+  if (!pid) {
+    return;
+  }
 
+  NormalStaticString name;
+  name.append(pid);
+  Directory::ChildLease existing;
+  if (m_pRoot->lookupChild(HashedStringView(name), existing) == Directory::LookupStatus::Found) {
+    return;
+  }
   auto procDir = createProcessDirectory(proc);
   if (!procDir) {
     WARNING("ProcFs: could not prepare process directory for " << Dec << pid);
@@ -508,10 +564,27 @@ void ProcFs::addProcess(PosixProcess* proc) {
 }
 
 void ProcFs::removeProcess(PosixProcess* proc) {
-  size_t pid = proc->getUserspaceId();
+  size_t pid = proc->getUserspaceId(m_PidNamespace.get());
+  if (!pid) {
+    return;
+  }
 
   String s;
   s.Format("%d", pid);
 
   m_pRoot->remove(s);
+}
+
+void ProcFs::publishProcess(PosixProcess* process) {
+  LockGuard<Mutex> guard(procRegistryLock);
+  for (auto* filesystem = procRegistry; filesystem; filesystem = filesystem->m_RegistryNext) {
+    filesystem->addProcess(process);
+  }
+}
+
+void ProcFs::unpublishProcess(PosixProcess* process) {
+  LockGuard<Mutex> guard(procRegistryLock);
+  for (auto* filesystem = procRegistry; filesystem; filesystem = filesystem->m_RegistryNext) {
+    filesystem->removeProcess(process);
+  }
 }

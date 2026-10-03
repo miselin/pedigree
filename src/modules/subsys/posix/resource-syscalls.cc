@@ -15,6 +15,7 @@
 #include "linux-resource-abi.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "system-syscalls.h"
+#include "user-namespace.h"
 #include <sys/resource.h>
 
 namespace {
@@ -91,7 +92,7 @@ int changeMemoryLimit(const LinuxRlimit64& limit, LinuxRlimit64* previous) {
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
   auto& account = pSubsystem->memoryLockAccount();
   const auto old = account.limit();
-  const auto status = account.setLimit(limit, thread->getParent()->getEffectiveUserId() == 0);
+  const auto status = account.setLimit(limit, posix_global_capable(PosixCapabilities::SysResource));
   if (status == PosixMemoryLockAccount::LimitStatus::Invalid) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;

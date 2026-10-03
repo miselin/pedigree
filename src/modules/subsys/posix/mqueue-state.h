@@ -7,6 +7,7 @@
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Pointers.h"
 
+#include "ipc-namespace.h"
 #include "mqueue-syscalls.h"
 #include "net-syscalls.h"
 
@@ -21,6 +22,7 @@ struct MqueueNotification {
 };
 
 struct MqueueState {
+  uint64_t namespaceId = posix_ipc_namespace_id();
   struct Message {
     Message() : next(-1), length(0), priority(0) {}
     int next;

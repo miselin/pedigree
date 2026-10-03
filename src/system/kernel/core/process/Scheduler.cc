@@ -356,12 +356,20 @@ bool Scheduler::acquireProcessById(ProcessLease& lease, size_t id) {
   return pResult != nullptr;
 }
 
-bool Scheduler::acquireProcessByUserspaceId(ProcessLease& lease, size_t id) {
+bool Scheduler::acquireProcessByUserspaceId(ProcessLease& lease, size_t id,
+                                            const UserspacePidNamespace* space) {
+  auto* current = Processor::information().getCurrentThread();
+  auto owner = current && current->getParent()->pidNamespace()
+                   ? current->getParent()->pidNamespace()
+                   : Process::rootPidNamespace();
+  if (!space) {
+    space = owner.get();
+  }
   m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
   Process* pResult = nullptr;
   for (List<Process*>::Iterator it = m_Processes.begin(); it != m_Processes.end(); ++it) {
     Process* candidate = *it;
-    if (candidate->getUserspaceId() == id) {
+    if (id && candidate->getUserspaceId(space) == id) {
       pResult = candidate;
       break;
     }
@@ -373,6 +381,48 @@ bool Scheduler::acquireProcessByUserspaceId(ProcessLease& lease, size_t id) {
   m_SchedulerLock.release();
   lease = ProcessLease(pResult);
   return pResult != nullptr;
+}
+
+bool Scheduler::acquireNextProcess(ProcessLease& lease, size_t afterId) {
+  lease.reset();
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  Process* result = nullptr;
+  while (true) {
+    for (Process* candidate : m_Processes) {
+      if (candidate->getId() > afterId && (!result || candidate->getId() < result->getId())) {
+        result = candidate;
+      }
+    }
+    if (!result || result->beginExternalLease()) {
+      break;
+    }
+    afterId = result->getId();
+    result = nullptr;
+  }
+  m_SchedulerLock.release();
+  lease = ProcessLease(result);
+  return result != nullptr;
+}
+
+bool Scheduler::acquireThreadByUserspaceId(Process::ThreadLease& lease, size_t id,
+                                           const UserspacePidNamespace* space) {
+  lease.reset();
+  auto* current = Processor::information().getCurrentThread();
+  auto owner = current && current->getParent()->pidNamespace()
+                   ? current->getParent()->pidNamespace()
+                   : Process::rootPidNamespace();
+  if (!space) {
+    space = owner.get();
+  }
+  size_t after = 0;
+  ProcessLease process;
+  while (acquireNextProcess(process, after)) {
+    after = process->getId();
+    if (process->getUserspaceId(space) && process->acquireThreadByUserspaceId(lease, id, space)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool Scheduler::acquireThreadByTaskId(Process::ThreadLease& lease, size_t id) {

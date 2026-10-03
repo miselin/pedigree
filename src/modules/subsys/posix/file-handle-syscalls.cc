@@ -11,6 +11,7 @@
 
 #include "file-syscalls.h"
 #include "modules/system/vfs/MountView.h"
+#include "user-namespace.h"
 
 namespace {
 struct UserHandleHeader {
@@ -95,11 +96,7 @@ int posix_handle_error(FileHandleStatus status) {
 }
 
 bool posix_effective_root() {
-  Process* process = currentThread()->getParent();
-  int64_t uid = process->getEffectiveUserId();
-  if (uid < 0)
-    uid = process->getUserId();
-  return uid == 0;
+  return posix_global_capable(PosixCapabilities::SysAdmin);
 }
 
 bool PosixHandleTarget::resolve(int dirfd, const char* userPath, bool follow, bool allowEmpty,
@@ -297,6 +294,10 @@ int posix_open_by_handle_at(int mountfd, const void* userHandle, int flags) {
       SYSCALL_ERROR(StaleFileHandle);
     return completion.finish(-1);
   }
+  SharedPointer<FilesystemWriteLease> mountWrite;
+  if (writes && !VfsMountView::retainWrite(openedPath, mountWrite)) {
+    return completion.finish(-1);
+  }
   const int statusFlags = flags & (3 | O_APPEND | O_NONBLOCK | O_LARGEFILE);
   auto* descriptor = new FileDescriptor(openedPath, 0, 0xffffffff,
                                         flags & O_CLOEXEC ? FD_CLOEXEC : 0, statusFlags);
@@ -304,6 +305,9 @@ int posix_open_by_handle_at(int mountfd, const void* userHandle, int flags) {
     const int result = completion.finish(posix_handle_error(FileHandleStatus::NoMemory));
     delete descriptor;
     return result;
+  }
+  if (access != O_RDONLY) {
+    descriptor->acquireOpenFileDescription()->mountWrite = mountWrite;
   }
   if ((flags & O_TRUNC) && !file->resize(0)) {
     if (!currentThread()->getErrno())

@@ -68,23 +68,25 @@ bool VfsNodeReference::retainAnonymous(File* node) {
   return true;
 }
 
-VfsAttachment::~VfsAttachment() {
+VfsBacking::~VfsBacking() {
 #if THREADS && !defined(STANDALONE_MUTEXES)
   TerminationDeferral lifetime;
 #endif
   // Keep our pin until admission closes, so retirement cannot delete storage
   // while this attachment still owns it. Graph rows retire outside graph/writer locks.
-  if (owningRegistry && !owningRegistry->retireOwnedFilesystem(backing.filesystem()))
+  if (owningRegistry && !owningRegistry->retireOwnedFilesystem(pin.filesystem()))
     FATAL("Owned attachment lost its backing registration");
-  backing.reset();
+  pin.reset();
 }
 
 VfsPath::VfsPath(VfsMountView& owner, const VfsAttachmentRef& mounted, VfsNodeReference&& retained)
     : kind(Kind::Mounted), view(owner), attachment(mounted), file(pedigree_std::move(retained)) {
+  view.retain();
   attachment->paths += 1;
 }
 VfsPath::VfsPath(VfsMountView& owner, VfsNodeReference&& retained)
     : kind(Kind::Anonymous), view(owner), attachment(), file(pedigree_std::move(retained)) {
+  view.retain();
   view.m_State->anonymousPaths += 1;
 }
 VfsPath::~VfsPath() {
@@ -101,6 +103,8 @@ VfsPath::~VfsPath() {
     view.m_State->anonymousPaths -= 1;
   }
   attachment.reset();
+  lookupParent.reset();
+  view.release();
 #if THREADS && !defined(STANDALONE_MUTEXES)
   if (thread)
     thread->setErrno(error);
@@ -108,6 +112,20 @@ VfsPath::~VfsPath() {
 }
 
 VfsMountView::VfsMountView(VFS& vfs) : m_State(new State(*this)), m_Vfs(vfs) {}
+void VfsMountView::retain() {
+  __atomic_add_fetch(&m_References, 1, __ATOMIC_RELAXED);
+}
+void VfsMountView::release() {
+  if (__atomic_sub_fetch(&m_References, 1, __ATOMIC_ACQ_REL) == 0 && m_Automatic) {
+    delete this;
+  }
+}
+VfsMountView* VfsMountView::fromContext(const FilesystemContextRef& context) {
+  return context ? static_cast<VfsMountView*>(const_cast<void*>(context->provider())) : nullptr;
+}
+VfsMountView* VfsMountView::fromPath(const FilesystemPathRef& path) {
+  return path ? static_cast<VfsMountView*>(const_cast<void*>(path->provider())) : nullptr;
+}
 VfsMountView::~VfsMountView() {
   delete m_State;
 }
@@ -137,6 +155,21 @@ VfsAttachmentRow* VfsMountView::State::at(const VfsPath& path) const {
         row->covered->get() == path.node())
       return row;
   return nullptr;
+}
+bool VfsMountView::State::snapshotRows(Vector<VfsAttachmentRow>& result) {
+  LockGuard<Mutex> guard(graph);
+  size_t count = 0;
+  for (auto* row = attachments; row; row = row->next) {
+    ++count;
+  }
+  if (!result.tryReserve(count)) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  for (auto* row = attachments; row; row = row->next) {
+    result.pushBack(*row);
+  }
+  return true;
 }
 VfsPath* VfsMountView::State::nodePath(const FilesystemPathRef& reference) const {
   auto* result = reference && reference->provider() == &view
@@ -176,16 +209,134 @@ bool VfsMountView::State::context(const FilesystemContextRef& reference,
 bool VfsMountView::State::makePath(const VfsAttachmentRef& attachment, File* node,
                                    FilesystemPathRef& result) {
   VfsNodeReference retained;
-  if (!attachment || !retained.retain(node, attachment->backing.filesystem())) {
+  if (!attachment || !retained.retain(node, attachment->backing->pin.filesystem())) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
   return makePath(attachment, pedigree_std::move(retained), result);
 }
+
+bool VfsMountView::State::makeAttachment(const VfsBackingRef& backing, File* root, uint64_t flags,
+                                         VfsAttachmentRef& result) {
+  VfsNodeReference retained;
+  if (!backing || !retained.retain(root, backing->pin.filesystem())) {
+    SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+  if (nextId > 0x7fffffffU) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  auto attachment = VfsAttachmentRef::tryAdopt(
+      new VfsAttachment(backing, nextId++, pedigree_std::move(retained), flags));
+  if (!attachment) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  result = pedigree_std::move(attachment);
+  return true;
+}
+
+bool VfsMountView::forkNamespace(const FilesystemContextRef& context,
+                                 FilesystemContextOwner& result, uint64_t ownerNamespace) {
+  if (fromContext(context) != this || result) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  auto clone = UniquePointer<VfsMountView>::adopt(new VfsMountView(m_Vfs));
+  if (!clone || !clone.get()->m_State) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  auto* destination = clone.get()->m_State;
+  clone.get()->m_OwnerNamespace = ownerNamespace;
+  auto reference = FilesystemContextRef::tryAdopt(new VfsFilesystemContext(*clone.get()));
+  auto enrolled = UniquePointer<VfsContextRow>::adopt(new VfsContextRow);
+  FilesystemContextSnapshot snapshot;
+  Vector<VfsAttachmentRow> rows;
+  if (!reference || !enrolled) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  {
+    VFS::NamespaceMutation writer(m_Vfs);
+    if (!context->snapshot(snapshot)) {
+      SYSCALL_ERROR(DoesNotExist);
+      return false;
+    }
+    if (!m_State->snapshotRows(rows)) {
+      return false;
+    }
+    // Preserve IDs within the clone so every edge and retained context can be
+    // translated without a second independently maintained topology index.
+    for (auto& item : rows) {
+      auto* source = &item;
+      VfsNodeReference root;
+      if (!root.retain(source->attachment->root, source->attachment->backing->pin.filesystem())) {
+        SYSCALL_ERROR(DoesNotExist);
+        return false;
+      }
+      auto attachment = VfsAttachmentRef::tryAdopt(
+          new VfsAttachment(source->attachment->backing, source->attachment->id,
+                            pedigree_std::move(root), source->attachment->flags));
+      auto row = UniquePointer<VfsAttachmentRow>::adopt(new VfsAttachmentRow);
+      if (!attachment || !row) {
+        SYSCALL_ERROR(OutOfMemory);
+        return false;
+      }
+      attachment->lockedFlags = source->attachment->lockedFlags;
+      attachment->lockedMount = source->attachment->lockedMount;
+      if (ownerNamespace != m_OwnerNamespace) {
+        attachment->lockedFlags |= source->attachment->flags;
+        // A less privileged owner may detach the inherited tree as a whole,
+        // but cannot remove an interior mount to expose what it conceals.
+        attachment->lockedMount = source->attachment->id != m_State->rootId;
+      }
+      row.get()->attachment = attachment;
+      row.get()->covered = source->covered;
+      row.get()->next = destination->attachments;
+      destination->attachments = row.releaseOwnership();
+    }
+    for (auto& item : rows) {
+      auto* source = &item;
+      if (source->parent) {
+        destination->find(source->attachment->id)->parent =
+            destination->find(source->parent->id)->attachment;
+      }
+    }
+    destination->rootId = m_State->rootId;
+    destination->nextId = m_State->nextId;
+    auto* created = static_cast<VfsFilesystemContext*>(reference.get());
+    auto* root = m_State->path(snapshot.root);
+    auto* cwd = m_State->path(snapshot.cwd);
+    if (!root || !destination->makePath(destination->find(root->attachment->id)->attachment,
+                                        root->node(), created->root)) {
+      return false;
+    }
+    if (cwd) {
+      if (!destination->makePath(destination->find(cwd->attachment->id)->attachment, cwd->node(),
+                                 created->cwd)) {
+        return false;
+      }
+    } else {
+      created->cwd = snapshot.cwd;
+    }
+    enrolled.get()->context = reference;
+    created->registration = enrolled.get();
+    destination->contexts = enrolled.releaseOwnership();
+    destination->contextCount = 1;
+  }
+  auto* published = clone.releaseOwnership();
+  published->m_Automatic = true;
+  result = FilesystemContextOwner::adopt(pedigree_std::move(reference));
+  published->m_State->reapDetached();
+  published->release();
+  return true;
+}
 bool VfsMountView::State::makePath(const VfsAttachmentRef& attachment, VfsNodeReference&& retained,
                                    FilesystemPathRef& result) {
   if (!attachment || !retained.get() ||
-      retained.get()->getFilesystem() != attachment->backing.filesystem()) {
+      retained.get()->getFilesystem() != attachment->backing->pin.filesystem()) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
@@ -209,7 +360,11 @@ bool VfsMountView::initialise(Filesystem* bootRoot) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
-  auto attachment = VfsAttachmentRef::tryAdopt(new VfsAttachment(pedigree_std::move(pin), 1));
+  auto backing = VfsBackingRef::tryAdopt(new VfsBacking(pedigree_std::move(pin)));
+  VfsAttachmentRef attachment;
+  if (!backing || !m_State->makeAttachment(backing, bootRoot->getRoot(), 0, attachment)) {
+    return false;
+  }
   auto row = UniquePointer<VfsAttachmentRow>::adopt(new VfsAttachmentRow);
   if (!attachment || !row) {
     SYSCALL_ERROR(OutOfMemory);
@@ -311,8 +466,12 @@ bool VfsMountView::State::createContext(const VfsFilesystemContext* parent,
 }
 
 VfsFilesystemContext::~VfsFilesystemContext() {
-  if (registration)
+  if (registration) {
     FATAL("Filesystem context destroyed before owner retirement");
+  }
+  root.reset();
+  cwd.reset();
+  view.release();
 }
 bool VfsFilesystemContext::snapshot(FilesystemContextSnapshot& result) const {
   FilesystemContextSnapshot replacement;
@@ -358,7 +517,8 @@ void VfsFilesystemContext::retireProcessOwner() {
 }
 
 bool VfsMountView::changeCwd(const FilesystemContextRef& context, const FilesystemPathRef& path) {
-  if (!m_State->path(path) || !path->node()->isDirectory()) {
+  auto* owner = fromPath(path);
+  if (!owner || !owner->m_State->path(path) || !path->node()->isDirectory()) {
     SYSCALL_ERROR(NotADirectory);
     return false;
   }

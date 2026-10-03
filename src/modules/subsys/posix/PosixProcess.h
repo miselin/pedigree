@@ -44,6 +44,8 @@ class ProcessGroup {
   int processGroupId = 0;
   size_t sessionId = 0;
   PosixProcess* Leader = nullptr;
+  SharedPointer<UserspacePid> identity;
+  SharedPointer<UserspacePid> sessionIdentity;
 
  private:
   ProcessGroup(const ProcessGroup&) = delete;
@@ -148,13 +150,13 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   void setProcessGroup(ProcessGroup* newGroup);
   void inheritProcessGroup(PosixProcess* parent);
   ProcessGroup* getProcessGroup() const;
-  bool getProcessGroupId(size_t& groupId) const;
+  bool getProcessGroupId(size_t& groupId, const UserspacePidNamespace* space = nullptr) const;
   void leaveProcessGroup();
 
   void setGroupMembership(Membership type);
   Membership getGroupMembership() const;
 
-  size_t getSessionId() const;
+  size_t getSessionId(const UserspacePidNamespace* space = nullptr) const;
   bool sharesSession(const PosixProcess& other) const;
   bool jobControlReady() const;
   void markExecCommitted();

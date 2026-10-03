@@ -1020,6 +1020,9 @@ pedigree_module(posix "" "pedigree-vterm-kernel"
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/mqueue-state.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/mqueue-netlink.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/net-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/network-namespace.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/network-loopback.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/route-netlink.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/pipe-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/PollEvent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/poll-syscalls.cc
@@ -1062,6 +1065,10 @@ pedigree_module(posix "" "pedigree-vterm-kernel"
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/clone3-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/credential-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/process-vm-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/capability-state.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/ipc-namespace.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/user-namespace.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/ProcFs-usermaps.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/uts-namespace.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sandbox-state.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/seccomp-filter.cc

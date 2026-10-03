@@ -8,6 +8,7 @@
 
 #include "PosixSubsystem.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
+#include "user-namespace.h"
 #include "vm-syscalls.h"
 
 namespace {
@@ -54,8 +55,7 @@ int lockRange(const void* address, size_t length, MemoryLockMode mode) {
   MemoryMapManager& manager = MemoryMapManager::instance();
   MemoryMapManager::OperationGuard operation(manager);
   auto& space = Processor::information().getVirtualAddressSpace();
-  const bool privileged =
-      Processor::information().getCurrentThread()->getParent()->getEffectiveUserId() == 0;
+  const bool privileged = posix_global_capable(14);
   if (mode != MemoryLockMode::None && !mayLock(*pSubsystem, privileged))
     return -1;
 
@@ -99,8 +99,7 @@ int posix_mlockall(int flags) {
   GRAB_POSIX_SUBSYSTEM(-1);
   auto& manager = MemoryMapManager::instance();
   MemoryMapManager::OperationGuard operation(manager);
-  const bool privileged =
-      Processor::information().getCurrentThread()->getParent()->getEffectiveUserId() == 0;
+  const bool privileged = posix_global_capable(14);
   if (!mayLock(*pSubsystem, privileged))
     return -1;
   const auto mode = flags & AllOnFault ? MemoryLockMode::OnFault : MemoryLockMode::Eager;

@@ -15,7 +15,11 @@
 #include "PosixProcess.h"
 #include "PosixSubsystem.h"
 #include "ProcFs.h"
+#include "file-metadata.h"
+#include "metadata-abi.h"
+#include "modules/system/vfs/MountView.h"
 #include "modules/system/vfs/VFS.h"
+#include <sys/stat.h>
 
 namespace {
 constexpr uint64_t ClockTicksPerSecond = 100;
@@ -542,8 +546,13 @@ class ProcessFile : public GeneratedFile {
 
  protected:
   bool acquire(Scheduler::ProcessLease& process) const {
-    return Scheduler::instance().acquireProcessByUserspaceId(process, m_Pid) &&
+    return Scheduler::instance().acquireProcessByUserspaceId(
+               process, m_Pid, static_cast<ProcFs*>(getFilesystem())->pidNamespace().get()) &&
            process->getType() == Process::Posix;
+  }
+
+  const UserspacePidNamespace* pidNamespace() const {
+    return static_cast<ProcFs*>(getFilesystem())->pidNamespace().get();
   }
 
  private:
@@ -562,7 +571,7 @@ String processName(Process& process) {
   return String(static_cast<const char*>(description) + start, length);
 }
 
-size_t parentId(Process& process) {
+size_t parentId(Process& process, const UserspacePidNamespace* space) {
   while (Process* expected = process.getParent()) {
     Scheduler::ProcessLease parent;
     if (!Scheduler::instance().acquireProcess(parent, expected)) {
@@ -571,7 +580,7 @@ size_t parentId(Process& process) {
       return 0;
     }
     if (process.getParent() == parent.get())
-      return parent->getUserspaceId();
+      return parent->getUserspaceId(space);
   }
   return 0;
 }
@@ -597,6 +606,81 @@ char processState(Process& process) {
   return sleeping ? 'S' : 'R';
 }
 
+String mountinfoEscape(const String& value) {
+  String result;
+  for (size_t i = 0; i < value.length(); ++i) {
+    switch (value[i]) {
+      case ' ':
+        result += "\\040";
+        break;
+      case '\t':
+        result += "\\011";
+        break;
+      case '\n':
+        result += "\\012";
+        break;
+      case '\\':
+        result += "\\134";
+        break;
+      default:
+        result += String(value.cstr() + i, 1);
+        break;
+    }
+  }
+  return result;
+}
+
+class ProcessMountInfoFile final : public ProcessFile {
+ public:
+  ProcessMountInfoFile(uintptr_t inode, ProcFs& filesystem, File* parent, size_t pid)
+      : ProcessFile(String("mountinfo"), inode, filesystem, parent, pid) {}
+
+ private:
+  bool generate(String& contents) const override {
+    Scheduler::ProcessLease process;
+    if (!acquire(process)) {
+      return false;
+    }
+    auto context = process->acquireFilesystemContext();
+    auto* view = VfsMountView::fromContext(context);
+    Vector<VfsMountView::MountSnapshot> mounts;
+    if (!view || !view->snapshotMounts(context, mounts)) {
+      return false;
+    }
+    for (const auto& mount : mounts) {
+      VFS::MountOperation backing;
+      if (!mount.backing.acquire(backing)) {
+        continue;
+      }
+      struct stat attributes = {};
+      if (!posix_stat_file("", backing.filesystem()->getRoot(), &attributes)) {
+        return false;
+      }
+      const unsigned major = PosixMetadata::deviceMajor(attributes.st_dev);
+      const unsigned minor = PosixMetadata::deviceMinor(attributes.st_dev);
+      String options(mount.flags & VfsMountView::ReadOnly ? "ro" : "rw");
+      if (mount.flags & VfsMountView::NoSuid) {
+        options += ",nosuid";
+      }
+      if (mount.flags & VfsMountView::NoDev) {
+        options += ",nodev";
+      }
+      if (mount.flags & VfsMountView::NoExec) {
+        options += ",noexec";
+      }
+      const String root = mountinfoEscape(mount.root);
+      const String path = mountinfoEscape(mount.path);
+      const String kind = mountinfoEscape(backing.filesystem()->getVolumeLabel());
+      String line;
+      line.Format("%lu %lu %u:%u %s %s %s - %s none %s\n", mount.id, mount.parentId, major, minor,
+                  root.cstr(), path.cstr(), options.cstr(), kind.cstr(),
+                  mount.flags & VfsMountView::ReadOnly ? "ro" : "rw");
+      contents += line;
+    }
+    return true;
+  }
+};
+
 class ProcessStatFile final : public ProcessFile {
  public:
   ProcessStatFile(uintptr_t inode, ProcFs& filesystem, File* parent, size_t pid)
@@ -609,7 +693,7 @@ class ProcessStatFile final : public ProcessFile {
       return false;
     auto& process = *static_cast<PosixProcess*>(lease.get());
     size_t processGroup = 0;
-    process.getProcessGroupId(processGroup);
+    process.getProcessGroupId(processGroup, pidNamespace());
     const uint64_t user = process.getUserTime() / NanosecondsPerClockTick;
     const uint64_t kernel = process.getKernelTime() / NanosecondsPerClockTick;
     const uint64_t childrenUser = process.getReapedChildrenUserTime() / NanosecondsPerClockTick;
@@ -628,9 +712,10 @@ class ProcessStatFile final : public ProcessFile {
         " 0 0 0 0 0 0 0"
         " 0 0 0 0 0 0 0"
         " 0 0 0 0 0 0 0\n",
-        process.getUserspaceId(), processName(process).cstr(), processState(process),
-        parentId(process), processGroup, process.getSessionId(), user, kernel, childrenUser,
-        childrenKernel, process.getNumThreads(), start, virtualBytes, resident);
+        process.getUserspaceId(pidNamespace()), processName(process).cstr(), processState(process),
+        parentId(process, pidNamespace()), processGroup, process.getSessionId(pidNamespace()), user,
+        kernel, childrenUser, childrenKernel, process.getNumThreads(), start, virtualBytes,
+        resident);
     return true;
   }
 };
@@ -680,10 +765,10 @@ class ProcessStatusFile final : public ProcessFile {
         "Threads:\t%lu\n"
         "VmSize:\t%lu kB\n"
         "VmRSS:\t%lu kB\n",
-        processName(process).cstr(), processState(process), process.getUserspaceId(),
-        process.getUserspaceId(), parentId(process), credentials.ruid, credentials.euid,
-        credentials.suid, credentials.euid, credentials.rgid, credentials.egid, credentials.sgid,
-        credentials.egid, process.getNumThreads(),
+        processName(process).cstr(), processState(process), process.getUserspaceId(pidNamespace()),
+        process.getUserspaceId(pidNamespace()), parentId(process, pidNamespace()), credentials.ruid,
+        credentials.euid, credentials.suid, credentials.euid, credentials.rgid, credentials.egid,
+        credentials.sgid, credentials.egid, process.getNumThreads(),
         virtualPages > 0 ? static_cast<uint64_t>(virtualPages) * kilobytesPerPage : 0,
         residentPages > 0 ? static_cast<uint64_t>(residentPages) * kilobytesPerPage : 0);
     return true;
@@ -785,16 +870,20 @@ bool procfsAddProcessStatusFiles(ProcFs& filesystem, ProcFsDirectory& directory,
   auto* status = new ProcessStatusFile(filesystem.getNextInode(), filesystem, &directory, pid);
   auto* commandLine =
       new ProcessCommandLineFile(filesystem.getNextInode(), filesystem, &directory, pid);
-  if (!stat || !statm || !status || !commandLine) {
+  auto* mountinfo =
+      new ProcessMountInfoFile(filesystem.getNextInode(), filesystem, &directory, pid);
+  if (!stat || !statm || !status || !commandLine || !mountinfo) {
     delete stat;
     delete statm;
     delete status;
     delete commandLine;
+    delete mountinfo;
     return false;
   }
   directory.addEntry(stat->getName(), stat);
   directory.addEntry(statm->getName(), statm);
   directory.addEntry(status->getName(), status);
   directory.addEntry(commandLine->getName(), commandLine);
+  directory.addEntry(mountinfo->getName(), mountinfo);
   return true;
 }

@@ -320,6 +320,12 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
 
   /** Whether the backing supports ordinary file range operations. */
   bool supportsRegularFileOperations();
+  virtual bool isCharacterDevice() const {
+    return false;
+  }
+  virtual bool isConsole() const {
+    return false;
+  }
 
   /** Maximum byte length supported by the backing, independent of free space. */
   virtual uint64_t maximumFileSize() const;

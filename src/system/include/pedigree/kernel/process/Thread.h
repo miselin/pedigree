@@ -48,6 +48,8 @@
 class ExtensibleBitmap;
 class PageFaultHandler;
 class Process;
+class UserspacePid;
+class UserspacePidNamespace;
 struct FilesystemCredentials;
 class SyscallManager;
 class TerminationDeferral;
@@ -465,6 +467,8 @@ class EXPORTED_PUBLIC Thread {
   }
 
   /** Linux task IDs share the PID namespace; internal slots remain local. */
+  size_t getUserspaceTaskId(const UserspacePidNamespace* space = nullptr) const;
+
   size_t getTaskId() const {
     return __atomic_load_n(&m_TaskId, __ATOMIC_ACQUIRE);
   }
@@ -1206,6 +1210,7 @@ class EXPORTED_PUBLIC Thread {
   /** Our thread ID. */
   size_t m_Id = 0;
   size_t m_TaskId = 0;
+  SharedPointer<UserspacePid> m_UserspacePid;
 
   /** Address to supplement the DebugState information */
   uintptr_t m_DebugStateAddress = 0;

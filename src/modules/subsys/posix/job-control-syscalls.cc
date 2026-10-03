@@ -27,15 +27,16 @@ int identity(int pid, bool session) {
     else if (pid > 0 && Scheduler::instance().acquireProcessByUserspaceId(lease, pid) &&
              lease->getType() == Process::Posix)
       target = static_cast<PosixProcess*>(lease.get());
-    else if (pid > 0 && Scheduler::instance().acquireThreadByTaskId(task, pid) &&
-             task->getParent()->getType() == Process::Posix)
+    else if (pid > 0 && Scheduler::instance().acquireThreadByUserspaceId(task, pid) &&
+             task->getParent()->getType() == Process::Posix) {
       target = static_cast<PosixProcess*>(task->getParent());
+    }
     if (target) {
       size_t id = 0;
       if (session)
-        id = target->getSessionId();
+        id = target->getSessionId(caller()->pidNamespace().get());
       else
-        target->getProcessGroupId(id);
+        target->getProcessGroupId(id, caller()->pidNamespace().get());
       if (id)
         result = id;
     }
@@ -84,14 +85,16 @@ int posix_setpgid(int pid, int pgid) {
       if (pid && static_cast<size_t>(pid) != current->getUserspaceId()) {
         if (!Scheduler::instance().acquireProcessByUserspaceId(lease, pid) ||
             lease->getType() != Process::Posix) {
-          error = Scheduler::instance().acquireThreadByTaskId(task, pid) ? Error::InvalidArgument
-                                                                         : Error::NoSuchProcess;
+          error = Scheduler::instance().acquireThreadByUserspaceId(task, pid)
+                      ? Error::InvalidArgument
+                      : Error::NoSuchProcess;
           target = nullptr;
         } else
           target = static_cast<PosixProcess*>(lease.get());
       }
       if (target) {
-        result = target->changeProcessGroup(*current, pgid ? pgid : target->getUserspaceId());
+        result = target->changeProcessGroup(
+            *current, pgid ? pgid : target->getUserspaceId(current->pidNamespace().get()));
         error = result < 0 ? Processor::information().getCurrentThread()->getErrno() : 0;
       }
     }

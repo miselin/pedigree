@@ -53,6 +53,7 @@ struct EXPORTED_PUBLIC FileMappingOrigin {
   uint64_t openIdentity = 0;
   bool writableOpen = false;
   FilesystemPathRef openingPath{};
+  SharedPointer<FilesystemWriteLease> writeLease{};
 };
 
 /** One logical mapping attachment, retained by every surviving fragment. */
@@ -548,6 +549,7 @@ class MemoryMappedFile : public MemoryMappedObject {
   bool m_ExecutableUse;
   bool m_SharedWriteUse;
   bool m_UseAdmitted;
+  bool m_MountAdmitted;
 };
 
 /**

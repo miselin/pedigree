@@ -136,7 +136,7 @@ bool PosixSubsystem::filesystemConstrained() const {
 }
 
 uint64_t PosixSubsystem::filesystemAccess(const FilesystemPathRef* ancestry, size_t count) const {
-  auto* view = VFS::instance().mountView();
+  auto* view = count ? VfsMountView::fromPath(ancestry[0]) : nullptr;
   if (count == 1 && ancestry[0] && view && !view->attachmentId(ancestry[0])) {
     File* file = ancestry[0]->node();
     UtsRef space;
@@ -170,7 +170,7 @@ bool posix_landlock_check(const FilesystemPathRef& path, uint64_t requested) {
   if (!posix_sandbox_domain()) {
     return true;
   }
-  auto* view = VFS::instance().mountView();
+  auto* view = VfsMountView::fromPath(path);
   if (!view || !path) {
     SYSCALL_ERROR(PermissionDenied);
     return false;
@@ -183,7 +183,7 @@ bool posix_landlock_open(const FilesystemPathRef& path, int flags, bool& allowTr
   if ((flags & O_PATH) || !posix_sandbox_domain()) {
     return true;
   }
-  auto* view = VFS::instance().mountView();
+  auto* view = VfsMountView::fromPath(path);
   if (!path || !view) {
     SYSCALL_ERROR(PermissionDenied);
     return false;
@@ -305,7 +305,7 @@ int posix_landlock_add_rule(int ruleset, int type, const void* attributes, unsig
     return result.finish(-1);
   }
   auto anchor = parent->openingPath();
-  auto* view = VFS::instance().mountView();
+  auto* view = VfsMountView::fromPath(anchor);
   if (!anchor || !view || !view->attachmentId(anchor) || anchor->node()->isSymlink()) {
     syscallError(BadDescriptorState);
     return result.finish(-1);

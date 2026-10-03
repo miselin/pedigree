@@ -165,7 +165,8 @@ int posix_timer_create(int clock, const void* event, int* timerId) {
   LockGuard<Mutex> guard(timers.lock);
   Process::ThreadLease target;
   if (requested.notification == ThreadId &&
-      (targetId <= 0 || !process->acquireThreadByTaskId(target, targetId) ||
+      (targetId <= 0 ||
+       !process->acquireThreadByUserspaceId(target, targetId, process->pidNamespace().get()) ||
        target->getUnwindState() != Thread::Continue || !target->acceptingEvents())) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
@@ -213,7 +214,7 @@ int posix_timer_create(int clock, const void* event, int* timerId) {
   if (!event)
     entry.event.value = id;
   entry.target = target.get();
-  entry.targetId = targetId;
+  entry.targetId = target ? target->getTaskId() : 0;
   entry.notification = notification;
   entry.owner = process;
   return 0;

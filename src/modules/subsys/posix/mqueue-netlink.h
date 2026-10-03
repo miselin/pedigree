@@ -11,6 +11,9 @@ class MqueueNetlinkSocket final : public NetworkSyscalls {
  public:
   MqueueNetlinkSocket(int type, int protocol);
   ~MqueueNetlinkSocket() override;
+  MqueueNetlinkSocket* asMqueueNetlink() override {
+    return this;
+  }
   bool create() override;
   bool reserveCookie();
   void deliverCookie(const uint8_t cookie[32], bool removed);

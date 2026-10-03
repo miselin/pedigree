@@ -69,9 +69,11 @@
 #include "modules/system/vfs/VFS.h"
 #include "namespace-file.h"
 #include "net-syscalls.h"
+#include "network-namespace.h"
 #include "pipe-syscalls.h"
 #include "signalfd-syscalls.h"
 #include "timerfd-syscalls.h"
+#include "user-namespace.h"
 #include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -729,6 +731,11 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
     return -1;
   }
 
+  VfsMountView::WriteLease mountWrite;
+  if (pFd->openingPath() && pFd->getFile() && pFd->getFile()->supportsRegularFileOperations() &&
+      !pFd->getFile()->isBlockDevice() && !mountWrite.acquire(pFd->openingPath())) {
+    return -1;
+  }
   if (!pFd->getFile()) {
     if (pFd->getTimerFdImpl() || pFd->getSignalFdImpl() || pFd->getFanotifyImpl()) {
       SYSCALL_ERROR(InvalidArgument);
@@ -1100,6 +1107,12 @@ ssize_t posix_pwrite64(int fd, const char* ptr, size_t len, off_t offset) {
     SYSCALL_ERROR(IllegalSeek);
     return -1;
   }
+  VfsMountView::WriteLease mountWrite;
+  if (descriptor->openingPath() && descriptor->getFile() &&
+      descriptor->getFile()->supportsRegularFileOperations() &&
+      !descriptor->getFile()->isBlockDevice() && !mountWrite.acquire(descriptor->openingPath())) {
+    return -1;
+  }
   const int statusFlags = descriptor->getStatusFlags();
   if ((statusFlags & O_PATH) || (statusFlags & O_ACCMODE) == O_RDONLY) {
     SYSCALL_ERROR(BadFileDescriptor);
@@ -1413,6 +1426,12 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
     }
   }
 
+  VfsMountView::WriteLease mountWrite;
+  if (descriptor->openingPath() && descriptor->getFile() &&
+      descriptor->getFile()->supportsRegularFileOperations() &&
+      !descriptor->getFile()->isBlockDevice() && !mountWrite.acquire(descriptor->openingPath())) {
+    return -1;
+  }
   const bool regularFile = descriptor->getFile() &&
                            descriptor->getFile()->supportsRegularFileOperations() &&
                            !descriptor->getFile()->isBlockDevice();
@@ -2128,6 +2147,12 @@ ssize_t positionalWriteVector(int fd, const struct iovec* iov, int iovcnt, off_t
     return -1;
   }
 
+  VfsMountView::WriteLease mountWrite;
+  if (descriptor->openingPath() && descriptor->getFile() &&
+      descriptor->getFile()->supportsRegularFileOperations() &&
+      !descriptor->getFile()->isBlockDevice() && !mountWrite.acquire(descriptor->openingPath())) {
+    return -1;
+  }
   const int statusFlags = descriptor->getStatusFlags();
   if ((statusFlags & O_PATH) || (statusFlags & O_ACCMODE) == O_RDONLY) {
     SYSCALL_ERROR(BadFileDescriptor);
@@ -2744,6 +2769,9 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     return -1;
   }
 
+  if (f->networkImpl) {
+    return posix_network_ioctl(*f->networkImpl, command, reinterpret_cast<uintptr_t>(buf));
+  }
   if (!f->getFile()) {
     F_NOTICE("  -> fd " << fd << " is not supposed to be ioctl'd");
     SYSCALL_ERROR(InvalidArgument);
@@ -3500,7 +3528,7 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
       flags & MAP_LOCKED ? MemoryLockMode::Eager : MemoryLockMode::None;
   if (requestedLock != MemoryLockMode::None) {
     MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-    if (pProcess->getEffectiveUserId() != 0 && !pSubsystem->memoryLockAccount().limit().current) {
+    if (!posix_global_capable(14) && !pSubsystem->memoryLockAccount().limit().current) {
       SYSCALL_ERROR(NotEnoughPermissions);
       return MAP_FAILED;
     }
@@ -3577,6 +3605,24 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
     MemoryMappedObject::Permissions maximumPerms =
         MemoryMappedObject::Read | MemoryMappedObject::Write | MemoryMappedObject::Exec;
     if ((flags & MAP_SHARED) && accessMode != O_RDWR) {
+      maximumPerms &= ~MemoryMappedObject::Write;
+      if (prot & PROT_WRITE) {
+        SYSCALL_ERROR(PermissionDenied);
+        return MAP_FAILED;
+      }
+    }
+
+    auto* view = VfsMountView::fromPath(f->openingPath());
+    const auto mountFlags = view ? view->mountFlags(f->openingPath()) : 0;
+    if (mountFlags & VfsMountView::NoExec) {
+      maximumPerms &= ~MemoryMappedObject::Exec;
+      if (prot & PROT_EXEC) {
+        SYSCALL_ERROR(NotEnoughPermissions);
+        return MAP_FAILED;
+      }
+    }
+    if ((flags & MAP_SHARED) && (mountFlags & VfsMountView::ReadOnly) &&
+        fileToMap->supportsRegularFileOperations() && !fileToMap->isBlockDevice()) {
       maximumPerms &= ~MemoryMappedObject::Write;
       if (prot & PROT_WRITE) {
         SYSCALL_ERROR(PermissionDenied);
@@ -3752,6 +3798,11 @@ int posix_ftruncate(int a, off_t b) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
+  VfsMountView::WriteLease mountWrite;
+  if (pFd->openingPath() && pFd->getFile() && pFd->getFile()->supportsRegularFileOperations() &&
+      !pFd->getFile()->isBlockDevice() && !mountWrite.acquire(pFd->openingPath())) {
+    return -1;
+  }
   File* pFile = pFd->getFile();
   if (!pFile) {
     SYSCALL_ERROR(InvalidArgument);
@@ -3865,6 +3916,10 @@ int posix_fchmod(int fd, mode_t mode) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
+  VfsMountView::WriteLease mountWrite;
+  if (descriptor->openingPath() && !mountWrite.acquire(descriptor->openingPath())) {
+    return -1;
+  }
   File* file = descriptor->getFile();
   if (file->getFilesystem() && file->getFilesystem()->isReadOnly()) {
     SYSCALL_ERROR(ReadOnlyFilesystem);
@@ -3878,6 +3933,10 @@ int posix_fchown(int fd, uid_t owner, gid_t group) {
   if (!acquireDescriptor(fd, descriptor) || !descriptor->getFile() ||
       (descriptor->getStatusFlags() & O_PATH)) {
     SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  VfsMountView::WriteLease mountWrite;
+  if (descriptor->openingPath() && !mountWrite.acquire(descriptor->openingPath())) {
     return -1;
   }
   File* file = descriptor->getFile();
@@ -3912,7 +3971,8 @@ int posix_fchdir(int fd) {
   return doChdir(file, targetLease) ? 0 : -1;
 }
 
-static int statvfs_doer(Filesystem* pFs, struct statvfs* userBuffer) {
+static int statvfs_doer(Filesystem* pFs, struct statvfs* userBuffer,
+                        const FilesystemPathRef& path) {
   if (!pFs) {
     SYSCALL_ERROR(DoesNotExist);
     return -1;
@@ -3931,6 +3991,11 @@ static int statvfs_doer(Filesystem* pFs, struct statvfs* userBuffer) {
   buf->f_favail = static_cast<fsfilcnt_t>(-1);
   buf->f_fsid = 0;
   buf->f_flag = (pFs->isReadOnly() ? ST_RDONLY : 0) | ST_NOSUID;  // No suid in pedigree yet.
+  if (auto* view = VfsMountView::fromPath(path)) {
+    if (view->mountFlags(path) & VfsMountView::ReadOnly) {
+      buf->f_flag |= ST_RDONLY;
+    }
+  }
   buf->f_namemax = 0;
 
   if (!PosixSubsystem::copyToUser(userBuffer, &value, sizeof(value))) {
@@ -3972,7 +4037,7 @@ int posix_fstatvfs(int fd, struct statvfs* buf) {
     return -1;
   }
 
-  return statvfs_doer(file->getFilesystem(), buf);
+  return statvfs_doer(file->getFilesystem(), buf, pFd->openingPath());
 }
 
 int posix_statvfs(const char* path, struct statvfs* buf) {
@@ -4005,7 +4070,7 @@ int posix_statvfs(const char* path, struct statvfs* buf) {
   if (!file)
     return -1;
 
-  return statvfs_doer(file->getFilesystem(), buf);
+  return statvfs_doer(file->getFilesystem(), buf, fileLease.path());
 }
 
 int posix_utime(const char* path, const struct utimbuf* times) {
@@ -4049,6 +4114,11 @@ int posix_utime(const char* path, const struct utimbuf* times) {
     return -1;
   }
 
+  VfsMountView::WriteLease mountWrite;
+  if (fileLease.path() && !mountWrite.acquire(fileLease.path())) {
+    return -1;
+  }
+
   Time::Timestamp accessTime;
   Time::Timestamp modifyTime;
   if (times) {
@@ -4070,7 +4140,7 @@ int posix_utimes(const char* path, const struct timeval* times) {
 
 int posix_chroot(const char* path) {
   auto* process = Processor::information().getCurrentThread()->getParent();
-  if (process->getEffectiveUserId() != 0) {
+  if (!posix_capable(PosixCapabilities::SysChroot)) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }
@@ -4137,7 +4207,9 @@ static File* check_dirfd(int dirfd, DescriptorLease& descriptor, ResolvedPath& d
   }
   File* file = descriptor->getFile();
   auto path = descriptor->openingPath();
-  if (!(flags & AT_EMPTY_PATH) && (!file->isDirectory() || !path || !view->attachmentId(path))) {
+  auto* openingView = VfsMountView::fromPath(path);
+  if (!(flags & AT_EMPTY_PATH) &&
+      (!file->isDirectory() || !openingView || !openingView->attachmentId(path))) {
     SYSCALL_ERROR(NotADirectory);
     return nullptr;
   }
@@ -4222,8 +4294,8 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
   }
 
   // verify the filename - don't try to open a dud file
-  if (pathnameCopy[0] == 0) {
-    F_NOTICE("  -> File does not exist (null path).");
+  if (!pathnameCopy.length()) {
+    F_NOTICE("  -> File does not exist (empty path).");
     SYSCALL_ERROR(DoesNotExist);
     return -1;
   }
@@ -4335,6 +4407,24 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
     // file exists with O_CREAT and O_EXCL
     F_NOTICE("  -> File exists");
     SYSCALL_ERROR(FileExists);
+    pSubsystem->freeFd(fd);
+    return -1;
+  }
+
+  auto* openingView = VfsMountView::fromPath(fileLease.path());
+  const auto mountFlags = openingView ? openingView->mountFlags(fileLease.path()) : 0;
+  if ((mountFlags & VfsMountView::NoDev) &&
+      (file->isBlockDevice() || file->isCharacterDevice() ||
+       (file->getFilesystem() == g_pDevFs && !file->isDirectory() && !file->isSymlink()) ||
+       file->isDirectPhysicalMapping())) {
+    SYSCALL_ERROR(PermissionDenied);
+    pSubsystem->freeFd(fd);
+    return -1;
+  }
+  SharedPointer<FilesystemWriteLease> mountWrite;
+  if ((flags & (O_WRONLY | O_RDWR | O_TRUNC)) && file->supportsRegularFileOperations() &&
+      !file->isBlockDevice() && fileLease.path() &&
+      !VfsMountView::retainWrite(fileLease.path(), mountWrite)) {
     pSubsystem->freeFd(fd);
     return -1;
   }
@@ -4467,9 +4557,15 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
     }
   }
 
-  FileDescriptor* f = fileLease.get() == file
-                          ? new FileDescriptor(fileLease.path(), 0, fd, 0, flags)
-                          : new FileDescriptor(file, 0, fd, 0, flags);
+  FilesystemPathRef openedPath = fileLease.get() == file ? fileLease.path() : FilesystemPathRef();
+  if (!openedPath && openingView && file->isCharacterDevice() &&
+      file->getFilesystem() == fileLease.get()->getFilesystem() &&
+      !openingView->pathForNode(fileLease.path(), file, openedPath)) {
+    pSubsystem->freeFd(fd);
+    return -1;
+  }
+  FileDescriptor* f = openedPath ? new FileDescriptor(openedPath, 0, fd, 0, flags)
+                                 : new FileDescriptor(file, 0, fd, 0, flags);
   if (!f || !f->terminalAvailable()) {
     delete f;
     pSubsystem->freeFd(fd);
@@ -4477,6 +4573,12 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
     return -1;
   }
   if (f) {
+    if ((flags & O_ACCMODE) != O_RDONLY) {
+      f->acquireOpenFileDescription()->mountWrite = mountWrite;
+    }
+    if (openingCtty) {
+      f->acquireOpenFileDescription()->terminalContext = cttyLease.context();
+    }
     f->setTruncateAllowed(allowTruncate);
     pSubsystem->addFileDescriptor(fd, f);
     file->publishEvent(FileEvents::Open);
@@ -4522,6 +4624,13 @@ int posix_fchownat(int dirfd, const char* pathname, uid_t owner, gid_t group, in
   ResolvedPath selected;
   DescriptorLease descriptor;
   File* file = findAtPath(dirfd, copied, flags, selected, descriptor);
+  VfsMountView::WriteLease mountWrite;
+  const auto path = selected.path() ? selected.path()
+                    : descriptor    ? descriptor->openingPath()
+                                    : FilesystemPathRef();
+  if (file && path && !mountWrite.acquire(path)) {
+    return -1;
+  }
   return file && posix_chown_file(file, owner, group) ? 0 : -1;
 }
 
@@ -4567,6 +4676,11 @@ int posix_futimesat(int dirfd, const char* pathname, const struct timeval* times
 
   if (!VFS::checkAccess(file, false, true, false)) {
     // checkAccess does a SYSCALL_ERROR for us.
+    return -1;
+  }
+
+  VfsMountView::WriteLease mountWrite;
+  if (fileLease.path() && !mountWrite.acquire(fileLease.path())) {
     return -1;
   }
 
@@ -4773,6 +4887,13 @@ int posix_fchmodat(int dirfd, const char* pathname, mode_t mode, int flags) {
   ResolvedPath selected;
   DescriptorLease descriptor;
   File* file = findAtPath(dirfd, copied, flags, selected, descriptor);
+  VfsMountView::WriteLease mountWrite;
+  const auto path = selected.path() ? selected.path()
+                    : descriptor    ? descriptor->openingPath()
+                                    : FilesystemPathRef();
+  if (file && path && !mountWrite.acquire(path)) {
+    return -1;
+  }
   return file && posix_chmod_file(file, mode) ? 0 : -1;
 }
 
@@ -4844,6 +4965,19 @@ int posix_faccessat(int dirfd, const char* pathname, int mode, int flags) {
   if (mode == F_OK) {
     F_NOTICE("  -> ok");
     return 0;
+  }
+  const auto retainedPath = fileLease.path() ? fileLease.path()
+                            : descriptor     ? descriptor->openingPath()
+                                             : FilesystemPathRef();
+  auto* view = VfsMountView::fromPath(retainedPath);
+  if (view && (mode & W_OK) && !file->isCharacterDevice() && !file->isBlockDevice() &&
+      !file->isPipe() && !file->isFifo() && !file->isSocket() && !view->writable(retainedPath)) {
+    return -1;
+  }
+  if (view && (mode & X_OK) && !file->isDirectory() &&
+      (view->mountFlags(retainedPath) & VfsMountView::NoExec)) {
+    SYSCALL_ERROR(PermissionDenied);
+    return -1;
   }
 
   if (!VFS::checkAccess(file, mode & R_OK, mode & W_OK, mode & X_OK, accessCredentials)) {
@@ -4997,6 +5131,16 @@ static int do_statfs(File* file, struct statfs* userBuffer) {
     buf->f_namelen = PATH_MAX;
     buf->f_frsize = 0;
   }
+  if (!pFs->getDisk()) {
+    const auto& kind = pFs->getVolumeLabel();
+    if (kind == "proc") {
+      buf->f_type = 0x9fa0;
+    } else if (kind == "devpts") {
+      buf->f_type = 0x1cd1;
+    } else if (kind == "ramfs") {
+      buf->f_type = 0x858458f6;
+    }
+  }
 
   if (!PosixSubsystem::copyToUser(userBuffer, &value, sizeof(value))) {
     SYSCALL_ERROR(BadAddress);
@@ -5086,8 +5230,9 @@ void generate_mtab(String& result) {
     String source = escape(pin.filesystem()->getVolumeLabel());
     String path = escape(mount.path);
     String line;
-    line.Format("%s %s unknown %s 0 0\n", source.length() ? source.cstr() : "none", path.cstr(),
-                pin.filesystem()->isReadOnly() ? "ro" : "rw");
+    line.Format(
+        "%s %s unknown %s 0 0\n", source.length() ? source.cstr() : "none", path.cstr(),
+        (pin.filesystem()->isReadOnly() || (mount.flags & VfsMountView::ReadOnly)) ? "ro" : "rw");
     result += line;
   }
 }

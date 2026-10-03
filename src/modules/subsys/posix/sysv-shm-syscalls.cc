@@ -46,6 +46,7 @@ struct SegmentUsage {
 static_assert(sizeof(SegmentLimits) == 72 && sizeof(SegmentUsage) == 48, "Linux shm info layout");
 
 struct Segment {
+  uint64_t namespaceId = posix_ipc_namespace_id();
   Segment(int identifier, size_t slot, int32_t key, size_t size, size_t roundedSize, unsigned mode)
       : id(identifier),
         slot(slot),
@@ -129,16 +130,17 @@ class ShmAttachment final : public MappingAttachment {
     assert(m_Segment->status.attachments);
     --m_Segment->status.attachments;
     m_Segment->status.detachTime = Time::getTime();
-    m_Segment->status.lastPid = m_Pid;
+    m_Segment->status.lastPid = m_UserPid;
     retire(m_Segment);
   }
-  void activate(uintptr_t base, size_t pid) {
+  void activate(uintptr_t base, size_t pid, size_t userPid) {
     m_Base = base;
     m_Pid = pid;
+    m_UserPid = userPid;
     m_Active = true;
     ++m_Segment->status.attachments;
     m_Segment->status.attachTime = Time::getTime();
-    m_Segment->status.lastPid = PosixIpc::process()->getUserspaceId();
+    m_Segment->status.lastPid = userPid;
     attachments.pushBack(this);
   }
   uintptr_t baseAddress() const override {
@@ -152,7 +154,7 @@ class ShmAttachment final : public MappingAttachment {
   }
   SharedPointer<MappingAttachment> clone(Process* target) override {
     auto* copy = new ShmAttachment(m_Segment);
-    copy->activate(m_Base, target->getUserspaceId());
+    copy->activate(m_Base, target->getId(), target->getUserspaceId());
     return SharedPointer<MappingAttachment>(copy);
   }
 
@@ -160,13 +162,16 @@ class ShmAttachment final : public MappingAttachment {
   SharedPointer<Segment> m_Segment;
   uintptr_t m_Base;
   size_t m_Pid;
+  size_t m_UserPid = 0;
   bool m_Active;
 };
 
 SharedPointer<Segment> findSegment(int id, bool index = false) {
   if (id >= 0) {
     const size_t slot = index ? static_cast<size_t>(id) : id % MaximumSegments;
-    if (slot < MaximumSegments && segments[slot] && (index || segments[slot]->id == id)) {
+    if (slot < MaximumSegments && segments[slot] &&
+        segments[slot]->namespaceId == posix_ipc_namespace_id() &&
+        (index || segments[slot]->id == id)) {
       return segments[slot];
     }
   }
@@ -179,7 +184,7 @@ int information(int command, void* buffer) {
   SegmentUsage usage = {};
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   for (size_t i = 0; i < MaximumSegments; ++i) {
-    if (segments[i]) {
+    if (segments[i] && segments[i]->namespaceId == posix_ipc_namespace_id()) {
       highest = i;
       ++usage.usedIds;
       usage.totalPages += segments[i]->roundedSize / pageSize;
@@ -219,7 +224,8 @@ int posix_shmget(int32_t key, size_t size, int flags) {
       }
       continue;
     }
-    if (key && segments[i]->status.permission.key == key) {
+    if (key && segments[i]->namespaceId == posix_ipc_namespace_id() &&
+        segments[i]->status.permission.key == key) {
       if ((flags & (Create | Exclusive)) == (Create | Exclusive)) {
         SYSCALL_ERROR(FileExists);
         return -1;
@@ -280,7 +286,7 @@ void* posix_shmat(int id, const void* requestedAddress, int flags) {
     return failed;
   }
   size_t count = 0;
-  const size_t pid = PosixIpc::process()->getUserspaceId();
+  const size_t pid = PosixIpc::process()->getId();
   for (auto it = attachments.begin(); it != attachments.end(); ++it) {
     count += (*it)->pid() == pid;
   }
@@ -324,7 +330,7 @@ void* posix_shmat(int id, const void* requestedAddress, int flags) {
                                                                      : Error::OutOfMemory);
     return failed;
   }
-  owner->activate(address, pid);
+  owner->activate(address, pid, PosixIpc::process()->getUserspaceId());
   --segment->pendingAttachments;
   return reinterpret_cast<void*>(address);
 }
@@ -397,4 +403,16 @@ int posix_shmctl(int id, int command, void* buffer) {
     segment->status.changeTime = Time::getTime();
   }
   return 0;
+}
+
+void posix_shm_namespace_exit(uint64_t identity) {
+  MemoryMapManager::OperationGuard guard(MemoryMapManager::instance());
+  for (auto& entry : segments) {
+    if (entry && entry->namespaceId == identity) {
+      auto segment = entry;
+      segment->status.permission.mode |= Destroyed;
+      segment->status.permission.key = 0;
+      retire(segment);
+    }
+  }
 }

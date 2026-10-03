@@ -10,12 +10,19 @@
 
 #include "PosixProcess.h"
 #include "PosixSubsystem.h"
+#include "ipc-namespace.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
+#include "modules/system/vfs/MountView.h"
 #include "namespace-file.h"
+#include "network-namespace.h"
+#include "sandbox-state.h"
+#include "sysv-semaphore-syscalls.h"
+#include "user-namespace.h"
 #include <sys/utsname.h>
 
 namespace {
-constexpr unsigned long NewUts = 0x04000000;
+constexpr unsigned long NewMount = 0x20000, NewUts = 0x04000000, NewIpc = 0x08000000,
+                        NewUser = 0x10000000, NewPid = 0x20000000, NewNet = 0x40000000;
 constexpr unsigned long KnownUnshare = 0x80 | 0x100 | 0x200 | 0x400 | 0x800 | 0x10000 | 0x20000 |
                                        0x40000 | 0x02000000 | NewUts | 0x08000000 | 0x10000000 |
                                        0x20000000 | 0x40000000;
@@ -36,8 +43,8 @@ class NamespaceResult {
   size_t m_Error = 0;
 };
 
-bool administrative() {
-  if (Processor::information().getCurrentThread()->getParent()->getEffectiveUserId() != 0) {
+bool administrative(const UserNamespaceRef& owner) {
+  if (!posix_namespace_capable(owner, PosixCapabilities::SysAdmin)) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return false;
   }
@@ -55,8 +62,6 @@ int setName(const char* name, size_t suppliedLength, bool domain) {
   NamespaceResult result;
   Uninterruptible lifetime;
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  if (!administrative())
-    return result.finish(-1);
   const int32_t length = static_cast<int32_t>(suppliedLength);
   if (length < 0 || length > 64) {
     SYSCALL_ERROR(InvalidArgument);
@@ -71,6 +76,9 @@ int setName(const char* name, size_t suppliedLength, bool domain) {
   UtsRef space;
   if (!selected || !selected->acquireThread(*Processor::information().getCurrentThread(), space))
     return result.finish(posix_uts_error(UtsStatus::Missing));
+  if (!administrative(space->owner())) {
+    return result.finish(-1);
+  }
   space->setName(domain, bytes, static_cast<size_t>(length));
   return result.finish(0);
 }
@@ -97,24 +105,117 @@ int posix_unshare(unsigned long flags) {
     SYSCALL_ERROR(InvalidArgument);
     return result.finish(-1);
   }
-  if (flags & ~NewUts) {
+  if (flags & ~(NewMount | NewUts | NewUser | NewPid | NewIpc | NewNet)) {
     SYSCALL_ERROR(OperationNotSupported);
     return result.finish(-1);
   }
-  if (!flags)
+  if (!flags) {
     return result.finish(0);
-  MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  if (!administrative())
+  }
+  Thread& thread = *Processor::information().getCurrentThread();
+  Process* process = thread.getParent();
+  if ((flags & (NewMount | NewUser | NewPid)) && process->getNumThreads() != 1) {
+    SYSCALL_ERROR(InvalidArgument);
     return result.finish(-1);
+  }
+  if (flags & NewPid) {
+    if (flags != NewPid) {
+      SYSCALL_ERROR(OperationNotSupported);
+      return result.finish(-1);
+    }
+    if (!posix_capable(PosixCapabilities::SysAdmin)) {
+      SYSCALL_ERROR(NotEnoughPermissions);
+      return result.finish(-1);
+    }
+    if (!process->pidNamespaceReady()) {
+      SYSCALL_ERROR(OutOfMemory);
+      return result.finish(-1);
+    }
+    const auto active = process->pidNamespace();
+    if (process->pidNamespaceForChildren().get() != active.get()) {
+      SYSCALL_ERROR(InvalidArgument);
+      return result.finish(-1);
+    }
+    if (active->depth() >= 32) {
+      SYSCALL_ERROR(NoSpaceLeftOnDevice);
+      return result.finish(-1);
+    }
+    auto prepared = SharedPointer<UserspacePidNamespace>::tryAllocate(active);
+    if (!prepared) {
+      SYSCALL_ERROR(OutOfMemory);
+      return result.finish(-1);
+    }
+    if (!process->unsharePidNamespace(prepared)) {
+      SYSCALL_ERROR(InvalidArgument);
+      return result.finish(-1);
+    }
+    return result.finish(0);
+  }
+  TaskCredentialsRef credentials;
+  if ((flags & NewUser) && !posix_user_namespace_prepare(thread, credentials)) {
+    return result.finish(-1);
+  }
+  if (!(flags & NewUser) && !posix_capable(PosixCapabilities::SysAdmin)) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return result.finish(-1);
+  }
+  const auto owner = credentials ? credentials->userNamespace : posix_user_namespace(thread);
+  FilesystemContextOwner filesystem;
+  auto previousFilesystem = process->acquireFilesystemContext();
+  if (flags & NewMount) {
+    auto* view = VfsMountView::fromContext(previousFilesystem);
+    if (!view ||
+        !view->forkNamespace(previousFilesystem, filesystem, owner ? owner->identity() : 0)) {
+      return result.finish(-1);
+    }
+  }
   auto selected = context();
   UtsRef source, replacement;
-  Thread& thread = *Processor::information().getCurrentThread();
-  if (!selected || !selected->acquireThread(thread, source))
+  if (flags & NewUts) {
+    if (!selected || !selected->acquireThread(thread, source)) {
+      return result.finish(posix_uts_error(UtsStatus::Missing));
+    }
+    const auto status = posix_uts_copy(source, replacement, owner);
+    if (status != UtsStatus::Success) {
+      return result.finish(posix_uts_error(status));
+    }
+  }
+  NetworkNamespaceRef network;
+  if ((flags & NewNet) && !posix_network_namespace_prepare(owner, network)) {
+    return result.finish(-1);
+  }
+  SharedPointer<IpcNamespace> ipc;
+  if (flags & NewIpc) {
+    ipc = SharedPointer<IpcNamespace>::tryAllocate(owner);
+    if (!ipc) {
+      SYSCALL_ERROR(OutOfMemory);
+      return result.finish(-1);
+    }
+  }
+  // Keep the original immutable task state until all fallible publication is done.
+  const auto previousState = thread.securityState();
+  Thread::SecurityStateRef preparedState;
+  if (!posix_sandbox_prepare_namespaces(thread, credentials, ipc, network, preparedState)) {
+    return result.finish(-1);
+  }
+  thread.setSecurityState(preparedState);
+  if (replacement && selected->replaceThread(thread, replacement) != UtsStatus::Success) {
+    thread.setSecurityState(previousState);
     return result.finish(posix_uts_error(UtsStatus::Missing));
-  auto status = posix_uts_copy(source, replacement);
-  if (status == UtsStatus::Success)
-    status = selected->replaceThread(thread, replacement);
-  return result.finish(posix_uts_error(status));
+  }
+  if (filesystem &&
+      !process->replaceFilesystemContext(pedigree_std::move(filesystem), previousFilesystem)) {
+    if (replacement) {
+      selected->replaceThread(thread, source);
+    }
+    thread.setSecurityState(previousState);
+    SYSCALL_ERROR(NoMoreProcesses);
+    return result.finish(-1);
+  }
+  if (ipc) {
+    posix_sem_thread_exit(&thread);
+  }
+  return result.finish(0);
 }
 
 int posix_setns(int fd, int type) {
@@ -134,8 +235,9 @@ int posix_setns(int fd, int type) {
     return result.finish(-1);
   }
   MemoryMapManager::OperationGuard operation(MemoryMapManager::instance());
-  if (!administrative())
+  if (!administrative(space->owner())) {
     return result.finish(-1);
+  }
   auto selected = context();
   if (!selected)
     return result.finish(posix_uts_error(UtsStatus::Missing));

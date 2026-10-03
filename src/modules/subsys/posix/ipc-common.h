@@ -8,6 +8,8 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Vector.h"
 
+#include "ipc-namespace.h"
+
 namespace PosixIpc {
 struct Permission {
   int32_t key;
@@ -33,13 +35,14 @@ inline void initialize(Permission& permission, int key, unsigned mode, unsigned 
 
 inline bool owner(const Permission& permission) {
   const int64_t uid = process()->getEffectiveUserId();
-  return uid == 0 || uid == permission.uid || uid == permission.cuid;
+  return uid == permission.uid || uid == permission.cuid ||
+         posix_namespace_capable(posix_ipc_owner(), PosixCapabilities::SysAdmin);
 }
 
 inline bool allowed(const Permission& permission, unsigned requestedMode) {
   Process* current = process();
   const int64_t uid = current->getEffectiveUserId();
-  if (!requestedMode || uid == 0) {
+  if (!requestedMode || posix_namespace_capable(posix_ipc_owner(), 15)) {
     return true;
   }
   unsigned shift = 0;

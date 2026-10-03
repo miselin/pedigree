@@ -24,6 +24,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 
@@ -167,7 +168,13 @@ class ProcFs : public Filesystem {
     return SyncStatus::Success;
   }
 
-  ProcFs() : m_pRoot(0), m_NextInode(0) {}
+  explicit ProcFs(const SharedPointer<UserspacePidNamespace>& space = Process::rootPidNamespace())
+      : m_PidNamespace(space), m_pRoot(0), m_NextInode(0) {}
+  const SharedPointer<UserspacePidNamespace>& pidNamespace() const {
+    return m_PidNamespace;
+  }
+  static void publishProcess(PosixProcess* process);
+  static void unpublishProcess(PosixProcess* process);
 
   virtual ~ProcFs();
 
@@ -212,6 +219,9 @@ class ProcFs : public Filesystem {
   void initialiseNetworkFile();
   ProcFsDirectory* createProcessDirectory(PosixProcess* process);
 
+  SharedPointer<UserspacePidNamespace> m_PidNamespace;
+  ProcFs* m_RegistryNext = nullptr;
+  bool m_Registered = false;
   ProcFsDirectory* m_pRoot;
 
   Atomic<size_t> m_NextInode;
@@ -221,6 +231,8 @@ class ProcFs : public Filesystem {
 
 void procfsInvalidateNamespaceTask(const SharedPointer<PosixNamespaceContext>& context, size_t pid,
                                    size_t taskId);
+
+bool procfsAddUserMaps(ProcFs&, ProcFsDirectory&, Process&);
 
 bool procfsAddSystemStatusFiles(ProcFs& filesystem, ProcFsDirectory& root);
 bool procfsAddProcessStatusFiles(ProcFs& filesystem, ProcFsDirectory& directory, size_t pid);

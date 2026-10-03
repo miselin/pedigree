@@ -99,6 +99,10 @@ FilesystemResult allocate(int fd, int mode, off_t offset, off_t length) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
+  VfsMountView::WriteLease mountWrite;
+  if (descriptor->openingPath() && !mountWrite.acquire(descriptor->openingPath())) {
+    return -1;
+  }
   File* file = descriptor->getFile();
   if (file->isPipe() || file->isFifo()) {
     SYSCALL_ERROR(IllegalSeek);

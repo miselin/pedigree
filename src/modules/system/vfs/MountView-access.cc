@@ -93,6 +93,10 @@ bool VfsMountView::State::ancestors(const FilesystemPathRef& selected,
 
 uint64_t VfsMountView::filesystemAccess(const FilesystemPathRef& path,
                                         const VFS::NamespaceMutation* writer) {
+  auto* owner = fromPath(path);
+  if (owner && owner != this) {
+    return owner->filesystemAccess(path, writer);
+  }
 #ifndef VFS_STANDALONE
   auto* policy = currentPolicy();
   if (!policy) {
@@ -121,6 +125,22 @@ uint64_t VfsMountView::filesystemAccess(const FilesystemPathRef& path,
 
 bool VfsMountView::checkFilesystemAccess(const FilesystemPathRef& path, uint64_t access,
                                          const VFS::NamespaceMutation* writer) {
+  auto* owner = fromPath(path);
+  if (owner && owner != this) {
+    return owner->checkFilesystemAccess(path, access, writer);
+  }
+  constexpr uint64_t mutations =
+      FilesystemAccess::WriteFile | FilesystemAccess::RemoveDir | FilesystemAccess::RemoveFile |
+      FilesystemAccess::MakeChar | FilesystemAccess::MakeDir | FilesystemAccess::MakeReg |
+      FilesystemAccess::MakeSock | FilesystemAccess::MakeFifo | FilesystemAccess::MakeBlock |
+      FilesystemAccess::MakeSym | FilesystemAccess::Truncate;
+  if ((access & mutations) && !writable(path)) {
+    return false;
+  }
+  if ((access & FilesystemAccess::Execute) && (mountFlags(path) & NoExec)) {
+    SYSCALL_ERROR(PermissionDenied);
+    return false;
+  }
   if ((filesystemAccess(path, writer) & access) == access) {
     return true;
   }

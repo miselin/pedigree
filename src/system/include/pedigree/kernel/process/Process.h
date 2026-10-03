@@ -52,17 +52,54 @@ class ZombieProcess;
 class ZombieQueue;
 class Scheduler;
 
-/** IDs visible to processes start at one, independently of kernel process IDs. */
+class Process;
+
+/** PID allocation and lifetime are shared by a namespace and its descendants. */
 class EXPORTED_PUBLIC UserspacePidNamespace {
  public:
-  UserspacePidNamespace() : m_NextPid(0) {}
-
+  explicit UserspacePidNamespace(const SharedPointer<UserspacePidNamespace>& parent = {})
+      : m_Parent(parent), m_NextPid(0) {}
   size_t allocate() {
     return m_NextPid += 1;
   }
+  const SharedPointer<UserspacePidNamespace>& parent() const {
+    return m_Parent;
+  }
+  bool dead() const {
+    return __atomic_load_n(&m_Dead, __ATOMIC_ACQUIRE);
+  }
+  void close() {
+    __atomic_store_n(&m_Dead, true, __ATOMIC_RELEASE);
+  }
+  Process* init() const {
+    return __atomic_load_n(&m_Init, __ATOMIC_ACQUIRE);
+  }
+  void setInit(Process* process) {
+    __atomic_store_n(&m_Init, process, __ATOMIC_RELEASE);
+  }
+  size_t depth() const {
+    return m_Parent ? m_Parent->depth() + 1 : 1;
+  }
 
  private:
+  SharedPointer<UserspacePidNamespace> m_Parent;
   Atomic<size_t> m_NextPid;
+  Process* m_Init = nullptr;
+  bool m_Dead = false;
+};
+
+/** Retained by process groups as well as tasks, even after their leader exits. */
+class EXPORTED_PUBLIC UserspacePid {
+ public:
+  explicit UserspacePid(const SharedPointer<UserspacePidNamespace>& space);
+  size_t id(const UserspacePidNamespace* space = nullptr) const;
+  const SharedPointer<UserspacePidNamespace>& space() const {
+    return m_Namespace;
+  }
+
+ private:
+  SharedPointer<UserspacePidNamespace> m_Namespace;
+  Vector<size_t> m_Ids;
 };
 
 /**
@@ -193,6 +230,9 @@ class EXPORTED_PUBLIC Process {
 
     File* get() const {
       return m_pFile;
+    }
+    SharedPointer<ControllingTerminal> context() const {
+      return m_Context;
     }
 
     File* operator->() const {
@@ -439,6 +479,8 @@ class EXPORTED_PUBLIC Process {
   MUST_USE_RESULT bool acquireThreadById(ThreadLease& lease, size_t id);
 
   MUST_USE_RESULT bool acquireThreadByTaskId(ThreadLease& lease, size_t id);
+  MUST_USE_RESULT bool acquireThreadByUserspaceId(ThreadLease& lease, size_t id,
+                                                  const UserspacePidNamespace* space);
 
   /**
    * Pins an expected Thread into \p lease if this Process still owns it.
@@ -460,8 +502,24 @@ class EXPORTED_PUBLIC Process {
 
   /** Returns the process ID exposed to userspace. */
   size_t getUserspaceId() const {
-    return m_UserspaceId;
+    return m_UserspacePid ? m_UserspacePid->id() : 0;
   }
+
+  size_t getUserspaceId(const UserspacePidNamespace* space) const {
+    return m_UserspacePid ? m_UserspacePid->id(space) : 0;
+  }
+  SharedPointer<UserspacePidNamespace> pidNamespace() const {
+    return m_UserspaceNamespace;
+  }
+  SharedPointer<UserspacePid> pidIdentity() const {
+    return m_UserspacePid;
+  }
+  SharedPointer<UserspacePidNamespace> pidNamespaceForChildren();
+  static SharedPointer<UserspacePidNamespace> rootPidNamespace();
+  bool createPidNamespace();
+  bool unsharePidNamespace();
+  bool unsharePidNamespace(const SharedPointer<UserspacePidNamespace>& prepared);
+  bool pidNamespaceReady() const;
 
   /** Returns the description string of this process. */
   LargeStaticString& description() {
@@ -568,6 +626,8 @@ class EXPORTED_PUBLIC Process {
   FilesystemContextRef acquireFilesystemContext() const;
   /** Install into an empty slot; failure leaves the staged owner untouched. */
   MUST_USE_RESULT bool installFilesystemContext(FilesystemContextOwner&& context);
+  bool replaceFilesystemContext(FilesystemContextOwner&& replacement,
+                                const FilesystemContextRef& expected);
   bool filesystemContextReady() const;
   void releaseFilesystemContext();
 
@@ -961,7 +1021,8 @@ class EXPORTED_PUBLIC Process {
   /** Shared userspace PID namespace inherited by child processes. */
   SharedPointer<UserspacePidNamespace> m_UserspaceNamespace;
   /** PID assigned within m_UserspaceNamespace; zero for kernel-only processes. */
-  size_t m_UserspaceId;
+  SharedPointer<UserspacePid> m_UserspacePid;
+  SharedPointer<UserspacePidNamespace> m_ChildrenPidNamespace;
   /**
    * Our description string.
    */

@@ -3,6 +3,12 @@
 #include "pedigree/kernel/utilities/Pointers.h"
 
 #include "MountView.h"
+#ifndef VFS_STANDALONE
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#endif
 
 VFS::NamespaceMutation::NamespaceMutation(VFS& vfs) : m_Vfs(vfs), m_Lock(vfs.m_PathMutationLock) {
   __atomic_add_fetch(&m_Vfs.m_PathGeneration, 1, __ATOMIC_ACQ_REL);
@@ -17,10 +23,22 @@ uint64_t VFS::namespaceGeneration() const {
   return __atomic_load_n(&m_PathGeneration, __ATOMIC_ACQUIRE);
 }
 VfsMountView* VFS::mountView() const {
+#ifndef VFS_STANDALONE
+  auto* thread = Processor::information().getCurrentThread();
+  if (thread && thread->getParent()) {
+    auto context = thread->getParent()->acquireFilesystemContext();
+    if (auto* view = VfsMountView::fromContext(context)) {
+      return view;
+    }
+  }
+#endif
+  return bootMountView();
+}
+VfsMountView* VFS::bootMountView() const {
   return __atomic_load_n(&m_MountView, __ATOMIC_ACQUIRE);
 }
 bool VFS::shutdownMountView(Vector<Filesystem*>& ownedBackings) {
-  auto* view = mountView();
+  auto* view = bootMountView();
   if (!view)
     return true;
   if (!view->shutdown(ownedBackings))
@@ -31,7 +49,7 @@ bool VFS::shutdownMountView(Vector<Filesystem*>& ownedBackings) {
 }
 bool VFS::initialiseMountView() {
   LockGuard<Mutex> mutation(m_MountMutationLock);
-  if (mountView())
+  if (bootMountView())
     return true;
   auto view = UniquePointer<VfsMountView>::adopt(new VfsMountView(*this));
   if (!view || !view.get()->initialise(getRootFilesystem()))

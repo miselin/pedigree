@@ -24,7 +24,9 @@
 #include "pedigree/kernel/graphics/Graphics.h"
 #include "pedigree/kernel/graphics/GraphicsService.h"
 #include "pedigree/kernel/machine/InputManager.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 #include "modules/subsys/posix/PsAuxFile.h"
 #include "modules/subsys/posix/VirtualTerminal.h"
@@ -125,7 +127,8 @@ class SerialFile : public File {
 class PtmxFile : public File {
  public:
   PtmxFile(String str, size_t inode, Filesystem* pParentFS, File* pParent,
-           DevFsDirectory* m_pPtsDirectory);
+           DevFsDirectory* m_pPtsDirectory, uint32_t slavePermissions = 0333,
+           bool callerOwns = false);
   ~PtmxFile();
 
   virtual uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
@@ -136,10 +139,20 @@ class PtmxFile : public File {
   // override open() to correctly handle returning a master and creating
   // the associated slave.
   virtual File* open();
+  bool isCharacterDevice() const override {
+    return true;
+  }
+  uint64_t deviceNumber() const override {
+    return 0x0502;
+  }
 
  private:
   ExtensibleBitmap m_Terminals;
   DevFsDirectory* m_pPtsDirectory;
+  Mutex m_Lock;
+  Vector<File*> m_Masters;
+  uint32_t m_SlavePermissions;
+  bool m_CallerOwns;
 
   virtual bool isBytewise() const {
     return true;
@@ -247,8 +260,8 @@ class DevFsDirectory : public Directory {
 
   virtual ~DevFsDirectory();
 
-  void addEntry(String name, File* pFile) {
-    addDirectoryEntry(name, pFile);
+  bool addEntry(String name, File* pFile) {
+    return addDirectoryEntry(name, pFile);
   }
 };
 

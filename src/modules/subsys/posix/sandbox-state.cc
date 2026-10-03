@@ -11,10 +11,13 @@
 #include <signal.h>
 
 #include "PosixSubsystem.h"
+#include "ipc-namespace.h"
 #include "landlock.h"
+#include "network-namespace.h"
 #include "sandbox-state.h"
 #include "seccomp-filter.h"
 #include "syscalls/translate.h"
+#include "user-namespace.h"
 
 namespace {
 constexpr uint32_t Allow = 0x7fff0000;
@@ -37,6 +40,9 @@ class SandboxState final : public Thread::SecurityState {
   bool noNewPrivileges = false;
   SharedPointer<SeccompProgram> filters;
   SharedPointer<LandlockDomain> domain;
+  SharedPointer<PosixTaskCredentials> credentials;
+  SharedPointer<IpcNamespace> ipcNamespace;
+  NetworkNamespaceRef networkNamespace;
   bool interceptSyscall(SyscallState& state, uintptr_t& result) const override;
 };
 
@@ -184,6 +190,85 @@ int posix_seccomp_mode() {
 
 void posix_sandbox_inherit(Thread& child, Thread& parent) {
   child.setSecurityState(parent.securityState());
+}
+
+bool posix_sandbox_prepare_namespaces(Thread& source,
+                                      const SharedPointer<PosixTaskCredentials>& credentials,
+                                      const SharedPointer<IpcNamespace>& ipc,
+                                      const NetworkNamespaceRef& network,
+                                      Thread::SecurityStateRef& prepared) {
+  auto previous = source.securityState();
+  if (!credentials && !ipc && !network) {
+    prepared = previous;
+    return true;
+  }
+  auto state = copyState(previous);
+  if (!state) {
+    return false;
+  }
+  auto* replacement = static_cast<SandboxState*>(state.get());
+  if (credentials) {
+    replacement->credentials = credentials;
+  }
+  if (ipc) {
+    replacement->ipcNamespace = ipc;
+  }
+  if (network) {
+    replacement->networkNamespace = network;
+  }
+  prepared = state;
+  return true;
+}
+
+SharedPointer<PosixTaskCredentials> posix_sandbox_credentials(Thread& thread) {
+  auto state = thread.securityState();
+  return state ? static_cast<SandboxState*>(state.get())->credentials
+               : SharedPointer<PosixTaskCredentials>();
+}
+
+bool posix_sandbox_set_credentials(Thread& thread,
+                                   const SharedPointer<PosixTaskCredentials>& credentials) {
+  TerminationDeferral lifetime;
+  auto state = copyState(thread.securityState());
+  if (!state) {
+    return false;
+  }
+  static_cast<SandboxState*>(state.get())->credentials = credentials;
+  thread.setSecurityState(state);
+  return true;
+}
+
+NetworkNamespaceRef posix_sandbox_network(Thread& thread) {
+  auto state = thread.securityState();
+  return state ? static_cast<SandboxState*>(state.get())->networkNamespace : NetworkNamespaceRef();
+}
+
+bool posix_sandbox_set_network(Thread& thread, const NetworkNamespaceRef& space) {
+  TerminationDeferral lifetime;
+  auto state = copyState(thread.securityState());
+  if (!state) {
+    return false;
+  }
+  static_cast<SandboxState*>(state.get())->networkNamespace = space;
+  thread.setSecurityState(state);
+  return true;
+}
+
+SharedPointer<IpcNamespace> posix_ipc_namespace(Thread& thread) {
+  auto state = thread.securityState();
+  return state ? static_cast<SandboxState*>(state.get())->ipcNamespace
+               : SharedPointer<IpcNamespace>();
+}
+
+bool posix_set_ipc_namespace(Thread& thread, const SharedPointer<IpcNamespace>& space) {
+  TerminationDeferral lifetime;
+  auto state = copyState(thread.securityState());
+  if (!state) {
+    return false;
+  }
+  static_cast<SandboxState*>(state.get())->ipcNamespace = space;
+  thread.setSecurityState(state);
+  return true;
 }
 
 SharedPointer<LandlockDomain> posix_sandbox_domain() {

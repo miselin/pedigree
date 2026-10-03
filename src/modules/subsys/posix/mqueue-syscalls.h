@@ -42,6 +42,7 @@ class EXPORTED_PUBLIC PosixMessageQueue final : public ReadinessSource {
   bool mayOpen(Process* process, int flags) const;
   bool mayUnlink(Process* process) const;
   const String& name() const;
+  uint64_t namespaceId() const;
   ReadyMask queryReady();
   ReadinessGenerations readinessGenerations() override;
 

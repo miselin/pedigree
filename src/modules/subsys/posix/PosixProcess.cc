@@ -118,29 +118,21 @@ uint32_t PosixProcess::getMask() const {
 }
 
 void PosixProcess::registerProcess() {
-  Filesystem* pFs = VFS::instance().getFilesystemAt(String("/media/proc"));
-  if (!pFs) {
-    return;
-  }
-
-  ProcFs* pProcFs = static_cast<ProcFs*>(pFs);
-  pProcFs->addProcess(this);
+  ProcFs::publishProcess(this);
   m_bRegistered = true;
+  if (!pidNamespaceReady()) {
+    ThreadLease recipient;
+    if (getSubsystem() && acquireProcessSignalThread(recipient)) {
+      getSubsystem()->kill(Subsystem::Unknown, recipient.get());
+    }
+  }
 }
 
 void PosixProcess::unregisterProcess() {
-  if (!m_bRegistered) {
-    return;
+  if (m_bRegistered) {
+    ProcFs::unpublishProcess(this);
+    m_bRegistered = false;
   }
-
-  Filesystem* pFs = VFS::instance().getFilesystemAt(String("/media/proc"));
-  if (!pFs) {
-    return;
-  }
-
-  ProcFs* pProcFs = static_cast<ProcFs*>(pFs);
-  pProcFs->removeProcess(this);
-  m_bRegistered = false;
 }
 
 IntervalTimer& PosixProcess::getRealIntervalTimer() {

@@ -12,14 +12,16 @@
 
 #include "PosixProcess.h"
 #include "PosixSubsystem.h"
+#include "modules/system/vfs/VFS.h"
 
 namespace {
 Mutex terminalPolicy;
 
 class TerminalBinding final : public Process::ControllingTerminal {
  public:
-  TerminalBinding(ConsoleFile* console, const SharedPointer<ConsoleControlState>& control)
-      : m_Console(console), m_Control(control) {}
+  TerminalBinding(ConsoleFile* console, const SharedPointer<ConsoleControlState>& control,
+                  VFS::FilesystemPin&& storage)
+      : m_Console(console), m_Control(control), m_Storage(pedigree_std::move(storage)) {}
   ~TerminalBinding() override {
     m_Console->releaseVfsReference();
   }
@@ -30,6 +32,7 @@ class TerminalBinding final : public Process::ControllingTerminal {
  private:
   ConsoleFile* m_Console;
   SharedPointer<ConsoleControlState> m_Control;
+  VFS::FilesystemPin m_Storage;
 };
 
 PosixProcess* currentProcess() {
@@ -107,7 +110,8 @@ int TerminalControl::attach(ConsoleFile& console, bool steal, bool automatic,
   auto context = process->acquireCttyContext();
   File* existing = context ? context->file() : nullptr;
   const size_t session = process->getSessionId();
-  if (session != process->getUserspaceId() || (existing && existing != &console)) {
+  if (session != process->getUserspaceId(Process::rootPidNamespace().get()) ||
+      (existing && existing != &console)) {
     if (automatic)
       return 0;
     NOTICE("TIOCSCTTY EPERM - session doesn't match");
@@ -132,11 +136,13 @@ int TerminalControl::attach(ConsoleFile& console, bool steal, bool automatic,
     return -1;
   }
   auto control = SharedPointer<ConsoleControlState>::tryAdopt(new TerminalControl(session, group));
-  if (!control || !console.retainVfsReference()) {
+  VFS::FilesystemPin storage;
+  if (!control || !VFS::instance().pinFilesystem(console.getFilesystem(), storage) ||
+      !console.retainVfsReference()) {
     SYSCALL_ERROR(OutOfMemory);
     return -1;
   }
-  auto* rawBinding = new TerminalBinding(&console, control);
+  auto* rawBinding = new TerminalBinding(&console, control, pedigree_std::move(storage));
   if (!rawBinding) {
     console.releaseVfsReference();
     SYSCALL_ERROR(OutOfMemory);
@@ -176,11 +182,13 @@ int TerminalControl::setForeground(ConsoleFile& console, int group,
   }
   {
     RecursingLockGuard<Spinlock> groupGuard(ProcessGroupManager::instance().lock());
-    ProcessGroup* target = ProcessGroupManager::instance().findGroup(group);
+    ProcessGroup* target =
+        ProcessGroupManager::instance().findGroup(group, process->pidNamespace().get());
     if (!target || target->sessionId != control->m_Session) {
       SYSCALL_ERROR(NotEnoughPermissions);
       return -1;
     }
+    group = target->processGroupId;
   }
   __atomic_store_n(&control->m_Foreground, static_cast<size_t>(group), __ATOMIC_RELEASE);
   return 0;
@@ -200,7 +208,10 @@ int TerminalControl::foreground(ConsoleFile& console, const SharedPointer<Consol
     SYSCALL_ERROR(NotAConsole);
     return -1;
   }
-  return static_cast<int>(__atomic_load_n(&control->m_Foreground, __ATOMIC_ACQUIRE));
+  RecursingLockGuard<Spinlock> groupGuard(ProcessGroupManager::instance().lock());
+  auto* group = ProcessGroupManager::instance().findGroup(
+      __atomic_load_n(&control->m_Foreground, __ATOMIC_ACQUIRE));
+  return group && group->identity ? group->identity->id(process->pidNamespace().get()) : 0;
 }
 
 int TerminalControl::session(ConsoleFile& console, const SharedPointer<ConsoleIoState>& opened) {
@@ -224,7 +235,13 @@ int TerminalControl::session(ConsoleFile& console, const SharedPointer<ConsoleIo
       return -1;
     }
   }
-  return static_cast<int>(control->m_Session);
+  auto* process = currentProcess();
+  Scheduler::ProcessLease leader;
+  if (!process || !Scheduler::instance().acquireProcessByUserspaceId(
+                      leader, control->m_Session, Process::rootPidNamespace().get())) {
+    return 0;
+  }
+  return leader->getUserspaceId(process->pidNamespace().get());
 }
 
 int TerminalControl::hangup() {
@@ -261,10 +278,12 @@ int TerminalControl::hangup() {
       return -1;
     }
     if (control && control->active()) {
-      if (Scheduler::instance().acquireProcessByUserspaceId(leader, control->m_Session) &&
+      if (Scheduler::instance().acquireProcessByUserspaceId(leader, control->m_Session,
+                                                            Process::rootPidNamespace().get()) &&
           (leader->getType() != Process::Posix ||
-           static_cast<PosixProcess*>(leader.get())->getSessionId() != control->m_Session))
+           static_cast<PosixProcess*>(leader.get())->getSessionId() != control->m_Session)) {
         leader.reset();
+      }
       control->invalidate();
     }
     console->setControlState(SharedPointer<ConsoleControlState>());
@@ -298,7 +317,8 @@ void TerminalControl::processTerminated(PosixProcess& process) {
       auto* control = static_cast<TerminalControl*>(slot.get());
       // A PTY master must be able to drain output after its session leader exits.
       const bool preservePtyData = console->isPtySlave();
-      if (control && control->active() && control->m_Session == process.getUserspaceId() &&
+      if (control && control->active() &&
+          control->m_Session == process.getUserspaceId(Process::rootPidNamespace().get()) &&
           (preservePtyData || console->beginRevocation(retired))) {
         session = control->m_Session;
         foreground = __atomic_load_n(&control->m_Foreground, __ATOMIC_ACQUIRE);

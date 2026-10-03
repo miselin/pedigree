@@ -156,6 +156,7 @@ class ProcessGroupManager {
 
   /** Caller must retain lock() while using the returned pointer. */
   ProcessGroup* findGroup(size_t gid) const;
+  ProcessGroup* findGroup(size_t gid, const UserspacePidNamespace* space) const;
 
   /** Serialises process-group pointers, membership lists, and destruction. */
   Spinlock& lock() {

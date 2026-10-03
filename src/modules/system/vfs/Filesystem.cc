@@ -557,8 +557,8 @@ bool Filesystem::renameChildren(File* oldParentFile, const String& oldName, File
   }
   File* replaced = replacedLease.get();
   if (oldPath && newPath &&
-      !VFS::instance().mountView()->authorizeRename(*oldPath, source, *newPath, replaced,
-                                                    namespaceWriter)) {
+      !VfsMountView::fromPath(*oldPath)->authorizeRename(*oldPath, source, *newPath, replaced,
+                                                         namespaceWriter)) {
     return false;
   }
   // Both parent namespace locks exclude creators until reservation and commit.
@@ -587,11 +587,10 @@ bool Filesystem::renameChildren(File* oldParentFile, const String& oldName, File
   Directory* sourceDirectory = source->isDirectory() ? Directory::fromFile(source) : nullptr;
   Directory* replacedDirectory =
       replaced && replaced->isDirectory() ? Directory::fromFile(replaced) : nullptr;
-  auto* view = VFS::instance().mountView();
-  if ((sourceDirectory && (view ? view->isMountpoint(sourceDirectory)
-                                : sourceDirectory->getReparsePoint() != nullptr)) ||
-      (replacedDirectory && (view ? view->isMountpoint(replacedDirectory)
-                                  : replacedDirectory->getReparsePoint() != nullptr))) {
+  auto* view = oldPath ? VfsMountView::fromPath(*oldPath) : VFS::instance().mountView();
+  if ((view && (view->isMountpoint(source) || (replaced && view->isMountpoint(replaced)))) ||
+      (!view && ((sourceDirectory && sourceDirectory->getReparsePoint()) ||
+                 (replacedDirectory && replacedDirectory->getReparsePoint())))) {
     SYSCALL_ERROR(DeviceBusy);
     return false;
   }
@@ -737,12 +736,12 @@ bool Filesystem::removeChild(File* parent, const String& filename, File* expecte
     return false;
   }
 
-  if (parentPath &&
-      !VFS::instance().mountView()->authorizeRemove(*parentPath, target.get(), namespaceWriter)) {
+  if (parentPath && !VfsMountView::fromPath(*parentPath)
+                         ->authorizeRemove(*parentPath, target.get(), namespaceWriter)) {
     return false;
   }
 
-  auto* view = VFS::instance().mountView();
+  auto* view = parentPath ? VfsMountView::fromPath(*parentPath) : VFS::instance().mountView();
   if (view && view->isMountpoint(target.get())) {
     SYSCALL_ERROR(DeviceBusy);
     return false;

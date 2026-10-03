@@ -126,7 +126,15 @@ bool VfsMountView::snapshotMounts(const FilesystemContextRef& context,
     }
     snapshot.id = row.attachment->id;
     snapshot.parentId = row.parentId;
-    snapshot.backing = row.attachment->backing.identity();
+    snapshot.backing = row.attachment->backing->pin.identity();
+    snapshot.flags = row.attachment->flags;
+    if (row.attachment->backing->pin.filesystem()->isReadOnly()) {
+      snapshot.flags |= ReadOnly;
+    }
+    snapshot.root = row.attachment->root->getFullPath(false);
+    if (!snapshot.root.length()) {
+      snapshot.root = String("/");
+    }
     snapshots.pushBack(pedigree_std::move(snapshot));
   }
   result.swap(snapshots);

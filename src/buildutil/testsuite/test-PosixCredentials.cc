@@ -114,3 +114,16 @@ TEST(PosixCredentials, MaximumNumericIdIsNotSignedOrAccountLimited) {
   EXPECT_EQ(fs, UINT32_MAX - 1);
   EXPECT_EQ(prepare(root, Change::SetUid, UINT32_MAX, 0, 0, 0, next, fs), Status::Invalid);
 }
+
+TEST(PosixCredentials, AuthorityIsIndependentOfNumericRoot) {
+  Snapshot root, next;
+  uint32_t fs;
+  EXPECT_EQ(prepare(root, Change::SetUid, 900, UINT32_MAX, UINT32_MAX, 0, next, fs, false),
+            Status::Denied);
+  const auto unprivileged = ordinary();
+  ASSERT_EQ(prepare(unprivileged, Change::SetUid, 900, UINT32_MAX, UINT32_MAX, 101, next, fs, true),
+            Status::Success);
+  EXPECT_EQ(next.ruid, 900U);
+  EXPECT_EQ(next.euid, 900U);
+  EXPECT_EQ(next.suid, 900U);
+}

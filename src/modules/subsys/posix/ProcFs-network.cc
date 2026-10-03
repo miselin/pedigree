@@ -2,12 +2,16 @@
 #define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS 1
 
 #include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "ProcFs.h"
 #include "modules/system/lwip/include/lwip/netif.h"
 #include "modules/system/lwip/include/lwip/tcpip.h"
 #include "modules/system/network-stack/NetworkStack.h"
+#include "network-namespace.h"
 
 namespace {
 class NetworkFile final : public File {
@@ -46,6 +50,13 @@ class NetworkFile final : public File {
 
   static String generateString() {
     String contents;
+    const auto space = posix_sandbox_network(*Processor::information().getCurrentThread());
+    if (space) {
+      contents.Format("lo: %s, mtu 65536\n  IPv4: %s  Netmask: 255.0.0.0\n",
+                      space->flags() & 1 ? "up" : "down",
+                      space->address() ? "127.0.0.1" : "0.0.0.0");
+      return contents;
+    }
     auto* stack = NetworkStack::instanceIfAvailable();
     if (!stack)
       return String("No network devices.\n");
@@ -172,6 +183,10 @@ class NetworkDevFile final : public File {
         "Inter-|   Receive                                                |  Transmit\n"
         " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets "
         "errs drop fifo colls carrier compressed\n");
+    if (posix_sandbox_network(*Processor::information().getCurrentThread())) {
+      contents += "lo: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n";
+      return contents;
+    }
     auto* stack = NetworkStack::instanceIfAvailable();
     if (!stack)
       return contents;

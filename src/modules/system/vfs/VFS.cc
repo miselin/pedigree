@@ -467,7 +467,7 @@ bool VFS::mount(Disk* pDisk, String& stableName, Filesystem** pMountedFs) {
         finishCallback(&item->state, invocation);
         return false;
       }
-      if (mountView()) {
+      if (bootMountView()) {
         String path;
         if (!getMountPath(pFs, path) || !attachFilesystem(getRootFilesystem(), pFs, path)) {
           unregisterFilesystem(pFs);
@@ -505,7 +505,7 @@ bool VFS::mount(Disk* pDisk, String& stableName, Filesystem** pMountedFs) {
         delete pFs;
         return false;
       }
-      if (mountView()) {
+      if (bootMountView()) {
         String path;
         if (!getMountPath(pFs, path) || !attachFilesystem(getRootFilesystem(), pFs, path)) {
           unregisterFilesystem(pFs);
@@ -570,7 +570,7 @@ String VFS::registerFilesystemLocked(Filesystem* pFs, const String& preferredSta
     root = m_pRootFilesystem;
   }
 
-  if (root && !mountView()) {
+  if (root && !bootMountView()) {
     attachFilesystem(root, pFs, info->path);
   }
 
@@ -605,7 +605,7 @@ bool VFS::unregisterFilesystem(Filesystem* pFs, bool canDelete, bool terminal) {
       }
     }
 
-    if (detach && !mountView()) {
+    if (detach && !bootMountView()) {
       Directory::ChildLease pointLease;
       File* point = findRetained(info->path, pointLease);
       if (point && point->isDirectory()) {
@@ -690,7 +690,7 @@ bool VFS::removeDiskFilesystem(Filesystem* filesystem, bool deviceAvailable) {
   // Stop handle/sync users before detaching, including an attachment that
   // acquired its mount admission just before the disk was withdrawn.
   retained->operations.wait();
-  if (auto* view = mountView()) {
+  if (auto* view = bootMountView()) {
     if (!view->detachBackingForRemoval(filesystem)) {
       return false;
     }
@@ -714,7 +714,7 @@ bool VFS::removeDiskFilesystem(Filesystem* filesystem, bool deviceAvailable) {
 }
 
 bool VFS::setRootFilesystem(Filesystem* pFs) {
-  if (mountView()) {
+  if (bootMountView()) {
     SYSCALL_ERROR(DeviceBusy);
     return false;
   }
@@ -765,7 +765,7 @@ bool VFS::HostedRootViewScope::open(Filesystem* filesystem) {
       if (m_Vfs.m_Mounts.lookup(filesystem))
         return false;
       m_PreviousRoot = m_Vfs.m_pRootFilesystem;
-      m_PreviousView = m_Vfs.mountView();
+      m_PreviousView = m_Vfs.bootMountView();
     }
     if (m_PreviousRoot && !m_Vfs.pinFilesystem(m_PreviousRoot, m_PreviousRootPin))
       return false;
@@ -799,7 +799,7 @@ bool VFS::HostedRootViewScope::close() {
       return false;
     if (m_Installed) {
       LockGuard<Mutex> table(m_Vfs.m_MountTableLock);
-      if (m_Vfs.mountView() != m_View || m_Vfs.m_pRootFilesystem != m_Filesystem)
+      if (m_Vfs.bootMountView() != m_View || m_Vfs.m_pRootFilesystem != m_Filesystem)
         return false;
       m_Vfs.m_pRootFilesystem = m_PreviousRoot;
       __atomic_store_n(&m_Vfs.m_MountView, m_PreviousView, __ATOMIC_RELEASE);
@@ -1556,11 +1556,20 @@ bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute,
   uint32_t permissions = attributes.permissions;
   uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) | (bExecute ? FILE_UX : 0);
 
-  if (processUid == 0) {
-    if (!bExecute || (permissions & (FILE_UX | FILE_GX | FILE_OX))) {
+  const bool dacOverride = credentials.enforceCapabilities
+                               ? (credentials.capabilities & (uint64_t(1) << 1))
+                               : processUid == 0;
+  const bool dacReadSearch =
+      credentials.enforceCapabilities && (credentials.capabilities & (uint64_t(1) << 2));
+  if (dacOverride) {
+    if (!bExecute || pFile->isDirectory() || (permissions & (FILE_UX | FILE_GX | FILE_OX))) {
       return true;
     }
-  } else if (fuid == processUid) {
+  }
+  if (dacReadSearch && !bWrite && (!bExecute || pFile->isDirectory())) {
+    return true;
+  }
+  if (fuid == processUid) {
     check = (permissions >> FILE_UBITS) & 0x7;
   } else {
     bool inFileGroup = fgid == processGid;
@@ -1791,7 +1800,7 @@ bool VFS::attachFilesystem(Filesystem* pRootFs, Filesystem* pFs, const String& p
   }
 
   Directory::ChildLease mediaLease;
-  if (auto* view = mountView()) {
+  if (auto* view = bootMountView()) {
     FilesystemContextOwner bootstrap;
     if (!view->createBootContext(bootstrap)) {
       return false;

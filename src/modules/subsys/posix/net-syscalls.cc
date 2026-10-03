@@ -55,6 +55,7 @@
 #include "mqueue-netlink.h"
 #include "net-syscalls.h"
 #include "recvmmsg-syscalls.h"
+#include "sandbox-state.h"
 #include "signalfd-syscalls.h"
 #include "timerfd-syscalls.h"
 
@@ -106,14 +107,14 @@ class SocketPayload {
         return false;
       }
       capacity = MAX_UNIX_STREAM_QUEUE;
-    } else if (domain == 16 && !sending && capacity > 32) {
-      capacity = 32;
     } else if (domain == AF_INET && type == SOCK_DGRAM && capacity > 65535) {
       if (sending) {
         syscallError(EMSGSIZE);
         return false;
       }
       capacity = 65535;
+    } else if (domain == 16 && !sending && capacity > 65536) {
+      capacity = 65536;
     }
     if (capacity) {
       m_Bytes = UniqueArray<uint8_t>::allocate(capacity);
@@ -557,6 +558,7 @@ int posix_socket(int domain, int type, int protocol) {
     return -1;
   }
   NetworkSyscalls* syscalls;
+  const auto network = posix_sandbox_network(*Processor::information().getCurrentThread());
 
   if (domain == AF_UNIX) {
     if (socketType != SOCK_STREAM && socketType != SOCK_DGRAM && socketType != SOCK_SEQPACKET) {
@@ -564,6 +566,11 @@ int posix_socket(int domain, int type, int protocol) {
       return -1;
     }
     syscalls = new UnixSocketSyscalls(domain, socketType, protocol);
+  } else if (network) {
+    syscalls = posix_network_socket(domain, socketType, protocol, network);
+    if (!syscalls) {
+      return -1;
+    }
   } else if (domain == 16) {
     syscalls = new MqueueNetlinkSocket(socketType, protocol);
   } else {
@@ -1466,6 +1473,9 @@ NetworkSyscalls::NetworkSyscalls(int domain, int type, int protocol)
     : m_Domain(domain),
       m_Type(type),
       m_Protocol(protocol),
+      m_NetworkNamespace(Processor::information().getCurrentThread()
+                             ? posix_sandbox_network(*Processor::information().getCurrentThread())
+                             : NetworkNamespaceRef()),
       m_Blocking(true),
       m_ReadinessNotifications(),
       m_LifecycleLock(),
@@ -1611,7 +1621,7 @@ void NetworkSyscalls::removeDescriptorOwner() {
       // retiring the table-visible endpoint wakes them safely. lwIP calls may
       // still be using the netconn through a syscall lease and retire when
       // that final object reference drains instead.
-      closeEndpoint = m_Domain == AF_UNIX || m_Domain == 16;
+      closeEndpoint = usesLocalEndpointLifetime() || m_Domain == 16;
     }
   }
 
@@ -1621,7 +1631,7 @@ void NetworkSyscalls::removeDescriptorOwner() {
 }
 
 void NetworkSyscalls::retainDescriptorLifetime(const SharedPointer<NetworkSyscalls>& lifetime) {
-  if (m_Domain != AF_UNIX || !lifetime) {
+  if (!usesLocalEndpointLifetime() || !lifetime) {
     return;
   }
 
@@ -3122,12 +3132,13 @@ void UnixSocketSyscalls::notifyPeer(UnixSocket* socket, ReadyMask mask) {
 
 bool UnixSocketSyscalls::publishAbstractSocket(
     const String& address, const SharedPointer<UnixSocketReference>& reference) {
+  const String key = abstractKey(address);
   LockGuard<Mutex> guard(g_AbstractUnixSocketsLock);
-  if (g_AbstractUnixSockets.contains(address)) {
+  if (g_AbstractUnixSockets.contains(key)) {
     SYSCALL_ERROR(AddressInUse);
     return false;
   }
-  if (!g_AbstractUnixSockets.insert(address, reference)) {
+  if (!g_AbstractUnixSockets.insert(key, reference)) {
     SYSCALL_ERROR(OutOfMemory);
     return false;
   }
@@ -3136,8 +3147,9 @@ bool UnixSocketSyscalls::publishAbstractSocket(
 
 SharedPointer<UnixSocketReference> UnixSocketSyscalls::acquireSocket(const String& address) {
   if (isAbstractUnixSocket(address)) {
+    const String key = abstractKey(address);
     LockGuard<Mutex> guard(g_AbstractUnixSocketsLock);
-    auto result = g_AbstractUnixSockets.lookup(address);
+    auto result = g_AbstractUnixSockets.lookup(key);
     if (!result.hasValue()) {
       SYSCALL_ERROR(DoesNotExist);
       return SharedPointer<UnixSocketReference>();
@@ -3160,11 +3172,23 @@ SharedPointer<UnixSocketReference> UnixSocketSyscalls::acquireSocket(const Strin
 }
 
 void UnixSocketSyscalls::removeAbstractSocket(const String& address, UnixSocket* socket) {
+  const String key = abstractKey(address);
   LockGuard<Mutex> guard(g_AbstractUnixSocketsLock);
-  auto current = g_AbstractUnixSockets.lookup(address);
+  auto current = g_AbstractUnixSockets.lookup(key);
   if (current.hasValue() && current.value()->get() == socket) {
-    g_AbstractUnixSockets.remove(address);
+    g_AbstractUnixSockets.remove(key);
   }
+}
+
+String UnixSocketSyscalls::abstractKey(const String& address) const {
+  String key;
+  // The transport discriminator is outside user-controlled address bytes.
+  key.Format(
+      "%llu:%d:",
+      m_NetworkNamespace ? static_cast<unsigned long long>(m_NetworkNamespace->identity()) : 0ULL,
+      m_Domain);
+  key += address;
+  return key;
 }
 
 SharedPointer<UnixSocketGeneration> UnixSocketSyscalls::acquireLocalEndpoint() const {
@@ -3345,8 +3369,13 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
     }
 
     // Create the remote for accept() on the server side.
+    String localPath;
+    {
+      LockGuard<Mutex> guard(m_EndpointStateLock);
+      localPath = m_LocalPath;
+    }
     UnixSocket* remote =
-        new UnixSocket(String(), g_pUnixSocketBacking, nullptr, nullptr, getSocketType());
+        new UnixSocket(localPath, g_pUnixSocketBacking, nullptr, nullptr, getSocketType());
 
     // Pair first so accept can never observe an endpoint before its peer
     // exists. addSocket activates and queues the connection atomically;
@@ -3868,8 +3897,14 @@ int UnixSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addr
     return -1;
   }
 
+  UnixSocketSyscalls* obj = createAcceptedSocket();
+  if (!obj) {
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
   UnixSocket* remote = local->get()->getSocket(isBlocking());
   if (!remote) {
+    delete obj;
     N_NOTICE("accept() failed");
     SYSCALL_ERROR(NoMoreProcesses);
     return -1;
@@ -3878,22 +3913,10 @@ int UnixSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addr
   if (remote) {
     N_NOTICE("accept() got a socket");
 
-    struct sockaddr_un* sun = reinterpret_cast<struct sockaddr_un*>(address);
+    writeUnixSocketAddress(remote->getName(), address, addrlen);
 
-    if (remote->getName().length()) {
-      // Named.
-      String name;
-      remote->getFullPath(name);
-
-      StringCopy(sun->sun_path, name.cstr());
-      *addrlen = sizeof(sa_family_t) + name.length();
-    } else {
-      *addrlen = sizeof(sa_family_t);
-    }
-
-    sun->sun_family = AF_UNIX;
-
-    UnixSocketSyscalls* obj = new UnixSocketSyscalls(m_Domain, m_Type, m_Protocol);
+    obj->m_NetworkNamespace = m_NetworkNamespace;
+    obj->m_RemotePath = remote->getName();
     obj->replaceLocalEndpoint(remote, false, &localPath);
     obj->create();
 
@@ -3914,6 +3937,10 @@ int UnixSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addr
   }
 
   return -1;
+}
+
+UnixSocketSyscalls* UnixSocketSyscalls::createAcceptedSocket() {
+  return new UnixSocketSyscalls(m_Domain, m_Type, m_Protocol);
 }
 
 int UnixSocketSyscalls::shutdown(int how) {

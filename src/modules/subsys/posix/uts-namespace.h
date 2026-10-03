@@ -8,6 +8,8 @@
 #include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 
+#include "user-namespace.h"
+
 class Process;
 class Thread;
 class PosixUtsProcessView;
@@ -22,7 +24,11 @@ class EXPORTED_PUBLIC PosixUtsNamespace {
     char node[65] = {};
     char domain[65] = {};
   };
-  PosixUtsNamespace(uint64_t identity, const Snapshot& names, bool charged);
+  PosixUtsNamespace(uint64_t identity, const Snapshot& names, bool charged,
+                    const UserNamespaceRef& owner = {});
+  const UserNamespaceRef& owner() const {
+    return m_Owner;
+  }
   ~PosixUtsNamespace();
   uint64_t identity() const {
     return m_Identity;
@@ -33,6 +39,7 @@ class EXPORTED_PUBLIC PosixUtsNamespace {
  private:
   PosixUtsNamespace(const PosixUtsNamespace&) = delete;
   PosixUtsNamespace& operator=(const PosixUtsNamespace&) = delete;
+  const UserNamespaceRef m_Owner;
   const uint64_t m_Identity;
   const bool m_Charged;
   mutable Mutex m_Lock;
@@ -63,7 +70,8 @@ class EXPORTED_PUBLIC PreparedUtsThread {
 
  private:
   friend class PosixNamespaceContext;
-  friend UtsStatus posix_uts_prepare_thread(const UtsRef&, bool, UniquePointer<PreparedUtsThread>&);
+  friend UtsStatus posix_uts_prepare_thread(const UtsRef&, bool, UniquePointer<PreparedUtsThread>&,
+                                            const UserNamespaceRef&);
   PreparedUtsThread(const PreparedUtsThread&) = delete;
   PreparedUtsThread& operator=(const PreparedUtsThread&) = delete;
   SharedPointer<PosixUtsTaskBinding> m_Binding;
@@ -96,9 +104,11 @@ class EXPORTED_PUBLIC PosixNamespaceContext {
 };
 
 EXPORTED_PUBLIC UtsStatus posix_uts_initial(UtsRef& result);
-EXPORTED_PUBLIC UtsStatus posix_uts_copy(const UtsRef& source, UtsRef& result);
+EXPORTED_PUBLIC UtsStatus posix_uts_copy(const UtsRef& source, UtsRef& result,
+                                         const UserNamespaceRef& owner = {});
 EXPORTED_PUBLIC UtsStatus posix_uts_prepare_thread(const UtsRef& source, bool copy,
-                                                   UniquePointer<PreparedUtsThread>& result);
+                                                   UniquePointer<PreparedUtsThread>& result,
+                                                   const UserNamespaceRef& owner = {});
 EXPORTED_PUBLIC UtsStatus posix_uts_acquire_target(const PosixUtsTarget& target, UtsRef& result);
 EXPORTED_PUBLIC int posix_uts_error(UtsStatus status);
 

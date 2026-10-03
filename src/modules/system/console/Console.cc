@@ -152,9 +152,7 @@ bool ConsoleManager::isPtySlaveLocked(File* file) {
 }
 
 bool ConsoleManager::isConsole(File* file) {
-  if (!file)
-    return false;
-  return (file->getInode() == 0xdeadbeef);
+  return file && file->isConsole();
 }
 
 bool ConsoleManager::isMasterConsole(File* file) {

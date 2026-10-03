@@ -42,8 +42,9 @@ class PosixUtsProcessView {
   SharedPointer<PosixUtsTaskBinding> leader;
 };
 
-PosixUtsNamespace::PosixUtsNamespace(uint64_t identity, const Snapshot& names, bool charged)
-    : m_Identity(identity), m_Charged(charged), m_Names(names) {}
+PosixUtsNamespace::PosixUtsNamespace(uint64_t identity, const Snapshot& names, bool charged,
+                                     const UserNamespaceRef& owner)
+    : m_Owner(owner), m_Identity(identity), m_Charged(charged), m_Names(names) {}
 PosixUtsNamespace::~PosixUtsNamespace() {
   if (m_Charged)
     __atomic_sub_fetch(&namespaceCount, size_t(1), __ATOMIC_RELEASE);
@@ -79,7 +80,7 @@ UtsStatus posix_uts_initial(UtsRef& result) {
   return UtsStatus::Success;
 }
 
-UtsStatus posix_uts_copy(const UtsRef& source, UtsRef& result) {
+UtsStatus posix_uts_copy(const UtsRef& source, UtsRef& result, const UserNamespaceRef& owner) {
   if (!source)
     return UtsStatus::Missing;
   const auto names = source->snapshot();
@@ -92,7 +93,7 @@ UtsStatus posix_uts_copy(const UtsRef& source, UtsRef& result) {
     __atomic_add_fetch(&namespaceCount, size_t(1), __ATOMIC_ACQ_REL);
     identity = ++nextIdentity;
   }
-  UtsRef copy = SharedPointer<PosixUtsNamespace>::tryAllocate(identity, names, true);
+  UtsRef copy = SharedPointer<PosixUtsNamespace>::tryAllocate(identity, names, true, owner);
   if (!copy) {
     __atomic_sub_fetch(&namespaceCount, size_t(1), __ATOMIC_RELEASE);
     return UtsStatus::NoMemory;
@@ -104,12 +105,13 @@ UtsStatus posix_uts_copy(const UtsRef& source, UtsRef& result) {
 PreparedUtsThread::PreparedUtsThread() = default;
 PreparedUtsThread::~PreparedUtsThread() = default;
 UtsStatus posix_uts_prepare_thread(const UtsRef& source, bool copy,
-                                   UniquePointer<PreparedUtsThread>& result) {
+                                   UniquePointer<PreparedUtsThread>& result,
+                                   const UserNamespaceRef& owner) {
   if (!source)
     return UtsStatus::Missing;
   UtsRef space = source;
   if (copy) {
-    const auto status = posix_uts_copy(source, space);
+    const auto status = posix_uts_copy(source, space, owner);
     if (status != UtsStatus::Success)
       return status;
   }

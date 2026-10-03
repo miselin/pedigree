@@ -41,24 +41,42 @@ class ResolutionAttempt {
 }  // namespace
 
 bool VfsMountView::State::cross(const FilesystemPathRef& reference, FilesystemPathRef& result) {
-  auto* current = path(reference);
-  if (!current)
-    return false;
-  VfsAttachmentRef target;
-  {
-    LockGuard<Mutex> guard(graph);
-    auto* row = at(*current);
-    if (row)
-      target = row->attachment;
+  auto* owner = VfsMountView::fromPath(reference);
+  if (owner && owner != &view) {
+    return owner->m_State->cross(reference, result);
   }
-  if (target)
-    return makePath(target, target->root, result);
-  result = reference;
-  return true;
+  FilesystemPathRef selected = reference;
+  for (size_t depth = 0; depth < 4096; ++depth) {
+    auto* current = path(selected);
+    if (!current) {
+      return false;
+    }
+    VfsAttachmentRef target;
+    {
+      LockGuard<Mutex> guard(graph);
+      auto* row = at(*current);
+      if (row) {
+        target = row->attachment;
+      }
+    }
+    if (!target) {
+      result = pedigree_std::move(selected);
+      return true;
+    }
+    if (!makePath(target, target->root, selected)) {
+      return false;
+    }
+  }
+  SYSCALL_ERROR(LoopExists);
+  return false;
 }
 
 bool VfsMountView::State::parent(const FilesystemPathRef& reference, FilesystemPathRef& result,
                                  const FilesystemPathRef& boundary) {
+  auto* owner = VfsMountView::fromPath(reference);
+  if (owner && owner != &view) {
+    return owner->m_State->parent(reference, result, boundary);
+  }
   auto* current = path(reference);
   if (!current)
     return false;
@@ -129,11 +147,12 @@ bool VfsMountView::State::walk(const FilesystemContextSnapshot& context,
                                size_t& links) {
   const bool selectedOnly = !pathname.length();
   FilesystemPathRef current = !selectedOnly && pathname[0] == '/' ? context.root : start;
-  if (!nodePath(current) || !path(context.root)) {
+  auto* currentView = VfsMountView::fromPath(current);
+  if (!currentView || !VfsMountView::fromPath(context.root)) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
-  if (!selectedOnly && !path(current)) {
+  if (!selectedOnly && !currentView->m_State->path(current)) {
     SYSCALL_ERROR(NotADirectory);
     return false;
   }
@@ -145,7 +164,7 @@ bool VfsMountView::State::walk(const FilesystemContextSnapshot& context,
 #endif
   bool trailingSlash = !selectedOnly && pathname[pathname.length() - 1] == '/';
   bool followCurrent = selectedOnly;
-  bool crossCurrent = false;
+  bool crossCurrent = !selectedOnly && pathname[0] == '/';
   StringView pending = pathname.view();
   UniqueArray<char> pendingStorage, linkStorage;
   size_t offset = 0;
@@ -160,7 +179,7 @@ bool VfsMountView::State::walk(const FilesystemContextSnapshot& context,
         FilesystemPathRef target;
         if (!link->followPath(target))
           return false;
-        if (!nodePath(target)) {
+        if (!VfsMountView::fromPath(target)) {
           SYSCALL_ERROR(CrossDeviceLink);
           return false;
         }
@@ -169,7 +188,7 @@ bool VfsMountView::State::walk(const FilesystemContextSnapshot& context,
         crossCurrent = false;
         continue;
       }
-      if (!path(current)) {
+      if (!VfsMountView::fromPath(current)->m_State->path(current)) {
         SYSCALL_ERROR(LoopExists);
         return false;
       }
@@ -223,7 +242,7 @@ bool VfsMountView::State::walk(const FilesystemContextSnapshot& context,
       crossCurrent = false;
       continue;
     }
-    if (crossCurrent && path(current)) {
+    if (crossCurrent && VfsMountView::fromPath(current)->m_State->path(current)) {
       FilesystemPathRef crossed;
       if (!cross(current, crossed))
         return false;
@@ -242,7 +261,8 @@ bool VfsMountView::State::walk(const FilesystemContextSnapshot& context,
     while (next < pending.length() && pending[next] == '/')
       ++next;
     const bool final = next == pending.length();
-    if (!path(current) || !current->node()->isDirectory()) {
+    auto* selectedState = VfsMountView::fromPath(current)->m_State;
+    if (!selectedState->path(current) || !current->node()->isDirectory()) {
       SYSCALL_ERROR(NotADirectory);
       return false;
     }
@@ -274,7 +294,8 @@ bool VfsMountView::State::walk(const FilesystemContextSnapshot& context,
       return false;
     }
     FilesystemPathRef candidate;
-    if (!makePath(path(current)->attachment, VfsNodeReference(child), candidate)) {
+    if (!selectedState->makePath(selectedState->path(current)->attachment, VfsNodeReference(child),
+                                 candidate)) {
       return false;
     }
     if (!candidate->node()->isDirectory()) {
@@ -367,7 +388,7 @@ bool VfsMountView::resolve(const FilesystemContextRef& context, const Filesystem
 
 bool VfsMountView::follow(const FilesystemContextRef& context, const FilesystemPathRef& selected,
                           FilesystemPathRef& result) {
-  if (!m_State || !context || !m_State->nodePath(selected)) {
+  if (!m_State || !context || !VfsMountView::fromPath(selected)) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }

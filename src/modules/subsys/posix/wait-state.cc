@@ -20,9 +20,11 @@ bool eligible(PosixProcess* parent, Process* child, const Request& request) {
   if (request.selector == Selector::All)
     return true;
   if (request.selector == Selector::Pid)
-    return child->getUserspaceId() == static_cast<size_t>(request.id);
+    return child->getUserspaceId(parent->pidNamespace().get()) == static_cast<size_t>(request.id);
   size_t group = 0;
-  return request.id >= 0 && static_cast<PosixProcess*>(child)->getProcessGroupId(group) &&
+  return request.id >= 0 &&
+         static_cast<PosixProcess*>(child)->getProcessGroupId(group,
+                                                              parent->pidNamespace().get()) &&
          group == static_cast<size_t>(request.id);
 }
 
@@ -101,6 +103,8 @@ int collect(const Request& request, Report& report) {
               childSubsystem->traceContext().selectStop(
                   parent->getId(), request.traceStops || (request.events & Stopped),
                   request.events & Continued, !request.noWait, selected)) {
+            selected.pid =
+                static_cast<int32_t>(child->getUserspaceId(parent->pidNamespace().get()));
             hasResult = true;
             break;
           }
@@ -120,7 +124,7 @@ int collect(const Request& request, Report& report) {
           snapshotTimes(child, selected);
           hasResult = true;
         }
-        selected.pid = static_cast<int32_t>(child->getUserspaceId());
+        selected.pid = static_cast<int32_t>(child->getUserspaceId(parent->pidNamespace().get()));
         selected.uid = static_cast<PosixProcess*>(child)->snapshotCredentials().ruid;
         break;
       }

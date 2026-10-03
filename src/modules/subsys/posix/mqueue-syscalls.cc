@@ -71,7 +71,7 @@ int posix_mq_open(const char* userName, int flags, unsigned mode, const LinuxMqA
   {
     LockGuard<Mutex> guard(g_MqueueRegistryLock);
     for (auto it = namedQueues.begin(); it != namedQueues.end(); ++it) {
-      if ((*it)->name() == name) {
+      if ((*it)->namespaceId() == posix_ipc_namespace_id() && (*it)->name() == name) {
         queue = *it;
         break;
       }
@@ -131,7 +131,7 @@ int posix_mq_unlink(const char* userName) {
   {
     LockGuard<Mutex> guard(g_MqueueRegistryLock);
     for (auto it = namedQueues.begin(); it != namedQueues.end(); ++it) {
-      if ((*it)->name() == name) {
+      if ((*it)->namespaceId() == posix_ipc_namespace_id() && (*it)->name() == name) {
         if (!(*it)->mayUnlink(Processor::information().getCurrentThread()->getParent())) {
           SYSCALL_ERROR(PermissionDenied);
           return -1;
@@ -205,5 +205,24 @@ void posix_mqueue_clock_changed() {
   LockGuard<Mutex> guard(g_MqueueRegistryLock);
   for (auto it = g_Mqueues.begin(); it != g_Mqueues.end(); ++it) {
     (*it)->clockChanged();
+  }
+}
+
+void posix_mqueue_namespace_exit(uint64_t identity) {
+  while (true) {
+    SharedPointer<PosixMessageQueue> removed;
+    {
+      LockGuard<Mutex> guard(g_MqueueRegistryLock);
+      for (auto it = namedQueues.begin(); it != namedQueues.end(); ++it) {
+        if ((*it)->namespaceId() == identity) {
+          removed = *it;
+          namedQueues.erase(it);
+          break;
+        }
+      }
+    }
+    if (!removed) {
+      return;
+    }
   }
 }

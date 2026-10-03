@@ -3,8 +3,273 @@
 
 #include "MountView-internal.h"
 
+bool VfsMountView::bind(const FilesystemContextRef& context, const FilesystemPathRef& source,
+                        const FilesystemPathRef& target, bool recursive) {
+  struct Copy {
+    uint64_t original;
+    VfsAttachmentRow* row = nullptr;
+  };
+  struct StagedRows {
+    VfsAttachmentRow* first = nullptr;
+    ~StagedRows() {
+      while (first) {
+        auto* next = first->next;
+        delete first;
+        first = next;
+      }
+    }
+  } staged;
+  Vector<Copy> copies;
+  FilesystemContextSnapshot snapshot;
+  Vector<VfsAttachmentRow> rows;
+  VFS::NamespaceMutation writer(m_Vfs);
+  auto* sourceView = fromPath(source);
+  auto* sourceState = sourceView ? sourceView->m_State : nullptr;
+  auto* from = sourceState ? sourceState->path(source) : nullptr;
+  auto* to = m_State->path(target);
+  if (fromContext(context) != this || !from || !to || !context->snapshot(snapshot) ||
+      !m_State->beneath(target, snapshot.root) ||
+      from->node()->isDirectory() != to->node()->isDirectory()) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  if (!sourceState->contains(source) || !m_State->contains(target) || m_State->at(*to)) {
+    SYSCALL_ERROR(DeviceBusy);
+    return false;
+  }
+  if (!sourceState->snapshotRows(rows)) {
+    return false;
+  }
+  const size_t capacity = rows.count() + 1;
+  if (!copies.tryReserve(capacity)) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  Copy primary;
+  primary.original = from->attachment->id;
+  primary.row = new VfsAttachmentRow;
+  if (primary.row) {
+    primary.row->next = staged.first;
+    staged.first = primary.row;
+  }
+  auto covered = SharedPointer<VfsNodeReference>::tryAdopt(new VfsNodeReference);
+  if (!primary.row || !covered ||
+      !covered->retain(to->node(), to->attachment->backing->pin.filesystem()) ||
+      !m_State->makeAttachment(from->attachment->backing, from->node(), from->attachment->flags,
+                               primary.row->attachment)) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  primary.row->parent = to->attachment;
+  primary.row->attachment->lockedFlags = from->attachment->lockedFlags;
+  if (sourceView->ownerNamespace() != ownerNamespace()) {
+    primary.row->attachment->lockedFlags |= from->attachment->flags;
+  }
+  primary.row->covered = covered;
+  copies.pushBack(pedigree_std::move(primary));
+  if (recursive && from->node()->isDirectory()) {
+    for (auto& item : rows) {
+      auto* row = &item;
+      if (row->attachment.get() == from->attachment.get()) {
+        continue;
+      }
+      FilesystemPathRef mounted;
+      if (!sourceState->makePath(row->attachment, row->attachment->root, mounted)) {
+        return false;
+      }
+      if (!sourceState->contains(mounted) || !sourceState->beneath(mounted, source)) {
+        continue;
+      }
+      Copy copied;
+      copied.original = row->attachment->id;
+      copied.row = new VfsAttachmentRow;
+      if (copied.row) {
+        copied.row->next = staged.first;
+        staged.first = copied.row;
+      }
+      if (!copied.row || !m_State->makeAttachment(row->attachment->backing, row->attachment->root,
+                                                  row->attachment->flags, copied.row->attachment)) {
+        return false;
+      }
+      copied.row->covered = row->covered;
+      copied.row->attachment->lockedFlags = row->attachment->lockedFlags;
+      copied.row->attachment->lockedMount = row->attachment->lockedMount;
+      if (sourceView->ownerNamespace() != ownerNamespace()) {
+        copied.row->attachment->lockedFlags |= row->attachment->flags;
+        copied.row->attachment->lockedMount = true;
+      }
+      copies.pushBack(pedigree_std::move(copied));
+    }
+    for (size_t i = 1; i < copies.count(); ++i) {
+      VfsAttachmentRow* original = nullptr;
+      for (auto& row : rows) {
+        if (row.attachment->id == copies[i].original) {
+          original = &row;
+          break;
+        }
+      }
+      for (auto& parent : copies) {
+        if (original->parent && parent.original == original->parent->id) {
+          copies[i].row->parent = parent.row->attachment;
+          break;
+        }
+      }
+      if (!copies[i].row->parent) {
+        SYSCALL_ERROR(InvalidArgument);
+        return false;
+      }
+    }
+  }
+  {
+    LockGuard<Mutex> guard(m_State->graph);
+    for (auto& copy : copies) {
+      copy.row->next = m_State->attachments;
+      m_State->attachments = copy.row;
+    }
+    staged.first = nullptr;
+    ++m_State->topology;
+  }
+  return true;
+}
+
+uint64_t VfsMountView::mountFlags(const FilesystemPathRef& path) const {
+  auto* selected = m_State ? m_State->path(path) : nullptr;
+  return selected ? uint64_t(selected->attachment->flags) : 0;
+}
+
+VfsMountView::WriteLease::~WriteLease() {
+  if (auto* view = fromPath(m_Path)) {
+    auto* path = view->m_State->path(m_Path);
+    if (path) {
+      path->attachment->writers -= 1;
+    }
+  }
+}
+
+bool VfsMountView::WriteLease::acquire(const FilesystemPathRef& reference) {
+  if (m_Path) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  auto* view = fromPath(reference);
+  if (!view) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  LockGuard<Mutex> guard(view->m_State->graph);
+  if (!view->writable(reference)) {
+    return false;
+  }
+  auto* path = view->m_State->path(reference);
+  if (path) {
+    path->attachment->writers += 1;
+  }
+  m_Path = reference;
+  return true;
+}
+
+bool VfsMountView::retainWrite(const FilesystemPathRef& path,
+                               SharedPointer<FilesystemWriteLease>& result) {
+  auto lease = SharedPointer<FilesystemWriteLease>::tryAdopt(new WriteLease);
+  if (!lease) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  if (!static_cast<WriteLease*>(lease.get())->acquire(path)) {
+    return false;
+  }
+  result = pedigree_std::move(lease);
+  return true;
+}
+
+bool VfsMountView::writable(const FilesystemPathRef& path) const {
+  if (!m_State || !m_State->nodePath(path)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  auto* filesystem = path->node()->getFilesystem();
+  if ((mountFlags(path) & ReadOnly) || (filesystem && filesystem->isReadOnly())) {
+    SYSCALL_ERROR(ReadOnlyFilesystem);
+    return false;
+  }
+  return true;
+}
+
+bool VfsMountView::remount(const FilesystemContextRef& context, const FilesystemPathRef& target,
+                           uint64_t flags, bool recursive) {
+  if (flags & ~SupportedMountFlags) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  Vector<VfsAttachmentRef> selected;
+  FilesystemContextSnapshot snapshot;
+  Vector<VfsAttachmentRow> rows;
+  VFS::NamespaceMutation writer(m_Vfs);
+  auto* mounted = m_State->path(target);
+  if (fromContext(context) != this || !mounted || !context->snapshot(snapshot) ||
+      mounted->node() != mounted->attachment->root || !m_State->contains(target) ||
+      !m_State->beneath(target, snapshot.root)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  if (!m_State->snapshotRows(rows)) {
+    return false;
+  }
+  for (auto& item : rows) {
+    auto* row = &item;
+    bool included = row->attachment.get() == mounted->attachment.get();
+    if (recursive && !included) {
+      for (auto* parent = row; parent && parent->parent;) {
+        if (parent->parent.get() == mounted->attachment.get()) {
+          included = true;
+          break;
+        }
+        VfsAttachmentRow* next = nullptr;
+        for (auto& candidate : rows) {
+          if (candidate.attachment.get() == parent->parent.get()) {
+            next = &candidate;
+            break;
+          }
+        }
+        parent = next;
+      }
+    }
+    if (included) {
+      if (!selected.tryReserve(selected.count() + 1)) {
+        SYSCALL_ERROR(OutOfMemory);
+        return false;
+      }
+      selected.pushBack(row->attachment);
+    }
+  }
+  {
+    LockGuard<Mutex> guard(m_State->graph);
+    for (auto& attachment : selected) {
+      if ((flags & attachment->lockedFlags) != attachment->lockedFlags) {
+        SYSCALL_ERROR(NotEnoughPermissions);
+        return false;
+      }
+      if ((flags & ReadOnly) && !(attachment->flags & ReadOnly) && attachment->writers) {
+        SYSCALL_ERROR(DeviceBusy);
+        return false;
+      }
+    }
+    for (auto& attachment : selected) {
+      auto* mountedAttachment = attachment.get();
+      if (!mountedAttachment) {
+        FATAL("Missing prepared mount attachment");
+      } else {
+        mountedAttachment->flags = flags;
+      }
+    }
+    ++m_State->topology;
+  }
+  return true;
+}
+
 bool VfsMountView::State::attach(const FilesystemPathRef& covered, VFS::FilesystemPin&& pin,
-                                 const VFS::NamespaceMutation& writer, BackingOwnership ownership) {
+                                 const VFS::NamespaceMutation& writer, BackingOwnership ownership,
+                                 uint64_t flags) {
   VFS::MountOperation operation;
   if (!pin.identity().acquire(operation)) {
     SYSCALL_ERROR(DeviceDoesNotExist);
@@ -15,35 +280,30 @@ bool VfsMountView::State::attach(const FilesystemPathRef& covered, VFS::Filesyst
     SYSCALL_ERROR(InvalidArgument);
     return false;
   }
-  if (point->node() == point->attachment->root) {
-    SYSCALL_ERROR(OperationNotSupported);
-    return false;
-  }
   if (Directory::fromFile(point->node())->isDetached()) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
-  uint64_t id;
   {
     LockGuard<Mutex> guard(graph);
     if (!contains(covered) || at(*point)) {
       SYSCALL_ERROR(DeviceBusy);
       return false;
     }
-    if (nextId > 0x7fffffffU) {
-      SYSCALL_ERROR(OutOfMemory);
-      return false;
-    }
-    id = nextId++;
   }
-  auto attachment = VfsAttachmentRef::tryAdopt(new VfsAttachment(pedigree_std::move(pin), id));
+  auto backing = VfsBackingRef::tryAdopt(new VfsBacking(pedigree_std::move(pin)));
+  VfsAttachmentRef attachment;
+  if (!backing ||
+      !makeAttachment(backing, backing->pin.filesystem()->getRoot(), flags, attachment)) {
+    return false;
+  }
   auto node = SharedPointer<VfsNodeReference>::tryAdopt(new VfsNodeReference);
   auto row = UniquePointer<VfsAttachmentRow>::adopt(new VfsAttachmentRow);
   if (!attachment || !node || !row) {
     SYSCALL_ERROR(OutOfMemory);
     return false;
   }
-  if (!node->retain(point->node(), point->attachment->backing.filesystem())) {
+  if (!node->retain(point->node(), point->attachment->backing->pin.filesystem())) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
@@ -52,7 +312,8 @@ bool VfsMountView::State::attach(const FilesystemPathRef& covered, VFS::Filesyst
   row.get()->covered = node;
   {
     LockGuard<Mutex> guard(graph);
-    attachment->owningRegistry = ownership == BackingOwnership::Attachment ? &view.m_Vfs : nullptr;
+    attachment->backing->owningRegistry =
+        ownership == BackingOwnership::Attachment ? &view.m_Vfs : nullptr;
     row.get()->next = attachments;
     attachments = row.releaseOwnership();
     ++topology;
@@ -61,7 +322,11 @@ bool VfsMountView::State::attach(const FilesystemPathRef& covered, VFS::Filesyst
 }
 
 bool VfsMountView::attach(const FilesystemContextRef& context, const FilesystemPathRef& covered,
-                          Filesystem* backing, BackingOwnership ownership) {
+                          Filesystem* backing, BackingOwnership ownership, uint64_t flags) {
+  if (flags & ~SupportedMountFlags) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
   VFS::FilesystemPin pin;
   if (!m_State) {
     ERROR("VfsMountView::attach: no internal state");
@@ -91,7 +356,7 @@ bool VfsMountView::attach(const FilesystemContextRef& context, const FilesystemP
     return false;
   }
 
-  if (!m_State->attach(covered, pedigree_std::move(pin), writer, ownership)) {
+  if (!m_State->attach(covered, pedigree_std::move(pin), writer, ownership, flags)) {
     ERROR("VfsMountView::attach: internal attach failed");
     return false;
   }
@@ -179,10 +444,13 @@ bool VfsMountView::detach(const FilesystemContextRef& context, const String& tar
   FilesystemContextSnapshot snapshot;
   VFS::NamespaceMutation writer(m_Vfs);
   ResolveOptions options;
-  options.requireDirectory = true;
+  options.requireDirectory = false;
   if (!context->snapshot(snapshot) ||
       !m_State->resolve(snapshot, snapshot.cwd, target, options, mounted, &writer))
     return false;
+  if (!m_State->cross(mounted, mounted)) {
+    return false;
+  }
   auto* path = m_State->path(mounted);
   {
     LockGuard<Mutex> guard(m_State->graph);
@@ -193,6 +461,10 @@ bool VfsMountView::detach(const FilesystemContextRef& context, const String& tar
     }
     if (row->attachment->id == m_State->rootId) {
       SYSCALL_ERROR(DeviceBusy);
+      return false;
+    }
+    if (row->attachment->lockedMount) {
+      SYSCALL_ERROR(NotEnoughPermissions);
       return false;
     }
     if (!lazy) {
@@ -242,10 +514,7 @@ bool VfsMountView::pivot(const FilesystemContextRef& context, const String& newR
     SYSCALL_ERROR(InvalidArgument);
     return false;
   }
-  if (samePath(newPath, oldPath)) {
-    SYSCALL_ERROR(OperationNotSupported);
-    return false;
-  }
+  const bool stacked = samePath(newPath, oldPath);
   if (callerRoot->node() != callerRoot->attachment->root ||
       nextRoot->node() != nextRoot->attachment->root ||
       callerRoot->attachment.get() == nextRoot->attachment.get() ||
@@ -258,7 +527,7 @@ bool VfsMountView::pivot(const FilesystemContextRef& context, const String& newR
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
-  if (oldMountpoint->node() == oldMountpoint->attachment->root) {
+  if (!stacked && oldMountpoint->node() == oldMountpoint->attachment->root) {
     SYSCALL_ERROR(OperationNotSupported);
     return false;
   }
@@ -268,6 +537,10 @@ bool VfsMountView::pivot(const FilesystemContextRef& context, const String& newR
     count = m_State->contextCount;
     auto* previous = m_State->find(callerRoot->attachment->id);
     auto* next = m_State->find(nextRoot->attachment->id);
+    if (next && next->attachment->lockedMount) {
+      SYSCALL_ERROR(NotEnoughPermissions);
+      return false;
+    }
     if (!previous || !next || !m_State->contains(newPath) || !m_State->contains(oldPath) ||
         m_State->at(*oldMountpoint)) {
       SYSCALL_ERROR(DeviceBusy);
@@ -283,7 +556,8 @@ bool VfsMountView::pivot(const FilesystemContextRef& context, const String& newR
     SYSCALL_ERROR(OutOfMemory);
     return false;
   }
-  if (!putOldNode->retain(oldMountpoint->node(), oldMountpoint->attachment->backing.filesystem())) {
+  if (!putOldNode->retain(oldMountpoint->node(),
+                          oldMountpoint->attachment->backing->pin.filesystem())) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
@@ -335,7 +609,7 @@ bool VfsMountView::detachBackingForShutdown(Filesystem* backing) {
     VFS::NamespaceMutation writer(m_Vfs);
     LockGuard<Mutex> guard(m_State->graph);
     for (auto* row = m_State->attachments; row; row = row->next) {
-      if (row->attachment->backing.filesystem() != backing)
+      if (row->attachment->backing->pin.filesystem() != backing)
         continue;
       if (row->attachment->id == m_State->rootId || row->attachment->paths) {
         SYSCALL_ERROR(DeviceBusy);
@@ -343,7 +617,7 @@ bool VfsMountView::detachBackingForShutdown(Filesystem* backing) {
       }
       for (auto* child = m_State->attachments; child; child = child->next) {
         if (child->parent.get() == row->attachment.get() &&
-            child->attachment->backing.filesystem() != backing) {
+            child->attachment->backing->pin.filesystem() != backing) {
           SYSCALL_ERROR(DeviceBusy);
           return false;
         }
@@ -351,7 +625,7 @@ bool VfsMountView::detachBackingForShutdown(Filesystem* backing) {
     }
     for (auto** link = &m_State->attachments; *link;) {
       auto* row = *link;
-      if (row->attachment->backing.filesystem() != backing) {
+      if (row->attachment->backing->pin.filesystem() != backing) {
         link = &row->next;
         continue;
       }
@@ -376,7 +650,7 @@ bool VfsMountView::detachBackingForRemoval(Filesystem* backing) {
     VFS::NamespaceMutation writer(m_Vfs);
     LockGuard<Mutex> guard(m_State->graph);
     for (auto* row = m_State->attachments; row; row = row->next) {
-      if (row->attachment->backing.filesystem() != backing) {
+      if (row->attachment->backing->pin.filesystem() != backing) {
         continue;
       }
       if (row->attachment->id == m_State->rootId) {
@@ -385,7 +659,7 @@ bool VfsMountView::detachBackingForRemoval(Filesystem* backing) {
       }
       parents.pushBack(pedigree_std::move(row->parent));
       covered.pushBack(pedigree_std::move(row->covered));
-      row->attachment->owningRegistry = nullptr;
+      row->attachment->backing->owningRegistry = nullptr;
     }
     ++m_State->topology;
   }
@@ -408,7 +682,17 @@ bool VfsMountView::shutdown(Vector<Filesystem*>& ownedBackings) {
         SYSCALL_ERROR(DeviceBusy);
         return false;
       }
-      if (row->attachment->owningRegistry)
+      size_t localOwners = 0;
+      for (auto* other = m_State->attachments; other; other = other->next) {
+        if (other->attachment->backing.get() == row->attachment->backing.get()) {
+          ++localOwners;
+        }
+      }
+      if (row->attachment->backing.refcount() > localOwners) {
+        SYSCALL_ERROR(DeviceBusy);
+        return false;
+      }
+      if (row->attachment->backing->owningRegistry)
         ++ownedCount;
     }
     if (!ownedBackings.tryReserve(ownedBackings.count() + ownedCount)) {
@@ -416,11 +700,11 @@ bool VfsMountView::shutdown(Vector<Filesystem*>& ownedBackings) {
       return false;
     }
     for (auto* row = m_State->attachments; row; row = row->next) {
-      if (row->attachment->owningRegistry) {
-        ownedBackings.pushBack(row->attachment->backing.filesystem());
+      if (row->attachment->backing->owningRegistry) {
+        ownedBackings.pushBack(row->attachment->backing->pin.filesystem());
         // The terminal owner must check sync before deleting this backend.
         // Clearing the shared attachment also handles multiple bind rows.
-        row->attachment->owningRegistry = nullptr;
+        row->attachment->backing->owningRegistry = nullptr;
       }
     }
     retired = m_State->attachments;

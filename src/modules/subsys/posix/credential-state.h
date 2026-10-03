@@ -12,15 +12,15 @@ struct Snapshot {
   bool dumpable = true;
 };
 enum class Change { SetUid, SetGid, SetReUid, SetReGid, SetResUid, SetResGid };
-enum class Status { Success, Invalid, Denied };
+enum class Status { Success, Invalid, Denied, NoMemory };
 
 inline Status prepare(const Snapshot& old, Change change, uint32_t first, uint32_t second,
-                      uint32_t third, uint32_t oldFs, Snapshot& next, uint32_t& nextFs) {
+                      uint32_t third, uint32_t oldFs, Snapshot& next, uint32_t& nextFs,
+                      bool privileged) {
   const bool group =
       change == Change::SetGid || change == Change::SetReGid || change == Change::SetResGid;
   const bool single = change == Change::SetUid || change == Change::SetGid;
   const bool pair = change == Change::SetReUid || change == Change::SetReGid;
-  const bool privileged = old.euid == 0;
   const uint32_t real = group ? old.rgid : old.ruid;
   const uint32_t effective = group ? old.egid : old.euid;
   const uint32_t saved = group ? old.sgid : old.suid;
@@ -78,6 +78,10 @@ inline Status prepare(const Snapshot& old, Change change, uint32_t first, uint32
   if (r != real || e != effective || s != saved || nextFs != oldFs)
     ++next.generation;
   return Status::Success;
+}
+inline Status prepare(const Snapshot& old, Change change, uint32_t first, uint32_t second,
+                      uint32_t third, uint32_t oldFs, Snapshot& next, uint32_t& nextFs) {
+  return prepare(old, change, first, second, third, oldFs, next, nextFs, old.euid == 0);
 }
 }  // namespace PosixCredentials
 #endif

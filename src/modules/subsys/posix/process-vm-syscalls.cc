@@ -106,8 +106,9 @@ bool acquireTarget(int pid, Scheduler::ProcessLease& process) {
   if (scheduler.acquireProcessByUserspaceId(process, static_cast<size_t>(pid)))
     return true;
   Process::ThreadLease task;
-  if (!scheduler.acquireThreadByTaskId(task, static_cast<size_t>(pid)))
+  if (!scheduler.acquireThreadByUserspaceId(task, static_cast<size_t>(pid))) {
     return false;
+  }
   // An exec must be able to retire this Thread while the caller waits for a
   // mapping operation. Retain only its parent beyond the lookup.
   return scheduler.acquireProcess(process, task->getParent());
